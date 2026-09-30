@@ -1,7 +1,7 @@
 --- The rebuild lock between processes, as two runs in one checkout meet
 --- it: another process of this program holds or asks for it, the way a
 --- tool from before the flock does (its SQLite half alone) or the way
---- this one does (`rebuild_lock.take`); a child a holder hands it to
+--- this one does ([`rebuild_lock.take`]); a child a holder hands it to
 --- goes on under it; and `cosmic test`, and a write of the projection,
 --- hold it, one run per checkout at a time. A process's own fcntl locks
 --- never conflict with one another, and closing any descriptor of the
@@ -244,7 +244,7 @@ local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
   rebuild_lock.release()
 end
 
---- Asks for the lock of the tree at the first `%q` by `rebuild_lock.hold`
+--- Asks for the lock of the tree at the first `%q` by [`rebuild_lock.hold`]
 --- as the role `%q`, and prints what it answered.
 local holding = [[
 local held, trouble = require("build.rebuild_lock").hold(%q, %q, "probe")

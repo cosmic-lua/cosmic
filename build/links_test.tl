@@ -121,17 +121,20 @@ local function test_an_escaped_bracket_is_text()
 end
 
 --- Symbols spelled in full, each split at its first `.`: the module a
---- message names is the whole spelling either way.
+--- message names is the whole spelling either way. A spelling may end
+--- in `@` and the file that declares the symbol.
 local function symbols_of(spelled: {string}): {link_resolve.Symbol}
   local out: {link_resolve.Symbol} = {}
-  for _, name in ipairs(spelled) do
+  for _, written in ipairs(spelled) do
+    local name, file = written:match("^(.-)@(.+)$")
+    name = name or written
     local module, symbol = name:match("^([^.]+)%.(.+)$")
-    out[#out + 1] = { module = module or name, symbol = symbol or "" }
+    out[#out + 1] = { module = module or name, symbol = symbol or "", file = file }
   end
   return out
 end
 
---- A world for `links.check`: the files at their absolute paths under
+--- A world for [`links.check`]: the files at their absolute paths under
 --- `/p`, every directory above them, and what each query names.
 local function world(files: {string: string}, symbols?: {string: {string}},
                      members?: {string: {string}}, links_to?: {string: string},
@@ -170,7 +173,7 @@ local function world(files: {string: string}, symbols?: {string: {string}},
   }
 end
 
---- What `links.check` finds in `source`, a file of `kind` at `path`.
+--- What [`links.check`] finds in `source`, a file of `kind` at `path`.
 local function checked(context: link_resolve.Context, path: string, kind: string, source: string): {string}
   return links.check(link_resolve.resolver(context), path, path, kind, source, built)
 end
@@ -205,10 +208,15 @@ local function test_a_required_alias_names_its_modules_members()
 end
 
 local function test_a_symbol_resolves_once_and_fails_twice_or_never()
-  local context = world({}, { one = { "m.one" }, two = { "m.two", "n.two" } })
-  same(checked(context, "/p/a.md", "markdown", "[`one`], [`two`] and [`none`]\n"), {
-    "/p/a.md:1: link: two does not resolve (it names 2: m.two, n.two; link the one meant in full)",
-    "/p/a.md:1: link: none does not resolve (no declaration, symbol or file by that name)",
+  local context = world({}, { ["M.one"] = { "m.M.one" }, ["M.two"] = { "m.M.two", "n.M.two" },
+    one = { "m.one" } })
+  same(checked(context, "/p/a.md", "markdown", "[`M.one`], [`M.two`] and [`M.none`]\n"), {
+    "/p/a.md:1: link: M.two does not resolve (it names 2: m.M.two, n.M.two; link the one meant in full)",
+    "/p/a.md:1: link: M.none does not resolve (no declaration, symbol or file by that name)",
+  })
+  -- A name alone is its own file's, whatever symbol it spells.
+  same(checked(context, "/p/a.md", "markdown", "[`one`]\n"), {
+    "/p/a.md:1: link: one does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
   })
 end
 
@@ -257,9 +265,9 @@ end
 
 --- An inline link to no file is a name next, as a shortcut is.
 local function test_an_inline_link_to_no_file_is_a_name()
-  local context = world({}, { thing = { "m.thing" } })
-  same(checked(context, "/p/a.md", "markdown", "[the thing](thing) [none](none)\n"), {
-    "/p/a.md:1: link: none does not resolve (no declaration, symbol or file by that name)",
+  local context = world({}, { ["M.thing"] = { "m.M.thing" } })
+  same(checked(context, "/p/a.md", "markdown", "[the thing](M.thing) [none](M.none)\n"), {
+    "/p/a.md:1: link: M.none does not resolve (no declaration, symbol or file by that name)",
   })
 end
 
@@ -268,7 +276,7 @@ end
 local function test_symbols_go_unchecked_in_a_project_not_built()
   local context = world({}, {}, {}, {}, "not built")
   local resolver = link_resolve.resolver(context)
-  local source = lines("local x = 1", "-- [`x`], [`thing`] and [gone](gone.md)", "return x")
+  local source = lines("local x = 1", "-- [`x`], [`M.thing`] and [gone](gone.md)", "return x")
   same(links.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source, built), {
     "/p/a.tl:2: link: gone.md does not resolve (no declaration, symbol or file by that name)",
   })
@@ -308,7 +316,7 @@ end
 
 --- The root's `o/` is refused before anything is asked of it, so what
 --- the build writes there never enters what a projection is signed by
---- (`build.link_index`), whether or not the path is there.
+--- ([`build.link_index`]), whether or not the path is there.
 local function test_the_roots_output_is_never_looked_at()
   local context = world({ ["/p/o/y.md"] = "" })
   local kind = context.kind
@@ -426,8 +434,7 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
   same(checked(context, dir .. "/a.md", "markdown", lines(
     "[`Fs.read`] [`cosmic.fs.read`] [`cosmic.fs.Fs.read`] [`cosmic.fs`] [`read`]",
     "[`Thing.Box.grow`] [`cosmic.thing.Box.grow`] [`Thing.Box.shrink`]")), {
-    dir .. "/a.md:1: link: read does not resolve " ..
-      "(it names 2: build.other.read, cosmic.fs.read; link the one meant in full)",
+    dir .. "/a.md:1: link: read does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
     dir .. "/a.md:2: link: Thing.Box.shrink does not resolve " ..
       "(no declaration, symbol or file by that name)",
   })
@@ -437,4 +444,235 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
     "return Thing")), {
     dir .. "/b.tl:2: link: Thing.Box.shrink does not resolve (cosmic.thing has no Box.shrink)",
   })
+end
+
+--- `source`, a file of `kind` at `path`, as [`links.rewrite`] links it,
+--- and what it says it linked.
+local function rewritten(context: link_resolve.Context, path: string, kind: string,
+                         source: string): string, {string}
+  local out = links.rewrite(link_resolve.resolver(context), path, path, kind, source, built)
+  return out.source, out.linked
+end
+
+--- The world the rewriting tests share: a symbol declared in a file of
+--- the tree, a name two symbols answer, a file, and a directory.
+local function linking_world(): link_resolve.Context
+  return world({
+    ["/p/known.tl"] = "",
+    ["/p/build/x.tl"] = "",
+    ["/p/doc/guide.md"] = "",
+    ["/p/dir/inner.tl"] = "",
+  }, {
+    ["Known.thing"] = { "known.Known.thing@known.tl" },
+    ["Two.names"] = { "a.Two.names", "b.Two.names" },
+    ["Loose.name"] = { "loose.Loose.name@elsewhere/loose.tl" },
+  })
+end
+
+--- Each kind of span the rule links, and each it leaves as written.
+local function test_a_plain_span_links_only_when_it_names_one_thing()
+  local source = lines(
+    "local record Box",
+    "  width: integer",
+    "end",
+    "",
+    "local a_local = 1",
+    "",
+    "--- Links `Box`, `Box.width`, `top_level`, `Known.thing` and `build/x.tl`;",
+    "--- not `a_local`, `a_param`, `each_item`, `width`, `Two.names`, `nowhere.tl`,",
+    "--- `dir`, `dir/`, `cosmic fix`, `COSMIC_X=0`, `--check`, `x = 1`, `%a+`, `path`,",
+    "--- `print` or `string.format`; nor [`Known.thing`] again, nor f`Known.thing`,",
+    "--- `Known.thing`(x) or ![`Known.thing`].",
+    "---",
+    "--- ```",
+    "--- `Known.thing`",
+    "--- ```",
+    "local function top_level(a_param: integer): integer",
+    "  for each_item = 1, a_param do a_local = a_local + each_item end",
+    "  return a_local",
+    "end",
+    "",
+    "-- The same in a plain comment: `Known.thing`.",
+    "return { Box = Box, top_level = top_level }")
+  local got, linked = rewritten(linking_world(), "/p/a.tl", "teal", source)
+  local want = source:gsub("`Box`, `Box.width`, `top_level`, `Known.thing` and `build/x.tl`",
+    "[`Box`], [`Box.width`], [`top_level`], [`Known.thing`] and [`build/x.tl`]"):
+     gsub("plain comment: `Known.thing`", "plain comment: [`Known.thing`]")
+  same({ got }, { want })
+  same(linked, {
+    "/p/a.tl:7: link: `Box` would link to Box",
+    "/p/a.tl:7: link: `Box.width` would link to Box.width",
+    "/p/a.tl:7: link: `top_level` would link to top_level",
+    "/p/a.tl:7: link: `Known.thing` would link to known.Known.thing",
+    "/p/a.tl:7: link: `build/x.tl` would link to build/x.tl",
+    "/p/a.tl:21: link: `Known.thing` would link to known.Known.thing",
+  })
+  -- What it linked resolves, and nothing more is left to link.
+  same(checked(linking_world(), "/p/a.tl", "teal", got), {})
+  local again, more = rewritten(linking_world(), "/p/a.tl", "teal", got)
+  same({ again }, { got })
+  same(more, {})
+end
+
+--- Where the file's scopes are not read, a bare name links only to
+--- what the file declares; a name in full or a path still links.
+local function test_c_and_zig_link_a_bare_name_only_to_their_own()
+  local c = lines(
+    "/* `helper_fn` helps; `Known_thing` and `Known.thing` are elsewhere,",
+    " * and `build/x.tl` is a file. */",
+    "static int helper_fn (int n) {",
+    "  return n; // `n_count` is no name of the file",
+    "}")
+  local context = world({ ["/p/build/x.tl"] = "" },
+    { ["Known.thing"] = { "known.Known.thing" }, Known_thing = { "known.Known_thing" } })
+  local got = rewritten(context, "/p/a.c", "c", c)
+  same({ got }, { lines(
+    "/* [`helper_fn`] helps; `Known_thing` and [`Known.thing`] are elsewhere,",
+    " * and [`build/x.tl`] is a file. */",
+    "static int helper_fn (int n) {",
+    "  return n; // `n_count` is no name of the file",
+    "}") })
+  local zig = lines(
+    "/// `Top_step` is declared, `inner_name` only in a block.",
+    "const Top_step = struct {",
+    "    const inner_name = 1;",
+    "};")
+  same({ (rewritten(context, "/p/build.zig", "zig", zig)) }, { (zig:gsub("`Top_step`", "[`Top_step`]")) })
+end
+
+--- A span that brackets would make a definition -- at the start of a
+--- line, a list item or a quote, with a `:` after it -- is left as
+--- written.
+local function test_a_span_that_would_become_a_definition_is_left_alone()
+  local source = lines(
+    "`Known.thing`: the thing.",
+    "- `Known.thing`: the thing.",
+    "1. `Known.thing`: the thing.",
+    "> `Known.thing`: the thing.",
+    "Not here `Known.thing`: the thing.")
+  same({ (rewritten(linking_world(), "/p/a.md", "markdown", source)) }, { lines(
+    "`Known.thing`: the thing.",
+    "- `Known.thing`: the thing.",
+    "1. `Known.thing`: the thing.",
+    "> `Known.thing`: the thing.",
+    "Not here [`Known.thing`]: the thing.",
+    "",
+    "[`Known.thing`]: known.tl") })
+end
+
+--- A span a definition of its block already names is left as written:
+--- the link would be that definition's, not the span's.
+local function test_a_span_a_definition_names_is_left_alone()
+  local source = lines("-- `Known.thing` is [the thing][`Known.thing`].", "--", "-- [`Known.thing`]: known.tl",
+    "return 1")
+  same({ (rewritten(linking_world(), "/p/a.tl", "teal", source)) }, { source })
+end
+
+--- A Markdown file gets a definition for each label its links use, at
+--- its end, sorted and once each, naming the file that declares a
+--- symbol or the file itself, from the file's own directory.
+local function test_markdown_gets_a_definition_for_each_label()
+  local source = lines(
+    "# Guide `Known.thing`",
+    "",
+    "Use `Known.thing`, then `Known.thing` again, and `build/x.tl`; see [the guide](guide.md),",
+    "not `Loose.name`, declared outside the tree, nor `Two.names`.",
+    "",
+    "[human]: https://example.com")
+  local got, linked = rewritten(linking_world(), "/p/doc/a.md", "markdown", source)
+  local want = lines(
+    "# Guide `Known.thing`",
+    "",
+    "Use [`Known.thing`], then [`Known.thing`] again, and [`build/x.tl`]; see [the guide](guide.md),",
+    "not `Loose.name`, declared outside the tree, nor `Two.names`.",
+    "",
+    "[human]: https://example.com",
+    "",
+    "[`build/x.tl`]: ../build/x.tl",
+    "[`Known.thing`]: ../known.tl")
+  same({ got }, { want })
+  assert(#linked == 3, table.concat(linked, "\n"))
+  same(checked(linking_world(), "/p/doc/a.md", "markdown", got), {})
+  same({ (rewritten(linking_world(), "/p/doc/a.md", "markdown", got)) }, { got })
+end
+
+--- The block of definitions follows the links: one whose symbol moved
+--- is set right, and one no link uses goes, the block with it when
+--- none is left. `fix --check` finds the stale one first.
+local function test_markdown_definitions_follow_their_links()
+  local moved = world({ ["/p/moved.tl"] = "", ["/p/known.tl"] = "" },
+    { ["Known.thing"] = { "known.Known.thing@moved.tl" } })
+  local source = lines("See [`Known.thing`].", "", "[`Known.thing`]: known.tl", "[`Gone.name`]: known.tl")
+  same(checked(moved, "/p/a.md", "markdown", source), {
+    "/p/a.md:3: link: the definition of Known.thing names known.tl, but Known.thing is declared in moved.tl",
+  })
+  same({ (rewritten(moved, "/p/a.md", "markdown", source)) },
+    { lines("See [`Known.thing`].", "", "[`Known.thing`]: moved.tl") })
+  local unused = lines("Nothing links here.", "", "[`Known.thing`]: moved.tl")
+  same({ (rewritten(moved, "/p/a.md", "markdown", unused)) }, { lines("Nothing links here.") })
+end
+
+--- A shortcut's brackets show as the code span alone, and a code-span
+--- label's definition not at all; any other link shows as written.
+local function test_a_reader_is_shown_a_link_as_its_code_span()
+  same({ link_text.unlinked(lines(
+    "See [`Fs.read`], [`x`](a.md), [`y`][z] and `` [`w`] ``.",
+    "",
+    "[z]: b.md",
+    "[`Fs.read`]: cosmic/fs.tl")) }, { lines(
+    "See `Fs.read`, [`x`](a.md), [`y`][z] and `` [`w`] ``.",
+    "",
+    "[z]: b.md"):sub(1, -2) })
+end
+
+--- A name alone links only to its own file's declaration, however
+--- few symbols elsewhere spell it: another module's is written in full.
+--- A parameter of a signature -- a record's function field, a `.d.tl`
+--- declaration -- is the file's too, and blocks the name. A file's name
+--- that spells a module (`vendor.tl`) is left as written.
+local function test_a_name_alone_links_only_to_its_own_file()
+  local context = world({ ["/p/vendor.tl"] = "" }, {
+    Other_name = { "other.Other_name" },
+    ["vendor.tl"] = { "vendor.tl" },
+    ["Other.name"] = { "other.Other.name" },
+  })
+  local source = lines(
+    "local record Box",
+    "  grow: function(self: Box, step_size: integer): boolean",
+    "end",
+    "",
+    "local function step_size(): integer return 1 end",
+    "",
+    "-- `Other_name` is elsewhere, `Other.name` in full; `step_size` is a",
+    "-- parameter too; `vendor.tl` is a module's name as well as a file's.",
+    "return { Box = Box, step_size = step_size }")
+  same({ (rewritten(context, "/p/a.tl", "teal", source)) },
+    { (source:gsub("`Other%.name` in full", "[`Other.name`] in full")) })
+  local markdown = "Not `Other_name`, but `Other.name`.\n"
+  same({ (rewritten(world({ ["/p/other.tl"] = "" }, { ["Other.name"] = { "other.Other.name@other.tl" },
+    Other_name = { "other.Other_name@other.tl" } }), "/p/a.md", "markdown", markdown)) },
+    { "Not `Other_name`, but [`Other.name`].\n\n[`Other.name`]: other.tl\n" })
+end
+
+--- A C header's `---` and `--` lines are a Teal declaration, whose names
+--- are not the header's: their spans stay as written.
+local function test_a_c_headers_teal_lines_are_left_alone()
+  local context = world({}, { ["Known.thing"] = { "known.Known.thing" } })
+  local c = lines(
+    "/* `Known.thing` in C.",
+    " * --- `Known.thing` in Teal.",
+    " */")
+  same({ (rewritten(context, "/p/a.h", "c", c)) }, { (c:gsub("/%* `Known.thing`", "/* [`Known.thing`]")) })
+end
+
+--- A file's name alone is left as written, even with no symbol of the
+--- name: it may mean the module the file holds, or another file of the
+--- name. A path with a `/` links, and a link written by hand to the
+--- name alone still resolves.
+local function test_a_files_name_alone_is_left_as_written()
+  local context = world({ ["/p/build/thing.tl"] = "", ["/p/build/a.tl"] = "" })
+  local source = lines("-- `thing.tl` is here, as is `build/thing.tl`.", "return 1")
+  same({ (rewritten(context, "/p/build/a.tl", "teal", source)) },
+    { (source:gsub("`build/thing.tl`", "[`build/thing.tl`]")) })
+  same(checked(context, "/p/build/a.tl", "teal", lines("-- [`thing.tl`]", "return 1")), {})
 end

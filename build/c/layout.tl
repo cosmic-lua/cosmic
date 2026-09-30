@@ -136,7 +136,7 @@ local function lex(s: string): {Token}
 end
 
 --- Every comment of `s`, `//` or `/* */`, markers and all, with the
---- line it starts on: what `build.links` reads links from.
+--- line it starts on: what [`build.links`] reads links from.
 function layout.comments(s: string): {layout.Comment}
   local out: {layout.Comment} = {}
   local line = 1

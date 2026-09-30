@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.csv`, shown by `cosmic docs` and run by
+--- Worked examples for [`cosmic.csv`], shown by `cosmic docs` and run by
 --- `cosmic test`.
 
 local Csv = require("cosmic.csv")

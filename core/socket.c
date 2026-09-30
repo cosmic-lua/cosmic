@@ -175,7 +175,7 @@ static int reach_from (int fd, int there, const struct target *target, bool bind
 }
 
 /* Binds `fd` to `target`, or connects it there: 0, or why not. A
- * target reached from its directory is reached as `reach_from` says. */
+ * target reached from its directory is reached as [`reach_from`] says. */
 static int reach (int fd, const struct target *target, bool binding) {
   const struct sockaddr *address = (const struct sockaddr *)&target->address;
   if (target->directory[0] == '\0') {
@@ -323,7 +323,7 @@ static struct owned *owner_push (lua_State *L, size_t size) {
  * it holds the directory its file is to be made in and the file's own
  * name there, both read from `target` alone, the bytes the bind is
  * handed. 0, with the socket pushed; or why not: EISDIR, nothing pushed,
- * for a path that ends in "/", as `address_of`'s long one fails; or
+ * for a path that ends in "/", as [`address_of`]'s long one fails; or
  * why its directory could not be opened, the socket pushed, holding
  * nothing, and `*out` untouched. */
 static int unix_owner_push (lua_State *L, const struct target *target, struct owned **out) {

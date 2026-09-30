@@ -1,4 +1,4 @@
---- The tables every verb `cosmic.cli` names is held to by
+--- The tables every verb [`cosmic.cli`] names is held to by
 --- build/verbs_test.tl and build/verbs_tool_test.tl: the verbs that end
 --- in no verdict line, one argument too many for each, and a command
 --- line that passes and one that fails. Test support, kept in one place

@@ -29,7 +29,7 @@ local digest_of, hasher_of, hex = raw.digest, raw.hasher, key_parts.hex
 
 local record digest
   --- An incremental SHA-256: `update` with each chunk, then `digest`
-  --- for the 32 raw bytes, as cosmic.hash's `Hasher` is.
+  --- for the 32 raw bytes, as cosmic.hash's [`Hasher`] is.
   type Hasher = raw_hash.Hasher
 end
 

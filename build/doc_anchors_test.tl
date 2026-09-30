@@ -1,4 +1,4 @@
---- `build.tree_checks`' `anchors` on fixture trees: which records are
+--- [`build.tree_checks`]' `anchors` on fixture trees: which records are
 --- doc anchors, and when two of them share a name. The tree's own are
 --- held to it by `cosmic fix --check .`, not here.
 

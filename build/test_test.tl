@@ -122,7 +122,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     "build.closure_store", "build.writer",
     "build.schema", "build.importer", "build.analyzer", "cosmic.sqlite", "cosmic.sys" }
   -- Each module's bytecode names what it requires, as a require by
-  -- value leaves the name among its constants (`test.value_imports`).
+  -- value leaves the name among its constants ([`test.value_imports`]).
   local named_in: {string:string} = {}
   for _, row in ipairs(imports) do
     named_in[row[1]] = (named_in[row[1]] or "") .. " " .. row[2]

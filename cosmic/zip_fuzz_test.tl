@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.zip`: the reader is total -- whatever
+--- Fuzz properties for [`cosmic.zip`]: the reader is total -- whatever
 --- bytes it is handed, it returns entries or a failure and never raises
 --- or runs away -- and what the writer writes, the reader reads back.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -16,7 +16,7 @@ local function gen_path(src: Fuzz.Source): string
   return table.concat(parts, "/")
 end
 
---- Entries as `Fuzz.pack` fields: a kind ("file" or "dir"), a path, a
+--- Entries as [`Fuzz.pack`] fields: a kind ("file" or "dir"), a path, a
 --- method, and a body, repeated.
 local function gen_entries(src: Fuzz.Source): {string}
   local fields: {string} = {}

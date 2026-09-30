@@ -3,11 +3,11 @@
 --- failure a correct caller meets at runtime comes back as `nil` (for a
 --- value) or `false` (for an effect), then the error, then the errno.
 ---
---- Each test calls the C through `cosmic.sys` directly rather than
+--- Each test calls the C through [`cosmic.sys`] directly rather than
 --- through the typed modules above it, so a binding is held to its own
 --- promise and not to whatever a wrapper makes of it; so too core/process.h's
 --- calls and `digest` and `hmac`, through the raw tables the store hands
---- `cosmic.child` and `cosmic.hash`. `sys.exit` is the one binding with
+--- [`cosmic.child`] and [`cosmic.hash`]. [`sys.exit`] is the one binding with
 --- no test here: it ends the process the test runs in.
 
 local sys = require("cosmic.sys")
@@ -48,7 +48,7 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
---- Says a sandbox test is skipped (`Test.skip`) where this Linux host
+--- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
 --- refuses the sandbox it is about -- no Landlock, no pledge -- as it
 --- returns early: the run counts it skipped rather than passed, and a
 --- run held to sandboxing (COSMIC_SANDBOX=must among them) fails it.
@@ -338,7 +338,7 @@ local function linked_directory(tmp: string): string
   return d
 end
 
---- Checks readdir's answer for `linked_directory`.
+--- Checks readdir's answer for [`linked_directory`].
 local function names_links_as_links(entries: {string:string}, what: string)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
   assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
@@ -839,7 +839,7 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   raises(sys.execve, program, { "program", "-c\0x" }, {})
   raises(sys.execve, program, { "program" }, { A = "b\0c" })
   -- spawn refused a NUL before this rule existed, by raising, and
-  -- `cosmic.child` relies on that; it never truncates either way.
+  -- [`cosmic.child`] relies on that; it never truncates either way.
   raises(process.spawn, tmp .. "\0/program", { "program" }, nil, nil, nil, nil, nil, false)
   raises(process.spawn, program, { "program" }, nil, tmp .. "\0x", nil, nil, nil, false)
   -- The file the truncated paths name is exactly as it was.
@@ -992,23 +992,76 @@ end
 
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
---- public `cosmic.sys`'s: a public `waitpid(-1)` would take the status
+--- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
 --- of a child a `Child` handle owns from under it, and a public signal
---- guard would be a second one beside `Child.guard`'s.
+--- guard would be a second one beside [`Child.guard`]'s. `poll` and
+--- `set_nonblocking`, which wait on any descriptor, are the public
+--- table's alone.
 local function test_the_process_calls_are_off_the_public_table()
   local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "relaunch", "pipe",
-      "set_nonblocking", "poll", "ignore_sigpipe", "landlock_ruleset",
+      "ignore_sigpipe", "landlock_ruleset",
       "landlock_restrict_execute",
       "guard_child_signals", "unguard_child_signals", "cancelled_child_signal" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type(raw[name]) == "function", name .. " is not in the raw process table")
   end
+  for _, name in ipairs({ "poll", "set_nonblocking", "POLLIN", "POLLOUT", "POLLERR", "POLLHUP",
+      "POLLNVAL" }) do
+    assert(public[name] ~= nil, "cosmic.sys." .. name .. " is not public")
+    assert(raw[name] == nil, name .. " is in the raw process table too")
+  end
   for _, name in ipairs({ "digest", "hmac" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type((hash as {string: any})[name]) == "function", name .. " is not raw hash's")
   end
+end
+
+--- `poll` watches as many descriptors as the kernel lets a process
+--- watch, past the 1024 it was once held to, and -1 is left unwatched.
+--- Each entry is a descriptor of its own, a copy of one pipe's reading
+--- end: macOS answers only one of a descriptor given more than once.
+--- Where RLIMIT_NOFILE's soft limit is lower (1024 under systemd's
+--- default, 256 on macOS), the copies stop short and the kernel refuses
+--- the count with EINVAL.
+local function test_poll_watches_past_a_thousand_descriptors()
+  local ends = assert(process.pipe())
+  assert(sys.write(ends.writer, "x") == 1)
+  local fds: {integer} = { ends.reader }
+  local events: {integer} = { sys.POLLIN }
+  local copies = 0
+  while #fds < 1100 do
+    local copy = sys.dup(ends.reader)
+    if copy == nil then break end
+    fds[#fds + 1] = copy
+    events[#events + 1] = sys.POLLIN
+    copies = copies + 1
+  end
+  local distinct = #fds
+  while #fds < 1100 do
+    fds[#fds + 1] = ends.reader
+    events[#events + 1] = sys.POLLIN
+  end
+  fds[#fds + 1] = -1
+  events[#events + 1] = sys.POLLIN
+  assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
+  local revents, trouble, errno = sys.poll(fds, events, 0)
+  for i = 2, copies + 1 do sys.close(fds[i]) end
+  sys.close(ends.reader)
+  sys.close(ends.writer)
+  -- TODO: raise RLIMIT_NOFILE's soft limit past 1101 first, once
+  -- cosmic.sys carries getrlimit and setrlimit, so a host with a low one
+  -- checks the answers too, and tells the kernel's EINVAL from a cap.
+  if revents == nil then
+    assert(errno == sys.EINVAL, "poll: " .. trouble)
+    return
+  end
+  assert(#revents == 1101, "one answer per descriptor, not " .. #revents)
+  for i = 1, distinct do
+    assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
+  end
+  assert(revents[1101] == 0, "an unwatched descriptor answered " .. revents[1101])
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32

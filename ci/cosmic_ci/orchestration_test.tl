@@ -492,7 +492,7 @@ local function code_of(source: string): string
   return (text:gsub("%-%-[^\n]*", ""))
 end
 
---- The `host` paths the `Test.needs` call of the fixture module `source`
+--- The `host` paths the [`Test.needs`] call of the fixture module `source`
 --- declares.
 local function declared_host(source: string): {string:boolean}
   local needs = assert(code_of(source):match("\nTest%.needs%s*%(?%s*(%b{})"),

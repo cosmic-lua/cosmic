@@ -1,5 +1,5 @@
 --- .github/scripts/host-features.sh, which names a CI leg's verdict
---- cache, and `declared_key.host_features` answer the same digest of
+--- cache, and [`declared_key.host_features`] answer the same digest of
 --- the same host, and it moves with what `host_identity` keys of it: a
 --- cache named by it holds verdicts whose keys the host reaches.
 local Child = require("cosmic.child")
@@ -117,7 +117,7 @@ local function test_an_aarch64_host_keys_only_what_a_core_dispatches_on(tmp: str
 end
 
 --- Where neither names the machine, the script's (`uname -m`) and the
---- key's (`sys.uname`) are the same one: a host listing every feature
+--- key's ([`sys.uname`]) are the same one: a host listing every feature
 --- either list keeps, and some neither does, is named alike.
 local function test_the_script_and_the_key_take_the_same_machine_by_default(tmp: string)
   local _, both = host(tmp, nil, "flags : aes avx2 fma fma4 pclmulqdq sse4_1 ssse3 " ..
@@ -127,7 +127,7 @@ end
 
 --- On macOS, where there is no /proc, the script and the key both read
 --- the system volume's SystemVersion.plist, and no version, where
---- `declared_key.system_sources` says: SYSNAME Darwin chooses them in
+--- [`declared_key.system_sources`] says: SYSNAME Darwin chooses them in
 --- the script as `sysname` does in the key, and an update of the system
 --- moves the name and the host's identity alike.
 local function test_a_macos_host_is_named_by_its_system_version(tmp: string)

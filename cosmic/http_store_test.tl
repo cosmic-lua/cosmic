@@ -8,7 +8,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
---- `store`: the carried roots are read through `Store.databases()`.
+--- `store`: the carried roots are read through [`Store.databases()`].
 Test.needs{ store = true }
 
 --- A TLS 1.2 server's first flight, as a script can send it: a

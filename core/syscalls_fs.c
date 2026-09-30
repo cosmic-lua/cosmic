@@ -144,7 +144,7 @@ static bool descriptor_name (const char *path, const struct cosmic_artifact *art
          (uint64_t)st.st_ino == artifact->inode;
 }
 
-/* Whether `path` reaches a descriptor's own name (`descriptor_name`):
+/* Whether `path` reaches a descriptor's own name ([`descriptor_name`]):
  * as given, with its directory resolved -- "//dev/fd/<n>", "/./proc/...",
  * a name relative to /proc/self/fd, a directory that is a link to one --
  * and, where `follow` says, through a link at its last part, each
@@ -188,7 +188,7 @@ static bool reaches_descriptor_name (const char *path, bool follow,
  * a caller the artifact whatever the sandbox gives it by name, as the
  * retained descriptor itself would (core/check.h's `cosmic_checkfd`).
  * `reached` is the stat of the file the call holds or has opened by
- * `path` (`probe_file`, `open`), which is the file judged; NULL judges
+ * `path` ([`probe_file`], `open`), which is the file judged; NULL judges
  * the file `path` names now, asked before a call that may write
  * (O_TRUNC, chmod), so a refusal leaves the file as it was.
  *
@@ -205,7 +205,7 @@ static bool reaches_descriptor_name (const char *path, bool follow,
  * file is the one file refused that way, and it has a name of its own to
  * be reached by. Where openat2 is not to be had -- macOS, a kernel older
  * than 5.6, a filter refusing it -- the path is walked by hand
- * (`reaches_descriptor_name`), and what resolves under /dev or /proc is
+ * ([`reaches_descriptor_name`]), and what resolves under /dev or /proc is
  * refused too. A walk that fails otherwise answers its own errno, which
  * the call would have met. */
 static int artifact_through_descriptor (const char *path, bool follow,
@@ -255,7 +255,7 @@ static int artifact_through_descriptor (const char *path, bool follow,
 #if defined(__linux__)
 /* The file `path` names -- through a link at its last part where
  * `follow` says -- held by an O_PATH descriptor in *probe, which the
- * caller closes, once `artifact_through_descriptor` lets a call act on
+ * caller closes, once [`artifact_through_descriptor`] lets a call act on
  * it: 0, else why not, or the errno the walk met, which the call would
  * have. The call then acts on the descriptor, never on the name again,
  * so a link a process swaps in on the path after the check moves
@@ -569,7 +569,7 @@ COSMIC_SYSCALL(chmod, 2) {
   int mode = cosmic_checkint(L, 2);
   const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
 #if defined(__linux__)
-  /* On the file the check held (`probe_file`): through fchmodat2, or,
+  /* On the file the check held ([`probe_file`]): through fchmodat2, or,
    * on a kernel older than 6.6, the probe's /proc name. Without an
    * artifact there is nothing to check, and the call is by name. */
   if (artifact == NULL) {
@@ -625,7 +625,7 @@ COSMIC_SYSCALL(chown, 3) {
   gid_t group = (gid_t)owner_id(L, 3);
   const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
 #if defined(__linux__)
-  /* On the file the check held (`probe_file`), as `chmod` is. */
+  /* On the file the check held ([`probe_file`]), as `chmod` is. */
   if (artifact == NULL) {
     if (chown(path, user, group) != 0) return cosmic_fail_effect(L, errno);
     return cosmic_ok(L);
@@ -821,7 +821,7 @@ COSMIC_SYSCALL(utimensat, 5) {
   const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
 #if defined(__linux__)
   /* Without an artifact, by name, as there is nothing to check; with
-   * one, on the file the check held (`probe_file`), by an empty path from
+   * one, on the file the check held ([`probe_file`]), by an empty path from
    * it -- which a kernel older than 5.8 refuses, EINVAL: there, by the
    * probe's /proc name, which leads to the file the probe holds and no
    * further, a link included. */

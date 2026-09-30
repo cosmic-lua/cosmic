@@ -4,7 +4,7 @@
 --- executable carries is read back and checked for what a program
 --- needs at run time and nothing it does not. These need `tool`: an
 --- executable's database is joined from this program's own
---- (`embed.database` reads `Store.databases()`, every `cosmic.*`
+--- ([`embed.database`] reads [`Store.databases()`], every `cosmic.*`
 --- module's rows), which the store a worker without it is held to
 --- refuses. What writes no executable is in `embed_test.tl`.
 
@@ -19,7 +19,7 @@ local Test = require("cosmic.test")
 --- This program's database, which every executable's is joined from.
 --- The programs they build and run are built `--host`, so no launcher
 --- -- and no `sh` -- runs them.
---- `store`: `embed.database` reads every `cosmic.*` module's rows.
+--- `store`: [`embed.database`] reads every `cosmic.*` module's rows.
 Test.needs{ tool = true, store = true }
 
 local main_source = [[

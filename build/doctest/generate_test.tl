@@ -1,8 +1,8 @@
---- `build.doctest.generate` needs no compiler capsule: it turns a
+--- [`build.doctest.generate`] needs no compiler capsule: it turns a
 --- `{markdown.Block}` list into a Teal source string and never asks
 --- whether that string type-checks. These tests build blocks by hand and
 --- check the generated text and the grammar errors;
---- `build.doctest.markdown_test` covers the fence parsing.
+--- [`build.doctest.markdown_test`] covers the fence parsing.
 local markdown = require("build.doctest.markdown")
 local generate = require("build.doctest.generate")
 

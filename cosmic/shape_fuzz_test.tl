@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.shape`: `into` is total on any value a
+--- Fuzz properties for [`cosmic.shape`]: `into` is total on any value a
 --- decoder could hand it, and what it answers is already its own shape.
 --- A spec and a value are both built from one recipe of draws; the value
 --- mostly follows the spec and sometimes strays from it, so both the
@@ -137,7 +137,7 @@ end
 local fits: function(v: any, spec: Shape.Spec): boolean
 
 --- Whether an answer strictly is `spec`: the oracle, written apart from
---- the walk. An answer is never `Json.null` outside an `any`, holds
+--- the walk. An answer is never [`Json.null`] outside an `any`, holds
 --- integers where the spec says integer, a JSON array for a list, and no
 --- key a record does not name.
 fits = function(v: any, spec: Shape.Spec): boolean
@@ -249,7 +249,7 @@ local function check_json(input: string): boolean, string
   local again_text, aerr = Json.encode(out, { sparse_as_null = true })
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
   -- Read back as it was first read: under `any` the answer keeps
-  -- `Json.null`, which only the same `null_value` reads back as itself.
+  -- [`Json.null`], which only the same `null_value` reads back as itself.
   local again, err2: any, string = Shape.into(Json.decode(again_text, opts), spec)
   if err2 ~= "" then return false, again_text .. " does not fit: " .. err2 end
   if not same(out, again) then return false, again_text .. " read back as another answer" end
@@ -257,7 +257,7 @@ local function check_json(input: string): boolean, string
 end
 
 --- A strict record given a value that fits it but for one key it does
---- not name -- a string or an integer, whatever its value, `Json.null`
+--- not name -- a string or an integer, whatever its value, [`Json.null`]
 --- included -- refuses it, and names that key.
 local function check_strict(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }

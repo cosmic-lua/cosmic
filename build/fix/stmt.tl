@@ -8,7 +8,7 @@
 ---
 --- Two statement kinds do not begin where tl stamped them. A `local`
 --- declaration's node sits at its first name and a `local type`'s at
---- the name it binds, not at the `local` that opens either. `begins_at`
+--- the name it binds, not at the `local` that opens either. [`begins_at`]
 --- walks back over the token stream to the keyword, so the statement is
 --- indented from where it starts.
 

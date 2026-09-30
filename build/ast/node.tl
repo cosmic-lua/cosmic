@@ -1,4 +1,4 @@
---- A real `Node` record for tl's parser output, and `parse()` to
+--- A real [`Node`] record for tl's parser output, and `parse()` to
 --- produce one.
 ---
 --- `tl.parse_program` returns its AST erased to `any`; this module is
@@ -29,7 +29,7 @@ local record OpInfo
 end
 
 --- A type as tl's parser builds it: a semantic object rather than a
---- node, so it has no `kind` and `build.ast.walk` never descends into
+--- node, so it has no `kind` and [`build.ast.walk`] never descends into
 --- one. It carries the position the type was read from, and -- where
 --- the type's own syntax closes with a bracket, as `{a: b}` does -- an
 --- end position too. It keeps no record of how the type was SPELLED,
@@ -55,7 +55,7 @@ local record TypeNode
   --- A union's alternatives.
   types: {TypeNode} | nil
   --- A `"nominal"`: the name it refers to, one entry per dotted part
-  --- (`Zip.Reader` is `{"Zip", "Reader"}`).
+  --- ([`Zip.Reader`] is `{"Zip", "Reader"}`).
   names: {string} | nil
 
   --- A `"typedecl"`: the record, enum, or alias it declares, and whether
@@ -134,7 +134,7 @@ local record Node is {Node}
   if_block_n: integer | nil
   --- The enclosing "if" statement this "if_block" belongs to -- a REAL
   --- cycle (this node reachable from itself), not a copy or shared
-  --- literal. A generic walk over `Node` needs an identity-keyed
+  --- literal. A generic walk over [`Node`] needs an identity-keyed
   --- visited set to terminate.
   if_parent: Node | nil
   --- "if_block": the branch's condition expression.
@@ -149,7 +149,7 @@ local record Node is {Node}
   exps: Node | nil
 
   --- "local_function": the declared name, an "identifier" node whose
-  --- own `tk` is the function's name. `build.analyzer.analysis_of` reads
+  --- own `tk` is the function's name. [`build.analyzer.analysis_of`] reads
   --- it to find every top-level `test_*` function.
   name: Node | nil
 
@@ -230,10 +230,10 @@ local record Parsed
   tokens: {compiler.Token}
 end
 
---- Lex and parse `source` into a `Node` tree and its token stream.
+--- Lex and parse `source` into a [`Node`] tree and its token stream.
 ---
---- Casts `parse_program`'s erased `any` result to `Node`.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- Casts `parse_program`'s erased `any` result to [`Node`].
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source string Source text to lex and parse
 --- @param name string Filename used in diagnostics and stamped onto every Node's `f`
 --- @return Parsed|nil The AST root plus the token stream, or nil on failure

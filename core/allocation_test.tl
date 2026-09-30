@@ -22,7 +22,7 @@
 --- databases, are core/allocation_tool_test.tl's and
 --- core/allocation_store_test.tl's, so these stand while the tree moves.
 
-local _ = require("cosmic.child") -- in the closure: `process_table` searches for it by hand
+local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
@@ -39,7 +39,7 @@ local type raw_process = require("cosmic.internal.process")
 local type Searcher = function(string): any, any
 
 --- The raw process table, as the store's searcher hands it to
---- `cosmic.child`'s loader.
+--- [`cosmic.child`]'s loader.
 local function process_table(): raw_process
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")
@@ -239,7 +239,7 @@ end
 
 --- A socket owns its descriptor, and a unix listener's socket file,
 --- from the call that makes it: a refusal anywhere after -- before
---- `cosmic.net` has wrapped it, or while it builds the wrap -- leaves
+--- [`cosmic.net`] has wrapped it, or while it builds the wrap -- leaves
 --- neither to the process, and the next listener takes the same path.
 local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocation_fails(
     tmp: string)

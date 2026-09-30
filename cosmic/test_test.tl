@@ -1,4 +1,4 @@
---- `cosmic.test`'s `Needs`, in this process: each field is one `fields`
+--- [`cosmic.test`]'s `Needs`, in this process: each field is one `fields`
 --- names. cosmic/test_tool_test.tl holds `needs` as it runs, which a
 --- script run by this program shows.
 

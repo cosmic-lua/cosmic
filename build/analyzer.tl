@@ -2,8 +2,8 @@
 --- importer about it -- its own test names, whether it returns its own
 --- value at the top level and under what name, the failure messages it
 --- catalogs, the symbols it documents, its worked examples, and the
---- members of other modules it refers to. See `analyzer.analyze`, and
---- `analyzer.analysis_of` for a chunk already parsed.
+--- members of other modules it refers to. See [`analyzer.analyze`], and
+--- [`analyzer.analysis_of`] for a chunk already parsed.
 
 local type compiler = require("build.compiler")
 local ast = require("build.ast")
@@ -14,20 +14,20 @@ local cache_names = require("build.cache_names")
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
   --- message under a top-level function, with the function it is in
-  --- -- see `catalog_of`. The guidance a match prints is that
+  --- -- see [`catalog_of`]. The guidance a match prints is that
   --- function's own documentation, found in `docs` by symbol.
   record CatalogEntry
     symbol: string
     --- The literal text of the returned message, its dynamic parts left
-    --- out (`static_text`). An entry exists only when at least six of
-    --- its characters are letters (`catalog_in_body`).
+    --- out ([`static_text`]). An entry exists only when at least six of
+    --- its characters are letters ([`catalog_in_body`]).
     message: string
     line: integer
   end
 
   --- One documented symbol: a top-level function, a record, enum or
   --- type alias and each field or value it declares, a documented
-  --- top-level value, or the module itself -- see `docs_of`.
+  --- top-level value, or the module itself -- see [`docs_of`].
   record DocEntry
     --- Canonical exported path (`"read"`, `"Value.text"`), or the
     --- declaration spelling for a private entry; `""` for the module.
@@ -49,7 +49,7 @@ local record analyzer
 
   --- One use of another module's member through a top-level alias:
   --- `Fs.read(...)` where `local Fs = require("cosmic.fs")` -- see
-  --- `references_of`.
+  --- [`references_of`].
   record Reference
     module: string
     member: string
@@ -57,25 +57,25 @@ local record analyzer
   end
 
   --- One worked example: a top-level `function Example.<name>()` --
-  --- see `examples_of`. `name` is a free label, not a symbol. Which
-  --- symbol an example demonstrates is decided when `build.docs` reads
+  --- see [`examples_of`]. `name` is a free label, not a symbol. Which
+  --- symbol an example demonstrates is decided when [`build.docs`] reads
   --- it, by matching the example's text and source against the
   --- symbol's name: its code calls the function it demonstrates.
   record ExampleEntry
     name: string
     --- The doc comment directly above it, leaders stripped, the same
-    --- way `DocEntry.text` reads one -- what the example is FOR; the
+    --- way [`DocEntry.text`] reads one -- what the example is FOR; the
     --- source below it is how, and is documentation in its own right.
     text: string
     --- The whole `function Example.<name>() ... end`, as written, under
     --- the file's top-level `require` lines it uses and, for the file's
-    --- first example, its top-level calls (`examples_of`).
+    --- first example, its top-level calls ([`examples_of`]).
     source: string
     line: integer
   end
 
-  --- A test module's `needs` declaration (`cosmic.test`), read as
-  --- data -- see `inputs_of`. A flag declared `false` reads as one never
+  --- A test module's `needs` declaration ([`cosmic.test`]), read as
+  --- data -- see [`inputs_of`]. A flag declared `false` reads as one never
   --- declared.
   record Declared
     --- The line the declaration starts on.
@@ -119,7 +119,7 @@ end
 --- text, a `..` concatenation reads as both sides joined the same way,
 --- and anything else (a call, a variable) contributes nothing. A
 --- message built entirely from such a case (`return nil, describe(e)`)
---- reduces to `""`, which `catalog_of` treats as nothing to catalog --
+--- reduces to `""`, which [`catalog_of`] treats as nothing to catalog --
 --- there is no text a person's error could ever contain to match it
 --- against.
 local function static_text(node: ast.Node): string
@@ -178,7 +178,7 @@ end
 --- consecutive comment lines, when it is adjacent. Comments separated
 --- from a declaration by a blank line belong to something else (the
 --- module, most often) and are not its documentation, and a comment
---- trailing the code before it (`trails_code`) is not part of the run
+--- trailing the code before it ([`trails_code`]) is not part of the run
 --- it starts. One line per comment line, leaders stripped, so a
 --- paragraph break survives.
 local function doc_before(lines: {string}, all: {compiler.Comment}, line: integer): string
@@ -432,7 +432,7 @@ end
 --- Every catalog entry a chunk's own top-level functions carry: each
 --- `local_function`/`record_function`, paired with the literal text of
 --- every honest-return failure its own body returns. Top-level only,
---- the boundary `analysis_of` draws for test names: a function nested
+--- the boundary [`analysis_of`] draws for test names: a function nested
 --- inside another statement is reached through that statement's own
 --- entry, never here.
 local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.CatalogEntry}, string
@@ -539,7 +539,7 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
   return String.trim((table.concat(parts, " "):gsub("%s+", " ")))
 end
 
--- Declared ahead: `fields_docs` and `record_docs` call each other.
+-- Declared ahead: [`fields_docs`] and `record_docs` call each other.
 local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: string,
                            def: ast.TypeNode, out: {analyzer.DocEntry})
 
@@ -631,7 +631,7 @@ record_docs = function(lines: {string}, tokens: {compiler.Token}, symbol: string
 end
 
 --- Whether `stmt` is a top-level `function Example.<name>()` --
---- `examples_of`'s own shape, kept out of `docs_of` so a worked
+--- [`examples_of`]'s own shape, kept out of [`docs_of`] so a worked
 --- example is never also shipped as a trivial doc entry of its own.
 local function is_example_function(stmt: ast.Node): boolean
   local owner = stmt.fn_owner
@@ -646,7 +646,7 @@ end
 --- or not it is documented, so `cosmic docs` can find where an
 --- undocumented one lives; a bare `local x = ...` is not, since a
 --- module's private bindings are not its surface. A worked example
---- (`examples_of`) is left out too: it documents another module's
+--- ([`examples_of`]) is left out too: it documents another module's
 --- symbol, not this one's.
 local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
   local out: {analyzer.DocEntry} = {}
@@ -687,7 +687,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
            and stmt.vars[1] ~= nil then
       local text = doc_before(lines, stmt.comments, stmt.y)
       -- The run above the file's first `local` is the module's (see
-      -- `module_doc`), never that value's.
+      -- [`module_doc`]), never that value's.
       if stmt == parsed.node[1] and #opening > 0 then
         text = ""
       end
@@ -732,7 +732,7 @@ end
 
 --- Marks as exported what a module hands out without naming it in its
 --- returned value: the record its returned variable is typed as (see
---- `surface_of`), and every `local` record, enum, interface or type
+--- [`surface_of`]), and every `local` record, enum, interface or type
 --- an exported row's signature names, again for each one that joins,
 --- since a caller meets those names in the signatures it reads. A
 --- `local` type no exported signature reaches stays private; a member
@@ -784,7 +784,7 @@ end
 
 --- Gives every declaration its stable address within the value returned by
 --- the module. The record name is a local implementation detail: both
---- `Fs.read` and a renamed `Public.read` are the canonical member `read`.
+--- [`Fs.read`] and a renamed `Public.read` are the canonical member `read`.
 --- Declarations outside that returned surface stay indexed under their source
 --- spelling and are explicitly private.
 local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parsed,
@@ -915,7 +915,7 @@ end
 --- before the next one's, or to the end of the chunk for the last --
 --- an example is always exactly one top-level statement, so this is
 --- its whole, as-written text, lines and indentation kept, unlike
---- `span_text`'s one-line collapse. A trailing blank or comment-only
+--- [`span_text`]'s one-line collapse. A trailing blank or comment-only
 --- line belongs to whatever sits after it, not to this statement, so
 --- it is trimmed rather than shown as part of the example.
 local function block_text(lines: {string}, y: integer, x: integer,
@@ -942,8 +942,8 @@ local back_up: {string: boolean} = { if_parent = true }
 --- parameter or a loop variable in scope is no reference to a file's
 --- own declaration, and neither is a word in a string or a comment)
 --- and the first name of each type it writes (`Release` in
---- `x: Release`, `Fs` in `Fs.Stat`). Scoping follows the blocks
---- `references_of` does; a type's name is not scoped, since a local
+--- `x: Release`, `Fs` in [`Fs.Stat`]). Scoping follows the blocks
+--- [`references_of`] does; a type's name is not scoped, since a local
 --- rarely shadows a type.
 local function uses_of(root: ast.Node, used: {string: boolean})
   local scopes: {{string: boolean}} = { {} }
@@ -1032,7 +1032,7 @@ end
 --- The longest helper an example carries above its function, in lines,
 --- and the most all its helpers together carry. A longer one is not
 --- carried: the example then does not compile as shown, and
---- `build.example_checks` asks its author to inline it.
+--- [`build.example_checks`] asks its author to inline it.
 local MAX_HELPER_LINES <const> = 15
 local MAX_HELPER_TOTAL <const> = 30
 
@@ -1136,7 +1136,7 @@ end
 
 --- The text an example's own `function` is shown below: the top-level
 --- `require` lines its body (or a top-level call carried with it)
---- names, the short file-local helpers (`Helper`) its body names, and
+--- names, the short file-local helpers ([`Helper`]) its body names, and
 --- those they name, then those calls. An example is a function copied out of its
 --- file, and without these lines it does not run. The file's top-level
 --- calls (a `Test.needs{...}` a test module makes once, at its top) are
@@ -1206,12 +1206,12 @@ end
 
 --- Every worked example a chunk declares at its top level: a
 --- `function Example.<name>()`. The shape of the declaration is the
---- only marker, as for the functions `docs_of` finds; `name` is a free
---- label. Its doc comment is read as `docs_of` reads one: what the
+--- only marker, as for the functions [`docs_of`] finds; `name` is a free
+--- label. Its doc comment is read as [`docs_of`] reads one: what the
 --- example is for in the comment, how in the code below it. Which
 --- symbol it demonstrates is not decided here, nor when
---- `build.writer`'s `insert_examples` ships it against its module
---- alone: `build.docs` answers that at read time, by matching this text
+--- [`build.writer`]'s `insert_examples` ships it against its module
+--- alone: [`build.docs`] answers that at read time, by matching this text
 --- and source against a symbol's name.
 local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.ExampleEntry}
   local out: {analyzer.ExampleEntry} = {}
@@ -1237,7 +1237,7 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.Examp
 end
 
 --- Direct `local name = require("module")` bindings, keyed by the local
---- declaration node. Scope and lifetime are handled by `references_of`;
+--- declaration node. Scope and lifetime are handled by [`references_of`];
 --- this pattern only recognizes the one import form whose identity is sure.
 local function aliases_of(built: compiler, parsed: ast.Parsed): {ast.Node: string}, string
   local pattern, trouble = ast.compile_pattern(built, "local $ALIAS = require($M)")
@@ -1453,7 +1453,7 @@ local function references_of(built: compiler, parsed: ast.Parsed): {analyzer.Ref
 end
 
 --- What each field of a `needs` declaration takes: a list of string
---- literals ("list") or `true` or `false` ("flag"), as `cosmic.test`
+--- literals ("list") or `true` or `false` ("flag"), as [`cosmic.test`]
 --- holds a call's argument to it as it runs.
 local input_fields: {string:string} = Test.fields
 
@@ -1468,13 +1468,13 @@ local HOST_FILES <const> = "host names files, or /proc: declare the files the te
 --- Why `path` is no path of `field` (`reads` or `host`), or "" when it
 --- is one. A `reads` path is relative to the tree. A `host` path is
 --- absolute, or starts with `$NAME` for a path beneath the one the
---- variable NAME holds (`build.test_inputs`' `variable_of`). Neither
+--- variable NAME holds ([`build.test_inputs`]' `variable_of`). Neither
 --- climbs with "..", nor is spelled with "." or an empty name, which a
 --- match by prefix would read as another path. A `host` path names a
 --- file, or /proc (R3): one written as a directory, with a "/" after
 --- it, or as a variable's whole path is refused here, and one that is
 --- a directory on the host fails its tests as they start
---- (`build.test_inputs`' `resolve`).
+--- ([`build.test_inputs`]' `resolve`).
 local function input_path_trouble(field: string, path: string): string
   if path == "" then return "an empty path" end
   local quoted = "\"" .. path .. "\""
@@ -1520,8 +1520,8 @@ local function input_path_trouble(field: string, path: string): string
   return ""
 end
 
---- Whether `node` names `cosmic.test`'s `needs` through one of `names`,
---- the locals a chunk binds `require("cosmic.test")` to: `Test.needs`.
+--- Whether `node` names [`cosmic.test`]'s `needs` through one of `names`,
+--- the locals a chunk binds `require("cosmic.test")` to: [`Test.needs`].
 local function names_needs(node: ast.Node, names: {string:boolean}): boolean
   local index = node ~= nil and node.kind == "op" and node.op or nil
   local base: ast.Node = node ~= nil and node.e1 or nil
@@ -1541,7 +1541,7 @@ local function requires_test(node: ast.Node): boolean
     first.kind == "string" and first.conststr == "cosmic.test"
 end
 
---- The chunk's `Test.needs { ... }` (see `cosmic.test`), read as data,
+--- The chunk's `Test.needs { ... }` (see [`cosmic.test`]), read as data,
 --- never run: nil and "" when there is none, and nil and why, naming
 --- the line, for one the build cannot read so. The call is a statement
 --- at the chunk's top level, once, on a name a top-level `local` binds
@@ -1628,7 +1628,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     seen[field] = true
     local given = item.value
     if field == "network" and given ~= nil and given.kind == "boolean" and given.tk == "true" then
-      -- Any host: what `cosmic.test` refuses, as its rule says.
+      -- Any host: what [`cosmic.test`] refuses, as its rule says.
       return nil, where .. Test.any_host_refusal
     end
     if given ~= nil and given.kind == "boolean" and takes ~= "list" then
@@ -1751,7 +1751,7 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   }, ""
 end
 
---- What one parse of `source` tells the importer (`Analysis`): the
+--- What one parse of `source` tells the importer ([`Analysis`]): the
 --- name of every top-level `local function test_*`, in order; whether
 --- the chunk has a top-level `return`, and the name it returns; the
 --- catalog, docs, examples and references. Tests and return are read
@@ -1760,7 +1760,7 @@ end
 --- is not mistaken for a statement of the chunk. Lua requires a
 --- `return` to end its block, so a chunk that type-checks has one only
 --- as its final statement.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source string
 --- @param name string Filename for parse diagnostics
 --- @return Analysis | nil The analysis, or nil when `source` fails to lex or parse

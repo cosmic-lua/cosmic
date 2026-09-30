@@ -1,10 +1,10 @@
 --- What a worker loads of the tree besides its test's closure is
---- `worker.loads` (build/test_worker.tl), and no more: a worker started
+--- [`worker.loads`] (build/test_worker.tl), and no more: a worker started
 --- by hand, as `cosmic test` starts one, runs a module whose closure is
 --- small, and what its report says it ran of the tree -- all but Lua's
 --- libraries and the core's own -- is that module's closure and
---- `worker.loads`, which
---- names nothing it did not run but `cosmic.removed`, which the core
+--- [`worker.loads`], which
+--- names nothing it did not run but [`cosmic.removed`], which the core
 --- loads only for a test that reaches for a removed global. Nor does it
 --- run the code that computes a key but the parts it spells
 --- (build.key_parts), nor hash through cosmic.hash and cosmic.codec
@@ -22,7 +22,7 @@ local _ = require("build.key_parts")
 Test.needs{ tool = true }
 
 --- What a worker loads that is no module of the tree: Lua's own
---- libraries, beside the core's `cosmic.sys` and `cosmic.internal.*`,
+--- libraries, beside the core's [`cosmic.sys`] and `cosmic.internal.*`,
 --- which the runtime's identity keys.
 local lua <const>: {string:boolean} = {
   _G = true, coroutine = true, debug = true, io = true, math = true, os = true,

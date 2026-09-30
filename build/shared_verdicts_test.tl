@@ -1,5 +1,5 @@
 --- The cache `COSMIC_VERDICT_CACHE` names, read and written in this
---- process through `build.shared_verdicts`: what it tells a run none of
+--- process through [`build.shared_verdicts`]: what it tells a run none of
 --- whose lookups stood, and a verdict kept by its declared key alone.
 --- build/shared_verdicts_tool_test.tl holds the runs of `cosmic test`
 --- that share their verdicts through it.

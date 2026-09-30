@@ -1,11 +1,11 @@
 --- Content hashes and message authentication codes (HMAC), returned as
---- raw bytes; `Codec.hex` spells one for a person.
+--- raw bytes; [`Codec.hex`] spells one for a person.
 ---
---- - `Hash.digest` and `Hash.hmac` take the whole message at once, for
----   any `Hash.Algorithm`.
---- - `Hash.hasher` and `Hash.hmac_hasher` take it in chunks, for a file
----   or a stream; `cosmic.stream`'s `hashing` feeds one as data passes.
---- - `Hash.sha256` and `Hash.hex_sha256` are the common case in one
+--- - [`Hash.digest`] and [`Hash.hmac`] take the whole message at once, for
+---   any [`Hash.Algorithm`].
+--- - [`Hash.hasher`] and [`Hash.hmac_hasher`] take it in chunks, for a file
+---   or a stream; [`cosmic.stream`]'s `hashing` feeds one as data passes.
+--- - [`Hash.sha256`] and [`Hash.hex_sha256`] are the common case in one
 ---   call.
 ---
 ---     local hex = Hash.hex_sha256("cosmic")
@@ -55,8 +55,8 @@ local record Hash
   --- abandons an unfinished digest at the end of the scope.
   type Hasher = raw_hash.Hasher
 
-  --- An incremental HMAC: the same calls as a `Hasher`, `update` and
-  --- `digest`, the digest being the raw code `Hash.hmac` gives over
+  --- An incremental HMAC: the same calls as a [`Hasher`], `update` and
+  --- `digest`, the digest being the raw code [`Hash.hmac`] gives over
   --- the whole of what was fed. Calling either method after `digest`
   --- throws; a `<close>` abandons an unfinished one.
   record Mac
@@ -162,7 +162,7 @@ end
 --- end, or `first` is more than one past `last`; an empty range sums
 --- to 0.
 function Hash.byte_sum(data: string, first?: integer, last?: integer): integer
-  -- TODO: a tar header checksum is no hash, and `cosmic.tar` is this
+  -- TODO: a tar header checksum is no hash, and [`cosmic.tar`] is this
   -- function's one caller: move it there once a module can be handed
   -- another module's `cosmic.internal.` table, as this one is handed its
   -- own (the C sum is what keeps a header's 512 bytes off the Lua loop).

@@ -1,4 +1,4 @@
---- Fuzz property for `declared_key.preimage`: a sandboxed test's key
+--- Fuzz property for [`declared_key.preimage`]: a sandboxed test's key
 --- is the digest of what it was given (build/declared_key.tl), so two
 --- specs that differ must spell apart before anything is hashed -- an
 --- encoding that framed two fields, or two entries, so that one spells
@@ -39,7 +39,7 @@ end
 local ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":", "\0" }
 
 --- The same, less what a path cannot hold or a key reads as a place
---- (`test_inputs.plain`): a path of the tree or of the host is named by
+--- ([`test_inputs.plain`]): a path of the tree or of the host is named by
 --- what it is, and "a/./b" and "a/b" are one path.
 local PATH_ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":" }
 
@@ -69,7 +69,7 @@ local function canonical(d: Drawn): Drawn
   local values: {string:string} = {}
   local env = d.lists.environment
   for i = 1, #env - 1, 2 do
-    -- The last value of a name given twice, as `spec_of` gives it.
+    -- The last value of a name given twice, as [`spec_of`] gives it.
     if env[i] ~= "" then values[env[i]] = env[i + 1] end
   end
   local names: {string} = {}
@@ -265,7 +265,7 @@ local function test_distinct_specs_spell_distinct_preimages(tmp: string)
   })
 end
 
---- A variable named twice is given its last value, by `spec_of` and by
+--- A variable named twice is given its last value, by [`spec_of`] and by
 --- `canonical` alike: two lists that give the same environment pack
 --- as one spec, so the property does not fail them as two.
 local function test_a_variable_named_twice_packs_as_its_last_value()

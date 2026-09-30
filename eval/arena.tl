@@ -5,7 +5,7 @@
 ---     cosmic --standalone eval/arena.tl <task> <cosmic-binary> <dir>
 ---
 --- `<task>` names eval/task/<task>.md; eval/journal.md is appended to
---- it. `eval/arena` runs this on the bootstrap cosmic, as bin/vendor
+--- it. [`eval/arena`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only, and finds
 --- eval/ from this script's own path.
 local Fs = require("cosmic.fs")

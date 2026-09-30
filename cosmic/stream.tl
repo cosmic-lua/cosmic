@@ -10,11 +10,11 @@
 --- `read` returns the same error rather than a false end of file.
 --- A Writer's `write` takes one chunk at a time; `close` commits what
 --- was written, `abort` discards it where that means anything (a
---- `Stream.create` file is never renamed into place), and a `write`
+--- [`Stream.create`] file is never renamed into place), and a `write`
 --- after either fails. Every constructor here gives `close` (and each
 --- Writer `abort`), even where it does nothing, and each is safe to
 --- call more than once, so a caller never has to ask which kind it
---- holds. `Stream.lines` reads a Reader a line at a time.
+--- holds. [`Stream.lines`] reads a Reader a line at a time.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -66,7 +66,7 @@ local record Stream
     digest: function(Hashing): string | nil, string
   end
 
-  --- The lines of a Reader, one at a time: see `Stream.lines`.
+  --- The lines of a Reader, one at a time: see [`Stream.lines`].
   record Lines
     --- The next line, without its "\n", and ""; nil and "" after the
     --- last; nil and why when the Reader failed or a line ran past the
@@ -81,7 +81,7 @@ local record Stream
   end
 
   --- A format writer's hold on the Writer it writes to: see
-  --- `Stream.sticky`.
+  --- [`Stream.sticky`].
   record Sticky
     --- Writes `data` to the Writer, failing as `fail` does when it
     --- cannot.
@@ -101,8 +101,8 @@ local record Stream
     abort: function(Sticky): boolean, string
   end
 
-  --- The incremental codec `transform` and `transform_writer` drive:
-  --- one of `cosmic.compress`'s inflaters, deflaters or decoders.
+  --- The incremental codec `transform` and [`transform_writer`] drive:
+  --- one of [`cosmic.compress`]'s inflaters, deflaters or decoders.
   type Codec = Compress.Stream
 end
 
@@ -214,7 +214,7 @@ local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
 end
 
 --- A Reader over an already-open descriptor. The descriptor is not
---- closed at end of file or by `close`; use `Stream.open` for a
+--- closed at end of file or by `close`; use [`Stream.open`] for a
 --- Reader that owns the file it reads. Over a regular file the Reader
 --- can `skip`.
 function Stream.from_fd(fd: integer): Stream.Reader
@@ -397,7 +397,7 @@ end
 
 --- Reads a Reader to its end of file and returns everything as one
 --- string. For bounded, whole-file cases; a streaming caller reads
---- `Reader.read` in a loop instead, or `copy`s to a Writer.
+--- [`Reader.read`] in a loop instead, or `copy`s to a Writer.
 function Stream.read_all(reader: Stream.Reader): string | nil, string
   local parts: {string} = {}
   while true do
@@ -410,7 +410,7 @@ function Stream.read_all(reader: Stream.Reader): string | nil, string
   end
 end
 
---- The sticky failure `cosmic.tar` and `cosmic.zip` keep over the
+--- The sticky failure [`cosmic.tar`] and [`cosmic.zip`] keep over the
 --- Writer an archive goes to: the first write that fails aborts `w`,
 --- and every later write, `close` included, answers that failure;
 --- `name` prefixes the messages it makes itself.
@@ -461,8 +461,8 @@ local default_line_limit <const> = 1 << 20
 --- The lines of `reader`, read a chunk at a time: each piece of it
 --- ending in "\n", without the "\n", and the piece after the last "\n"
 --- when that is not empty, so "a\nb\n" and "a\nb" are both two lines.
---- A "\r" before the "\n" stays on its line, as `String.lines` keeps
---- it; unlike `String.lines`, text ending in "\n" has no empty last
+--- A "\r" before the "\n" stays on its line, as [`String.lines`] keeps
+--- it; unlike [`String.lines`], text ending in "\n" has no empty last
 --- line, and "" has no lines at all. A line longer than `max` bytes
 --- (1 MiB by default) fails rather than grow without bound; a `max`
 --- that is no integer of at least 1 raises. `reader` is not closed.
@@ -581,7 +581,7 @@ function Stream.to_fd(fd: integer): Stream.Writer
   return w
 end
 
---- The Writer `Stream.create` returns: its methods live on one shared
+--- The Writer [`Stream.create`] returns: its methods live on one shared
 --- metatable, so creating a file costs a table, not three closures.
 local record FileWriter is Stream.Writer
   path: string
@@ -686,7 +686,7 @@ end
 --- A Writer that digests what is written to it under `algorithm`,
 --- for checking a body against a published digest as it streams past
 --- -- `tee` it beside the Writer the body is really going to. Given a
---- `key`, it is the HMAC under that key (`Hash.hmac_hasher`) that
+--- `key`, it is the HMAC under that key ([`Hash.hmac_hasher`]) that
 --- `digest` answers, not the plain digest.
 function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing | nil, string
   local feed: function(data: string)

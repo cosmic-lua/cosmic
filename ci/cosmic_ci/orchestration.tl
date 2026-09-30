@@ -86,7 +86,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 ---
 --- A merge-queue run does not stand either where its change moves
 --- build/harness_epoch.tl from the queue's base (COSMIC_CI_HARNESS_MOVED,
---- which `environment` sets by `harness_moved` where the driver's
+--- which `environment` sets by [`harness_moved`] where the driver's
 --- environment does not). No key holds the harness's code, only the
 --- epoch that file records (build/declared_key.tl), so a harness change
 --- marked there as one that moves no verdict would otherwise land on
@@ -103,12 +103,12 @@ function Orchestration.stands(env: {string:string}): boolean
 end
 
 --- The file that records the harness's epoch and the digests last
---- acknowledged of its modules (build/harness_epoch.tl). `harness_moved`
+--- acknowledged of its modules (build/harness_epoch.tl). [`harness_moved`]
 --- compares the whole file, not the epoch alone: an acknowledgment
 --- without a bump is the case a run of every test is there to check.
 local epoch_file <const> = "build/harness_epoch.tl"
 
---- How long a git command `harness_moved` runs may take: a local
+--- How long a git command [`harness_moved`] runs may take: a local
 --- lookup, or a fetch of one commit.
 local git_timeout_ms <const> = 60 * 1000
 
@@ -172,13 +172,13 @@ function Orchestration.harness_moved(root: string, base: string): boolean, strin
   return false, epoch_file .. " is " .. base .. "'s"
 end
 
---- What `harness_moved` answered of each checkout and base, asked once
+--- What [`harness_moved`] answered of each checkout and base, asked once
 --- a driver run: every operation's environment asks it.
 local moved_by_base: {string:boolean} = {}
 
 --- COSMIC_CI_HARNESS_MOVED for `env`, a merge-queue run's, where it
 --- does not say already: "1" where its change moves
---- build/harness_epoch.tl (`harness_moved`, of the checkout
+--- build/harness_epoch.tl ([`harness_moved`], of the checkout
 --- GITHUB_WORKSPACE names against COSMIC_CI_BASE_SHA), else "0".
 local function decide_harness(env: {string:string})
   if env.COSMIC_CI_EVENT ~= "merge_group" or env.COSMIC_CI_HARNESS_MOVED ~= nil then return end
@@ -212,14 +212,14 @@ end
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
 --- night with a seed of its own: a check that gates a change answers the
 --- same on every run, and one that searches runs where a find blocks
---- nobody's merge. `suite_run` then removes what names the run from a
---- gating suite's copy (`forget_run`).
+--- nobody's merge. [`suite_run`] then removes what names the run from a
+--- gating suite's copy ([`forget_run`]).
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
   if extra then for k, v in pairs(extra) do all[k] = v end end
   -- What follows is decided on the leg's environment, `extra`
-  -- included, which may name the leg itself (`suite_run`, a test's).
+  -- included, which may name the leg itself ([`suite_run`], a test's).
   -- A merge-queue run that moves the harness's epoch file stands on
   -- nothing (`stands`).
   decide_harness(all)
@@ -246,9 +246,9 @@ local function environment(extra?: {string:string}): {string:string}
   -- each test by what it was seen to read, which no other checkout
   -- shares. The tree's own tool, which runs the leg's suites, keys every
   -- unsandboxed run by declaration and reads it nowhere. A fixture's run
-  -- takes it back out (`Orchestration.fixture`), and a test's own
+  -- takes it back out ([`Orchestration.fixture`]), and a test's own
   -- `cosmic test` is not given it (`test.worker_environment`).
-  -- TODO: drop COSMIC_TEST_KEY here, and from `Orchestration.fixture` and
+  -- TODO: drop COSMIC_TEST_KEY here, and from [`Orchestration.fixture`] and
   -- orchestration_test.tl, once ci/cosmic-driver.pin names a release
   -- that keys every unsandboxed run by declaration (plan 4.2's PR 3).
   if all.COSMIC_CI_DECLARED_KEYS == "1" then all.COSMIC_TEST_KEY = "declared" end
@@ -275,13 +275,13 @@ local function names_the_run(name: string): boolean
 end
 
 --- Removes from `env`, a gating suite's, every variable that names the
---- run (`names_the_run`). A test that reads the whole environment
+--- run ([`names_the_run`]). A test that reads the whole environment
 --- (`env = {"*"}`) is keyed by every variable its worker is given, so
 --- one that moves each run (GITHUB_RUN_ID, GITHUB_SHA, RUNNER_NAME,
 --- COSMIC_CI_SCOPE, ...) would keep such a test from standing on any
 --- earlier run's verdict. No tree test reads one, so none is given one,
 --- and what a key holds is still what the worker gets. The driver
---- decides what the suite does (`stands`, `test_words`, `shares`) before
+--- decides what the suite does (`stands`, [`test_words`], `shares`) before
 --- this, from the environment it was given.
 function Orchestration.forget_run(env: {string:string})
   local names: {string} = {}
@@ -294,7 +294,7 @@ end
 --- A gating suite's `cosmic test` words and environment, `extra` added
 --- to `environment()`'s: `--all` and nothing shared where it stands on
 --- no verdict (`stands`, `shares`), decided on the driver's own
---- environment, which then forgets the run (`forget_run`).
+--- environment, which then forgets the run ([`forget_run`]).
 function Orchestration.suite_run(extra?: {string:string}): {string}, {string:string}
   local values = environment(extra)
   local words = Orchestration.test_words(values)
@@ -453,7 +453,7 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- these, adds about 20 to 30 s to the fixture), so each runs apart from
 -- the self-rebuild file's.
 local fixed_point_test_timeout_ms <const> = 300000
---- The whole suite on the checked core: see `checked_suite`'s comment
+--- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes.
 local checked_suite_timeout_ms <const> = 600000
 local fixed_point_per_test_timeout_s <const> = "240"
@@ -476,7 +476,7 @@ local identity_test_timeout_ms <const> = 120000
 -- whole file's.
 local identity_per_test_timeout_s <const> = "60"
 -- The checked cosmic's first file in the tree after the checked build
--- (`checked_suite`). A boot names the analyzer as the tool it writes
+-- ([`checked_suite`]). A boot names the analyzer as the tool it writes
 -- does (build/importer.tl's `tree_code`), so that file builds nothing
 -- again: 0.3-0.7 s here. A reparse of every source would take 30-35 s by
 -- the checked cosmic under ci/run-local on a 4-core host, once 41 s.
@@ -520,14 +520,14 @@ end
 
 --- The fixtures (ci/fixtures/<name>_test.tl) whose workers run
 --- sandboxed, where the leg sandboxes its suites, and whose verdicts are
---- shared (`fixture`). Each declares with `Test.needs` every path it
+--- shared (`fixture`). Each declares with [`Test.needs`] every path it
 --- reads by the variable that says where it is -- the product
 --- (COSMIC_FIXTURE_PRODUCT), the runtime setup's directory
 --- (COSMIC_FIXTURE_RUNTIME), the launcher contract's
 --- (COSMIC_FIXTURE_LAUNCHER) or the format decoders'
 --- (COSMIC_FIXTURE_FORMAT) -- so its key holds what each holds, not
 --- where it is. Each declares the product's `cosmic` among them, which
---- `fixture_test` gives it: the bytes the leg attests (`phase_attest`)
+--- [`fixture_test`] gives it: the bytes the leg attests ([`phase_attest`])
 --- are in every verdict's key, so no fixture stands on a verdict another
 --- product reached (orchestration_test.tl holds each to it).
 ---
@@ -554,10 +554,10 @@ Orchestration.sandboxed_fixtures = {
 --- (COSMIC_CI_REQUIRE_SANDBOX, `environment`), keyed by what they declare
 --- where it keys by declaration (COSMIC_CI_DECLARED_KEYS) -- and it
 --- stands on and keeps the verdicts of the file `verdicts` names,
---- `fixtures.db` beside the leg's `verdicts.db` (`suite_verdicts`),
+--- `fixtures.db` beside the leg's `verdicts.db` ([`suite_verdicts`]),
 --- which ci.yml restores and saves with them, and stands on none another
 --- run reached where the leg's suites do not (`stands`). Its project is
---- made afresh each run (`fixture_project`), so what stands is only what
+--- made afresh each run ([`fixture_project`]), so what stands is only what
 --- the shared file holds, under a key that holds what the fixture
 --- declares it reads, the product among them.
 -- TODO: hand a merge-queue run's fixtures.db to the run behind it, as
@@ -612,7 +612,7 @@ end
 --- made of `env`, the operation's (`environment`, its COSMIC_FIXTURE_*
 --- among it), by `fixture`: one of `sandboxed_fixtures` keeps its
 --- verdicts in `fixtures.db` beside the file COSMIC_VERDICT_CACHE of
---- `env` names (`suite_verdicts`), and must be given the product its
+--- `env` names ([`suite_verdicts`]), and must be given the product its
 --- verdicts are keyed by (COSMIC_FIXTURE_PRODUCT); any other shares none.
 function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
     compiles: string): {string:string}
@@ -786,7 +786,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- names no path of the run (asserted above), and its debug sections,
   -- where musl's units still name one, are no part of the key
   -- (build/core_image.tl). It keeps its verdicts in checked.db
-  -- (`suite_verdicts`), and says which key parts a run that stands on
+  -- ([`suite_verdicts`]), and says which key parts a run that stands on
   -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
@@ -962,8 +962,8 @@ function Orchestration.darwin_modules(text: string): {string}
 end
 
 --- The `cosmic test` words of the darwin suite, given `words`, the
---- native suite's (`test_words`), and `modules`, the darwin list's
---- (`darwin_modules`): `--all` over those modules where the native
+--- native suite's ([`test_words`]), and `modules`, the darwin list's
+--- ([`darwin_modules`]): `--all` over those modules where the native
 --- suite stands on verdicts, so none of them stands on one. A verdict
 --- keyed by declarations stands on macOS for the key a Linux leg
 --- reached, whose run never took the macOS branch its code has. Nil on
@@ -978,7 +978,7 @@ function Orchestration.darwin_words(words: {string}, modules: {string}): {string
   return out
 end
 
---- The darwin suite (`darwin_words`), on the macOS leg alone, on the
+--- The darwin suite ([`darwin_words`]), on the macOS leg alone, on the
 --- tree `boot` built, in the native suite's environment, with a row of
 --- its own, "darwin", which says the listed modules ran. A phase of its
 --- own, after `local-boundary`: it writes the working database, which
@@ -1182,7 +1182,7 @@ local function phase_portable(p: PlatformContext): integer
       "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
   else
     -- Where the other suites stand on verdicts (`stands`), it stands on
-    -- its own (`suite_verdicts`), never on the local suite's;
+    -- its own ([`suite_verdicts`]), never on the local suite's;
     -- elsewhere it runs every test, as they do.
     s = suite(portable_context, "portable", executable, portable_d,
       { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",

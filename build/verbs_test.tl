@@ -1,9 +1,9 @@
 --- Command lines that dispatch refuses or runs in this process
---- (`build.invoke`), starting nothing and reading nothing of this
+--- ([`build.invoke`]), starting nothing and reading nothing of this
 --- program beyond their module's closure: a mistyped verb, a worker's
 --- mode, which is main's and not dispatch's, and `-e`'s chunk; and every
---- verb `cosmic.cli` names classified in the tables
---- build/verbs_tool_test.tl holds each one to (`build.verb_cases`).
+--- verb [`cosmic.cli`] names classified in the tables
+--- build/verbs_tool_test.tl holds each one to ([`build.verb_cases`]).
 
 local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
@@ -33,7 +33,7 @@ end
 
 --- A test's worker is cosmic's main's to start (cmd/cosmic/main.tl),
 --- ahead of build.dispatch, so a worker loads none of it: run
---- in-process (`build.invoke`), which is dispatch alone, `test
+--- in-process ([`build.invoke`]), which is dispatch alone, `test
 --- --worker` is `test` refusing an option it does not know.
 local function test_dispatch_starts_no_worker(tmp: string)
   for _, mode in ipairs({ "--worker", "--worker-no-tool", "--worker-held" }) do

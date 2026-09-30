@@ -127,7 +127,7 @@ function Fuzz.failure(next_chunk: function(): string, seed: string): string
     joined(reports, report_lines) .. "~~~~\n"
 end
 
---- The chunks of the file `path` holds, as `Fuzz.failure` reads them,
+--- The chunks of the file `path` holds, as [`Fuzz.failure`] reads them,
 --- until the end, and a function that closes it.
 local type Next = function(): string
 local type Close = function()
@@ -190,7 +190,7 @@ function Fuzz.tail(path: string): {string} | nil
 end
 
 --- What a cancelled run's summary says: the end of the output the run
---- kept, as `Fuzz.tail` answers it, or none when it kept none.
+--- kept, as [`Fuzz.tail`] answers it, or none when it kept none.
 function Fuzz.cancelled_summary(tail: {string} | nil): string
   return "\nCancelled, at the time limit or by hand, before fuzzing finished:" ..
     " a property\nthat hangs is the likeliest cause. The end of its output:\n\n" ..

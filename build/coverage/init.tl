@@ -1,5 +1,5 @@
 --- Turns one run's collected line hits into one module's own map of
---- executable lines, hit or not. `build.test` opens one coverage window
+--- executable lines, hit or not. [`build.test`] opens one coverage window
 --- per test, plus one for each module's one-time load code, and merges
 --- every window's hits into one whole-run table before calling this
 --- module, which sees only that table.
@@ -21,13 +21,13 @@ end
 --- caller writes into `o/build.db`'s `coverage` table, one row per line,
 --- so a line never hit can be named and a percentage is a plain count
 --- over the result (`hit`/`#total`). The lines come from
---- `lines.executable_cached`, keyed by `m.source_hash` in `db`'s
+--- [`lines.executable_cached`], keyed by `m.source_hash` in `db`'s
 --- `executable` table, so a module whose source has not changed since a
 --- previous run is not reparsed. A source that fails to parse, which
 --- should not happen since `m` holds only source that compiled earlier in
 --- the run, returns the parse failure rather than a made-up count.
---- @param db Sqlite.Handle The working database (`work.open`'s `.db`)
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param db Sqlite.Handle The working database ([`work.open`]'s `.db`)
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param m Module The module to compute lines for
 --- @param hits Coverage.Hits Every line hit, by module import path
 --- @return LineHits | nil Every executable line, hit (true) or not (false)

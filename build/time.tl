@@ -2,7 +2,7 @@
 --- the ten-second question ("what is this timestamp in Tokyo?", "how many
 --- days from then to now?") that GNU and BSD `date` answer in different
 --- dialects. Zones come from the tz database the binary carries and the
---- arithmetic from `cosmic.time`, so a command means one thing on Linux,
+--- arithmetic from [`cosmic.time`], so a command means one thing on Linux,
 --- macOS and Windows; only the default zone (the host's own, which
 --- `TZ` and /etc/localtime name) is the host's.
 ---
@@ -43,7 +43,7 @@
 --- `add` moves years and months first, keeping the day of the month and
 --- the local time of day, then days along the calendar, then the exact
 --- hours, minutes and seconds. A month with no such day (January 31 plus
---- 1mo) is refused, `cosmic.time`'s rule; `--clamp` takes the month's last
+--- 1mo) is refused, [`cosmic.time`]'s rule; `--clamp` takes the month's last
 --- day instead (February 28 or 29).
 
 local Cli = require("cosmic.cli")
@@ -53,7 +53,7 @@ local Time = require("cosmic.time")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
---- The `cosmic time` verb: `run` is what `build/dispatch.tl` calls.
+--- The `cosmic time` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
@@ -385,7 +385,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   return written(tostring(value) .. "\n")
 end
 
---- The `time` verb as `build/verb_list.tl` lists it. Reads the clock and
+--- The `time` verb as [`build/verb_list.tl`] lists it. Reads the clock and
 --- the zones the binary carries, never the tree: never stale-checked.
 verb.spec = {
   name = "time",

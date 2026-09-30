@@ -1,7 +1,7 @@
---- Tests of `build.writer`: `write_result` must trust only the projection
+--- Tests of [`build.writer`]: `write_result` must trust only the projection
 --- already sitting at `out`, never a record kept somewhere else. The
 --- working database's own `meta` table can drift from the file on disk:
---- `build/boot.tl` reuses one working database across several output
+--- [`build/boot.tl`] reuses one working database across several output
 --- paths, and a snapshot of `o/build.db` restored after `o/cosmic.db`
 --- moved on both leave a row that no longer describes the file.
 

@@ -1,4 +1,4 @@
---- `build.tree_checks`' `exports` on fixture trees: which exports earn
+--- [`build.tree_checks`]' `exports` on fixture trees: which exports earn
 --- their place, and when an allowance goes stale. The tree's own
 --- exports are held to it by `cosmic fix --check .`, not here.
 
@@ -6,7 +6,7 @@ local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local tree_checks = require("build.tree_checks")
 
---- What `tree_checks.exports` finds in `db` against `excused`: the
+--- What [`tree_checks.exports`] finds in `db` against `excused`: the
 --- exports it refuses, as `<file>:<line>: <module>.<member>`, and the
 --- allowances it finds stale, by name.
 local function judged(db: Sqlite.Handle, excused: {string: string}): {string}, {string}

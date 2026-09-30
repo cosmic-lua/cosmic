@@ -6,7 +6,7 @@
 --- `lead` moves to a node's own starting line, or writes a separator
 --- when the node begins on the line already in progress -- so a line
 --- break survives exactly where the source had one, and so does its
---- absence. `lead_to` moves to a line the renderer indents itself,
+--- absence. [`lead_to`] moves to a line the renderer indents itself,
 --- which is every line that opens a statement. `verbatim` writes a
 --- range of the original bytes out untouched, which is how type syntax
 --- and record bodies are rendered at all.
@@ -52,7 +52,7 @@ local record Ctx
   --- than guessed at: writing something else and calling it the same
   --- program is the one outcome a source rewriter may never have.
   refused: {string}
-  --- A block of statements, rendered. Assigned by `build.fix.render`,
+  --- A block of statements, rendered. Assigned by [`build.fix.render`],
   --- because an expression may hold a function literal whose body is
   --- statements again.
   block: function(Ctx, Node)

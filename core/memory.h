@@ -5,7 +5,7 @@
  * with malloc written out. The checked core (COSMIC_CHECKED, see
  * core/testing_checked.c) counts the bytes and blocks live on it, and
  * draws every growth from the same countdown as the failing Lua
- * allocator, so `testing.fail_allocations` refuses a C allocation where
+ * allocator, so [`testing.fail_allocations`] refuses a C allocation where
  * it would refuse a Lua one: the call returns NULL, and the refusal is
  * counted.
  *

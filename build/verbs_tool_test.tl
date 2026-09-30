@@ -1,4 +1,4 @@
---- Every verb `cosmic.cli` names, held to the same command-line contract:
+--- Every verb [`cosmic.cli`] names, held to the same command-line contract:
 --- an option it does not know and an argument it does not take are
 --- refused with exit 2, and every exit -- a pass, a failure, a refused
 --- command line -- ends in the verb's verdict line. The verbs come from
@@ -8,7 +8,7 @@
 --- its store beyond their module's closure (help, docs, and the verbs'
 --- verdicts run in this process) are in build/verbs_store_test.tl, and
 --- build/verbs_test.tl holds what needs neither, every verb classified
---- among it, over the tables all read (`build.verb_cases`). One case
+--- among it, over the tables all read ([`build.verb_cases`]). One case
 --- here starts nothing -- each verb refusing in this process what it
 --- does not take -- but shares its helpers with the started verbs'
 --- case, so it stays with it.

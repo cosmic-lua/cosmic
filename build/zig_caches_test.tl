@@ -1,4 +1,4 @@
---- build/zig.tl cannot require `build.zig_caches` (it runs standalone),
+--- build/zig.tl cannot require [`build.zig_caches`] (it runs standalone),
 --- so the two spell where zig's caches are apart: they must agree, or a
 --- sandboxed worker would be given a cache where zig does not put it.
 

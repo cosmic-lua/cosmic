@@ -1,4 +1,4 @@
---- `build.invoke`'s runs that read the store beyond this closure
+--- [`build.invoke`]'s runs that read the store beyond this closure
 --- (build/invoke_test.tl holds the rest).
 
 local Store = require("cosmic.store")
@@ -7,8 +7,8 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The whole projection: `help` reads every module's docs through
---- `Store.databases()`, and the run's own count of the databases it
---- searches is `Store.databases()`'s, which a handle on every module's
+--- [`Store.databases()`], and the run's own count of the databases it
+--- searches is [`Store.databases()`]'s, which a handle on every module's
 --- rows answers.
 Test.needs{ store = true }
 

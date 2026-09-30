@@ -41,7 +41,7 @@
 --- vendor/ again, and, since the file is in the image fingerprint
 --- (build/work.tl), the tool boots.
 ---
---- Like `build/zig.tl`, which runs it before every `zig build`, this runs
+--- Like [`build/zig.tl`], which runs it before every `zig build`, this runs
 --- standalone -- against the running binary's own standard library,
 --- never the tree it sits in -- so it requires `cosmic.*` modules only.
 local Fs = require("cosmic.fs")
@@ -179,8 +179,8 @@ local record Input
 end
 
 --- Everything a patched tree is made of, each byte read once, so the
---- name the tree is given (`key_of`) and what is written under it
---- (`write_tree`) are of the same bytes whatever changes meanwhile: the
+--- name the tree is given ([`key_of`]) and what is written under it
+--- ([`write_tree`]) are of the same bytes whatever changes meanwhile: the
 --- vendored tree's directories and regular files, in path order, and its
 --- records, in name order.
 local record Inputs

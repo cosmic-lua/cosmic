@@ -3,7 +3,7 @@ local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local shrink = require("build.fuzz.shrink")
 
---- The report `Fuzz.run` raises for `p`, which must fail.
+--- The report [`Fuzz.run`] raises for `p`, which must fail.
 local function report(p: Fuzz.Property): string
   local ok, err = pcall(Fuzz.run, p)
   assert(not ok, "the property held")

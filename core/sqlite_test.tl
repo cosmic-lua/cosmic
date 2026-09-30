@@ -4,7 +4,7 @@
 --- rather than failing quietly.
 ---
 --- Each test drives a raw handle and statement directly, not the typed
---- helpers `cosmic.sqlite` builds over them, so every C method is held
+--- helpers [`cosmic.sqlite`] builds over them, so every C method is held
 --- to its own promise.
 
 local Fs = require("cosmic.fs")

@@ -6,8 +6,8 @@
 --- buffers a whole archive: a body is read or written in chunks, so an
 --- archive far larger than memory streams through in bounded space.
 --- Compression, when there is any, wraps the underlying
---- `Stream.Reader`/`Stream.Writer` before it reaches this module --
---- see `cosmic.archive`.
+--- [`Stream.Reader`]/[`Stream.Writer`] before it reaches this module --
+--- see [`cosmic.archive`].
 
 local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
@@ -34,7 +34,7 @@ local record Tar
   record Entry
     --- The entry's path as the archive stores it.
     path: string
-    --- What the entry is; see `Kind`.
+    --- What the entry is; see [`Kind`].
     kind: Kind
     --- The permission bits (the low 12).
     mode: integer
@@ -73,7 +73,7 @@ local record Tar
     --- Modification time in Unix epoch seconds; defaults to 0. Ignored
     --- (written as 0) when the writer is `deterministic`.
     mtime: integer
-    --- Required when the body passed to `add_file` is a Stream.Reader rather
+    --- Required when the body passed to [`add_file`] is a Stream.Reader rather
     --- than a string, since a tar header states a size before its body.
     size: integer
   end
@@ -90,7 +90,7 @@ local record Tar
   --- archive is never committed. A call after `close` fails too.
   record Writer
     --- Adds a regular file at `path` with `data` as its body. A
-    --- `Stream.Reader` body is read to `opts.size` bytes, which it then
+    --- [`Stream.Reader`] body is read to `opts.size` bytes, which it then
     --- requires; a string body must match `opts.size` when that is given.
     --- The reader is not closed. Returns `true, ""`, or `false` and why.
     add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: EntryOptions): boolean, string
@@ -110,7 +110,7 @@ end
 
 local BLOCK <const> = 512
 
---- The most of an entry's body read at once, as `cosmic.stream` reads.
+--- The most of an entry's body read at once, as [`cosmic.stream`] reads.
 local chunk_size <const> = 1 << 16
 --- 8^11, what 11 octal digits hold.
 local OCTAL_11_LIMIT <const> = 1 << 33
@@ -251,7 +251,7 @@ local function long_field(data: string): string | nil, string
 end
 
 --- The `key=value` records of a pax extended header body, each
---- prefixed with its own decimal byte length. Only the keys `apply_pax`
+--- prefixed with its own decimal byte length. Only the keys [`apply_pax`]
 --- reads are kept, and every `GNU.sparse.*` key folds into one
 --- valueless `GNU.sparse.` marker, so global (`g`) headers, which last
 --- for the reader's lifetime, retain a handful of values however many
@@ -628,7 +628,7 @@ local function split_ustar(path: string): string, string, boolean
 end
 
 --- A ustar header block. Every entry is owned by uid and gid 0 with no
---- user or group name, as `Tar.WriterOptions` documents.
+--- user or group name, as [`Tar.WriterOptions`] documents.
 local function build_header(name: string, prefix: string, typeflag: string, size: integer,
     mode: integer, mtime: integer, linkname: string): string
   local block = txt(name, 100) .. oct(mode, 8) .. oct(0, 8) .. oct(0, 8) ..

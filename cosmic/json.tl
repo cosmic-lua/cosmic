@@ -42,14 +42,14 @@
 --- default: a null-valued key is absent, and a null in an array leaves
 --- a hole. Two opt-in escapes close the round trip:
 ---
---- - `decode(text, { null_value = Json.null })` puts `Json.null` where
----   the text says `null`, and `Json.null` encodes as `null`.
+--- - `decode(text, { null_value = Json.null })` puts [`Json.null`] where
+---   the text says `null`, and [`Json.null`] encodes as `null`.
 --- - `encode(value, { sparse_as_null = true })` writes an array's
 ---   holes as `null`; without it, an array with a hole is an error,
 ---   never a silent truncation.
 ---
---- A decoded array carries a mark (`Json.is_array`), so an empty `[]`
---- encodes back as `[]` and not `{}`; `Json.array` marks a table you
+--- A decoded array carries a mark ([`Json.is_array`]), so an empty `[]`
+--- encodes back as `[]` and not `{}`; [`Json.array`] marks a table you
 --- build. An unmarked table is an object when every key is a string, an
 --- array when every key is an integer from 1 up, and an error when its
 --- keys mix the two or are anything else.
@@ -58,15 +58,15 @@
 --- { pretty = true })` dumps a value and `Json.describe(v)` summarizes
 --- its shape, keys sorted, each array as its length and one merged
 --- element shape. `Json.get(v, { "a", 1, "b" })` reaches into it, and
---- `Json.entries` and `Json.items` narrow an object or an array so a
+--- [`Json.entries`] and [`Json.items`] narrow an object or an array so a
 --- caller can `pairs` or `ipairs` it without a cast.
 ---
---- `Json.quote` and `Json.child_path` spell a key or a path (`$.rows[2]`)
---- in a message of your own, and `Json.parse_path` reads one back.
---- `Json.flatten` lists every leaf of a value as such a path and its
---- value, gron-style, and `Json.flat_line` prints one as `$.a[1] = 2`;
---- `Json.parse_pattern` reads a path with `*` and `..` in it, and
---- `Json.select` lists what it matches.
+--- [`Json.quote`] and [`Json.child_path`] spell a key or a path (`$.rows[2]`)
+--- in a message of your own, and [`Json.parse_path`] reads one back.
+--- [`Json.flatten`] lists every leaf of a value as such a path and its
+--- value, gron-style, and [`Json.flat_line`] prints one as `$.a[1] = 2`;
+--- [`Json.parse_pattern`] reads a path with `*` and `..` in it, and
+--- [`Json.select`] lists what it matches.
 ---
 --- Duplicate keys are allowed, and the last one stands. Encoded
 --- objects list their keys in byte order unless `sorted = false`, so
@@ -101,8 +101,8 @@ local record Json
     --- lists them in table order, which is faster and differs run to
     --- run.
     sorted: boolean
-    --- How many arrays and objects may nest, 1 to `Json.depth_limit`
-    --- (1000; default `Json.default_depth`, 64). A table that contains
+    --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
+    --- (1000; default [`Json.default_depth`], 64). A table that contains
     --- itself fails here.
     max_depth: integer
     --- Write NaN and the infinities as `null` rather than failing
@@ -122,10 +122,10 @@ local record Json
   --- What `decode` may be told. Every field is optional.
   record DecodeOptions
     --- What to put where the text says `null`, so a Lua table can hold
-    --- it. `Json.null` is the usual choice: it encodes back as `null`.
+    --- it. [`Json.null`] is the usual choice: it encodes back as `null`.
     null_value: any
-    --- How many arrays and objects may nest, 1 to `Json.depth_limit`
-    --- (1000; default `Json.default_depth`, 64).
+    --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
+    --- (1000; default [`Json.default_depth`], 64).
     max_depth: integer
     --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
     --- Infinity decode to the float they name.
@@ -150,7 +150,7 @@ local record Json
     lone_surrogates: boolean
   end
 
-  --- The values of a JSON Lines Reader, one at a time: see `Json.lines`.
+  --- The values of a JSON Lines Reader, one at a time: see [`Json.lines`].
   record Lines
     --- The next value, and ""; nil and "" after the last; nil and why
     --- when a line is not JSON, runs past the limit, or the Reader
@@ -186,7 +186,7 @@ local record Json
     "deep_any"
   end
 
-  --- One step of a pattern (`Json.parse_pattern`): `key` is set for
+  --- One step of a pattern ([`Json.parse_pattern`]): `key` is set for
   --- `key` and `deep_key`, `index` for `index` and `deep_index`.
   record Step
     --- Which step this is.
@@ -197,7 +197,7 @@ local record Json
     index: integer
   end
 
-  --- A value and the path it was found at, spelled as `child_path`
+  --- A value and the path it was found at, spelled as [`child_path`]
   --- spells it: what `flatten` and `select` answer.
   record Located
     --- Where the value was found.
@@ -209,8 +209,8 @@ local record Json
   --- What `flatten` and `select` may be told. Every field is optional.
   record WalkOptions
     --- How many arrays and objects may nest below the value walked,
-    --- 1 to `Json.depth_limit` (default `Json.default_depth`, 64), as
-    --- `EncodeOptions.max_depth` counts. Deeper fails the walk.
+    --- 1 to [`Json.depth_limit`] (default [`Json.default_depth`], 64), as
+    --- [`EncodeOptions.max_depth`] counts. Deeper fails the walk.
     max_depth: integer
     --- The path to spell for the value itself (default `"$"`): give
     --- the path a value was found at, so its leaves spell in full.
@@ -248,7 +248,7 @@ end
 --- naming the line and column, when the text is not one JSON value or
 --- nests past `max_depth`. The value is `any`: when the text is from
 --- outside, narrow it with `is` before trusting its shape, or use
---- `decode_object` or `decode_array`, which check the outermost one.
+--- [`decode_object`] or [`decode_array`], which check the outermost one.
 function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
     return raw.decode(text)
@@ -294,7 +294,7 @@ function Json.decode_array(text: string, opts?: Json.DecodeOptions): {any} | nil
 end
 
 --- Serializes `value` as JSON text, and "". nil and a message when it
---- holds a function, userdata other than `Json.null`, NaN or an infinity,
+--- holds a function, userdata other than [`Json.null`], NaN or an infinity,
 --- a string that is not UTF-8, a table whose keys are neither all strings
 --- nor all integers from 1 up, an array with a hole, or nesting past
 --- `max_depth`. The message says where, as a path from the value:
@@ -312,8 +312,8 @@ end
 --- in a marked array, and "". A blank line is skipped, and a line may
 --- end in `\r\n`. nil and a message naming the line when one is not
 --- JSON. `opts` applies to every line; a `null` line leaves a hole
---- unless `null_value` is given. `Json.lines` reads them from a
---- `cosmic.stream` Reader instead, one at a time, in bounded memory.
+--- unless `null_value` is given. [`Json.lines`] reads them from a
+--- [`cosmic.stream`] Reader instead, one at a time, in bounded memory.
 function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil, string
   local values = raw.array()
   local number = 0
@@ -337,12 +337,12 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
 end
 
 --- The values of JSON Lines read from `reader` a line at a time, as
---- `decode_lines` reads them from text: a blank line is skipped, a line
+--- [`decode_lines`] reads them from text: a blank line is skipped, a line
 --- may end in `\r\n`, and a line that is not JSON is named by its
---- number, as there. A `null` line reads as `Json.null`, or as
+--- number, as there. A `null` line reads as [`Json.null`], or as
 --- `opts.null_value` when that is given, so a value is never taken for
 --- the end. A line longer than `max` bytes
---- (1 MiB by default) fails, as `Stream.lines` says, and a `max` that
+--- (1 MiB by default) fails, as [`Stream.lines`] says, and a `max` that
 --- is no integer of at least 1 raises. `reader` is not closed.
 ---
 ---     local lines = Json.lines(reader)
@@ -408,7 +408,7 @@ end
 --- Writes `value` to `writer` as one line of JSON Lines: its compact
 --- JSON and a newline, and true and "". False and why when the value
 --- cannot be encoded, nothing written then, or the write fails. Raises
---- when `pretty` is true, as `encode_lines` does.
+--- when `pretty` is true, as [`encode_lines`] does.
 function Json.write_line(writer: Stream.Writer, value: any, opts?: Json.EncodeOptions): boolean, string
   local text, err = Json.encode(value, line_encode_options(opts))
   if text == nil then return false, err end
@@ -443,7 +443,7 @@ function Json.array(t?: {any}): {any}
 end
 
 --- Whether `v` is a table marked as a JSON array: one `decode` built,
---- or one `Json.array` marked.
+--- or one [`Json.array`] marked.
 function Json.is_array(v: any): boolean
   return raw.is_array(v)
 end
@@ -500,7 +500,7 @@ end
 --- every control character a `\u` escape, so a key or a value reads in
 --- a message as it did in the text. It is for messages and is not a
 --- JSON encoder: it answers for any bytes, UTF-8 or not, where `encode`
---- refuses what is not UTF-8. Use `Json.encode` to write JSON.
+--- refuses what is not UTF-8. Use [`Json.encode`] to write JSON.
 function Json.quote(s: string): string
   return '"' .. s:gsub('[%c"\\]', function(c: string): string
     if c == '"' or c == "\\" then return "\\" .. c end
@@ -509,7 +509,7 @@ function Json.quote(s: string): string
 end
 
 --- The path of `step` under `path`, as `encode` writes where it failed:
---- `.name` for a key that is a word, `["a key"]` (quoted as `Json.quote`
+--- `.name` for a key that is a word, `["a key"]` (quoted as [`Json.quote`]
 --- does) for one that is not, and `[3]` for an array index, counted from
 --- 1. `path` is `"$"` for the document itself, so
 --- `Json.child_path(Json.child_path("$", "rows"), 2)` is `$.rows[2]`.
@@ -530,7 +530,7 @@ local function hex_value(digits: string): integer
   error("json: not hex digits: " .. digits)
 end
 
---- The steps of a path or a pattern, for `parse_path` and
+--- The steps of a path or a pattern, for [`parse_path`] and
 --- `parse_pattern`: `wild` says whether `*` and `..` are read, or refused
 --- as belonging to a pattern.
 local function read_steps(text: string, wild: boolean): {Json.Step} | nil, string
@@ -685,9 +685,9 @@ local function read_steps(text: string, wild: boolean): {Json.Step} | nil, strin
   return steps, ""
 end
 
---- The steps of a path written as `child_path` spells one, for a
+--- The steps of a path written as [`child_path`] spells one, for a
 --- caller that takes a path as text (`cosmic json`): the steps for
---- `Json.get`, and "", or nil and a message naming the column where
+--- [`Json.get`], and "", or nil and a message naming the column where
 --- the text stopped being a path. `$` is the document and may start
 --- the text; then each step is `.name` (a key, up to the next `.` or
 --- `[`), `[3]` (an array index, counted from 1 as `get` counts) or
@@ -699,7 +699,7 @@ end
 --- `.`, or has an unclosed `[`, or an index that does not fit an
 --- integer, or a lone surrogate escape, is refused; it never raises.
 --- `*` (as `.*` or `[*]`) and `..` are refused too, by name, since a
---- path names one value: `parse_pattern` reads them. A key named `*`
+--- path names one value: [`parse_pattern`] reads them. A key named `*`
 --- is `["*"]`.
 ---
 ---     local steps = assert(Json.parse_path('$.rows[2]["a key"]'))
@@ -718,22 +718,22 @@ function Json.parse_path(text: string): {string | integer} | nil, string
 end
 
 --- A path that may name many values, as text: every form
---- `parse_path` reads, and `*` (as `.*` or `[*]`), every member of an
+--- [`parse_path`] reads, and `*` (as `.*` or `[*]`), every member of an
 --- object or element of an array, and `..` (recursive descent):
 --- `..name`, `..["a key"]`, `..[3]` and `..*` are that key, index or
 --- every value at any depth below, the level the pattern has reached
 --- included. `$..id` is every `id` in a document, wherever it is, and
 --- `$.users[*].name` every user's name. A key named `*` is `["*"]`, and
 --- a `*` inside a longer name is a key (`.a*`). The steps carry a kind
---- (`Json.Step`), and `Json.select` matches them. A text that is
---- no pattern is refused as `parse_path` refuses it, and it never
---- raises. `Json.spell_pattern` writes steps as text that reads back as
+--- ([`Json.Step`]), and [`Json.select`] matches them. A text that is
+--- no pattern is refused as [`parse_path`] refuses it, and it never
+--- raises. [`Json.spell_pattern`] writes steps as text that reads back as
 --- themselves.
 ---
 --- Only what is spelled above: JSONPath's filters (`[?(@.price < 10)]`),
 --- slices (`[1:3]`) and unions (`[1,2]`) are left out on purpose, as
 --- `cosmic json` is a lookup and no query language; `cosmic json --flat`
---- with `grep`, or a script over `Json.select`, does what they would.
+--- with `grep`, or a script over [`Json.select`], does what they would.
 ---
 ---     local pattern = (assert(Json.parse_pattern("$..price")))
 ---     assert(pattern[1].kind == "deep_key" and pattern[1].key == "price")
@@ -741,11 +741,11 @@ function Json.parse_pattern(text: string): {Json.Step} | nil, string
   return read_steps(text, true)
 end
 
---- `pattern` as text `parse_pattern` reads back as the same steps, for
+--- `pattern` as text [`parse_pattern`] reads back as the same steps, for
 --- any keys and integers: `$.users[*]..["a key"]`, and `$` for no steps.
---- It is `child_path` for a plain step, `.*` for `any`, and for a `deep_`
+--- It is [`child_path`] for a plain step, `.*` for `any`, and for a `deep_`
 --- step `..name` (or `..["a key"]` for a key that is not a word), `..[3]`
---- and `..*`. Raises for a step whose kind is not one of `Json.StepKind`,
+--- and `..*`. Raises for a step whose kind is not one of [`Json.StepKind`],
 --- or that lacks the key or index its kind needs.
 function Json.spell_pattern(pattern: {Json.Step}): string
   local text = "$"
@@ -852,7 +852,7 @@ end
 --- style, when a key is missing, a step meets a value that is not an
 --- object or array as the step needs (by the rules `entries` and
 --- `items` apply), or an index is out of range:
---- `$.users[5]: index out of range, the array has 3`. `Json.null` is a
+--- `$.users[5]: index out of range, the array has 3`. [`Json.null`] is a
 --- value like any other at the end of the path, and reaching through
 --- it is an error: `$.a: expected an object, got null`. A key whose
 --- value decoded to nil (a `null` without `null_value`) is missing, as
@@ -878,7 +878,7 @@ end
 --- it, as a map to loop over with `pairs`, and "". nil and a message
 --- when it is anything else, naming the path when one is given
 --- (`$.a: expected a JSON object, got array`). An empty table that no
---- `Json.array` mark or decoded `[]` made an array is an object, as
+--- [`Json.array`] mark or decoded `[]` made an array is an object, as
 --- `encode` writes it.
 function Json.entries(value: any, path?: {string | integer}): {string:any} | nil, string
   local at = ""
@@ -900,7 +900,7 @@ end
 --- The array `value` is, or the one at `path` under it as `get` finds
 --- it, as a list to loop over with `ipairs`, and "". nil and a message
 --- when it is anything else, naming the path when one is given. A
---- table counts as an array when it carries the mark (`Json.is_array`)
+--- table counts as an array when it carries the mark ([`Json.is_array`])
 --- or has integer keys from 1 up and no others; an unmarked empty
 --- table is an object, so it fails here, as `encode` writes it `{}`.
 ---
@@ -942,7 +942,7 @@ local function walk_options(opts: Json.WalkOptions | nil): integer, string
   return limit, root
 end
 
---- What the container `v` is, by the rules `table_kind` applies ("array",
+--- What the container `v` is, by the rules [`table_kind`] applies ("array",
 --- "object", "hole" or "mixed"), the keys `flatten` and `select` visit
 --- its members by, and its extent. An object's keys are its string keys,
 --- sorted; a hole's are its integer keys, sorted, so the elements around
@@ -950,7 +950,7 @@ end
 --- no key list is made for one. A marked array (a decoded one) may hold
 --- holes where a `null` was dropped, so `rawlen` is only a border of it
 --- and its extent is its highest integer key. This is one pass over the
---- keys, where `table_kind` is another.
+--- keys, where [`table_kind`] is another.
 local function layout(v: {any:any}): string, {string | integer}, integer
   if raw.is_array(v) then
     local extent = 0
@@ -981,19 +981,19 @@ local function layout(v: {any:any}): string, {string | integer}, integer
 end
 
 --- Every leaf of `value` as a path and its value, in a list, and "":
---- a scalar, `Json.null`, or an empty object or array, which is itself
---- a leaf (that value, whose `flat_line` is `{}` or `[]`). The paths
---- are `child_path`'s, from `$` (`opts.root`), so each one is what
---- `parse_path` reads and `get` follows back to its leaf. The order is
+--- a scalar, [`Json.null`], or an empty object or array, which is itself
+--- a leaf (that value, whose [`flat_line`] is `{}` or `[]`). The paths
+--- are [`child_path`]'s, from `$` (`opts.root`), so each one is what
+--- [`parse_path`] reads and `get` follows back to its leaf. The order is
 --- fixed: an object's keys sorted, an array's elements by index, and a
 --- container's leaves before the next one's, so the same value always
 --- flattens to the same list. A hole in an array (a decoded `null`
 --- without `null_value`) is not a leaf, and its neighbours keep their
 --- indexes. A scalar `value` is one leaf, at `$`. nil and a message
 --- naming the path when nesting passes `max_depth` (default
---- `Json.default_depth`), a table contains itself, or a table's keys mix
+--- [`Json.default_depth`]), a table contains itself, or a table's keys mix
 --- strings and integers or are neither, as `encode` would refuse it.
---- Raises when `max_depth` is not an integer from 1 to `Json.depth_limit`.
+--- Raises when `max_depth` is not an integer from 1 to [`Json.depth_limit`].
 ---
 ---     local doc = assert(Json.decode('{"a": [1, {"b": []}]}'))
 ---     for _, leaf in ipairs((assert(Json.flatten(doc)))) do
@@ -1047,8 +1047,8 @@ function Json.flatten(value: any, opts?: Json.WalkOptions): {Json.Located} | nil
 end
 
 --- One line of `flatten`'s output: `path`, ` = `, and `value` as
---- compact `Json.encode` writes it, so `$.a[1].b = 1200.5`. The path is
---- what `Json.parse_path` reads and `cosmic json` takes, so a line found
+--- compact [`Json.encode`] writes it, so `$.a[1].b = 1200.5`. The path is
+--- what [`Json.parse_path`] reads and `cosmic json` takes, so a line found
 --- with `grep` gives its path back to `cosmic json '<path>'`, and a
 --- path ends where the first ` = ` outside a quoted key does. nil and
 --- the message of `encode` when `value` cannot be encoded.
@@ -1063,7 +1063,7 @@ local function is_deep(sk: Json.StepKind): boolean
   return sk == "deep_key" or sk == "deep_index" or sk == "deep_any"
 end
 
---- Every value `pattern` (from `parse_pattern`) matches under `value`, as
+--- Every value `pattern` (from [`parse_pattern`]) matches under `value`, as
 --- a path and the value, in a list, and "": `[]` when nothing matches,
 --- with no failure. Paths are concrete (`$.users[2].name`, never `*`),
 --- as `flatten`'s are, and each value is listed once however many ways
@@ -1078,8 +1078,8 @@ end
 --- naming the path when nesting passes `max_depth` where the pattern
 --- goes, a table contains itself, or a table's keys mix strings and
 --- integers, as `flatten` fails. Raises when `max_depth` is not an
---- integer from 1 to `Json.depth_limit`, or a step is not one
---- `parse_pattern` makes.
+--- integer from 1 to [`Json.depth_limit`], or a step is not one
+--- [`parse_pattern`] makes.
 ---
 ---     local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
 ---     local found = assert(Json.select(doc, (assert(Json.parse_pattern("$..id")))))
@@ -1323,7 +1323,7 @@ end
 --- length as `min..max` when merged arrays differ, `[0]` when empty),
 --- so a long array costs no more to read than a short one. Scalars are
 --- `string`, `number` (integer or float), `boolean` and `null`
---- (`Json.null`, or a hole). Past `max_depth` nesting a container is
+--- ([`Json.null`], or a hole). Past `max_depth` nesting a container is
 --- `{...}` or `[n x ...]`, and `max_depth` is bounded by the stack, as
 --- the walk recurses once per level. Beyond `string`, `number`, `boolean`
 --- and `null`, a Lua value that is no JSON prints as its type,

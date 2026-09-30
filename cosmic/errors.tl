@@ -118,10 +118,10 @@ local function guidance_lines(head: string, text: string): string
 end
 
 --- What the catalog of the one database `handle` says beneath an
---- uncaught error's `message`, in the lines `Errors.guidance` prints: the
+--- uncaught error's `message`, in the lines [`Errors.guidance`] prints: the
 --- best row's guidance, or nil when it has none -- no catalog, no row
 --- sharing two or more significant words with the message, or no
---- guidance on the row it shares them with. `Errors.guidance` asks each
+--- guidance on the row it shares them with. [`Errors.guidance`] asks each
 --- database the store holds in turn.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
   local query = catalog_query(message)

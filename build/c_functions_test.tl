@@ -1,4 +1,4 @@
---- `build.c_functions.tally` against made-up functions and hits, so the
+--- [`build.c_functions.tally`] against made-up functions and hits, so the
 --- rules hold whatever C the core has today.
 
 local type Coverage = require("cosmic.coverage")

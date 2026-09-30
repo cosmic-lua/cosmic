@@ -1,6 +1,6 @@
 --- What a test may read: its effective inputs, the default ones its
 --- module's place in the tree gives it and the ones its module declares
---- (`build.inputs`).
+--- ([`build.inputs`]).
 ---
 --- A test's default inputs are
 ---
@@ -8,8 +8,8 @@
 ---   the file of every module it requires, directly or not, as the
 ---   build's module graph has them, or the declaration file of one
 ---   only a declaration answers for;
---- - every fuzz corpus (`testdata/fuzz/`, where `build.fuzz` looks),
----   when the closure holds `build.fuzz`; and
+--- - every fuzz corpus (`testdata/fuzz/`, where [`build.fuzz`] looks),
+---   when the closure holds [`build.fuzz`]; and
 --- - a pinned environment, `pinned_env`: what the checker and the
 ---   fuzzer read of it, and what a process of this program needs.
 ---
@@ -20,10 +20,10 @@
 --- and the system's own programs and files (`system`).
 ---
 --- Whatever it declares, a worker lets a test `require` no module of the
---- tree outside the closure (`build.test_worker`'s `refusal`). A
+--- tree outside the closure ([`build.test_worker`]'s `refusal`). A
 --- sandboxed worker is held to all the declared inputs
---- (`build.test_sandbox`), and its verdict keyed by them
---- (`build.declared_key`). An unsandboxed one is held to nothing more,
+--- ([`build.test_sandbox`]), and its verdict keyed by them
+--- ([`build.declared_key`]). An unsandboxed one is held to nothing more,
 --- and keyed by them all the same. A sandboxed test that reads what it
 --- does not declare finds nothing there, and fails with its own error.
 
@@ -56,14 +56,14 @@ local record test_inputs
     network: {string:boolean}
     tool: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
-    --- starts may have a root of its own (`cosmic.test`'s `nests`).
+    --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
     nests: boolean
     store: boolean
     --- Whether its worker is given the system's own paths
-    --- (`confine.worker_unveil`), and its key the host's packages
-    --- and system (`declared_key.system_identity`).
+    --- ([`confine.worker_unveil`]), and its key the host's packages
+    --- and system ([`declared_key.system_identity`]).
     system: boolean
-    --- The host caches declared, by name (`build.caches`), and where
+    --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
     --- then.
     caches: {string}
@@ -86,29 +86,29 @@ end
 --- The variables every test may read undeclared, which a sandboxed
 --- worker is given pinned: what the checker and the fuzzer read, how a
 --- test of the sandbox itself confines what it starts (COSMIC_SANDBOX,
---- `confine.must_confine`), and what a process of the program
+--- [`confine.must_confine`]), and what a process of the program
 --- running the tests reads to run at all
---- (`this_program.runtime_environment`).
+--- ([`this_program.runtime_environment`]).
 local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
   "COSMIC_SANDBOX" }
 for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
---- Where `build.fuzz` keeps the corpus of every property.
+--- Where [`build.fuzz`] keeps the corpus of every property.
 local corpora <const> = "testdata/fuzz/"
 
 --- Every module `m` requires, directly or not, and itself, that `by_path`
 --- holds -- a module the binary carries rather than the tree is no file
 --- of it -- as the files they are read from, sorted; and the declaration
 --- file of each it requires that only `declarations`, the tree's
---- declaration files by import path, answers for. Whether `build.fuzz`
+--- declaration files by import path, answers for. Whether [`build.fuzz`]
 --- is among them rides along, and so do the modules' names, sorted.
 ---
 --- `requires` holds only the literal names handed to `require` itself,
---- so a `require` of a computed name -- or, until `build.ast.requires`
+--- so a `require` of a computed name -- or, until [`build.ast.requires`]
 --- follows it (the TODO in build/embed.tl), of a literal one through
 --- `pcall(require, ...)` -- is not followed: the worker refuses one
 --- that names a module of the tree outside this closure
---- (`build.test_worker`), so the miss fails the test rather than
+--- ([`build.test_worker`]), so the miss fails the test rather than
 --- leaving its key short.
 ---
 --- The compiler -- `vendor.tl`, derived from vendor/tl/ and its
@@ -116,7 +116,7 @@ local corpora <const> = "testdata/fuzz/"
 --- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
 --- parse follows it: a key over the closure holds it apart, by its
 --- bytecode, in the address of the closure store that carries it beside
---- build.teal (`build.closure_store`'s `loaded_beside`), as it holds every
+--- build.teal ([`build.closure_store`]'s `loaded_beside`), as it holds every
 --- module of the closure by what the compiler made of it.
 local function closure(m: Module, by_path: {string:Module},
                        declarations: {string:string}): {string}, boolean, {string}
@@ -160,7 +160,7 @@ function test_inputs.modules(m: Module, by_path: {string:Module},
 end
 
 --- The name of the variable a `host` path is declared by, `$NAME` or
---- `$NAME/path` (see `cosmic.test`), whose rest follows it at `#name +
+--- `$NAME/path` (see [`cosmic.test`]), whose rest follows it at `#name +
 --- 2`; "" for a path written out.
 local function variable_of(path: string): string
   local name, rest = path:match("^%$([%a_][%w_]*)(.*)$")
@@ -299,7 +299,7 @@ end
 --- declared in `spelled`, and notes where each variable it declares is
 --- in `located`. `unresolved` says why a path cannot be given: see
 --- `resolved`, whose `roots` this takes, or it is a directory, but for
---- /proc, which `cosmic.test`'s `host` never names.
+--- /proc, which [`cosmic.test`]'s `host` never names.
 function test_inputs.resolve(effective: test_inputs.Effective, environment: {string:string},
                              roots: {string})
   local host: {string} = {}
@@ -382,7 +382,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
 end
 
 --- What a `needs` call was handed, as the build reads a declaration
---- (`build.analyzer`), for `canonical`: nil for none.
+--- ([`build.analyzer`]), for `canonical`: nil for none.
 function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared | nil
   if needs == nil then return nil end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},

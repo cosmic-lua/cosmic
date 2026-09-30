@@ -628,7 +628,7 @@ local function test_lone_surrogates_read_as_the_replacement_character()
   assert(still:find("invalid literal", 1, true), still)
 end
 
---- Every value `Json.lines` reads, and why it stopped.
+--- Every value [`Json.lines`] reads, and why it stopped.
 local function stream_values(text: string, opts?: Json.DecodeOptions, max?: integer): {any}, string
   local lines = Json.lines(Stream.from_string(text), opts, max)
   local got: {any} = {}
@@ -645,7 +645,7 @@ local function test_lines_reads_json_lines_from_a_reader()
   assert(got[3] == "four")
 end
 
---- A null line is a value, never the end: `Json.null` by default, or
+--- A null line is a value, never the end: [`Json.null`] by default, or
 --- the `null_value` given.
 local function test_lines_reads_a_null_line_as_a_value()
   local got, trouble = stream_values("1\nnull\n2\n")
@@ -1233,7 +1233,7 @@ local function test_spell_pattern_reads_back_as_the_same_steps()
   assert(not pcall(Json.spell_pattern, { { kind = "key" } }))
 end
 
---- The paths `Json.select` finds for `pattern` in `doc`, joined by spaces.
+--- The paths [`Json.select`] finds for `pattern` in `doc`, joined by spaces.
 local function selected(doc: any, pattern: string): string
   local found, err = Json.select(doc, pat(pattern))
   assert(found ~= nil, pattern .. ": " .. err)

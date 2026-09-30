@@ -1,6 +1,6 @@
 --- The declaration of the syscall table, derived from its header.
 ---
---- `core/syscalls.h` carries one annotation block per call, in the
+--- [`core/syscalls.h`] carries one annotation block per call, in the
 --- LuaCATS grammar, followed by the macro that names it. This turns
 --- those blocks into the Teal record the rest of the tree checks
 --- against, with each block's prose as the doc comment `cosmic docs`
@@ -376,7 +376,7 @@ function generator.read(header: string): Declarations | nil, string
   end
   -- core/syscalls.c registers every COSMIC_CONSTANT in the header, so
   -- one anywhere but after the `Constants` block, where
-  -- `constants_follow` holds it to a field, would be set undeclared.
+  -- [`constants_follow`] holds it to a field, would be set undeclared.
   local declared = 0
   for _, class in ipairs(classes) do
     if class.name == "Constants" then
@@ -438,7 +438,7 @@ local function signature(call: Call): string
   return text
 end
 
---- The public syscall table, `cosmic.sys`.
+--- The public syscall table, [`cosmic.sys`].
 local syscalls_target: Target = {
   header = "core/syscalls.h",
   record_name = "sys",
@@ -448,7 +448,7 @@ local syscalls_target: Target = {
   },
 }
 
---- The raw process table, `cosmic.internal.process`, which only the
+--- The raw process table, [`cosmic.internal.process`], which only the
 --- wrappers core/store.c's `raw_modules` names are handed.
 local process_target: Target = {
   header = "core/process.h",
@@ -459,8 +459,8 @@ local process_target: Target = {
   },
 }
 
---- The raw socket table, `cosmic.internal.socket`, which only
---- `cosmic.net` is handed.
+--- The raw socket table, [`cosmic.internal.socket`], which only
+--- [`cosmic.net`] is handed.
 local socket_target: Target = {
   header = "core/socket.h",
   record_name = "socket",
@@ -479,7 +479,7 @@ generator.targets = {
 }
 
 --- The Teal declaration of the module the header describes: `target`'s
---- (by default the syscall table's, `cosmic.sys`).
+--- (by default the syscall table's, [`cosmic.sys`]).
 --- @param header the whole text of the target's header
 function generator.declaration(header: string, target?: Target): string | nil, string
   target = target or syscalls_target

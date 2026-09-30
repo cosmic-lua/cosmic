@@ -99,8 +99,8 @@ end
 --- in it, because the compiler names it only inside the declaration
 --- text it carries for Lua's own standard library and never calls it.
 --- This is the compiler's private bootstrap environment, not a program's
---- runtime surface: `environment_for` removes io, os and debug from the
---- checker, and `core/surface.c` removes the same names at execution.
+--- runtime surface: [`environment_for`] removes io, os and debug from the
+--- checker, and [`core/surface.c`] removes the same names at execution.
 local function compiler_environment(): {string:any}
   local environment: {string:any} = {
     io = {
@@ -148,7 +148,7 @@ end
 --- but whose errors and tracebacks name no line of it. Under Lua's line
 --- hook -- a test's coverage -- the VM finds the line of each
 --- instruction a function with line information runs, which is most of
---- what the hook costs (`build/compiler_test.tl`).
+--- what the hook costs ([`build/compiler_test.tl`]).
 function teal.load(strip?: boolean): compiler | nil, string
   local bytes, trouble = Store.bytecode("vendor.tl")
   if bytes == nil then
@@ -168,19 +168,19 @@ function teal.load(strip?: boolean): compiler | nil, string
 end
 
 --- A compiler that loads on first use. Most runs never touch it: when
---- `build.importer` answers every module and coverage line from its
+--- [`build.importer`] answers every module and coverage line from its
 --- caches, nothing asks the compiler to parse, check or generate, and
 --- loading its bytecode up front is waste.
 ---
---- The result is an empty table whose metatable calls `teal.load` on the
+--- The result is an empty table whose metatable calls [`teal.load`] on the
 --- first field read or written and keeps what it loaded. A write lands
 --- on the loaded compiler, never the capsule: tl reaches its own
 --- `search_module` and `path` through its module table, so `serve`'s
---- overrides must land there. A load failure raises `teal.load`'s
+--- overrides must land there. A load failure raises [`teal.load`]'s
 --- message through `error(_, 0)`, so a broken binary says "the compiler
 --- is not in this binary: ..." rather than showing a nil-index
 --- traceback.
---- @return compiler usable wherever `teal.load`'s result is: the same
+--- @return compiler usable wherever [`teal.load`]'s result is: the same
 ---   untyped table cast to the declared surface, deferred to first use
 function teal.lazy(): compiler
   local loaded: {any:any}
@@ -277,7 +277,7 @@ end
 
 --- A checker environment pointed at a staged tree (see `serve`), with
 --- the strictness this project holds itself to and without the names
---- cosmic's runtime surface removes (`cosmic.removed`'s `order`). tl's
+--- cosmic's runtime surface removes ([`cosmic.removed`]'s `order`). tl's
 --- bundled standard-library declarations carry `io`, `os` and `debug`
 --- as ordinary globals, since tl cannot know cosmic's runtime lacks
 --- them, so a program reaching for one would type-check and fail only
@@ -286,7 +286,7 @@ end
 --- that is a module there), so the checker reports tl's own "unknown
 --- variable" or "module not found".
 ---
---- Takes the working database and the tree's root, not `build.work`'s
+--- Takes the working database and the tree's root, not [`build.work`]'s
 --- handle: a require of build.work would carry the rest of it into the
 --- compiler's identity (`compiler_identity` in build.work), of which
 --- this module is a root.
@@ -477,7 +477,7 @@ local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
 end
 
 --- The hint for the assignment refused at `y`:`x` of `source` for a
---- number where an integer was expected: see `teal.replacement`.
+--- number where an integer was expected: see [`teal.replacement`].
 local function integer_hint(source: string, y: integer, x: integer): string | nil
   -- Each refused assignment reparses the file: only a file that already
   -- fails pays for it.
@@ -507,19 +507,19 @@ local function integer_hint(source: string, y: integer, x: integer): string | ni
 end
 
 --- What to write instead, when `msg` is the checker refusing a name
---- `environment_for` stripped or a member `cosmic.removed` lists; nil
+--- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
 --- for any other message. `y` and `x` are the line and column in
 --- `source` where the checker reported it.
 ---
 --- `unknown variable: os` is read together with the field that follows
---- it there (`os.getenv` names `Env.get`); `module not found: 'io'`
---- answers a `require`. The answer is `cosmic.removed`'s `message`, the
---- words `core/surface.c` raises with when a running program reaches
+--- it there (`os.getenv` names [`Env.get`]); `module not found: 'io'`
+--- answers a `require`. The answer is [`cosmic.removed`]'s `message`, the
+--- words [`core/surface.c`] raises with when a running program reaches
 --- for the name.
 ---
 --- `invalid key 'hex' in record 'Digest' of type Hash` and `unknown
 --- type Zip.ZipReader` (`cosmic.zip.ZipReader`, a type the module no
---- longer declares) are answered from `cosmic.removed`'s `members` when
+--- longer declares) are answered from [`cosmic.removed`]'s `members` when
 --- `source` binds the type's own name (`Hash`) to `require("cosmic.hash")`.
 --- The checker names a module's record after the local its `require` was
 --- first bound to, whatever alias reads it now. There is no answer for a

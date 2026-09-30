@@ -24,7 +24,7 @@ local parse_rows = parses_fixture.rows
 --- The project every case builds: `a` requires `b`, which requires
 --- `c`; `c` documents a record and its field, `b` reads that field, and
 --- the guide is extracted to a test module whose example's line is the
---- guide's own (`build.importer`'s `origin_lines`).
+--- guide's own ([`build.importer`]'s `origin_lines`).
 local project: {string:string} = {
   ["c.tl"] = [[
 --- Boxes.

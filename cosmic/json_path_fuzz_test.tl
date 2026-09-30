@@ -1,9 +1,9 @@
---- Fuzz properties for `Json.parse_path` and `Json.parse_pattern`, which
+--- Fuzz properties for [`Json.parse_path`] and [`Json.parse_pattern`], which
 --- read a path a person typed: they are total on any bytes, `parse_path`
---- reads back the steps `Json.child_path` spelled, for any keys (bytes that
+--- reads back the steps [`Json.child_path`] spelled, for any keys (bytes that
 --- are not UTF-8, dots, brackets, quotes, control characters) and any
---- integers, `parse_pattern` those `Json.spell_pattern` spelled, and
---- `Json.select` finds what a plain walk of the document does.
+--- integers, `parse_pattern` those [`Json.spell_pattern`] spelled, and
+--- [`Json.select`] finds what a plain walk of the document does.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")

@@ -1,6 +1,6 @@
---- Proves the privacy by position `build.positions` enforces on every
+--- Proves the privacy by position [`build.positions`] enforces on every
 --- directory in the tree, not only cosmic's own, end to end through
---- `importer.compile`. A directory's own `init.tl` is the one path in
+--- [`importer.compile`]. A directory's own `init.tl` is the one path in
 --- from outside, and only a file inside the directory may require a
 --- sibling that sits beside that entry. The entry, `case/init.tl`,
 --- resolves under its bare name `require("case")` from outside `case/`

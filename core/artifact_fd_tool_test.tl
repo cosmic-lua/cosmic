@@ -29,7 +29,7 @@ end
 --- Sandboxed, where the program is the tree's own o/bin/cosmic -- the
 --- file /tree/o/bin/cosmic is the artifact this worker runs -- the
 --- worker has it there, as it has the rest of the tree, and by no name
---- of the host's: `Proc.executable()` answers /tree/o/bin/cosmic, and
+--- of the host's: [`Proc.executable()`] answers /tree/o/bin/cosmic, and
 --- so does a relaunch, which starts it again there
 --- (build/test_sandbox.tl's `program_name`).
 local function test_a_tool_has_the_tree_s_own_program_in_the_tree()

@@ -5,7 +5,7 @@
 ---
 ---     cosmic --standalone eval/check/notes.tl <dir>
 ---
---- `eval/check/notes` runs this on the bootstrap cosmic, as bin/vendor
+--- [`eval/check/notes`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only. The
 --- arena's own `bin/cosmic` does the testing and building.
 ---
@@ -179,7 +179,7 @@ local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   end)
 end
 
---- Runs `./notes` in `dir` with nothing in its environment but `env`,
+--- Runs [`./notes`] in `dir` with nothing in its environment but `env`,
 --- and checks that it exits 0 printing exactly `want` on stdout and
 --- stderr together.
 local function expect(g: Grade, dir: string, want: string, args: {string}, env?: {string: string})

@@ -80,7 +80,7 @@ end
 
 --- The table is documented under the name every caller gives it,
 --- `local sys = require("cosmic.sys")`, so `cosmic docs sys.open` and
---- the module page say `sys.open`, as a caller writes it.
+--- the module page say [`sys.open`], as a caller writes it.
 local function test_the_table_is_documented_as_sys()
   local source = assert(gen_syscalls.declaration(header))
   assert(source:find("\nlocal record sys\n", 1, true), source)

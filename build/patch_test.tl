@@ -1,4 +1,4 @@
---- The patch applier (`build/patch.tl`), run on trees built here.
+--- The patch applier ([`build/patch.tl`]), run on trees built here.
 local Fs = require("cosmic.fs")
 local Patch = require("build.patch")
 local sys = require("cosmic.sys")

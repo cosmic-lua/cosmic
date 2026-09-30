@@ -1,9 +1,9 @@
 --- Every C function of the core that a test must enter: each one
---- `Coverage.native_functions` names in a `core/*.c` file. Every core
+--- [`Coverage.native_functions`] names in a `core/*.c` file. Every core
 --- cosmic ships and tests with observes its own C, so a whole test run of
 --- cosmic's own tree -- locally, on the release core, and in CI, on the
 --- sanitized one too -- fails for any function no test enters, in its own
---- process or in one it starts (see `Coverage.children`), unless `exempt`
+--- process or in one it starts (see [`Coverage.children`]), unless `exempt`
 --- names it with the reason no test can, or `exempt_on` does for the
 --- host the run is on.
 ---
@@ -18,7 +18,7 @@ local String = require("cosmic.string")
 local record c_functions
   --- How a run's hits measure up against every C function.
   record Tally
-    --- The functions no test entered and none exempts, by `key_of`, sorted.
+    --- The functions no test entered and none exempts, by [`key_of`], sorted.
     unentered: {string}
     --- How many were entered.
     entered: integer
@@ -26,7 +26,7 @@ local record c_functions
     exempted: integer
     --- How many functions there are.
     total: integer
-    --- The exempt functions a test entered after all, by `key_of`, sorted:
+    --- The exempt functions a test entered after all, by [`key_of`], sorted:
     --- this core no longer needs their exemption, though another may.
     stale: {string}
   end
@@ -46,7 +46,7 @@ local maps_ids <const> =
   "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
 
---- The C functions no test can enter, by `key_of`, and why.
+--- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
   ["core/vfs.c:file_write"] = read_only,
   ["core/vfs.c:file_truncate"] = read_only,
@@ -84,7 +84,7 @@ local exempt: {string: string} = {
 }
 
 --- The C functions no test can enter on one kind of host, by its
---- uname(2) sysname and then by `key_of`, and why: another host's run
+--- uname(2) sysname and then by [`key_of`], and why: another host's run
 --- still holds them to being entered.
 local exempt_on: {string: {string: string}} = {
   Linux = {

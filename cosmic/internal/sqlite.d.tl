@@ -56,8 +56,8 @@ local record sqlite
     --- Runs every statement in `sql`, discarding any rows, with no
     --- parameter binding: schema DDL, PRAGMAs, or several
     --- `;`-separated statements in one call -- the one thing
-    --- `Sqlite.run`, `rows` and `text_rows` cannot do, since each of
-    --- those prepares exactly one statement. Reach for `Sqlite.run`
+    --- [`Sqlite.run`], `rows` and `text_rows` cannot do, since each of
+    --- those prepares exactly one statement. Reach for [`Sqlite.run`]
     --- once a value needs binding.
     exec: function(Handle, sql: string): boolean, string
     --- Compiles `sql`, which must hold exactly one statement.

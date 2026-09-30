@@ -24,7 +24,7 @@
 --- the same pair, but a table reached by two different routes is
 --- compared once against each thing the other tree holds there. tl's
 --- parser output is not a tree: `local record Node is {Node}` in
---- `build/ast/node.tl` yields the same type object as the record's
+--- [`build/ast/node.tl`] yields the same type object as the record's
 --- element type and as its interface list's. Keyed on the before side
 --- alone, what the after tree held at the end of the second route would
 --- go unchecked, and a renderer that changed it would pass.

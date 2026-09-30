@@ -90,9 +90,9 @@ end
 print(table.concat(said, "\n"))
 ]==]
 
---- The descriptors `this_program.program` hands its child, as
---- `process.spawn` takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only `cosmic.child`
+--- The descriptors [`this_program.program`] hands its child, as
+--- [`process.spawn`] takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
   local fds: {integer:integer} = {}
@@ -190,7 +190,7 @@ end
 
 --- What a path resolves to, by names: `realpath` of the path or else
 --- of its nearest ancestor that resolves, with every name past that
---- ancestor after it as written. It asks the same `sys.realpath` that
+--- ancestor after it as written. It asks the same [`sys.realpath`] that
 --- `resolution` does, so what it checks is how `resolution` splits a
 --- path into names and joins them again, not how a link resolves.
 local function resolved_by_names(path: string): string
@@ -212,7 +212,7 @@ local function resolved_by_names(path: string): string
   end
 end
 
---- `resolution` resolves a path as `resolved_by_names` does: through
+--- `resolution` resolves a path as [`resolved_by_names`] does: through
 --- links, a missing name and all after it as written, "." and ".."
 --- included, and each run of slashes as one.
 local function test_a_resolution_is_the_one_its_names_tell(tmp: string)

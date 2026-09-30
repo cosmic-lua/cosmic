@@ -1,9 +1,10 @@
---- Worked examples for `cosmic.net`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.net`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
@@ -58,6 +59,35 @@ function Example.tcp()
   local conn <close> = assert(server:accept())
   assert(client:write("hello"))
   assert(assert(conn:read()) == "hello")
+end
+
+--- A server that serves each connection in a task of its own, in a
+--- task of [`Poll.run`]: while one connection waits to be read, the
+--- others are served.
+function Example.accept()
+  local dir = assert(Fs.mkdtemp("cosmic-net-example-"))
+  local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock"), { timeout_ms = 5000 }))
+  Poll.run(function()
+    Poll.spawn(function()
+      for _ = 1, 2 do
+        local conn = assert(server:accept())
+        Poll.spawn(function()
+          local name = assert(Stream.lines(conn):read())
+          assert(conn:write("hello, " .. name .. "\n"))
+          assert(conn:close())
+        end)
+      end
+    end)
+    local quiet <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    assert(client:write("world\n"))
+    local greeting = assert(Stream.lines(client):read())
+    print(greeting)
+    assert(greeting == "hello, world")
+    assert(quiet:write("quiet\n"))
+    assert(Stream.lines(quiet):read() == "hello, quiet")
+  end)
+  assert(Fs.remove_tree(dir))
 end
 
 return Example

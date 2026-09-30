@@ -1,11 +1,11 @@
---- `Proc.find`'s search of a path list. The cases that start this
+--- [`Proc.find`]'s search of a path list. The cases that start this
 --- program or ask for its path are in cosmic/proc_tool_test.tl.
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
---- `Proc.find` searches a path list as a shell does: the first
+--- [`Proc.find`] searches a path list as a shell does: the first
 --- executable wins, a name with a slash is taken as it is, and what is
 --- missing or not executable says which.
 local function test_find_searches_a_path_as_a_shell_does(dir: string)

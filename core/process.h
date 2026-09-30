@@ -1,16 +1,16 @@
 /*
- * The process table: the calls `cosmic.child` starts, feeds and reaps a
- * child with, and the one `cosmic.proc` relaunches this program with.
- * Registered as the raw `cosmic.internal.process` module, which only
- * those wrappers (and `build.confine`, which starts a test's sandboxed
+ * The process table: the calls [`cosmic.child`] starts, feeds and reaps a
+ * child with, and the one [`cosmic.proc`] relaunches this program with.
+ * Registered as the raw [`cosmic.internal.process`] module, which only
+ * those wrappers (and [`build.confine`], which starts a test's sandboxed
  * children through it) are handed: none of it is public. A
  * public `waitpid(-1)` would reap a child a `Child` handle owns in an
  * adopting process, and a public spawn would start one no handle owns.
  *
  * The grammar and the two shapes are core/syscalls.h's: each entry is a
  * LuaCATS annotation block followed by COSMIC_SYSCALL naming it, which
- * `build/gen_syscalls.tl` turns into the declaration of
- * `cosmic.internal.process`. The functions themselves live in
+ * [`build/gen_syscalls.tl`] turns into the declaration of
+ * [`cosmic.internal.process`]. The functions themselves live in
  * core/syscalls.c, with the signal state and descriptor handling they
  * share with `execve`.
  */
@@ -29,10 +29,10 @@
  * closure by name. */
 #define UNVEIL_MAX 256
 
-/* Opens the table as the raw `cosmic.internal.process` module. */
+/* Opens the table as the raw [`cosmic.internal.process`] module. */
 int cosmic_open_process (lua_State *L);
 
-/* Whether an open `Child.guard` has caught SIGINT or SIGTERM that
+/* Whether an open [`Child.guard`] has caught SIGINT or SIGTERM that
  * nothing has read yet (`cancelled_child_signal`): a wait of core/http.c's
  * asks it each round, so a signal ends a read or an open that no data
  * would. It reads the signal without taking it, so the guard's holder
@@ -49,7 +49,7 @@ bool cosmic_signal_caught (void);
 /* Milliseconds on the monotonic clock. */
 int64_t cosmic_now_ms (void);
 
-/* How long a wait for `deadline` (on `cosmic_now_ms`'s clock, -1 for
+/* How long a wait for `deadline` (on [`cosmic_now_ms`]'s clock, -1 for
  * no limit) may sleep now: a slice at most, 0 once it has passed. */
 int cosmic_wait_slice (int64_t deadline);
 
@@ -202,31 +202,6 @@ COSMIC_SYSCALL(relaunch, 2);
  */
 COSMIC_SYSCALL(pipe, 0);
 
-/* `set_nonblocking` and `poll`, with the POLL* numbers, are general
- * descriptor calls, here only because `cosmic.child` is their one caller
- * (doc/roadmap.md's surface section plans a public one). */
-
-/*
- * --- Turns a descriptor's nonblocking mode on or off.
- * ---@param fd integer the descriptor
- * ---@param on boolean true for nonblocking reads and writes
- * ---@return boolean ok false on failure
- * ---@return string error what went wrong, when ok is false
- * ---@return integer errno the error number, when ok is false
- */
-COSMIC_SYSCALL(set_nonblocking, 2);
-
-/*
- * --- Waits until a descriptor is ready or the timeout passes. A signal ends the wait early, as though nothing were ready.
- * ---@param fds {integer} the descriptors to watch, at most 1024
- * ---@param events {integer} the POLL* mask wanted for each descriptor
- * ---@param timeout_ms integer how long to wait, -1 for no limit
- * ---@return {integer}|nil revents the POLL* mask that happened for each descriptor, or nil on failure
- * ---@return string error what went wrong, when revents is nil
- * ---@return integer errno the error number, when revents is nil
- */
-COSMIC_SYSCALL(poll, 3);
-
 /*
  * --- Makes this process adopt the orphaned descendants of its children, so it can reap them; Linux only.
  * ---@return boolean ok false on failure, with ENOSYS where there is no such thing
@@ -279,18 +254,8 @@ COSMIC_SYSCALL(unguard_child_signals, 0);
 COSMIC_SYSCALL(cancelled_child_signal, 0);
 
 /*
- * --- The numbers `poll` takes and gives back, from this libc.
+ * --- The numbers this table's calls take, from this build.
  * ---@class Constants
- * ---@field POLLIN integer there is data to read
- * ---@field POLLOUT integer a write would not block
- * ---@field POLLERR integer the descriptor is in error
- * ---@field POLLHUP integer the other end hung up
- * ---@field POLLNVAL integer the descriptor is not open
  * ---@field UNVEIL_MAX integer the most paths a sandbox unveils, its reads and writes together
  */
-COSMIC_CONSTANT(POLLIN)
-COSMIC_CONSTANT(POLLOUT)
-COSMIC_CONSTANT(POLLERR)
-COSMIC_CONSTANT(POLLHUP)
-COSMIC_CONSTANT(POLLNVAL)
 COSMIC_CONSTANT(UNVEIL_MAX)

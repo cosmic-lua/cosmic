@@ -1,22 +1,22 @@
---- The part of the working database's schema (`build.work`'s `schema`)
+--- The part of the working database's schema ([`build.work`]'s `schema`)
 --- a parse's rows are shaped by: the `derived` table, the `inputs`
 --- view every module source is read through, and the tables a parse
 --- or a generator fills, keyed by the source they came from.
 ---
 --- What a source parses to is recorded in these columns, in this order.
---- `build.importer`'s shared parses read them with `SELECT *` and check
+--- [`build.importer`]'s shared parses read them with `SELECT *` and check
 --- only each table's width. The `inputs` view decides what a compile is
 --- given beside a source: its import path and kind, the file it is read
 --- from, and whether it was generated.
 ---
 --- So this module is one of the roots of the compiler's identity
---- (`build.work`'s `compiler_roots`) and of the analyzer's
---- (`build.importer`'s `analyzer_modules`). The rest of `build.work`,
+--- ([`build.work`]'s `compiler_roots`) and of the analyzer's
+--- ([`build.importer`]'s `analyzer_modules`). The rest of [`build.work`],
 --- which only stages, fingerprints and keeps records, is in neither.
 --- This module requires nothing, since an edit to what it required
 --- would move both identities.
 ---
---- See `build.work` for what each table holds.
+--- See [`build.work`] for what each table holds.
 
 local record analysis_schema
   --- The statements that create `derived` and `inputs`, then each of

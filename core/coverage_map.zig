@@ -1,5 +1,5 @@
 //! The block-to-line table a core observing its own C carries
-//! (`core/coverage.c`). clang's sancov gives every basic block of the
+//! ([`core/coverage.c`]). clang's sancov gives every basic block of the
 //! instrumented files one flag byte, in `__sancov_bools`, and one entry
 //! in `__sancov_pcs` naming the block's address; both are in link order.
 //! This reads a linked core's PC table, resolves each block's address to

@@ -1,12 +1,12 @@
---- `build.example_checks` on fixture trees: an example whose shown text
+--- [`build.example_checks`] on fixture trees: an example whose shown text
 --- lacks a `require`, or reads a name only the harness defines, is
 --- refused, and a good one passes; a guide's example likewise.
 local Fs = require("cosmic.fs")
 local example_checks = require("build.example_checks")
 local fixture = require("build.docs_fixture")
 local teal = require("build.teal")
--- In the closure, so the checker's `Store.source` of what the fixtures
--- require (`teal.serve_standard`) is read past the worker's hold.
+-- In the closure, so the checker's [`Store.source`] of what the fixtures
+-- require ([`teal.serve_standard`]) is read past the worker's hold.
 local type _ = require("cosmic.fs")
 
 local built = teal.lazy()

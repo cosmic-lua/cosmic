@@ -43,7 +43,7 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
 
 --- The descriptor this process retains on its artifact, or nil for a
---- start from none: the one `Proc.relaunch` hands a child as its own.
+--- start from none: the one [`Proc.relaunch`] hands a child as its own.
 local function artifact_fd(): integer | nil
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
@@ -87,7 +87,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   bound = function(_: integer, fd: integer): {any} return { fd } end,
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
-  poll = function(_: integer, fd: integer): {any} return { { fd }, { process.POLLIN }, 0 } end,
+  poll = function(_: integer, fd: integer): {any} return { { fd }, { sys.POLLIN }, 0 } end,
   spawn = function(at: integer, fd: integer): {any}
     local args: {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
       nil, nil }
@@ -148,15 +148,15 @@ local function test_a_ruleset_that_is_the_artifact_descriptor_is_refused()
     nil, nil, nil, false, nil, { ruleset = fd })
 end
 
---- The artifact's descriptor is handed on only as `Proc.relaunch` hands
+--- The artifact's descriptor is handed on only as [`Proc.relaunch`] hands
 --- it: as the descriptor the child's environment names its artifact's
 --- -- elsewhere in the map, or with no such environment, it is refused
 --- -- and only by a process that may still run this program: a
 --- sandboxed worker whose module does not declare `tool`, as this one
 --- does not, is held from running it (build/confine.tl's
 --- `forbid_running`), and refused it even so. That a relaunch's own map
---- is taken, every start of this program through `build.this_program`
---- shows -- core/syscalls_test.tl hands one to `process.spawn` itself,
+--- is taken, every start of this program through [`build.this_program`]
+--- shows -- core/syscalls_test.tl hands one to [`process.spawn`] itself,
 --- a `#!` line and `setsid` among them -- and every worker `cosmic test`
 --- starts.
 local function test_spawn_hands_the_artifact_descriptor_on_only_to_a_relaunch()
@@ -261,8 +261,8 @@ local function test_other_descriptors_still_work(tmp: string)
   assert(sys.ftruncate(copy, 2))
   assert(sys.pread(fd, 16, 0) == "he")
   assert(not sys.isatty(fd))
-  assert(process.set_nonblocking(fd, true))
-  assert(#assert(process.poll({ fd }, { process.POLLIN }, 0)) == 1)
+  assert(sys.set_nonblocking(fd, true))
+  assert(#assert(sys.poll({ fd }, { sys.POLLIN }, 0)) == 1)
   assert(sys.close(copy))
   assert(sys.close(fd))
 end

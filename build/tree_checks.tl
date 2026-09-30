@@ -31,6 +31,7 @@ local declared_key = require("build.declared_key")
 local ast = require("build.ast")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
+local link_text = require("build.link_text")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local symbols = require("build.symbols")
@@ -47,8 +48,6 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
-allowed["build.link_text.parse"] = "tested directly: the parser's cases and its fuzz test " ..
-  "hold it to the forms a link takes"
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
@@ -136,8 +135,8 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 --- runnable example shows it. An export only its own tests call is made
 --- local -- the test goes through the public entry -- or is named in
 --- `allowed` with the reason it is tested directly. A use is one the
---- build found, through a `require` alias (`build.analyzer`) or a
---- value's checked type (`build.receivers`).
+--- build found, through a `require` alias ([`build.analyzer`]) or a
+--- value's checked type ([`build.receivers`]).
 ---
 --- What counts as an export: a function or a value field of a module's
 --- returned record, in a module whose file is in `build/`, `cmd/` or
@@ -151,12 +150,12 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 ---   through that value;
 --- - `main`, which `cosmic <file>` and `cosmic --standalone` call on a
 ---   module that returns a record carrying one, and a module that
----   returns a function (`build/boot.tl`), which its loader calls;
---- - a declaration file (`*.d.tl`) and `cosmic.sys`, whose members are
----   declared in C (`core/syscalls.h`), not in Teal.
+---   returns a function ([`build/boot.tl`]), which its loader calls;
+--- - a declaration file (`*.d.tl`) and [`cosmic.sys`], whose members are
+---   declared in C ([`core/syscalls.h`]), not in Teal.
 ---
 --- What earns one: a use from another module that is not a `*_test.tl`;
---- for a module only tests import (`build/docs_fixture.tl`, test
+--- for a module only tests import ([`build/docs_fixture.tl`], test
 --- support), a use from a test other than the module's own; and for a
 --- program in `build/`, `cmd/` or `eval/` -- a module whose record
 --- exports `main`, `run` or `spec` (a verb's entry,
@@ -165,14 +164,14 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 --- directly on a fixture. A module's own tests are `<module>_test`,
 --- `<module>_<topic>_test` and the tests in its directory when it is
 --- one (`build/fix/`), except the test of another module: `<x>_test`
---- where `<x>` is itself a module (`build.test_worker_test` is not
---- `build.test`'s). A public `cosmic/` module is never a program here:
+--- where `<x>` is itself a module ([`build.test_worker_test`] is not
+--- [`build.test`]'s). A public `cosmic/` module is never a program here:
 --- what its tests call still needs a caller or an example.
 -- TODO: the check is not transitive: an export used only by another
 -- export that is itself allowed, or itself unused, counts as earned.
 -- Walk the uses from what is earned outright once a use records the
 -- function it sits in, not only its module and line.
--- TODO: `cosmic.sys` is left out, so a constant or binding in
+-- TODO: [`cosmic.sys`] is left out, so a constant or binding in
 -- core/syscalls.h that nothing uses (`EISDIR`, `SIGUSR1`)
 -- is never flagged; hold its members to the same rule once the check
 -- can tell a binding the Teal layer wraps from one nothing reaches.
@@ -281,15 +280,15 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 --- with that one anchor (doc/design.md, principle 8). A bare name
 --- matches every symbol ending in it -- `cosmic docs read` lists each
 --- `X.read`, by design -- so a real member that shares an anchor's name
---- (`Proc.Relaunch.argv` beside `Entrypoint.argv`) is listed beside it
+--- ([`Proc.Relaunch.argv`] beside [`Entrypoint.argv`]) is listed beside it
 --- as any two members are. What is refused is two anchors sharing one:
 --- a reader asking for the verb `test` would also be shown the layout
 --- rule for test files.
 ---
 --- A doc anchor is a record of a public `cosmic/` module that exists to
 --- be looked up, not passed around: every field of it is a documented
---- `string` (`test: string` in `cosmic.cli`'s `Cli`), and no function
---- or method in the public catalog takes or returns it. `cosmic.shape`'s
+--- `string` (`test: string` in [`cosmic.cli`]'s `Cli`), and no function
+--- or method in the public catalog takes or returns it. [`cosmic.shape`]'s
 --- `Failure` has only strings too, but `failures` hands it out, so its
 --- fields are an API's, not anchors.
 function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
@@ -363,7 +362,7 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
 end
 
 --- Whether `line` reads the compiler's identity, or a `meta` row by a
---- name no reader can see: `Store.meta` called with anything but a
+--- name no reader can see: [`Store.meta`] called with anything but a
 --- string.
 local function reads(line: string): boolean
   for _, name in ipairs({ "compiler", "compiled_by" }) do
@@ -375,11 +374,11 @@ local function reads(line: string): boolean
 end
 
 --- Each module of `db` that reads the compiler's identity through
---- `Store.meta` and `named` (by default `build.declared_key`'s
---- `compiler_readers`) does not name, and then each it names that no
+--- [`Store.meta`] and `named` (by default [`build.declared_key`]'s
+--- [`compiler_readers`]) does not name, and then each it names that no
 --- longer reads it.
 ---
---- A closure store carries no such row (`build.closure_store`), so a
+--- A closure store carries no such row ([`build.closure_store`]), so a
 --- worker's read of it is answered by the running tool, and only a
 --- test whose closure holds a named reader is keyed by the tool's
 --- identity. A reader the list misses would leave a verdict standing
@@ -454,7 +453,7 @@ local stand_ins_expected: {{string}} = {
 --- Each of `cases` (by default the tree's own), a command or call and
 --- the function that stands in for it, that `cosmic docs <command>`,
 --- looked up the way a project sees the standard library in `db`, does
---- not answer with that function first, after any raw `cosmic.sys`
+--- not answer with that function first, after any raw [`cosmic.sys`]
 --- binding of that name. What a newcomer types first is the command or
 --- call they would have used elsewhere, so a doc comment that stops
 --- naming its command is caught here, not by the next person who writes
@@ -489,7 +488,7 @@ function tree_checks.stand_ins(db: Sqlite.Handle, cases?: {{string}}): {string}
 end
 
 --- The worked examples a reader is pointed to or expected to find by a
---- compile's failure: every one `build.importer` advertises, and the
+--- compile's failure: every one [`build.importer`] advertises, and the
 --- guide to a type's shape, which no hint names but a malformed type's
 --- diagnostic leaves its reader to look up.
 local function queries_expected(): {string}
@@ -520,7 +519,7 @@ function tree_checks.queries(db: Sqlite.Handle, wanted?: {string}): {string}
   return out
 end
 
---- Each of `names` (by default `build.contracts`' `quieted`), as
+--- Each of `names` (by default [`build.contracts`]' `quieted`), as
 --- `<module> <symbol>`, that no module of `db` declares.
 function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
   local out: {string} = {}
@@ -543,7 +542,7 @@ end
 --- Each declaration of `db` that requires a name no declaration of `db`
 --- answers for, as `<declaration> requires <name>`: a closure store
 --- follows a declaration's requires among declarations alone
---- (`build.closure_store`'s `declared`), so a module one required would
+--- ([`build.closure_store`]'s `declared`), so a module one required would
 --- be neither carried nor in the store's address.
 function tree_checks.declarations(db: Sqlite.Handle): {string}
   local rows, trouble = Sqlite.text_rows(db,
@@ -569,7 +568,7 @@ end
 
 --- Whether `path`, relative to the tree's root, is a source of the
 --- public standard library: `cosmic/` outside `cosmic/internal/`. A
---- note `build.fix.near` makes on one fails the whole tree's check: the
+--- note [`build.fix.near`] makes on one fails the whole tree's check: the
 --- standard library as it stands earns no note against itself, so a
 --- note on a file is about what that file adds.
 function tree_checks.standard(path: string): boolean
@@ -694,7 +693,7 @@ end
 
 --- The top-level fields of the spec table that opens after `start` in
 --- `text`. The projection holds a table's signature and docs but not its
---- values (`build.docs`), so a spec's fields are read from its source, as
+--- values ([`build.docs`]), so a spec's fields are read from its source, as
 --- literals; a first occurrence of a name wins, and a `name = "..."` that
 --- a function body inside the table writes at its own top level would be
 --- taken for a field (a spec's `run` is one line that calls another
@@ -754,8 +753,8 @@ end
 --- - `tests` that is empty or names a module that is no test of `db`.
 ---
 --- A spec is read from its module's source, where `name`, `guide` and
---- `tests` must be literals (`spec_fields`): the listing module cannot be
---- loaded here (it reaches `build.fix`, which runs this), and the
+--- `tests` must be literals ([`spec_fields`]): the listing module cannot be
+--- loaded here (it reaches [`build.fix`], which runs this), and the
 --- projection holds no table's values, so there is no row to read
 --- instead. The limit is decided: a spec built any other way (a local
 --- table exported afterward, fields computed) is refused as a listed verb
@@ -881,7 +880,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string | nil): {string
 end
 
 --- Every `doc/guides/*.md` is either a user guide, which the binary
---- carries (`symbols.guides`), or one named in `symbols.internal_guides`
+--- carries ([`symbols.guides`]), or one named in [`symbols.internal_guides`]
 --- with its reason. A guide in neither would silently not ship.
 function tree_checks.guides(db: Sqlite.Handle): {string}
   local rows, trouble = Sqlite.text_rows(db,
@@ -927,7 +926,7 @@ end
 local FILE_NAMES: {string: boolean} = { zig = true }
 
 --- Whether `hit`, a `build.<name>` found in prose, names a module of the
---- tree (or a package under one): `build.this_program`, not "the build."
+--- tree (or a package under one): [`build.this_program`], not "the build."
 local function names_a_module(hit: string, modules: {string: boolean}): boolean
   local name = hit:match("^build%.([%w_.]*[%w_])")
   if name ~= nil and FILE_NAMES[name] then return false end
@@ -978,15 +977,16 @@ local doc_rules: {DocRule} = {
 }
 
 --- Every `---` doc text that a public source shows in `db` (see
---- `symbols.shown_docs`: a public module's, `core/syscalls.h`'s, which
---- is `cosmic.sys`, and the shipped user guides'), and every `--` run
+--- `symbols.shown_docs`: a public module's, [`core/syscalls.h`]'s, which
+--- is [`cosmic.sys`], and the shipped user guides'), and every `--` run
 --- adjacent to a declaration, which `cosmic docs` folds into its doc
 --- text, that carries a `TODO:` or cites an implementation path, one
 --- line per hit as `<file>:<line>: <module> <symbol>: ...` with the
 --- fix, and then each name in `excused` (by default `doc_exempt`) that
 --- nothing answers to any more.
 ---
---- A doc is what `cosmic docs` shows a caller, in a binary that carries
+--- A doc is what `cosmic docs` shows a caller ([`link_text.unlinked`]:
+--- no definition a code span's link reads), in a binary that carries
 --- neither the build nor the C. A TODO belongs in a `--` comment set
 --- off from the doc by a blank line (AGENTS.md); a path or a `build.`
 --- module is a fact about the implementation, which the doc says as
@@ -1011,7 +1011,7 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(rows) do
-    local text = " " .. row[3] .. " "
+    local text = " " .. link_text.unlinked(row[3]) .. " "
     local seen: {string: boolean} = {}
     for _, rule in ipairs(doc_rules) do
       local at = 1
@@ -1210,7 +1210,7 @@ end
 
 --- Every place in the Teal sources under `build/`, `cmd/` and
 --- `cosmic/` of `db` (a test's excepted), and in `extra` (`{file,
---- source}` pairs, `ci_sources`'s), that puts a literal plural noun
+--- source}` pairs, [`ci_sources`]'s), that puts a literal plural noun
 --- after a number, as `<file>:<line>: ...` with the fix, and then each
 --- name in `excused` (by default `plural_exempt`) that nothing answers
 --- to any more. `built` parses the sources.
@@ -1220,7 +1220,7 @@ end
 --- " files"`, `(a - b) .. " rows"`, `count .. " closure stores"`), and a
 --- `%d` in a literal followed by one (`"%d files"`). Either prints "1
 --- tests"; `plural.count(n, "test")` is right for every count, and
---- `plural.noun` when the line prints the number itself. The noun is
+--- [`plural.noun`] when the line prints the number itself. The noun is
 --- the first word of the literal after its space, or the second when
 --- the first is not a verb or particle; a value in front of a verb
 --- (`name .. " needs"`) is passed over, and a count spelled by a name
@@ -1290,9 +1290,9 @@ end
 --- The plurals are checked when `built`, the compiler that parses the
 --- sources, is given, with `extra` sources besides the projection's.
 --- @param carried the database a release binary carries of `db`
----   (`build.docs_checks`' `carried`), which the checks of what `cosmic
+---   ([`build.docs_checks`]' `carried`), which the checks of what `cosmic
 ---   docs` shows read; `db` itself when not given
---- @param help what `cosmic help` prints (`docs_checks.help_texts`),
+--- @param help what `cosmic help` prints ([`docs_checks.help_texts`]),
 ---   whose references are checked with the docs'; none when not given
 function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: compiler,
     extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string}): {string}

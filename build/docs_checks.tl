@@ -1,10 +1,10 @@
 --- The checks over what `cosmic docs` shows a user, which
---- `build.tree_checks` runs beside its own: the pages a release binary
+--- [`build.tree_checks`] runs beside its own: the pages a release binary
 --- renders (`rendered`), and the names those pages and the guides and
 --- help texts refer to (`references`).
 ---
 --- Both read the tree's projection, `o/cosmic.db`, through
---- `build.docs`'s own view marked as a public source: the view a
+--- [`build.docs`]'s own view marked as a public source: the view a
 --- project sees of the binary it builds with, so a page here is the
 --- page a user gets, made by the code that makes it.
 
@@ -27,19 +27,19 @@ local record docs_checks
   end
 end
 
---- What makes the texts `cosmic help` prints, set by `provide_help`.
+--- What makes the texts `cosmic help` prints, set by [`provide_help`].
 local help_source: function(): {string: string} | nil = nil
 
---- Names what makes the texts `cosmic help` prints, for `help_texts`.
---- `build.dispatch` calls it as it loads: it reaches the `fix` verb,
---- which runs these checks, through `build.verb_list`, so requiring it
+--- Names what makes the texts `cosmic help` prints, for [`help_texts`].
+--- [`build.dispatch`] calls it as it loads: it reaches the `fix` verb,
+--- which runs these checks, through [`build.verb_list`], so requiring it
 --- here would close a cycle of imports.
 function docs_checks.provide_help(source: function(): {string: string})
   help_source = source
 end
 
 --- The database a release binary carries of the projection at `whole`
---- (`build.writer`'s `carried`): the only rows a public source has,
+--- ([`build.writer`]'s `carried`): the only rows a public source has,
 --- read without a query of the rest. Made at `scratch`, opened, and
 --- unlinked, so nothing is left behind.
 function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle | nil, string
@@ -61,8 +61,8 @@ end
 
 --- What `cosmic help` prints, by what asks for it: `""` the index,
 --- `exit`, and each verb's own; the input `references` reads help from.
---- Nil and why until `build.dispatch` has loaded and called
---- `provide_help`.
+--- Nil and why until [`build.dispatch`] has loaded and called
+--- [`provide_help`].
 function docs_checks.help_texts(): {string: string} | nil, string
   if help_source == nil then
     return nil, "build.dispatch has not provided the texts of `cosmic help`"
@@ -170,7 +170,7 @@ end
 ---
 --- - Every name the index lists resolves to a page, and so does every
 ---   name a type's page lists under a type it stands for
----   (`Child.Options.fds`, `Sqlite.Handle.exec`).
+---   ([`Child.Options.fds`], [`Sqlite.Handle.exec`]).
 --- - No `local` type is shown that no public signature names (a
 ---   record the module returns is named by its members instead), and no
 ---   `_`-named member is listed.
@@ -298,7 +298,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
 
   -- A `local` type is shown only where a public signature names it, or
   -- as the record the module returns, whose members are named for it
-  -- (`Fs.read` is `read`). Nothing else of a module's own is a reader's.
+  -- ([`Fs.read`] is `read`). Nothing else of a module's own is a reader's.
   local signatures: {string: {string}} = {}
   local canonical: {string: boolean} = {}
   for _, row in ipairs(shown) do
@@ -413,12 +413,12 @@ end
 
 --- What the projection `db` and the texts `help` name, that names
 --- nothing: a backticked `cosmic docs <q>` whose query finds no page, a
---- `cosmic help <verb>` naming no verb, and a `Module.symbol` (`Fs.read`)
+--- `cosmic help <verb>` naming no verb, and a `Module.symbol` ([`Fs.read`])
 --- of a public module that resolves to no symbol. Read in a public
 --- module's docs (its own and its symbols'), in each user guide, and in
 --- every text `cosmic help` prints.
 --- @param help what `cosmic help` prints, by what asks for it (see
----   `help_texts`); none by default
+---   [`help_texts`]); none by default
 --- @param verbs the words `cosmic help <verb>` takes; defaults to the
 ---   tree's own
 --- @param allowed the references left dangling on purpose, by the text
@@ -440,7 +440,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     return { "reading the index: " .. index_trouble }
   end
   -- The record a public module returns is its last name, capitalized:
-  -- `Fs` for `cosmic.fs`.
+  -- `Fs` for [`cosmic.fs`].
   local records: {string: boolean} = {}
   for _, summary in ipairs(index) do
     if symbols.is_public_module(summary.module) then

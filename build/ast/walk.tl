@@ -1,4 +1,4 @@
---- Generic, cycle-guarded traversal of a `build.ast.node` `Node` tree,
+--- Generic, cycle-guarded traversal of a [`build.ast.node`] [`Node`] tree,
 --- plus span computation over it: a node's start and end position as
 --- the whole subtree actually occupies, not just wherever the parser
 --- happened to stamp its own `y`/`x`.
@@ -15,12 +15,12 @@
 --- `is {any: any}` cannot tell them apart, because Teal's generic map
 --- type also matches an array at runtime, so an `is {any}` fallback
 --- placed after it never runs and `if_blocks` would never be entered.
---- `classify` checks the `kind` field instead. Every real `Node` has a
+--- `classify` checks the `kind` field instead. Every real [`Node`] has a
 --- string `kind`, and nothing else reachable this way does. That
---- includes the "op" node's `OpInfo` payload (`build/ast/node.tl`),
+--- includes the "op" node's `OpInfo` payload ([`build/ast/node.tl`]),
 --- which the parser stamps with `y`/`x` but not `kind`. Taking it for a
 --- node would break `walk`'s "once per node reached" contract, though
---- span computation would not notice, since `OpInfo.y`/`.x` repeat the
+--- span computation would not notice, since [`OpInfo.y`]/`.x` repeat the
 --- "op" node's own position.
 local type compiler = require("build.compiler")
 local node_mod = require("build.ast.node")
@@ -59,8 +59,8 @@ local function classify(value: any): Node | nil, {any} | nil
 end
 
 --- Call `consider` once for every child value in `node`'s fields, array
---- part first and then the named fields. `walk`, `span_start` and
---- `span_end` are each a fold over it.
+--- part first and then the named fields. `walk`, [`span_start`] and
+--- [`span_end`] are each a fold over it.
 --- @param node Node
 --- @param consider function(any) Called once per array element and per named field
 local function each_child(node: Node, consider: function(any))
@@ -228,7 +228,7 @@ end
 --- descendant.
 --- @param node Node
 --- @param tokens {compiler.Token} The token stream from the same parse
----   (`Parsed.tokens`), for the bracket check
+---   ([`Parsed.tokens`]), for the bracket check
 --- @return integer The 1-based line
 --- @return integer The 1-based column
 local function span_end(node: Node, tokens: {compiler.Token}): integer, integer

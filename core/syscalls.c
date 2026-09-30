@@ -34,7 +34,7 @@
 #include <sys/syscall.h>
 /* _XOPEN_SOURCE intentionally hides these libc escape hatches: syscall,
  * for the calls musl has no wrapper for, and clone, which starts a child
- * on this process's memory (`start_child`). */
+ * on this process's memory ([`start_child`]). */
 extern long syscall (long, ...);
 extern int clone (int (*)(void *), void *, int, void *, ...);
 #endif
@@ -477,12 +477,12 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
 
 /* Whether this process can no longer run its own core -- held by
  * `landlock_restrict_execute` to files none of which is beneath it --
- * and so hands its artifact's descriptor on to no child (`handed_on`):
+ * and so hands its artifact's descriptor on to no child ([`handed_on`]):
  * none could be a relaunch of it. A worker of `cosmic test` whose
  * module does not declare `tool` is held so (build/confine.tl's
  * `forbid_running`) before its test loads.
  *
- * Such a process is made undumpable too (`keep_artifact`), so what it
+ * Such a process is made undumpable too ([`keep_artifact`]), so what it
  * starts cannot take the descriptor as /proc/<its pid>/fd/<it> -- a
  * host program's `cat /proc/$PPID/fd/254`, which `open`'s refusal, in
  * this core's Lua alone, never sees. Following a link of another
@@ -490,13 +490,13 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
  * PTRACE_MODE_READ of it, which an undumpable process grants only to
  * one holding CAP_SYS_PTRACE in the user namespace its memory was made
  * in. None the worker starts holds it: in a sandbox every capability is
- * given up for good before the worker runs (`drop_capabilities`), root
+ * given up for good before the worker runs ([`drop_capabilities`]), root
  * as any user, and what it starts has none to gain; unsandboxed it has
  * the program by name anyway. The process itself is its own tracer
  * still, so its /proc/self stays its own to read. What moves is the
  * owner of its /proc/<pid>, which the kernel gives root of that user
  * namespace, or the host's where that has none: a child of it on its
- * memory before exec (`spawn_child`), a process it confines or takes
+ * memory before exec ([`spawn_child`]), a process it confines or takes
  * offline, is refused writing its /proc/self/uid_map there, where the
  * process is not root (EACCES). A process held so is refused every
  * mount already (Landlock), so what this takes from it is a network
@@ -665,7 +665,7 @@ static const int pledge_refused[] = {
 #endif
 };
 
-/* Every instruction `pledge_program` writes: the architecture check and
+/* Every instruction [`pledge_program`] writes: the architecture check and
  * the call's number (4), the x32 check (2), two for each refused call,
  * and the socket block at its largest (1 + 1 + 2 * 3 + 1 + 1). */
 _Static_assert(4 + 2 + 2 * (sizeof pledge_refused / sizeof pledge_refused[0]) + 10 <= PLEDGE_MAX,
@@ -791,7 +791,7 @@ static int open_unlinked_directory (int dir, const char *name) {
 /* Makes the place a path is bound at: `target`, a path in the root being
  * built, of which the first `skip` bytes name the root. Each directory
  * on the way is made where it is missing, with the mode of the one it
- * stands for (`mirrored_mode`), and its last name a directory, with
+ * stands for ([`mirrored_mode`]), and its last name a directory, with
  * `directory`, or else an empty file, where it is not there -- going
  * through no link. A link on the way or at its end
  * is refused with ELOOP: a name placed beneath a path bound from the
@@ -851,7 +851,7 @@ static int make_target (char *target, size_t skip, int directory) {
 }
 
 /* Makes a link at `path`, under the root being built, to `to`, making its
- * parents as `make_target` does, going through no link and making
+ * parents as [`make_target`] does, going through no link and making
  * nothing where something already is: 0, or an errno. */
 static int make_link (char *path, size_t skip, const char *to) {
   struct stat st;
@@ -940,7 +940,7 @@ static int map_ids (int unmap_root, const char *uid_map, const char *gid_map, in
    * none of its own in turn: the kernel refuses a user namespace to a
    * user its own does not map. So `spawn`'s `user` runs a root caller's
    * child as a user of its own instead, mapped from outside
-   * (`map_from_outside`), which confines at any depth, as any mapped
+   * ([`map_from_outside`]), which confines at any depth, as any mapped
    * child does; `cosmic test` runs root's sandboxed workers so. */
   *mapped = 1;
   if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) {
@@ -970,7 +970,7 @@ static int drop_capabilities (void) {
  * writable, so a process in it can map its ids in a user namespace of
  * its own, and confine one of its own in turn. What it may write there
  * is its own processes', and its session's autogroup, which is the
- * sandbox's own (`run_program` starts one, as `cosmic_sandbox_init`
+ * sandbox's own ([`run_program`] starts one, as [`cosmic_sandbox_init`]
  * does). Where the kernel refuses one -- a container's runtime masks
  * parts of its /proc, and a user namespace may mount a procfs only
  * where one is wholly visible (mount_too_revealing, which subset=pid
@@ -1008,13 +1008,13 @@ static int place_proc (const char *target, int *own) {
   return 0;
 }
 
-/* In an unveiled child's program's process (`start_program`), in its
+/* In an unveiled child's program's process ([`start_program`]), in its
  * namespaces -- user, pid, mount, System V IPC, and the network with
  * `offline` -- before anything else of it:
  * a root of the child's own, with a /tmp of its own unless /tmp or /
  * is among the paths, holding the `count` paths at their own names --
  * read-only, and every mount beneath them too, but where `writable`
- * says; /proc a procfs of its own pid namespace (`place_proc`) -- and
+ * says; /proc a procfs of its own pid namespace ([`place_proc`]) -- and
  * nothing else, so a path outside them is not there at all, to stat as
  * to open. The paths are resolved, with no link or `..` left in them;
  * `at` holds, for each bound at a name of the caller's choosing rather
@@ -1024,8 +1024,8 @@ static int place_proc (const char *target, int *own) {
  * has no `at`, and NULL elsewhere, and each such name is a link in the
  * root to its path, where no path placed holds it already. `root` is an
  * empty directory the parent made to build on; `mapped` says whether
- * the child's user is mapped (`map_ids`); `own` says, once it is built,
- * whether its /proc is a procfs of its own (`place_proc`). The root is
+ * the child's user is mapped ([`map_ids`]); `own` says, once it is built,
+ * whether its /proc is a procfs of its own ([`place_proc`]). The root is
  * this process's own and its working directory's, and every process's
  * in the namespace whose root was the old one. 0, or an errno.
  * TODO: remove the directory an unmapped child's root is built on once
@@ -1159,11 +1159,11 @@ static int go_offline (int unmap_root, const char *uid_map, const char *gid_map)
 
 /* Everything a spawned child reads between starting and exec, made ready
  * by the parent: the child shares the parent's memory on Linux
- * (`spawn_child`), so it allocates nothing and writes nothing of the
+ * ([`spawn_child`]), so it allocates nothing and writes nothing of the
  * parent's but the one thing it means to -- the coverage flags of the
  * functions it enters, and on the checked core UBSan's own state -- and
  * reads only this, which the parent holds, unchanged, until the child
- * has exec'd or ended. On Darwin the child is a copy (`start_child`),
+ * has exec'd or ended. On Darwin the child is a copy ([`start_child`]),
  * which holds it to the same rules all the same. */
 struct spawn_plan {
   const char *path;
@@ -1198,8 +1198,8 @@ struct spawn_plan {
    * may not map root into one of its own. */
   int unmap_root;
   /* With `user`: whether an unveiled child gives root up for `drop_uid`
-   * and `drop_gid` (`start_program`), and the maps a process of this
-   * one's writes of its namespace from outside (`map_from_outside`),
+   * and `drop_gid` ([`start_program`]), and the maps a process of this
+   * one's writes of its namespace from outside ([`map_from_outside`]),
    * root's and theirs; `uid_map` and `gid_map` then map theirs alone,
    * for the namespace it makes as that user. */
   int dropping;
@@ -1209,13 +1209,13 @@ struct spawn_plan {
   const char *outer_gid_map;
 #if defined(__linux__)
   /* For an unveiled child: the tops of the stacks its init and its
-   * program start on (`start_unveiled`), and where it writes their
+   * program start on ([`start_unveiled`]), and where it writes their
    * pids, the one thing of the parent's it writes besides its coverage
    * flags. */
   char *init_stack;
   char *program_stack;
   /* And, for one that gives root up, the top of the stack the process
-   * that maps it from outside runs on (`map_from_outside`). */
+   * that maps it from outside runs on ([`map_from_outside`]). */
   char *helper_stack;
   pid_t *init;
   pid_t *program;
@@ -1254,7 +1254,7 @@ static void default_signals (void) {
 }
 
 /* The rest of a child's start once its sandbox's namespaces are made
- * (`spawn_child`): its process group -- for an unveiled child, a
+ * ([`spawn_child`]): its process group -- for an unveiled child, a
  * session of its own, and so a group of its own whatever
  * `process_group` says, so the autogroup its writable /proc lets it set
  * (/proc/self/autogroup) is the sandbox's, not its parent's session's --
@@ -1291,7 +1291,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * it starts may reach is the ruleset's, and nothing lets it off.
    * TODO: let a ruleset that names /proc reach an unveiled child's own
    * /proc, as it reaches the host's where the child has that
-   * (`place_proc`), once `landlock_ruleset` records which paths a
+   * ([`place_proc`]), once `landlock_ruleset` records which paths a
    * ruleset holds: adding the rule here, in the child, would widen the
    * caller's ruleset for every later child besides, and a ruleset that
    * left /proc out would gain it. Until then a child held to one reads
@@ -1332,9 +1332,9 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
 #define AT_EMPTY_PATH 0x1000
 #endif
 
-/* What an unveiled child (`start_unveiled`) shares with the init and
+/* What an unveiled child ([`start_unveiled`]) shares with the init and
  * the program it starts, each on its memory and each while it waits:
- * the plan, and the descriptors `spawn_child` placed; whether its user
+ * the plan, and the descriptors [`spawn_child`] placed; whether its user
  * is mapped; this program, the pipe ends the init takes, and the
  * errno the init failed with before its exec, which the init writes. */
 struct sandbox_start {
@@ -1365,12 +1365,12 @@ static int raise_descriptor (int fd, int top, int *placed) {
 /* The sandbox's init, on the unveiled child's memory from its start to
  * its exec: the first process in the child's pid namespace, it gives up
  * its capabilities and executes this very program as
- * `cosmic_sandbox_init`, holding the started pipe's read end as 0, the
+ * [`cosmic_sandbox_init`], holding the started pipe's read end as 0, the
  * ready pipe's write end as 1 and the parent's status pipe's write end
  * as 2, and nothing else -- from / as the host has it still, where a
  * core linked dynamically (the checked one) finds its loader and
  * libraries, whatever the child is given. Its root and directory move
- * to the child's own when the program pivots (`start_program`). A
+ * to the child's own when the program pivots ([`start_program`]). A
  * failure before that exec is its errno in the shared `init_error`. */
 static _Noreturn int start_init (void *argument) {
   struct sandbox_start *start = argument;
@@ -1378,7 +1378,7 @@ static _Noreturn int start_init (void *argument) {
   int failure = drop_capabilities();
   if (!failure && chdir("/") != 0) failure = errno;
   /* Each source but the status pipe's is above the child's descriptors
-   * (`raise_descriptor`), and that one, just above them, is moved
+   * ([`raise_descriptor`]), and that one, just above them, is moved
    * before 3 is written: so none is overwritten by the moves. */
   const int from[4] = { start->started, start->ready, start->status_fd, start->exe };
   for (int t = 0; !failure && t < 4; t++) {
@@ -1400,15 +1400,15 @@ static _Noreturn int start_init (void *argument) {
  * to its exec: the second in the pid namespace, and, started with
  * CLONE_PARENT, the parent's own child, as a child unconfined is. It
  * builds the root, in the pid namespace as a procfs's mounter must be
- * to hold it (`build_root`), gives up its capabilities, and runs the
- * program (`run_program`). */
+ * to hold it ([`build_root`]), gives up its capabilities, and runs the
+ * program ([`run_program`]). */
 static _Noreturn int start_program (void *argument) {
   const struct sandbox_start *start = argument;
   const struct spawn_plan *plan = start->plan;
   int failure = 0;
   /* One that gives root up (`spawn`'s `user`) builds its root as root,
    * which reaches what only root may -- root's own files, mapped in its
-   * namespace (`map_from_outside`) -- but makes it as that user, as an
+   * namespace ([`map_from_outside`]) -- but makes it as that user, as an
    * unprivileged caller's child's is made: its filesystem ids are that
    * user's and group's, and the capabilities over files that change
    * takes out of effect are put back. The kernel makes its memory
@@ -1467,7 +1467,7 @@ static _Noreturn int start_program (void *argument) {
 
 /* What an unveiled child that gives root up (`spawn`'s `user`) shares
  * with the process that maps its user namespace from outside
- * (`map_from_outside`): the plan, the child's pid, its /proc directory,
+ * ([`map_from_outside`]): the plan, the child's pid, its /proc directory,
  * which the child opened itself -- so a map is written to it alone,
  * whatever pid another process may come to have -- the pipe the child
  * says over that it has made the namespace, and the errno the mapping
@@ -1482,7 +1482,7 @@ struct outside_map {
 };
 
 /* On the unveiled child's memory, started before the child makes its
- * user namespace (`start_unveiled`), and so in this one's, as this
+ * user namespace ([`start_unveiled`]), and so in this one's, as this
  * process's root: once the child says it has made it -- a byte of 1 --
  * writes its uid_map and gid_map, which map root and the user and group
  * it gives root up for (`outer_uid_map`, `outer_gid_map`). The child
@@ -1510,13 +1510,13 @@ static _Noreturn int map_from_outside (void *argument) {
   _exit(failure ? 127 : 0);
 }
 
-/* An unveiled child, from where `spawn_child` placed its descriptors:
- * it makes a user namespace of its own, which it maps (`map_ids`), a pid
+/* An unveiled child, from where [`spawn_child`] placed its descriptors:
+ * it makes a user namespace of its own, which it maps ([`map_ids`]), a pid
  * namespace for what it starts, a mount namespace, System V IPC, and
  * with `offline` a network namespace with its loopback up
- * (`loopback_up`). The init it starts first is pid 1 of that namespace
- * (`start_init`); the program it starts next is pid 2, the parent's
- * child (`start_program`): signalled, stopped and reaped as any child
+ * ([`loopback_up`]). The init it starts first is pid 1 of that namespace
+ * ([`start_init`]); the program it starts next is pid 2, the parent's
+ * child ([`start_program`]): signalled, stopped and reaped as any child
  * is, with the exit status its own, rather than a pid 1's, from which a
  * signal the program does not catch -- a SIGTERM, its own abort() --
  * would be dropped. Its pid is the one `spawn` answers. So the
@@ -1524,7 +1524,7 @@ static _Noreturn int map_from_outside (void *argument) {
  * that init, which ignores them. The init is the parent's child too
  * (CLONE_PARENT), so no subreaper adopts it when this process ends, as
  * one would a stray (`waitpid` ends and reaps it with its program:
- * `end_sandbox_init`), and it ends if the parent does. This
+ * [`end_sandbox_init`]), and it ends if the parent does. This
  * process waits for the init to be past its exec -- until then it
  * shares this memory -- and to have made itself undumpable, so no
  * program of the same user in the sandbox can ptrace it; then it starts
@@ -1542,7 +1542,7 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
   int flags = CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWIPC |
               (plan->offline ? CLONE_NEWNET : 0);
   int failure = 0;
-  /* One that gives root up is mapped from outside (`map_from_outside`),
+  /* One that gives root up is mapped from outside ([`map_from_outside`]),
    * by a process started before its namespace is made, and waited for. */
   struct outside_map outside = { plan, (pid_t)syscall(SYS_getpid), -1, -1, -1, ECHILD };
   pid_t helper = -1;
@@ -1645,7 +1645,7 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
  * (core/coverage.h), so a test is credited with what its child ran, and
  * on the checked core the sanitizer runtime's state (UBSan's report
  * dedup), which a report from here would write; an unveiled one writes
- * its program's pid too (`start_unveiled`). On Darwin those flags
+ * its program's pid too ([`start_unveiled`]). On Darwin those flags
  * land in the copy and are lost with it, so build/c_functions.tl
  * exempts this function there. It leaves by exec or _exit, never by
  * returning, so no atexit handler or stdio flush runs. A failure goes to
@@ -1720,7 +1720,7 @@ bool cosmic_sandbox_init_asked (int argc, char **argv) {
          descriptor_kind(2) == S_IFIFO;
 }
 
-/* The sandbox's init, as `start_init` executes this program: pid 1 of
+/* The sandbox's init, as [`start_init`] executes this program: pid 1 of
  * an unveiled child's pid namespace, which ends, and every process left
  * in it with it, when it does. It starts a session of its own, so the
  * autogroup a process in the sandbox could set through /proc/1 is not
@@ -1786,8 +1786,8 @@ _Noreturn void cosmic_sandbox_init (void) {
 }
 #endif
 
-/* The stack a Linux child runs `spawn_child` on, above a guard page:
- * the most it needs is `build_root`'s paths and a libc's formatting, well
+/* The stack a Linux child runs [`spawn_child`] on, above a guard page:
+ * the most it needs is [`build_root`]'s paths and a libc's formatting, well
  * under this, and only the pages it touches are ever made. */
 #define SPAWN_STACK_SIZE (256 * 1024)
 
@@ -1825,8 +1825,8 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) page = 4096;
   /* One stack, or, for an unveiled child, three: its own, its init's and
-   * its program's (`start_unveiled`) -- and a fourth for the process
-   * that maps one that gives root up (`map_from_outside`) -- each above a
+   * its program's ([`start_unveiled`]) -- and a fourth for the process
+   * that maps one that gives root up ([`map_from_outside`]) -- each above a
    * guard page of its own. */
   size_t each = SPAWN_STACK_SIZE + (size_t)page;
   int stacks = plan->unveiling ? (plan->dropping ? 4 : 3) : 1;
@@ -1855,7 +1855,7 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
   }
 #else
   /* TODO: start the child through posix_spawn on Darwin, which covers
-   * every step `spawn_child` takes there and spares a large parent
+   * every step [`spawn_child`] takes there and spares a large parent
    * fork's copy, as clone spares it on Linux, once a macOS host can run
    * core/syscalls_test.tl and CI's macOS job against it: this path is
    * compiled and started only there. */
@@ -1869,7 +1869,7 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
 
 #if defined(__linux__)
 /* An unveiled child's init and program, each this process's own child
- * (`start_unveiled`), until the init is reaped: `program` is -1 once the
+ * ([`start_unveiled`]), until the init is reaped: `program` is -1 once the
  * program has been, and `init` once the init has. */
 struct sandbox_pair {
   pid_t init;
@@ -1878,7 +1878,7 @@ struct sandbox_pair {
 
 /* Every such pair this process has not seen the end of, in `pairs`,
  * `pair_count` of them in room for `pair_room`. Room is made before a
- * child starts (`sandbox_room`), so recording one never fails. */
+ * child starts ([`sandbox_room`]), so recording one never fails. */
 static struct sandbox_pair *pairs;
 static size_t pair_count, pair_room;
 
@@ -1902,7 +1902,7 @@ static bool sandbox_room (void) {
  * init itself ends, so once it is reaped nothing of the sandbox runs. A
  * pair whose init is reaped is forgotten; one whose init outlasts the
  * second -- a process in the namespace the kernel cannot end, stuck in
- * an uninterruptible wait -- is kept, for `end_sandbox_inits` to reap
+ * an uninterruptible wait -- is kept, for [`end_sandbox_inits`] to reap
  * later. */
 static void end_sandbox_init (size_t at) {
   pid_t init = pairs[at].init;
@@ -1938,7 +1938,7 @@ static void end_sandbox_init (size_t at) {
 }
 
 /* Reaps, without waiting, every init whose program is gone and that a
- * second was not enough for (`end_sandbox_init`). */
+ * second was not enough for ([`end_sandbox_init`]). */
 static void end_sandbox_inits (void) {
   for (size_t at = 0; at < pair_count;) {
     int ignored;
@@ -1951,7 +1951,7 @@ static void end_sandbox_inits (void) {
 }
 
 /* What a wait that reaped `pid` means for the pairs: a program's reaping
- * ends its init (`end_sandbox_init`), and an init's forgets its pair. */
+ * ends its init ([`end_sandbox_init`]), and an init's forgets its pair. */
 static void sandbox_reaped (pid_t pid) {
   for (size_t at = 0; at < pair_count; at++) {
     if (pairs[at].program == pid) {
@@ -1994,7 +1994,7 @@ static int stream_source (lua_State *L, int arg) {
 }
 
 /* Whether `spawn`'s descriptor map hands the artifact descriptor on as
- * `Proc.relaunch` does: the retained descriptor, as the descriptor the
+ * [`Proc.relaunch`] does: the retained descriptor, as the descriptor the
  * child's environment (argument 3) names its artifact's, from a process
  * that can still run its own core. A child that is this core -- started
  * directly, through a `#!` line naming it, or through a program that
@@ -2182,7 +2182,7 @@ COSMIC_SYSCALL(spawn, 10) {
 #endif
   /* The child maps its own ids, or, giving root up, the user and group
    * it runs as; its namespace is mapped from outside then, with root's
-   * beside them (`map_from_outside`). */
+   * beside them ([`map_from_outside`]). */
   unsigned long own_uid = (unsigned long)geteuid(), own_gid = (unsigned long)getegid();
   unsigned long child_uid = dropping ? (unsigned long)drop_uid : own_uid;
   unsigned long child_gid = dropping ? (unsigned long)drop_gid : own_gid;
@@ -2393,7 +2393,7 @@ COSMIC_SYSCALL(spawn, 10) {
   int fork_error = 0;
   /* A child that gives root up shares this process's memory while its
    * ids change, which makes that memory dumpable or not as the kernel
-   * and the child set it (`start_program`): whatever it was here, it is
+   * and the child set it ([`start_program`]): whatever it was here, it is
    * put back once the child has exec'd. */
 #if defined(__linux__)
   int dumpable = dropping ? prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) : -1;
@@ -2414,7 +2414,7 @@ COSMIC_SYSCALL(spawn, 10) {
     return cosmic_fail(L, fork_error);
   }
   /* An unveiled child has ended once it started its program, which is
-   * this process's child in its place (`start_unveiled`), or failed to. */
+   * this process's child in its place ([`start_unveiled`]), or failed to. */
   if (unveiling) {
     int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
     pid = program;
@@ -2626,8 +2626,6 @@ COSMIC_SYSCALL(set_nonblocking, 2) {
   return cosmic_ok(L);
 }
 
-#define POLL_MAX 1024
-
 COSMIC_SYSCALL(poll, 3) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -2635,10 +2633,13 @@ COSMIC_SYSCALL(poll, 3) {
   if (timeout < -1 || timeout > INT_MAX)
     return luaL_argerror(L, 3, "timeout is out of range");
   lua_Integer count = (lua_Integer)lua_rawlen(L, 1);
-  if (count > POLL_MAX) return luaL_argerror(L, 1, "too many descriptors");
+  if (count > INT_MAX) return luaL_argerror(L, 1, "too many descriptors");
   if ((lua_Integer)lua_rawlen(L, 2) != count)
     return luaL_argerror(L, 2, "one event mask per descriptor");
-  struct pollfd fds[POLL_MAX];
+  /* A block Lua owns, not a C allocation: a refused descriptor below
+   * raises part-way through filling it, and the collector takes it. */
+  struct pollfd *fds =
+    lua_newuserdatauv(L, (size_t)count * sizeof(struct pollfd), 0);
   for (lua_Integer i = 0; i < count; i++) {
     lua_rawgeti(L, 1, i + 1);
     lua_rawgeti(L, 2, i + 1);
@@ -2856,7 +2857,7 @@ COSMIC_SYSCALL(cancelled_child_signal, 0) {
   lua_setfield(L, -2, #name);
 
 /* core/process.h's calls and the numbers `poll` takes and gives back,
- * which only the raw `cosmic.internal.process` module holds. */
+ * which only the raw [`cosmic.internal.process`] module holds. */
 int cosmic_open_process (lua_State *L) {
   lua_newtable(L);
 #include "process.h"

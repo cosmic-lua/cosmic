@@ -1,5 +1,5 @@
---- Regression tests for `build.coverage.lines.executable_cached`: the
---- `executable` table `build.work`'s schema adds so a run where a
+--- Regression tests for [`build.coverage.lines.executable_cached`]: the
+--- `executable` table [`build.work`]'s schema adds so a run where a
 --- module's source has not changed answers from `o/build.db` instead
 --- of reparsing it.
 local Coverage = require("cosmic.coverage")
@@ -19,7 +19,7 @@ local function count(db: Sqlite.Handle, table_name: string): integer
 end
 
 --- Same keys in both executable-line sets, ignoring the `true` payload
---- `lines.executable` always sets: what a caller actually compares.
+--- [`lines.executable`] always sets: what a caller actually compares.
 local function same_lines(a: {integer: boolean}, b: {integer: boolean}): boolean
   for line in pairs(a) do
     if not b[line] then return false end
@@ -31,7 +31,7 @@ local function same_lines(a: {integer: boolean}, b: {integer: boolean}): boolean
 end
 
 --- A miss (no row for the hash yet) computes exactly what the pure
---- `lines.executable` computes, and stores one row for it.
+--- [`lines.executable`] computes, and stores one row for it.
 local function test_miss_computes_and_stores_a_row(tmp: string)
   local handle = assert(work.open(tmp))
   local source = "local x = 1\nlocal y = 2\n"
@@ -65,7 +65,7 @@ local function test_hit_returns_the_stored_answer_without_reparsing(tmp: string)
   assert(work.close(handle))
 end
 
---- A parse failure is reported exactly as `lines.executable` reports
+--- A parse failure is reported exactly as [`lines.executable`] reports
 --- it, and stores nothing: only a successful parse is a function of
 --- the hash alone worth caching.
 local function test_parse_failure_stores_nothing(tmp: string)

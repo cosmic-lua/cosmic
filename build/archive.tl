@@ -1,9 +1,9 @@
 --- `cosmic archive`: list, unpack and pack the archives a file turns out
 --- to be, for the question ("what is in this release tarball?") that a
---- script costs more than. It is `cosmic.archive` (which detects a zip
+--- script costs more than. It is [`cosmic.archive`] (which detects a zip
 --- or a plain, gzip, xz or bzip2 tar from the file's first bytes, not
 --- its name, and refuses a member that would land outside the target),
---- `cosmic.tar`, `cosmic.zip` and `cosmic.compress` behind a command
+--- [`cosmic.tar`], [`cosmic.zip`] and [`cosmic.compress`] behind a command
 --- line.
 ---
 --- Like `cosmic json` it ends in no verdict line: its standard output
@@ -28,7 +28,7 @@ local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
---- The `cosmic archive` verb: `run` is what `build/dispatch.tl` calls.
+--- The `cosmic archive` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
@@ -104,7 +104,7 @@ local function has_dotdot(path: string): boolean
 end
 
 --- The first `n` bytes of `source` (fewer at its end), read and not yet
---- put back (`Stream.prepend` does that), or nil and why when a read
+--- put back ([`Stream.prepend`] does that), or nil and why when a read
 --- failed, which closes `source`.
 local function peek(source: Stream.Reader, n: integer): string | nil, string
   local parts: {string} = {}
@@ -215,7 +215,7 @@ local function with_entries(file: string, to: verb.Io,
   return body(entries)
 end
 
---- A name written as `bare.escape` does with `named`: a backslash, tab,
+--- A name written as [`bare.escape`] does with `named`: a backslash, tab,
 --- newline or return as \\, \t, \n or \r and any other control byte as
 --- \xHH, so a name never breaks a line or a column (`cosmic sql` escapes a
 --- cell the same way).
@@ -279,7 +279,7 @@ end
 --- a directory it would only be put into.
 local function clash_of(entry: Archive.Entry, dest: string, selected: function(string): boolean): string | nil
   local name = normal(entry.path)
-  -- A path that escapes is for `Archive.extract` to refuse, by
+  -- A path that escapes is for [`Archive.extract`] to refuse, by
   -- name; it is not looked up outside `dest` here.
   if name == "" or entry.path:sub(1, 1) == "/" or has_dotdot(entry.path) or
       not selected(entry.path) then
@@ -361,7 +361,7 @@ end
 --- symlink the destination holds, onto a directory or over a file.
 --- `rel` is the directory of `tree` looked at, "" for the top.
 --- Checked, then moved: a file that appears at a path between this look
---- and `apply_steps`' rename of it is replaced without a refusal. That
+--- and [`apply_steps`]' rename of it is replaced without a refusal. That
 --- stays -- only another process racing the extraction reaches it, and
 --- holding the destination still would need a lock no reader honours.
 local function plan_move(tree: string, dest: string, force: boolean, rel: string,
@@ -574,7 +574,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     filter = selected,
     resolve_in = dest_exists and dest or nil,
   })
-  -- The rest of the stream, as `Archive.list` would have read it whole
+  -- The rest of the stream, as [`Archive.list`] would have read it whole
   -- before anything was written: its trouble comes first.
   while advance() ~= nil do end
   local _, _ = inner:close()
@@ -661,12 +661,12 @@ local function extract(file: string, dest: string, force: boolean, members: {str
       end
       if clashes.count > 0 then return overwrite_refusal(dest, clashes) end
     end
-    -- No rollback: `Archive.extract` streams entries out as it reads
+    -- No rollback: [`Archive.extract`] streams entries out as it reads
     -- them, so a refusal partway (an escaping link, a path through a
     -- symlink, a corrupt body) leaves the entries before it written.
     -- A file is read twice anyway (the look above, then this), and an
     -- archive that arrives as a stream is staged instead
-    -- (`extract_streamed`); a file, which is the caller's own, keeps
+    -- ([`extract_streamed`]); a file, which is the caller's own, keeps
     -- `tar -x`'s way of extracting into a directory that already holds
     -- files, with only what a look at the listing can settle first (a
     -- missing member, an overwrite) checked before anything is written.
@@ -763,7 +763,7 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
         if kind == "dir" or kind == "link" then
           seen[#seen + 1] = { relative, kind }
         elseif kind ~= "file" and odd == nil then
-          -- A fifo, a socket or a device: `Fs.walk` lists only files,
+          -- A fifo, a socket or a device: [`Fs.walk`] lists only files,
           -- directories and links, so it is met here or not at all.
           odd = relative
         end
@@ -969,7 +969,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   return outcome.code
 end
 
---- The `archive` verb as `build/verb_list.tl` lists it. Reads an archive
+--- The `archive` verb as [`build/verb_list.tl`] lists it. Reads an archive
 --- it is given, never the tree: not stale-checked.
 verb.spec = {
   name = "archive",

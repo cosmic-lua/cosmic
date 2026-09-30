@@ -1,5 +1,5 @@
 --- What the caches every checkout shares -- the compiles and parses
---- (`build.shared_compiles`) and the verdicts (`build.shared_verdicts`)
+--- ([`build.shared_compiles`]) and the verdicts ([`build.shared_verdicts`])
 --- -- do alike with their SQLite file: open it in write-ahead mode with a
 --- busy timeout, tell a busy answer from a broken file, and move a
 --- broken file aside so the next run starts a fresh one.
@@ -94,7 +94,7 @@ end
 
 --- Opens the cache at `path`, which the caller has made ready (its
 --- directory, and whatever it holds of the file's mode), in write-ahead
---- mode (`to_wal`, which waits up to `wait_ms` in all on another run's
+--- mode ([`to_wal`], which waits up to `wait_ms` in all on another run's
 --- lock), then `prepare`d, the caller's tables made or checked, under a
 --- busy timeout of `wait_ms` a statement. `wait_ms` is ten seconds when
 --- nil. Answers the handle, or nil and why, prefixed with `path`, having

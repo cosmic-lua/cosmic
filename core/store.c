@@ -26,7 +26,7 @@
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
-/* The hold `store_hold` puts up: the set of names no lookup answers, why
+/* The hold [`store_hold`] puts up: the set of names no lookup answers, why
  * of a module and why of `databases`, the set of `meta` keys every
  * database answers and why of any other, and how many databases the list
  * held as it went up, each in the registry once it is up and nil until
@@ -68,32 +68,32 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * `require` passes it. Calling the searcher by hand yields the same
  * value, and that is no escalation: the raw table reaches nothing the
  * wrapper does not already reach. The store's raw table included: each
- * of its lookups of a module consults the hold (`store_hold`) itself,
+ * of its lookups of a module consults the hold ([`store_hold`]) itself,
  * none hands out a handle while one is up, and nothing lifts one, so a
  * caller that reaches it past its wrapper reads no more of a held
  * module than the wrapper would. (The process table's `waitpid` can
- * reap a child no handle of the caller's owns, which `cosmic.child`
+ * reap a child no handle of the caller's owns, which [`cosmic.child`]
  * never does; that is a caller breaking its own bookkeeping, and why
  * the table is off the public surface, not a privilege gained.) */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* Every wrapper that is handed a raw value when loaded trusted, and the
  * raw value's name. Being listed here is also what reserves a name
- * outside `cosmic.*` for the binary's own tree (`names_reserved`), so
+ * outside `cosmic.*` for the binary's own tree ([`names_reserved`]), so
  * one entry is the whole grant: a project database can never shadow a
  * wrapper named here, and any `build.*` name not named here stays
  * project first. `open` builds that value; it is NULL where other
- * code registers it -- `cosmic_store_install` the store, core/surface.c
- * the coverage collector (its raw name, `cosmic.internal.debug`, holds no
- * debug library), and `cosmic_store_open_raw` all the others, a raw
+ * code registers it -- [`cosmic_store_install`] the store, core/surface.c
+ * the coverage collector (its raw name, [`cosmic.internal.debug`], holds no
+ * debug library), and [`cosmic_store_open_raw`] all the others, a raw
  * value shared by several wrappers once, at its first entry.
- * `build.test_worker` gets the store's to put a hold up (`store_hold`),
- * which `cosmic.store` does not offer. `build.fuzz` gets the instruction
+ * [`build.test_worker`] gets the store's to put a hold up ([`store_hold`]),
+ * which [`cosmic.store`] does not offer. [`build.fuzz`] gets the instruction
  * budget alone, which shares the coverage collector's hook but none of
- * its collection. The process table is `cosmic.child`'s,
- * `cosmic.proc`'s and `build.confine`'s, whose stand-in for its `spawn`
- * confines each child a test starts. `build.digest` shares
- * `cosmic.hash`'s, so the code that computes a verdict key hashes
+ * its collection. The process table is [`cosmic.child`]'s,
+ * [`cosmic.proc`]'s and [`build.confine`]'s, whose stand-in for its `spawn`
+ * confines each child a test starts. [`build.digest`] shares
+ * [`cosmic.hash`]'s, so the code that computes a verdict key hashes
  * through no raw function a test can replace: it takes them as it
  * loads, and only a hasher's `update` and `digest`, in the runner alone,
  * are still looked up on its metatable. */
@@ -172,7 +172,7 @@ static int return_upvalue (lua_State *L) {
   return 1;
 }
 
-/* Whether a hold is up (`store_hold`) and, for a `name` not NULL,
+/* Whether a hold is up ([`store_hold`]) and, for a `name` not NULL,
  * whether its set holds that name. Read raw, so nothing the set's owner
  * hung on it runs here; it raises only on memory, before any lookup
  * holds a resource. */
@@ -208,9 +208,9 @@ static void push_refusal (lua_State *L, const char *name) {
 /* How many databases, from the first, a lookup of the `meta` row `key`
  * searches of the `count` the list holds: every one, but while a hold is
  * up whose set of `meta` keys does not hold `key`, only those attached
- * since it went up, which `store_attach` puts ahead of the rest -- a
+ * since it went up, which [`store_attach`] puts ahead of the rest -- a
  * test's own, keyed by what it declares it reads -- and none while
- * `store_alone` has set them aside. Read raw, as `held` reads. */
+ * [`store_alone`] has set them aside. Read raw, as `held` reads. */
 static lua_Integer meta_reach (lua_State *L, const char *key,
                                lua_Integer count) {
   if (!held(L, NULL)) return count;
@@ -302,8 +302,8 @@ static sqlite3 *binary_database (lua_State *L, int list) {
 
 /* The one searcher. Its upvalue is the list of databases, in the order
  * they are searched: index `count` is always the one attached to the
- * running binary, because `store_attach` only ever prepends. A reserved
- * name (`names_reserved`: under `cosmic.*`, or a wrapper in
+ * running binary, because [`store_attach`] only ever prepends. A reserved
+ * name ([`names_reserved`]: under `cosmic.*`, or a wrapper in
  * `raw_modules`) resolves there first and a project's own database
  * second, so a database that smuggles in a module of that name can never
  * shadow the binary's own -- everything else stays project first, which
@@ -358,7 +358,7 @@ static int store_searcher (lua_State *L) {
 
 /* What a statement on a store connection may do: read. Every connection
  * the store searches is handed out as a borrowed handle
- * (`store_databases`), and a read-only open still leaves a connection
+ * ([`store_databases`]), and a read-only open still leaves a connection
  * its own writable temp schema -- where a `CREATE TEMP TABLE modules`
  * would stand in front of the rows `require` loads -- and ATTACH.
  * Anything but a query is refused when it is prepared. FTS5, which the
@@ -387,7 +387,7 @@ static int reads_only (void *unused, int action, const char *first,
 
 static void release_database (void *db) { sqlite3_close_v2(db); }
 
-/* Whether `store_alone` has set the attached databases aside: nothing is
+/* Whether [`store_alone`] has set the attached databases aside: nothing is
  * attached until it puts them back, so its restore never grows the list. */
 static int set_aside;
 
@@ -405,7 +405,7 @@ static int store_attach (lua_State *L) {
   }
   struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
   sqlite3 *db = NULL;
-  /* Through the default VFS, as every connection `cosmic.sqlite` opens
+  /* Through the default VFS, as every connection [`cosmic.sqlite`] opens
    * is. No SQLITE_OPEN_URI, as there: `path` is a filename, so a `file:`
    * URI's `vfs=` never picks another VFS. */
   int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, NULL);
@@ -536,7 +536,7 @@ static const char *inflate_top (lua_State *L) {
  * some other tree needs in order to type a `require` of this one's
  * modules. Only the binary's rows answer, so a project's own database
  * can never stand in for the standard library's types. The build stores
- * both deflated (`build.writer`), so each is inflated here. */
+ * both deflated ([`build.writer`]), so each is inflated here. */
 static int store_source (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   sqlite3 *db = binary_database(L, lua_upvalueindex(1));
@@ -771,10 +771,10 @@ static int store_alone (lua_State *L) {
 }
 
 /* Every database `require` searches, in search order, each as a
- * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
+ * borrowed [`cosmic.sqlite`] handle: what a verb that reads the shipped
  * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
  * path to any of them, since the binary's own is inside the binary.
- * The handles read only -- `reads_only` refuses anything but a query on
+ * The handles read only -- [`reads_only`] refuses anything but a query on
  * the store's connections, a temp table and ATTACH included; `close` on
  * one is a no-op, and the store keeps the connections for as long as
  * the process runs. */
@@ -785,7 +785,7 @@ static int store_databases (lua_State *L) {
   /* TODO: hand out, while a hold is up, a handle on a database attached
    * since it went up -- a test's own, keyed by what it declares it
    * reads -- through a lookup of its own. The list tells those apart
-   * already (`STORE_HOLD_COUNT`, as `meta_reach` reads it), but this
+   * already ([`STORE_HOLD_COUNT`], as [`meta_reach`] reads it), but this
    * answers every database `require` searches, the binary's last: a
    * caller handed only the test's own would query less than it asked
    * for, and answer silently, where it raises now. Waits on a caller
@@ -820,9 +820,9 @@ static int zones_failed (lua_State *L, sqlite3 *db, int rc) {
 
 /* The names the binary's own `imports` table records the module `name`
  * requiring, as a list, sorted: none for a name it holds no row of. Nil
- * and why when a hold holds `name` (`store_hold`), or the query failed:
+ * and why when a hold holds `name` ([`store_hold`]), or the query failed:
  * what walks the binary's module graph a name at a time, each held as a
- * lookup of that module is, where a handle (`store_databases`) would
+ * lookup of that module is, where a handle ([`store_databases`]) would
  * read every module's rows. */
 static int store_requires (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
@@ -910,7 +910,7 @@ static int store_zoneinfo (lua_State *L) {
 }
 
 /* Every time zone name the binary's own database carries, as a set, or
- * nil and why when the query failed: as `store_zoneinfo`, no handle. */
+ * nil and why when the query failed: as [`store_zoneinfo`], no handle. */
 static int store_zone_names (lua_State *L) {
   sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   if (db == NULL) {
@@ -950,7 +950,7 @@ static int store_zone_names (lua_State *L) {
  * `source`'s, `requires`' -- answers as if no database held it, saying
  * why with the text at 2, and `databases` raises the text at 3; and a
  * `meta` lookup of a key the set at 4 does not hold searches only the
- * databases attached since (`meta_reach`), raising the text at 5 when
+ * databases attached since ([`meta_reach`]), raising the text at 5 when
  * none of those answers. A test worker holds a test so to the modules
  * and rows its verdict is keyed by. The sets are consulted as they
  * stand, not copied. Nothing takes a hold down,

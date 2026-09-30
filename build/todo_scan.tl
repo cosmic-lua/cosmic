@@ -1,5 +1,5 @@
---- Finds the `TODO:` comments in one file's text, for `build.work` to
---- index as it stages and `build.todos` to list: apart from the verb, so
+--- Finds the `TODO:` comments in one file's text, for [`build.work`] to
+--- index as it stages and [`build.todos`] to list: apart from the verb, so
 --- staging does not import it.
 ---
 --- A TODO is a comment line whose text opens with `TODO:` after the
@@ -97,7 +97,7 @@ function todo_scan.scan(source: string): {todo_scan.Found}
         -- sentences short (build/tree_checks.tl's and build/test.tl's
         -- lose their second halves today); apply that break only to a
         -- script's leading `#` header, or take comments from the parser
-        -- as the TODO in `comment_of` proposes, and drop it here.
+        -- as the TODO in [`comment_of`] proposes, and drop it here.
         local aligned = next_indent == indent or
           (following ~= marker and next_indent == indent .. " ")
         if not aligned or

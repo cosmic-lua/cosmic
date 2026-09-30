@@ -1,5 +1,5 @@
---- Fuzz properties for `hash.parse_sums`, which reads a sums file that
---- may be anyone's: `hash.format_line` then `parse_sums` gives back the
+--- Fuzz properties for [`hash.parse_sums`], which reads a sums file that
+--- may be anyone's: [`hash.format_line`] then `parse_sums` gives back the
 --- digest and the name for any name (bytes that are not UTF-8, backslashes,
 --- newlines, spaces, `*`), and `parse_sums` is total on any bytes, listing
 --- what it cannot read rather than raising. `FUZZ_SEED` and `FUZZ_ITERS`

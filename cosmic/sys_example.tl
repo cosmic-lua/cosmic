@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.sys`, the syscall table, for the calls
+--- Worked examples for [`cosmic.sys`], the syscall table, for the calls
 --- no other module wraps. Shown by `cosmic docs` under the symbol each
 --- one demonstrates and run by `cosmic test` like any other test.
 
@@ -20,7 +20,7 @@ local function clean(dir: string, path: string)
   assert(sys.rmdir(dir))
 end
 
---- `sys.pread` reads from an explicit offset, leaving the
+--- [`sys.pread`] reads from an explicit offset, leaving the
 --- descriptor's own offset where it was.
 function Example.pread()
   local dir, path = scratch()
@@ -32,7 +32,7 @@ function Example.pread()
   clean(dir, path)
 end
 
---- `sys.lseek` moves a descriptor's offset and returns the new
+--- [`sys.lseek`] moves a descriptor's offset and returns the new
 --- one: from the end, it is the file's size.
 function Example.lseek()
   local dir, path = scratch()
@@ -44,7 +44,7 @@ function Example.lseek()
   clean(dir, path)
 end
 
---- `sys.fstat` describes an open descriptor rather than a path.
+--- [`sys.fstat`] describes an open descriptor rather than a path.
 function Example.fstat()
   local dir, path = scratch()
   local fd = assert(sys.open(path, sys.O_RDONLY))
@@ -55,7 +55,7 @@ function Example.fstat()
   clean(dir, path)
 end
 
---- `sys.lstat` describes a path itself, a symbolic link rather
+--- [`sys.lstat`] describes a path itself, a symbolic link rather
 --- than its target; a failure returns nil, the error, and the errno.
 function Example.lstat()
   local dir, path = scratch()
@@ -67,7 +67,7 @@ function Example.lstat()
   assert(gone == nil and errno == sys.ENOENT, tostring(errno))
 end
 
---- `sys.utimensat` sets an access time, a modification time or
+--- [`sys.utimensat`] sets an access time, a modification time or
 --- both, each as seconds and nanoseconds the way a Stat reports them;
 --- nil seconds leave that time as it was.
 function Example.utimensat()
@@ -79,7 +79,7 @@ function Example.utimensat()
   clean(dir, path)
 end
 
---- `sys.chmod` sets a path's permission bits.
+--- [`sys.chmod`] sets a path's permission bits.
 function Example.chmod()
   local dir, path = scratch()
   assert(sys.chmod(path, tonumber("600", 8) as integer))
@@ -90,8 +90,8 @@ function Example.chmod()
   clean(dir, path)
 end
 
---- `sys.chdir` moves the process to a directory, and
---- `sys.getcwd` says where it is.
+--- [`sys.chdir`] moves the process to a directory, and
+--- [`sys.getcwd`] says where it is.
 function Example.chdir()
   local dir, path = scratch()
   local before = assert(sys.getcwd())
@@ -105,7 +105,7 @@ function Example.chdir()
   clean(dir, path)
 end
 
---- `sys.rmdir` removes an empty directory, and refuses one that
+--- [`sys.rmdir`] removes an empty directory, and refuses one that
 --- is not.
 function Example.rmdir()
   local dir, path = scratch()

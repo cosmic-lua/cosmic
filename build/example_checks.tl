@@ -46,7 +46,7 @@ local function problems(built: compiler, env: compiler.Env, name: string,
   return out
 end
 
---- A stored example source (`build.analyzer.ExampleEntry.source`: the
+--- A stored example source ([`build.analyzer.ExampleEntry.source`]: the
 --- `require` lines it needs, the function) as a chunk that runs alone:
 --- `local Example = {}` where the function begins, and a call of it.
 --- Lines are kept, so a complaint's line is a line of the text shown,
@@ -98,7 +98,7 @@ end
 
 --- What an example file (its text) says about `name`, a name a shown
 --- example lacks: if a top-level helper declares it, it was too long
---- to carry (`build.analyzer`); if `name` is `Example` and a helper
+--- to carry ([`build.analyzer`]); if `name` is `Example` and a helper
 --- calls `Example.x`, the copy has no such table. Nil for any other.
 local function helper_trouble(file: string, name: string): string | nil
   local helper = ""
@@ -187,7 +187,7 @@ local function guide(text: string, file: string, built: compiler,
 end
 
 --- Both of the above over the tree at `root`: the projection `db`'s
---- examples and each of `guides` (default `symbols.guides`, read from
+--- examples and each of `guides` (default [`symbols.guides`], read from
 --- `doc/guides/<name>.md`).
 --- @param built a compiler, its own: the check points it at this binary's sources
 function example_checks.run(db: Sqlite.Handle, root: string, built: compiler,

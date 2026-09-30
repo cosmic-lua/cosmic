@@ -15,7 +15,7 @@
 /* The longest digest any algorithm here produces, in bytes. */
 #define COSMIC_DIGEST_MAX 64
 
-/* The most bytes one `sys.entropy` call draws. */
+/* The most bytes one [`sys.entropy`] call draws. */
 #define COSMIC_ENTROPY_MAX (1 << 20)
 
 /* The PSA algorithm an algorithm name names, or PSA_ALG_NONE when no
@@ -38,7 +38,7 @@ int cosmic_digest (const char *name, const void *data, size_t len,
                    unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len);
 
 /* HMAC of `data` under `key`, over the algorithm `name` names. Same
- * returns as `cosmic_digest`. */
+ * returns as [`cosmic_digest`]. */
 int cosmic_hmac (const char *name, const void *key, size_t key_len,
                  const void *data, size_t len,
                  unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len);

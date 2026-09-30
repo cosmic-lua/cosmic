@@ -1,6 +1,6 @@
 --- Seeded, shrinking property fuzzing for the parsers that face untrusted
 --- bytes. A property names a generator, which builds one input from a
---- `Source`'s draws, and a check that must hold for every input. `run`
+--- [`Source`]'s draws, and a check that must hold for every input. `run`
 --- draws `FUZZ_ITERS` inputs (64 by default) from `FUZZ_SEED` (1 by
 --- default), so the same seed reaches the same input at the same
 --- iteration on every host. A check that returns false or raises fails

@@ -1,10 +1,10 @@
 --- `cosmic json`: one lookup in a JSON document, for the ten-second
 --- question ("is there a key `x` in this export?") that a script costs
 --- more than. It reads a file, or standard input, walks the path
---- `Json.parse_pattern` reads, and prints what is there -- and nothing else:
+--- [`Json.parse_pattern`] reads, and prints what is there -- and nothing else:
 --- no filter, no transform. A path names one value and prints it as JSON;
 --- `--flat` prints every leaf under it, and a path with `*` or `..` in it
---- every match, each as a `path = value` line (`Json.flat_line`), whose
+--- every match, each as a `path = value` line ([`Json.flat_line`]), whose
 --- path is one this verb takes back, so `--flat | grep` finds a leaf and
 --- its path pastes into `cosmic json '<path>'`. JSONPath's filters and
 --- slices are left out on purpose: the verb is a lookup and no query
@@ -21,7 +21,7 @@
 ---
 --- A JSON `null` is a value here, not an absence: `--exists` is true of a
 --- key whose value is `null`, and a path through one fails for what it
---- is (`Json.get` reads with `null_value = Json.null`).
+--- is ([`Json.get`] reads with `null_value = Json.null`).
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -31,7 +31,7 @@ local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
---- The `cosmic json` verb: `run` is what `build/dispatch.tl` calls.
+--- The `cosmic json` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
@@ -55,8 +55,8 @@ local record verb
     --- The steps of a path that can match many values (`*`, `..`);
     --- nil for a plain path.
     pattern: {Json.Step} | nil
-    --- The path as `Json.child_path` spells it (a pattern as
-    --- `Json.spell_pattern` does), for a message; "$" when none was
+    --- The path as [`Json.child_path`] spells it (a pattern as
+    --- [`Json.spell_pattern`] does), for a message; "$" when none was
     --- given.
     spelled: string
     --- The file to read; nil for standard input.
@@ -311,7 +311,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   return written(to.out(encoded .. "\n"))
 end
 
---- The `json` verb as `build/verb_list.tl` lists it. Reads a document it
+--- The `json` verb as [`build/verb_list.tl`] lists it. Reads a document it
 --- is given, never the tree, so never stale-checked either.
 verb.spec = {
   name = "json",

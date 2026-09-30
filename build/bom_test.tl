@@ -40,7 +40,7 @@ local function test_a_record_names_its_license()
 end
 
 --- Every key but `notice` is read once, the first line winning, as
---- `bin/vendor` reads a PIN: a second `url` names no other archive.
+--- [`bin/vendor`] reads a PIN: a second `url` names no other archive.
 local function test_the_first_line_naming_a_key_wins()
   local component = assert(bom.parse("a", "version 1\nurl first\nurl second\n" ..
     "license MIT\nlicense GPL-3.0\nnotice A\nnotice B\n"))
@@ -148,8 +148,8 @@ end
 
 -- TODO: hold build/bom/musl.pin's version and both notices copied
 -- beside it to the pinned zig's own lib/libc/musl and LICENSE, once a
--- test can find the pinned zig install: only `build/zig.tl`, run
--- standalone by `bin/zig`, knows where it unpacked it.
+-- test can find the pinned zig install: only [`build/zig.tl`], run
+-- standalone by [`bin/zig`], knows where it unpacked it.
 
 --- The zig record's version is the pinned compiler's, and Lua's notice
 --- is the license block at the end of lua.h, not lines a new release

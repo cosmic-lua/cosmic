@@ -439,7 +439,7 @@ end
 --- verifies the one already there. A draft left by an interrupted run is
 --- resumed only by accepting the assets it holds that are identical to
 --- the staged ones. Raises on any failure; the line to print on success,
---- or on a skip (`ensure_tag`), a warning annotation.
+--- or on a skip ([`ensure_tag`]), a warning annotation.
 function Prerelease.publish(p: Prerelease.Publish): string
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))

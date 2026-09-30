@@ -3,7 +3,7 @@
 --- at compile time (`unknown variable: os`), and a chunk handed to
 --- `load` that reaches for one fails at run time; both errors say
 --- what to use instead, naming the replacement for the very field used
---- (`os.getenv` is `Env.get`). `cosmic docs os` (or any field below)
+--- (`os.getenv` is [`Env.get`]). `cosmic docs os` (or any field below)
 --- answers the same thing directly. `members` does the same at compile
 --- time for a member a `cosmic.*` module no longer has. Help on the
 --- language's other libraries is in the checked examples that ordinary
@@ -46,12 +46,12 @@ local record Module
   -- literal (cosmic.archive's ExtractOptions.strip, replaced by
   -- strip_prefix and strip_components) has no entry: the checker says only `unknown
   -- field strip`, without the record it was checked against, so
-  -- `build.teal`'s `replacement` cannot look one up. Key entries by
+  -- [`build.teal`]'s `replacement` cannot look one up. Key entries by
   -- record (`cosmic.archive.ExtractOptions.strip`) once that message
   -- names its record.
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
-  -- call a nil value". Say it there too, as `core/surface.c` does for a
+  -- call a nil value". Say it there too, as [`core/surface.c`] does for a
   -- removed global, once a module's record can answer a missing field.
 
   --- What to write instead of a member a `cosmic.*` module no longer
@@ -79,10 +79,6 @@ local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
 local sys <const> = 'local sys = require("cosmic.sys")'
-local poll_gone <const> = "there is no public poll to take it; use " ..
-  "Child.wait_any(handles, timeout_ms), which polls every handle's streams (" ..
-  child .. ")"
-
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -178,15 +174,6 @@ local module: Module = {
       "or stdout = \"capture\" (" .. child .. ")",
     ["cosmic.sys.Pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
       "or stdout = \"capture\" (" .. child .. ")",
-    ["cosmic.sys.set_nonblocking"] = "Child services its pipes without blocking itself; " ..
-      "use Child.wait_any(handles, timeout_ms) (" .. child .. ")",
-    ["cosmic.sys.poll"] = "use Child.wait_any(handles, timeout_ms), which polls every " ..
-      "handle's streams (" .. child .. ")",
-    ["cosmic.sys.POLLIN"] = poll_gone,
-    ["cosmic.sys.POLLOUT"] = poll_gone,
-    ["cosmic.sys.POLLERR"] = poll_gone,
-    ["cosmic.sys.POLLHUP"] = poll_gone,
-    ["cosmic.sys.POLLNVAL"] = poll_gone,
     ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"pipe\" }), or " ..
       "{ input = bytes }, ignores SIGPIPE for this process, so a write to a child " ..
       "that has gone fails with EPIPE instead (" .. child .. ")",

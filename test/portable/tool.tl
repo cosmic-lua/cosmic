@@ -1,5 +1,5 @@
 --- Portable-fixture helper, one subcommand per fixture step. init.tl
---- (`test.portable`) is the shared v1 reader and writer-input library.
+--- ([`test.portable`]) is the shared v1 reader and writer-input library.
 --- Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 

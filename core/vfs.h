@@ -25,7 +25,7 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
                          int64_t length);
 
 /* Writes the `file:` URI that opens `path` through this VFS, read-only
- * and immutable. `path` must be the one `cosmic_vfs_register` was given.
+ * and immutable. `path` must be the one [`cosmic_vfs_register`] was given.
  * Returns false when the URI does not fit in `room`. */
 bool cosmic_vfs_uri (char *into, size_t room, const char *path);
 

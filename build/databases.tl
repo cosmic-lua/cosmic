@@ -233,7 +233,7 @@ end
 --- those tests. The coverage rows counted are every kept run's, not only
 --- the latest.
 --- @param argv the command line, re-entered if this binary embeds a
----   stale copy of `build.databases` itself -- see `build.reboot.stale_exit`
+---   stale copy of [`build.databases`] itself -- see [`build.reboot.stale_exit`]
 local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
@@ -313,7 +313,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   -- The stores of test modules' closures a sandboxed `cosmic test`
-  -- gives its workers (`build.closure_store`'s `write`), as a whole.
+  -- gives its workers ([`build.closure_store`]'s `write`), as a whole.
   if #paths == 0 then
     local stores = root .. "/o/stores"
     local listed, _ = Fs.list(stores)
@@ -347,7 +347,7 @@ local function run(argv: {integer:string}): integer
   return 0
 end
 
---- The `db` verb as `build/verb_list.tl` lists it.
+--- The `db` verb as [`build/verb_list.tl`] lists it.
 databases.spec = {
   name = "db",
   guide = "none: reports on the tree's databases for its maintainers, described by `cosmic help db`",

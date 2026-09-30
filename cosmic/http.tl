@@ -6,12 +6,12 @@
 ---     local ok, trouble = Http.download(
 ---       "https://example.com/big.zip", "big.zip", { sha256 = "..." })
 ---
---- `Http.open` blocks until the final response's headers have arrived
+--- [`Http.open`] blocks until the final response's headers have arrived
 --- (following every redirect `opts.follow` allows) and hands back a
---- `Response` whose body is read a chunk at a time -- a
---- `cosmic.stream` Reader, so `Stream.copy`, `Stream.transform` and the
---- rest take it as they take a file; `Http.get` reads the whole body
---- for the common case, and `Http.download` streams it straight to a
+--- [`Response`] whose body is read a chunk at a time -- a
+--- [`cosmic.stream`] Reader, so [`Stream.copy`], [`Stream.transform`] and the
+--- rest take it as they take a file; [`Http.get`] reads the whole body
+--- for the common case, and [`Http.download`] streams it straight to a
 --- file, verifying a checksum while it goes.
 
 local Codec = require("cosmic.codec")
@@ -51,7 +51,7 @@ local record Http
   --- and the redirect refused fails the request. An empty list or any
   --- other entry raises (`follow = false` is how to take no redirect).
   ---
-  --- While a `Child.guard` is open and has caught SIGINT or SIGTERM, an
+  --- While a [`Child.guard`] is open and has caught SIGINT or SIGTERM, an
   --- open still waiting for its response fails with "interrupted", and
   --- so does a body's `read` that has no data to give, or a streamed
   --- body's `write` or `finish` that must wait. The signal stays the
@@ -62,16 +62,16 @@ local record Http
   --- `low_speed_bytes` (default 1) per second for `low_speed_seconds`
   --- (default 60) straight; 0 turns either check off. `timeout_ms`
   --- bounds the whole request and has no default. `sha256` is read
-  --- only by `Http.download`, and `body_size` only by `Http.upload`.
+  --- only by [`Http.download`], and `body_size` only by [`Http.upload`].
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
-  --- server's whole reply, and `Response:sent` returns what curl wrote.
+  --- server's whole reply, and [`Response:sent`] returns what curl wrote.
   --- Over https that reply is the server's side of the TLS handshake,
   --- which a canned one cannot complete, but it can carry a certificate
   --- to see how it is verified.
   ---
-  --- An option of the wrong shape is a bug, and `Http.open` raises
+  --- An option of the wrong shape is a bug, and [`Http.open`] raises
   --- for it, naming the option: a value of the wrong Lua type (the
   --- integers take no numeric strings), a number with a fraction, or
   --- one out of range. Every integer must be at least 0;
@@ -92,16 +92,16 @@ local record Http
     --- more when the body is complete, before it is renamed into place;
     --- when it answers true the download stops, removes its temporary
     --- file, never creates `path`, and fails with "cancelled". It is how
-    --- a caller holding a `Child.guard` ends a download on SIGINT. A wait
+    --- a caller holding a [`Child.guard`] ends a download on SIGINT. A wait
     --- for data ends too when that guard catches a signal: the open or
     --- the read fails, which the download reports as "cancelled" when
     --- this answers true then.
     cancelled: function(): boolean
   end
 
-  --- An open response, and a `cosmic.stream` Reader of its body.
+  --- An open response, and a [`cosmic.stream`] Reader of its body.
   --- `status`, `headers` and `url` (the effective URL, after every
-  --- redirect taken) are already known when `Http.open` returns them;
+  --- redirect taken) are already known when [`Http.open`] returns them;
   --- `read` pulls the body a chunk at a time, `nil, ""` at its clean
   --- end and the same error again after a failure. `headers` is keyed
   --- by lowercased name, and a name the response repeats has its
@@ -124,7 +124,7 @@ local record Http
   end
 
   --- A request whose body is written a chunk at a time: a
-  --- `cosmic.stream` Writer, so `Stream.copy` fills it from a file, a
+  --- [`cosmic.stream`] Writer, so [`Stream.copy`] fills it from a file, a
   --- child's output or another response. Each `write` blocks until curl
   --- has taken the chunk. `close` ends the body and blocks until the
   --- final response's headers arrive, and `response` then hands the
@@ -141,7 +141,7 @@ local record Http
     response: function(Upload): Response | nil, string
   end
 
-  --- What `Http.get` returns: a status, a whole body, and headers,
+  --- What [`Http.get`] returns: a status, a whole body, and headers,
   --- bundled into one value since a public fallible function here
   --- returns exactly `(value, string)`.
   record Body
@@ -149,7 +149,7 @@ local record Http
     status: integer
     --- The whole body, as bytes.
     body: string
-    --- The response headers, keyed by lower-case name, as `Response.headers`.
+    --- The response headers, keyed by lower-case name, as [`Response.headers`].
     headers: {string:string}
   end
 end
@@ -186,7 +186,7 @@ end
 
 --- Opens `url`, blocking until the final response's headers arrive.
 --- The body is not read yet -- call `response:read(max)` until it
---- returns `nil, ""` for a clean end, or use `Http.get` to read it
+--- returns `nil, ""` for a clean end, or use [`Http.get`] to read it
 --- all at once.
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
   local handle, trouble = http.open(url, opts)
@@ -268,8 +268,8 @@ function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, strin
   return up, ""
 end
 
---- `Http.open`, then the whole body read at once. Fails on a
---- connection or protocol error the same way `Http.open` does; a
+--- [`Http.open`], then the whole body read at once. Fails on a
+--- connection or protocol error the same way [`Http.open`] does; a
 --- non-2xx status is not itself a failure here -- check `result.status`.
 function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   local response, trouble = Http.open(url, opts)

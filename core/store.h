@@ -19,7 +19,7 @@ struct cosmic_artifact;
 
 /* Installs the searcher, with `binary` as the last database searched.
  * `binary` may be NULL, which leaves the list empty until something is
- * opened. The raw `cosmic.internal.store` value goes in the registry,
+ * opened. The raw [`cosmic.internal.store`] value goes in the registry,
  * never in package.preload: only a caller the searcher itself trusts
  * ever gets it back. */
 void cosmic_store_install (lua_State *L, sqlite3 *binary,

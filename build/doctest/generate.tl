@@ -1,8 +1,8 @@
---- Turns the block sequence `build.doctest.markdown` reads out of a doc
+--- Turns the block sequence [`build.doctest.markdown`] reads out of a doc
 --- into one Teal source string: the compiled file doc/meta.md promises,
 --- shaped like a hand-written `_test.tl`. Every example is a top-level
---- function. Running them and discovering them stay `build.test`'s and
---- `build.analyzer`'s jobs.
+--- function. Running them and discovering them stay [`build.test`]'s and
+--- [`build.analyzer`]'s jobs.
 local markdown = require("build.doctest.markdown")
 local String = require("cosmic.string")
 
@@ -73,7 +73,7 @@ local function quote(s: string): string
   return string.format("%q", s)
 end
 
---- Turns the block sequence into the `Item` list `render` walks: one
+--- Turns the block sequence into the [`Item`] list `render` walks: one
 --- entry per skip comment or per example, in the order examples become
 --- runnable functions.
 --- @return {Item} | nil nil on a grammar error -- an `output` or
@@ -87,7 +87,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
 
   for _, b in ipairs(blocks) do
     if b.lang == "needs" then
-      -- The doc's declaration, which `from_blocks` writes at the top.
+      -- The doc's declaration, which [`from_blocks`] writes at the top.
     elseif b.lang == "text" then
       current = nil
     elseif b.lang == "output" then
@@ -166,10 +166,10 @@ local function to_items(blocks: {Block}): {Item} | nil, string
   return items, ""
 end
 
---- The examples a doc's blocks make, as `Entry` values, skips left out:
---- what `from_blocks` turns into functions, without the wrapping, so a
+--- The examples a doc's blocks make, as [`Entry`] values, skips left out:
+--- what [`from_blocks`] turns into functions, without the wrapping, so a
 --- check can hold each to compiling on its own.
---- @return {generate.Entry} | nil nil on the grammar error `from_blocks` names
+--- @return {generate.Entry} | nil nil on the grammar error [`from_blocks`] names
 --- @return string why
 function generate.entries(blocks: {Block}): {generate.Entry} | nil, string
   local items, trouble = to_items(blocks)
@@ -230,7 +230,7 @@ local function emit_example(out: {string}, file: string, example: Example)
   end
   out[#out + 1] = "end"
   if not example.has_output then
-    -- Nothing calls an `example_` function: `build.analyzer.analyze`
+    -- Nothing calls an `example_` function: [`build.analyzer.analyze`]
     -- discovers only `^test_`. Reading it here keeps tl from warning
     -- that it is unused, as `local _ = tmp` does for an argument no
     -- statement reads.
@@ -243,7 +243,7 @@ end
 --- of a table literal as it is, or "" when it can: a brace closing one
 --- it did not open, one left open, or a comment or long bracket that
 --- would swallow the close. Strings are skipped; the build reads what
---- is left field by field (`build.analyzer`), so this holds only that
+--- is left field by field ([`build.analyzer`]), so this holds only that
 --- the line stays one literal.
 local function unspliceable(fields: string): string
   local depth = 0
@@ -285,7 +285,7 @@ function generate.prose(source: string): string
   local titled = false
   for line in String.lines(source) do
     -- A fence closes with the opener's own marker in a run at least as
-    -- long (`build.doctest.markdown`).
+    -- long ([`build.doctest.markdown`]).
     local marker = line:match("^%s*([`~][`~][`~]+)")
     if fence == nil and marker ~= nil then
       fence = marker
@@ -312,8 +312,8 @@ end
 --- example needs one, then one function per example (or one comment for
 --- a skip), in document order.
 ---
---- A doc's `needs` block (`build.doctest.markdown`) becomes the module's
---- top-level `needs` call (`cosmic.test`), which the build reads as it
+--- A doc's `needs` block ([`build.doctest.markdown`]) becomes the module's
+--- top-level `needs` call ([`cosmic.test`]), which the build reads as it
 --- does a test module's. A second is refused.
 --- @param file string the doc's own path, named in a generated
 ---   assertion's failure message and in the header comment; never
@@ -323,7 +323,7 @@ end
 -- program and /bin/sh, so their verdicts never stand), once a generated
 -- module can declare it where build.confine is out of
 -- reach: another project's docs compile without cosmic's build/.
---- @param prose the doc's prose (`generate.prose`), written first as
+--- @param prose the doc's prose ([`generate.prose`]), written first as
 ---   the module's own documentation; "" or absent for none
 function generate.from_blocks(blocks: {Block}, file: string, prose?: string): string | nil, string
   local items, trouble = to_items(blocks)
@@ -378,7 +378,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
     -- Not `Fs`, which a doc's entry would choose for its own
     -- `require("cosmic.fs")`: declaring it again there would shadow this
     -- local. tl's warning for shadowing a local carries a source
-    -- position, so `build.importer`'s discount (which matches only the
+    -- position, so [`build.importer`]'s discount (which matches only the
     -- message for the global `print`, see `__doctest_capture` below)
     -- would not drop it.
     out[#out + 1] = 'local __doctest_fs = require("cosmic.fs")'
@@ -449,7 +449,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   end
 
   -- Where each example opens in the doc, which `cosmic docs` shows in
-  -- place of this file's own lines (`build.importer`'s `origin_lines`).
+  -- place of this file's own lines ([`build.importer`]'s `origin_lines`).
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then

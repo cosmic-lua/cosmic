@@ -1,5 +1,5 @@
 --- Correctness probes for raw structural splices and comment-loss
---- refusals in `build.ast.rewrite`.
+--- refusals in [`build.ast.rewrite`].
 local teal = require("build.teal")
 local ast = require("build.ast")
 local ast_match = require("build.ast.match")

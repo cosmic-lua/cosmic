@@ -6,7 +6,7 @@
 --- which reads only itself. A caller that starts it with no environment
 --- and no descriptors of its own, as bin/zig, codesign's verifier and
 --- the eval grader start theirs, starts it all the same. This program,
---- past its launcher (`Proc.relaunch`), could not be started so.
+--- past its launcher ([`Proc.relaunch`]), could not be started so.
 ---
 --- `build` makes one, in a few milliseconds past reading the core, and
 --- `place` copies it where a test needs one, with the script it runs.
@@ -117,8 +117,8 @@ local schema = require("build.schema")
 -- and nothing more.
 local _ = require("build.stand_in_probe")
 -- What the core itself requires of the program it runs, beside its
--- main module: `cosmic.errors`, for an uncaught error's guidance
--- (core/main.c's `ask_guidance`), and `cosmic.removed`, for what to
+-- main module: [`cosmic.errors`], for an uncaught error's guidance
+-- (core/main.c's `ask_guidance`), and [`cosmic.removed`], for what to
 -- write instead of a name the runtime removes (core/surface.c's
 -- `removed_message`). Required so they are of the closure too.
 local type _ = require("cosmic.errors")
@@ -178,7 +178,7 @@ end
 --- them, with their import edges -- `probe_module`'s under
 --- `main_module`, named its main module -- and the runtime basis this
 --- program runs on. Of what a program `cosmic build` makes carries
---- (`build.embed`'s `database`), it leaves out the rest of the standard
+--- ([`build.embed`]'s `database`), it leaves out the rest of the standard
 --- library, its declarations, time zones, bill of materials and CA
 --- roots, which the probe never reads, and the error catalog, so an
 --- uncaught error of the stand-in's prints its message and trace with
@@ -242,7 +242,7 @@ end
 
 --- Builds a stand-in under `dir`, made if it is not there, and answers
 --- the executable's path, `dir/probe`: this program's own core, as
---- `cosmic build --host` lays one out (`artifact.host_program`), with a
+--- `cosmic build --host` lays one out ([`artifact.host_program`]), with a
 --- database of `probe_module`, its main under `main_module`, and the
 --- modules it and the core require, taken from the ones this program
 --- carries (`database`). Nothing is compiled and nothing of this program

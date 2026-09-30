@@ -4,18 +4,18 @@
  * both and the sandbox has one door.
  *
  * Every entry is a LuaCATS annotation block followed by COSMIC_SYSCALL
- * naming it. The block is the source of truth: `build/gen_syscalls.tl`
+ * naming it. The block is the source of truth: [`build/gen_syscalls.tl`]
  * turns it into the Teal declaration and the documentation row, and
  * refuses a function whose annotation is missing a slot. A binding
  * cannot exist without its type, and the C surface cannot grow without
  * a diff in this file -- or in core/process.h, which declares, in the
- * same grammar, the calls only `cosmic.child`, `cosmic.proc` and
- * `build.confine` are handed, as the raw `cosmic.internal.process`.
+ * same grammar, the calls only [`cosmic.child`], [`cosmic.proc`] and
+ * [`build.confine`] are handed, as the raw [`cosmic.internal.process`].
  *
  * Two shapes, and no third. An argument-shape error -- a degenerate
  * input no correct program passes -- raises. A failure a correct caller
  * meets at runtime returns `nil, error, errno` from a call that answers
- * a value and `false, error, errno` from an effect (`core/fail.h`): the
+ * a value and `false, error, errno` from an effect ([`core/fail.h`]): the
  * error in slot two, the errno in slot three, nothing else sharing a
  * slot. This table is the one place a third slot is allowed; a Teal
  * function over it answers in two.
@@ -48,11 +48,11 @@
  * takes one refuses such a path as a runtime failure, EINVAL, rather
  * than raising. A non-string still raises, as any argument-shape error
  * does. `spawn` (core/process.h) raises on a NUL in its path or cwd
- * instead, which `cosmic.child` depends on; neither way truncates.
+ * instead, which [`cosmic.child`] depends on; neither way truncates.
  * `execve` and `landlock_ruleset` raise on one too. */
 const char *cosmic_path (lua_State *L, int index);
 
-/* Opens the table as the `cosmic.sys` module. */
+/* Opens the table as the [`cosmic.sys`] module. */
 int cosmic_open_syscalls (lua_State *L);
 
 #endif
@@ -284,7 +284,7 @@ COSMIC_SYSCALL(readdir, 1);
 
 /* `tree_digest` has no caller in the tree but its tests
  * (core/syscalls_test.tl): it is kept for the TODO above
- * build/declared_key.tl's `walk_system` ("walk in C, as `sys.tree_digest`
+ * build/declared_key.tl's `walk_system` ("walk in C, as [`sys.tree_digest`]
  * walks by stamps"), which is to digest the system's paths through it
  * rather than an `lstat` of each entry crossing into Lua. */
 
@@ -641,6 +641,35 @@ COSMIC_SYSCALL(access, 2);
 COSMIC_SYSCALL(mkfifo, 2);
 
 /*
+ * --- Turns a descriptor's nonblocking mode on or off: on, a read or write
+ * --- that would wait fails with EAGAIN instead. The mode belongs to the
+ * --- open file, so every descriptor duplicated from it shares it.
+ * ---@param fd integer the descriptor
+ * ---@param on boolean true for nonblocking reads and writes
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(set_nonblocking, 2);
+
+/*
+ * --- Waits until one of the descriptors is ready or the timeout passes,
+ * --- and answers what happened to each, 0 for one not ready. A
+ * --- descriptor of -1 is not watched and answers 0, one below -1 raises,
+ * --- and one not open answers POLLNVAL. A signal ends the wait early, as
+ * --- though nothing were ready. There is no count the call itself
+ * --- refuses: the kernel refuses more than RLIMIT_NOFILE's soft limit
+ * --- (at most OPEN_MAX on macOS) with EINVAL.
+ * ---@param fds {integer} the descriptors to watch
+ * ---@param events {integer} the POLL* mask wanted for each descriptor
+ * ---@param timeout_ms integer how long to wait, -1 for no limit
+ * ---@return {integer}|nil revents the POLL* mask that happened for each descriptor, or nil on failure
+ * ---@return string error what went wrong, when revents is nil
+ * ---@return integer errno the error number, when revents is nil
+ */
+COSMIC_SYSCALL(poll, 3);
+
+/*
  * --- The numbers the calls above take and give back. They come from
  * --- this libc, so nothing above the table carries a platform's own.
  * ---@class Constants
@@ -688,6 +717,11 @@ COSMIC_SYSCALL(mkfifo, 2);
  * ---@field SIGPIPE integer a write to a pipe nobody reads
  * ---@field SIGTERM integer request termination
  * ---@field SIGUSR1 integer the first user-defined signal
+ * ---@field POLLIN integer for `poll`: there is data to read, or a connection to accept
+ * ---@field POLLOUT integer for `poll`: a write would not wait
+ * ---@field POLLERR integer for `poll`: the descriptor is in error
+ * ---@field POLLHUP integer for `poll`: the other end hung up
+ * ---@field POLLNVAL integer for `poll`: the descriptor is not open
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -733,3 +767,8 @@ COSMIC_CONSTANT(SIGKILL)
 COSMIC_CONSTANT(SIGPIPE)
 COSMIC_CONSTANT(SIGTERM)
 COSMIC_CONSTANT(SIGUSR1)
+COSMIC_CONSTANT(POLLIN)
+COSMIC_CONSTANT(POLLOUT)
+COSMIC_CONSTANT(POLLERR)
+COSMIC_CONSTANT(POLLHUP)
+COSMIC_CONSTANT(POLLNVAL)

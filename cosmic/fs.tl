@@ -11,7 +11,7 @@
 --- answers a plain value; `relative` answers nil and why when the path
 --- is not within the directory.
 ---
---- The syscall table itself is `cosmic.sys`. A call this module does not
+--- The syscall table itself is [`cosmic.sys`]. A call this module does not
 --- wrap -- `lstat`, `chdir`, `pread` and others -- is there, and
 --- `cosmic docs cosmic.sys` lists every one.
 
@@ -22,11 +22,11 @@ local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
 
-  --- The descriptor of standard input, 0: what `Fs.take` reads from.
+  --- The descriptor of standard input, 0: what [`Fs.take`] reads from.
   stdin: integer
-  --- The descriptor of standard output, 1: what `Fs.put` writes to.
+  --- The descriptor of standard output, 1: what [`Fs.put`] writes to.
   stdout: integer
-  --- The descriptor of standard error, 2: what `Fs.put` writes to.
+  --- The descriptor of standard error, 2: what [`Fs.put`] writes to.
   stderr: integer
 end
 
@@ -233,7 +233,7 @@ local function private_dir(path: string): boolean, string
   return true, ""
 end
 
---- The base `Fs.cache_path` and `Fs.cache_dir` put `cosmic` under.
+--- The base [`Fs.cache_path`] and [`Fs.cache_dir`] put `cosmic` under.
 local function cache_base(environment?: {string:string}): string | nil, string
   local function get(name: string): string
     if environment ~= nil then
@@ -252,7 +252,7 @@ local function cache_base(environment?: {string:string}): string | nil, string
   return base, ""
 end
 
---- Where `Fs.cache_dir` keeps `tool`'s cache, read from the environment
+--- Where [`Fs.cache_dir`] keeps `tool`'s cache, read from the environment
 --- alone: nothing is made, looked at or checked, so it may not be there.
 function Fs.cache_path(tool: string, environment?: {string:string}): string | nil, string
   local base, trouble = cache_base(environment)
@@ -373,7 +373,7 @@ local record Pending
   above: Above
 end
 
---- Both walks: `Fs.walk`, and with `follow`, `Fs.walk_following`.
+--- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
 local function walk(root: string, skip: function(string, string, string): boolean,
                     follow: boolean): {string} | nil, string
   local found: {string} = {}
@@ -437,7 +437,7 @@ function Fs.walk(root: string,
   return walk(root, skip, false)
 end
 
---- Every file under a root as `Fs.walk` lists them, but with each link
+--- Every file under a root as [`Fs.walk`] lists them, but with each link
 --- taken for what it leads to, as `find -L root -type f` lists them: a
 --- link to a file is listed as a file, under the link's own path, and a
 --- link to a directory is walked into. A link that leads nowhere (or to
@@ -447,7 +447,7 @@ end
 --- than failing it. As with `find -L`, a file reached along several
 --- paths (a diamond of links) is listed once per path, and a link to a
 --- directory above the root is walked in full, but for the directories
---- the walk is already inside. `skip` is asked as `Fs.walk` asks it,
+--- the walk is already inside. `skip` is asked as [`Fs.walk`] asks it,
 --- before a link is followed, so it is told `"link"` and may refuse
 --- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
@@ -494,7 +494,7 @@ end
 
 --- The Lua io module and io.open handles are unavailable. This opens a file
 --- for reading and returns an integer descriptor instead. Most callers want
---- `Fs.read`; use Fs.take and Fs.close when a file must be read in pieces.
+--- [`Fs.read`]; use Fs.take and Fs.close when a file must be read in pieces.
 function Fs.open_read(path: string): integer | nil, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then

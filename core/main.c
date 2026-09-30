@@ -53,7 +53,7 @@ static sqlite3 *open_artifact (const char *path, int retained_fd,
   return db;
 }
 
-/* Answers what `cosmic.errors`'s `guidance` says beneath the uncaught
+/* Answers what [`cosmic.errors`]'s `guidance` says beneath the uncaught
  * error at 1: the catalog's guidance for it, as lines to print, or
  * nothing. */
 static int ask_guidance (lua_State *L) {
@@ -66,7 +66,7 @@ static int ask_guidance (lua_State *L) {
   return 1;
 }
 
-/* Prints the guidance `Errors.guidance` finds for the uncaught error on
+/* Prints the guidance [`Errors.guidance`] finds for the uncaught error on
  * top of the stack, the one policy of a report that is more than its
  * message and line, and leaves the stack as it was. The state is sound
  * after the failed call that raised it; anything that goes wrong asking
@@ -138,7 +138,7 @@ static bool source_position (lua_State *L, const char *message) {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
       owned = true;
       const char *file = (const char *)sqlite3_column_text(stmt, 0);
-      /* The build stores source deflated (`build.writer`). A row that
+      /* The build stores source deflated ([`build.writer`]). A row that
        * will not inflate prints no line rather than a wrong one. */
       const void *stream = sqlite3_column_blob(stmt, 1);
       size_t stream_len = (size_t)sqlite3_column_bytes(stmt, 1);

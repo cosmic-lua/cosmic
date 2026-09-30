@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.time`'s RFC 3339 text: what
+--- Fuzz properties for [`cosmic.time`]'s RFC 3339 text: what
 --- `format_rfc3339` writes, in UTC or moved to any offset, parses back
 --- to the moment it came from; and `parse_rfc3339` is total -- whatever
 --- bytes it is handed, it answers a moment or a failure and never

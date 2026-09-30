@@ -1,8 +1,8 @@
 --- `cosmic build` on a tree that writes no executable -- a library, or
 --- cosmic's own tree -- and a core that holds no program. None of these
 --- copies this program's database into one, so none needs `tool`: the
---- bare core is the running one, read through `artifact.trusted_core`
---- and keyed with the runtime's identity, as `core/boot_test.tl`'s is.
+--- bare core is the running one, read through [`artifact.trusted_core`]
+--- and keyed with the runtime's identity, as [`core/boot_test.tl`]'s is.
 --- The executables it writes are proved in `embed_tool_test.tl`.
 
 local Child = require("cosmic.child")

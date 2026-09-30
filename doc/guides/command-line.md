@@ -4,8 +4,8 @@
 
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
 path to a file to run. Each example here starts the `cosmic` that runs
-it, through `cosmic.child`, and shows what it prints. Each starts it the
-way `cosmic test` starts its workers, past its launcher: `Proc.relaunch`
+it, through [`cosmic.child`], and shows what it prints. Each starts it the
+way `cosmic test` starts its workers, past its launcher: [`Proc.relaunch`]
 names the core it runs on and what the launcher would hand it, so the
 start needs no shell.
 
@@ -136,3 +136,6 @@ after its symbol, and `db` counts only the rows about the sources under
 them. `docs` takes
 words to search for, `sql` one statement, `refresh` the datasets to fetch,
 `bom` nothing, and `help` a verb.
+
+[`cosmic.child`]: ../../cosmic/child.tl
+[`Proc.relaunch`]: ../../cosmic/proc.tl

@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.errors`, shown by `cosmic docs` under
+--- Worked examples for [`cosmic.errors`], shown by `cosmic docs` under
 --- the symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 

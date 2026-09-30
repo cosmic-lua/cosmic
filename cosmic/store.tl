@@ -74,7 +74,7 @@ end
 
 --- Every database `require` searches, in search order: a project's
 --- own ahead of the binary's, which is always last. Each is a handle
---- `cosmic.sqlite` reads through and never closes -- what a verb that
+--- [`cosmic.sqlite`] reads through and never closes -- what a verb that
 --- asks about the shipped tables (`docs`, `uses`, `catalog`) queries.
 --- Raises in a test that does not declare `store`.
 function Store.databases(): {Sqlite.Handle}
@@ -83,8 +83,8 @@ end
 
 --- One time zone's TZif file (RFC 8536), by IANA name, from the copy
 --- of the tz database the binary's own database carries: the only zone
---- rules `cosmic.time` reads. Nil and why when it carries no such zone
---- or the query failed; `zone_names` tells the two apart.
+--- rules [`cosmic.time`] reads. Nil and why when it carries no such zone
+--- or the query failed; [`zone_names`] tells the two apart.
 function Store.zoneinfo(name: string): string | nil, string
   return store.zoneinfo(name)
 end

@@ -1,4 +1,4 @@
---- That a rule registered in `build.fix.rule` actually reaches a file,
+--- That a rule registered in [`build.fix.rule`] actually reaches a file,
 --- end to end.
 ---
 --- Each case temporarily registers a real rule and runs the whole
@@ -117,7 +117,7 @@ local function test_a_rule_that_will_not_compile_is_named()
 end
 
 --- A hit whose replacement would swallow a comment is refused by
---- `build.ast.rewrite`, and `rule.apply` reports it rather than skipping
+--- [`build.ast.rewrite`], and [`rule.apply`] reports it rather than skipping
 --- it: the verb fails the file, naming the rule, the line and the
 --- comment, so the file is left as it was.
 local function test_a_hit_that_would_eat_a_comment_is_reported()

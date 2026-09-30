@@ -1,6 +1,6 @@
---- `build/zig.tl`'s tests that start this program: bin/zig itself, to
+--- [`build/zig.tl`]'s tests that start this program: bin/zig itself, to
 --- see the status a zig that cannot run exits with, and a build that
---- answers or passes on a signal the stand-in zig (`build.stand_in`)
+--- answers or passes on a signal the stand-in zig ([`build.stand_in`])
 --- sends. Apart from build/zig_test.tl's so those stand while the tree
 --- moves.
 
@@ -21,7 +21,7 @@ local type _ = require("build.zig")
 --- test's own, and the stand-in reads none of the one it inherits.
 Test.needs{ reads = { "build/patch.tl" }, tool = true }
 
---- `bin/zig` exits as a shell would when the zig it is given cannot
+--- [`bin/zig`] exits as a shell would when the zig it is given cannot
 --- run: 127 when there is none on PATH, 126 when there is one that is
 --- not executable.
 local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp: string)
@@ -44,7 +44,7 @@ local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp:
   assert(denied_err:find("zig-for-test: permission denied", 1, true), denied_err)
 end
 
---- A root of its own under `tmp` for `build/zig.tl` to build from: the
+--- A root of its own under `tmp` for [`build/zig.tl`] to build from: the
 --- script and the patch applier it runs first, and no vendored tree to
 --- patch. Answers the script's path there.
 local function bare_root(tmp: string): string
@@ -56,7 +56,7 @@ local function bare_root(tmp: string): string
   return tmp .. "/root/build/zig.tl"
 end
 
---- Runs `build/zig.tl` from `script` as bin/zig, building with the
+--- Runs [`build/zig.tl`] from `script` as bin/zig, building with the
 --- stand-in `tmp/zig-for-test`, and answers how it ended. Once it has
 --- started, `tmp/zig-pid` holds its pid -- negated, naming its process
 --- group, which it leads, when `group` -- for the stand-in to wait for
@@ -78,9 +78,9 @@ local function build_with_stand_in(tmp: string, script: string, group: boolean):
   return (assert(h:wait(30000)))
 end
 
---- A Ctrl-C that reached zig and `bin/zig` both, which zig caught and
---- exited cleanly from before `bin/zig` passed it on, is answered by
---- zig's status, as bash answers it: `bin/zig` exits 0 rather than
+--- A Ctrl-C that reached zig and [`bin/zig`] both, which zig caught and
+--- exited cleanly from before [`bin/zig`] passed it on, is answered by
+--- zig's status, as bash answers it: [`bin/zig`] exits 0 rather than
 --- dying of the SIGINT. The stub signals its whole group, as a terminal
 --- does, and exits at once, well inside the pass-on window.
 local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)
@@ -95,8 +95,8 @@ local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end
 
---- A SIGTERM sent to `bin/zig` alone that its child exits before being
---- passed is not swallowed: `bin/zig` ends of it, as it would have had
+--- A SIGTERM sent to [`bin/zig`] alone that its child exits before being
+--- passed is not swallowed: [`bin/zig`] ends of it, as it would have had
 --- it not been running a build.
 local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local script = bare_root(tmp)

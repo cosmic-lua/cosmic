@@ -1,9 +1,9 @@
 --- `cosmic refresh`: a copy of a cosmic binary whose data is newer.
 ---
 --- A binary carries data the build read from the tree -- the CA roots
---- it trusts (`build.roots`), the time zones `cosmic.time` falls back
+--- it trusts ([`build.roots`]), the time zones [`cosmic.time`] falls back
 --- on -- and that data goes stale on its own schedule, not the code's.
---- This rewrites the database an executable carries (`artifact.split`)
+--- This rewrites the database an executable carries ([`artifact.split`])
 --- with each dataset replaced from a newer release, and puts it back
 --- behind the same head -- launcher, cores and manifest byte for byte --
 --- in a new file: the tool itself by default, or any program `cosmic
@@ -11,16 +11,16 @@
 --- binary it reads is never written.
 ---
 --- Each dataset is one entry of `datasets`: the component its
---- release is recorded under in the bill of materials (`build.bom`),
+--- release is recorded under in the bill of materials ([`build.bom`]),
 --- how to fetch the newest release upstream, and how to read one --
 --- fetched, or a file given on the command line -- into the rows the
 --- binary carries. It is read with the very functions a boot reads the
---- tree's own copy with (`roots.put`, `work.write_zones`,
---- `Vendor.kept` under the PIN's rules), so a release refreshed in makes
+--- tree's own copy with ([`roots.put`], [`work.write_zones`],
+--- [`Vendor.kept`] under the PIN's rules), so a release refreshed in makes
 --- the table a build from that release would have. Every row is checked
 --- before anything is written: a certificate the TLS stack cannot read
---- (`Http.check_certificate`, as `core/http.c` reads each root), or a
---- zone `cosmic.time` cannot read, refuses the release.
+--- ([`Http.check_certificate`], as [`core/http.c`] reads each root), or a
+--- zone [`cosmic.time`] cannot read, refuses the release.
 ---
 --- The component's row records the release: its version, where it came
 --- from and its sha256. A release whose sha256 is the one already
@@ -94,7 +94,7 @@ local record refresh
     drop: {string}
   end
 
-  --- What `vendor/tzdata/PIN` keeps of the sdist.
+  --- What [`vendor/tzdata/PIN`] keeps of the sdist.
   tzdata_rules: Rules
   --- Every dataset a refresh can replace, in the order it replaces them.
   datasets: {Dataset}
@@ -174,8 +174,8 @@ function refresh.tzdata_release(text: string): refresh.Source | nil, string
   return nil, "PyPI's description of tzdata " .. index.info.version .. " names no sdist"
 end
 
---- What `vendor/tzdata/PIN` keeps of the sdist, less its version:
---- `strip` holds a `%s` for it. `build/refresh_test.tl` holds these to
+--- What [`vendor/tzdata/PIN`] keeps of the sdist, less its version:
+--- `strip` holds a `%s` for it. [`build/refresh_test.tl`] holds these to
 --- the PIN, so a boot and a refresh keep the same files.
 refresh.tzdata_rules = {
   strip = "tzdata-%s/src/tzdata/",
@@ -230,7 +230,7 @@ local cacert: refresh.Dataset = {
     if #found == 0 then
       return nil, path .. ": holds no certificate"
     end
-    -- A root the TLS stack cannot read is one `core/http.c` drops as it
+    -- A root the TLS stack cannot read is one [`core/http.c`] drops as it
     -- loads them: left out here too, and named, so a bundle with one
     -- root this build cannot read still refreshes the rest. A bundle
     -- with none it can read would leave a binary trusting nothing.
@@ -291,8 +291,8 @@ local tzdata: refresh.Dataset = {
   -- unpacked tzdata), naming its version by the `# version` line of the
   -- `tzdata.zi` beside it; today only the sdist PyPI publishes is read.
   -- A system zoneinfo holds its aliases as links (and some a `posix ->
-  -- .` loop), so reading one wants `Fs.walk_following`, as
-  -- work.read_zoneinfo walks, not `Fs.walk`, which lists no link.
+  -- .` loop), so reading one wants [`Fs.walk_following`], as
+  -- work.read_zoneinfo walks, not [`Fs.walk`], which lists no link.
   read = function(path: string, scratch: string): refresh.Release | nil, string
     local entries, trouble = Archive.list(path)
     if entries == nil then
@@ -617,7 +617,7 @@ local function run(argv: {integer:string}): integer
   return finish(0, "wrote " .. out)
 end
 
---- The `refresh` verb as `build/verb_list.tl` lists it. What it copies is
+--- The `refresh` verb as [`build/verb_list.tl`] lists it. What it copies is
 --- a binary, not the tree, but its own code is the tree's: a stale tool
 --- rebuilds first, as `bom` does.
 refresh.spec = {

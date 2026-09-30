@@ -1,7 +1,7 @@
 --- Proves format detection, the uniform entry walk over both tar and
 --- zip, and extraction's path-escape refusals and permission bits.
---- Fixtures are built with this tree's own `Tar.writer`/`Zip.writer`,
---- since the point here is `cosmic.archive` itself, not another
+--- Fixtures are built with this tree's own [`Tar.writer`]/[`Zip.writer`],
+--- since the point here is [`cosmic.archive`] itself, not another
 --- interop check -- `tar_test.tl` and `zip_test.tl` already cover
 --- reading what other tools wrote.
 

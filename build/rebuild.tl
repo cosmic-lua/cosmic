@@ -44,7 +44,7 @@ end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
 --- `o/cosmic.db` as the tree stands. It does nothing, answering true,
---- where `root` is not one to build (`is_project`), saying so on stderr
+--- where `root` is not one to build ([`is_project`]), saying so on stderr
 --- when it looks like a project no build has been made of. Answers false and
 --- why when the build fails, which the caller may say and go on from
 --- the last build.

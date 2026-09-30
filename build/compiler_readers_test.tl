@@ -1,7 +1,7 @@
---- `build.tree_checks`' `compiler_readers` on a fixture tree: which
---- lines read the compiler's identity through `Store.meta`, and which
+--- [`build.tree_checks`]' `compiler_readers` on a fixture tree: which
+--- lines read the compiler's identity through [`Store.meta`], and which
 --- modules the list misses or names in vain. The tree's own readers are
---- held to `build.key_parts`' `compiler_readers` by `cosmic fix
+--- held to [`build.key_parts`]' `compiler_readers` by `cosmic fix
 --- --check .`, not here.
 
 local fixture = require("build.docs_fixture")

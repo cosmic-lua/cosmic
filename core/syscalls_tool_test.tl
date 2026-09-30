@@ -2,7 +2,7 @@
 --- read it -- a confined child's end with the program that started it,
 --- an offline child's loopback, and the executable's own path -- and
 --- those that confine a child in a root of its own (unveiling), which
---- only a worker that declares `nests` can (see `Test.needs` below).
+--- only a worker that declares `nests` can (see [`Test.needs`] below).
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -41,9 +41,9 @@ end
 
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 
---- The descriptors `this_program.program` hands its child, as
---- `process.spawn` takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only `cosmic.child`
+--- The descriptors [`this_program.program`] hands its child, as
+--- [`process.spawn`] takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
   local fds: {integer:integer} = {}
@@ -57,7 +57,7 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
   return fds
 end
 
---- Says a sandbox test is skipped (`Test.skip`) where this Linux host
+--- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
 --- refuses the sandbox it is about (build.sandbox_skip), as core/syscalls_test.tl's
 --- `unsandboxable` does, as it returns early: the run counts it skipped
 --- rather than passed, and a run held to sandboxing (COSMIC_SANDBOX=must
@@ -290,7 +290,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
 end
 
---- Starts `probe` on `script`, confined to `probe_reads`, offline unless
+--- Starts `probe` on `script`, confined to [`probe_reads`], offline unless
 --- `online`, in /, with `output` its standard output and error: its pid,
 --- or nil where the kernel will not confine it, which skips the test
 --- (`unsandboxable`).
@@ -306,7 +306,7 @@ local function start_confined(probe: string, script: string, output: integer,
   return nil
 end
 
---- Runs `script` as `start_confined` starts it, its output in `tmp`: its
+--- Runs `script` as [`start_confined`] starts it, its output in `tmp`: its
 --- status and what it printed, or nil where the kernel will not confine
 --- it.
 local function run_confined(tmp: string, probe: string, script: string,
@@ -356,7 +356,7 @@ end
 --- files are the overflow id's there, and on a root every mount of
 --- which is nosuid, so a setuid-root program runs as it does -- as an
 --- unprivileged caller's child does, where this process may map them
---- (`may_run_as`): root, as a run of this test unsandboxed as root is.
+--- ([`may_run_as`]): root, as a run of this test unsandboxed as root is.
 --- This process stays as dumpable as it was, though the child shares
 --- its memory while its ids change. A caller that may not map them --
 --- one not root, as a sandboxed worker, which runs as a user of its own
@@ -624,12 +624,12 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
     ends.writer))
   sys.close(ends.writer)
   assert(assert(process.waitpid(left, false)).code == 0)
-  assert(process.set_nonblocking(ends.reader, true))
+  assert(sys.set_nonblocking(ends.reader, true))
   local read = ""
   local closed = false
   local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 10 * 1000000000
   while not closed and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    assert(process.poll({ ends.reader }, { process.POLLIN }, 100))
+    assert(sys.poll({ ends.reader }, { sys.POLLIN }, 100))
     local data, _, errno = sys.read(ends.reader, 4096)
     if data == "" then closed = true
     elseif data ~= nil then read = read .. data

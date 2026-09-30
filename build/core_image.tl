@@ -29,7 +29,7 @@
 ---   whether the test passed, not the text of the report that failed
 ---   it.
 --- - A core's raw bytes still reach a test, as data: the digest
----   `Store.meta("host_image")` names, `artifact.trusted_core`'s bytes,
+---   `Store.meta("host_image")` names, [`artifact.trusted_core`]'s bytes,
 ---   the launcher's COSMIC_PORTABLE_CORE_* and the extracted core's
 ---   cache name. Each is checked against the core itself, the same
 ---   whatever those bytes are, and no test's verdict turns on what they

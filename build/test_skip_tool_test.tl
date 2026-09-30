@@ -1,5 +1,5 @@
 --- End to end: a test that says this host cannot check it
---- (`Test.skip`) is counted skipped in the summary of the `cosmic test`
+--- ([`Test.skip`]) is counted skipped in the summary of the `cosmic test`
 --- that ran it, not passed, keeps no verdict, and fails a run held to
 --- sandboxing. Each run here is unsandboxed (COSMIC_TEST_SANDBOX=0), so
 --- it means the same on every host.

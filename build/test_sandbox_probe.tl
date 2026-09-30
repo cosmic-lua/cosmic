@@ -1,15 +1,15 @@
 --- Whether this host can run a test worker sandboxed (`available`).
 --- `cosmic test` asks once a run, before it starts a worker
---- (`build.test`'s `sandbox_here`). This is not build/sandbox_probe.tl,
+--- ([`build.test`]'s `sandbox_here`). This is not build/sandbox_probe.tl,
 --- CI's report of what spawn's sandbox can hold a child to on a host.
 ---
 --- It is no part of the test harness (build/harness_epoch.tl): it decides
 --- whether a run is sandboxed, not what a sandboxed worker is given
---- (`build.test_sandbox`'s `plan`) nor how one is judged, and a wrong
+--- ([`build.test_sandbox`]'s `plan`) nor how one is judged, and a wrong
 --- answer fails loudly, never passes:
 ---
 --- - Answered wrongly yes, every worker is started sandboxed by the plan
----   and holds itself by `confine.forbid_running`. Where the host can do
+---   and holds itself by [`confine.forbid_running`]. Where the host can do
 ---   neither, the start or the worker fails, and each test with it,
 ---   naming why.
 --- - Answered wrongly no, the run is unsandboxed. A run held to the
@@ -20,7 +20,7 @@
 ---
 --- So its code is left out of the harness's digests. cosmic.child, which
 --- starts the probe, is in them alone, since it applies every worker's
---- sandbox (`build.test`'s `harness_alone`).
+--- sandbox ([`build.test`]'s `harness_alone`).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -33,7 +33,7 @@ end
 --- Whether this host can run a worker sandboxed: `argv`, this program
 --- started again with `env` and `fds`, runs a chunk that holds itself
 --- to running anything but this program, as a worker whose test does not
---- declare `tool` does (`confine.forbid_running`), held to the
+--- declare `tool` does ([`confine.forbid_running`]), held to the
 --- least a worker is given -- /proc, the devices and the program, none
 --- of the system's own paths -- offline, in `scratch`. False and why
 --- where it cannot: no worker then runs sandboxed, and no verdict is
@@ -44,14 +44,14 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   local command: {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
-  -- (`confine.forbid_running`): where it cannot, no worker is
+  -- ([`confine.forbid_running`]): where it cannot, no worker is
   -- sandboxed, since what such a test would run no key holds.
   command[#command + 1] = "-e"
   command[#command + 1] = "local o = require('build.confine') " ..
     "local ok, why = o.forbid_running(o.itself()) if not ok then error(why) end"
   local given: {integer:integer | string} = {}
   for number, fd in pairs(fds) do given[number] = fd end
-  -- Started and waited for, not `Child.run`, which would take the one
+  -- Started and waited for, not [`Child.run`], which would take the one
   -- signal guard a caller running tests in-process may hold.
   -- No group of its own to end, nor strays to adopt: its sandbox gives
   -- it a pid namespace of its own, which ends when it does.

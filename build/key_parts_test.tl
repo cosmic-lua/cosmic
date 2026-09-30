@@ -1,5 +1,5 @@
 --- The parts of a key a worker spells (build/key_parts.tl): hexadecimal
---- as `cosmic.codec` spells it, a fixed framing, and a fixed name for the
+--- as [`cosmic.codec`] spells it, a fixed framing, and a fixed name for the
 --- tree, so a key does not change with them. build.declared_key answers
 --- each of them too.
 
@@ -8,7 +8,7 @@ local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
 
 --- Every byte alone, and strings of every length to 64 over a spread
---- of bytes, hex-encode as `Codec.hex` does and decode back.
+--- of bytes, hex-encode as [`Codec.hex`] does and decode back.
 local function test_hex_is_codec_hex_and_unhex_inverts_it()
   local samples: {string} = { "" }
   for byte = 0, 255 do samples[#samples + 1] = string.char(byte) end

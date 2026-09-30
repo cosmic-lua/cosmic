@@ -21,15 +21,15 @@
  * core/declarations_test.tl holds to what this registers. A C
  * function's lines are how a test is seen to reach it, in a core built
  * with COSMIC_NATIVE_COVERAGE. Registered as the raw value behind
- * `cosmic.internal.debug` (core/surface.c), the same trust-gated handoff
- * `cosmic.store` and `cosmic.sqlite` get through core/store.c's
+ * [`cosmic.internal.debug`] (core/surface.c), the same trust-gated handoff
+ * [`cosmic.store`] and [`cosmic.sqlite`] get through core/store.c's
  * `store_searcher`. */
 void cosmic_coverage_install (lua_State *L);
 
 /* Pushes the instruction budget's table, declared by
  * cosmic/internal/budget.d.tl. The budget shares the one hook with
  * collection, and neither disturbs the other. It is the raw value
- * behind `build.fuzz` (core/store.c), and nothing else's. */
+ * behind [`build.fuzz`] (core/store.c), and nothing else's. */
 int cosmic_open_budget (lua_State *L);
 
 /* `envp`, or, once processes this one starts are to report their C to a
@@ -40,7 +40,7 @@ int cosmic_open_budget (lua_State *L);
 char **cosmic_coverage_environment (char **envp);
 
 /* In a process a test started, arranges for it to report the C it runs
- * (`cosmic_coverage_report`) and hides how from everything after. Called
+ * ([`cosmic_coverage_report`]) and hides how from everything after. Called
  * first thing, before startup can fail, so a process that ends in its
  * own startup -- a refused portable launch -- still reports; install
  * calls it too, and a second call does nothing. */

@@ -1,4 +1,4 @@
---- Regression probes for `build.ast.walk`.
+--- Regression probes for [`build.ast.walk`].
 local teal = require("build.teal")
 local node_mod = require("build.ast.node")
 local walk_mod = require("build.ast.walk")
@@ -134,7 +134,7 @@ end
 
 --- `walk` must never call `visit` on an "op" node's `OpInfo` payload
 --- (`node.op`) as though it were a `Node`. The parser stamps `y`/`x` on
---- that payload too (`build/ast/node.tl`), so a classifier that
+--- that payload too ([`build/ast/node.tl`]), so a classifier that
 --- tests for a `y` field would walk into it. A real `Node` always has
 --- a string `kind` and `OpInfo` never does.
 local function test_walk_never_visits_an_op_payload_as_a_node()

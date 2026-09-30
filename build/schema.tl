@@ -5,7 +5,7 @@
 --- file. `docs`, `catalog` and `examples` are the exceptions: FTS5's
 --- external-content mode needs a real rowid to join against, so each
 --- is keyed on one instead -- ordinary INSERTs still run in one
---- deterministic order (see `build/writer.tl`), which is what keeps the
+--- deterministic order (see [`build/writer.tl`]), which is what keeps the
 --- file byte-identical, not the rowid's absence. `ca_roots` and
 --- `zoneinfo` are ones too, for their size: a WITHOUT ROWID row lives in
 --- an index page, where a blob past about a kilobyte spills into
@@ -24,8 +24,8 @@ local tables: {{string}} = {
   -- through the much larger source text to get there. The Lua tl
   -- generated is not here: nothing that reads this file loads it, and
   -- the working database's `compiled` keeps it for the build. `source`
-  -- is stored raw-deflated (`deflate(X)`, `build.writer`), as is a
-  -- declaration's: only an uncaught error's line and `Store.source`
+  -- is stored raw-deflated (`deflate(X)`, [`build.writer`]), as is a
+  -- declaration's: only an uncaught error's line and [`Store.source`]
   -- read it, and it is most of what a module's row weighs.
   { "modules", [[(path TEXT PRIMARY KEY,
                   file TEXT NOT NULL,
@@ -50,7 +50,7 @@ local tables: {{string}} = {
                   data BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- The IANA time zone database, one TZif file per zone name, which
-  -- `cosmic.time` reads where the host has no zone files of its own.
+  -- [`cosmic.time`] reads where the host has no zone files of its own.
   { "zoneinfo", [[(name TEXT PRIMARY KEY,
                    data BLOB NOT NULL)]] },
 
@@ -72,7 +72,7 @@ local tables: {{string}} = {
                      line INTEGER NOT NULL,
                      PRIMARY KEY (module, symbol, from_module, line)) WITHOUT ROWID]] },
 
-  -- Each link of a module's comments that resolves (`build.link_index`):
+  -- Each link of a module's comments that resolves ([`build.link_index`]):
   -- where it is, its form ("shortcut", "inline" or "reference"), its
   -- source ("comment" or "doc", a doc comment), its text, and what it
   -- names by `kind`: a "symbol" of `module` (`symbol` as `docs` holds
@@ -104,7 +104,7 @@ local tables: {{string}} = {
                    source TEXT NOT NULL,
                    UNIQUE (file, name))]] },
 
-  -- The bill of materials (`build.bom`): filled in cosmic's own
+  -- The bill of materials ([`build.bom`]): filled in cosmic's own
   -- projection, carried by the tool and copied into every executable
   -- `cosmic build` writes; empty in a project's projection.
   { "components", [[(name TEXT PRIMARY KEY,
@@ -121,13 +121,13 @@ local tables: {{string}} = {
                   text TEXT NOT NULL,
                   PRIMARY KEY (component, ordinal)) WITHOUT ROWID]] },
 
-  -- The CA roots the binary trusts (`build.roots`), one DER
+  -- The CA roots the binary trusts ([`build.roots`]), one DER
   -- certificate a row: filled and carried as the bill of materials is.
   -- A rowid table, unlike the rest: a row of a WITHOUT ROWID table
   -- past about a thousand bytes spills onto an overflow page of its
   -- own, which would more than double this one's size. Rows go in in
   -- `sha256` order, which keeps the file the same on every build, and
-  -- `build.roots` never writes one certificate twice.
+  -- [`build.roots`] never writes one certificate twice.
   { "ca_roots", [[(sha256 BLOB NOT NULL,
                    label TEXT NOT NULL,
                    der BLOB NOT NULL)]] },
@@ -214,7 +214,7 @@ end
 --- (core/store.c, `runtime`): every zone by name and bytes, every CA
 --- root by digest, label and bytes, in key order, under the schema
 --- `qualifier` names. `cosmic test` keys each verdict on it, computed
---- from the running binary's own rows (`build.test`), so a test that
+--- from the running binary's own rows ([`build.test`]), so a test that
 --- read a zone or a root runs again on a binary that carries others.
 function schema.tables_digest(qualifier: string): string
   return "SELECT lower(hex(sha256('zoneinfo' || char(10) || " ..

@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.hash`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.hash`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -15,7 +15,7 @@ function Example.hex_sha256()
     "unexpected digest: " .. digest)
 end
 
---- `Hash.hex_sha256` of the empty string: never a special case, since
+--- [`Hash.hex_sha256`] of the empty string: never a special case, since
 --- SHA-256 is defined on every length, including zero.
 function Example.hex_sha256_of_the_empty_string()
   local digest = Hash.hex_sha256("")
@@ -25,7 +25,7 @@ function Example.hex_sha256_of_the_empty_string()
 end
 
 --- A raw digest under any algorithm the core knows, as bytes:
---- `Codec.hex` spells it for a person.
+--- [`Codec.hex`] spells it for a person.
 function Example.digest()
   local raw = Hash.digest("sha1", "cosmic")
   print(#raw, Codec.hex(raw))

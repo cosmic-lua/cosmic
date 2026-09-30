@@ -1,7 +1,7 @@
---- The cases of cosmic/test_test.tl about `cosmic.test`'s `needs` as it
+--- The cases of cosmic/test_test.tl about [`cosmic.test`]'s `needs` as it
 --- runs: what it refuses, and what it hands a runner. A test module may
 --- call `needs` only once, at its top, so each case runs in a script of
---- its own, which plays the runner through the hook `build.test_worker`
+--- its own, which plays the runner through the hook [`build.test_worker`]
 --- installs. They declare `tool` because they start this program.
 
 local Child = require("cosmic.child")
