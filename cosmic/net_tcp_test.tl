@@ -1,5 +1,6 @@
 local Child = require("cosmic.child")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -74,4 +75,55 @@ local function test_a_connection_to_a_full_backlog_times_out_or_is_interrupted()
   assert(assert(guard:release()) == sys.SIGINT)
   assert(conn == nil and interrupted == at .. "interrupted", interrupted)
   for _, held_conn in ipairs(held) do assert(held_conn:close()) end
+end
+
+--- In a task, a TCP connection waits to be made through the run: the
+--- other tasks go on while one waits on a listener whose backlog is
+--- full, until its time runs out. A connection that is made names its
+--- peer, and one refused says so.
+local function test_in_a_run_a_tcp_connect_waits_through_the_run()
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0),
+    { backlog = 1, timeout_ms = 5000 }))
+  local held: {Net.Conn} = {}
+  local ticks, ticks_at_end = 0, -1
+  local why = ""
+  Poll.run(function()
+    local first = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    held[#held + 1] = first
+    local accepted = assert(server:accept())
+    held[#held + 1] = accepted
+    local client_peer = assert(first:peer())
+    assert(client_peer.kind == "tcp" and client_peer.host == "127.0.0.1" and
+      client_peer.port == server.address.port, tostring(client_peer.port))
+    local accepted_peer = assert(accepted:peer())
+    assert(accepted_peer.kind == "tcp" and accepted_peer.host == "127.0.0.1" and
+      accepted_peer.port > 0 and accepted_peer.port ~= server.address.port,
+      tostring(accepted_peer.port))
+    local filling = Poll.spawn(function()
+      for _ = 1, 16 do
+        local conn, trouble = Net.connect(server.address, { timeout_ms = 200 })
+        if conn == nil then
+          why = trouble
+          break
+        end
+        held[#held + 1] = conn
+      end
+      ticks_at_end = ticks
+    end)
+    while ticks_at_end < 0 do
+      assert(Poll.delay(5))
+      ticks = ticks + 1
+    end
+    assert(filling:join())
+  end)
+  for _, conn in ipairs(held) do assert(conn:close()) end
+  assert(why == "127.0.0.1:" .. server.address.port .. ": timed out", why)
+  assert(ticks_at_end > 0, "no other task ran while a connection waited")
+  local port = server.address.port
+  assert(server:close())
+  local refused: Net.Conn
+  Poll.run(function()
+    refused, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ms = 5000 })
+  end)
+  assert(refused == nil and why == "127.0.0.1:" .. port .. ": Connection refused", why)
 end
