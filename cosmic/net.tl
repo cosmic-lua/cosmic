@@ -122,18 +122,20 @@ local record Net
     --- limit. The connections it accepts start with the same.
     timeout_ms: integer
     --- How many connections may wait to be accepted (64 by default).
+    --- A unix connection past it fails at once rather than waiting (see
+    --- [`ConnectOptions.timeout_ms`]).
     backlog: integer
   end
 
   record ConnectOptions
     --- How long connecting, and then any one read or write, waits, in
     --- milliseconds, from 0; nil for no limit. A TCP connection is
-    --- waited on until made or refused. A unix one waits for nothing: a
-    --- listener whose backlog is full fails it at once, "Resource
-    --- temporarily unavailable (the listener is busy: its backlog is
-    --- full)" on Linux and "Connection refused" on macOS, which cannot
-    --- tell a busy listener from none. A caller that would wait for
-    --- room connects again.
+    --- waited on until made or refused. Connecting to a unix one waits
+    --- for nothing: a listener whose backlog is full fails it at once,
+    --- "Resource temporarily unavailable (the listener is busy: its
+    --- backlog is full)" on Linux and "Connection refused" on macOS,
+    --- which cannot tell a busy listener from none. A caller that would
+    --- wait for room connects again.
     timeout_ms: integer
   end
 
@@ -221,7 +223,9 @@ local record Net
     record Limits
       --- The most connections open at once, from 1; nil for no limit.
       --- At the limit no listener accepts: a connection that comes waits
-      --- in its listener's backlog until one open closes. With
+      --- in its listener's backlog until one open closes, and a unix one
+      --- past the backlog fails at once (see
+      --- [`ConnectOptions.timeout_ms`]). With
       --- [`ServeSpec.workers`], each worker's limit: a connection one
       --- worker at its limit leaves waiting is taken by another.
       connections: integer
@@ -602,8 +606,8 @@ local function connection(address: Net.Address, timeout_ms: integer | nil): Atte
 end
 
 --- How long `reclaim` waits for another's lock, which each holds for
---- two binds and a unix connect between, none of which waits: far past
---- that, the holder is stuck.
+--- two binds with a unix connect and an unlink between, none of which
+--- waits: far past that, the holder is stuck.
 local LOCK_MS <const> = 10000
 
 --- The lock `reclaim` holds, released when it goes out of scope,
@@ -625,10 +629,6 @@ local reclaim_lock_mt: metatable<ReclaimLock> = {
 --- while the next reclaim makes and locks another.
 local function reclaim_lock(address: Net.Address): ReclaimLock, string
   local name = address.path .. ".lock"
-  -- TODO: in a task of Poll.run, wait for another's lock through the
-  -- run -- asking again between pauses of Poll.delay -- rather than
-  -- holding the thread, and every other task with it, for as long as
-  -- LOCK_MS.
   -- Open for writing, which an exclusive lock over NFS or SMB needs;
   -- O_NONBLOCK so a FIFO at the name opens without waiting for a
   -- writer, O_NOCTTY so a terminal there does not become this
@@ -636,6 +636,9 @@ local function reclaim_lock(address: Net.Address): ReclaimLock, string
   local fd, why = sys.open(name,
     sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
   if fd == nil then return nil, name .. ": " .. why end
+  -- TODO: in a task of Poll.run, this holds the thread, and every other
+  -- task with it, for as long as LOCK_MS; there, ask with a timeout of 0
+  -- between pauses of Poll.delay until LOCK_MS has passed instead.
   local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
   if not ok then
     local _, _ = sys.close(fd)
