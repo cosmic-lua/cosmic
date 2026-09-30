@@ -523,3 +523,63 @@ local function test_kill_raises_what_a_close_handler_raises()
     end)
   end, "broken close")
 end
+
+--- A wait on several descriptors answers what each had, by place, once
+--- one is ready: here the second, while the first has nothing to read.
+local function test_a_ready_wait_answers_each_descriptor_s_events(tmp: string)
+  local quiet, quiet_writer = fifo(tmp, "q")
+  local reader, writer = fifo(tmp, "p")
+  local answers: {integer}
+  Poll.run(function()
+    local listener = Poll.spawn(function()
+      answers = assert(Poll.ready({ quiet, reader }, { sys.POLLIN, sys.POLLIN }, 5000))
+    end)
+    assert(Poll.delay(10))
+    assert(answers == nil, "the wait ended before anything was written")
+    assert(sys.write(writer, "hi") == 2)
+    assert(listener:join())
+  end)
+  assert(answers[1] == 0 and answers[2] & sys.POLLIN ~= 0,
+    tostring(answers[1]) .. " " .. tostring(answers[2]))
+  for _, fd in ipairs({ quiet, quiet_writer, reader, writer }) do sys.close(fd) end
+end
+
+--- Past its timeout a ready wait answers every descriptor 0, as
+--- sys.poll does, and no failure; cancelled, it answers nil and
+--- CANCELLED; and a descriptor about to close answers POLLNVAL.
+local function test_a_ready_wait_times_out_is_cancelled_and_is_closed(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  local timed, cancelled, closed: {integer}, string, {integer}
+  Poll.run(function()
+    timed = assert(Poll.ready({ reader }, { sys.POLLIN }, 20))
+    local waiter = Poll.spawn(function()
+      local answers, why = Poll.ready({ reader }, { sys.POLLIN })
+      assert(answers == nil)
+      cancelled = why
+    end)
+    assert(Poll.delay(0))
+    waiter:cancel()
+    assert(waiter:join())
+    local closer = Poll.spawn(function()
+      closed = assert(Poll.ready({ writer, reader }, { sys.POLLIN, sys.POLLIN }, 5000))
+    end)
+    assert(Poll.delay(0))
+    Poll.closing(reader)
+    assert(closer:join(1000))
+  end)
+  assert(timed[1] == 0, tostring(timed[1]))
+  assert(cancelled == Poll.CANCELLED, cancelled)
+  assert(closed[2] == sys.POLLNVAL, tostring(closed[2]))
+  sys.close(reader)
+  sys.close(writer)
+end
+
+local function test_a_ready_wait_refuses_what_is_no_wait()
+  Poll.run(function()
+    raises(function() local _, _ = Poll.ready({}, {}) end, "one or more descriptors")
+    raises(function() local _, _ = Poll.ready({ 0 }, {}) end, "one or more descriptors")
+    raises(function() local _, _ = Poll.ready({ -1 }, { sys.POLLIN }) end, "fds[1] must be a descriptor")
+    raises(function() local _, _ = Poll.ready({ 0 }, { -1 }) end, "events[1] must be a mask")
+  end)
+  raises(function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end, "Poll.ready outside Poll.run")
+end

@@ -15,10 +15,12 @@
 --- `delay` or a Task's `join`, each of which answers true and "" once
 --- what it waits for happens, or false and [`Poll.TIMEOUT`] once its
 --- `timeout_ms` passes first, or false and [`Poll.CANCELLED`] once the task
---- is cancelled; a Task's `kill` ends one outright, for a task that
---- goes on after its waits fail. Nothing else here waits: a call that
---- blocks the thread (a blocking read, [`Http.get`], a SQLite query)
---- holds every task until it returns.
+--- is cancelled; `ready` waits on several descriptors at once, and
+--- answers what each had, as [`sys.poll`] does; a Task's `kill` ends
+--- one outright, for a task that goes on after its waits fail.
+--- Nothing else here waits: a call that blocks the thread (a blocking
+--- read, [`Http.get`], a SQLite query) holds every task until it
+--- returns.
 ---
 --- An error a task raises ends [`Poll.run`] at once: every other task is
 --- closed where it waits, its `<close>` variables closed, and `run`
@@ -77,10 +79,17 @@ local record Wait
   task: State
   fd: integer
   events: integer
+  --- For a wait on several descriptors ([`Poll.ready`]) in place of
+  --- `fd` and `events`: each descriptor, its events, and what happened
+  --- to it, by place.
+  fds: {integer}
+  masks: {integer}
+  answers: {integer}
   at: integer
   seq: integer
   --- What the wait answers once `at` is reached: a delay's success, or
-  --- any other wait's TIMEOUT.
+  --- a `ready`'s, which answers no descriptor ready; any other wait's
+  --- TIMEOUT.
   expiry_ok: boolean
   done: boolean
 end
@@ -200,7 +209,7 @@ local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, s
   if task.cancelled then
     wake(w, false, Poll.CANCELLED)
   else
-    if w.fd ~= nil then loop.watched[#loop.watched + 1] = w end
+    if w.fd ~= nil or w.fds ~= nil then loop.watched[#loop.watched + 1] = w end
     if timeout_ms ~= nil then
       loop.seq = loop.seq + 1
       w.at, w.seq = now_ms() + timeout_ms, loop.seq
@@ -239,6 +248,37 @@ end
 --- most `timeout_ms` milliseconds (no limit when nil).
 function Poll.writable(fd: integer, timeout_ms?: integer): boolean, string
   return wait_fd(fd, sys.POLLOUT, timeout_ms, "Poll.writable")
+end
+
+--- Waits until any of `fds` is ready for its mask of `events`
+--- ([`sys.POLLIN`], [`sys.POLLOUT`]), at most `timeout_ms` milliseconds
+--- (no limit when nil), as [`sys.poll`] does: the events each descriptor
+--- had, by its place -- [`sys.POLLERR`] and [`sys.POLLHUP`] among them,
+--- unasked, and 0 for one that had none, as every one has once
+--- `timeout_ms` passes first -- or nil and [`Poll.CANCELLED`] once the
+--- task is cancelled. A descriptor another module is about to close
+--- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
+function Poll.ready(fds: {integer}, events: {integer}, timeout_ms?: integer): {integer} | nil, string
+  local task = current("Poll.ready", 2)
+  checked_ms(timeout_ms, "timeout_ms", 2)
+  if #fds == 0 or #events ~= #fds then
+    error("Poll.ready takes one or more descriptors, and events for each", 2)
+  end
+  local watched, masks, answers: {integer}, {integer}, {integer} = {}, {}, {}
+  for i, fd in ipairs(fds) do
+    local mask = events[i]
+    if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_MS then
+      error("fds[" .. i .. "] must be a descriptor", 2)
+    end
+    if math.type(mask) ~= "integer" or mask < 0 or mask > 0x7fff then
+      error("events[" .. i .. "] must be a mask of POLL* events", 2)
+    end
+    watched[i], masks[i], answers[i] = fd, mask, 0
+  end
+  local ok, why = park(task,
+    { task = task, fds = watched, masks = masks, answers = answers, expiry_ok = true }, timeout_ms)
+  if not ok then return nil, why end
+  return answers, ""
 end
 
 --- Waits `ms` milliseconds while the other tasks run: true and "" once
@@ -379,13 +419,25 @@ end
 local function poll_once(timeout: integer)
   local fds: {integer} = {}
   local events: {integer} = {}
+  --- Each entry's wait, and its place among the wait's `fds`, 0 for a
+  --- wait on one descriptor.
+  local owners: {Wait} = {}
+  local places: {integer} = {}
   local kept: {Wait} = {}
   -- TODO: keep the descriptor set between polls, changed as waits begin
   -- and end, rather than built again from every wait each time round.
   for _, w in ipairs(loop.watched) do
     if not w.done then
       kept[#kept + 1] = w
-      fds[#kept], events[#kept] = w.fd, w.events
+      if w.fds == nil then
+        local n = #fds + 1
+        fds[n], events[n], owners[n], places[n] = w.fd, w.events, w, 0
+      else
+        for place, fd in ipairs(w.fds) do
+          local n = #fds + 1
+          fds[n], events[n], owners[n], places[n] = fd, w.masks[place], w, place
+        end
+      end
     end
   end
   loop.watched = kept
@@ -398,8 +450,12 @@ local function poll_once(timeout: integer)
   -- task that waits on the guard (`g:wait`).
   local revents, trouble = sys.poll(fds, events, timeout)
   if revents == nil then error("poll: " .. trouble, 0) end
-  for i, w in ipairs(kept) do
-    if revents[i] ~= 0 then wake(w, true, "") end
+  for i, w in ipairs(owners) do
+    if revents[i] ~= 0 then
+      -- Every entry of one wait is recorded before its task resumes.
+      if places[i] > 0 then w.answers[places[i]] = revents[i] end
+      wake(w, true, "")
+    end
   end
 end
 
@@ -438,16 +494,25 @@ end
 function Poll.closing(fd: integer)
   if loop == nil then return end
   for _, w in ipairs(loop.watched) do
-    if w.fd == fd then wake(w, true, "") end
+    if w.fd == fd then
+      wake(w, true, "")
+    elseif w.fds ~= nil and not w.done then
+      for place, each in ipairs(w.fds) do
+        if each == fd then
+          w.answers[place] = sys.POLLNVAL
+          wake(w, true, "")
+        end
+      end
+    end
   end
 end
 
 --- Whether the caller is a task of a running [`Poll.run`], whose waits
 --- let the other tasks run: what a module that waits asks, to wait
---- through `readable` and `writable` there and on its own elsewhere.
---- It answers true, too, in a `<close>` handler of a task being killed,
---- where those raise: a wait there fails at once rather than hold the
---- thread.
+--- through `readable`, `writable` and `ready` there and on its own
+--- elsewhere. It answers true, too, in a `<close>` handler of a task
+--- being killed, where those raise: a wait there fails at once rather
+--- than hold the thread.
 function Poll.in_task(): boolean
   return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
 end

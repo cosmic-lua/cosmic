@@ -26,6 +26,15 @@
 --- end of file: a descendant that escaped the group and still holds a
 --- captured pipe cannot hold up a wait.
 ---
+--- In a task of [`Poll.run`], every wait here -- a handle's, a stream's,
+--- [`Child.run`]'s, [`Child.wait_any`]'s -- waits through the run, and the
+--- other tasks run meanwhile; elsewhere it holds the thread. A child's
+--- exit ends a wait as it happens, where the platform gives a descriptor
+--- for it (a pidfd on Linux, a kqueue on Darwin), and within 10 ms
+--- elsewhere. A wait whose task is cancelled answers nil (or false) and
+--- [`Poll.CANCELLED`], as [`cosmic.net`]'s do, and leaves the child
+--- running, for its handle to end; [`Child.run`]'s ends its child first.
+---
 --- A stream redirected to "stream" is the caller's to read or write
 --- while the child runs, through the handle's `stdout_stream`,
 --- `stderr_stream` (each a [`cosmic.stream`] Reader) or `stdin_stream` (a
@@ -217,6 +226,11 @@ local record Handle
   --- outputs as the input goes in, or bound the child with a timeout.
   stdin_stream: Stream.Writer | nil
   _feed_fd: integer | nil
+  --- A descriptor readable once the child has exited (`exit_watch`),
+  --- until its status is claimed; -1 where there is none, so that
+  --- setting it makes no new field, which could fail to allocate with
+  --- the descriptor in hand.
+  _exit_fd: integer
   _result: Result
   _status: raw_process.ChildStatus
   _closed: boolean
@@ -233,7 +247,9 @@ local record Handle
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
   --- way: a child that has not exited is ended and the wait answers nil
   --- and "cancelled by signal N"; the guard keeps the signal, and a
-  --- later wait answers the ended child's Result.
+  --- later wait answers the ended child's Result. In a task of
+  --- [`Poll.run`] that is cancelled, it answers nil and
+  --- [`Poll.CANCELLED`], and leaves the child running.
   wait: function(Handle, timeout_ms?: integer): Result | nil, string
   --- Whether the child has exited, without waiting: `finished` is false
   --- while it runs, and true with its `result` once it has exited and its
@@ -257,12 +273,14 @@ local record Handle
   close: function(Handle): boolean, string
 end
 
--- TODO: a child's exit is seen only at the next poll, up to POLL_MS after
--- it happens: [`Child.run`] of /bin/true takes about 10 ms in all though its
--- spawn takes 0.2 ms. Wait on the exit itself -- a pidfd in the poll set
--- on Linux, kqueue's EVFILT_PROC on Darwin -- once core/process.h carries
--- pidfd_open and a kqueue binding.
+--- How often a wait looks for what no descriptor tells it of: the exit
+--- of a child with no `_exit_fd` (a Linux before pidfd_open, a filter
+--- refusing it), a group's last member gone.
 local POLL_MS <const> = 10
+--- How often a wait of an adopting process wakes, at the least, to reap
+--- the orphans it adopted, which no descriptor announces: often enough
+--- that a long wait leaves none a zombie for long.
+local REAP_MS <const> = 1000
 local POLL_NS <const> = POLL_MS * 1000 * 1000
 local TERM_GRACE_NS <const> = 250 * 1000 * 1000
 local KILL_REAP_NS <const> = 1000 * 1000 * 1000
@@ -338,13 +356,29 @@ local function now(): integer
   return Time.monotonic_ns()
 end
 
---- How long the next poll may wait, in milliseconds: POLL_MS, or less
---- as `deadline` nears; nil once it has passed.
-local function slice(deadline: integer): integer
-  if deadline == nil then return POLL_MS end
+--- Whether a wait on `handles` is woken by each one's exit: every one
+--- not yet reaped has an `_exit_fd`.
+local function exits_seen(handles: {Handle}): boolean
+  for _, h in ipairs(handles) do
+    if h._status == nil and h._exit_fd < 0 then return false end
+  end
+  return true
+end
+
+--- How long the next [`pump`] of `handles` may wait, in milliseconds, -1
+--- for no limit: until `deadline` where each one's exit wakes the wait,
+--- but no longer than REAP_MS in an adopting process, and POLL_MS where
+--- an exit must be looked for; less as `deadline` nears, and nil once it
+--- has passed. A signal needs no bound: a wait that it ends watches the
+--- guards' wake pipe.
+local function slice(deadline: integer, handles: {Handle}): integer
+  local most = POLL_MS
+  if exits_seen(handles) then most = adopting and REAP_MS or -1 end
+  if deadline == nil then return most end
   local remaining = deadline - now()
   if remaining <= 0 then return nil end
-  return math.min(POLL_MS, remaining // (1000 * 1000))
+  if most < 0 then return math.min(remaining // (1000 * 1000), INT_MAX) end
+  return math.min(most, remaining // (1000 * 1000))
 end
 
 local function target(self: Handle): integer
@@ -369,6 +403,13 @@ local function claim(self: Handle, status: raw_process.ChildStatus): raw_process
   self._status = status
   reaped[self.pid] = nil
   owned[self.pid] = nil
+  local watch = self._exit_fd
+  if watch >= 0 then
+    self._exit_fd = -1
+    -- Another task may be waiting on it, for this child among others.
+    Poll.closing(watch)
+    local _, _ = sys.close(watch)
+  end
   return status
 end
 
@@ -385,7 +426,10 @@ local function exited(self: Handle, block?: boolean): raw_process.ChildStatus | 
 end
 
 local function close_fd(fd: integer)
-  if fd ~= nil then local _, _ = sys.close(fd) end
+  if fd ~= nil then
+    Poll.closing(fd)
+    local _, _ = sys.close(fd)
+  end
 end
 
 --- Appends one chunk to a stream, dropping its oldest bytes past the
@@ -420,7 +464,7 @@ end
 local function end_stream(self: Handle, index: integer)
   local stream = self._streams[index]
   if stream.fd ~= nil then
-    local _, _ = sys.close(stream.fd)
+    close_fd(stream.fd)
     stream.fd = nil
   end
 end
@@ -430,19 +474,52 @@ local function end_input(self: Handle)
   self._input_fd = nil
 end
 
+--- Empties the wake pipe, which is readable while any byte a signal
+--- wrote there is left.
+local function drain_wake()
+  local fd = raw.child_signal_fd()
+  while true do
+    local bytes, _ = sys.read(fd, 512)
+    if bytes == nil or #bytes < 512 then return end
+  end
+end
+
+--- What a [`pump`]'s entry is for, beside a stream's index.
+local FEED <const> = -1
+local INPUT <const> = 0
+local EXIT <const> = -2
+local WAKE <const> = -3
+
+--- Whether a wait here goes through [`Poll.run`]: in one of its tasks,
+--- where the task can yield -- not in a finalizer, say, which a handle's
+--- `__gc` runs in, and which waits on its own.
+local function through_run(): boolean
+  return Poll.in_task() and coroutine.isyieldable()
+end
+
 --- Services every open stream and pending input of `handles` once:
---- waits up to `timeout_ms` for any of them to be ready, then reads
+--- waits up to `timeout_ms` (-1 for no limit) for any of them to be
+--- ready, or for a child of them not yet reaped to exit, then reads
 --- what is there and writes what fits. Returns whether anything moved.
 --- A streamed output holding `_limit` unread bytes is left alone.
 --- `writable`, a stdin stream's descriptor, is waited on for room too,
---- only to end the wait; its writer does the writing.
-local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer): boolean
+--- only to end the wait; its writer does the writing. With `signalled`,
+--- a signal an open guard catches ends the wait too, the guards' wake
+--- pipe drained for the caller to read the guard.
+---
+--- In a task of [`Poll.run`], the wait goes through the run, the other
+--- tasks running meanwhile. Once the task is cancelled, a `cancellable`
+--- pump answers false and [`Poll.CANCELLED`] at once; any other waits on
+--- its own, holding the thread, as the cleanup it serves -- ending a
+--- child, emptying its pipes -- must finish.
+local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
+    cancellable?: boolean, signalled?: boolean): boolean, string
   local fds: {integer} = {}
   local events: {integer} = {}
   local owners: {Handle} = {}
   local which: {integer} = {}
   if writable ~= nil then
-    fds[1], events[1], owners[1], which[1] = writable, sys.POLLOUT, handles[1], -1
+    fds[1], events[1], owners[1], which[1] = writable, sys.POLLOUT, handles[1], FEED
   end
   for _, h in ipairs(handles) do
     if h._streams then
@@ -459,34 +536,77 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer):
       fds[#fds + 1] = h._input_fd
       events[#events + 1] = sys.POLLOUT
       owners[#owners + 1] = h
-      which[#which + 1] = 0
+      which[#which + 1] = INPUT
+    end
+    if h._status == nil and h._exit_fd >= 0 then
+      fds[#fds + 1] = h._exit_fd
+      events[#events + 1] = sys.POLLIN
+      owners[#owners + 1] = h
+      which[#which + 1] = EXIT
     end
   end
-  if #fds == 0 then
-    if timeout_ms > 0 then local _, _ = sys.nanosleep(timeout_ms * 1000 * 1000) end
-    return false
+  if signalled and active ~= nil then
+    fds[#fds + 1] = raw.child_signal_fd()
+    events[#events + 1] = sys.POLLIN
+    owners[#owners + 1] = handles[1]
+    which[#which + 1] = WAKE
   end
-  local revents, _ = sys.poll(fds, events, timeout_ms)
+  local in_run = through_run()
+  if #fds == 0 then
+    -- Nothing here could end a wait with no limit: it waits a slice.
+    if timeout_ms < 0 then timeout_ms = POLL_MS end
+    if in_run then
+      local paused, cancelled = Poll.delay(timeout_ms)
+      if paused then return false, "" end
+      if cancellable then return false, cancelled end
+    end
+    if timeout_ms > 0 then local _, _ = sys.nanosleep(timeout_ms * 1000 * 1000) end
+    return false, ""
+  end
+  local revents: {integer}
+  if in_run then
+    local answers, cancelled = Poll.ready(fds, events, timeout_ms >= 0 and timeout_ms or nil)
+    if answers == nil and cancellable then return false, cancelled end
+    revents = answers
+  end
+  if revents == nil then
+    local polled, _ = sys.poll(fds, events, timeout_ms)
+    revents = polled
+  end
   if revents == nil then
     -- A descriptor that went bad under us cannot be serviced; close
     -- every stream rather than spin on it.
     for i = 1, #fds do
-      if which[i] == 0 then
+      if which[i] == INPUT then
         end_input(owners[i])
       elseif which[i] > 0 then
         end_stream(owners[i], which[i])
       end
     end
-    return true
+    return true, ""
   end
   local moved = false
   for i, happened in ipairs(revents) do
-    if happened ~= 0 then
+    local h = owners[i]
+    -- In a run, another task may have ended what this waited on
+    -- meanwhile ([`Poll.closing`]): an entry no longer its own is passed
+    -- by.
+    local current: integer = fds[i]
+    if which[i] == INPUT then
+      current = h._input_fd
+    elseif which[i] == EXIT then
+      current = h._exit_fd
+    elseif which[i] > 0 then
+      current = h._streams[which[i]].fd
+    end
+    if happened ~= 0 and current == fds[i] then
       moved = true
-      local h = owners[i]
-      if which[i] < 0 then
-        -- The stdin stream has room: its writer, waiting on this, writes.
-      elseif which[i] == 0 then
+      if which[i] == FEED or which[i] == EXIT then
+        -- The stdin stream has room, and its writer, waiting on this,
+        -- writes; or the child has exited, and the caller reaps it.
+      elseif which[i] == WAKE then
+        drain_wake()
+      elseif which[i] == INPUT then
         local offset = h._input_at
         local written, _, errno = sys.write(h._input_fd,
           h._input:sub(offset + 1, offset + CHUNK))
@@ -513,7 +633,7 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer):
       end
     end
   end
-  return moved
+  return moved, ""
 end
 
 --- Waits for a group to have no members left, collecting whatever this
@@ -524,7 +644,7 @@ local function group_gone(self: Handle, until_ns: integer): boolean
     if not alive and errno == sys.ESRCH then return true end
     if now() >= until_ns then return false end
     collect()
-    pump({ self }, POLL_MS)
+    local _, _ = pump({ self }, POLL_MS)
   end
 end
 
@@ -566,7 +686,10 @@ local function settle(self: Handle, timed_out: boolean, killed?: boolean): Resul
     -- first round that finds nothing rather than wait for end of file.
     -- A streamed output is left open, and no fuller than its limit: its
     -- reader reads on from the pipe, and ends it (see [`pipe_reader`]).
-    while pump({ self }, 0) do end
+    while true do
+      local moved, _ = pump({ self }, 0)
+      if not moved then break end
+    end
     for index, stream in ipairs(self._streams) do
       if not stream.streamed then
         end_stream(self, index)
@@ -608,9 +731,10 @@ local function poll_until(self: Handle, deadline?: integer,
       local cancelled = active:cancelled()
       if cancelled ~= 0 then return nil, cancelled_by(cancelled) end
     end
-    local left = slice(deadline)
+    local left = slice(deadline, { self })
     if left == nil then return nil, "" end
-    pump({ self }, left)
+    local _, why = pump({ self }, left, nil, not ignore_cancel, not ignore_cancel)
+    if why ~= "" then return nil, why end
   end
 end
 
@@ -623,10 +747,12 @@ local function terminate(self: Handle): Result | nil, string
     return nil, trouble
   end
   local deadline = now() + TERM_GRACE_NS
-  while now() < deadline do
+  while true do
     local status, _ = exited(self)
     if status ~= nil then return settled(self, true) end
-    pump({ self }, POLL_MS)
+    local left = slice(deadline, { self })
+    if left == nil then break end
+    local _, _ = pump({ self }, left)
   end
   -- Even when the direct child honored TERM, a descendant may have ignored
   -- it. The process group remains addressable until its final member exits.
@@ -640,6 +766,8 @@ local function terminate(self: Handle): Result | nil, string
   return final, ""
 end
 
+--- It holds the thread, in a task of [`Poll.run`] too: it runs only
+--- once a cleanup has raised, and must finish.
 local function emergency_cleanup(self: Handle)
   local _, _ = sys.kill(target(self), sys.SIGKILL)
   for _ = 1, 100 do
@@ -687,10 +815,12 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
         -- The child is gone: what it wrote is in the pipe already, and
         -- a round that finds nothing ready means only an escaped
         -- descendant holds it open, which this read does not wait for.
-        pump({ self }, 0)
+        local _, _ = pump({ self }, 0)
         if pipe.size == 0 and pipe.fd ~= nil then end_stream(self, index) end
       else
-        pump({ self }, POLL_MS)
+        local _, cancelled = pump({ self }, slice(nil, { self }), nil, true, true)
+        -- Not kept as `failed`: the task's end, not the stream's.
+        if cancelled ~= "" then return nil, cancelled end
       end
     end
     local want = max or CHUNK
@@ -740,7 +870,8 @@ local function feed_writer(self: Handle): Stream.Writer
           failed = why
           return false, failed
         end
-        pump({ self }, POLL_MS, fd)
+        local _, cancelled = pump({ self }, slice(nil, { self }), fd, true, true)
+        if cancelled ~= "" then return false, cancelled end
       else
         -- EPIPE included: the child closed its stdin, or exited.
         failed = trouble
@@ -754,6 +885,7 @@ local function feed_writer(self: Handle): Stream.Writer
     local fd = self._feed_fd
     if fd == nil then return true, "" end
     self._feed_fd = nil
+    Poll.closing(fd)
     local ok, trouble = sys.close(fd)
     if not ok then return false, trouble end
     return true, ""
@@ -783,11 +915,11 @@ local handle_mt: metatable<Handle> = {
 }
 
 local function make_handle(pid: integer, process_group: boolean): Handle
-  local h: Handle = { pid = pid, process_group = process_group }
+  local h: Handle = { pid = pid, process_group = process_group, _exit_fd = -1 }
 
   function h:try_wait(): TryWait | nil, string
     if self._result then return { finished = true, result = self._result }, "" end
-    pump({ self }, 0)
+    local _, _ = pump({ self }, 0)
     local status, trouble = exited(self)
     if status == nil then
       if trouble ~= "" then return nil, trouble end
@@ -807,6 +939,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
 
   function h:close_stdin(): boolean, string
     if self.stdin == nil then return false, "stdin is not a pipe, or already closed" end
+    Poll.closing(self.stdin)
     local ok, trouble = sys.close(self.stdin)
     self.stdin = nil
     if not ok then return false, trouble end
@@ -816,7 +949,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   function h:wait(timeout_ms?: integer): Result | nil, string
     if self._result then return self._result, "" end
     if timeout_ms == nil and active == nil and not self._streams and
-        not self._input_fd then
+        not self._input_fd and not through_run() then
       local status, trouble = exited(self, true)
       if not status then return nil, trouble end
       return settled(self, false)
@@ -868,16 +1001,6 @@ local function noted(g: Guard, stamp: integer)
   if stamp ~= g._read then
     local signal = stamp % raw.SIGNAL_STAMP_UNIT
     g._signal, g._fresh, g._read = signal, signal, stamp
-  end
-end
-
---- Empties the wake pipe, which is readable while any byte a signal
---- wrote there is left.
-local function drain_wake()
-  local fd = raw.child_signal_fd()
-  while true do
-    local bytes, _ = sys.read(fd, 512)
-    if bytes == nil or #bytes < 512 then return end
   end
 end
 
@@ -1343,6 +1466,13 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
       if stream.child_fd == 1 then h.stdout_stream = reader else h.stderr_stream = reader end
     end
   end
+  -- Opened last, once the handle is whole, so nothing that allocates
+  -- comes between it and the handle taking it; and before anything
+  -- reaps the child, as nothing since the spawn has called `collect`. A child with none -- where the
+  -- platform or a filter gives none -- has its exit looked for every
+  -- POLL_MS instead.
+  local watch, _ = raw.exit_watch(pid)
+  if watch ~= nil then h._exit_fd = watch end
   return h, ""
 end
 
@@ -1371,6 +1501,8 @@ end
 --- finished, and nothing failed -- and the handles are left running:
 --- a timeout is `done == nil and trouble == ""`, so test `done` itself.
 --- `assert` on this answer raises at a timeout, with an empty message.
+--- In a task of [`Poll.run`] that is cancelled, it answers nil and
+--- [`Poll.CANCELLED`], the handles left running too.
 function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, string
   -- TODO: carry a settled group's lingering members on Child.Result, a
   -- field beside the exit status, and answer the handle with "" here:
@@ -1389,9 +1521,10 @@ function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, 
       end
       if trouble ~= "" then return nil, trouble end
     end
-    local left = slice(deadline)
+    local left = slice(deadline, handles)
     if left == nil then return nil, "" end
-    pump(handles, left)
+    local _, cancelled = pump(handles, left, nil, true)
+    if cancelled ~= "" then return nil, cancelled end
   end
 end
 
@@ -1471,7 +1604,9 @@ end
 --- caller's guard caught before the run began does not end it, and one
 --- that ends it is left to the caller's guard rather than delivered.
 --- It also answers nil and why when the child cannot be started, and
---- nil and "signal guard: ..." when its guard cannot be opened.
+--- nil and "signal guard: ..." when its guard cannot be opened. In a task
+--- of [`Poll.run`] that is cancelled, it ends the child, as a timeout
+--- would, and answers nil and [`Poll.CANCELLED`].
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}
   validate(argv, opts)

@@ -177,6 +177,15 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1);
 COSMIC_SYSCALL(waitpid, 2);
 
 /*
+ * --- A descriptor that polls readable once the child `pid` has exited, and stays readable until the child is reaped: a pidfd on Linux, a kqueue watching the exit on Darwin. It is closed on exec, and the caller's to close. It reaps nothing, which `waitpid` still does; and it is opened before anything can reap the child, whose pid, once reaped, may name another process. ENOSYS where there is neither, as on a Linux before 5.3; EPERM or the like where a filter refuses it; and ESRCH where the process is gone: reaped, or, on Darwin, exited.
+ * ---@param pid integer the child's process id
+ * ---@return integer|nil fd the descriptor, or nil on failure
+ * ---@return string error what went wrong, when fd is nil
+ * ---@return integer errno the error number, when fd is nil
+ */
+COSMIC_SYSCALL(exit_watch, 1);
+
+/*
  * --- How to start this same program again without its launcher: the physical core, given the private startup contract the launcher would give it.
  * ---@class Relaunch
  * ---@field path string the running core's own path, to execute
