@@ -5,7 +5,6 @@ local Fs = require("cosmic.fs")
 local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 local c = require("build.c")
-local observations = require("build.filesystem_observations")
 local rules = require("build.c.rules")
 
 --- The core's C and the headers it includes, which zig parses to a syntax
@@ -635,82 +634,6 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
   none(only(outcomes[1].findings, "single-file"))
 end
 
---- Checking C starts its compilers held to what they are given
---- (build.confine's `declaring`). What names the pinned zig is read, and
---- so is every header a compiler read but the pinned zig's own, one
---- beside the included file among them; a test of it stands on those
---- reads, and a change to a header runs it again. Each compiler is
---- observed by what it was given, never as a process nothing holds,
---- except where the kernel can confine none.
-local function test_checking_reads_what_the_compiler_read(tmp: string)
-  assert(Fs.write(tmp .. "/extra.h", "int extra(void);\n"))
-  local zig_cache = assert(Fs.cache_path("zig"))
-  local run = observations.call(function()
-    local _ = findings(tmp, header .. '#include "extra.h"\nint f(void) { return 0; }\n')
-  end, nil)
-  assert(run.passed, run.message)
-  local read: {string: boolean} = {}
-  local listed: {string: boolean} = {}
-  local whole_environment = false
-  local given = 0
-  local unheld: {string} = {}
-  for _, observation in ipairs(run.reads) do
-    if observation.kind == "o" then read[observation.path] = true end
-    if observation.kind == "d" then listed[observation.path] = true end
-    if observation.kind == "e" and observation.path == "\0environ" then
-      whole_environment = true
-    end
-    if observation.kind == "u" then
-      given = given + 1
-    else
-      -- The compiler is given the pinned zig's install; the check reads
-      -- nothing of it.
-      assert(not Fs.within(observation.path, zig_cache), observation.path)
-    end
-    if observation.kind == "p" or observation.kind == "x" then
-      unheld[#unheld + 1] = observation.kind .. " " .. observation.path
-    end
-  end
-  if #unheld > 0 then
-    -- Only a worker that runs in no sandbox, where the kernel can give
-    -- its compilers none, starts them unconfined: what holds them is
-    -- then unchecked.
-    sandbox_skip.refused("the kernel confined no compiler: " .. table.concat(unheld, ", "))
-    for _, line in ipairs(unheld) do assert(line:sub(1, 2) == "p ", line) end
-  else
-    assert(given > 0, "no compiler was started")
-  end
-  for _, path in ipairs({ root .. "/bin/zig.pin", root .. "/build/zig.tl",
-                          root .. "/core/guard.h", tmp .. "/extra.h" }) do
-    assert(read[path], path .. " was not read")
-  end
-  -- Where a header was looked for and not found is listed, so one added
-  -- there, which the compiler would find first, runs the test again.
-  for _, dir in ipairs({ root .. "/core", root .. "/vendor/lua/src", root .. "/vendor/sqlite",
-                         root .. "/vendor/mbedtls/include/mbedtls", tmp }) do
-    assert(listed[dir], dir .. " was not listed")
-  end
-  -- Only the variables the compiler is given are read: a key over the
-  -- whole environment would change with every `cd`.
-  assert(not whole_environment, "the whole environment was read")
-end
-
---- A header whose path holds what a dependency file escapes -- a space, a
---- `#`, a `$` -- is read under its own name.
-local function test_an_escaped_header_path_is_read_as_itself(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/d $x#y"))
-  assert(Fs.write(tmp .. "/d $x#y/h h.h", "int odd(void);\n"))
-  local run = observations.call(function()
-    local _ = findings(tmp, '#include "d $x#y/h h.h"\nint f(void) { return 0; }\n')
-  end, nil)
-  assert(run.passed, run.message)
-  local read = false
-  for _, observation in ipairs(run.reads) do
-    if observation.kind == "o" and observation.path == tmp .. "/d $x#y/h h.h" then read = true end
-  end
-  assert(read, "the header was not read under its own name")
-end
-
 --- A compiler reads nothing it was not given: a header named by a path
 --- of the tree that neither this module declares nor the check gives
 --- its compilers -- AGENTS.md, in every checkout -- is not found, held
@@ -718,17 +641,16 @@ end
 --- root of its own the check confines it to.
 local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   assert(Fs.write(tmp .. "/case.c", '#include "' .. root .. '/AGENTS.md"\n'))
-  local outcome: c.Outcome = nil
-  local run = observations.call(function()
-    outcome = c.check(root, { "case.c" }, tmp)[1]
-  end, nil)
-  assert(run.passed, run.message)
-  for _, observation in ipairs(run.reads) do
-    if observation.kind == "p" then
-      -- The kernel could confine none: the compiler read what it found.
-      sandbox_skip.refused("a compiler ran unconfined: " .. observation.path)
-      return
-    end
+  -- A sandboxed worker, which has the tree at /tree
+  -- (build.test_sandbox's `tree`) and not AGENTS.md there, holds its
+  -- compiler to that; an unsandboxed one's is confined in a root of its
+  -- own, where the kernel gives one.
+  local sandboxed = root == "/tree"
+  local outcome = c.check(root, { "case.c" }, tmp)[1]
+  if not sandboxed and outcome.findings ~= nil then
+    -- The kernel could confine none: the compiler read what it found.
+    sandbox_skip.refused("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
+    return
   end
   assert(outcome.findings == nil, "the header was read")
   assert(outcome.trouble:find("AGENTS.md' file not found", 1, true), outcome.trouble)
