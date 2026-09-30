@@ -294,7 +294,9 @@ local verbs: {string:function(string, string): integer} = {
   end,
   ["connect-tcp"] = function(host: string, word: string): integer
     local port = number(word)
-    if port == nil then return failed("connect-tcp", "no port " .. word) end
+    if port == nil or port < 0 or port > 65535 then
+      return failed("connect-tcp", "no port " .. word)
+    end
     local conn, trouble = Net.connect(Net.tcp(host, port), { timeout_ms = 5000 })
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()

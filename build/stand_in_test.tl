@@ -347,6 +347,13 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
   assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",
     missing.stdout)
+  -- `connect-tcp` says why a port cannot be connected to, and refuses
+  -- a port that is none.
+  local refused = run({ probe, "connect-tcp 127.0.0.1 1" }, {})
+  assert(refused.ok and refused.stdout == "127.0.0.1:1: Connection refused\n", refused.stdout)
+  local portless = run({ probe, "connect-tcp 127.0.0.1 70000" })
+  assert(portless.code == 1 and assert(portless.stderr):find("no port 70000", 1, true),
+    tostring(portless.stderr))
   assert(sys.close(fd))
   local unnamed = run({ probe, "write-fd x y" })
   assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),
