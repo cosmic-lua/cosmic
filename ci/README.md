@@ -361,9 +361,13 @@ use; a leg that skips the suite removes a `checked.db` from its
 verdicts, which would otherwise ride along whole in each save.
 
 It runs wherever the legs do. On a branch push (`light`), which runs
-no checked suite, every step skips, so it shows as a check that ran:
-a runner's start, which the join waits for, and no skipped check. It
-restores linux-x86_64's zig build outputs and compiles, which that leg
+no checked suite, it boots all the same and runs what would otherwise
+hold up a leg: the pinned CI driver's check (`cosmic-driver test
+cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
+skip, and the format check (`platform format`, `fix --check .`, 42 to
+62 s), which ran after linux-aarch64's suite and runs on a full run in
+that leg's assemble. With no suite it finishes before the legs do
+(2026-09-30). It restores linux-x86_64's zig build outputs and compiles, which that leg
 saves, and saves neither. Its verdicts it keeps under a name of its
 own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
 restored, trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's
@@ -519,7 +523,14 @@ worker a fixed path.
 The CI driver check's marker is keyed by what cosmic_ci's tests read
 (`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
 leg's host; an exact hit skips the check, except on the scheduled and
-manual runs.
+manual runs. The host is in the key, the runner's image
+(`ImageVersion`) with it, since the check runs unsandboxed and its tests
+start the host's own programs (`/bin/sh`, `cp`): a marker says the
+driver passed on that image. So a full run checks on each leg, and an
+image rollout misses every marker until main saves again. A branch
+push checks only once, in the checked job, on linux-x86_64's host and
+with no marker, off the legs' path; the queue checks each leg before
+anything lands.
 
 ### artifacts
 

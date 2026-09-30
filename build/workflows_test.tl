@@ -658,8 +658,11 @@ local function envs_of(job: {string: any}): {{string: string}}
   return out
 end
 
---- The condition on which a step of the checked job runs: a full run's.
+--- The condition on which a step of the checked job runs: a full run's,
+--- or, for what that job runs in place of a leg on a branch push, a
+--- light run's.
 local FULL <const> = "env.COSMIC_CI_SCOPE == 'full'"
+local LIGHT <const> = "env.COSMIC_CI_SCOPE == 'light'"
 
 --- The condition on which a push to main and the scheduled run, and
 --- no other, save a cache: ci.yml's COSMIC_CI_SAVES, which each save's
@@ -670,7 +673,7 @@ local SAVES <const> = "env.COSMIC_CI_SAVES == 'true'"
 
 --- Holds each cache save of `steps`, a job's, to main's saves (below),
 --- and counts them.
-local function main_saves(steps: {{string: any}}, full_only?: boolean): integer
+local function main_saves(steps: {{string: any}}): integer
   local restores: {string: {string: any}} = {}
   local trims: {string: string} = {}
   local saves = 0
@@ -688,11 +691,12 @@ local function main_saves(steps: {{string: any}}, full_only?: boolean): integer
     if uses:find("actions/cache/restore@", 1, true) ~= nil and step.id ~= nil then
       local path = with.path as string
       -- The one restore that turns on the ref: another vendor part's zig
-      -- outputs, which main never takes. The checked job restores only
-      -- on a full run, as it does all else (`FULL`).
+      -- outputs, which main never takes. A restore only on a full run
+      -- (`FULL`) is on every run main saves from: the checked job's
+      -- verdicts, and the legs' driver check marker, which a light run
+      -- checks in the checked job instead.
       local condition = step["if"] as string or ""
-      if full_only then
-        assert(condition:find(FULL, 1, true) == 1, path .. " is restored on a light run: " .. condition)
+      if condition:find(FULL, 1, true) == 1 then
         condition = condition:sub(#FULL + 5)
       end
       if condition ~= "" then
@@ -774,7 +778,7 @@ local function test_only_main_saves_a_cache_every_run_restores()
   end
   assert(main_saves(jobs.platform.steps as {{string: any}}) == 5,
     "the verdicts (by content and by commit), compiles, zig outputs and driver marker")
-  assert(main_saves(jobs.checked.steps as {{string: any}}, true) == 2,
+  assert(main_saves(jobs.checked.steps as {{string: any}}) == 2,
     "the checked job's verdicts, by content and by commit")
 end
 
@@ -1069,10 +1073,12 @@ end
 --- runs it. It runs on that leg's host: its runner, its image and its
 --- builder, with its zig build outputs and compiles restored under that
 --- leg's names (which that leg saves, and this job does not), and its
---- verdicts under a name of its own on the same COSMIC_HOST_ID. Every
---- step it runs only on a full run, so a branch push shows it run with
---- nothing done rather than skipped: a step's `if` names the scope, or
---- what a step skipped on a light run leaves unmet.
+--- verdicts under a name of its own on the same COSMIC_HOST_ID. On a
+--- branch push's light run it runs none of the checked suite's steps
+--- but, on that booted tree, what would otherwise hold up a leg: the
+--- pinned CI driver's check, which the legs make only on a full run,
+--- and the tree's format check, which the legs make only in a full
+--- run's assemble -- and those two only on a light run.
 local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_host()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
@@ -1092,13 +1098,15 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   local shell = ((checked.defaults as {string: any}).run as {string: string}).shell
   assert(shell == leg.shell, "the checked job's steps run through " .. shell)
   assert(cenv.TARGET == leg.target and cenv.COSMIC_CI_CHECKED_SUITE == "run" and
+    cenv.COSMIC_CI_FORMAT == "run" and
     cenv.COSMIC_CI_REQUIRE_SANDBOX == "1" and cenv.COSMIC_CI_DECLARED_KEYS == "0",
     "the checked job's switches are not linux-x86_64's with the checked suite on")
   for _, same in ipairs({ "COSMIC_CI_EVENT", "COSMIC_CI_BASE_SHA" }) do
     assert(cenv[same] == penv[same], "the checked job's " .. same .. " is not the legs': " .. tostring(cenv[same]))
   end
   local expected <const>: {string: boolean} = { COSMIC_WORKER = true, TARGET = true,
-    COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_REQUIRE_SANDBOX = true, COSMIC_CI_DECLARED_KEYS = true,
+    COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_REQUIRE_SANDBOX = true,
+    COSMIC_CI_DECLARED_KEYS = true,
     COSMIC_CI_EVENT = true, COSMIC_CI_BASE_SHA = true }
   for key in pairs(cenv) do assert(expected[key], "the checked job sets " .. key) end
   for key in pairs(expected) do assert(cenv[key] ~= nil, "the checked job sets no " .. key) end
@@ -1122,7 +1130,15 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   -- Each step as the leg's of the same name, or of the name given: the
   -- same action (the zig pin restored alone, which the leg saves), the
   -- same shell, directory, script, inputs and variables, run where the
-  -- leg's would and only on a full run.
+  -- leg's would: on every run where the boot a light run makes needs
+  -- it (BOTH), else only on a full run.
+  local BOTH <const>: {string: boolean} = {
+    ["start the leg's container"] = true, ["create the unprivileged builder"] = true,
+    ["restore the pinned zig"] = true, ["name the zig build cache, and the run's start"] = true,
+    ["restore zig build outputs"] = true, ["restore zig build outputs of another vendor part"] = true,
+    ["restore compiles and parses"] = true, ["move the tree to a path of its own"] = true,
+    ["move the tree back to where it was checked out"] = true,
+  }
   local function same(where: string, mine: any, their: any)
     if their is string then their = as_leg(their) end
     assert(mine == their, where .. " is not the leg's: " .. tostring(mine) .. " against " .. tostring(their))
@@ -1155,11 +1171,13 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     same_table(step_name .. "'s with", our.with, their.with)
     same_table(step_name .. "'s env", our.env, their.env)
     local condition = their["if"] as string
-    local wanted = FULL
-    if condition ~= nil and not condition:find("matrix.", 1, true) then wanted = FULL .. " && " .. condition end
+    if condition ~= nil and condition:find("matrix.", 1, true) then condition = nil end
+    local wanted: string | nil = condition
+    if not BOTH[step_name] then wanted = condition and FULL .. " && " .. condition or FULL end
     same(step_name .. "'s if", our["if"], wanted)
   end
-  -- It boots, builds the checked core, and runs its suite, and no more.
+  -- It boots, checks the format (on a light run), builds the checked
+  -- core, and runs its suite, and no more.
   local steps = checked.steps as {{string: any}}
   local ran: {string} = {}
   for _, step in ipairs(steps) do
@@ -1167,7 +1185,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     local phase = run is string and run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)$") or nil
     if phase ~= nil then ran[#ran + 1] = phase end
   end
-  assert(table.concat(ran, " ") == "boot checked-build checked", "the checked job runs " .. table.concat(ran, " "))
+  assert(table.concat(ran, " ") == "boot format checked-build checked", "the checked job runs " .. table.concat(ran, " "))
   local at = verdict_steps(steps)
   local _, suite = step_running(steps, "platform checked")
   local _, back = step_running(steps, "place-tree.sh --restore")
@@ -1177,19 +1195,56 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
       { back, at.save } }) do
     assert(pair[1] ~= nil and pair[2] ~= nil and pair[1] < pair[2], "the checked job's verdict steps are out of order")
   end
-  -- Nothing runs on a light run.
-  local unmet <const> = { FULL, "failure()", "steps.driver.outcome == 'success'",
-    "github.event_name == 'merge_group'", "steps.verdicts-trim.outputs.digest != ''" }
+  -- A light run runs the steps its boot, the driver's check and the
+  -- format check need, and nothing of the checked suite's: every other
+  -- step's `if` names the full scope, or what a step skipped on a light
+  -- run leaves unmet. The driver's check and the format check run on a
+  -- light run alone, the driver's as a leg's but for its marker (a full
+  -- run's), and the format's after the boot.
+  local light <const>: {string: boolean} = { ["bootstrap the pinned CI driver"] = true,
+    ["build release Cosmic"] = true, ["summarize worker operations"] = true,
+    ["describe the leg's container"] = true, ["remove the leg's container"] = true,
+    ["preserve checked suite failure diagnostics"] = true,
+    [CHECKOUT] = true }
+  for key in pairs(BOTH) do light[key] = true end
+  local unmet <const> = { FULL, "github.event_name == 'merge_group'", "steps.verdicts-trim.outputs.digest != ''" }
+  local only_light: {string} = {}
   for _, step in ipairs(steps) do
+    local called = step.name as string or step.uses as string
     local condition = step["if"] as string or ""
-    local held = false
-    for conjunct in (condition .. " && "):gmatch("(.-) && ") do
-      for _, text in ipairs(unmet) do held = held or conjunct == text end
+    if condition == LIGHT then
+      only_light[#only_light + 1] = called
+    else
+      local held = false
+      for conjunct in (condition .. " && "):gmatch("(.-) && ") do
+        for _, text in ipairs(unmet) do held = held or conjunct == text end
+      end
+      assert(held == not light[called], "the checked job runs " .. called ..
+        (held and " only on a full run: " or " on a light run: ") .. condition)
     end
-    assert(held, "the checked job runs " .. tostring(step.name or step.uses) .. " on a light run: " .. condition)
   end
-  assert(ours["bootstrap the pinned CI driver"].id == "driver" and
-    ours["bootstrap the pinned CI driver"]["if"] == FULL, "the checked job's driver runs on a light run")
+  assert(table.concat(only_light, ", ") == "check the pinned CI driver, check the tree's format",
+    "the checked job runs on a light run alone: " .. table.concat(only_light, ", "))
+  local mine, check = step_running(steps, "cosmic-driver test cosmic_ci")
+  local _, boot = step_running(steps, "cosmic-driver cosmic_ci/driver.tl platform boot")
+  local _, format = step_running(steps, "platform format")
+  local bootstrap = 0
+  for i, step in ipairs(steps) do
+    if step.uses == DRIVER then bootstrap = i end
+  end
+  local legs = step_running(platform.steps as {{string: any}}, "cosmic-driver test cosmic_ci")
+  assert(mine.run == "cosmic-driver test cosmic_ci", "the checked job checks the driver otherwise: " .. tostring(mine.run))
+  same_table("the driver check's env", mine.env, legs.env)
+  assert(ours["bootstrap the pinned CI driver"].id == "driver" and bootstrap > 0 and check > bootstrap and format > boot,
+    "the checked job checks the driver before bootstrapping it, or the format before the boot")
+  -- A full run's legs check the driver; a light run's none do.
+  assert((legs["if"] as string):find(FULL .. " && ", 1, true) == 1 and
+    ours["find a passing CI driver check"] == nil and
+    theirs["find a passing CI driver check"]["if"] == FULL,
+    "a light run's legs check the driver: " .. tostring(legs["if"]))
+  for _, step in ipairs(platform.steps as {{string: any}}) do
+    assert(not (step.run as string or ""):find("platform format", 1, true), "a leg checks the format apart from assemble")
+  end
 end
 
 --- A job that moves its tree (.github/scripts/place-tree.sh) moves it
