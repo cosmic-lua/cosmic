@@ -187,24 +187,25 @@ end
 --- which cannot read `env`, tests it again.
 local FULL_RUN <const> = "(github.event_name != 'push' || github.ref == 'refs/heads/main')"
 
---- A job's matrix legs on a run of `scope` (`full` or `light`), each
---- the values it gets, as GitHub expands them: every combination of
---- the dimensions (a dimension FULL_RUN chooses between two lists, as
---- `${{ fromJSON(FULL_RUN && '[...]' || '[...]') }}`, is the one its scope
---- takes), then each `include` entry added to every combination whose
---- dimensions it does not contradict, overwriting what an earlier
---- entry added, or, where it contradicts all of them, a combination of
---- its own. With no dimension, each entry is a combination.
-local function legs_of(job: {string: any}, scope: string): {{string: string}}
-  local matrix = (job.strategy as {string: any}).matrix as {string: any}
-  local combos: {{string: string}} = {}
-  local fixed: {{string: string}} = {}
+--- A matrix's combinations on a run of `scope` (`full` or `light`),
+--- each the values it gets, as GitHub's docs ("Expanding or adding
+--- matrix configurations") expand them: every combination of the
+--- dimensions (a dimension FULL_RUN chooses between two lists, as
+--- `${{ fromJSON(FULL_RUN && '[...]' || '[...]') }}`, is the one its
+--- scope takes), then each `include` entry added to every one of those
+--- original combinations whose dimensions it does not contradict,
+--- overwriting what an earlier entry added, or, where it contradicts
+--- all of them, a combination of its own, which no later entry is
+--- added to. With no dimension, each entry is a combination.
+local function expand(matrix: {string: any}, scope: string): {{string: string}}
   local dims: {string} = {}
   for key in pairs(matrix) do
+    assert(key ~= "exclude", "an exclude comes before the includes it would need to hold back")
     if key ~= "include" then dims[#dims + 1] = key end
   end
   table.sort(dims)
-  if #dims > 0 then combos, fixed = { {} }, { {} } end
+  local combos: {{string: string}} = {}
+  if #dims > 0 then combos = { {} } end
   for _, dim in ipairs(dims) do
     local value = matrix[dim]
     if value is string then
@@ -212,26 +213,26 @@ local function legs_of(job: {string: any}, scope: string): {{string: string}}
       assert(condition == FULL_RUN, "matrix " .. dim .. " is chosen other than by the scope: " .. value)
       value = assert(Json.decode(scope == "full" and full or light))
     end
-    assert(dim ~= "exclude", "an exclude comes before the includes it would need to hold back")
     local next_combos: {{string: string}} = {}
-    local next_fixed: {{string: string}} = {}
-    for i, combo in ipairs(combos) do
+    for _, combo in ipairs(combos) do
       for _, v in ipairs(value as {string}) do
-        local c, f: {string: string}, {string: string} = {}, {}
+        local c: {string: string} = {}
         for k, x in pairs(combo) do c[k] = x end
-        for k, x in pairs(fixed[i]) do f[k] = x end
-        c[dim], f[dim] = v, v
-        next_combos[#next_combos + 1], next_fixed[#next_fixed + 1] = c, f
+        c[dim] = v
+        next_combos[#next_combos + 1] = c
       end
     end
-    combos, fixed = next_combos, next_fixed
+    combos = next_combos
   end
+  -- An original combination's dimensions are never overwritten, so
+  -- each still holds its own.
+  local created: {{string: string}} = {}
   for _, entry in ipairs(matrix.include as {{string: string}} or {}) do
     local added = false
-    for i, combo in ipairs(combos) do
+    for _, combo in ipairs(combos) do
       local fits = true
-      for k, v in pairs(entry) do
-        if fixed[i][k] ~= nil and fixed[i][k] ~= v then fits = false end
+      for _, dim in ipairs(dims) do
+        if entry[dim] ~= nil and entry[dim] ~= combo[dim] then fits = false end
       end
       if fits then
         added = true
@@ -239,12 +240,47 @@ local function legs_of(job: {string: any}, scope: string): {{string: string}}
       end
     end
     if not added then
-      local c, f: {string: string}, {string: string} = {}, {}
-      for k, v in pairs(entry) do c[k], f[k] = v, v end
-      combos[#combos + 1], fixed[#fixed + 1] = c, f
+      local c: {string: string} = {}
+      for k, v in pairs(entry) do c[k] = v end
+      created[#created + 1] = c
     end
   end
+  for _, c in ipairs(created) do combos[#combos + 1] = c end
   return combos
+end
+
+--- A job's matrix legs on a run of `scope`, as [`expand`] gives them.
+local function legs_of(job: {string: any}, scope: string): {{string: string}}
+  return expand((job.strategy as {string: any}).matrix as {string: any}, scope)
+end
+
+--- [`expand`] gives the combinations GitHub's docs give for their
+--- example of `include`: an entry that fits no original combination
+--- is one of its own, which a later entry does not extend.
+local function test_a_matrix_expands_as_githubs_docs_say()
+  local got = expand({
+    fruit = { "apple", "pear" }, animal = { "cat", "dog" },
+    include = {
+      { color = "green" }, { color = "pink", animal = "cat" }, { fruit = "apple", shape = "circle" },
+      { fruit = "banana" }, { fruit = "banana", animal = "cat" },
+    },
+  }, "full")
+  local lines: {string} = {}
+  for _, combo in ipairs(got) do
+    local parts: {string} = {}
+    for k, v in pairs(combo) do parts[#parts + 1] = k .. "=" .. v end
+    table.sort(parts)
+    lines[#lines + 1] = table.concat(parts, ",")
+  end
+  table.sort(lines)
+  assert(table.concat(lines, " ") == table.concat({
+    "animal=cat,color=pink,fruit=apple,shape=circle",
+    "animal=cat,color=pink,fruit=pear",
+    "animal=cat,fruit=banana",
+    "animal=dog,color=green,fruit=apple,shape=circle",
+    "animal=dog,color=green,fruit=pear",
+    "fruit=banana",
+  }, " "), "the docs' example expands to " .. table.concat(lines, " "))
 end
 
 --- The platform legs by name, on a run of `scope`.
@@ -273,6 +309,18 @@ local function test_a_branch_push_runs_no_alpine_leg()
   end
   assert(names(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64", "a full run's legs: " .. names(full))
   assert(names(light) == "linux-aarch64 linux-x86_64 macos-aarch64", "a light run's legs: " .. names(light))
+  -- Each leg's entry sets every value the first, alpine-x86_64's, sets:
+  -- one it left out would be alpine-x86_64's on that leg.
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local include = ((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}
+  assert(include[1].name == nil, "the first entry names a leg: " .. tostring(include[1].name))
+  for i = 2, #include do
+    assert(include[i].name ~= nil, "entry " .. i .. " names no leg")
+    for key in pairs(include[1]) do
+      assert(include[i][key] ~= nil, include[i].name .. " keeps alpine-x86_64's " .. key)
+    end
+  end
   local alpine = full["alpine-x86_64"]
   assert(alpine.runner == "ubuntu-24.04" and alpine.target == "x86_64-linux-musl" and
     alpine.image:find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil and
