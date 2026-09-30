@@ -113,13 +113,20 @@ local record Net
     --- directory not writable here; "File name too long" for a path
     --- within 5 bytes of the longest a path may be; "timed out" for
     --- another's lock held 10 seconds; "interrupted" for a signal the
-    --- innermost open [`Child.guard`] caught; and a directory or a link at its name
-    --- fails too. In a task of [`Poll.run`], the wait for the lock and
-    --- the connection that asks wait through the run, so reclaims of one
-    --- path in tasks of one run take turns as those of two processes do,
-    --- and a task cancelled in either fails "cancelled". A path ending
-    --- in "/" fails "Is a directory", and an empty path raises, as it does without `reclaim`. A "tcp" address
-    --- raises: a port holds no file to take over.
+    --- innermost open [`Child.guard`] caught; and a directory or a link
+    --- at its name fails too. In a task of [`Poll.run`], the wait for
+    --- the lock and the connection that asks wait through the run, so
+    --- reclaims of one path in tasks of one run take turns as those of
+    --- two processes do -- but over NFS or SMB, where a lock may be
+    --- the process's own rather than its open file's, and then none
+    --- waits for another of the same process. A task cancelled in either
+    --- wait fails "cancelled"; a caught signal cuts short only the wait
+    --- for the lock, and the connection waits out its second. A
+    --- relative path is read from the working directory at each step,
+    --- which another task may change while one waits. A path ending in
+    --- "/" fails "Is a directory", and an empty path raises, as it does
+    --- without `reclaim`. A "tcp" address raises: a port holds no file
+    --- to take over.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
@@ -648,17 +655,16 @@ local function locked(fd: integer): boolean, string
     -- lock, or "interrupted" where a guard has caught a signal.
     local ok, trouble, errno = sys.flock(fd, "exclusive", 0)
     if ok then return true, "" end
-    if errno ~= raw.ETIMEDOUT or deadline - now_ms() <= 0 then
-      return false, said(trouble, errno)
-    end
-    local paused, why = Poll.delay(math.min(pause, deadline - now_ms()))
+    local left = deadline - now_ms()
+    if errno ~= raw.ETIMEDOUT or left <= 0 then return false, said(trouble, errno) end
+    local paused, why = Poll.delay(math.min(pause, left))
     if not paused then return false, why end
     pause = math.min(pause * 2, LOCK_PAUSE_MS)
   end
 end
 
 --- The lock `reclaim` holds, released when it goes out of scope,
---- whether the listen returns or raises.
+--- whether the listen returns or raises; `fd` is -1 once handed on.
 local record ReclaimLock
   fd: integer
   metamethod __close: function(ReclaimLock)
@@ -666,7 +672,7 @@ end
 
 local reclaim_lock_mt: metatable<ReclaimLock> = {
   __close = function(self: ReclaimLock)
-    local _, _ = sys.close(self.fd)
+    if self.fd >= 0 then local _, _ = sys.close(self.fd) end
   end,
 }
 
@@ -683,11 +689,13 @@ local function reclaim_lock(address: Net.Address): ReclaimLock, string
   local fd, why = sys.open(name,
     sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
   if fd == nil then return nil, name .. ": " .. why end
+  -- Held while the lock is waited for, which in a task a run torn down
+  -- ends where it waits, closing only what is held so.
+  local opening: ReclaimLock = { fd = fd }
+  local pending <close> = setmetatable(opening, reclaim_lock_mt)
   local ok, trouble = locked(fd)
-  if not ok then
-    local _, _ = sys.close(fd)
-    return nil, name .. ": " .. trouble
-  end
+  if not ok then return nil, name .. ": " .. trouble end
+  pending.fd = -1
   local lock: ReclaimLock = { fd = fd }
   return setmetatable(lock, reclaim_lock_mt), ""
 end
