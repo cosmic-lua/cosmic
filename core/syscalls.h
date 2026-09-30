@@ -282,6 +282,12 @@ COSMIC_SYSCALL(chown, 3);
  */
 COSMIC_SYSCALL(readdir, 1);
 
+/* `tree_digest` has no caller in the tree but its tests
+ * (core/syscalls_test.tl): it is kept for the TODO above
+ * build/declared_key.tl's `walk_system` ("walk in C, as `sys.tree_digest`
+ * walks by stamps"), which is to digest the system's paths through it
+ * rather than an `lstat` of each entry crossing into Lua. */
+
 /*
  * --- What a tree holds, digested: `tree_digest`'s answer.
  * ---@class TreeDigest

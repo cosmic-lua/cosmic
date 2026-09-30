@@ -188,10 +188,11 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   end
 end
 
---- What a path resolves to, told another way than `resolution` tells
---- it: by names, through `realpath` of the path or else of its nearest
---- ancestor that resolves, with every name past that ancestor after it
---- as written.
+--- What a path resolves to, by names: `realpath` of the path or else
+--- of its nearest ancestor that resolves, with every name past that
+--- ancestor after it as written. It asks the same `sys.realpath` that
+--- `resolution` does, so what it checks is how `resolution` splits a
+--- path into names and joins them again, not how a link resolves.
 local function resolved_by_names(path: string): string
   if path:sub(1, 1) ~= "/" then return "" end
   local missing: {string} = {}
@@ -231,7 +232,7 @@ local function test_a_resolution_is_the_one_its_names_tell(tmp: string)
     real .. "/d/f/g", real .. "/dangling", real .. "/dangling/x", real .. "/./d/./e",
     real .. "/link//", real .. "/relative/../f", real .. "/relative/missing/..", long,
     real .. "/loop-a", real .. "/loop-a/x", real .. "/d/f/x/..", real .. "/link/f/y",
-    long .. "/../f" }
+    long .. "/../f", real .. "/missing//x", real .. "/d/f//g///h", "/nowhere//at" }
   for _, path in ipairs(paths) do
     local told, want = confine.resolution(path), resolved_by_names(path)
     assert(told == want, path:sub(1, 80) .. ": " .. told:sub(1, 80) .. " ~= " ..

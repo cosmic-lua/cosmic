@@ -1169,9 +1169,9 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
   closedir(dir);
 }
 
-/* Logged as one record of the walk, not one of each entry: its answer is
- * what a key holds, walked again when the key is made. With contents and
- * without, it is two calls to the log, as a key walks each its own way. */
+/* No caller in the tree yet but its tests: kept for the TODO above
+ * build/declared_key.tl's `walk_system`, which is to walk the system's
+ * paths in C through it (see core/syscalls.h). */
 COSMIC_SYSCALL(tree_digest, 2) {
   const char *given = cosmic_path(L, 1);
   if (given == NULL) return cosmic_fail(L, EINVAL);
