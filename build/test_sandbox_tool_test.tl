@@ -55,7 +55,7 @@ end
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
 --- answers it. A plan takes that layout as given: where it runs its
---- worker as a user of its own, it hands `real` to that user.
+--- worker as a user of its own, it hands it and `real` to that user.
 local function scratch_in(tmp: string): string
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch .. "/real"))
@@ -179,10 +179,11 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(not Fs.within(host, test_sandbox.scratch) or holds(plan.kept, host), host)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and
     unveil.at[scratch] == test_sandbox.scratch)
-  -- A worker run as a user of its own (a root runner's) owns it.
+  -- The plan hands a worker it runs as a user of its own (a root
+  -- runner's) the scratch directory and its `real`.
   assert(plan.trouble == "", plan.trouble)
+  local user = plan.sandbox.user
   for _, path in ipairs({ scratch, scratch .. "/real" }) do
-    local user = plan.sandbox.user
     assert(user == nil or assert(sys.stat(path)).uid == user, path)
   end
   -- A process the worker starts is keyed by what it declares, as the
