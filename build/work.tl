@@ -1002,7 +1002,7 @@ local find_links: function(handle: work.Handle, texts: {string:string}): boolean
 --- deleted. Only a change reaches the database.
 ---
 --- The walk goes where `cosmic fix` looks for links, too
---- ([`link_files.skip`]): what only that walk reaches (doc/'s prose,
+--- ([`link_files.skipper`]): what only that walk reaches (doc/'s prose,
 --- `.claude/`) is staged into `linked` alone.
 --- @param own_tree whether `root` is cosmic's own tree
 function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, string
@@ -1023,8 +1023,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   local skip_path = own_tree and skip_in_own_tree or skip_input
   -- Each entry only the walk for links reaches.
   local links_only: {string:boolean} = {}
+  local link_skip = link_files.skipper(root)
   local function for_links(entry: string): boolean
-    return not link_files.skip(entry) and not (own_tree and foreign_trees[first_of(entry)])
+    return not link_skip(entry) and not (own_tree and foreign_trees[first_of(entry)])
   end
   local ancestors: {string:boolean} = nil
   local above = ""
@@ -1199,18 +1200,29 @@ local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
   return rows[1][1]
 end
 
---- The code finding links as this process runs it. In a tool, a hash
---- of each module `require` reaches from [`build.link_files`], by name
---- and source as the binary holds it, so that only an edit to that code
---- reads every file's links again; worked out only when the tool's boot
---- hash is not the one it was last worked out under (`links_boot` in
---- `meta`). In a boot, which runs the tree's own code and carries no
---- database, the hash the tool it writes will carry
---- ([`work.record_fingerprint`]'s `boot`).
+--- The code finding links as this process runs it, and the boot hash
+--- of the tool that runs it, kept in `meta` as `links_by` and
+--- `links_boot`. A tool whose boot hash is `links_boot` runs the code
+--- `links_by` names. Any other tool names it by a hash of each module
+--- `require` reaches from [`build.link_files`], by name and source as
+--- the binary holds it, so that only an edit to that code reads every
+--- file's links again. A boot runs the tree's own code and carries no
+--- database: it names its code by the boot hash of the tool it writes
+--- ([`work.record_fingerprint`]'s `boot`), which it keeps as
+--- `links_boot` too, so that tool goes on from the boot's rows.
 local function links_finder(db: Sqlite.Handle): string | nil, string
   local boot_hash = Store.meta("boot_hash")
   if boot_hash == nil then
-    return hash_over(db, "1")
+    local fingerprint, trouble = hash_over(db, "1")
+    if fingerprint == nil then
+      return nil, trouble
+    end
+    local ok, record_trouble = Sqlite.run(db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('links_boot', ?1)", { text(fingerprint) })
+    if not ok then
+      return nil, record_trouble
+    end
+    return fingerprint
   end
   local last, last_trouble = Sqlite.text_rows(db,
     "SELECT key, value FROM meta WHERE key IN ('links_boot', 'links_by')")

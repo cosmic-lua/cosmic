@@ -89,9 +89,12 @@ local record link_index
     root: string
     rows: {Raw}
     memo: Memo
-    --- A hash of every answer in `memo`, from the root down, and of
-    --- the text of every file of `linked`: what the rows are a function
-    --- of beside the projection's own.
+    --- A hash of every answer in `memo`, from the root down -- of a
+    --- file read, the anchors it gives, which is all a link reads of it
+    --- -- and of every link of a file that is no module, as the stage
+    --- read it: what the rows are a function of beside the projection's
+    --- own. So an edit to a file that moves none of its links and none
+    --- of the headings a link names leaves it as it was.
     digest: string
   end
 end
@@ -114,9 +117,6 @@ local raw_links =
   "CASE f.kind WHEN 'markdown' THEN 'text' ELSE 'comment' END, l.text, l.target, l.own, '' " ..
   "FROM linked f JOIN linked_found l ON l.sha256 = f.sha256 AND l.kind = f.kind " ..
   "ORDER BY 2, 3, 4"
-
---- Each file of `linked` and its text's hash, for the digest.
-local linked_texts = "SELECT path, kind, sha256 FROM linked ORDER BY path"
 
 --- A context over the tree at `root` on disk that keeps each answer in
 --- `memo`, and gives one already kept without asking again; its
@@ -191,10 +191,10 @@ local function label_of(raw: link_index.Raw): string | nil
   return link_text.shortcut_target(raw.text)
 end
 
---- `memo`'s answers and the `texts` of the files the stage read links
---- of as one hash, each path from `root`, so the same tree gives the
---- same digest wherever it is checked out.
-local function digest_of(root: string, memo: link_index.Memo, texts: {string}): string
+--- `memo`'s answers and the links of `rows` in no module as one hash,
+--- each path from `root`, so the same tree gives the same digest
+--- wherever it is checked out.
+local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.Raw}): string
   local function from_root(path: string): string
     if path == root then return "." end
     if path:sub(1, #root + 1) == root .. "/" then return path:sub(#root + 2) end
@@ -202,8 +202,12 @@ local function digest_of(root: string, memo: link_index.Memo, texts: {string}): 
   end
   local real_root = memo.reals[root] ~= nil and memo.reals[root][1] or root
   local lines: {string} = {}
-  for _, line in ipairs(texts) do
-    lines[#lines + 1] = "text " .. line
+  for _, raw in ipairs(rows) do
+    if raw.from_module == "" then
+      lines[#lines + 1] = table.concat({ "link", raw.from_file, tostring(raw.line),
+        tostring(raw.column), raw.form, raw.source, raw.text, raw.target,
+        raw.own and "own" or "-" }, " ")
+    end
   end
   for path, kind in pairs(memo.kinds) do
     lines[#lines + 1] = "kind " .. from_root(path) .. " " .. kind
@@ -216,7 +220,14 @@ local function digest_of(root: string, memo: link_index.Memo, texts: {string}): 
   end
   for path, answer in pairs(memo.reads) do
     local read = answer[1]
-    lines[#lines + 1] = "read " .. from_root(path) .. " " .. (read ~= nil and Hash.hex_sha256(read) or "-")
+    local said = "-"
+    if read ~= nil then
+      local anchors: {string} = {}
+      for anchor in pairs(link_resolve.anchors(read)) do anchors[#anchors + 1] = anchor end
+      table.sort(anchors)
+      said = Hash.hex_sha256(table.concat(anchors, "\n"))
+    end
+    lines[#lines + 1] = "read " .. from_root(path) .. " " .. said
   end
   table.sort(lines)
   return Hash.hex_sha256(table.concat(lines, "\n"))
@@ -241,14 +252,6 @@ function link_index.pending(db: Sqlite.Handle, root: string): link_index.Pending
       own = row[9] == "1", alias = row[10],
     }
   end
-  local linked, linked_trouble = Sqlite.text_rows(db, linked_texts)
-  if linked == nil then
-    return nil, linked_trouble
-  end
-  local texts: {string} = {}
-  for _, row in ipairs(linked) do
-    texts[#texts + 1] = table.concat(row, " ")
-  end
   local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
   -- No symbol is known yet: every name reads as naming none.
   local unknown = "no symbols until the projection's docs are in"
@@ -265,7 +268,7 @@ function link_index.pending(db: Sqlite.Handle, root: string): link_index.Pending
       local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
     end
   end
-  return { root = root, rows = rows, memo = memo, digest = digest_of(root, memo, texts) }
+  return { root = root, rows = rows, memo = memo, digest = digest_of(root, memo, rows) }
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory.

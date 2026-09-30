@@ -28,25 +28,55 @@ function link_files.kind_of(path: string): string | nil
   return nil
 end
 
---- What a walk for files whose links are checked passes over, `entry`
---- from the directory walked: the build's output, the upstream sources
---- and the records that patch them, the shell scripts under `bin/`, and
---- anything hidden but `.claude/`, whose skills are Markdown.
-function link_files.skip(entry: string): boolean
-  local first = entry:match("^([^/]+)") or entry
-  if first == "o" or first == "vendor" or first == "patch" or first == "bin" then
-    return true
+--- The directories no walk for links enters, at any depth: a build's
+--- output and the upstream sources and the records that patch them,
+--- which a tree nested in this one (a project, a checkout) holds too.
+local never: {string: boolean} = { ["o"] = true, ["vendor"] = true, ["patch"] = true }
+
+--- What a walk for files whose links are checked passes over, in the
+--- tree at `dir`, by an entry's path from `dir`: what `never` names,
+--- the shell scripts under `bin/`, anything hidden but the skills of
+--- `.claude/skills/`, which are Markdown, and everything under a
+--- directory that is a checkout of its own (it holds a `.git`), such as
+--- a worktree nested in this one, whose files are its own tree's. Each
+--- directory is asked after once.
+function link_files.skipper(dir: string): function(string): boolean
+  local checkouts: {string: boolean} = {}
+  local function checkout(path: string): boolean
+    local known = checkouts[path]
+    if known == nil then
+      local there, _ = Fs.exists(dir .. "/" .. path .. "/.git")
+      known = there == true
+      checkouts[path] = known
+    end
+    return known
   end
-  if entry == ".claude" then
+  return function(entry: string): boolean
+    local parts: {string} = {}
+    for part in entry:gmatch("[^/]+") do parts[#parts + 1] = part end
+    for index, part in ipairs(parts) do
+      if never[part] or (index == 1 and part == "bin") then
+        return true
+      end
+      if part:sub(1, 1) == "." and not (index == 1 and part == ".claude") then
+        return true
+      end
+      if index == 2 and parts[1] == ".claude" and part ~= "skills" then
+        return true
+      end
+      if index < #parts and checkout(table.concat(parts, "/", 1, index)) then
+        return true
+      end
+    end
     return false
   end
-  return Fs.basename(entry):sub(1, 1) == "."
 end
 
---- Every file under `dir` a walk by [`link_files.skip`] finds, relative
---- to it and sorted.
+--- Every file under `dir` a walk by [`link_files.skipper`] finds,
+--- relative to it and sorted.
 function link_files.walk(dir: string): {string} | nil, string
-  local files, trouble = Fs.walk(dir, link_files.skip)
+  local skip = link_files.skipper(dir)
+  local files, trouble = Fs.walk(dir, function(entry: string): boolean return skip(entry) end)
   if files == nil then return nil, trouble end
   table.sort(files)
   return files
