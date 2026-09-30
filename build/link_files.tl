@@ -258,16 +258,19 @@ end
 
 --- What `source`, a Markdown, C or Zig file of `kind`, declares: the
 --- first step of resolution. A Markdown file declares nothing. C is
---- read at file scope alone, so all it declares is its top level.
+--- read at file scope alone, so all it declares is its top level. Each
+--- line sees all the file declares: nothing here reads a scope.
 function link_files.declarations(kind: string, source: string): link_text.Declarations
+  local declared: link_text.Declared = { names = {}, aliases = {} }
+  local module_level: {string: boolean} = {}
   if kind == "c" then
-    local declared = declared_c(source)
-    return { declared = declared, module_level = declared.names }
+    declared = declared_c(source)
+    module_level = declared.names
+  elseif kind == "zig" then
+    declared = declared_zig(source)
+    module_level = module_level_zig(source)
   end
-  if kind == "zig" then
-    return { declared = declared_zig(source), module_level = module_level_zig(source) }
-  end
-  return { declared = { names = {}, aliases = {} }, module_level = {} }
+  return { at = function(_: integer): link_text.Declared return declared end, module_level = module_level }
 end
 
 --- The links of `source`, a Markdown, C or Zig file of `kind`, as the
@@ -297,7 +300,7 @@ function link_files.found(kind: string, source: string): {link_text.Found}
         local own = false
         local named = link_text.name_of(link.target)
         if named ~= nil then
-          local declared = names or link_files.declarations(kind, source).declared.names
+          local declared = names or link_files.declarations(kind, source).at(1).names
           names = declared
           own = declared[(named:gsub(":", "."))] == true
         end

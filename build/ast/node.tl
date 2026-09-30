@@ -171,6 +171,9 @@ local record Node is {Node}
   -- "local_function", "global_function", "record_function", a
   -- "function" literal, and a "macroexp".
   args: Node | nil
+  --- "local_macroexp": its definition, a "macroexp" node, whose `args`
+  --- are its parameters and `exp` the one expression it returns.
+  macrodef: Node | nil
   rets: TypeNode | nil
   --- Comments tl's parser attached to a statement directly. The
   --- renderer reads comments off the token stream instead, uniformly,
@@ -213,10 +216,6 @@ local record Node is {Node}
   --- "global_function": set when the source wrote `function f` with no
   --- `global` in front, which tl reads as the same kind of node.
   implicit_global_function: boolean | nil
-
-  -- "local_macroexp": the "macroexp" node holding its signature and the
-  -- one expression it returns (in `exp`).
-  macrodef: Node | nil
 
   -- "pragma": the name and value written after `--#pragma`.
   pkey: string | nil
