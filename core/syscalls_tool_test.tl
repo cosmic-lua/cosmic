@@ -626,12 +626,12 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
     ends.writer))
   sys.close(ends.writer)
   assert(assert(process.waitpid(left, false)).code == 0)
-  assert(process.set_nonblocking(ends.reader, true))
+  assert(sys.set_nonblocking(ends.reader, true))
   local read = ""
   local closed = false
   local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 10 * 1000000000
   while not closed and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    assert(process.poll({ ends.reader }, { process.POLLIN }, 100))
+    assert(sys.poll({ ends.reader }, { sys.POLLIN }, 100))
     local data, _, errno = sys.read(ends.reader, 4096)
     if data == "" then closed = true
     elseif data ~= nil then read = read .. data

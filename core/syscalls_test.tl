@@ -1000,7 +1000,7 @@ local function test_the_process_calls_are_off_the_public_table()
   local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "relaunch", "pipe",
-      "set_nonblocking", "poll", "ignore_sigpipe", "landlock_ruleset",
+      "ignore_sigpipe", "landlock_ruleset",
       "landlock_restrict_execute",
       "guard_child_signals", "unguard_child_signals", "cancelled_child_signal" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
@@ -1010,6 +1010,35 @@ local function test_the_process_calls_are_off_the_public_table()
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type((hash as {string: any})[name]) == "function", name .. " is not raw hash's")
   end
+end
+
+--- `poll` watches as many descriptors as the kernel lets a process
+--- watch, past the 1024 it was once held to, and a negative one is
+--- left unwatched. Where the kernel's own limit is lower (macOS past
+--- FD_SETSIZE under a low RLIMIT_NOFILE), it refuses with EINVAL.
+local function test_poll_watches_past_a_thousand_descriptors()
+  local ends = assert(process.pipe())
+  assert(sys.write(ends.writer, "x") == 1)
+  local fds: {integer} = {}
+  local events: {integer} = {}
+  for i = 1, 1100 do
+    fds[i] = ends.reader
+    events[i] = sys.POLLIN
+  end
+  fds[#fds + 1] = -1
+  events[#events + 1] = sys.POLLIN
+  local revents, trouble, errno = sys.poll(fds, events, 0)
+  sys.close(ends.reader)
+  sys.close(ends.writer)
+  if revents == nil then
+    assert(errno == sys.EINVAL, "poll: " .. trouble)
+    return
+  end
+  assert(#revents == 1101, "one answer per descriptor, not " .. #revents)
+  for i = 1, 1100 do
+    assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
+  end
+  assert(revents[1101] == 0, "an unwatched descriptor answered " .. revents[1101])
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32

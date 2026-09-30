@@ -635,6 +635,35 @@ COSMIC_SYSCALL(access, 2);
 COSMIC_SYSCALL(mkfifo, 2);
 
 /*
+ * --- Turns a descriptor's nonblocking mode on or off: on, a read or write
+ * --- that would wait fails with EAGAIN instead. The mode belongs to the
+ * --- open file, so every descriptor duplicated from it shares it.
+ * ---@param fd integer the descriptor
+ * ---@param on boolean true for nonblocking reads and writes
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(set_nonblocking, 2);
+
+/*
+ * --- Waits until one of the descriptors is ready or the timeout passes,
+ * --- and answers what happened to each, 0 for one not ready. A negative
+ * --- descriptor is not watched and answers 0, and one not open answers
+ * --- POLLNVAL. A signal ends the wait early, as though nothing were
+ * --- ready. There is no count the call itself refuses: the kernel
+ * --- refuses more than a process may have open (RLIMIT_NOFILE on Linux,
+ * --- OPEN_MAX on macOS) with EINVAL.
+ * ---@param fds {integer} the descriptors to watch
+ * ---@param events {integer} the POLL* mask wanted for each descriptor
+ * ---@param timeout_ms integer how long to wait, -1 for no limit
+ * ---@return {integer}|nil revents the POLL* mask that happened for each descriptor, or nil on failure
+ * ---@return string error what went wrong, when revents is nil
+ * ---@return integer errno the error number, when revents is nil
+ */
+COSMIC_SYSCALL(poll, 3);
+
+/*
  * --- The numbers the calls above take and give back. They come from
  * --- this libc, so nothing above the table carries a platform's own.
  * ---@class Constants
@@ -682,6 +711,11 @@ COSMIC_SYSCALL(mkfifo, 2);
  * ---@field SIGPIPE integer a write to a pipe nobody reads
  * ---@field SIGTERM integer request termination
  * ---@field SIGUSR1 integer the first user-defined signal
+ * ---@field POLLIN integer for `poll`: there is data to read, or a connection to accept
+ * ---@field POLLOUT integer for `poll`: a write would not wait
+ * ---@field POLLERR integer for `poll`: the descriptor is in error
+ * ---@field POLLHUP integer for `poll`: the other end hung up
+ * ---@field POLLNVAL integer for `poll`: the descriptor is not open
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -727,3 +761,8 @@ COSMIC_CONSTANT(SIGKILL)
 COSMIC_CONSTANT(SIGPIPE)
 COSMIC_CONSTANT(SIGTERM)
 COSMIC_CONSTANT(SIGUSR1)
+COSMIC_CONSTANT(POLLIN)
+COSMIC_CONSTANT(POLLOUT)
+COSMIC_CONSTANT(POLLERR)
+COSMIC_CONSTANT(POLLHUP)
+COSMIC_CONSTANT(POLLNVAL)

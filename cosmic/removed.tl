@@ -79,10 +79,6 @@ local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
 local sys <const> = 'local sys = require("cosmic.sys")'
-local poll_gone <const> = "there is no public poll to take it; use " ..
-  "Child.wait_any(handles, timeout_ms), which polls every handle's streams (" ..
-  child .. ")"
-
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -178,15 +174,6 @@ local module: Module = {
       "or stdout = \"capture\" (" .. child .. ")",
     ["cosmic.sys.Pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
       "or stdout = \"capture\" (" .. child .. ")",
-    ["cosmic.sys.set_nonblocking"] = "Child services its pipes without blocking itself; " ..
-      "use Child.wait_any(handles, timeout_ms) (" .. child .. ")",
-    ["cosmic.sys.poll"] = "use Child.wait_any(handles, timeout_ms), which polls every " ..
-      "handle's streams (" .. child .. ")",
-    ["cosmic.sys.POLLIN"] = poll_gone,
-    ["cosmic.sys.POLLOUT"] = poll_gone,
-    ["cosmic.sys.POLLERR"] = poll_gone,
-    ["cosmic.sys.POLLHUP"] = poll_gone,
-    ["cosmic.sys.POLLNVAL"] = poll_gone,
     ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"pipe\" }), or " ..
       "{ input = bytes }, ignores SIGPIPE for this process, so a write to a child " ..
       "that has gone fails with EPIPE instead (" .. child .. ")",

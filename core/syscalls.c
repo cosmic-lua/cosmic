@@ -2666,8 +2666,6 @@ COSMIC_SYSCALL(set_nonblocking, 2) {
   return cosmic_ok(L);
 }
 
-#define POLL_MAX 1024
-
 COSMIC_SYSCALL(poll, 3) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -2675,10 +2673,13 @@ COSMIC_SYSCALL(poll, 3) {
   if (timeout < -1 || timeout > INT_MAX)
     return luaL_argerror(L, 3, "timeout is out of range");
   lua_Integer count = (lua_Integer)lua_rawlen(L, 1);
-  if (count > POLL_MAX) return luaL_argerror(L, 1, "too many descriptors");
+  if (count > INT_MAX) return luaL_argerror(L, 1, "too many descriptors");
   if ((lua_Integer)lua_rawlen(L, 2) != count)
     return luaL_argerror(L, 2, "one event mask per descriptor");
-  struct pollfd fds[POLL_MAX];
+  /* A block Lua owns, not a C allocation: a refused descriptor below
+   * raises part-way through filling it, and the collector takes it. */
+  struct pollfd *fds =
+    lua_newuserdatauv(L, (size_t)count * sizeof(struct pollfd), 0);
   for (lua_Integer i = 0; i < count; i++) {
     lua_rawgeti(L, 1, i + 1);
     lua_rawgeti(L, 2, i + 1);

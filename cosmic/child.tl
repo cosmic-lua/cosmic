@@ -439,14 +439,14 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer):
   local owners: {Handle} = {}
   local which: {integer} = {}
   if writable ~= nil then
-    fds[1], events[1], owners[1], which[1] = writable, raw.POLLOUT, handles[1], -1
+    fds[1], events[1], owners[1], which[1] = writable, sys.POLLOUT, handles[1], -1
   end
   for _, h in ipairs(handles) do
     if h._streams then
       for index, stream in ipairs(h._streams) do
         if stream.fd ~= nil and (not stream.streamed or stream.size < h._limit) then
           fds[#fds + 1] = stream.fd
-          events[#events + 1] = raw.POLLIN
+          events[#events + 1] = sys.POLLIN
           owners[#owners + 1] = h
           which[#which + 1] = index
         end
@@ -454,7 +454,7 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer):
     end
     if h._input_fd ~= nil then
       fds[#fds + 1] = h._input_fd
-      events[#events + 1] = raw.POLLOUT
+      events[#events + 1] = sys.POLLOUT
       owners[#owners + 1] = h
       which[#which + 1] = 0
     end
@@ -463,7 +463,7 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer):
     if timeout_ms > 0 then local _, _ = sys.nanosleep(timeout_ms * 1000 * 1000) end
     return false
   end
-  local revents, _ = raw.poll(fds, events, timeout_ms)
+  local revents, _ = sys.poll(fds, events, timeout_ms)
   if revents == nil then
     -- A descriptor that went bad under us cannot be serviced; close
     -- every stream rather than spin on it.
@@ -1081,7 +1081,7 @@ local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): i
   if ends == nil then return nil, trouble end
   wiring.child_ends[#wiring.child_ends + 1] = ends.writer
   wiring.ours[#wiring.ours + 1] = ends.reader
-  local nonblocking, nonblocking_trouble = raw.set_nonblocking(ends.reader, true)
+  local nonblocking, nonblocking_trouble = sys.set_nonblocking(ends.reader, true)
   if not nonblocking then return nil, nonblocking_trouble end
   wiring.streams[#wiring.streams + 1] = {
     fd = ends.reader, child_fd = child_fd, chunks = {}, size = 0, truncated = false,
@@ -1129,7 +1129,7 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
     local ignored, ignore_trouble = raw.ignore_sigpipe()
     if not ignored then return nil, ignore_trouble end
     if opts.input ~= nil or stdin == "stream" then
-      local nonblocking, nonblocking_trouble = raw.set_nonblocking(ends.writer, true)
+      local nonblocking, nonblocking_trouble = sys.set_nonblocking(ends.writer, true)
       if not nonblocking then return nil, nonblocking_trouble end
       if opts.input ~= nil then
         wiring.input_fd = ends.writer
