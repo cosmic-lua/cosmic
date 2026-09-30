@@ -307,6 +307,9 @@ end
 local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
   local raw = sqlite_table()
+  -- The worker's own connections (its o/cosmic.db) would be handed over
+  -- with the test's: they are no part of what it walks.
+  raw.exclude_held()
   local path = tmp .. "/observed.db"
   local real = assert(sys.realpath(tmp)) .. "/observed.db"
   local made = assert(Sqlite.open(path, true))
@@ -346,6 +349,9 @@ end
 local function test_handing_over_held_files_leaves_nothing_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
   local raw = sqlite_table()
+  -- The worker's own connections (its o/cosmic.db) would be handed over
+  -- with the test's: they are no part of what it walks.
+  raw.exclude_held()
   local path = tmp .. "/held.db"
   local real = assert(sys.realpath(tmp)) .. "/held.db"
   local made = assert(Sqlite.open(path, true))
