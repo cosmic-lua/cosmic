@@ -47,7 +47,6 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "coverage.h"
 #include "fail.h"
 #include "guard.h"
-#include "observed.h"
 #include "lauxlib.h"
 #include "executable.h"
 #include "crypto.h"
@@ -66,14 +65,6 @@ const char *cosmic_path (lua_State *L, int index) {
 }
 
 COSMIC_SYSCALL(executable, 0) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_EXECUTABLE,
-                                cosmic_query_executable);
-  }
-  return cosmic_query_executable(L);
-}
-
-int cosmic_query_executable (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
   if (lua_isstring(L, -1)) return 1;
   lua_pop(L, 1);
@@ -90,13 +81,6 @@ int cosmic_query_executable (lua_State *L) {
 }
 
 COSMIC_SYSCALL(getenv, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_GETENV, cosmic_query_getenv);
-  }
-  return cosmic_query_getenv(L);
-}
-
-int cosmic_query_getenv (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   const char *value = getenv(name);
   if (value == NULL) {
@@ -108,13 +92,6 @@ int cosmic_query_getenv (lua_State *L) {
 }
 
 COSMIC_SYSCALL(environ, 0) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_ENVIRON, cosmic_query_environ);
-  }
-  return cosmic_query_environ(L);
-}
-
-int cosmic_query_environ (lua_State *L) {
   lua_newtable(L);
   char **at = COSMIC_ENVIRON;
   for (; at != NULL && *at != NULL; at++) {
@@ -1657,7 +1634,7 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
 }
 #endif
 
-/* The child `cosmic_spawn_unobserved` starts, from its start to exec:
+/* The child `spawn` starts, from its start to exec:
  * on Linux on the parent's memory, through clone(CLONE_VM | CLONE_VFORK)
  * on a stack of its own, the parent stopped until this execs or ends;
  * on Darwin through fork, so on a copy. So it neither allocates nor touches the Lua state, writes only
@@ -1890,23 +1867,6 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
   return pid;
 }
 
-/* Noted before it starts anything: the process table's own `spawn`,
- * called past build.confine's stand-in for it -- through
- * a reference taken before a capture began -- starts a process the
- * observer never judged. */
-COSMIC_SYSCALL(spawn, 10) {
-  if (cosmic_observing) {
-    size_t length = 0;
-    const char *path = lua_type(L, 1) == LUA_TSTRING
-                           ? lua_tolstring(L, 1, &length)
-                           : NULL;
-    if (!cosmic_observed_note(COSMIC_OBSERVED_SPAWN, path, length)) {
-      return cosmic_fail(L, ENOMEM);
-    }
-  }
-  return cosmic_spawn_unobserved(L);
-}
-
 #if defined(__linux__)
 /* An unveiled child's init and program, each this process's own child
  * (`start_unveiled`), until the init is reaped: `program` is -1 once the
@@ -2057,7 +2017,7 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
   return exact && named == target;
 }
 
-int cosmic_spawn_unobserved (lua_State *L) {
+COSMIC_SYSCALL(spawn, 10) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);

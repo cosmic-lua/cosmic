@@ -20,7 +20,6 @@
 #include "json.h"
 #include "guard.h"
 #include "memory.h"
-#include "observed.h"
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"
@@ -55,9 +54,8 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
 }
 
 /* Whether a prepare or a step failed for memory rather than for the
- * database: SQLite's own, or the observed VFS (core/sqlite.c) refused a
- * record of a file it read. That is the process out of memory, which
- * raises like any allocation, not a database to die of. */
+ * database: SQLite's own allocation refused. That is the process out of
+ * memory, which raises like any allocation, not a database to die of. */
 static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
 
 /* Where the raw `cosmic.internal.*` values live: never in
@@ -77,11 +75,6 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * reap a child no handle of the caller's owns, which `cosmic.child`
  * never does; that is a caller breaking its own bookkeeping, and why
  * the table is off the public surface, not a privilege gained.) */
-/* TODO: drop `observe`, `observed` and `exclude_held` from the raw table
- * `cosmic.sqlite`'s searcher hands out (core/sqlite.c) with the observed
- * VFS (plan 4.2's PR 5): nothing reads that record any more, so a test
- * that turns it on or drains it hides nothing from any key, but the
- * table still carries more than its wrapper lets a caller do. */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* Every wrapper that is handed a raw value when loaded trusted, and the
@@ -99,15 +92,11 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * budget alone, which shares the coverage collector's hook but none of
  * its collection. The process table is `cosmic.child`'s,
  * `cosmic.proc`'s and `build.confine`'s, whose stand-in for its `spawn`
- * confines each child a test starts; `build.filesystem_observations` is
- * handed SQLite's table and the syscall table's log together
- * (`open_observations`). `build.digest` shares `cosmic.hash`'s, so the
- * code that computes a verdict key hashes through no raw function a
- * test can replace: it takes them as it loads, and only a hasher's
- * `update` and `digest`, in the runner alone, are still looked up on
- * its metatable. */
-static int open_observations (lua_State *L);
-
+ * confines each child a test starts. `build.digest` shares
+ * `cosmic.hash`'s, so the code that computes a verdict key hashes
+ * through no raw function a test can replace: it takes them as it
+ * loads, and only a hasher's `update` and `digest`, in the runner alone,
+ * are still looked up on its metatable. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -123,8 +112,6 @@ static const struct raw_module {
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},
   {"build.confine", "cosmic.internal.process", NULL},
-  {"build.filesystem_observations", "cosmic.internal.observations",
-    open_observations},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
@@ -174,22 +161,6 @@ static int raw_value (lua_State *L, const char *name) {
     return 0;
   }
   lua_remove(L, -2);
-  return 1;
-}
-
-/* `build.filesystem_observations`' raw value: SQLite's table, whose
- * record of the files SQLite opens it drains, and the syscall table's
- * log of what its calls were asked and answered (core/observed.c's
- * `cosmic_open_observed`), which it drains too. SQLite's is registered
- * by an entry above its own in `raw_modules`, which
- * `cosmic_store_open_raw` opens in order. The process table, whose
- * `spawn` stands in to confine each child a test starts, is
- * `build.confine`'s. */
-static int open_observations (lua_State *L) {
-  lua_createtable(L, 0, 2);
-  if (raw_value(L, "cosmic.internal.sqlite")) lua_setfield(L, -2, "sqlite");
-  cosmic_open_observed(L);
-  lua_setfield(L, -2, "syscalls");
   return 1;
 }
 
@@ -434,12 +405,10 @@ static int store_attach (lua_State *L) {
   }
   struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
   sqlite3 *db = NULL;
-  /* Through the VFS `cosmic.sqlite` opens on, as every connection is;
-   * its record of the files it opens keys nothing any more, and goes
-   * with it in plan 4.2's PR 5. No SQLITE_OPEN_URI, as there: `path` is
-   * a filename, so a `file:` URI's `vfs=` never picks another VFS. */
-  int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY,
-                           COSMIC_SQLITE_OBSERVED_VFS);
+  /* Through the default VFS, as every connection `cosmic.sqlite` opens
+   * is. No SQLITE_OPEN_URI, as there: `path` is a filename, so a `file:`
+   * URI's `vfs=` never picks another VFS. */
+  int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, NULL);
   guard->resource = db;
   if (rc == SQLITE_OK) {
     rc = sqlite3_set_authorizer(db, reads_only, NULL);

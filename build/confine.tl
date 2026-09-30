@@ -570,8 +570,7 @@ end
 --- (build.test_sandbox's `runs_as`) -- says it is
 --- skipped (`Test.skip`) and returns unchecked, and `cosmic test` fails
 --- a skipped test where this answers true, so a run held to sandboxing
---- proves the host checked it. Read through the log, so an unsandboxed
---- verdict is keyed by them; a sandboxed test that reads it declares
+--- proves the host checked it. A sandboxed test that reads it declares
 --- `COSMIC_CI_REQUIRE_SANDBOX` (the other two are pinned).
 function confine.held_to_sandbox(): boolean
   return sys.getenv("COSMIC_TEST_SANDBOX") == "1" or sys.getenv(SANDBOX_MODE) == "must" or

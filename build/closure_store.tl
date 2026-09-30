@@ -250,10 +250,10 @@ end
 --- a declaration.
 -- TODO: have `test_inputs.modules` follow a declaration's requires
 -- too, as this does, so the store's hold lets a held test read the
--- declarations carried here beyond its closure's names (`cosmic.sys`
--- beside cosmic.internal.observations, which requires it): today it
--- refuses them, which fails a test that types one rather than
--- standing on it.
+-- declarations carried here beyond its closure's names
+-- (`cosmic.internal.sqlite` beside cosmic.internal.store, which requires
+-- it): today it refuses them, which fails a test that types one rather
+-- than standing on it.
 local function declared(basis: closure_store.Basis, names: {string}): {string}
   local seen: {string:boolean} = {}
   local out: {string} = {}

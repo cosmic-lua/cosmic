@@ -223,15 +223,7 @@ one exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
-table itself, which answers as the binding it replaces. a syscall
-log, when asked, is kept by the calls a test's key turns on, which
-`core/observed.h` lists (`getcwd`, `executable`, `lstat`, `readlink`,
-`realpath`, `open`, `stat`, `readdir`, `getenv`, `environ`,
-`tree_digest`, `mkdir`, `mkdtemp`, `chdir`, the process table's
-`spawn`, and cosmic.http's `open` of a request that is not scripted):
-each of those bindings checks the log's
-flag itself (`core/observed.h`), so a reference taken before logging
-began is logged too, and every other binding is untouched.
+table itself, which answers as the binding it replaces.
 
 `posix` is a reserved name of a different kind: not privacy, but
 scope. a module lives under `cosmic.posix.` when its whole job is
@@ -633,9 +625,8 @@ that does run runs in a worker process of its own:
   source, the hashes of its import closure, and the compiler identity. a test
   verdict adds the runtime identity, a digest of the zones and CA roots the
   running binary carries (which `cosmic refresh` replaces without moving that
-  identity), and its supported observations. an unchanged
-  key
-  is a stat; a changed one recompiles and re-records only what
+  identity), and the inputs the test declares (`build/declared_key.tl`).
+  an unchanged key is a stat; a changed one recompiles and re-records only what
   depended on it. no path is in a module's key, so every checkout of a
   host shares its compiles through `$XDG_CACHE_HOME/cosmic/build/cache.db`
   (`~/.cache/cosmic/build/cache.db`)
@@ -649,8 +640,7 @@ that does run runs in a worker process of its own:
   its analyzer by the very parse it has yet to make, takes an
   analyzer's parses only where the `requires` rows that analyzer found
   name it again over this tree (`build/importer.tl`'s
-  `shared_analyzer`). observations come through the syscall table, where the runner
-  records the paths, names, and answers that can affect the verdict.
+  `shared_analyzer`).
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
@@ -736,7 +726,9 @@ processor anything else.
 
 no run keys a verdict by what its test was seen to read: the observed key,
 the log of a worker's reads it was made from, and `--audit`, which named what
-a test read beyond its declaration, are gone (plan 4.2's PR 4). a sandboxed
+a test read beyond its declaration, are gone (plan 4.2's PR 4), and with
+them the syscall table's log and the SQLite VFS that recorded the files a
+connection opened (PR 5). a sandboxed
 test that reads what it does not declare finds nothing there and fails with
 its own error. what a declared key rests on beside the list above:
 
