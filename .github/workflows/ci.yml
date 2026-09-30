@@ -380,7 +380,18 @@
         # the fleet rolls out unevenly: a leg on the other image missed
         # main's marker and checked again (ci/README.md's "the
         # caches"). macOS runs on the runner's own userland, so its key
-        # holds that image.
+        # holds that image. The checked job's light run looks up
+        # linux-x86_64's under this key too.
+        # TODO: move cosmic_ci's tests of the tree itself into the
+        # tree's own suite, whose verdicts are keyed by what they read:
+        # orchestration_test's test_no_tree_source_reads_what_a_suite_forgets
+        # reads build/, cosmic/, core/, test/, eval/, cmd/ and doc/, and
+        # its darwin list's test the modules ci/darwin-tests.txt names,
+        # none of which this key hashes, so a hit skips them over a
+        # change there until the scheduled run, which checks regardless.
+        # Hashing those directories here would not do: 297 of main's
+        # last 300 commits touched one (107 what the key hashes now,
+        # 2026-09-30), so a hit would all but never come.
         {
           name: "find a passing CI driver check",
           id: "driver-check-restore",
@@ -953,6 +964,31 @@
             "restore-keys": "compiles-linux-x86_64-\n",
           },
         },
+        # A light run looks up the marker main's linux-x86_64 leg saves
+        # (its "find a passing CI driver check" says what the key holds),
+        # the host named as that leg's: the same container, started the
+        # same way, on the same runner. Its COSMIC_HOST_ID is not kept
+        # (GITHUB_ENV), and a light run saves no marker. Before the tree
+        # moves, since hashFiles reads the checkout.
+        {
+          name: "name linux-x86_64's host",
+          id: "driver-host",
+          if: "env.COSMIC_CI_SCOPE == 'light'",
+          "working-directory": ".",
+          shell: "sh",
+          run: "GITHUB_ENV=/dev/null sh .github/scripts/leg-host-id.sh \"linux-x86_64\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
+        },
+        {
+          name: "find a passing CI driver check",
+          id: "driver-check-restore",
+          if: "env.COSMIC_CI_SCOPE == 'light'",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/driver-checked",
+            key: "driver-checked-v2-linux-x86_64-container-${{ steps.driver-host.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/workflows/ci.yml') }}",
+            "lookup-only": true,
+          },
+        },
         # To a path of this commit's and this job's own, as a leg's tree
         # moves: the checked core runs the harness, the boot's staging and
         # `tool.tl entry` unsandboxed at the tree's path, so a path of
@@ -970,19 +1006,15 @@
           with: {"zig-cache": true, shell: "leg-shell {0}"},
         },
         # A light run's check of the pinned CI driver, which a full run
-        # makes on every leg (theirs says how). Every light run makes
-        # it, with no marker.
-        # TODO: skip it on a light run whose diff from its merge base on
-        # main (merge-base.sh's sha, fetched) touches none of what the
-        # marker's key hashes (ci/, bin/, .github/scripts/, the driver
-        # action, ci.yml), and check only the changed paths' format
-        # below where no formatter or type rule moved: on a branch
-        # where most verdicts stand, this job (some 190 s of setup, the
-        # driver's check, the boot and the format check) can outlast
-        # the legs and gate the run.
+        # makes on every leg (theirs says how), skipped where main left
+        # linux-x86_64's marker (above) for what it reads.
+        # TODO: check only the changed paths' format below where no
+        # formatter or type rule moved: on a branch where most verdicts
+        # stand, this job (some 190 s of setup, the boot and the format
+        # check) can outlast the legs and gate the run.
         {
           name: "check the pinned CI driver",
-          if: "env.COSMIC_CI_SCOPE == 'light'",
+          if: "env.COSMIC_CI_SCOPE == 'light' && steps.driver-check-restore.outputs.cache-hit != 'true'",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci",
         },

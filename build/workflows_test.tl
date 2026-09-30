@@ -853,12 +853,16 @@ local function main_saves(steps: {{string: any}}): integer
       -- outputs, which main never takes. A restore only on a full run
       -- (`FULL`) is on every run main saves from: the checked job's
       -- verdicts, and the legs' driver check marker, which a light run
-      -- checks in the checked job instead.
+      -- checks in the checked job instead. There, a light run's lookup
+      -- of linux-x86_64's marker (`LIGHT`) restores nothing, and that
+      -- job saves no marker, which would find no restore here.
       local condition = step["if"] as string or ""
       if condition:find(FULL, 1, true) == 1 then
         condition = condition:sub(#FULL + 5)
       end
-      if condition ~= "" then
+      if condition == LIGHT and path == "${{ runner.temp }}/driver-checked" then
+        assert(with["lookup-only"] == true, path .. " is restored on a light run")
+      elseif condition ~= "" then
         assert(path == "${{ runner.temp }}/zig-build" and
           condition:find("github.ref != 'refs/heads/main'", 1, true) == 1,
           path .. " is restored only on some runs: " .. condition)
@@ -1427,9 +1431,10 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   -- A light run runs the steps its boot, the driver's check and the
   -- format check need, and nothing of the checked suite's: every other
   -- step's `if` names the full scope, or what a step skipped on a light
-  -- run leaves unmet. The driver's check and the format check run on a
-  -- light run alone, the driver's as a leg's but for its marker (a full
-  -- run's), and the format's after the boot.
+  -- run leaves unmet. The driver's check, with its lookup of
+  -- linux-x86_64's marker, and the format check run on a light run
+  -- alone, the driver's as a leg's but for the marker's save (main's),
+  -- and the format's after the boot.
   local light <const>: {string: boolean} = { ["bootstrap the pinned CI driver"] = true,
     ["build release Cosmic"] = true, ["summarize worker operations"] = true,
     ["describe the leg's container"] = true, ["remove the leg's container"] = true,
@@ -1442,7 +1447,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   for _, step in ipairs(steps) do
     local called = step.name as string or step.uses as string
     local condition = step["if"] as string or ""
-    if condition == LIGHT then
+    if condition == LIGHT or condition:find(LIGHT .. " && ", 1, true) == 1 then
       only_light[#only_light + 1] = called
     else
       local held = false
@@ -1453,7 +1458,8 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
         (held and " only on a full run: " or " on a light run: ") .. condition)
     end
   end
-  assert(table.concat(only_light, ", ") == "check the pinned CI driver, check the tree's format",
+  assert(table.concat(only_light, ", ") == "name linux-x86_64's host, find a passing CI driver check, " ..
+    "check the pinned CI driver, check the tree's format",
     "the checked job runs on a light run alone: " .. table.concat(only_light, ", "))
   local mine, check = step_running(steps, "cosmic-driver test cosmic_ci")
   local _, boot = step_running(steps, "cosmic-driver cosmic_ci/driver.tl platform boot")
@@ -1469,9 +1475,39 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     "the checked job checks the driver before bootstrapping it, or the format before the boot")
   -- A full run's legs check the driver; a light run's none do.
   assert((legs["if"] as string):find(FULL .. " && ", 1, true) == 1 and
-    ours["find a passing CI driver check"] == nil and
     theirs["find a passing CI driver check"]["if"] == FULL,
     "a light run's legs check the driver: " .. tostring(legs["if"]))
+  -- A light run skips its check where main's linux-x86_64 leg saved
+  -- its marker under the key that leg looks up: that leg's host, named
+  -- as the leg names it (its COSMIC_HOST_ID not kept), and what the
+  -- leg's key hashes, looked up before the tree moves.
+  local host, lookup = ours["name linux-x86_64's host"], ours["find a passing CI driver check"]
+  local their_host, their_lookup = theirs["name the leg's host"], theirs["find a passing CI driver check"]
+  assert(host ~= nil and lookup ~= nil, "a light run looks up no marker of linux-x86_64's")
+  assert(host.id == "driver-host" and host.run == "GITHUB_ENV=/dev/null " .. as_leg(their_host.run as string),
+    "a light run names another host than linux-x86_64's, or keeps it: " .. tostring(host.run))
+  for _, key in ipairs({ "shell", "working-directory" }) do
+    same("the host's " .. key, host[key], their_host[key])
+  end
+  assert(lookup.id == "driver-check-restore" and lookup.uses == their_lookup.uses,
+    "a light run looks up the marker otherwise: " .. tostring(lookup.id))
+  local by_image <const> = "${{ matrix.image && 'container' || steps.names.outputs.image }}"
+  local their_key = (their_lookup.with as {string: string}).key
+  assert(their_key:find(by_image, 1, true) ~= nil and leg.image ~= "", their_key)
+  local in_container = their_key:gsub(by_image:gsub("%p", "%%%0"), "container")
+  local want = as_leg((in_container:gsub("steps%.host%-id%.outputs%.prefix", "steps.driver-host.outputs.prefix")))
+  same_table("the marker's lookup", lookup.with,
+    { path = (their_lookup.with as {string: any}).path, key = want, ["lookup-only"] = true })
+  local _, named = step_running(steps, "GITHUB_ENV=/dev/null sh .github/scripts/leg-host-id.sh")
+  local looked: integer
+  for i, step in ipairs(steps) do
+    if step == lookup then looked = i end
+  end
+  local _, moved = step_running(steps, "place-tree.sh")
+  assert(named < looked and looked < moved and looked < check,
+    "a light run looks up linux-x86_64's marker after its check, or with the tree moved")
+  assert(mine["if"] == LIGHT .. " && steps.driver-check-restore.outputs.cache-hit != 'true'",
+    "a light run checks the driver over main's marker: " .. tostring(mine["if"]))
   for _, step in ipairs(platform.steps as {{string: any}}) do
     assert(not (step.run as string or ""):find("platform format", 1, true), "a leg checks the format apart from assemble")
   end
