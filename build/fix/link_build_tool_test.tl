@@ -41,3 +41,17 @@ local function test_fix_links_alike_before_and_after_a_build(tmp: string)
   local built = check(root)
   assert(built == want, "built:\n" .. built)
 end
+
+--- A project whose build fails (a type error in one file) still checks
+--- a link through an alias to a standard library module: one the
+--- module lacks fails, though the project's own symbols are unknown.
+local function test_a_failed_build_still_checks_a_standard_librarys_members(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- Reads with [`Fs.nosuch`].\n' ..
+    'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
+  assert(Fs.write(root .. "/b.tl", 'local x: integer = "no"\n\nreturn x\n'))
+  local found = check(root)
+  assert(found == "fix: FAIL  a.tl:3: link: Fs.nosuch does not resolve (cosmic.fs has no nosuch)",
+    found)
+end

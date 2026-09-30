@@ -488,6 +488,26 @@ local function test_links_to_symbols_wait_for_a_build(tmp: string)
     table.concat(found.notes, "\n"))
 end
 
+--- Unbuilt, a member through an alias to a module the symbols already
+--- know (the standard library's) is still checked: one it lacks fails
+--- rather than waiting for a build that would not add it.
+local function test_an_unbuilt_project_still_checks_a_known_modules_members(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- See [`Fs.nosuch`].\n' ..
+    'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
+  local context = link_resolve.on_disk(root,
+    function(query: string): {link_resolve.Symbol} | nil, string
+      if query == "cosmic.fs" then return { { module = "cosmic.fs", symbol = "" } }, "" end
+      return {}, ""
+    end,
+    function(_: string, _: string): {link_resolve.Symbol} | nil, string return {}, "" end,
+    function(): string | nil return "not built" end)
+  local found = fix.links(context, built, { root .. "/a.tl" })
+  assert(#found.broken == 1 and found.broken[1]:find("Fs.nosuch does not resolve (cosmic.fs has no nosuch)",
+    1, true), table.concat(found.broken, "\n"))
+  assert(#found.notes == 0, table.concat(found.notes, "\n"))
+end
+
 --- A Markdown or Zig file is never among what fix renders or lays out,
 --- however it is named, so no run rewrites one.
 local function test_markdown_and_zig_are_never_rewritten(tmp: string)
