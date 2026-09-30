@@ -10,6 +10,7 @@ local analyzer = require("build.analyzer")
 local artifact = require("build.artifact")
 local core_image = require("build.core_image")
 local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 local fixture = require("build.core_image_fixture")
 local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
@@ -43,7 +44,7 @@ local function spec(env?: {string:string}): declared_key.Spec
   local effective: test_inputs.Effective = {
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = {}, env = { DECLARED = true }, network = {},
-    processes = false, tool = false, store = false, caches = {}, cache_paths = {},
+    tool = false, store = false, caches = {}, cache_paths = {},
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
@@ -260,7 +261,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
     env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    processes = true, tool = true, nests = true, store = true, system = true,
+    tool = true, nests = true, store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
     variables = { "DECLARED", "H" }, named = { H = true },
     spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
@@ -345,7 +346,7 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       env = declaration .. ", and `environment` by what the worker is given",
       network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
         "offline worker's own loopback answers",
-      processes = declaration, variables = declaration,
+      variables = declaration,
       nests = declaration .. ", and, where the module does not declare `tool`, " ..
         "`runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",
@@ -1123,7 +1124,7 @@ end
 --- path, none of which are ASCII letters or digits.
 local function test_key_part_matches_known_hex_for_edge_bytes()
   local edges = string.char(0x00, 0x0a, 0x7f, 0xff)
-  assert(declared_key.key_part("s", edges, "") == "s 000a7fff ")
-  assert(declared_key.key_part("o", "", edges) == "o  000a7fff")
-  assert(declared_key.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
+  assert(key_parts.key_part("s", edges, "") == "s 000a7fff ")
+  assert(key_parts.key_part("o", "", edges) == "o  000a7fff")
+  assert(key_parts.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
 end

@@ -178,8 +178,6 @@ end
 
 local record declared_key
   --- build.key_parts', answered as this module's own.
-  key_part: function(kind: string, path: string, answer: string): string
-  tree_name: function(path: string, tree: string): string
   compiler_readers: {string}
   reads_compiler: function(closure: {string}): boolean
 
@@ -295,10 +293,9 @@ local record declared_key
 end
 
 -- The parts of a key a worker spells too, which build.key_parts holds
--- so a worker loads none of this module: answered here as this
--- module's own, so no caller of them moves.
-declared_key.key_part = key_parts.key_part
-declared_key.tree_name = key_parts.tree_name
+-- so a worker loads none of this module: taken here, and the compiler's
+-- readers answered as this module's own, so no caller of them moves.
+local key_part, tree_name = key_parts.key_part, key_parts.tree_name
 declared_key.compiler_readers = key_parts.compiler_readers
 declared_key.reads_compiler = key_parts.reads_compiler
 
@@ -761,7 +758,7 @@ function declared_key.compute(digests: declared_key.Digests,
   end)
   digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
   if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
-  return hex_sha256(version .. "\n" .. declared_key.key_part("i", spec.id, "") .. "\n" ..
+  return hex_sha256(version .. "\n" .. key_part("i", spec.id, "") .. "\n" ..
     inputs), ""
 end
 
@@ -776,7 +773,7 @@ local function held_value(value: string, root: string,
                           effective: test_inputs.Effective): string
   local parts: {string} = {}
   for part in (value .. ":"):gmatch("([^:]*):") do
-    local held = declared_key.tree_name(part, root)
+    local held = tree_name(part, root)
     if held == part and part:sub(1, 1) == "/" then
       held = test_inputs.spelling(effective, test_inputs.plain(part), true)
       if held == test_inputs.plain(part) then held = part end
@@ -795,7 +792,7 @@ end
 --- field of a `Spec` to moving the key `compute` makes of it.
 function declared_key.preimage(digests: declared_key.Digests,
                                spec: declared_key.Spec): string | nil, string
-  local part = declared_key.key_part
+  local part = key_part
   local effective = spec.effective
   local lines: {string} = {
     part("m", spec.module_key, ""),

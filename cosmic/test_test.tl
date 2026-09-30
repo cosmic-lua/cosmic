@@ -8,12 +8,12 @@ local Test = require("cosmic.test")
 --- does, so the checks the build and `needs` make keep to the type.
 local function test_every_field_of_needs_is_one_fields_names()
   local every: Test.Needs = {
-    reads = {}, host = {}, env = {}, network = {}, processes = true, tool = true,
+    reads = {}, host = {}, env = {}, network = {}, tool = true,
     nests = true, store = true, system = true, caches = {},
   }
   local want: {string:string} = {
     reads = "list", host = "list", env = "list", network = "list",
-    processes = "flag", tool = "flag", nests = "flag", store = "flag", system = "flag",
+    tool = "flag", nests = "flag", store = "flag", system = "flag",
     caches = "list",
   }
   local count = 0

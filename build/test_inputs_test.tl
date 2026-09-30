@@ -18,7 +18,7 @@ end
 --- A declaration of what `fields` names, the rest left out.
 local function declaring(fields: analyzer.Declared): analyzer.Declared
   return { line = 1, reads = fields.reads or {}, host = fields.host or {},
-    env = fields.env or {}, network = fields.network or {}, processes = fields.processes == true,
+    env = fields.env or {}, network = fields.network or {},
     tool = fields.tool == true, store = fields.store == true }
 end
 
@@ -57,16 +57,7 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
   assert(effective.env.COSMIC_SANDBOX)
   assert(not effective.env.USER and not effective.env["*"])
   assert(next(effective.network) == nil)
-  assert(not effective.processes and not effective.tool and not effective.store)
-  assert(test_inputs.covers_tree(effective, "lib/helper.tl", "o"))
-  assert(not test_inputs.covers_tree(effective, "lib/other.tl", "o"))
-  -- What a directory an input sits in is, but not what it holds.
-  assert(test_inputs.covers_tree(effective, "lib/deep", "s"))
-  assert(test_inputs.covers_tree(effective, ".", "s"))
-  assert(not test_inputs.covers_tree(effective, ".", "d"))
-  assert(not test_inputs.covers_tree(effective, "lib/deep", "d"))
-  assert(not test_inputs.covers_tree(effective, "lib/deep", "o"))
-  assert(not test_inputs.covers_env(effective, "USER"))
+  assert(not effective.tool and not effective.store)
 end
 
 --- The modules a worker lets a test `require` of the tree are the
@@ -79,25 +70,16 @@ local function test_the_closure_names_its_modules()
     "lib.declared lib.deep lib.helper lib.thing_test")
 end
 
---- A module's declaration adds to its defaults, each path with all
---- beneath it.
+--- A module's declaration adds to its defaults.
 local function test_a_declaration_adds_to_the_defaults()
   local m, by_path = tree(declaring({ reads = { "data/" }, host = { "/etc/localtime" },
-    env = { "*" }, network = { "127.0.0.1" }, processes = true, tool = true, store = true }))
+    env = { "*" }, network = { "127.0.0.1" }, tool = true, store = true }))
   local effective = test_inputs.effective(m, by_path, staged)
-  assert(test_inputs.covers_tree(effective, "data/a/b.txt", "o"))
-  assert(test_inputs.covers_tree(effective, "data", "d"))
-  assert(not test_inputs.covers_tree(effective, "database", "o"))
-  assert(test_inputs.covers_tree(effective, "o/bin/cosmic", "o"))
-  assert(test_inputs.covers_tree(effective, "o/cosmic.db", "o"))
-  assert(test_inputs.covers_host(effective, "/etc/localtime", "o"))
-  assert(test_inputs.covers_host(effective, "/etc", "s"))
-  assert(not test_inputs.covers_host(effective, "/etc/passwd", "o"))
-  assert(test_inputs.covers_env(effective, "ANYTHING"))
-  assert(test_inputs.covers_network(effective, "http://127.0.0.1:1/x"))
-  assert(test_inputs.covers_network(effective, "HTTP://user@127.0.0.1"))
-  assert(not test_inputs.covers_network(effective, "https://example.com/"))
-  assert(effective.processes)
+  assert(table.concat(effective.reads, " ") == "data/", table.concat(effective.reads, " "))
+  assert(table.concat(effective.host, " ") == "/etc/localtime")
+  assert(effective.env["*"] and effective.env.TMPDIR)
+  assert(effective.network["127.0.0.1"] and next(effective.network, "127.0.0.1") == nil)
+  assert(effective.tool and effective.store)
 end
 
 --- Every fuzz corpus is a default input of a test whose closure runs
@@ -116,19 +98,19 @@ local function test_a_fuzz_tests_corpora_are_default_inputs(tmp: string)
   })
   local corpus = tostring(report):match("mkdir %-p (%S+) ")
   assert(not ok and corpus ~= nil, tostring(report))
-  assert(test_inputs.covers_tree(effective, corpus .. "/0123.input", "o"), corpus)
-  assert(test_inputs.covers_tree(effective, test_inputs.plain(corpus), "d"), corpus)
+  local reads = table.concat(effective.reads, " ")
+  assert(reads == "testdata/fuzz/", reads)
+  assert(test_inputs.plain(corpus):sub(1, #reads) == reads, corpus)
   local plain, plain_by_path = tree()
-  assert(not test_inputs.covers_tree(test_inputs.effective(plain, plain_by_path, staged),
-    corpus .. "/0123.input", "o"))
+  assert(#test_inputs.effective(plain, plain_by_path, staged).reads == 0)
 end
 
 --- A `host` path whose first name is `$NAME` is where NAME says, in the
 --- environment a worker is given, and declares NAME; a worker is given
---- it there, and it is spelled as declared. The audit names a path at
---- or beneath where a variable the module declares says by that
---- variable, the longest such value first; a key, only by one a `host`
---- path names.
+--- it there, and it is spelled as declared. A path at or beneath where
+--- a variable the module declares says is spelled by that variable, the
+--- longest such value first; for a key, only by one a `host` path
+--- names.
 local function test_a_host_path_a_variable_names_is_where_it_says()
   local m, by_path = tree(declaring({ host = { "$PRODUCT/o/bin/cosmic", "/fixture/written" },
     env = { "OTHER" } }))
@@ -142,9 +124,6 @@ local function test_a_host_path_a_variable_names_is_where_it_says()
     effective.host[2] == "/fixture/written", table.concat(effective.host, " "))
   assert(effective.spelled["/fixture/product/o/bin/cosmic"] == "$PRODUCT/o/bin/cosmic")
   assert(effective.spelled["/fixture/written"] == nil)
-  assert(test_inputs.covers_host(effective, "/fixture/product/o/bin/cosmic", "o"))
-  assert(test_inputs.covers_host(effective, "/fixture/product/o", "s"))
-  assert(not test_inputs.covers_host(effective, "/fixture/product/o/bin/other", "o"))
   assert(test_inputs.spelling(effective, "/fixture/product/o/bin/other") ==
     "$PRODUCT/o/bin/other")
   assert(test_inputs.spelling(effective, "/fixture/product") == "$PRODUCT")
@@ -221,53 +200,6 @@ local function test_a_path_is_spelled_plainly()
   assert(test_inputs.plain("/../top") == "/top")
 end
 
---- The audit of a module names each undeclared input once, beside the
---- tests that read it, and the declaration that would hold them all:
---- what the module declares with the rest added, many files of one
---- directory as the directory.
-local function test_a_report_groups_tests_and_suggests_a_declaration()
-  local m = tree(declaring({ reads = { "data/" }, env = { "PATH" } }))
-  local found: {string:{test_inputs.Finding}} = {
-    test_one = {
-      { field = "reads", value = "vendor/x/a" }, { field = "reads", value = "vendor/x/b" },
-      { field = "reads", value = "vendor/x/c" }, { field = "reads", value = "vendor/x/d" },
-      { field = "env", value = "HOME" },
-    },
-    test_two = { { field = "env", value = "HOME" }, { field = "processes", value = "/bin/sh" } },
-  }
-  local lines = test_inputs.report(m, found)
-  local text = table.concat(lines, "\n")
-  assert(lines[1] == "audit: lib.thing_test (lib/thing_test.tl): 2 of 2 tests read what " ..
-    "they do not declare", text)
-  assert(text:find("\n  test_one, test_two:\n    env          HOME\n", 1, true), text)
-  assert(text:find("\n  test_one:\n    reads        vendor/x/a, vendor/x/b, vendor/x/c, " ..
-    "vendor/x/d\n", 1, true), text)
-  assert(text:find("\n  test_two:\n    processes    /bin/sh\n", 1, true), text)
-  assert(lines[#lines] == '  declare: Test.needs { reads = { "data/", ' ..
-    '"vendor/x/" }, env = { "HOME", "PATH" }, processes = true }', text)
-  assert(#test_inputs.report(m, { test_one = {}, test_two = {} }) == 0)
-end
-
---- A request to a loopback address is suggested as a declaration; one to
---- any other host is none a module may make (`cosmic.test`'s `network`),
---- so the audit names the rule instead.
-local function test_a_report_suggests_loopback_and_names_the_rule_beyond_it()
-  local m = tree(declaring({}))
-  local lines = test_inputs.report(m, { test_one = {
-    { field = "network", value = "http://127.0.0.1:8080/x" },
-    { field = "network", value = "https://example.com/" },
-    { field = "network", value = "http://[::1]:80/" },
-  } })
-  local text = table.concat(lines, "\n")
-  assert(text:find('  declare: Test.needs { network = { "127.0.0.1" } }\n', 1, true), text)
-  assert(text:find("  reaches ::1, beyond loopback, which no test may: serve what it needs " ..
-    "on 127.0.0.1 instead\n", 1, true), text)
-  assert(lines[#lines] == "  reaches example.com, beyond loopback, which no test may: " ..
-    "serve what it needs on 127.0.0.1 instead", text)
-  assert(not text:find('"example.com"', 1, true) and not text:find("network = true", 1, true),
-    text)
-end
-
 --- A declaration's canonical text is one for each declaration: what the
 --- build reads and what `needs` is handed agree on a flag `false` and
 --- none, an empty list and none; the
@@ -286,7 +218,7 @@ local function test_canonical_text_names_one_declaration()
   assert(of({ reads = { "a\nreads \"b\"" } }) ~= of({ reads = { "a", "b" } }))
   assert(of({ reads = { "a b" } }) ~= of({ reads = { "a", "b" } }))
   assert(of({ env = { "A" } }) ~= of({ host = { "A" } }))
-  assert(of({ reads = { "x" }, processes = true, store = true }) ==
-    'reads "x"\nprocesses true\nstore true', of({ reads = { "x" }, processes = true, store = true }))
+  assert(of({ reads = { "x" }, tool = true, store = true }) ==
+    'reads "x"\ntool true\nstore true', of({ reads = { "x" }, tool = true, store = true }))
   assert(of({ tool = true }) == test_inputs.canonical(declaring({ tool = true })))
 end

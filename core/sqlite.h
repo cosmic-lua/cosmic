@@ -17,8 +17,9 @@ int cosmic_open_sqlite (lua_State *L);
 
 /* The VFS every connection `cosmic.sqlite` opens goes through, and the
  * store's `attach` too: the default one, but that each file it opens or
- * asks after is recorded while `observe` has recording on, for
- * build.filesystem_observations to key a test by. `cosmic_open_sqlite`
+ * asks after is recorded while `observe` has recording on. No key reads
+ * that record any more; it is kept until plan 4.2's PR 5 removes it with
+ * core/observed.c. `cosmic_open_sqlite`
  * registers it, which the store's `cosmic_store_open_raw` runs at
  * startup, before any Lua can ask for a database. */
 #define COSMIC_SQLITE_OBSERVED_VFS "cosmic-observed"

@@ -226,10 +226,9 @@ int cosmic_sqlite_functions (sqlite3 *db) {
 }
 
 /* The files SQLite opened or asked after through a connection `open`
- * made, while `observe` has recording on: build.filesystem_observations
- * drains them with `observed` and notes each as a read of the test that
- * made it, since SQLite reads them here in C, where no field of
- * `cosmic.sys` it stands in for sees them. They are kept here, each
+ * made, while `observe` has recording on, which `observed` drains. No
+ * key reads them any more: the record is kept until plan 4.2's PR 5
+ * removes it with core/observed.c. They are kept here, each
  * once, rather than handed to Lua as they happen: a Lua call from inside
  * SQLite could raise, and unwind through SQLite's own frames. */
 static struct {
@@ -769,14 +768,12 @@ static int handle_gc (lua_State *L) {
   return 0;
 }
 
-/* TODO: key a test that reads a store connection through a borrowed
- * handle by what it read: the worker's o/cosmic.db is excluded from
- * every capture (build/test_worker.tl, `exclude_held_files`), so a query of
- * it goes unrecorded -- cosmic/errors_example.tl's `Errors.guidance`
- * walks `Store.databases()`, o/cosmic.db's catalog included, and its
- * verdict holds nothing of it. Mark the handle here, and have `prepare`
- * on one record the files of its connection (sqlite3_db_filename and
- * its journal and WAL) while recording is on. */
+/* A handle on a connection its owner -- the store -- opened and closes:
+ * `Store.databases()` hands these out. A test worker's hold refuses that
+ * call to a test whose module does not declare `store`
+ * (build/test_worker.tl's `hold_store`), and one that declares it is keyed
+ * by the whole projection, so what a query through one reads needs no
+ * record of its own. */
 void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;

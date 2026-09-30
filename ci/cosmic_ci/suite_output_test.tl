@@ -151,8 +151,7 @@ local function test_a_timed_out_suite_keeps_only_its_key_parts()
 end
 
 --- A suite that exited otherwise than 0 failed, though it said PASS:
---- `--audit` does, and exits 1, for a test that read what it did not
---- declare. Its counts are still the suite's.
+--- its status is what it answered. Its counts are still the suite's.
 local function test_a_pass_that_exits_nonzero_is_a_failure()
   local figures, status = SuiteOutput.read(
     "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\n", 1)

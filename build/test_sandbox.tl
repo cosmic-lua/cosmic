@@ -53,9 +53,7 @@
 --- The worker is pid 2 of a pid namespace of its own, whose init ends
 --- when it does, ending whatever it left running there: no descendant of
 --- a sandboxed worker outlives it. Its verdict is keyed by what it was
---- given (`build.declared_key`), not by what it read. What the worker reports, it reports as it saw
---- it, at /tree and `test_sandbox.scratch`; `to_host` puts each path back where the host
---- has it, for the audit of what it read and for its `runs` row.
+--- given (`build.declared_key`), not by what it read.
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -63,7 +61,6 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
-local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
 local hashing = require("build.digest")
@@ -105,24 +102,6 @@ local record test_sandbox
     --- not be made, a `host` path it declares that cannot be given -- or
     --- "".
     trouble: string
-    --- The paths given at their own names beneath /tree or `test_sandbox.scratch`, where
-    --- the tree and the scratch directory are bound: each is the host's
-    --- own there, bound over them, so a read of it stays where it is
-    --- (`to_host`).
-    kept: {string}
-    --- What a process the worker starts can read of what it was given,
-    --- as the worker sees each path, for the key of a test that starts
-    --- one (`observations.Resolving`'s `held`): the runtime's paths, the
-    --- system's where the module declares `system`, the program, and
-    --- what the module declares of the tree and the
-    --- host, and the store it is given -- not its closure's files, which
-    --- its module's key holds already.
-    held: {string}
-    --- The directories of the tree the sandbox makes to hold what it
-    --- gives beneath them, at /tree and below, each by the name the
-    --- worker sees it by, which it holds only part of the host's (see
-    --- `to_host`).
-    made: {string}
     --- The name the worker has the program by -- the artifact path its
     --- relaunch names (`--artifact`), which `Proc.executable()` answers
     --- -- where the program is the tree's own o/bin/cosmic:
@@ -178,10 +157,6 @@ end
 --- cores of its own, which COSMIC_PORTABLE_CACHE names to it: beneath
 --- its scratch directory, which a portable cosmic it starts makes.
 local own_cores <const> = test_sandbox.scratch .. "/cores"
-
---- The sandbox's own /tmp, a tmpfs of its own the scratch directory is
---- bound beneath (core/syscalls.c's "a /tmp of its own").
-local own_tmp <const> = Fs.dirname(test_sandbox.scratch)
 
 --- The user and group a sandboxed worker runs as where the runner is
 --- root (`runs_as`). Not `nobody` (65534): in the worker's own user
@@ -615,17 +590,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   local reads: {string} = {}
   local at: {string:string} = {}
   local seen: {string:boolean} = {}
-  local held: {string} = {}
-  local holds: {string:boolean} = {}
-  -- `holding`: whether a process the worker starts is keyed by it too --
-  -- there or not: a path it may read that is not there yet is keyed as
-  -- missing, so its verdict moves once the path is made.
-  local function give(path: string, inside?: string, holding?: boolean)
-    local name = inside or path
-    if holding and not holds[name] then
-      holds[name] = true
-      held[#held + 1] = name
-    end
+  local function give(path: string, inside?: string)
     if seen[path] then return end
     local there, _ = sys.stat(path)
     if there == nil then return end -- a read of it finds nothing, as it would
@@ -636,7 +601,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- A worker run as a user of its own (`worker_user`) has the core it
   -- runs from a copy that user may run (`worker_cores`), given in
   -- place of the cache it is in, where that is a launcher's: the core
-  -- and its stamp are held at their own names still.
+  -- and its stamp in the cache are given no more.
   local user = test_sandbox.worker_user(effective)
   local in_cache = ""
   if user ~= nil and worker_copy.copy ~= "" then
@@ -647,8 +612,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- The store at o/cosmic.db is the one its worker attaches to load
   -- every module of the closure (`build.test_worker`): `closure_store`
   -- where the module does not declare `store`, and the whole projection
-  -- where it does. Either is held for a process the worker starts,
-  -- which reads what the worker could.
+  -- where it does.
   -- A worker can still learn where the host keeps what it is given:
   -- /proc/self/mountinfo names each bind's source, the tree's location,
   -- the scratch directory's and the program's among them. That stays:
@@ -661,38 +625,33 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   if closure_store ~= nil and not effective.store then given_store = closure_store end
   for _, path in ipairs(base.reads) do
     if path == store then
-      give(given_store, test_sandbox.tree .. "/o/cosmic.db", true)
+      give(given_store, test_sandbox.tree .. "/o/cosmic.db")
     elseif path == executable and program ~= nil and not own_program then
-      give(path, program, true)
-    elseif in_cache ~= "" and Fs.dirname(path) == in_cache then
-      if not holds[path] then
-        holds[path] = true
-        held[#held + 1] = path
-      end
-    else
-      give(path, nil, true)
+      give(path, program)
+    elseif in_cache == "" or Fs.dirname(path) ~= in_cache then
+      give(path)
     end
   end
-  local function of_tree(relative: string, holding: boolean)
+  local function of_tree(relative: string)
     local plain = test_inputs.plain(relative)
     if plain == "." then
-      give(root, test_sandbox.tree, holding)
+      give(root, test_sandbox.tree)
     elseif plain:sub(1, 1) ~= "/" and plain:sub(1, 3) ~= "../" and plain ~= ".." then
-      give(root .. "/" .. plain, test_sandbox.tree .. "/" .. plain, holding)
+      give(root .. "/" .. plain, test_sandbox.tree .. "/" .. plain)
     end
   end
   local files: {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)
   -- The closure's files, which the module's key holds already.
-  for _, file in ipairs(files) do of_tree(file, false) end
-  for _, relative in ipairs(effective.reads) do of_tree(relative, true) end
+  for _, file in ipairs(files) do of_tree(file) end
+  for _, relative in ipairs(effective.reads) do of_tree(relative) end
   -- The tool is o/bin/cosmic, given as the directory it is in: where
   -- it is the program, the worker has it there alone (`program_name`),
   -- and a test that starts `Proc.executable()` starts it there; another
   -- program is given at its own name too (`worker_unveil`'s
   -- `with_program`).
-  if effective.tool then of_tree("o/bin", true) end
+  if effective.tool then of_tree("o/bin") end
   -- Why a `host` path cannot be given: where a variable names it, one
   -- `test_inputs.resolve` could not put anywhere, or one that is where
   -- the sandbox has its own -- its scratch directory, which it gives
@@ -718,7 +677,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
           end
         end
       end
-      give(trimmed(path), nil, true)
+      give(trimmed(path))
     end
   end
   local writes: {string} = { scratch }
@@ -749,8 +708,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- is made fails ENOENT (the kernel's lock_mount finds its dentry
   -- unlinked). This program's core and the stamp beside it would fail
   -- so if the cores directory were a cache given to write, since each
-  -- start writes the stamp until one holds. The key still holds the
-  -- path (`held`), and the cache gives it.
+  -- start writes the stamp until one holds. The cache gives it.
   -- So too a path given to read inside another given to read, where
   -- the other's bind shows it already, at the same place and the same
   -- file (`shown_by`): a closure's source beneath a declared directory
@@ -785,38 +743,6 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       reads[#reads + 1] = path
     end
   end
-  local kept: {string} = {}
-  for _, list in ipairs({ reads, writes }) do
-    for _, path in ipairs(list) do
-      if at[path] == nil and (Fs.within(path, test_sandbox.tree) or
-          Fs.within(path, test_sandbox.scratch)) then
-        kept[#kept + 1] = path
-      end
-    end
-  end
-  -- Each directory between /tree and a path given beneath it, but for
-  -- one that is itself given, or is beneath one.
-  local made_dirs: {string} = {}
-  local seen_made: {string:boolean} = {}
-  local given_inside: {string} = {}
-  for _, inside in pairs(at) do given_inside[#given_inside + 1] = inside end
-  local function given_whole(dir: string): boolean
-    for _, inside in ipairs(given_inside) do
-      if Fs.within(dir, inside) then return true end
-    end
-    return false
-  end
-  for _, inside in ipairs(given_inside) do
-    local dir = inside
-    while Fs.within(dir, test_sandbox.tree) and dir ~= test_sandbox.tree do
-      dir = Fs.dirname(dir)
-      if not seen_made[dir] and not given_whole(dir) then
-        seen_made[dir] = true
-        made_dirs[#made_dirs + 1] = dir
-      end
-    end
-  end
-  table.sort(made_dirs)
   -- Its scratch directory its user's, which it writes.
   if user ~= nil then
     for _, path in ipairs({ scratch, scratch .. "/real" }) do
@@ -845,9 +771,6 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     env = test_sandbox.environment(environment, effective),
     over = over,
     trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
-    kept = kept,
-    held = held,
-    made = made_dirs,
     program = program,
     start = user ~= nil and worker_copy.start or nil,
   }
@@ -872,92 +795,6 @@ function test_sandbox.forbiddable(writes: {string}, programs: {string}): boolean
     end
   end
   return true
-end
-
---- `path` as the host has it, for one a sandboxed worker of the tree at
---- `root`, its scratch directory `scratch`, saw: one at or beneath
---- /tree or `test_sandbox.scratch`, where the sandbox bound them,
---- beneath `root` or `scratch` -- but one beneath a path of `kept`,
---- bound at its own name over them -- and any other where the host has
---- it already.
---- One given beneath `test_sandbox.scratch` is kept, not refused as one
---- above it is: a sandbox planned inside a sandboxed worker (a
---- `cosmic test` it starts, this module's own tests) is given paths of
---- the worker's own directory, which is beneath that same name. A read
---- beside such a path, in the scratch directory it shares a name with,
---- is put back in the scratch directory.
-local function host_path(path: string, root: string, scratch: string, kept: {string}): string
-  for _, own in ipairs(kept) do
-    if Fs.within(path, own) then return path end
-  end
-  for _, pair in ipairs({ { test_sandbox.tree, root }, { test_sandbox.scratch, scratch } }) do
-    local inside, outside = pair[1], pair[2]
-    if path == inside then return outside end
-    if path:sub(1, #inside + 1) == inside .. "/" then
-      return outside .. path:sub(#inside + 1)
-    end
-  end
-  return path
-end
-
---- The kinds whose answer is a path, which moves with it: what a read
---- resolved to ("r", "t", "v", "w").
-local resolution_kinds: {string:boolean} = { r = true, t = true, v = true, w = true }
-
---- One observation of a sandboxed worker's, where the host has it
---- (`to_host`).
-local function moved(observation: observations.Observation, root: string, scratch: string,
-                     own: {string}): observations.Observation
-  local kind, path, answer = observation.kind, observation.path, observation.answer
-  if kind ~= "e" and path:sub(1, 1) == "/" then
-    path = host_path(path, root, scratch, own)
-  end
-  if resolution_kinds[kind] and answer:sub(1, 1) == "/" then
-    answer = host_path(answer, root, scratch, own)
-  elseif kind == "a" and answer:sub(1, 4) == "ok /" then
-    answer = "ok " .. host_path(answer:sub(4), root, scratch, own)
-  end
-  return { kind = kind, path = path, answer = answer }
-end
-
---- What a sandboxed worker of the tree at `root`, its scratch directory
---- `scratch`, reported it read, each path where the host has it
---- (`host_path`): the path of every observation but a variable's, the
---- answer of one whose answer is a path, and a realpath's. `kept` is
---- the plan's (`Plan.kept`), nil for none. A stat or an lstat of a
---- directory the sandbox made (`Plan.made`, nil for none) is left out:
---- what it answers -- the sandbox's own inode, device and times, and
---- the entries given there -- is none of the host's, and turns on what
---- the module declares, which its key holds; and so is a read of the
---- sandbox's own /tmp, which holds its scratch directory (moved like
---- the tree) and what the worker put there, but for a path of `kept`.
-function test_sandbox.to_host(reads: {observations.Observation}, root: string,
-                              scratch: string, kept?: {string},
-                              made?: {string}): {observations.Observation}
-  local out: {observations.Observation} = {}
-  local own = kept or {}
-  local synthetic: {string:boolean} = {}
-  for _, dir in ipairs(made or {}) do synthetic[dir] = true end
-  local function given(path: string): boolean
-    for _, path_kept in ipairs(own) do
-      if Fs.within(path, path_kept) then return true end
-    end
-    return false
-  end
-  for _, observation in ipairs(reads) do
-    local kind, path = observation.kind, observation.path
-    local plain = test_inputs.plain(path)
-    if (kind == "s" or kind == "l") and synthetic[plain] then
-      -- A directory the sandbox made: none of the host's.
-    elseif kind ~= "e" and Fs.within(plain, own_tmp) and
-        not Fs.within(plain, test_sandbox.scratch) and not given(plain) then
-      -- The sandbox's own /tmp, around its scratch directory: none of
-      -- the host's but for a path given at its own name there.
-    else
-      out[#out + 1] = moved(observation, root, scratch, own)
-    end
-  end
-  return out
 end
 
 --- Why a sandboxed start failed with `trouble`: said plainly where the

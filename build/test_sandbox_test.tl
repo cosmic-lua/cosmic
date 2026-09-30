@@ -5,14 +5,13 @@
 --- build/test_sandbox_tool_test.tl.
 
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
   local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false }
+    tool = false, store = false }
   for _, file in ipairs(files) do out.files[file] = true end
   return out
 end
@@ -49,64 +48,6 @@ local function test_an_unenforced_worker_has_the_hosts_cores()
   local named = test_sandbox.unenforced_environment({ COSMIC_PORTABLE_CACHE = "/host/cores" },
     inputs, "/host/scratch")
   assert(named.COSMIC_PORTABLE_CACHE == "/host/cores", tostring(named.COSMIC_PORTABLE_CACHE))
-end
-
---- What a sandboxed worker reports it read at /tree and its scratch
---- directory (`test_sandbox.scratch`) is put back
---- where the host has the tree and the scratch directory, in the path
---- and in an answer that is a path; every other path, a variable's name
---- and a readlink's answer are left as they are.
-local function test_what_a_worker_read_is_put_back_where_the_host_has_it()
-  local scratch = test_sandbox.scratch
-  local reads: {observations.Observation} = {
-    { kind = "o", path = "/tree/a/x.tl", answer = "" },
-    { kind = "s", path = "/tree", answer = "ok 1" },
-    { kind = "t", path = scratch .. "/tmp/link", answer = scratch .. "/real/f" },
-    { kind = "r", path = "/usr/lib/x", answer = "/usr/lib/y" },
-    { kind = "a", path = scratch .. "/tmp", answer = "ok " .. scratch .. "/real" },
-    { kind = "k", path = "/tree/link", answer = "ok /tree/elsewhere" },
-    { kind = "e", path = "/tree", answer = "ok /tree" },
-    { kind = "o", path = "/treehouse", answer = "" },
-  }
-  -- A path given at its own name beneath the scratch directory or /tree is bound over
-  -- them, and a read of it is where the host has it already.
-  local kept = test_sandbox.to_host({ { kind = "o", path = scratch .. "/host/f", answer = "" },
-    { kind = "o", path = scratch .. "/hostile", answer = "" } }, "/home/me/tree", "/var/s",
-    { scratch .. "/host" })
-  assert(kept[1].path == scratch .. "/host/f" and kept[2].path == "/var/s/hostile")
-  -- The sandbox's own /tmp, around its scratch directory, is none of
-  -- the host's -- a listing of it, a file the worker put there -- but
-  -- for a path given at its own name beneath it.
-  local own_tmp = test_sandbox.to_host({ { kind = "d", path = "/tmp", answer = "ok" },
-    { kind = "o", path = "/tmp/mine", answer = "" },
-    { kind = "o", path = "/tmp/cache/f", answer = "" } }, "/home/me/tree", "/var/s",
-    { "/tmp/cache" })
-  assert(#own_tmp == 1 and own_tmp[1].path == "/tmp/cache/f")
-  -- A stat or an lstat of a directory the sandbox made is none of the
-  -- host's, and is left out; one beneath it, or a listing of it, is not.
-  local made = test_sandbox.to_host({ { kind = "s", path = "/tree/a", answer = "ok 40" },
-    { kind = "l", path = "/tree/a/", answer = "ok 40" },
-    { kind = "s", path = "/tree/a/x.tl", answer = "ok 1" },
-    { kind = "d", path = "/tree/a", answer = "ok" } }, "/home/me/tree", "/var/s", nil,
-    { "/tree/a" })
-  assert(#made == 2 and made[1].path == "/home/me/tree/a/x.tl" and made[2].kind == "d")
-  local out = test_sandbox.to_host(reads, "/home/me/tree", "/var/s")
-  local want = {
-    { "o", "/home/me/tree/a/x.tl", "" },
-    { "s", "/home/me/tree", "ok 1" },
-    { "t", "/var/s/tmp/link", "/var/s/real/f" },
-    { "r", "/usr/lib/x", "/usr/lib/y" },
-    { "a", "/var/s/tmp", "ok /var/s/real" },
-    { "k", "/home/me/tree/link", "ok /tree/elsewhere" },
-    { "e", "/tree", "ok /tree" },
-    { "o", "/treehouse", "" },
-  }
-  assert(#out == #want)
-  for i, expected in ipairs(want) do
-    local got = out[i]
-    assert(got.kind == expected[1] and got.path == expected[2] and got.answer == expected[3],
-      i .. ": " .. got.kind .. " " .. got.path .. " " .. got.answer)
-  end
 end
 
 --- A failure to start a sandbox where the kernel refuses a user

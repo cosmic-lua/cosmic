@@ -5,9 +5,9 @@
 ---
 --- The worker never opens the build database. It attaches the tree's
 --- compiled modules, loads the test's module, calls the one test with
---- its temporary directory, and writes a report to descriptor 3: what
---- the load and the test read, which lines each hit, how long the test
---- took, and whether it passed. Its standard streams are the test's,
+--- its temporary directory, and writes a report to descriptor 3: which
+--- lines the load and the test hit, how long the test took, and whether
+--- it passed. Its standard streams are the test's,
 --- captured by the runner. A report that is missing or cut short --
 --- the test exited the process, crashed it, or ran past its deadline --
 --- is itself the runner's answer that the test failed.
@@ -21,8 +21,6 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local key_parts = require("build.key_parts")
-local observations = require("build.filesystem_observations")
-local refusals = require("build.refusals")
 local test_inputs = require("build.test_inputs")
 
 --- The store's raw table, which the searcher hands this module as its
@@ -45,12 +43,6 @@ local record worker
     passed: boolean
     message: string
     elapsed_ns: integer
-    load_reads: {observations.Observation}
-    test_reads: {observations.Observation}
-    --- What a sandboxed worker's module load and test were refused
-    --- (build.refusals), as the worker saw each path; none for one
-    --- unsandboxed.
-    refusals: {observations.Observation}
     load_hits: Coverage.Hits
     test_hits: Coverage.Hits
     --- The name of every module in the worker's `package.loaded` once
@@ -84,16 +76,14 @@ local record worker
     env: {string:string}
     --- The tree and the test's scratch directory as the worker sees
     --- them, and where it runs (nil for here); the test's module and
-    --- its name; what the build read of the module's `needs`
-    --- (`test_inputs.canonical`), and what its sandbox holds a
-    --- process it starts to, a path a line ("" for none).
+    --- its name; and what the build read of the module's `needs`
+    --- (`test_inputs.canonical`).
     root: string
     cwd: string
     module_path: string
     name: string
     scratch: string
     needs: string
-    held: string
     --- How its Landlock ruleset holds it (`hold_flag`), and whether the
     --- store's hold is off (`--open`).
     hold: worker.Hold
@@ -162,7 +152,7 @@ end
 
 worker.report_fd = 3
 
-local HEADER <const> = "cosmic-test-report-3"
+local HEADER <const> = "cosmic-test-report-4"
 
 --- The modules of the tree a worker loads besides its test's import
 --- closure, which is the code a worker runs of the tree but its test's:
@@ -186,19 +176,15 @@ local HEADER <const> = "cosmic-test-report-3"
 --- the first test that reaches it, not found by a walk of the `imports`
 --- table, which follows `local type` requires Teal erases and requires
 --- inside functions no worker calls.
--- TODO: drop build.filesystem_observations, and build.digest, which it
--- alone requires here, once the worker no longer reports its reads, the
--- observation log and core/observed.c removed (plan 4.2).
 worker.loads = {
-  "build.cache_names", "build.confine", "build.digest", "build.filesystem_observations",
-  "build.key_parts", "build.refusals", "build.test_inputs", "build.test_worker", "build.this_program",
-  "cmd.cosmic.main", "cosmic.coverage", "cosmic.env", "cosmic.fs", "cosmic.proc",
-  "cosmic.removed", "cosmic.sqlite", "cosmic.test",
+  "build.cache_names", "build.confine", "build.key_parts", "build.test_inputs",
+  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage", "cosmic.env",
+  "cosmic.fs", "cosmic.proc", "cosmic.removed", "cosmic.test",
 }
 
 -- Taken at load, ahead of any test that could replace them on the
 -- module's table, which a test whose closure holds it shares.
-local hex, key_part, reads_compiler = key_parts.hex, key_parts.key_part, key_parts.reads_compiler
+local hex, reads_compiler = key_parts.hex, key_parts.reads_compiler
 local unhex_either = key_parts.unhex
 
 --- The bytes `hex` spelled, or nil for text it would not have written.
@@ -222,25 +208,6 @@ local function monotonic_ns(): integer
   local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2) end
   return reading
-end
-
--- TODO: a report longer than Child's capture limit (16 MB) loses its
--- head, and its test fails as one that never reported. An archive fuzz
--- test's extraction property overruns it past about 5000 iterations
--- (fuzz.yml runs 2000), and 20000 stats of distinct paths outside the
--- tree, each noted with its resolution, report about 30 MB, which
--- dropping repeats cannot help. Under FUZZ_ITERS=8000
--- build/declared_key_fuzz_test.tl and build/locator_fuzz_test.tl fail
--- so too ("exited with status 0 before it reported (not a test
--- report)"), their properties having held. Stream the report, read as
--- it arrives, rather than capture it whole; dropping repeated
--- observations here, as `observations.join` does on the runner's side,
--- shrinks the rest.
-local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
-  for _, observation in ipairs(found) do
-    lines[#lines + 1] = tag .. " " ..
-      key_part(observation.kind, observation.path, observation.answer)
-  end
 end
 
 local function encode_hits(lines: {string}, tag: string, hits: Coverage.Hits)
@@ -294,9 +261,6 @@ function worker.encode(report: worker.Report): string
     "elapsed " .. tostring(report.elapsed_ns),
     "message " .. hex(report.message),
   }
-  encode_reads(lines, "load-read", report.load_reads)
-  encode_reads(lines, "test-read", report.test_reads)
-  encode_reads(lines, "refused", report.refusals or {})
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
   for _, name in ipairs(report.modules or {}) do lines[#lines + 1] = "module " .. hex(name) end
@@ -312,8 +276,7 @@ function worker.decode(text: string): worker.Report | nil, string
   if text == nil or text == "" then return nil, "no report" end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
-    load_reads = {}, test_reads = {}, refusals = {}, load_hits = {}, test_hits = {},
-    modules = {}, skipped = "",
+    load_hits = {}, test_hits = {}, modules = {}, skipped = "",
   }
   local first = true
   local finished = false
@@ -334,16 +297,6 @@ function worker.decode(text: string): worker.Report | nil, string
         report.elapsed_ns = math.tointeger(tonumber(rest)) or 0
       elseif tag == "message" then
         report.message = unhex(rest) or ""
-      elseif tag == "load-read" or tag == "test-read" or tag == "refused" then
-        local kind, path, answer = rest:match("^(.) ([0-9a-f]*) ([0-9a-f]*)$")
-        local decoded_path = path ~= nil and unhex(path) or nil
-        local decoded_answer = answer ~= nil and unhex(answer) or nil
-        if decoded_path == nil or decoded_answer == nil then
-          return nil, "a malformed read: " .. line
-        end
-        local into = tag == "load-read" and report.load_reads or
-          tag == "test-read" and report.test_reads or report.refusals
-        into[#into + 1] = { kind = kind, path = decoded_path, answer = decoded_answer }
       elseif tag == "load-hit" or tag == "test-hit" then
         local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
         local decoded = path ~= nil and unhex(path) or nil
@@ -597,7 +550,7 @@ local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = 
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
---- <held> [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
+--- [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
 --- --declared <declared>...` (`run`), with the report captured at `report_fd`,
 --- and its environment `env` with `start`'s variables added and
 --- coverage collected from its first instruction (core/coverage.c,
@@ -619,7 +572,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
   end
   for _, value in ipairs({ "test", hold_flag[given.hold] or "--worker",
                            given.root, given.module_path, given.name, given.scratch .. "/tmp",
-                           given.scratch .. "/children", given.needs, given.held }) do
+                           given.scratch .. "/children", given.needs }) do
     argv[#argv + 1] = value
   end
   if given.sandbox ~= nil then argv[#argv + 1] = "--sandboxed" end
@@ -728,7 +681,7 @@ end
 --- else means there is no report to read.
 ---
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> <held> [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
+--- <needs> [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
 --- --declared <declared>...`:
 ---
 --- - `children` is a directory, not yet there, to collect the coverage
@@ -736,11 +689,8 @@ end
 --- - `needs` is what the build read of the module's `cosmic.test`
 ---   declaration (`test_inputs.canonical`), "" or absent for none. A
 ---   module whose `needs` call was handed anything else fails to load.
---- - `held` is what this worker's own sandbox holds a process it starts
----   to, one path a line (`test_sandbox.Plan`'s `held`), "" or absent
----   where it runs unsandboxed (`observations.Resolving`'s `held`).
---- - `--sandboxed` says the worker runs in a sandbox: what its module's
----   load and its test are refused is recorded (build.refusals).
+--- - `--sandboxed` says the worker runs in a sandbox, which every
+---   process its test starts inherits (`confine.call`'s `sandboxed`).
 --- - `closure` is the names of the module's import closure
 ---   (`test_inputs.modules`), one argument each. Its load and its test
 ---   may `require` these of the tree and nothing else of it
@@ -772,7 +722,6 @@ function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
   local expected_needs = argv[8] or ""
-  local held_paths = argv[9] or ""
   if root == nil or module_path == nil or name == nil or tmp == nil or
       children_path == nil then
     complain("test --worker needs a root, a module, a test and two directories")
@@ -789,7 +738,7 @@ function worker.run(argv: {integer:string}): integer
   end
   -- The closure's names start after `--open`, or `--store` and its
   -- path, where either is given.
-  local first = 10
+  local first = 9
   local sandboxed = argv[first] == "--sandboxed"
   if sandboxed then first = first + 1 end
   local open = argv[first] == "--open"
@@ -835,13 +784,8 @@ function worker.run(argv: {integer:string}): integer
       hold = function() hold_store(module_path, closure, tree, declared) end
     end
   end
-  -- The worker's own connection: no test is keyed by all of it (see
-  -- `observations.exclude_held_files`; a query of it is the TODO above
-  -- core/sqlite.c's `cosmic_sqlite_push_borrowed`).
-  observations.exclude_held_files()
   local report: worker.Report = {
-    loaded = false, passed = false, message = "", elapsed_ns = 0,
-    load_reads = {}, test_reads = {}, skipped = "",
+    loaded = false, passed = false, message = "", elapsed_ns = 0, skipped = "",
   }
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
@@ -849,19 +793,13 @@ function worker.run(argv: {integer:string}): integer
   local children = made and children_path or nil
   if children ~= nil then Coverage.children(children) end
   local load_session, _ = Coverage.start()
-  -- A read outside the tree is resolved as it is read, in case it
-  -- names a file of the tree through a link: the test's own directory's
-  -- links included.
-  local resolving: observations.Resolving = { tree = root, own = { tmp } }
+  -- The directories the test owns, which a process it confines may
+  -- change (`confine.call`): its own, as it is handed it and as it
+  -- resolves, and where a process it starts writes its coverage.
+  local own: {string} = { tmp }
   local resolved_tmp, _ = Fs.absolute(tmp)
-  if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
-  -- A confined process writes its coverage beside the test's own.
-  if children ~= nil then resolving.own[#resolving.own + 1] = children end
-  -- Sandboxed, a process the test starts has this worker's sandbox.
-  if held_paths ~= "" then
-    resolving.held = {}
-    for line in held_paths:gmatch("[^\n]+") do resolving.held[#resolving.held + 1] = line end
-  end
+  if resolved_tmp ~= nil then own[#own + 1] = resolved_tmp end
+  if children ~= nil then own[#own + 1] = children end
   -- What the module's `needs` call is handed as it loads, through the
   -- hook `cosmic.test` leaves for a runner; once it has loaded, a call
   -- is refused.
@@ -883,30 +821,17 @@ function worker.run(argv: {integer:string}): integer
   -- alone, not for the worker's own work around them; the store's is
   -- up from here until the process ends (`hold_store`).
   if hold ~= nil then hold() end
-  -- Sandboxed, what the module's load and its test are refused is what
-  -- they read undeclared (build.refusals): for the audit, and the
-  -- message of a test that fails. Each file SQLite itself opens, which
-  -- no stand-in sees, it hears from the capture's record of them.
-  -- TODO: note the files SQLite opens as refusals from its VFS itself
-  -- (core/sqlite.c's open, a refused one noted beside the handle, which
-  -- a stand-in for `cosmic.sqlite`'s calls could drain) before the
-  -- observed VFS goes (plan 4.2's PR 5): today an ATTACH or a VACUUM
-  -- INTO is heard only through the observation log's record of SQLite's
-  -- opens, and the observed path's removal would lose it.
-  local recording = sandboxed and refusals.start(root) or nil
-  local stop_hearing_sqlite = recording ~= nil and
-    observations.hear_sqlite(function(path: string) recording.note("o", path) end) or nil
-  local captured = observations.capture(function(): any
+  -- Each under a stand-in for `spawn` (`confine.call`), which holds what
+  -- the test starts.
+  local loading = confine.call(function(): any
     return held(function(): any return require(module_path) end)
-  end, resolving)
+  end, nil, own, sandboxed)
+  local loaded, produced = loading.ok, loading.produced
   runner.loaded = true
-  if recording ~= nil then recording.watch() end
-  local loaded, produced, load_reads = captured.ok, captured.produced, captured.reads
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits
   end
-  report.load_reads = load_reads
   local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed)) or ""
   if loaded and needs ~= expected_needs then
     loaded = false
@@ -927,22 +852,19 @@ function worker.run(argv: {integer:string}): integer
     else
       local test_session, _ = Coverage.start()
       local started = monotonic_ns()
-      local run = observations.call(function(argument: any): any
+      local ran = confine.call(function(argument: any): any
         return held(fn, argument)
-      end, tmp, resolving)
+      end, tmp, own, sandboxed)
       local finished = monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)
         report.test_hits = hits
       end
-      report.passed, report.message = run.passed, run.message
+      report.passed, report.message = ran.ok, ran.ok and "" or tostring(ran.produced)
       report.skipped = table.concat(reasons, "; ")
-      report.test_reads = run.reads
       report.elapsed_ns = finished - started
     end
   end
-  if stop_hearing_sqlite ~= nil then stop_hearing_sqlite() end
-  if recording ~= nil then report.refusals = recording.stop() end
   if children ~= nil then
     local into = report.test_hits or report.load_hits
     child_hits(children, into or {})

@@ -27,7 +27,8 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
-local Observations = require("build.filesystem_observations")
+local _ = require("build.filesystem_observations") -- in the closure: `observations_table` searches for it by hand
+local confine = require("build.confine")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
@@ -399,8 +400,7 @@ local function test_handing_over_held_files_leaves_nothing_whenever_an_allocatio
 end
 
 --- A held file whose record is refused is said, not raised: `observe`
---- answers false with ENOMEM and turns recording on regardless, and a
---- capture that starts so is one no key holds, noted "x".
+--- answers false with ENOMEM and turns recording on regardless.
 local function test_a_held_file_whose_record_is_refused_is_said_not_raised(tmp: string)
   if not checked then return end
   local raw = sqlite_table()
@@ -416,22 +416,6 @@ local function test_a_held_file_whose_record_is_refused_is_said_not_raised(tmp: 
   raw.observed()
   assert(ok, tostring(handed))
   assert(handed == false and sys.errno_name(number) == "ENOMEM", tostring(trouble))
-  -- The capture drains the record as it starts, so the refusal falls
-  -- on handing the held file over.
-  local c: Observations.Captured = nil
-  local unfired = false
-  local outer = Observations.capture(function()
-    testing.fail_at("sqlite_observed")
-    c = Observations.capture(function() end)
-    unfired = testing.fail_at()
-  end)
-  assert(outer.ok, tostring(outer.produced))
-  assert(not unfired, "the hand-over was never refused")
-  local refused = false
-  for _, observation in ipairs(c.reads) do
-    if observation.kind == "x" and observation.path == "sqlite" then refused = true end
-  end
-  assert(refused, "a capture handed over nothing it holds is keyed as though it were")
   assert(made:close())
 end
 
@@ -556,10 +540,10 @@ local function test_a_call_whose_record_is_refused_does_nothing(tmp: string)
   if not checked then return end
   local raw = observations_table().syscalls
   -- The process table's own spawn, which logs, reached through a
-  -- stand-in kept after its capture ended: every test runs under one of
-  -- the runner's own, which starts a process past the log.
+  -- stand-in kept after it ended (build.confine's `call`), which starts
+  -- a process as the table's own does and asks nothing else first.
   local held = process.spawn
-  local taken = Observations.capture(function() held = process.spawn end)
+  local taken = confine.call(function() held = process.spawn end)
   assert(taken.ok, tostring(taken.produced))
   local here = assert(sys.getcwd())
   -- This program, which the refusal keeps from ever starting: named

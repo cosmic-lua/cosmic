@@ -6,8 +6,8 @@
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local observations = require("build.filesystem_observations")
 local verb_cases = require("build.verb_cases")
 local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
@@ -286,18 +286,32 @@ local function test_sql_never_stages_the_tree(tmp: string)
   assert(Fs.write(tmp .. "/o/build.db", garbage))
   local staged = verbs_fixture.expect(tmp, "db", { "db" }, 1)
   assert((staged.stderr or ""):find("file is not a database", 1, true), staged.stderr)
-  local asked = ""
-  local c = observations.capture(function()
-    asked = verbs_fixture.expect(tmp, "sql", { "sql", "SELECT 1" }, 0).stdout or ""
+  -- Every listing `sql` makes, through `cosmic.sys`'s shared table,
+  -- which `Fs` lists through: it runs in-process.
+  local listed: {string} = {}
+  local calls = sys as {string:any}
+  local readdir = calls.readdir as function(any...): any...
+  calls.readdir = function(...: any): any...
+    local given: any = ...
+    if given is string then
+      local here, _ = sys.getcwd()
+      listed[#listed + 1] = given:sub(1, 1) == "/" and given or (here or "") .. "/" .. given
+    end
+    return readdir(...)
+  end
+  local ok, asked = pcall(function(): string
+    local said = verbs_fixture.expect(tmp, "sql", { "sql", "SELECT 1" }, 0).stdout or ""
     local _ = verbs_fixture.expect(tmp, "sql", { "sql", "--no-such-flag" }, 2)
+    return said
   end)
-  assert(c.ok, tostring(c.produced))
-  assert(asked:find("^1\n1\n"), asked)
-  -- Observed paths are resolved: /var/... is /private/var/... on macOS.
+  calls.readdir = readdir
+  assert(ok, tostring(asked))
+  assert((asked as string):find("^1\n1\n"), asked as string)
+  -- A path may be named resolved: /var/... is /private/var/... on macOS.
   local real = assert(Fs.absolute(tmp))
-  for _, read in ipairs(c.reads) do
-    local under = read.path:sub(1, #tmp) == tmp or read.path:sub(1, #real) == real
-    assert(not (read.kind == "d" and under), "sql listed " .. read.path)
+  for _, path in ipairs(listed) do
+    local under = path:sub(1, #tmp) == tmp or path:sub(1, #real) == real
+    assert(not under, "sql listed " .. path)
   end
   assert(Fs.read(tmp .. "/o/build.db") == garbage)
   local names = assert(Fs.list(tmp .. "/o"))

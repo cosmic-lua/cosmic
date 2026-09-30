@@ -33,17 +33,14 @@ end
 local function test_a_report_reads_back_whole_or_not_at_all()
   local report: worker.Report = {
     loaded = true, passed = false, message = "line one\nline two", elapsed_ns = 42,
-    load_reads = { { kind = "o", path = "a b\n", answer = "" } },
-    test_reads = { { kind = "e", path = "HOME", answer = "ok /root" } },
     load_hits = { ["x.y"] = { [3] = true, [1] = true } },
-    test_hits = {},
+    test_hits = {}, modules = { "a b\n", "x.y" }, skipped = "no host",
   }
   local text = worker.encode(report)
   local back = assert(worker.decode(text))
   assert(back.loaded and not back.passed and back.elapsed_ns == 42)
   assert(back.message == "line one\nline two")
-  assert(back.load_reads[1].path == "a b\n" and back.load_reads[1].kind == "o")
-  assert(back.test_reads[1].answer == "ok /root")
+  assert(back.modules[1] == "a b\n" and back.modules[2] == "x.y" and back.skipped == "no host")
   assert(back.load_hits["x.y"][1] and back.load_hits["x.y"][3])
   local cut, trouble = worker.decode(text:sub(1, #text - 5))
   assert(cut == nil and trouble == "the report was cut short")

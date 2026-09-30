@@ -17,14 +17,12 @@ local sandbox_skip = require("build.sandbox_skip")
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What these cases are tested on: /proc, the whole environment, which
---- this program started again inherits, processes they hold, and the
---- program itself, which they start and read; and `nests`, since the
+--- this program started again inherits, and the program itself, which they start and read; and `nests`, since the
 --- unveiling cases give a child a root of its own, which a worker held
 --- by a Landlock ruleset cannot (build.confine's `forbid_running`).
 Test.needs{
   host = { "/proc" },
   env = { "*" },
-  processes = true,
   tool = true,
   nests = true,
 }

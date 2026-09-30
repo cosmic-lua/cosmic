@@ -174,7 +174,7 @@
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this
    program declares `tool = true`: sandboxed, one that does not is
-   refused it, and `--audit` names it. `tool` gives the program and
+   refused it. `tool` gives the program and
    nothing else. A test that confines a process in a root of its own --
    a sandbox that unveils, build.confine's `confine`, or a `cosmic test`
    it starts whose workers are sandboxed -- declares `nests = true`:
@@ -182,7 +182,7 @@
    which the kernel refuses the mounts a root is made of, so such a
    start is refused outright, naming `nests`, and fails the test rather
    than falling back to running unconfined; a `cosmic test` started
-   there refuses to sandbox its workers, and `--audit` names it.
+   there refuses to sandbox its workers.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot, as
    on macOS), a test is keyed as a sandboxed one is, by what it
    declares, and by where the tree is, which its worker sees; nothing is
@@ -230,10 +230,11 @@
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
-   `o/bin/cosmic docs cosmic.test`); `o/bin/cosmic test --audit` runs
-   every test and names what each read undeclared, with the `needs`
-   call that would hold it. Keep it clean, narrowing a test before declaring
-   a large set. No key holds a file's times, inode, device, link count or
+   `o/bin/cosmic docs cosmic.test`). Nothing lists what a test reads
+   undeclared: sandboxed, such a read finds nothing, and the test fails
+   with its own error (a file not found, a program that could not
+   start), which is the signal to declare it. Narrow a test before
+   declaring a large set. No key holds a file's times, inode, device, link count or
    owner, which differ in every checkout: a test must not depend on them
    for a file it did not make; one that needs them makes its own files in
    its temporary directory and sets them (`utimensat`, a fresh file for a
@@ -257,8 +258,7 @@
    /proc: a directory is refused -- by the build where it is written as
    one (a "/" after it, a variable's whole path), and at the test's
    start where the host has one there -- so declare the files a test
-   reads, which its key holds by their contents. `--audit` names a host program a
-   test ran undeclared. Where none can be (macOS, a host refusing user
+   reads, which its key holds by their contents. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
    and the run shares no verdict unless `COSMIC_VERDICT_CACHE` names a
    file; `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's Linux legs set it.

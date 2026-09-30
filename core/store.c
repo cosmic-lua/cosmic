@@ -77,13 +77,11 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * reap a child no handle of the caller's owns, which `cosmic.child`
  * never does; that is a caller breaking its own bookkeeping, and why
  * the table is off the public surface, not a privilege gained.) */
-/* TODO: hold the raw tables a test reaches this way to what their
- * wrappers let it do, or keep them from a test worker's tests: the one
- * `cosmic.sqlite`'s searcher hands out carries the observations' own
- * `observe`, `observed` and `exclude_held` (core/sqlite.c), with
- * which a test could hide what it reads from the capture its unsandboxed
- * key and `--audit` are made of. The claim above holds of the store's
- * table, not yet of that one. */
+/* TODO: drop `observe`, `observed` and `exclude_held` from the raw table
+ * `cosmic.sqlite`'s searcher hands out (core/sqlite.c) with the observed
+ * VFS (plan 4.2's PR 5): nothing reads that record any more, so a test
+ * that turns it on or drains it hides nothing from any key, but the
+ * table still carries more than its wrapper lets a caller do. */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* Every wrapper that is handed a raw value when loaded trusted, and the
@@ -436,11 +434,10 @@ static int store_attach (lua_State *L) {
   }
   struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
   sqlite3 *db = NULL;
-  /* Through the VFS `cosmic.sqlite` opens on, so a test that attaches
-   * a database (a project's, or o/build.db) is keyed by it: the default
-   * one's reads go where build.filesystem_observations never sees. No
-   * SQLITE_OPEN_URI, as there: `path` is a filename, so a `file:` URI's
-   * `vfs=` never picks an unobserved VFS instead. */
+  /* Through the VFS `cosmic.sqlite` opens on, as every connection is;
+   * its record of the files it opens keys nothing any more, and goes
+   * with it in plan 4.2's PR 5. No SQLITE_OPEN_URI, as there: `path` is
+   * a filename, so a `file:` URI's `vfs=` never picks another VFS. */
   int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY,
                            COSMIC_SQLITE_OBSERVED_VFS);
   guard->resource = db;

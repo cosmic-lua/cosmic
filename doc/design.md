@@ -676,7 +676,7 @@ checks. each independently builds the complete product, runs it, and uploads the
 executed bytes. the provenance join, in the job ci requires, compares the four
 products and their attestations.
 
-#### what an observed key leaves out
+#### what a verdict's key leaves out
 
 CI's Linux legs stand on shared verdicts: those of sandboxed runs, keyed by
 each test's declared inputs (`build/declared_key.tl`), which the sandbox holds
@@ -734,104 +734,27 @@ and keying them split hosted runners of one leg for nothing.
 `build/dispatched_features_test.tl` fails when the tree comes to ask the
 processor anything else.
 
-what an observed key leaves out, each with a `TODO:` where its fix goes. no
-run keys a verdict by what it observed any longer: every run, unsandboxed
-too, keys by what its tests declare, and the observation below serves only an
-unsandboxed `--audit` until it goes (plan 4.2's PR 4):
+no run keys a verdict by what its test was seen to read: the observed key,
+the log of a worker's reads it was made from, and `--audit`, which named what
+a test read beyond its declaration, are gone (plan 4.2's PR 4). a sandboxed
+test that reads what it does not declare finds nothing there and fails with
+its own error. what a declared key rests on beside the list above:
 
-- [x] *the tree's location* (`build/declared_key.tl`, above
-  `tree_name`): no input to a test, by rule. a test may not turn on where the
-  tree is, nor where the program is; the working directory, a realpath, a
-  readlink and the program's own path it reads are keyed by `tree_name` in the
-  shared key (whole in a checkout's own), and `Proc.relaunch`'s artifact path
-  is keyed nowhere. a worker no sandbox holds (the macOS leg, or
-  `COSMIC_TEST_SANDBOX=0`) sees the tree where it is rather than at /tree, so its key
-  holds the tree's path whole (`build/declared_key.tl`'s `Spec.tree`): its
-  verdict stands only at the path it was reached at. CI moves its checkout,
-  and the tool with it, to a path a hash of the commit and the leg chooses
-  (`.github/scripts/place-tree.sh`): a re-run of a commit meets the same
-  path, and a new commit a new one -- but for the macOS leg's gating runs (a
-  push, the merge queue), whose path the leg alone chooses, so they stand
-  from commit to commit, and whose scheduled run moves it by the commit. a
-  test that breaks the rule fails a run that runs it at a path it breaks on:
-  every such run while CI stands only on what it runs, but once it stands on
-  shared verdicts, only one where the test's key changed -- or, on the macOS
-  leg, where its path did -- so the path catches it on some commits, not on
-  every one.
-- [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
-  anything under `o/` is keyed by its bytes, hashed once a run while its stat
-  holds; a read of the working database, which every run rewrites, is never
-  kept.
-- [x] *a stat's times and inode, by rule*: a key holds of a stat of the tree
-  only its kind, size and mode across checkouts, and under `o/` its own key
-  does too; no key holds the access time, which the test's own reads move. so
-  a test must not depend on the times, inode, device, link count or owner of a
-  file it did not make; one that needs them makes its own files in its
-  temporary directory and sets them (`utimensat`, a fresh file for a new
-  inode). this replaced a declaration that keyed them whole
-  (`reads_stat_times`), which no test made. no test in the tree turns on
-  times: its stats of the tree ask whether a path is there and what it is,
-  and its comparisons of inodes (`Fs.walk`'s cycles, `build/refresh.tl`'s
-  `same_file`) ask whether two paths are one file, which the tree's links,
-  keyed by lstat and readlink, decide.
-- [ ] *a stat's times and inode, enforced* (`build/test.tl`, above
-  `held_stat`): a test that reads a file of the tree's times anyway --
-  through a stat, or an fstat of a descriptor it opened -- stands on a
-  sibling's verdict where they differ, and, for a file under `o/`, on its
-  own checkout's. have a worker's hold answer fixed times and inode for a
-  stat of the tree, which takes C and a boot.
-- [x] *a tree digest*: `sys.tree_digest` logs its walk in its binding
-  (core/observed.h), one record of the path it was given and what it answered,
-  not one of each entry beneath it, and a capture notes it "g", walked by
-  contents, or "j", by what `lstat` says of each entry. a path of the tree is
-  keyed by the walk made again as the key is: its contents, or its stamps --
-  times and inodes the test asked for, keyed whole in both keys whether it
-  declared them or not. one outside the tree keeps no verdict, as any other
-  read there. the walk a key makes of a path a confined process was given
-  (`observations.unveiled_answer`) is made past the log, and is none of the
-  test's.
-- [x] *files SQLite opens in C*: `cosmic.sqlite` opens through a VFS
-  (core/sqlite.c) that records each file SQLite opens or asks after, and a
-  capture notes each an open, keyed by its contents like any other.
-- [x] *a database a connection opened before the capture*
-  (`build/filesystem_observations.tl`, in `start`): the observed VFS
-  (core/sqlite.c) holds every file it opens until it is closed, and hands
-  each still open over as a capture turns recording on, noted an open and
-  keyed by its bytes like one opened during it. the worker's attached
-  `o/cosmic.db` is excluded as the runner's own
-  (`observations.exclude_held_files`): what a test's `require` loads
-  from it is keyed by its module keys.
-- [ ] *a query of the worker's own `o/cosmic.db`* (`core/sqlite.c`, above
-  `cosmic_sqlite_push_borrowed`): a test that queries it through
-  `Store.databases()`' borrowed handle, as `Errors.guidance` does, reads
-  it unrecorded. note the files of a borrowed handle's connection as a
-  statement is prepared on it while a capture runs.
-- [x] *a database attached through the store* (`core/store.c`, in
-  `store_attach`): it opens through `cosmic.sqlite`'s observed VFS, so a test
-  that attaches one is keyed by its bytes, and one that attaches `o/build.db`
-  keeps no verdict.
-- [x] *lstat, readlink, realpath and getcwd*: each of those bindings, and
-  `executable`, logs what it was asked and answered in C while a capture runs
-  (core/observed.h), whoever calls it; a capture drains the log and notes each,
-  an lstat, a readlink or a realpath as a stat is, and `executable` by whether
-  it answered: where the program is, like where the tree is, is no input.
-- [x] *a call taken before the capture*: `open`, `stat`, `readdir`, `getenv`,
-  `environ`, `mkdir`, `mkdtemp` and `chdir` of `cosmic.sys`, the process
-  table's `spawn` and cosmic.http's `open` log in their own bindings too, so a
-  reference a module took before the capture began is observed as the table's
-  own is. only `spawn` is still stood in for, to confine what a test starts; a
-  process started past the stand-in is logged and never stands.
-- [ ] *a read resolved beside the call* (`core/observed.c`, above
-  `log_resolution`): a read's path is resolved in C beside its record, as the
-  call is made, so a link a test retargets afterwards no longer moves it; but
-  another process retargeting a link between the call and its resolution goes
-  unseen. resolve by the descriptor the call opened. a file SQLite opens is
-  resolved later still, as it is drained (`build/filesystem_observations.tl`,
-  above `drain_sqlite`): resolve it in the VFS, beside its record.
-- [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
-  `under_root`): keyed by where the link leads at the end, not when read.
-  resolve such a read as it is made, from a set of the tree's links.
-- [x] *the binary's data tables* (`build/test.tl`, in its `run`): a refresh
+- *the tree's location*, by rule (`build/key_parts.tl`, above
+  `tree_name`): a test may not turn on where the tree is, nor where the
+  program is. a worker no sandbox holds (the macOS leg, or
+  `COSMIC_TEST_SANDBOX=0`) sees the tree where it is rather than at /tree, so
+  its key holds the tree's path whole (`build/declared_key.tl`'s
+  `Spec.tree`). CI moves its checkout, and the tool with it, to a path a hash
+  of the commit and the leg chooses (`.github/scripts/place-tree.sh`), so a
+  test that breaks the rule fails a run that meets a path it breaks on.
+- *a stat's times and inode*, by rule (`build/test.tl`, above `declared_of`):
+  a key holds a file of the tree by its contents, so a test must not depend
+  on the times, inode, device, link count or owner of a file it did not make;
+  one that needs them makes its own files in its temporary directory and sets
+  them. nothing enforces it yet: have a worker's hold answer fixed times and
+  inode for a stat of the tree, which takes C and a boot.
+- *the binary's data tables* (`build/test.tl`, in its `run`): a refresh
   changes `zoneinfo` and `ca_roots` without the runtime identity. every verdict
   is keyed on a digest of them (`schema.tables_digest`), computed from the
   running binary's own rows as `cosmic test` starts.
