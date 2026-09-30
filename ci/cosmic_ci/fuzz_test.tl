@@ -43,7 +43,7 @@ local function pieces(text: string, size: integer): function(): string
 end
 
 --- What GNU grep, cut, head and tail (coreutils 9.4, under LC_ALL=C)
---- make of the `n`th of `outputs()`, for kind "failure" or "tail", kept
+--- make of the `n`th of [`outputs()`], for kind "failure" or "tail", kept
 --- in testdata/fuzz/. It is the reference the driver's Teal must match;
 --- a host's own tools may differ (BSD cut, on macOS, leaves a last line
 --- unended). It was written by
@@ -53,7 +53,7 @@ end
 ---              grep -v -e '^build:' -e '^test: ' "$OUT" | cut -c1-300 | head -60 || true
 ---     tail:    tail -n 40 "$OUT" 2>/dev/null | cut -c1-300 || true
 ---
---- with `$OUT` each output in turn; change `outputs()` and they must be
+--- with `$OUT` each output in turn; change [`outputs()`] and they must be
 --- written again.
 local function expected(kind: string, n: integer): string
   return (assert(Fs.read("testdata/fuzz/" .. kind .. "-" .. tostring(n) .. ".txt")))

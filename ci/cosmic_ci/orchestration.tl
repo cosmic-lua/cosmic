@@ -292,7 +292,7 @@ function Orchestration.forget_run(env: {string:string})
 end
 
 --- A gating suite's `cosmic test` words and environment, `extra` added
---- to `environment()`'s: `--all` and nothing shared where it stands on
+--- to [`environment()`]'s: `--all` and nothing shared where it stands on
 --- no verdict (`stands`, `shares`), decided on the driver's own
 --- environment, which then forgets the run ([`forget_run`]).
 function Orchestration.suite_run(extra?: {string:string}): {string}, {string:string}

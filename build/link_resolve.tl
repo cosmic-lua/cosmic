@@ -150,7 +150,7 @@ local function anchors(text: string): {string: boolean}
     end
   end
   local previous: string | nil = nil
-  for line in (link_text.without_fences(text) .. "\n"):gmatch("([^\n]*)\n") do
+  for line in (link_text.without_code(text) .. "\n"):gmatch("([^\n]*)\n") do
     local atx = line:match("^ ? ? ?#+%s+(.-)%s*$")
     if atx ~= nil then
       heading(atx)
@@ -530,13 +530,14 @@ end
 --- - a path of a file of the tree, one with a `/` in it.
 ---
 --- Left as written: a span that is neither a name nor a path (a command,
---- a flag, an assignment, a pattern); a name alone that is one plain
---- lowercase word (`path`, `run`), which reads as prose or a variable
---- as often as a declaration of its file; a file's name alone
---- (`vendor.tl`), which as often means the module a file of that name
---- holds, or another file of the name elsewhere; the standard library, a
---- directory, and what names nothing or more than one thing. `in_tree`
---- is `meant`'s.
+--- a flag, an assignment, a pattern, a call with arguments); a name
+--- alone that is one plain lowercase word (`path`, `run`), which reads
+--- as prose or a variable as often as a declaration of its file, unless
+--- it is written as a call (`run()`), which says it is the function; a
+--- file's name alone (`vendor.tl`), which as often means the module a
+--- file of that name holds, or another file of the name elsewhere; the
+--- standard library, a directory, and what names nothing or more than
+--- one thing. `in_tree` is `meant`'s.
 function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, content: string,
                                declared: function(): link_text.Declared,
                                module_level: function(): {string: boolean},
@@ -548,12 +549,7 @@ function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, co
   if name ~= nil then
     local dotted = name:gsub(":", ".")
     local alone = dotted:find(".", 1, true) == nil
-    -- TODO: link a plain lowercase word the file declares where the span
-    -- says it is a name -- written as a call (`render()`) -- once
-    -- link_text.plain_spans reads the words around a span: `render`
-    -- in build/docs.tl stays as written with `docs`, which there means
-    -- the table as often as the module.
-    if alone and dotted:match("^[%l%d]+$") ~= nil then
+    if alone and dotted:match("^[%l%d]+$") ~= nil and content:sub(-2) ~= "()" then
       return nil
     end
     if declared().names[dotted] then

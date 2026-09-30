@@ -27,6 +27,7 @@
 #include <unistd.h>
 
 #include "check.h"
+#include "errnos.h"
 #include "fail.h"
 #include "lauxlib.h"
 #include "process.h"
@@ -157,9 +158,12 @@ static int address_of (lua_State *L, int index, struct target *out) {
  * was before this returns: 0, or why not. No Lua runs between, and the
  * Lua state is this process's one thread, so nothing else meets the
  * directory changed. Neither macOS nor Linux has bindat and connectat
- * (FreeBSD's) to name the directory by its descriptor instead. */
-static int reach_from (int fd, int there, const struct target *target, bool binding) {
+ * (FreeBSD's) to name the directory by its descriptor instead. Where
+ * the process cannot return -- its directory no longer searchable --
+ * `*stranded` is why, and it is left in `there`; else 0. */
+static int reach_from (int fd, int there, const struct target *target, bool binding, int *stranded) {
   const struct sockaddr *address = (const struct sockaddr *)&target->address;
+  *stranded = 0;
   int here = open(".", DIRECTORY_FLAGS);
   if (here < 0) return errno;
   int failure = 0;
@@ -168,26 +172,38 @@ static int reach_from (int fd, int there, const struct target *target, bool bind
   } else {
     int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
     if (done != 0) failure = errno;
-    if (fchdir(here) != 0 && failure == 0) failure = errno;
+    if (fchdir(here) != 0) *stranded = errno;
   }
   close(here);
   return failure;
 }
 
 /* Binds `fd` to `target`, or connects it there: 0, or why not. A
- * target reached from its directory is reached as [`reach_from`] says. */
-static int reach (int fd, const struct target *target, bool binding) {
+ * target reached from its directory is reached as [`reach_from`] says,
+ * `*stranded` with it. */
+static int reach (int fd, const struct target *target, bool binding, int *stranded) {
   const struct sockaddr *address = (const struct sockaddr *)&target->address;
+  *stranded = 0;
   if (target->directory[0] == '\0') {
     int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
     return done == 0 ? 0 : errno;
   }
   int there = open(target->directory, DIRECTORY_FLAGS);
   if (there < 0) return errno;
-  int failure = reach_from(fd, there, target, binding);
+  int failure = reach_from(fd, there, target, binding, stranded);
   close(there);
   return failure;
 }
+
+/* Raises for a process [`reach_from`] left in another directory, which
+ * no failure returned would tell its caller: every relative path it
+ * names from then on would name another file. `why` is the errno of
+ * the return. A macro, since no test can reach it: where "." is opened
+ * to be searched (O_PATH, O_SEARCH), only a directory made unsearchable
+ * between that open and the return strands the process. */
+#define STRANDED_ERROR(L, why) \
+  luaL_error((L), "the process could not return to its working directory: %s", \
+    cosmic_errno_describe((why), NULL))
 
 /* Makes `fd` what every socket of the table is: closed on exec,
  * nonblocking, and, where a send cannot say so itself, answering EPIPE
@@ -430,9 +446,10 @@ COSMIC_SYSCALL(listen, 2) {
    * whole, so the kernel keeps its whole name for `ss`, `lsof` and a
    * peer's `getpeername`, which a name alone, bound from the
    * directory, would not give them. */
+  int stranded = 0;
   failure = unix_socket && target.directory[0] != '\0'
-    ? reach_from(owned->fd, owned->directory, &target, true)
-    : reach(owned->fd, &target, true);
+    ? reach_from(owned->fd, owned->directory, &target, true, &stranded)
+    : reach(owned->fd, &target, true, &stranded);
   /* The file the bind made, read back at once: a file of another kind
    * has taken its name already, and is not the socket's to remove. A
    * process that replaced it with a socket file in that moment would
@@ -447,10 +464,11 @@ COSMIC_SYSCALL(listen, 2) {
    * retargeted -- between its open and the bind: the file is read back
    * from the directory opened, finds another file or none there, and the
    * bind's own file is left to whoever moved the directory, as it is
-   * left where the read back fails at all, or the bind's return to the
-   * working directory does: a file whose identity was not read is not
-   * told from one that took its name, and removing it could remove
-   * another's. */
+   * left where the read back fails at all: a file whose identity was
+   * not read is not told from one that took its name, and removing it
+   * could remove another's. A process the bind left in another
+   * directory reads it back even so, from the directory the socket
+   * holds, before it raises. */
   struct stat st;
   if (failure == 0 && unix_socket) {
     if (fstatat(owned->directory, owned->name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
@@ -462,6 +480,10 @@ COSMIC_SYSCALL(listen, 2) {
       owned->device = st.st_dev;
       owned->inode = st.st_ino;
     }
+  }
+  if (stranded != 0) {
+    released(owned);
+    return STRANDED_ERROR(L, stranded);
   }
   if (failure == 0 && listen(owned->fd, backlog) != 0) failure = errno;
   if (failure != 0) {
@@ -529,8 +551,13 @@ COSMIC_SYSCALL(connect, 2) {
    * slices, asking again, as `wait` does. A TCP one answers EINPROGRESS
    * and connects over time, which `settled` waits out. */
   int64_t pause = 1;
+  int stranded = 0;
   for (;;) {
-    failure = reach(owned->fd, &target, false);
+    failure = reach(owned->fd, &target, false, &stranded);
+    if (stranded != 0) {
+      released(owned);
+      return STRANDED_ERROR(L, stranded);
+    }
     if (failure == EAGAIN) {
       failure = cosmic_paused(deadline, &pause);
       if (failure == 0) continue;
@@ -553,7 +580,12 @@ COSMIC_SYSCALL(start, 1) {
   struct owned *owned = owner_push(L, 0);
   owned->fd = stream_socket(target.address.ss_family);
   if (owned->fd < 0) return cosmic_fail(L, errno);
-  failure = reach(owned->fd, &target, false);
+  int stranded = 0;
+  failure = reach(owned->fd, &target, false, &stranded);
+  if (stranded != 0) {
+    released(owned);
+    return STRANDED_ERROR(L, stranded);
+  }
   if (failure != 0 && failure != EINPROGRESS) {
     released(owned);
     return cosmic_fail(L, failure);
