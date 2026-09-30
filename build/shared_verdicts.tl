@@ -84,6 +84,11 @@ local record shared_verdicts
     used: {string}
     --- Keys the run failed under, whose rows go.
     failed: {string}
+    --- The digest of the bytes of each closure store the run keyed a
+    --- test by, by the store's address ([`build.closure_store`]'s
+    --- `address`): kept, or stamped as relied on, so a checkout without
+    --- the store keys its tests without writing it ([`store_digest`]).
+    stores: {string:string}
   end
 end
 
@@ -102,6 +107,14 @@ local kept_ns <const> = 30 * 24 * 3600 * 1000000000
 --- the file never empties this one's; nor does this one empty the
 --- tables observation-keyed runs shared (`prepare`).
 local declared <const> = "declared_v1"
+
+--- The table of what each closure store's bytes digest to, by its
+--- address: `stores_v1`. An address digests everything a store's bytes
+--- follow from -- its rows, the code that writes it and the runtime that
+--- runs that code ([`build.test`]'s `address_stores`) -- so one address
+--- names one store's bytes wherever it is written, and a checkout can
+--- key a test by a store it has not written. Bounded as `declared` is.
+local stores <const> = "stores_v1"
 
 local text = bind.text
 
@@ -158,6 +171,10 @@ local schema <const> = {
                                                   origin TEXT NOT NULL,
                                                   parts TEXT NOT NULL DEFAULT '')]],
   "CREATE INDEX IF NOT EXISTS " .. declared .. "_by_use ON " .. declared .. " (used_ns)",
+  "CREATE TABLE IF NOT EXISTS " .. stores .. [[ (address TEXT PRIMARY KEY,
+                                                digest TEXT NOT NULL,
+                                                used_ns INTEGER NOT NULL)]],
+  "CREATE INDEX IF NOT EXISTS " .. stores .. "_by_use ON " .. stores .. " (used_ns)",
 }
 
 --- Hits as [`build.test`] encodes them -- a line per module, its path, a
@@ -200,9 +217,9 @@ local function has_parts(db: Sqlite.Handle): boolean | nil, string
   return #rows > 0, ""
 end
 
---- Makes this format's table when the file has none yet, or adds the
+--- Makes this format's tables when the file lacks one, or adds the
 --- `parts` column to a table that lacks it, in one transaction. A file
---- that has both is only read. A binary without the column may share the
+--- that has them all is only read. A binary without the column may share the
 --- file: its rows name no parts, until a run that names them stands on
 --- one (`settle`). The tables observation-keyed runs shared
 --- (`verdicts_v<n>`) are left as they are: a binary of that format
@@ -210,9 +227,10 @@ end
 --- of this one's reads them.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = '" .. declared .. "'")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('" .. declared ..
+    "', '" .. stores .. "')")
   if rows == nil then return false, trouble end
-  if #rows > 0 then
+  if #rows > 1 then
     local named, named_trouble = has_parts(db)
     if named == nil then return false, named_trouble end
     if named then return true, "" end
@@ -276,6 +294,17 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
   if rows[1] == nil then return nil, "" end
   return { hits = unpacked(rows[1][1]),
     elapsed_ns = math.tointeger(tonumber(rows[1][2]) or 0) or 0 }, ""
+end
+
+--- The digest of the bytes of the closure store at `address`, as a run
+--- that had it kept it (`settle`), or nil.
+function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
+                                      address: string): string | nil, string
+  local rows, trouble = Sqlite.text_rows(cache.db,
+    "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
+  if rows == nil then return nil, trouble end
+  if rows[1] == nil then return nil, "" end
+  return rows[1][1], ""
 end
 
 --- How many rows the cache holds, and how many are of a test in
@@ -399,12 +428,25 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
         if not ok then return false, trouble end
       end
     end
-    for _, name in ipairs(tables) do
+    local addresses: {string} = {}
+    for address in pairs(owed.stores or {}) do addresses[#addresses + 1] = address end
+    table.sort(addresses)
+    -- A digest here that differs from the run's for the same address
+    -- was reported by the run as an error ([`build.test`]'s
+    -- `mismatched`), which says the run's replaces it.
+    for _, address in ipairs(addresses) do
+      local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
+        " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
+        { text(address), text(owed.stores[address]), { integer = now_ns } })
+      if not ok then return false, trouble end
+    end
+    for _, bound in ipairs({ { declared, "key" }, { stores, "address" } }) do
+      local name, key = bound[1], bound[2]
       local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
         { { integer = now_ns - kept_ns } })
       if not aged then return false, age_trouble end
       local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
-        " WHERE key IN (SELECT key FROM " .. name .. " " ..
+        " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
         "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
       if not bounded then return false, bound_trouble end
     end

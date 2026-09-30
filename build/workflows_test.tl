@@ -1745,11 +1745,14 @@ end
 --- with the job's own name and artifact, unless the restore took the
 --- base's own entry, downloads what it kept from that run, and merges
 --- it into what it restored (driver.tl verdicts-merge). None of it
---- fails the job, it needs `actions: read`, and the lookup's wait is at
---- most two and a half minutes, which with its last round's calls is
---- under its step's timeout; the checked job's, whose job ahead keeps
---- them later, is shorter still and skips a job ahead that cannot keep
---- them in time (READY_SECONDS).
+--- fails the job, it needs `actions: read`, and the lookup's wait, with
+--- its last round's calls, is under its step's timeout: a leg's is half
+--- a minute at most, and only on a leg ahead that has begun its suite
+--- (SUITE_STEP, the suite step's own name), since a longer wait, on a
+--- leg still building or itself waiting, cost more than it saved; the
+--- checked job's, whose job ahead keeps them later, is a minute and a
+--- half and skips a job ahead that cannot keep them in time
+--- (READY_SECONDS).
 local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
@@ -1760,9 +1763,9 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   local names: {string: string} = {}
   for _, case in ipairs({
       { job = "platform", suite = "release-suite", file = "verdicts.db", name = "${{ matrix.name }}",
-        within = 150, ready = "" },
+        within = 30, ready = "", begun = true },
       { job = "checked", suite = "checked-suite", file = "checked.db", name = "linux-x86_64-checked",
-        within = 90, ready = "420" } }) do
+        within = 90, ready = "420", begun = false } }) do
     local job = jobs[case.job]
     local where = case.job
     assert(job.name == case.name, where .. "'s name: " .. tostring(job.name))
@@ -1812,6 +1815,8 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     assert(within ~= nil and wait ~= nil and wait < within and within <= case.within,
       where .. " waits too long for the run ahead: " .. tostring(env.WITHIN_SECONDS))
     assert((env.READY_SECONDS or "") == case.ready, where .. " takes its job ahead to keep them at another time")
+    assert(env.SUITE_STEP == (case.begun and steps[at[case.suite]].name as string or nil),
+      where .. " waits on a job ahead by another step than its suite: " .. tostring(env.SUITE_STEP))
     local budget = within + 3 * call
     local minutes = find["timeout-minutes"] as integer
     assert(budget + 30 <= minutes * 60 and minutes < (job["timeout-minutes"] as integer),

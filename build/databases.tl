@@ -313,17 +313,22 @@ local function run(argv: {integer:string}): integer
     end
   end
   -- The stores of test modules' closures a sandboxed `cosmic test`
-  -- gives its workers ([`build.closure_store`]'s `write`), as a whole.
+  -- gives its workers ([`build.closure_store`]'s `write`), as a whole:
+  -- not the store of no module beside them (`base-<address>.db`,
+  -- build.test's `base_name`), which the census digests and no worker
+  -- is given.
   if #paths == 0 then
     local stores = root .. "/o/stores"
     local listed, _ = Fs.list(stores)
-    if listed ~= nil and #listed > 0 then
-      local bytes = 0
-      for _, entry in ipairs(listed) do
+    local count, bytes = 0, 0
+    for _, entry in ipairs(listed or {}) do
+      if entry:sub(1, 5) ~= "base-" then
         local st, _ = Fs.stat(stores .. "/" .. entry)
-        bytes = bytes + (st ~= nil and st.size or 0)
+        count, bytes = count + 1, bytes + (st ~= nil and st.size or 0)
       end
-      log:say(stores .. "  " .. plural.count(#listed, "closure store") .. ", " .. plural.count(bytes, "byte"))
+    end
+    if count > 0 then
+      log:say(stores .. "  " .. plural.count(count, "closure store") .. ", " .. plural.count(bytes, "byte"))
     end
   end
   if seen == 0 then

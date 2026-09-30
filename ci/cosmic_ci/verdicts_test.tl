@@ -329,3 +329,61 @@ local function test_a_merge_does_nothing_it_is_not_given(tmp: string)
   assert(code == 0 and out == "" and err:find("nothing merged", 1, true) ~= nil, out .. err)
   assert(rows(ours .. "/verdicts.db") == "k1 t.tl test_1 500", rows(ours .. "/verdicts.db"))
 end
+
+--- A cache holding only build/shared_verdicts.tl's `stores_v1`: the
+--- digest of a closure store's bytes by its address, one row used at
+--- each of `used` (in seconds), addressed `a<i>`.
+local function stores(path: string, used: {integer})
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("CREATE TABLE stores_v1 (address TEXT PRIMARY KEY, digest TEXT NOT NULL, " ..
+    "used_ns INTEGER NOT NULL); CREATE INDEX stores_v1_by_use ON stores_v1 (used_ns)"))
+  for i, at in ipairs(used) do
+    assert(Sqlite.run(db, "INSERT INTO stores_v1 VALUES (?1, 'd', ?2)",
+      { { text = "a" .. i }, { integer = at * s } }))
+  end
+  assert(db:close())
+end
+
+--- The addresses `path`'s `stores_v1` holds, with each used_ns in
+--- seconds, in address order.
+local function addresses(path: string): string
+  local db = assert(Sqlite.open(path))
+  local out: {string} = {}
+  for _, row in ipairs((assert(Sqlite.text_rows(db,
+      "SELECT address, used_ns / 1000000000 FROM stores_v1 ORDER BY address")))) do
+    out[#out + 1] = table.concat(row, " ")
+  end
+  assert(db:close())
+  return table.concat(out, "\n")
+end
+
+--- The digests of closure stores are trimmed and merged as verdicts
+--- are: a leg keeps those its run relied on, and takes those of the run
+--- ahead in the queue, stamped used by no run.
+local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: string)
+  local ahead, ours = tmp .. "/ahead", tmp .. "/ours"
+  assert(Fs.mkdirs(ahead) and Fs.mkdirs(ours))
+  stores(ours .. "/verdicts.db", { 100, 1000 })
+  local env = { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" }
+  local code, out, err = Verdicts.command({ "1000" }, env)
+  assert(code == 0 and err == "", out .. err)
+  assert(addresses(ours .. "/verdicts.db") == "a2 1000", addresses(ours .. "/verdicts.db"))
+  stores(ahead .. "/verdicts.db", { 700, 800, 900 })
+  code, out, err = Verdicts.merge({ ahead }, env)
+  assert(code == 0 and err == "" and
+    out:find("added 2 rows to stores_v1", 1, true) ~= nil, out .. err)
+  assert(addresses(ours .. "/verdicts.db") == "a1 0\na2 1000\na3 0",
+    addresses(ours .. "/verdicts.db"))
+  -- A digest the run ahead kept for an address ours holds otherwise is
+  -- warned of, and ours kept.
+  local db = assert(Sqlite.open(ahead .. "/verdicts.db", true))
+  assert(db:exec("UPDATE stores_v1 SET digest = 'e' WHERE address = 'a2'"))
+  assert(db:close())
+  code, out, err = Verdicts.merge({ ahead }, env)
+  assert(code == 0 and err:find("warning: the run ahead kept another digest of a closure " ..
+    "store for 1 address of stores_v1", 1, true) ~= nil, out .. err)
+  db = assert(Sqlite.open(ours .. "/verdicts.db"))
+  local digest = assert(Sqlite.text_rows(db, "SELECT digest FROM stores_v1 WHERE address = 'a2'"))
+  assert(db:close())
+  assert(digest[1][1] == "d", digest[1][1])
+end

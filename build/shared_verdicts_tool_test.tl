@@ -205,12 +205,15 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   -- Asked (--census), a run after the same kind of edit says it, though
   -- the module's tests ran in this checkout before, as CI's checked
   -- suite does in a checkout the local suite ran in. Where an artifact
-  -- runs the tool, the launcher is among the parts it names.
+  -- runs the tool, the launcher is among the parts it names; and so is
+  -- what every closure store holds alike, by its bytes, which moves the
+  -- key of every test that does not declare `store` when it moves.
   assert(Fs.write(tmp .. "/first/suite/data.txt", "five\n"))
   local asked = said("asked", tmp .. "/first", "4 ran, 1 stood", { "--census" })
   assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and
     asked:find("runtime %x+, compiler %x+, harness %x+") and
-    asked:find("launcher %x+") ~= nil, asked)
+    asked:find("launcher %x+") ~= nil and asked:find(", store " .. ("%x"):rep(12)) ~= nil,
+    asked)
   -- With nothing looked up, it says the parts alone.
   local parts = said("parts", tmp .. "/first", "0 ran, 5 stood", { "--census" })
   assert(parts:find("test: key parts: host features %x+, host %x+, system %x+, runtime %x+") and

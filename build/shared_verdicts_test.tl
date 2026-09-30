@@ -81,8 +81,8 @@ end
 --- A verdict is kept by its declared key alone (build/declared_key.tl),
 --- with no reads to check it by: found under that key, freshened by a
 --- run that relies on it, and taken out by one that fails under it. A
---- cache of an earlier format gains the declared_v1 table, and its own
---- tables are left as they were.
+--- cache of an earlier format gains the declared_v1 and stores_v1
+--- tables, and its own tables are left as they were.
 local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   local path = tmp .. "/cache/verdicts.db"
   local cache = assert(shared_verdicts.open(path))
@@ -95,8 +95,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   cache = assert(shared_verdicts.open(path))
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
-  assert(#tables == 2 and tables[1][1] == "declared_v1" and tables[2][1] == "verdicts_v4",
-    "an earlier format's table was dropped: " .. tostring(#tables))
+  assert(#tables == 3 and tables[1][1] == "declared_v1" and tables[2][1] == "stores_v1" and
+    tables[3][1] == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",
@@ -117,5 +117,35 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   assert(shared_verdicts.settle(cache, "second", { kept = {}, used = {},
     failed = { "declared" } }, Time.now_ns()))
   assert(shared_verdicts.declared(cache, "declared") == nil, "a failure kept it")
+  shared_verdicts.close(cache)
+end
+
+--- The digest of a closure store's bytes is kept by its address: found
+--- once a run kept it, freshened by a run that relies on it, and gone
+--- once no run has for thirty days. A file whose declared_v1 table has
+--- its `parts` but no stores_v1, as an earlier binary made it, gains it.
+local function test_a_store_digest_is_kept_by_its_address(tmp: string)
+  local path = tmp .. "/cache/verdicts.db"
+  local cache = assert(shared_verdicts.open(path))
+  shared_verdicts.close(cache)
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("DROP TABLE stores_v1"))
+  assert(db:close())
+  cache = assert(shared_verdicts.open(path))
+  assert(shared_verdicts.store_digest(cache, "address") == nil)
+  local now = Time.now_ns()
+  assert(shared_verdicts.settle(cache, "first", { kept = {}, used = {}, failed = {},
+    stores = { address = "digest" } }, now))
+  assert(shared_verdicts.store_digest(cache, "address") == "digest")
+  assert(shared_verdicts.store_digest(cache, "another") == nil)
+  local day <const> = 24 * 3600 * 1000000000
+  assert(shared_verdicts.settle(cache, "second", { kept = {}, used = {}, failed = {},
+    stores = { address = "digest" } }, now + 29 * day))
+  assert(shared_verdicts.settle(cache, "third", { kept = {}, used = {}, failed = {} },
+    now + 58 * day))
+  assert(shared_verdicts.store_digest(cache, "address") == "digest", "a digest relied on went")
+  assert(shared_verdicts.settle(cache, "fourth", { kept = {}, used = {}, failed = {} },
+    now + 60 * day))
+  assert(shared_verdicts.store_digest(cache, "address") == nil, "an unrelied digest stayed")
   shared_verdicts.close(cache)
 end

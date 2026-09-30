@@ -3,7 +3,8 @@ local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 
 local key_parts <const> = "test: key parts: host features 0123456789abcdef, host aaaaaaaaaaaa, " ..
-  "system , runtime bbbbbbbbbbbb, compiler cccccccccccc, harness dddddddddddd"
+  "system , runtime bbbbbbbbbbbb, compiler cccccccccccc, harness dddddddddddd, " ..
+  "store eeeeeeeeeeee"
 
 --- A sandboxed run's lines as build/test.tl says them, --census asked.
 local function test_a_passing_sandboxed_run()
@@ -121,7 +122,15 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(handle:exec("INSERT INTO suite_runs (worker, run, attempt, phase, suite, status, " ..
     "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))
   local rows = State.suite_rows(handle)
-  assert(#rows == 1 and rows[1].held == nil and rows[1].parts.runtime == "r")
+  assert(#rows == 1 and rows[1].held == nil and rows[1].parts.runtime == "r" and
+    rows[1].parts.store == nil)
+  assert(handle:close())
+  -- Written to again, it gains the columns it lacks.
+  State.suite(old, { worker = "w", run = "2", attempt = "1", phase = "build",
+    suite = "local", status = "pass", parts = { store = "s" } })
+  handle = assert(Sqlite.open(old))
+  rows = State.suite_rows(handle)
+  assert(#rows == 2 and rows[2].parts.store == "s")
   assert(handle:close())
 end
 
@@ -191,11 +200,13 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
   assert(db:close())
   assert(#rows == 2)
   assert(rows[1].ran == 1 and rows[1].stood == 199 and rows[1].elapsed_ms == 2385)
-  assert(rows[1].parts.runtime == "bbbbbbbbbbbb" and rows[1].parts.system == "")
+  assert(rows[1].parts.runtime == "bbbbbbbbbbbb" and rows[1].parts.system == "" and
+    rows[1].parts.store == "eeeeeeeeeeee")
   assert(rows[2].tests == nil and rows[2].exit_code == 124 and rows[2].parts.runtime == nil)
   local text = SuiteOutput.markdown(rows)
   assert(text:find("| linux-x86_64 | build | local | pass | 0 | 200 | 1 | 199 | 99.5 | 0 | " ..
-    "2385 | bbbbbbbbbbbb | dddddddddddd | cccccccccccc | aaaaaaaaaaaa |  | 0123456789abcdef |",
+    "2385 | bbbbbbbbbbbb | dddddddddddd | cccccccccccc | eeeeeeeeeeee | aaaaaaaaaaaa |  | " ..
+    "0123456789abcdef |",
     1, true), text)
   assert(text:find("| linux-x86_64 | fixtures | fixture runtime\\|regression | timeout | 124 " ..
     "|  |  |  |  |  |  |", 1, true), text)

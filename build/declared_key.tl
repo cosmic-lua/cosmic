@@ -79,9 +79,9 @@
 --- path): holding it would run every test again for an edit to any of
 --- them. What a worker runs of the
 --- compiler's making is the bytecode of its closure's modules, which
---- its store holds by address ([`build.closure_store`]'s `address`,
---- over each module's bytecode and the rows a store carries of it) or
---- the projection by its contents; the compiler Teal itself compiles
+--- its store holds, keyed by its bytes ([`store_digest`]; the store
+--- carries each module's bytecode and the rows it has of it) as the
+--- projection is by its contents; the compiler Teal itself compiles
 --- to (`vendor.tl`) is carried beside build.teal, the one module that
 --- loads it, by its bytecode too. Whether a module compiles at all is
 --- no verdict of a test: a build that refuses one runs none. So what a
@@ -247,10 +247,10 @@ local record declared_key
     --- not declare `tool` ([`build.test`]'s `can_forbid`): o/bin is keyed
     --- as if it did.
     runs_tool: boolean
-    --- The address of the store of its module's import closure its
-    --- worker is given at o/cosmic.db where its module does not declare
-    --- `store` ([`build.closure_store`]'s `address`), or nil where it is
-    --- given the whole projection, keyed by its contents.
+    --- The digest of the bytes of the store of its module's import
+    --- closure its worker is given at o/cosmic.db where its module does
+    --- not declare `store` ([`store_digest`]), or nil where it is given
+    --- the whole projection, keyed by its contents.
     closure_store: string
     --- Where the tree is, for a worker no sandbox gives it at /tree
     --- ([`build.test`]'s `launch`, unsandboxed),
@@ -472,8 +472,11 @@ local function remembered(digests: declared_key.Digests, name: string, st: sys.S
                           compute: function(data: string): string): string
   local said = signature(st)
   digests.used[name] = true
-  local was = digests.hashed[name] or digests.this_run[name]
-  if was ~= nil and was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  -- This run's first: a file rewritten since an earlier run kept its
+  -- hash is taken again by what this run read, not read at every look.
+  for _, was in ipairs({ digests.this_run[name] or "", digests.hashed[name] or "" }) do
+    if was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  end
   local data, _ = Fs.read(name:match("^[^\0]*\0(.*)$"))
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end
@@ -606,6 +609,20 @@ function declared_key.launcher_identity(digests: declared_key.Digests, path: str
     return hex_sha256("head\n" .. tostring(split.host) .. "\n" ..
       artifact.keyed_head(split.head))
   end)
+end
+
+--- The digest of the bytes of the closure store at `path`
+--- ([`build.closure_store`]'s `write`), which a key holds as its
+--- [`Spec.closure_store`], or "missing" where it is not a regular file.
+--- Remembered in `digests` as `program` is, so a store written this
+--- run is read once however many keys hold it. A store's bytes, not its
+--- address, since the address digests the code that writes it too: an
+--- edit to that code which writes the same bytes -- a comment in
+--- build/schema.tl -- moves no key.
+function declared_key.store_digest(digests: declared_key.Digests, path: string): string
+  local st, _ = sys.stat(path)
+  if st == nil or st.kind ~= "file" then return "missing" end
+  return remembered(digests, "store\0" .. path, st, hex_sha256)
 end
 
 --- What one entry is, for its line in a key: "missing", "file" and its
@@ -837,10 +854,10 @@ function declared_key.preimage(digests: declared_key.Digests,
   end
   -- The store its worker is given at o/cosmic.db: the whole projection,
   -- by its contents, where the module declares `store`; else the store
-  -- of its closure, by its address, which is a digest of all its bytes
-  -- follow from -- so neither an edit to a module outside the closure
-  -- nor adding or removing one moves it ([`build.closure_store`]'s
-  -- `address`). The names of the tree's modules a worker
+  -- of its closure, by its bytes ([`store_digest`]), which neither an
+  -- edit to a module outside the closure nor adding or removing one
+  -- moves ([`build.closure_store`]'s `address`), nor an edit to the code
+  -- that writes it that writes the same bytes. The names of the tree's modules a worker
   -- refuses a `require` of are no part of it: a name there only turns
   -- such a `require` into a refusal, never into a load.
   if effective.store then
