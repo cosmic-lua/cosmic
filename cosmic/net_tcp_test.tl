@@ -23,6 +23,12 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   assert(assert(Stream.read_all(client)) == "pong")
 end
 
+--- `reclaim` raises for a TCP address rather than listen without it.
+local function test_reclaim_of_a_tcp_address_raises()
+  local ok, err = pcall(Net.listen, Net.tcp("127.0.0.1", 0), { reclaim = true })
+  assert(not ok and tostring(err):find("reclaim takes a unix address", 1, true) ~= nil, tostring(err))
+end
+
 --- A port one listener holds is not another's; once it closes, nothing
 --- listens there, and connecting is refused.
 local function test_a_port_held_is_refused_and_one_closed_refuses()
