@@ -183,6 +183,117 @@ local function decoded_workflows(): {string: {string: any}}
   return out
 end
 
+--- The condition ci.yml's COSMIC_CI_SCOPE is `full` on; a matrix,
+--- which cannot read `env`, tests it again.
+local FULL_RUN <const> = "(github.event_name != 'push' || github.ref == 'refs/heads/main')"
+
+--- A job's matrix legs on a run of `scope` (`full` or `light`), each
+--- the values it gets, as GitHub expands them: every combination of
+--- the dimensions (a dimension FULL_RUN chooses between two lists, as
+--- `${{ fromJSON(FULL_RUN && '[...]' || '[...]') }}`, is the one its scope
+--- takes), then each `include` entry added to every combination whose
+--- dimensions it does not contradict, overwriting what an earlier
+--- entry added, or, where it contradicts all of them, a combination of
+--- its own. With no dimension, each entry is a combination.
+local function legs_of(job: {string: any}, scope: string): {{string: string}}
+  local matrix = (job.strategy as {string: any}).matrix as {string: any}
+  local combos: {{string: string}} = {}
+  local fixed: {{string: string}} = {}
+  local dims: {string} = {}
+  for key in pairs(matrix) do
+    if key ~= "include" then dims[#dims + 1] = key end
+  end
+  table.sort(dims)
+  if #dims > 0 then combos, fixed = { {} }, { {} } end
+  for _, dim in ipairs(dims) do
+    local value = matrix[dim]
+    if value is string then
+      local condition, full, light = value:match("^%${{ fromJSON%((.-) && '(%[.-%])' || '(%[.-%])'%) }}$")
+      assert(condition == FULL_RUN, "matrix " .. dim .. " is chosen other than by the scope: " .. value)
+      value = assert(Json.decode(scope == "full" and full or light))
+    end
+    assert(dim ~= "exclude", "an exclude comes before the includes it would need to hold back")
+    local next_combos: {{string: string}} = {}
+    local next_fixed: {{string: string}} = {}
+    for i, combo in ipairs(combos) do
+      for _, v in ipairs(value as {string}) do
+        local c, f: {string: string}, {string: string} = {}, {}
+        for k, x in pairs(combo) do c[k] = x end
+        for k, x in pairs(fixed[i]) do f[k] = x end
+        c[dim], f[dim] = v, v
+        next_combos[#next_combos + 1], next_fixed[#next_fixed + 1] = c, f
+      end
+    end
+    combos, fixed = next_combos, next_fixed
+  end
+  for _, entry in ipairs(matrix.include as {{string: string}} or {}) do
+    local added = false
+    for i, combo in ipairs(combos) do
+      local fits = true
+      for k, v in pairs(entry) do
+        if fixed[i][k] ~= nil and fixed[i][k] ~= v then fits = false end
+      end
+      if fits then
+        added = true
+        for k, v in pairs(entry) do combo[k] = v end
+      end
+    end
+    if not added then
+      local c, f: {string: string}, {string: string} = {}, {}
+      for k, v in pairs(entry) do c[k], f[k] = v, v end
+      combos[#combos + 1], fixed[#fixed + 1] = c, f
+    end
+  end
+  return combos
+end
+
+--- The platform legs by name, on a run of `scope`.
+local function platform_legs(scope: string): {string: {string: string}}
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local out: {string: {string: string}} = {}
+  for _, leg in ipairs(legs_of((ci.jobs as {string: {string: any}}).platform, scope)) do
+    assert(out[leg.name] == nil, "two legs named " .. tostring(leg.name))
+    out[leg.name] = leg
+  end
+  return out
+end
+
+--- A branch push (`light`) runs three platform legs, every other run
+--- all four, each with its own values: alpine-x86_64, which a light
+--- run leaves out, is linux-x86_64's runner and target in the alpine
+--- image, and an entry of alpine-x86_64's values that another leg's did
+--- not wholly overwrite would run that leg in the alpine image.
+local function test_a_branch_push_runs_no_alpine_leg()
+  local full, light = platform_legs("full"), platform_legs("light")
+  local function names(legs: {string: {string: string}}): string
+    local out: {string} = {}
+    for name in pairs(legs) do out[#out + 1] = name end
+    table.sort(out)
+    return table.concat(out, " ")
+  end
+  assert(names(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64", "a full run's legs: " .. names(full))
+  assert(names(light) == "linux-aarch64 linux-x86_64 macos-aarch64", "a light run's legs: " .. names(light))
+  local alpine = full["alpine-x86_64"]
+  assert(alpine.runner == "ubuntu-24.04" and alpine.target == "x86_64-linux-musl" and
+    alpine.image:find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil and
+    alpine.prepare:find("^adduser ") ~= nil and alpine.shell == "leg-shell {0}",
+    "alpine-x86_64's values: " .. tostring(alpine.image) .. " " .. tostring(alpine.prepare))
+  local keys: {string} = {}
+  for key in pairs(alpine) do keys[#keys + 1] = key end
+  for name, leg in pairs(full) do
+    for _, key in ipairs(keys) do assert(leg[key] ~= nil, name .. " has no " .. key) end
+    if name ~= "alpine-x86_64" then
+      assert(leg.image:find("alpine", 1, true) == nil and (leg.prepare or ""):find("adduser", 1, true) == nil,
+        name .. " runs as alpine-x86_64 does: " .. leg.image)
+    end
+    local other = light[name]
+    for _, key in ipairs(keys) do
+      assert(other == nil or other[key] == leg[key], name .. "'s " .. key .. " differs on a light run")
+    end
+  end
+  assert(full["macos-aarch64"].image == "" and full["macos-aarch64"].prepare == "", "macos-aarch64 has an image")
+end
+
 --- A workflow runs only when a path its filters name changes, so a
 --- path that no longer exists is a check that silently stops running,
 --- or one that never stops: every trigger's `paths` and `paths-ignore`
@@ -867,8 +978,7 @@ local function test_a_main_push_reuses_the_queue_run()
 
   local function legs(job: {string: any}): {string: string}
     local out: {string: string} = {}
-    local matrix = (job.strategy as {string: any}).matrix as {string: any}
-    for _, leg in ipairs(matrix.include as {{string: string}}) do out[leg.name] = leg.runner end
+    for _, leg in ipairs(legs_of(job, "full")) do out[leg.name] = leg.runner end
     return out
   end
   local ours, theirs, count = legs(seed), legs(platform), 0
@@ -892,7 +1002,7 @@ local function test_a_main_push_reuses_the_queue_run()
   end
   -- The lookup asks for every leg's seed, and the checked job's.
   local named: {string} = {}
-  for _, leg in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}) do
+  for _, leg in ipairs(legs_of(platform, "full")) do
     named[#named + 1] = leg.name
   end
   named[#named + 1] = checked_name
@@ -1159,7 +1269,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   local penv, cenv = platform.env as {string: string}, checked.env as {string: string}
   assert(penv.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " .. penv.COSMIC_CI_CHECKED_SUITE)
   local leg: {string: string}
-  for _, entry in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}) do
+  for _, entry in ipairs(legs_of(platform, "full")) do
     if entry.name == "linux-x86_64" then leg = entry end
   end
   assert(leg ~= nil, "no linux-x86_64 leg")
@@ -1477,8 +1587,7 @@ end
 local function test_the_scope_is_decided_once()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local scope = (ci.env as {string: string}).COSMIC_CI_SCOPE
-  assert(scope == "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && " ..
-    "'full' || 'light' }}", "the scope: " .. tostring(scope))
+  assert(scope == "${{ " .. FULL_RUN .. " && 'full' || 'light' }}", "the scope: " .. tostring(scope))
   for name, job in pairs(ci.jobs as {string: {string: any}}) do
     for _, env in ipairs(envs_of(job)) do
       assert(env.COSMIC_CI_SCOPE == nil and env.FULL == nil,

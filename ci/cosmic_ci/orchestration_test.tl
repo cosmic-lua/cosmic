@@ -813,6 +813,27 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
   end
 end
 
+--- ci.yml's platform legs on a full run, by name: each of the `name`
+--- list a full run takes, with the values of every `include` entry
+--- that names it or names no leg, a later one's over an earlier one's
+--- (build/workflows_test.tl expands the matrix as GitHub does, for a
+--- light run too).
+local function full_run_legs(platform: {string: any}): {string: {string: string}}
+  local matrix = (platform.strategy as {string: any}).matrix as {string: any}
+  local full = assert((matrix.name as string):match("&& '(%[.-%])' ||"), "the legs' names are no scope's choice")
+  local legs: {string: {string: string}} = {}
+  for _, name in ipairs(assert(Json.decode(full)) as {string}) do
+    local leg: {string: string} = { name = name }
+    for _, entry in ipairs(matrix.include as {{string: string}}) do
+      if entry.name == nil or entry.name == name then
+        for key, value in pairs(entry) do leg[key] = value end
+      end
+    end
+    legs[name] = leg
+  end
+  return legs
+end
+
 --- The checked core's suite runs on no leg of ci.yml's platform job
 --- (COSMIC_CI_CHECKED_SUITE=skip) but in its `checked` job, which runs
 --- the phases that build what it reads and then the suite, beside the
@@ -825,11 +846,7 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local jobs = ci.jobs as {string: {string: any}}
   local platform = jobs.platform
-  local legs: {string: boolean} = {}
-  local strategy = platform.strategy as {string: {string: any}}
-  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
-    legs[leg.name] = true
-  end
+  local legs = full_run_legs(platform)
   local env = platform.env as {string: string}
   assert(env.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " ..
     tostring(env.COSMIC_CI_CHECKED_SUITE))
@@ -854,12 +871,7 @@ local function platform_legs_and_env(): {string: {string: string}}, {string: str
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local platform = (ci.jobs as {string: {string: any}}).platform
-  local legs: {string: {string: string}} = {}
-  local strategy = platform.strategy as {string: {string: any}}
-  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
-    legs[leg.name] = leg
-  end
-  return legs, platform.env as {string: string}
+  return full_run_legs(platform), platform.env as {string: string}
 end
 
 --- The fixed-point regression, the slowest fixture on every leg, runs
