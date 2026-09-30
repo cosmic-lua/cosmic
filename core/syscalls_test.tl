@@ -995,7 +995,9 @@ end
 --- signals while it does, are the raw process table's, and not the
 --- public `cosmic.sys`'s: a public `waitpid(-1)` would take the status
 --- of a child a `Child` handle owns from under it, and a public signal
---- guard would be a second one beside `Child.guard`'s.
+--- guard would be a second one beside `Child.guard`'s. `poll` and
+--- `set_nonblocking`, which wait on any descriptor, are the public
+--- table's alone.
 local function test_the_process_calls_are_off_the_public_table()
   local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
@@ -1006,6 +1008,11 @@ local function test_the_process_calls_are_off_the_public_table()
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type(raw[name]) == "function", name .. " is not in the raw process table")
   end
+  for _, name in ipairs({ "poll", "set_nonblocking", "POLLIN", "POLLOUT", "POLLERR", "POLLHUP",
+      "POLLNVAL" }) do
+    assert(public[name] ~= nil, "cosmic.sys." .. name .. " is not public")
+    assert(raw[name] == nil, name .. " is in the raw process table too")
+  end
   for _, name in ipairs({ "digest", "hmac" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type((hash as {string: any})[name]) == "function", name .. " is not raw hash's")
@@ -1013,9 +1020,9 @@ local function test_the_process_calls_are_off_the_public_table()
 end
 
 --- `poll` watches as many descriptors as the kernel lets a process
---- watch, past the 1024 it was once held to, and a negative one is
---- left unwatched. Where the kernel's own limit is lower (macOS past
---- FD_SETSIZE under a low RLIMIT_NOFILE), it refuses with EINVAL.
+--- watch, past the 1024 it was once held to, and -1 is left unwatched.
+--- Where RLIMIT_NOFILE's soft limit is lower (1024 under systemd's
+--- default, 256 on macOS), the kernel refuses with EINVAL.
 local function test_poll_watches_past_a_thousand_descriptors()
   local ends = assert(process.pipe())
   assert(sys.write(ends.writer, "x") == 1)
@@ -1027,9 +1034,13 @@ local function test_poll_watches_past_a_thousand_descriptors()
   end
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
+  assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
   local revents, trouble, errno = sys.poll(fds, events, 0)
   sys.close(ends.reader)
   sys.close(ends.writer)
+  -- TODO: raise RLIMIT_NOFILE's soft limit past 1101 first, once
+  -- cosmic.sys carries getrlimit and setrlimit, so a host with a low one
+  -- checks the answers too, and tells the kernel's EINVAL from a cap.
   if revents == nil then
     assert(errno == sys.EINVAL, "poll: " .. trouble)
     return

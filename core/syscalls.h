@@ -648,12 +648,12 @@ COSMIC_SYSCALL(set_nonblocking, 2);
 
 /*
  * --- Waits until one of the descriptors is ready or the timeout passes,
- * --- and answers what happened to each, 0 for one not ready. A negative
- * --- descriptor is not watched and answers 0, and one not open answers
- * --- POLLNVAL. A signal ends the wait early, as though nothing were
- * --- ready. There is no count the call itself refuses: the kernel
- * --- refuses more than a process may have open (RLIMIT_NOFILE on Linux,
- * --- OPEN_MAX on macOS) with EINVAL.
+ * --- and answers what happened to each, 0 for one not ready. A
+ * --- descriptor of -1 is not watched and answers 0, one below -1 raises,
+ * --- and one not open answers POLLNVAL. A signal ends the wait early, as
+ * --- though nothing were ready. There is no count the call itself
+ * --- refuses: the kernel refuses more than RLIMIT_NOFILE's soft limit
+ * --- (at most OPEN_MAX on macOS) with EINVAL.
  * ---@param fds {integer} the descriptors to watch
  * ---@param events {integer} the POLL* mask wanted for each descriptor
  * ---@param timeout_ms integer how long to wait, -1 for no limit
