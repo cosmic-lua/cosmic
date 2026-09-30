@@ -44,6 +44,15 @@
 --- fails the run instead of being a note. A run over some paths does
 --- none of this.
 ---
+--- `--changed` names the paths that changed since the whole tree passed
+--- (`cosmic fix --check --changed $(git diff --name-only main)`): it
+--- lays out only those, yet answers as a run over the whole tree would,
+--- making every check that spans files over all of it
+--- ([`fix.narrowed`]). Where a path named is part of what checks each
+--- file alone (the layout, the C rules, the compiler), it lays out the
+--- whole tree, and says why. A branch's CI runs it in place of the
+--- whole tree's check; the merge queue still runs that.
+---
 --- In any project it also holds the links in comments and Markdown to
 --- resolving ([`build.links`]): each Teal and C file it covers, and each
 --- Markdown and Zig file, which it never lays out. A plain code span
@@ -79,7 +88,7 @@ local tree = require("build.tree")
 local example_checks = require("build.example_checks")
 local tree_checks = require("build.tree_checks")
 local type compiler = require("build.compiler")
-local type Sqlite = require("cosmic.sqlite")
+local Sqlite = require("cosmic.sqlite")
 
 local log = require("build.verdict").log
 local verb_spec = require("build.verb_spec")
@@ -135,8 +144,19 @@ local record fix
     refused: {string}
     --- Whether `files` are every Teal source of cosmic's own tree, as
     --- `cosmic fix --check .` covers it: only then does the run hold
-    --- the tree to [`build.tree_checks`].
+    --- the tree to [`build.tree_checks`]. A run of `--changed` is whole
+    --- too ([`fix.narrowed`]).
     whole: boolean
+    --- For a run of `--changed`, everything a run over the whole tree
+    --- covers, which the checks spanning files still cover: the asserts
+    --- the build refuses and the links; nil for any other run.
+    every: Chosen | nil
+    --- For a run of `--changed`, the Teal files whose notes it reads
+    --- ([`fix.notes`]), where these are not `files`.
+    noted: {string} | nil
+    --- For a run of `--changed` that lays out the whole tree after all,
+    --- why: a path named that is part of what checks each file alone.
+    widened: string | nil
   end
 end
 
@@ -447,6 +467,175 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
            refused = refused, whole = own and covers(root, out) }
 end
 
+--- The modules whose code checks each file alone, with every module
+--- each requires: the layout of Teal ([`build.fix.rule`],
+--- [`build.fix.render`], [`build.fix.equiv`], [`build.ast`], and the
+--- compiler [`build.teal`] loads), of YAML ([`build.flow`]), of C and
+--- its rules ([`build.c`]), a note on the standard library
+--- ([`build.fix.near`], [`build.analyzer`]), and what reads the command
+--- line, says the verdict and tells cosmic's own tree ([`build.tree`]),
+--- whose files a run over the whole of it covers. A change to one can
+--- change the verdict on a file that did not change, so a run of
+--- `--changed` naming one lays out the whole tree ([`fix.narrowed`]).
+--- What checks the tree as a
+--- whole -- the build, the tree checks, the links -- is not among them:
+--- such a run makes those checks over the whole tree anyway.
+local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix.equiv",
+                                "build.ast", "build.teal", "build.flow", "build.c",
+                                "build.fix.near", "build.analyzer", "build.verdict",
+                                "build.tree", "cosmic.flags", "cosmic.cli" }
+
+--- What else a run of `--changed` lays out the whole tree for, by a
+--- path's first directory, and why: what the program, its Teal compiler
+--- and the clang that reads each C file are built from or run on. A
+--- test there (`core/*_test.tl`) is none of these.
+local file_check_dirs: {string: string} = {
+  ["vendor"] = "the program and its Teal compiler are built from vendor/",
+  ["patch"] = "the program and its Teal compiler are built from patch/'s records",
+  ["bin"] = "bin/ pins zig, whose clang reads each C file",
+  ["core"] = "the program runs on core/, whose headers each C file reads",
+  ["cmd"] = "the program starts in cmd/",
+}
+
+--- As `file_check_dirs`, by a file's whole path: this verb, and what
+--- builds and writes the program.
+local file_check_files: {string: string} = {
+  ["build/fix/init.tl"] = "this verb checks each file",
+  ["build.zig"] = "the program is built by build.zig",
+  ["build.zig.zon"] = "the program is built by build.zig",
+  ["build/launcher.tl"] = "the program is written by build/launcher.tl",
+  ["build/artifact.tl"] = "the program is written by build/artifact.tl",
+}
+
+--- `path` as a path under `root` without a leading `./` or trailing
+--- `/`, "" for the root itself; nil for one outside it.
+local function under(root: string, path: string): string | nil
+  local out = path
+  if out:sub(1, #root + 1) == root .. "/" then
+    out = out:sub(#root + 2)
+  elseif out == root then
+    out = ""
+  elseif out:sub(1, 1) == "/" then
+    return nil
+  end
+  while out:sub(1, 2) == "./" do out = out:sub(3) end
+  out = out:gsub("/+$", "")
+  if out == "." then out = "" end
+  if out == ".." or out:sub(1, 3) == "../" then return nil end
+  return out
+end
+
+--- Whether `file`, a path under the root, is `named` or under it.
+local function inside(file: string, named: string): boolean
+  return named == "" or file == named or file:sub(1, #named + 1) == named .. "/"
+end
+
+--- The files, under the root, of the modules `file_checks` names and
+--- every module they require, as the running program's `databases`
+--- ([`Store.databases()`]) hold them: nil, and why, where they hold
+--- none of one.
+local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean} | nil, string
+  local roots: {string} = {}
+  for _, module in ipairs(file_checks) do roots[#roots + 1] = "('" .. module .. "')" end
+  local query = "WITH RECURSIVE closure(module) AS (VALUES " .. table.concat(roots, ", ") ..
+    " UNION SELECT imports.requires FROM imports JOIN closure ON imports.path = closure.module) " ..
+    "SELECT modules.path, modules.file FROM closure JOIN modules ON modules.path = closure.module"
+  local out: {string: boolean} = {}
+  local found: {string: boolean} = {}
+  for _, db in ipairs(databases) do
+    local rows, _ = Sqlite.text_rows(db, query)
+    for _, row in ipairs(rows or {}) do
+      found[row[1]] = true
+      out[row[2]] = true
+    end
+  end
+  for _, module in ipairs(file_checks) do
+    if not found[module] then
+      return nil, module .. " is not among the program's modules"
+    end
+  end
+  return out
+end
+
+--- The files a run of `--changed` lays out: of `every`, the whole
+--- tree's ([`fix.chosen`] with no path named), those `changed` names
+--- (a path of `root`, or a directory holding them), which name what
+--- changed since a tree a run over the whole of it passed. Every C
+--- file is held to its rules when one of them changed, since a rule
+--- reads other files. The run is whole, and makes every check that
+--- spans files over `every`: the tree checks, the asserts the build
+--- refuses, the links, and a note on the standard library, which reads
+--- the docs of all of it. A path named that was removed lays out
+--- nothing.
+---
+--- Where a path named is part of what checks each file alone
+--- (`file_checks`, read from `databases`, and the like), a file that
+--- did not change can answer otherwise, so it answers `every` itself,
+--- `widened` saying why; as it does for a path outside `root`.
+--- @param root string The tree's root, the working directory
+--- @param every fix.Chosen The whole tree's files
+--- @param changed {string} The paths named
+--- @param databases {Sqlite.Handle} The program's own
+--- ([`Store.databases()`]), which name its modules' requires
+--- @return fix.Chosen
+function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
+                      databases: {Sqlite.Handle}): fix.Chosen
+  local function widened(why: string): fix.Chosen
+    return { files = every.files, c_files = every.c_files, flow_files = every.flow_files,
+             checked = every.checked, refused = every.refused, whole = every.whole,
+             every = every, widened = why }
+  end
+  local named: {string} = {}
+  for _, path in ipairs(changed) do
+    local relative = under(root, path)
+    if relative == nil then return widened(path .. ": outside the tree") end
+    if relative == "" then return widened(path .. ": the whole tree") end
+    named[#named + 1] = relative
+  end
+  local checking, checking_trouble = file_check_sources(databases)
+  if checking == nil then return widened(checking_trouble) end
+  for _, path in ipairs(named) do
+    local first = path:match("^([^/]+)") or path
+    local why: string | nil = nil
+    if not String.ends_with(path, "_test.tl") then why = file_check_dirs[first] end
+    for file, reason in pairs(file_check_files) do
+      if why == nil and inside(file, path) then why = reason end
+    end
+    for file in pairs(checking) do
+      if why == nil and inside(file, path) then why = "it checks each file alone" end
+    end
+    if why ~= nil then return widened(path .. ": " .. why) end
+  end
+  local function picked(files: {string}): {string}
+    local out: {string} = {}
+    for _, file in ipairs(files) do
+      local relative = under(root, file) or file
+      for _, path in ipairs(named) do
+        if inside(relative, path) then
+          out[#out + 1] = file
+          break
+        end
+      end
+    end
+    return out
+  end
+  local files = picked(every.files)
+  local c_files: {string} = {}
+  if #picked(every.c_files) > 0 then c_files = every.c_files end
+  -- A note on the standard library fails the run, and reads the docs
+  -- the program carries of every file of it, which a change to what
+  -- writes them can move as well as a change to one of them.
+  local noted: {string} = {}
+  for _, file in ipairs(every.files) do
+    if tree_checks.standard(under(root, file) or file) then noted[#noted + 1] = file end
+  end
+  for _, file in ipairs(files) do
+    if not tree_checks.standard(under(root, file) or file) then noted[#noted + 1] = file end
+  end
+  return { files = files, c_files = c_files, flow_files = picked(every.flow_files),
+           checked = {}, refused = {}, whole = every.whole, every = every, noted = noted }
+end
+
 --- Lays out each YAML file of `files` ([`build.flow`]), writing it back
 --- unless `checking`: each one that changes, or would, is appended to
 --- `changed`, and each one refused -- not in flow style, or not one
@@ -701,11 +890,31 @@ local function fix_verb(argv: {integer:string}): integer
   if code ~= nil then
     return code
   end
-  local picked, list_trouble = fix.chosen(root, paths)
+  -- A run of `--changed` starts from the whole tree, which it narrows.
+  local covered: {string} = paths
+  if parsed.set["--changed"] then covered = {} end
+  local picked, list_trouble = fix.chosen(root, covered)
   if picked == nil then
     log:complain(list_trouble)
     return 1
   end
+  if parsed.set["--changed"] then
+    if not picked.whole then
+      log:complain("fix: --changed covers only cosmic's own tree, whose checks span files")
+      return 2
+    end
+    picked = fix.narrowed(root, picked, paths, Store.databases())
+    if picked.widened ~= nil then
+      log:say("fix: --changed: laying out the whole tree, since " .. picked.widened)
+    else
+      log:say("fix: --changed: laying out " .. plural.count(#picked.files + #picked.c_files +
+        #picked.flow_files, "file") .. " of the paths named; the checks spanning files " ..
+        "cover the whole tree")
+    end
+  end
+  -- What the checks spanning files cover: a run of `--changed` lays out
+  -- only some of it.
+  local every = picked.every or picked
 
   local built, load_trouble = teal.load()
   if built == nil then
@@ -803,7 +1012,7 @@ local function fix_verb(argv: {integer:string}): integer
   -- What only the checker can see: built from what is on disk, so a
   -- check reports the files once and a fix repeats until it settles.
   local chosen_files: {string:string} = {}
-  for _, file in ipairs(files) do
+  for _, file in ipairs(every.files) do
     local absolute, _ = Fs.absolute(file)
     if absolute ~= nil then chosen_files[absolute] = file end
   end
@@ -911,7 +1120,14 @@ local function fix_verb(argv: {integer:string}): integer
   -- moved to that root ([`build.tree_root`]).
   local own, _ = tree.is_own(root)
   local linked: {string} = {}
-  for _, group in ipairs({ files, c_files, picked.checked }) do
+  local groups: {{string}} = { files, c_files, picked.checked }
+  -- TODO: in a run of `--changed`, check the links of only the files
+  -- changed and those naming a symbol of a module that changed (what
+  -- the projection's `links` rows would say, where they hold each file's
+  -- links), not of every file, lexed again without the facts a layout's
+  -- parse gives: that is some 12 s of such a run's 20.
+  if picked.every ~= nil then groups = { every.files, every.c_files, every.checked } end
+  for _, group in ipairs(groups) do
     for _, file in ipairs(group) do
       if not (own and in_foreign_tree(root, file)) then linked[#linked + 1] = file end
     end
@@ -949,7 +1165,7 @@ local function fix_verb(argv: {integer:string}): integer
   -- standard library, in a run over the whole tree, is a failure: the
   -- library as it stands earns no note against itself. The notes compare
   -- with every database the binary sees ([`Store.databases()`]).
-  for _, line in ipairs(fix.notes(built, root, files, Store.databases())) do
+  for _, line in ipairs(fix.notes(built, root, picked.noted or files, Store.databases())) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
     local relative: string | nil = nil

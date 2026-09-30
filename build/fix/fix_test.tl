@@ -23,6 +23,7 @@ local fix = require("build.fix")
 local link_resolve = require("build.link_resolve")
 local type docs = require("build.docs")
 local render_mod = require("build.fix.render")
+local Sqlite = require("cosmic.sqlite")
 local teal = require("build.teal")
 
 local built, load_trouble = teal.load()
@@ -225,6 +226,90 @@ local function test_only_the_whole_own_tree_is_whole(tmp: string)
   assert(Fs.write(other .. "/thing.tl", "return {}\n"))
   assert(not assert(fix.chosen(other, {})).whole, "a tree of another's is never whole")
   assert(not assert(fix.chosen(other, { other })).whole, "a tree of another's is never whole")
+end
+
+--- A program's modules, as its own database holds them, which
+--- [`fix.narrowed`] reads: every module that checks each file alone,
+--- the Teal layout's requiring cosmic.string.
+local function program_modules(): Sqlite.Handle
+  local db = assert(Sqlite.memory())
+  assert(Sqlite.run(db, "CREATE TABLE modules (path TEXT, file TEXT)"))
+  assert(Sqlite.run(db, "CREATE TABLE imports (path TEXT, requires TEXT)"))
+  for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.equiv", "build.ast",
+                            "build.teal", "build.flow", "build.c", "build.fix.near",
+                            "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
+                            "cosmic.cli",
+                            "cosmic.string" }) do
+    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
+      { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
+  end
+  assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.fix.rule', 'cosmic.string')"))
+  return db
+end
+
+--- `--changed` lays out only the paths named, of those the whole tree's
+--- run covers, and keeps that run's files for the checks spanning
+--- files: every C file where one changed, and a note on every file of
+--- the standard library. A path named that is part of what checks each
+--- file alone -- a module of it or one it requires, the C core, this
+--- verb -- lays out the whole tree, saying why, as does one outside the
+--- tree, the tree itself, and a program whose modules cannot be read.
+local function test_changed_lays_out_only_the_paths_named(tmp: string)
+  local own = tmp .. "/own"
+  for _, dir in ipairs({ "/core", "/build/fix", "/cosmic", "/ci", "/lib", "/vendor/lua" }) do
+    assert(Fs.mkdirs(own .. dir))
+  end
+  for _, file in ipairs({ "/build/importer.tl", "/build/fix/init.tl", "/cosmic/thing.tl",
+                          "/cosmic/other.tl", "/cosmic/string.tl", "/ci/a.tl" }) do
+    assert(Fs.write(own .. file, "return {}\n"))
+  end
+  assert(Fs.write(own .. "/core/a.c", "int a;\n"))
+  assert(Fs.write(own .. "/lib/b.c", "int b;\n"))
+  local every = assert(fix.chosen(own, {}))
+  assert(every.whole and #every.c_files == 2, "the fixture is no tree of cosmic's own")
+  local db = program_modules()
+  local function names(files: {string}): string
+    local sorted: {string} = {}
+    for _, file in ipairs(files) do sorted[#sorted + 1] = file end
+    table.sort(sorted)
+    return table.concat(sorted, " ")
+  end
+
+  local narrowed = fix.narrowed(own, every, { "ci/a.tl", "./cosmic/thing.tl", "gone/x.tl",
+                                              own .. "/doc/r.md" }, { db })
+  assert(narrowed.widened == nil, tostring(narrowed.widened))
+  assert(narrowed.whole and narrowed.every == every, "a run of --changed is not whole")
+  assert(names(narrowed.files) == "ci/a.tl cosmic/thing.tl", names(narrowed.files))
+  assert(#narrowed.c_files == 0 and #narrowed.flow_files == 0, "it lays out C or YAML that did not change")
+  assert(names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "it notes " .. names(narrowed.noted))
+
+  narrowed = fix.narrowed(own, every, { "ci/a.tl", "lib/b.c" }, { db })
+  assert(narrowed.widened == nil and names(narrowed.files) == "ci/a.tl" and
+    names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+    "outside the standard library, it notes " .. names(narrowed.noted))
+  assert(names(narrowed.c_files) == "core/a.c lib/b.c", "one C file changed holds " ..
+    names(narrowed.c_files) .. " to the rules")
+
+  for _, case in ipairs({
+    { "cosmic/string.tl", "it checks each file alone" }, { "cosmic", "it checks each file alone" },
+    { "core/a.c", "core/" }, { "build/fix/init.tl", "this verb" }, { "vendor", "vendor/" },
+    { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
+  }) do
+    local widened = fix.narrowed(own, every, { "ci/a.tl", case[1] }, { db })
+    assert(widened.widened ~= nil and widened.widened:find(case[2], 1, true) ~= nil and
+      #widened.files == #every.files and widened.noted == nil,
+      case[1] .. ": " .. tostring(widened.widened))
+  end
+  -- A test of the core is not what the program runs on; its links are
+  -- checked with every other file's, and it is not laid out.
+  local tested = fix.narrowed(own, every, { "core/a_test.tl" }, { db })
+  assert(tested.widened == nil and #tested.files == 0, tostring(tested.widened))
+  local empty = assert(Sqlite.memory())
+  local unknown = fix.narrowed(own, every, { "ci/a.tl" }, { empty })
+  assert(unknown.widened ~= nil and unknown.widened:find("not among the program's modules", 1, true) ~= nil,
+    tostring(unknown.widened))
+  assert(db:close() and empty:close())
 end
 
 --- Changed output still has to parse and preserve both syntax and comments.

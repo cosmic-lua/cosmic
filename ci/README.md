@@ -392,13 +392,17 @@ cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
 skip, and which it skips too where main's linux-x86_64 leg left its
 marker for the same key (that leg's host, named again under the leg's
 name, and what the key hashes), and the format check (`platform
-format`, `fix --check .`, 42 to 62 s), which ran after linux-aarch64's
-suite and runs on a full run in that leg's assemble. With no suite it
-mostly finishes before the legs (2026-09-30), but not always: its
-setup, the driver's check where it runs, the boot and the format check
-take some 190 s, so on a branch where most verdicts stand it can be
-the run's gate (the `TODO:` above its driver check says what would
-shorten it). Its `operations.db` is kept on either scope, as
+format`), which ran after linux-aarch64's suite and runs on a full run
+in that leg's assemble. There it is `fix --check .` (36 to 55 s on this
+job, 2026-09-30, which then often outlasted the legs); on a light run it
+lays out only what the branch changed since its base on main
+(.github/scripts/changed-paths.sh, `fix --check --changed`), whose
+tree the queue held to the whole check, and still makes every check
+spanning files -- the tree checks, the links, the asserts -- over the
+whole tree (some 20 s). Where a path changed is part of what
+checks each file alone (the layout, the C rules, the compiler, the
+core), or the paths cannot be named, it checks the whole tree. Its
+`operations.db` is kept on either scope, as
 `ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build
 outputs and compiles, which that leg saves, and saves neither. Its
 verdicts it keeps under a name of its own,
