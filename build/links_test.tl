@@ -401,11 +401,43 @@ local function test_symbols_go_unchecked_in_a_project_not_built()
 end
 
 --- The Lua standard library this program carries resolves by its own
---- names; what cosmic leaves out (`io`) does not.
+--- names, `warn` and `_VERSION` among them; what cosmic leaves out
+--- (`io`, `dofile`) does not.
 local function test_the_standard_library_resolves()
   same(checked(world({}), "/p/a.md", "markdown",
-    "[`string.format`] [`table.concat`] [`print`] [`io.open`]\n"), {
+    "[`string.format`] [`table.concat`] [`print`] [`warn`] [`_VERSION`] [`io.open`] [`dofile`]\n"), {
     "/p/a.md:1: link: io.open does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: dofile does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+  })
+end
+
+--- A global resolves by what `_G` holds when the link is read: one set
+--- since resolves, members and all, and one never set does not.
+local function test_a_global_the_runtime_adds_resolves()
+  local globals = _G as {string: any}
+  rawset(globals, "links_test_added", { member = true })
+  local ok, found = pcall(checked, world({}), "/p/a.md", "markdown",
+    "[`links_test_added.member`] [`links_test_added.other`] [`links_test_never`]\n")
+  rawset(globals, "links_test_added", nil)
+  assert(ok, tostring(found))
+  same(found as {string}, {
+    "/p/a.md:1: link: links_test_added.other does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: links_test_never does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+  })
+end
+
+--- A global is reached from `_G` once: `_G` and `package.config`
+--- resolve, but neither a step back into `_G` nor one into
+--- `package.loaded` or `package.preload`, which hold what this process
+--- loaded, does.
+local function test_a_global_is_not_reached_through_g_or_package_loaded()
+  same(checked(world({}), "/p/a.md", "markdown",
+    "[`_G`] [`package.config`] [`_G._G.print`] [`package.loaded._G.warn`] " ..
+    "[`package.loaded.string.format`] [`package.preload`]\n"), {
+    "/p/a.md:1: link: _G._G.print does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: package.loaded._G.warn does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: package.loaded.string.format does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: package.preload does not resolve (no declaration, symbol or file by that name)",
   })
 end
 

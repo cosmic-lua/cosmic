@@ -5,6 +5,7 @@
 --- the loaded compiler rather than on the capsule; a capsule that kept
 --- the write for itself would leave the checker searching the
 --- filesystem.
+local type compiler = require("build.compiler")
 local teal = require("build.teal")
 
 --- A field written through the capsule reaches the loaded compiler:
@@ -138,4 +139,28 @@ local function test_an_integer_hint_reads_repeat_and_method_scopes()
   -- [`teal.replacement`] for the integer message at the literal's position.
   assert(teal.replacement(integer_msg,
     "local self = 0\nfunction R:m()\n  self = 1.5\nend\n", 3, 10) == nil)
+end
+
+--- The type errors the checker reports for `source`, failing the test
+--- where it raises instead.
+local function type_errors(source: string): {compiler.Error}
+  local built = assert(teal.load())
+  local ok, code, result = pcall(built.gen, source, nil, nil, "tl")
+  assert(ok, tostring(code))
+  return assert(result).type_errors
+end
+
+--- The checker's record for `_G` has the place it is read at (patch/tl's
+--- 27-g-has-a-place.txt). Without one, an error about it -- reported,
+--- or only tried, as narrowing a variable a loop assigns tries one --
+--- failed an assertion instead.
+local function test_g_is_checked_where_it_is_read()
+  local errors = type_errors("local n: integer = _G\nprint(n)\n")
+  assert(#errors == 1, tostring(#errors))
+  assert(errors[1].y == 1 and errors[1].x == 20, errors[1].y .. ":" .. errors[1].x)
+  assert(errors[1].msg:find("expected integer$") ~= nil, errors[1].msg)
+  for _, found in ipairs(type_errors("local value: any = _G\nfor _ = 1, 2 do\n" ..
+      "  if value is {any: any} then value = value[1] end\nend\n")) do
+    assert(found.filename ~= nil and found.y ~= nil and found.x ~= nil, found.msg)
+  end
 end
