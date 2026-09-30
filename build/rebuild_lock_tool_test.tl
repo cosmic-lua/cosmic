@@ -1,27 +1,30 @@
 --- The rebuild lock between processes, as two runs in one checkout meet
 --- it: another process of this program holds or asks for it, the way a
 --- tool from before the flock does (its SQLite half alone) or the way
---- this one does (`rebuild_lock.take`). The flock and SQLite's fcntl
---- lock only exclude one another across processes, so these start this
---- program; the rest is in `rebuild_lock_test.tl`.
+--- this one does (`rebuild_lock.take`). A process's own fcntl locks
+--- never conflict with one another, and closing any descriptor of the
+--- file drops them, so these ask from another process; the rest is in
+--- `rebuild_lock_test.tl`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 
 --- The program itself, which holds the lock against this process.
 Test.needs{ tool = true }
 
---- Asks for the lock of the tree at `root` as a tool from before the
---- flock does, and prints "held" or "busy". A holder keeps it until its
---- standard input ends.
+--- Asks for the lock of the tree at the first `%q` as a tool from
+--- before the flock does, and prints "held" or "busy". A holder keeps
+--- it for the `%d` milliseconds, or until its standard input ends when
+--- that is negative.
 local old_tool = [[
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
 local db = assert(Sqlite.open(%q .. "/o/rebuild.lock", true))
 assert(db:exec("PRAGMA busy_timeout = 0"))
 if not db:exec("BEGIN IMMEDIATE") then
@@ -29,23 +32,34 @@ if not db:exec("BEGIN IMMEDIATE") then
   return
 end
 print("held")
-Fs.take(Fs.stdin, 1)
+local hold_ms = %d
+if hold_ms < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ms * 1000000) end
 ]]
 
 --- The same, as this tool does.
 local new_tool = [[
 local Fs = require("cosmic.fs")
+local Time = require("cosmic.time")
 local taken = require("build.rebuild_lock").take(%q, 0)
 print(taken)
-if taken == "held" then
-  Fs.take(Fs.stdin, 1)
-end
+if taken ~= "held" then return end
+local hold_ms = %d
+if hold_ms < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ms * 1000000) end
+]]
+
+--- Asks once for the flock of the lock file of the tree at `%q`, as a
+--- run taking the lock asks first, and prints "taken" or "refused".
+local probe = [[
+local sys = require("cosmic.sys")
+local fd = assert(sys.open(%q .. "/o/rebuild.lock", sys.O_RDWR, 0))
+print(sys.flock(fd, "exclusive") and "taken" or "refused")
 ]]
 
 --- A process of this program running `script` against the tree at
---- `root`, and the first line it printed.
-local function start(script: string, root: string): Child.Handle, string
-  local started = this_program.program({ "-e", script:format(root) },
+--- `root`, holding what it takes for `hold_ms` (until its standard input
+--- ends, by default), and the first line it printed.
+local function start(script: string, root: string, hold_ms?: integer): Child.Handle, string
+  local started = this_program.program({ "-e", script:format(root, hold_ms or -1) },
     { stdin = "pipe", stdout = "stream" })
   local child = assert(Child.start(started.argv, started.options))
   local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read()
@@ -53,19 +67,18 @@ local function start(script: string, root: string): Child.Handle, string
   return child, line
 end
 
---- Lets the holder `child` go and waits for it to exit.
+--- Lets `child` go and waits for it to exit.
 local function finish(child: Child.Handle)
   assert(child:close_stdin())
   local result = assert(child:wait(30000))
   assert(result.ok, result.stderr)
 end
 
---- Whether another open of the lock file is refused the flock.
-local function flock_refused(root: string): boolean
-  local fd = assert(sys.open(root .. "/o/rebuild.lock", sys.O_RDWR, 0))
-  local ok, _, _ = sys.flock(fd, "exclusive")
-  assert(sys.close(fd))
-  return not ok
+--- What `probe` printed.
+local function probed(root: string): string
+  local child, said = start(probe, root)
+  finish(child)
+  return said
 end
 
 local function tree(tmp: string): string
@@ -74,9 +87,9 @@ local function tree(tmp: string): string
   return root
 end
 
---- A tool from before the flock takes only the SQLite half, which a
---- flock does not see: this tool still waits for it, letting the flock
---- go meanwhile, and keeps it out once it holds the lock itself.
+--- A tool from before the flock takes only the SQLite half, an fcntl
+--- lock: this tool still waits for it, letting its own flock go when it
+--- gives up, and keeps that tool out once it holds the lock itself.
 local function test_a_tool_holding_only_the_sqlite_lock_is_excluded(tmp: string)
   local root = tree(tmp)
   local old, said = start(old_tool, root)
@@ -85,15 +98,20 @@ local function test_a_tool_holding_only_the_sqlite_lock_is_excluded(tmp: string)
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
   taken, trouble = rebuild_lock.take(root, 50)
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
-  assert(not flock_refused(root), "a run kept out still holds the flock")
   finish(old)
+  local other, other_said = start(new_tool, root)
+  finish(other)
+  assert(other_said == "held", "a run kept out still holds the lock: " .. other_said)
   taken, trouble = rebuild_lock.take(root, 0)
   assert(taken == "held", tostring(taken) .. " " .. trouble)
   local late, late_said = start(old_tool, root)
   finish(late)
+  local flock = probed(root)
   rebuild_lock.release()
   assert(late_said == "busy", "a tool from before the flock took the lock " ..
     "this one held")
+  assert(flock == "refused", "the holder does not hold the flock")
+  assert(probed(root) == "taken", "the flock outlived the release")
 end
 
 --- Two runs of this tool exclude one another, whichever holds the lock.
@@ -110,4 +128,21 @@ local function test_two_holders_exclude_one_another(tmp: string)
   finish(late)
   rebuild_lock.release()
   assert(late_said == "busy", "another run took the lock this one held")
+end
+
+--- A run waiting for the lock takes it once its holder lets go, of
+--- either kind, before the wait is out.
+local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
+  local root = tree(tmp)
+  for _, script in ipairs({ old_tool, new_tool }) do
+    local holder, said = start(script, root, 300)
+    assert(said == "held", said)
+    local started_ns = Time.monotonic_ns()
+    local taken, trouble = rebuild_lock.take(root, 30000)
+    local waited_ms = (Time.monotonic_ns() - started_ns) // 1000000
+    rebuild_lock.release()
+    finish(holder)
+    assert(taken == "held", tostring(taken) .. " " .. trouble)
+    assert(waited_ms >= 100, "took a held lock after " .. tostring(waited_ms) .. " ms")
+  end
 end

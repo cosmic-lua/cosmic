@@ -7,22 +7,26 @@
 --- (`writer.write_result`, `writer.carried`), which the other removes
 --- and writes into under it.
 ---
---- It is two locks on one file, `o/rebuild.lock`: a `flock` of it, and
---- an SQLite write lock on it as an empty database, a transaction
---- nothing writes. A tool from before the flock takes only SQLite's,
---- which is an fcntl lock, and Linux keeps the two kinds apart: a run
---- holding only one would not exclude a run holding only the other.
---- This tool takes the flock first and SQLite's second, so no run holds
---- SQLite's while it waits for the flock: two runs taking both cannot
---- wait on each other, and one that holds the flock waits only on a run
---- holding SQLite's alone, which waits on nothing.
+--- It is a `flock` of `o/rebuild.lock` and, on Linux, an SQLite write
+--- lock on the same file as an empty database, a transaction nothing
+--- writes. A tool from before the flock takes only SQLite's, which is an
+--- fcntl lock. Linux keeps the two kinds of lock apart, so a run holding
+--- only one would not exclude a run holding only the other: there this
+--- tool takes both, the flock first and SQLite's second. No run then
+--- holds SQLite's while it waits for the flock, so two runs taking both
+--- cannot wait on each other, and one that holds the flock waits only on
+--- a run holding SQLite's alone, which waits on nothing. macOS and the
+--- BSDs keep the two in one list, where a whole-file flock conflicts
+--- with any fcntl lock of another owner, this process's own SQLite
+--- handle included: there the flock alone excludes both kinds of tool,
+--- and taking SQLite's as well would find it always busy.
 ---
---- The system drops both with the descriptors, so a holder that dies or
---- execs (both are opened close-on-exec) never leaves the lock held.
---- Closing any descriptor of the file drops every fcntl lock the
---- process holds on it, so a holder opens and closes no other while it
---- holds the lock. A sandboxed test worker never takes it, since only
---- the tree's own tool (`reboot.own_tool`) rebuilds.
+--- The system drops the lock with its descriptors, so a holder that dies
+--- or execs (each is opened close-on-exec) never leaves it held. Closing
+--- any descriptor of the file drops every fcntl lock the process holds
+--- on it, so a holder opens and closes no other while it holds the lock.
+--- A sandboxed test worker never takes it, since only the tree's own
+--- tool (`reboot.own_tool`) rebuilds.
 -- The SQLite half stays: any checkout can build a commit from before
 -- the flock (a bisect, an older branch), and that tool takes only
 -- SQLite's.
@@ -51,7 +55,8 @@ local lock_name = "/o/rebuild.lock"
 --- Where the holder writes its process id, for a waiting run to name it.
 local holder_name = "/o/rebuild.lock.pid"
 
---- The lock's two halves, each nil once let go or never taken.
+--- The lock's descriptor and SQLite handle, each nil once let go or
+--- never taken.
 local record Lock
   fd: integer | nil
   db: Sqlite.Handle | nil
@@ -75,19 +80,64 @@ local lock_mt: metatable<Lock> = {
 --- process does, or until the exec that replaces it.
 local held: Lock | nil = nil
 
---- Takes the rebuild lock of `root`, waiting up to `wait_ms` in all for
---- a run that holds it. Answers "held" once this process holds it,
---- "busy" when another run held either half past the wait, or nil and
---- why when the lock could not be asked for at all (its file cannot be
---- opened, the wait was interrupted). A half taken is let go again
---- whenever the other is not.
+--- Whether this host keeps flock and fcntl locks apart, so the lock
+--- takes SQLite's half too; nil and why when the host cannot be named.
+-- TODO: answer false for a checkout on NFS, where Linux emulates flock
+-- with a whole-file fcntl lock, which conflicts with this process's own
+-- SQLite half as on macOS, so `take` always answers "busy" there; tell
+-- the filesystem once cosmic.sys carries statfs.
+local function kept_apart(): boolean | nil, string
+  local names, trouble = sys.uname()
+  if names == nil then
+    return nil, "uname: " .. trouble
+  end
+  return names.sysname == "Linux", ""
+end
+
+--- Takes SQLite's half of the lock on `path` into `lock`, waiting up to
+--- `wait_ms`. Answers "held", "busy", or nil and why.
+local function take_sqlite(lock: Lock, path: string,
+                           wait_ms: integer): rebuild_lock.Taken | nil, string
+  local db, db_trouble = Sqlite.open(path, true)
+  if db == nil then
+    return nil, path .. ": " .. db_trouble
+  end
+  lock.db = db
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
+    tostring(wait_ms))
+  if not timed then
+    return nil, path .. ": " .. time_trouble
+  end
+  -- TODO: end this wait at a signal a Child.guard catches, as the
+  -- flock's does, once cosmic.sqlite's busy wait checks for one.
+  local begun, _ = db:exec("BEGIN IMMEDIATE")
+  if not begun then
+    return "busy", ""
+  end
+  return "held", ""
+end
+
+--- Takes the rebuild lock of `root`, waiting up to `wait_ms` (0 or
+--- more) in all for a run that holds it. Answers "held" once this
+--- process holds it, "busy" when another run held it past the wait, or
+--- nil and why when the lock could not be asked for at all (its file
+--- cannot be opened, a `Child.guard` caught a signal during the wait).
+--- A half taken is let go again whenever the other is not.
 function rebuild_lock.take(root: string, wait_ms: integer): rebuild_lock.Taken | nil, string
+  if wait_ms < 0 then
+    error("rebuild_lock.take: the wait is negative", 2)
+  end
   if held ~= nil then
     return "held", ""
   end
+  local both, platform_trouble = kept_apart()
+  if both == nil then
+    return nil, platform_trouble
+  end
   local path = root .. lock_name
   local started_ns = Time.monotonic_ns()
-  -- For writing, which an exclusive flock over NFS or SMB needs.
+  -- For writing, which an exclusive flock over SMB, or over NFS on
+  -- macOS, needs.
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
   if fd == nil then
     return nil, path .. ": " .. open_trouble
@@ -96,25 +146,22 @@ function rebuild_lock.take(root: string, wait_ms: integer): rebuild_lock.Taken |
   local taking <close> = setmetatable(opened, lock_mt)
   local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", wait_ms)
   if not flocked then
-    if sys.errno_name(errno) == "ETIMEDOUT" then
+    local name = sys.errno_name(errno)
+    if name == "ETIMEDOUT" then
       return "busy", ""
+    elseif name == "EINTR" then
+      return nil, "interrupted while waiting for " .. path
     end
     return nil, path .. ": " .. flock_trouble
   end
-  local db, db_trouble = Sqlite.open(path, true)
-  if db == nil then
-    return nil, path .. ": " .. db_trouble
-  end
-  taking.db = db
-  local left_ms = wait_ms - (Time.monotonic_ns() - started_ns) // 1000000
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring(math.max(left_ms, 0)))
-  if not timed then
-    return nil, path .. ": " .. time_trouble
-  end
-  local begun, _ = db:exec("BEGIN IMMEDIATE")
-  if not begun then
-    return "busy", ""
+  if both then
+    local left_ms = wait_ms - (Time.monotonic_ns() - started_ns) // 1000000
+    local taken, trouble = take_sqlite(taking, path, math.max(left_ms, 0))
+    if taken == nil then
+      return nil, trouble
+    elseif taken == "busy" then
+      return "busy", ""
+    end
   end
   local holding: Lock = { fd = taking.fd, db = taking.db }
   taking.fd, taking.db = nil, nil

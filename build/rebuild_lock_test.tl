@@ -10,16 +10,6 @@ local function tree(tmp: string): string, string
   return root, root .. "/o/rebuild.lock"
 end
 
---- Whether another open of `path` is refused the flock: the one a run
---- taking the rebuild lock asks for first.
-local function flock_refused(path: string): boolean
-  local fd = assert(sys.open(path, sys.O_RDWR, 0))
-  local ok, why, errno = sys.flock(fd, "exclusive")
-  assert(sys.close(fd))
-  assert(ok or sys.errno_name(errno) == "ETIMEDOUT", why)
-  return not ok
-end
-
 --- A run holding the flock alone, as another run holding the lock does
 --- while it takes the SQLite half, keeps a run out whether it asks once
 --- or waits, and lets it in once let go. The file is left as it was
@@ -42,17 +32,30 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(assert(sys.stat(path)).size == 0, "the lock's file was written")
 end
 
---- A run holding the lock holds its flock until it lets go, so another
---- run asking for it, which asks for the flock first, is kept out.
-local function test_a_holder_keeps_the_flock_until_released(tmp: string)
+--- A holder asking again holds it still, and a holder lets go of the
+--- file's flock with the lock. Whether another run is kept out while
+--- it holds the lock is asked from another process
+--- (`rebuild_lock_tool_test.tl`): opening and closing the file here
+--- would drop this process's fcntl locks on it.
+local function test_a_holder_lets_go_of_the_flock_on_release(tmp: string)
   local root, path = tree(tmp)
   assert(rebuild_lock.take(root, 0) == "held")
   assert(rebuild_lock.take(root, 0) == "held", "a holder asking again is refused")
-  assert(flock_refused(path), "the holder does not hold the flock")
   rebuild_lock.release()
-  assert(not flock_refused(path), "the flock outlived the release")
+  local fd = assert(sys.open(path, sys.O_RDWR, 0))
+  local ok, why = sys.flock(fd, "exclusive")
+  assert(sys.close(fd))
+  assert(ok, "the flock outlived the release: " .. tostring(why))
   assert(rebuild_lock.take(root, 0) == "held")
   rebuild_lock.release()
+end
+
+--- A negative wait, which a flock would take for no limit and SQLite
+--- for none, is refused.
+local function test_a_negative_wait_raises(tmp: string)
+  local root = tree(tmp)
+  local ok, err = pcall(rebuild_lock.take, root, -1)
+  assert(not ok and tostring(err):find("the wait is negative", 1, true), tostring(err))
 end
 
 --- A lock whose file cannot be opened is no busy lock: the caller is
