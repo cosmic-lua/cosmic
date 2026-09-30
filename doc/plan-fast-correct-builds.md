@@ -94,6 +94,45 @@ What the runs since show:
 
 ### Milestone M1 (to measure)
 
+**Fourth measurement (2026-09-30, 24 gating runs, #2412 to #2444).**
+Read from each run's jobs and `operations.db`, qualifying as `report.tl`
+does. 12 went `--all`; 6 of the 12 ordinary runs qualify, so M1 is still
+not decided. Over the 6:
+
+- Median gating run 12.3 min (10.7 to 14.7): missed.
+- Checked suite stands on a median 81.6%, best 100%: missed.
+- Main push median 62 s: met.
+- 54.7 runner-minutes per landed change: missed, worse than 35.9.
+
+What it shows:
+
+- **The gate is builds and fixtures, not the suite.** On #2443, where
+  every suite stood, macOS took 10.7 min: release build 2:47, portable
+  and checked artifacts 3:57, fixtures 2:24, native suite 30 s.
+  linux-x86_64 was similar (2:33, 2:47, 2:51). Standing more tests
+  cannot bring the gate under 9.
+- **The fixtures stood once in 24 runs** (#2443, which changed only
+  `.git-blame-ignore-revs`). #2434 edited two test files only and its
+  product still moved. Even when the sandboxed four stand, the step
+  takes about 170 s, because self-rebuild (about 113 s) and self-driven
+  (about 48 s) always run.
+- **Item 9 paid off once**: #2430 stood 92.7% of its native suites on
+  the rows of the run ahead. But the checked job missed the 150 s
+  deadline in 3 of 6 stacked runs and ran everything (373 s), becoming
+  the gate.
+- **Six ordinary runs failed to qualify**: three moved the core
+  themselves, and three lost the checked job's (or macOS's) wait for
+  the run ahead.
+- **`report.tl` gap**: it counts an `--all` run as qualifying when its
+  harness digest did not move, as for #2437 and #2432, which
+  re-acknowledged modules without bumping the epoch. It should refuse
+  `--all` runs.
+
+Next, in order: the product moving on test-only edits; the release and
+checked builds on a cached leg; the unsandboxed fixtures (self-rebuild,
+self-driven) standing; the checked job's deadline for the run ahead; and
+the `report.tl` gap.
+
 **Second measurement (2026-09-29, 13 gating runs after #2320,
 #2326 to #2334).** 7 qualify (core and harness unmoved); 10 are
 needed, so M1 is not yet decided. Over the 7:
