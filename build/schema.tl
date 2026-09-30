@@ -72,9 +72,11 @@ local tables: {{string}} = {
                      line INTEGER NOT NULL,
                      PRIMARY KEY (module, symbol, from_module, line)) WITHOUT ROWID]] },
 
-  -- Each link of a module's comments that resolves ([`build.link_index`]):
-  -- where it is, its form ("shortcut", "inline" or "reference"), its
-  -- source ("comment" or "doc", a doc comment), its text, and what it
+  -- Each link that resolves of a module's comments, or of a Markdown,
+  -- C or Zig file's text, which names no `from_module` ("")
+  -- ([`build.link_index`]): where it is, its form ("shortcut", "inline"
+  -- or "reference"), its source ("comment", "doc", a doc comment, or
+  -- "text", a Markdown file's), its text, and what it
   -- names by `kind`: a "symbol" of `module` (`symbol` as `docs` holds
   -- it, "" for the module's own row), a "file" or directory at `path`
   -- from the root, or an "anchor" of the file at `path`. A column that

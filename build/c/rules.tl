@@ -150,6 +150,9 @@ local exempt: {string: string} = {
   ["core/memory.h cosmic_realloc single-file"] = checked_only,
   ["core/memory.h cosmic_free single-file"] = checked_only,
   ["core/fault.h cosmic_fault single-file"] = checked_only,
+  ["core/syscalls.h cosmic_sys_sandbox_platform true-alone"] =
+    "its other branch, compiled off Linux, answers false with ENOSYS, which " ..
+    "the check's Linux compile does not see",
   ["core/startup_hook.c cosmic_startup_test_pause constant-return"] =
     "a link-time seam: the product hook always lets startup go on, and " ..
     "test/portable/startup_hook.c, linked in its place, answers whether it may",

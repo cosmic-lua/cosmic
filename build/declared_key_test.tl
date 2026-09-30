@@ -368,13 +368,12 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   write("packages2", "p2")
   write("os2", "o2")
   write("status2", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
-  write("cpuinfo2", "flags : aes\n")
   local function make(): declared_key.HostSources
     return {
       packages = { write("packages", "p1") },
       system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
       sysname = "Linux", system_id = "s1",
-      cpuinfo = write("cpuinfo", "flags : aes pclmulqdq asimd\n"), machine = "x86_64",
+      cpu_features = { "aes", "pclmulqdq", "asimd" }, machine = "x86_64",
       status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\nGid: 1 1 1 1\n"),
       own_proc = true, host_id = "h1", uid = 1, walked = { write("walked", "w1") },
       worker_uid = 65532, worker_gid = 65532,
@@ -401,7 +400,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     -- Read only where `system` names none, to choose where to look.
     sysname = { from = function(s: declared_key.HostSources) s.system = nil end,
       change = function(s: declared_key.HostSources) s.sysname = "Darwin" end },
-    system_id = set("system_id", "s2"), cpuinfo = set("cpuinfo", tmp .. "/cpuinfo2"),
+    system_id = set("system_id", "s2"), cpu_features = set("cpu_features", { "aes" }),
     machine = set("machine", "aarch64"),
     status = { from = as_runner, change = set("status", tmp .. "/status2").change },
     own_proc = set("own_proc", false), host_id = set("host_id", "h2"),
@@ -434,8 +433,8 @@ local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp:
     "CapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n" .. tail)
   local function host(sources: declared_key.HostSources): string
     sources.system = { "", "", "" }
-    sources.cpuinfo, sources.machine, sources.own_proc, sources.host_id =
-      status("cpuinfo", "flags : aes\n"), "x86_64", true, "h"
+    sources.cpu_features, sources.machine, sources.own_proc, sources.host_id =
+      { "aes" }, "x86_64", true, "h"
     return declared_key.host_identity(declared_key.digests(tmp), sources)
   end
   local dropped = host({ status = root, uid = 0, worker_uid = 65532, worker_gid = 65532 })
@@ -674,7 +673,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   local sources: declared_key.HostSources = {
     packages = { write("packages", "p1") },
     system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
-    cpuinfo = write("cpuinfo", "flags : aes fma\nflags : fma aes\n"), machine = "x86_64",
+    cpu_features = { "aes", "fma", "fma", "aes" }, machine = "x86_64",
     status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
     own_proc = true, host_id = "h1", uid = 1,
   }
@@ -689,7 +688,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   end
   differs("the start")
   assert(identity() == identity(), "the same host")
-  write("cpuinfo", "flags : fma aes avx512f\n")
+  sources.cpu_features = { "fma", "aes", "avx512f" }
   assert(seen[identity()] == "the start", "each feature is counted once, if a core reads it")
   local installed = declared_key.system_identity(declared_key.digests(tmp), sources)
   write("packages", "p2")
@@ -703,9 +702,9 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   differs("the kernel's release")
   write("version", "v2")
   differs("the kernel's version")
-  write("cpuinfo", "flags : aes\n")
+  sources.cpu_features = { "aes" }
   assert(seen[identity()] == "the kernel's version", "a feature no core reads")
-  write("cpuinfo", "flags : aes fma pclmulqdq\n")
+  sources.cpu_features = { "aes", "fma", "pclmulqdq" }
   differs("a feature of the processor")
   write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
   differs("the capabilities")
@@ -736,7 +735,7 @@ local function test_a_macos_host_is_keyed_by_its_system_version(tmp: string)
   for i, path in ipairs(darwin) do system[i] = path == plist and fake or path end
   local sources: declared_key.HostSources = {
     packages = { tmp .. "/no-packages" }, system = system, status = tmp .. "/no-status",
-    cpuinfo = tmp .. "/no-cpuinfo", machine = "arm64", own_proc = false,
+    cpu_features = {}, machine = "arm64", own_proc = false,
     host_id = "macos-15", system_id = "macos15 20250901.1", uid = 501,
   }
   local function both(): string, string

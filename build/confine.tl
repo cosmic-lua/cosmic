@@ -27,6 +27,10 @@ else
   process = require("cosmic.internal.process")
 end
 
+--- The process table's questions of this host, as this module loads.
+local sandbox_platform, may_map_ids, maps_id, own_proc = process.sandbox_platform,
+  process.may_map_ids, process.maps_id, process.own_proc
+
 --- The process table's own `spawn`, as this module loads -- before any
 --- stand-in for it (see `enter`) is put in its place.
 local own_spawn = process.spawn
@@ -345,30 +349,39 @@ function confine.itself(): {string}
   return program
 end
 
+--- Whether this platform has a sandbox at all (core/process.h's
+--- `sandbox_platform`): Linux has, whatever this host then refuses of
+--- it; another platform has none to give or to check.
+function confine.sandbox_platform(): boolean
+  local ok, _, _ = sandbox_platform()
+  return ok
+end
+
+--- Whether this process may map another user's ids into a sandbox's
+--- user namespace from outside, as `spawn`'s `user` does: it is root,
+--- holding CAP_SETUID, CAP_SETGID and CAP_SETFCAP in effect
+--- (core/process.h's `may_map_ids`).
+function confine.may_map_ids(): boolean
+  local ok, _, _ = may_map_ids()
+  return ok
+end
+
+--- Whether this process's user namespace maps `id`, as a user and as a
+--- group (core/process.h's `maps_id`).
+function confine.maps_id(id: integer): boolean
+  local ok, _, _ = maps_id(id)
+  return ok
+end
+
 --- Whether this host gives a sandboxed process a procfs of its own pid
---- namespace (core/process.h's `unveil`): whether /proc, as this
---- process sees it, is writable and has nothing mounted beneath it but
---- /proc/sys/fs/binfmt_misc, which the kernel keeps empty. A user
+--- namespace (core/process.h's `unveil`), as the kernel answers a
+--- child started to mount one (core/process.h's `own_proc`). A user
 --- namespace may mount a procfs only where one is wholly visible, which
 --- a container's masked /proc paths are not; where one is not, a
 --- sandboxed process has the host's /proc, read-only.
--- TODO: ask the kernel rather than read the mounts -- start a confined
--- process once and see whether its /proc has a /proc/sys, as
--- build/sandbox_probe.tl's "a /proc of its own" part does -- so a
--- mount beneath /proc the kernel lets through (a host's
--- /proc/fs/nfsd, an NFS server's) is not taken for a mask: today it
--- is, and the tests that ask expect the fallback where there is none.
 function confine.own_proc_given(): boolean
-  local text, _ = Fs.read("/proc/self/mountinfo")
-  if text == nil then return false end
-  for line in text:gmatch("[^\n]+") do
-    local point, options = line:match("^%S+ %S+ %S+ %S+ (%S+) (%S+)")
-    if point == "/proc" and ("," .. options .. ","):find(",ro,", 1, true) then return false end
-    if point ~= nil and point:sub(1, 6) == "/proc/" and point ~= "/proc/sys/fs/binfmt_misc" then
-      return false
-    end
-  end
-  return true
+  local ok, _, _ = own_proc()
+  return ok
 end
 
 --- What a sandboxed worker of this very program -- `cosmic test`'s,

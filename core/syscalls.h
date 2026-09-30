@@ -32,6 +32,9 @@
 #ifndef COSMIC_SYSCALLS_H
 #define COSMIC_SYSCALLS_H
 
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "lua.h"
 
 /* The process's logical, directly executable relaunch path.
@@ -54,6 +57,13 @@ const char *cosmic_path (lua_State *L, int index);
 
 /* Opens the table as the [`cosmic.sys`] module. */
 int cosmic_open_syscalls (lua_State *L);
+
+/* Whether `text`, `used` bytes of a /proc/<pid>/mountinfo, lists the
+ * filesystem on `device` ("major:minor", as its third field writes it)
+ * as mounted with local_lock "flock" or "all" among the filesystem's
+ * own options, which keep an NFS client's flock apart from its fcntl
+ * locks (`flock_kind`). A line that does not parse is passed over. */
+bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *device);
 
 #endif
 
@@ -476,6 +486,12 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
+ * --- The processor's features the core's vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "pclmulqdq", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32" and "pmull", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
+ * ---@return {string} features the features this processor has
+ */
+COSMIC_SYSCALL(cpu_features, 0);
+
+/*
  * --- The host as `uname(2)` names it: raw values, unnormalized, for a
  * --- caller to map onto its own host names.
  * ---@class Uname
@@ -604,7 +620,7 @@ COSMIC_SYSCALL(ftruncate, 2);
  * --- every other lock, "shared" only with an exclusive one, and
  * --- "unlock" releases what this open holds. A conflicting lock is
  * --- waited for until `timeout_ms` has passed, "Operation timed out",
- * --- or a `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
+ * --- or the innermost open `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
  * --- call", each seen within a tenth of a second. Over NFS or SMB, an
  * --- exclusive lock needs a descriptor open for writing.
  * ---@param fd integer the descriptor, open on the file to lock
@@ -615,6 +631,15 @@ COSMIC_SYSCALL(ftruncate, 2);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(flock, 3);
+
+/*
+ * --- How a `flock` of the file `fd` is open on stands to fcntl locks, SQLite's among them: "apart" where the two are kept apart, so neither excludes the other, as Linux keeps them on a local filesystem; "shared" where they are in one list, and a whole-file flock conflicts with an fcntl lock of another owner, even another open of this same process -- as Darwin and the BSDs keep them, and as Linux's clients of SMB, and of NFS but where it is mounted with local_lock "flock" or "all", make a flock a whole-file fcntl lock.
+ * ---@param fd integer the descriptor, open on the file to ask about
+ * ---@return string|nil kind "apart" or "shared", or nil on failure
+ * ---@return string error what went wrong, when kind is nil
+ * ---@return integer errno the error number, when kind is nil
+ */
+COSMIC_SYSCALL(flock_kind, 1);
 
 /*
  * --- Whether this process may reach `path` as `mode` asks: 0 for only

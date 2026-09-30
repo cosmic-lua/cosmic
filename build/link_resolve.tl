@@ -135,7 +135,7 @@ end
 --- Every anchor Markdown `text` gives, GitHub's way: each heading's,
 --- `#` or underlined, a repeated one's taking `-1`, `-2` and so on,
 --- and each `<a id>` or `<a name>`.
-local function anchors(text: string): {string: boolean}
+function link_resolve.anchors(text: string): {string: boolean}
   local out: {string: boolean} = {}
   local count: {string: integer} = {}
   local function heading(line: string)
@@ -184,7 +184,7 @@ local function anchor_problem(resolver: link_resolve.Resolver, path: string, anc
   local found = resolver.headings[path]
   if found == nil then
     local text = resolver.context.read(path)
-    found = text ~= nil and anchors(text) or {}
+    found = text ~= nil and link_resolve.anchors(text) or {}
     resolver.headings[path] = found
   end
   if found[anchor:lower()] or found[anchor] then
@@ -614,7 +614,7 @@ end
 --- Resolves links in the file at the absolute `path` as though it held
 --- `text`: its own headings are read from it, not from the context.
 function link_resolve.holds(resolver: link_resolve.Resolver, path: string, text: string)
-  resolver.headings[path] = anchors(text)
+  resolver.headings[path] = link_resolve.anchors(text)
 end
 
 return link_resolve

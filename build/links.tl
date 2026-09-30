@@ -71,17 +71,16 @@
 --- whose label is a code span must name the file the label names, or
 --- the file that declares its symbol.
 ---
---- The parse is [`build.link_text`]'s and the resolution
---- [`build.link_resolve`]'s, which the build shares to index each link
---- ([`build.link_index`]); this module reads C, Zig and Markdown as well,
---- and answers symbols from the project's databases.
+--- The parse is [`build.link_text`]'s, C's, Zig's and Markdown's text
+--- [`build.link_files`]', and the resolution [`build.link_resolve`]'s,
+--- which the build shares to index each link ([`build.link_index`]);
+--- this module answers symbols from the project's databases.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local String = require("cosmic.string")
 local ast = require("build.ast")
 local docs = require("build.docs")
-local c_check = require("build.c")
+local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
 local symbol_index = require("build.symbol_index")
@@ -107,183 +106,21 @@ local record links
   end
 end
 
---- The kind of file `path` is by its name, as far as links go:
---- "teal", "c", "zig" or "markdown"; nil for any other.
-function links.kind_of(path: string): string | nil
-  if String.ends_with(path, ".tl") or String.ends_with(path, ".lua") then return "teal" end
-  if String.ends_with(path, ".c") or String.ends_with(path, ".h") then return "c" end
-  if String.ends_with(path, ".zig") then return "zig" end
-  if String.ends_with(path, ".md") then return "markdown" end
-  return nil
-end
-
---- The lines of `body`, split at each line break.
-local function split_lines(body: string): {string}
-  local out: {string} = {}
-  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
-    out[#out + 1] = line
-  end
-  return out
-end
-
---- A C or Zig comment's lines: after `//` (and `/` or `!`), or inside
---- `/* */` with each line's leading `*` taken off; and the byte of
---- `text` each line begins at. A line with no `*` is taken past the
---- whitespace that sets it under the first line's text, which starts
---- past `/*` at byte `column` of its line, so that its indent is read
---- against the first line's rather than the file's.
-local function slash_comment(text: string, column: integer): {string}, {integer}
-  if text:sub(1, 2) == "/*" then
-    local body = text:sub(3):gsub("%*/$", "")
-    local raw = split_lines(body)
-    local out: {string} = { raw[1] }
-    local starts: {integer} = { 3 }
-    local at = 3
-    for index = 2, #raw do
-      at = at + #raw[index - 1] + 1
-      local marker = raw[index]:match("^[ \t]*%*") or
-        raw[index]:match("^" .. ("[ \t]?"):rep(column + 1)) or ""
-      out[index] = raw[index]:sub(#marker + 1)
-      starts[index] = at + #marker
-    end
-    return out, starts
-  end
-  local marker = text:match("^//[/!]?")
-  return { text:sub(#marker + 1) }, { #marker + 1 }
-end
-
---- `comment` placed in the file: each line's `starts` counted from the
---- byte of the file its text (`raw`, the comment as written) begins at.
-local function placed(comment: link_text.Comment, raw_at: integer, at: {integer}): link_text.Comment
-  local starts: {integer} = {}
-  for index, offset in ipairs(at) do
-    starts[index] = raw_at > 0 and raw_at + offset - 1 or 0
-  end
-  comment.starts = starts
-  return comment
-end
-
---- Every `//` comment of Zig source `source`, with its line: past a
---- string or character literal, and never in a multiline string's
---- line (what follows `\`).
-local function zig_comments(source: string): {link_text.Comment}
-  local out: {link_text.Comment} = {}
-  local number = 0
-  local line_start = 1
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    number = number + 1
-    local this_start = line_start
-    line_start = line_start + #line + 1
-    local j = 1
-    while j <= #line do
-      local c = line:sub(j, j)
-      if c == "\"" or c == "'" then
-        j = j + 1
-        while j <= #line and line:sub(j, j) ~= c do
-          j = j + (line:sub(j, j) == "\\" and 2 or 1)
-        end
-        j = j + 1
-      elseif line:sub(j, j + 1) == "\\\\" or line:sub(j, j + 1) == "//" then
-        if line:sub(j, j + 1) == "//" then
-          local lines, at = slash_comment(line:sub(j), j)
-          out[#out + 1] = placed({ line = number, lines = lines, doc = false }, this_start + j - 1, at)
-        end
-        break
-      else
-        j = j + 1
-      end
-    end
-  end
-  return out
-end
-
---- The comment text of `source`, a file of `kind` ([`kind_of`]), in
---- blocks; a Markdown file is one block of the whole. Teal is lexed with
---- `built`, which `name` is given to.
-local function comment_blocks(kind: string, source: string, built: compiler, name: string): {link_text.Block}
-  if kind == "markdown" then
-    return { { line = 1, text = source, starts = ast.line_starts(source) } }
-  end
-  local comments: {link_text.Comment} = {}
-  if kind == "teal" then
-    comments = link_text.teal_comments(built, source, name)
-  elseif kind == "c" then
-    local line_starts = ast.line_starts(source)
-    for _, comment in ipairs(c_check.comments(source)) do
-      local line_start = line_starts[comment.line] or 1
-      local raw_at = source:find(comment.text, line_start, true) or 0
-      local lines, at = slash_comment(comment.text, raw_at > 0 and raw_at - line_start + 1 or 1)
-      comments[#comments + 1] = placed({ line = comment.line, lines = lines, doc = false }, raw_at, at)
-    end
-  elseif kind == "zig" then
-    comments = zig_comments(source)
-  end
-  return link_text.blocks_of(comments)
-end
-
---- What C source declares at file scope, read off its lines: each
---- function defined or declared (`name (`, as [`build.c.layout`] writes
---- one), each macro, and each struct, union, enum and typedef name.
--- TODO: resolve a C name through what the file includes too, and by
--- its declarations rather than its lines, once build.c.tree's
--- declarations can be had without compiling the file ([`c.check`]
--- compiles only the checked files, and only in cosmic's own tree).
-local function declared_c(source: string): link_text.Declared
-  local out: link_text.Declared = { names = {}, aliases = {} }
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    local fn_name = line:match("^[%a_][%w_ %*]-([%a_][%w_]*) %(")
-    if fn_name ~= nil then out.names[fn_name] = true end
-    local macro = line:match("^%s*#%s*define%s+([%a_][%w_]*)")
-    if macro ~= nil then out.names[macro] = true end
-    for tag in line:gmatch("%f[%w_]struct%s+([%a_][%w_]*)") do out.names[tag] = true end
-    for tag in line:gmatch("%f[%w_]union%s+([%a_][%w_]*)") do out.names[tag] = true end
-    for tag in line:gmatch("%f[%w_]enum%s+([%a_][%w_]*)") do out.names[tag] = true end
-    local typedef = line:match("^typedef%s.-([%a_][%w_]*)%s*;") or
-      line:match("^}%s*([%a_][%w_]*)%s*;")
-    if typedef ~= nil then out.names[typedef] = true end
-  end
-  return out
-end
-
---- What Zig source declares, read off its lines: each `fn`, `const`
---- and `var`, at any depth.
-local function declared_zig(source: string): link_text.Declared
-  local out: link_text.Declared = { names = {}, aliases = {} }
-  for _, word in ipairs({ "fn", "const", "var" }) do
-    for declared in source:gmatch("%f[%w_]" .. word .. "%s+([%a_][%w_]*)") do
-      out.names[declared] = true
-    end
-  end
-  return out
-end
-
---- The names Zig source declares at its top level (a `fn`, `const` or
---- `var` at the start of a line, `pub` or `export` before it) and not
---- also in a block.
-local function module_level_zig(source: string): {string: boolean}
-  local top: {string: boolean} = {}
-  local inner: {string: boolean} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    for _, word in ipairs({ "fn", "const", "var" }) do
-      local declared = line:match("^[%a ]-%f[%w_]" .. word .. "%s+([%a_][%w_]*)")
-      if declared ~= nil then
-        if line:match("^%s") ~= nil then inner[declared] = true else top[declared] = true end
-      end
-    end
-  end
-  local out: {string: boolean} = {}
-  for name in pairs(top) do
-    if not inner[name] then out[name] = true end
-  end
-  return out
-end
-
 local type Known = links.Known
 
+--- The comment text of `source`, a file of `kind`
+--- ([`link_files.kind_of`]), in blocks. Teal is lexed with `built`,
+--- which `name` is given to.
+local function comment_blocks(kind: string, source: string, built: compiler, name: string): {link_text.Block}
+  if kind == "teal" then
+    return link_text.blocks_of(link_text.teal_comments(built, source, name))
+  end
+  return link_files.blocks(kind, source)
+end
+
 --- What `source`, a file of `kind`, declares: the first step of
---- resolution. A Markdown file declares nothing, nor does Teal that
---- does not parse. C is read at file scope alone, so all it declares is
---- its top level.
+--- resolution ([`link_files.declarations`] for any file but Teal's).
+--- Teal that does not parse declares nothing.
 local function declarations(kind: string, source: string, built: compiler, name: string): Known
   if kind == "teal" then
     local parsed, _ = ast.parse(built, source, name)
@@ -293,14 +130,8 @@ local function declarations(kind: string, source: string, built: compiler, name:
     local found = link_text.declarations(parsed)
     return { declared = found.declared, module_level = found.module_level, parsed = true }
   end
-  if kind == "c" then
-    local declared = declared_c(source)
-    return { declared = declared, module_level = declared.names, parsed = true }
-  end
-  if kind == "zig" then
-    return { declared = declared_zig(source), module_level = module_level_zig(source), parsed = true }
-  end
-  return { declared = { names = {}, aliases = {} }, module_level = {}, parsed = true }
+  local found = link_files.declarations(kind, source)
+  return { declared = found.declared, module_level = found.module_level, parsed = true }
 end
 
 --- The path from the directory `from` to `to`, both from the root.

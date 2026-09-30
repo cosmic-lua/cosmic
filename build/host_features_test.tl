@@ -4,6 +4,7 @@
 --- cache named by it holds verdicts whose keys the host reaches.
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
 local Test = require("cosmic.test")
 
@@ -26,8 +27,21 @@ local function script(args: {string}): string
   return ((result.stdout as string):gsub("%s+$", ""))
 end
 
+--- The features `text`, a /proc/cpuinfo, lists ("flags" on x86,
+--- "Features" on arm), as [`sys.cpu_features`] would answer them: what
+--- the key is given where the script reads that file.
+local function listed(text: string): {string}
+  local found: {string} = {}
+  for line in text:gmatch("[^\n]+") do
+    local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
+    for flag in (flags or ""):gmatch("%S+") do found[#found + 1] = flag end
+  end
+  return found
+end
+
 --- A host under `tmp` of `machine` (nil: this host's, on both sides)
---- whose /proc/cpuinfo holds `cpuinfo`:
+--- whose /proc/cpuinfo holds `cpuinfo`, which the script reads and the
+--- key is given the features of:
 --- `write` replaces one of its files, and `both(what, moved)` checks
 --- that the script and `host_features` name it alike and that the name
 --- and `host_identity` moved from every one seen before, or neither.
@@ -38,17 +52,21 @@ local function host(tmp: string, machine: string, cpuinfo: string):
     assert(Fs.write(tmp .. "/" .. name, text))
     return tmp .. "/" .. name
   end
+  write("cpuinfo", cpuinfo)
   local sources: declared_key.HostSources = {
     packages = { write("packages", "p1") },
     system = { write("os", "o1"), write("osrelease", "6.17.0-1022-azure\n"),
       write("version", "#22-Ubuntu SMP\n") },
-    cpuinfo = write("cpuinfo", cpuinfo), machine = machine,
+    machine = machine,
     status = write("status", "Uid: 1 1 1 1\n"), own_proc = true, host_id = "h", uid = 1,
   }
   local names: {string:boolean} = {}
   local identities: {string:boolean} = {}
   local function both(what: string, moved: boolean)
-    local named = script({ sources.cpuinfo, sources.system[2], sources.system[3], machine })
+    -- The features the key is given are those the script reads.
+    local path = tmp .. "/cpuinfo"
+    sources.cpu_features = listed((Fs.read(path)) or "")
+    local named = script({ path, sources.system[2], sources.system[3], machine })
     local keyed = declared_key.host_features(sources)
     assert(named == keyed, what .. ": the script names " .. named .. ", the key " .. keyed)
     assert(#named == 16, named)
@@ -138,19 +156,19 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   -- Where each is found on the host: the real plist on a Mac, and
   -- none elsewhere.
   assert(script({ tmp .. "/cpuinfo", "", "", "arm64", "Darwin" }) ==
-    declared_key.host_features({ cpuinfo = tmp .. "/cpuinfo", machine = "arm64",
+    declared_key.host_features({ cpu_features = {}, machine = "arm64",
       sysname = "Darwin" }), "the system's own")
   local plist = tmp .. "/SystemVersion.plist"
   local system: {string} = {}
   for i, path in ipairs(darwin) do system[i] = path == darwin[2] and plist or path end
   local sources: declared_key.HostSources = {
-    packages = {}, system = system, cpuinfo = tmp .. "/cpuinfo", machine = "arm64",
+    packages = {}, system = system, cpu_features = {}, machine = "arm64",
     status = tmp .. "/status", own_proc = false, host_id = "macos-15", uid = 501,
   }
   local names: {string:boolean} = {}
   local identities: {string:boolean} = {}
   local function both(what: string)
-    local named = script({ sources.cpuinfo, plist, "", "arm64", "Darwin" })
+    local named = script({ tmp .. "/cpuinfo", plist, "", "arm64", "Darwin" })
     assert(named == declared_key.host_features(sources), what .. ": the script names " ..
       named .. ", the key " .. declared_key.host_features(sources))
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)
@@ -161,4 +179,15 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   both("the start")
   assert(Fs.write(plist, "<key>ProductBuildVersion</key><string>24G90</string>\n"))
   both("another build of the system")
+end
+
+--- On this host, with nothing given, the script and the key name it
+--- alike: the processor's features the script reads -- /proc/cpuinfo,
+--- or on macOS sysctl's names -- are those [`sys.cpu_features`] answers
+--- the key. A worker whose /proc is a sandbox's own has no
+--- /proc/cpuinfo to read, and checks nothing.
+local function test_the_script_and_the_key_name_this_host_alike()
+  local names = assert(sys.uname())
+  if names.sysname == "Linux" and Fs.read("/proc/cpuinfo") == nil then return end
+  assert(script({}) == declared_key.host_features(), "this host")
 end

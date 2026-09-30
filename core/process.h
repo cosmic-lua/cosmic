@@ -29,14 +29,18 @@
  * closure by name. */
 #define UNVEIL_MAX 256
 
+/* What a signal stamp counts each caught signal as: the stamp is their
+ * count times this, plus the last one's number, which is below it. */
+#define SIGNAL_STAMP_UNIT 64
+
 /* Opens the table as the raw [`cosmic.internal.process`] module. */
 int cosmic_open_process (lua_State *L);
 
-/* Whether an open [`Child.guard`] has caught SIGINT or SIGTERM that
- * nothing has read yet (`cancelled_child_signal`): a wait of core/http.c's
- * asks it each round, so a signal ends a read or an open that no data
- * would. It reads the signal without taking it, so the guard's holder
- * still sees it. */
+/* Whether the innermost open [`Child.guard`] has yet to read a SIGINT
+ * or SIGTERM caught since it opened or last read (`child_signal_read`):
+ * a wait of core/http.c's asks it each round, so a signal ends a read
+ * or an open that no data would. It reads the signal without taking
+ * it, so the guard's holder still sees it. */
 bool cosmic_signal_caught (void);
 
 /* The longest a wait sleeps before it asks again whether a guard caught
@@ -225,6 +229,39 @@ COSMIC_SYSCALL(sandbox_inits, 0);
 COSMIC_SYSCALL(children, 0);
 
 /*
+ * --- Whether this process's user namespace maps `id` inside, as a user and as a group, as its /proc/self/uid_map and gid_map list them: false with EINVAL, setuid's answer for an id it does not map, where either does not, and ENOSYS off Linux.
+ * ---@param id integer the id, from 0 below 2^32 - 1
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(maps_id, 1);
+
+/*
+ * --- Whether this process may map ids of another user than its own into a user namespace from outside, as `spawn`'s `user` does: its effective user is root, holding CAP_SETUID, CAP_SETGID and CAP_SETFCAP in effect. False with EPERM where it may not, and ENOSYS off Linux.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(may_map_ids, 0);
+
+/*
+ * --- Whether a sandbox gets a procfs of its own pid namespace here (`spawn`'s `unveil`), as the kernel answers a child started to mount one as a sandbox does, in user, mount and pid namespaces of its own: false with the errno that refused it where it would get the host's /proc instead -- EPERM where a user namespace may not mount a procfs, as where a container's runtime masks parts of /proc, or where no user namespace is to be had; EINVAL from a kernel before 5.8; ECHILD where that child was ended by a signal -- and ENOSYS off Linux.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(own_proc, 0);
+
+/*
+ * --- Whether this platform can sandbox a child at all -- `spawn`'s `unveil`, `ruleset` and `pledge`, `landlock_ruleset`, `subreaper` -- whatever this host's kernel or its settings then refuse: true on Linux, false with ENOSYS elsewhere.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(sandbox_platform, 0);
+
+/*
  * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back.
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false
@@ -233,37 +270,40 @@ COSMIC_SYSCALL(children, 0);
 COSMIC_SYSCALL(ignore_sigpipe, 0);
 
 /*
- * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
- * --- A signal this process ignores stays ignored, and is never caught.
- * --- Only one guard may be active; callers must restore it when done.
- * ---@return boolean ok false on failure
- * ---@return string error what went wrong, when ok is false
- * ---@return integer errno the error number, when ok is false
+ * --- Opens a guard over SIGINT and SIGTERM for bounded child supervision, the innermost of those open. The first open catches each signal this process does not ignore, and opens the wake pipe (`child_signal_fd`); an ignored signal stays ignored. Each caught signal moves the stamp, `SIGNAL_STAMP_UNIT` times the count of signals caught plus the last one's number, which is never reset. Every open must be closed by `unguard_child_signals`.
+ * ---@return integer|nil stamp the stamp as this guard opens, which it has read, or nil on failure
+ * ---@return string error what went wrong, when stamp is nil
+ * ---@return integer errno the error number, when stamp is nil
  */
 COSMIC_SYSCALL(guard_child_signals, 0);
 
 /*
- * --- Restores dispositions and returns the last signal delivered since
- * --- the last take.
- * ---@return integer|nil signal the pending signal, zero when none, or nil on failure
- * ---@return string error what went wrong, when signal is nil
- * ---@return integer errno the error number, when signal is nil
+ * --- Closes one open guard. The last close restores the dispositions the first open found and closes the wake pipe; any other hands the waits of core/http.c to the guard now innermost, which has read up to `read_to`. With no guard open it closes nothing.
+ * ---@param read_to integer the stamp the guard innermost after this close last read; unread by the last close
+ * ---@return integer|nil stamp the stamp as the guard closed, or nil when the dispositions could not be restored
+ * ---@return string error what went wrong, when stamp is nil
+ * ---@return integer errno the error number, when stamp is nil
  */
-COSMIC_SYSCALL(unguard_child_signals, 0);
+COSMIC_SYSCALL(unguard_child_signals, 1);
 
 /*
- * --- Takes the last supervised SIGINT or SIGTERM delivered since the last
- * --- take, or zero when none arrived. Two pending together are delivered
- * --- in the kernel's order, not the order they were sent.
- * ---@return integer|nil signal the pending signal number, zero, or nil on failure
- * ---@return string error what went wrong, when signal is nil
- * ---@return integer errno the error number, when signal is nil
+ * --- The stamp now. When `innermost`, the innermost guard has read it, and the waits of core/http.c are no longer ended by the signals it counts.
+ * ---@param innermost boolean whether the innermost open guard reads it
+ * ---@return integer stamp the stamp
  */
-COSMIC_SYSCALL(cancelled_child_signal, 0);
+COSMIC_SYSCALL(child_signal_read, 1);
+
+/*
+ * --- The read end of the wake pipe, which becomes readable when a guard catches a signal, or -1 while no guard is open. Non-blocking and close-on-exec. The pipe is shared by every guard, and its bytes say only that the stamp may have moved: a reader drains it after it wakes, then compares the stamp with its own.
+ * ---@return integer fd the descriptor, or -1
+ */
+COSMIC_SYSCALL(child_signal_fd, 0);
 
 /*
  * --- The numbers this table's calls take, from this build.
  * ---@class Constants
  * ---@field UNVEIL_MAX integer the most paths a sandbox unveils, its reads and writes together
+ * ---@field SIGNAL_STAMP_UNIT integer what a stamp counts each caught signal as, above the last one's number
  */
 COSMIC_CONSTANT(UNVEIL_MAX)
+COSMIC_CONSTANT(SIGNAL_STAMP_UNIT)

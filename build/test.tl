@@ -2806,16 +2806,16 @@ local function run(argv: {integer:string}): integer
       rec.unkeyed[path])
   end
   if #jobs > 0 then
-    -- Nil when this process already holds a guard: test's `run` called
-    -- in-process under one (build.invoke runs verbs so, though not
-    -- `test` today). The run then goes unguarded, a signal acting as it
-    -- would, rather than taking the signals from the guard's owner.
+    -- Nil only where the guard cannot be had (no descriptor left for
+    -- its pipe): the run then goes unguarded, a signal acting as it
+    -- would.
     local opened, _ = Child.guard()
     if opened == nil then
       run_jobs(rec, jobs, limits, nil)
     else
       -- A signal the guard caught ends this process when it closes,
-      -- once the run is aborted.
+      -- once the run is aborted; under a guard of its caller's (test's
+      -- `run` called in-process), it is left to that one.
       local guard <close> = opened
       if run_jobs(rec, jobs, limits, guard) ~= 0 then
         local _, _ = work.abort(handle)

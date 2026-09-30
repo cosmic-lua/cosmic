@@ -87,11 +87,11 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "598a907beb9763ee08569df514f2437ddfeb6734b8a9f5d1a00c2e77ce510ae3",
 
-  ["build.confine"] = "a3b053ea34af82c39ab7b8331f8a3fda826482280d623fc85a61ea6ef56bf77e",
+  ["build.confine"] = "48b4d58b7426ab622443f18476325c5229d7817444c64bf4c1feccf2d4e92036",
 
   ["build.core_image"] = "4942e488c251af85703efc977c9e33260b199134d39316c3b9a5579dcaff7830",
 
-  ["build.declared_key"] = "502b106caf9bf597a1e22b540a64288f2a2eff1d865ddf8c9c4586bcc4bfeffb",
+  ["build.declared_key"] = "1c843810f29611e4116aa8141a14ab15d7e604256edf2b488150e1d86922cf02",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
@@ -105,13 +105,13 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "08411465957515623f8c9f90239bc6e70b438b5fb76cf6c400adcbb1ff2932fd",
 
-  ["build.test"] = "4128d64fe37ea9e00d915e2d8f65ee6d0d3f755c681f0051fa92b0cdf18f30f0",
+  ["build.test"] = "1f28c31f2d8b8f1ac534847a51afda183b2f846b810814153a76d6f328adff1a",
 
-  ["build.test_inputs"] = "0f6e07437a119237864ce57bf8d1c52a5babe8b4af76983f1448dd3aee57e639",
+  ["build.test_inputs"] = "130e9edd0797b30bbb8377ea2b5aa991eaa37deb20f1b118d67b22ffe8a189c2",
 
-  ["build.test_sandbox"] = "58a35a23c477c71f4618cbba3ec2633aa6bbd0a3309d146cf0dd66159a768319",
+  ["build.test_sandbox"] = "453f3828508b60b2acf0e20351c5e10990a8ffea899aebdb94f5756451a07f54",
 
-  ["build.test_worker"] = "689ef1857d07ed2ec704563ae360b8e2ed71318f8df601e982e7ac1d6e712252",
+  ["build.test_worker"] = "aa3eeb251f4ce8e807547b910e11f9a42f617c93ae1cee69f3c20f0e4aefb3da",
 
   ["build.this_program"] = "8de7976beaec4a4367f0a4af8cd2162df5f587891cbad1b94ecc51a28de203eb",
 
@@ -119,7 +119,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "32fac7205b552862083c7665ae0b645c63c159f7f4bfc76beb7a27dcdf97bfb9",
+  ["cosmic.child"] = "06dc40be9a5c5ddf84ea81c5a8e817de2763088fa2caae5b0a57f980ab654d1e",
 
   ["cosmic.coverage"] = "0fd55d11c4562209364c73b81a1c02b7808d3022aae2895423385753ed6c7d59",
 

@@ -15,7 +15,7 @@
 static const char *const instruments[] = {
   "fail_allocations", "allow_allocations", "open_statements",
   "c_heap",           "fail_at",           "live_transfers",
-  "executable_path",  NULL,
+  "executable_path",  "mountinfo_local_flock", NULL,
 };
 
 /* Stands in for the instrument its upvalue names, which only the

@@ -275,8 +275,9 @@ local record declared_key
     sysname: string
     system_id: string
     status: string
-    cpuinfo: string
-    --- The machine whose features `cpuinfo` keys (`dispatched`).
+    --- The processor's features, as [`sys.cpu_features`] names them.
+    cpu_features: {string}
+    --- The machine whose features `cpu_features` keys (`dispatched`).
     machine: string
     own_proc: boolean
     host_id: string
@@ -924,7 +925,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
 end
 
 --- The processor's features a core running on `machine` chooses code
---- by, which is all a key holds of what /proc/cpuinfo lists:
+--- by, which is all a key holds of what [`sys.cpu_features`] answers:
 --- [`host_identity`] says which code reads each, and
 --- build/dispatched_features_test.tl holds the vendored sites to this.
 --- A machine not named here, whose cores no audit has read, keys its
@@ -952,17 +953,13 @@ function declared_key.dispatched(machine?: string): {string}
   return sorted
 end
 
---- The processor's features `cpuinfo` (/proc/cpuinfo by default) lists
---- -- "flags" on x86, "Features" on arm -- each once, in byte order,
+--- The processor's features as `listed` names them -- this processor's
+--- own ([`sys.cpu_features`]) by default -- each once, in byte order,
 --- less those a core on `machine` (this host's, by default) chooses no
 --- code by (`dispatched`).
-local function features(cpuinfo?: string, machine?: string): {string}
-  local text, _ = Fs.read(cpuinfo or "/proc/cpuinfo")
+local function features(listed?: {string}, machine?: string): {string}
   local seen: {string:boolean} = {}
-  for line in (text or ""):gmatch("[^\n]+") do
-    local listed = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
-    for flag in (listed or ""):gmatch("%S+") do seen[flag] = true end
-  end
+  for _, flag in ipairs(listed or sys.cpu_features()) do seen[flag] = true end
   if machine == nil then
     local names, _ = sys.uname()
     machine = names ~= nil and names.machine or nil
@@ -1053,8 +1050,8 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 ---   what a sandbox is (namespaces, Landlock's ABI, whether a procfs may
 ---   be mounted), are the kernel's;
 --- - its name and machine (`uname`): the core a run selects;
---- - the processor's features a core chooses code by (/proc/cpuinfo's
----   flags, each once, `dispatched`);
+--- - the processor's features a core chooses code by
+---   ([`sys.cpu_features`], each once, `dispatched`);
 --- - the user, groups and capabilities this process -- and so every
 ---   worker -- runs with, and whether no_new_privs and a seccomp filter
 ---   hold it (/proc/self/status): whether a file's permissions refuse a
@@ -1113,9 +1110,9 @@ function declared_key.host_identity(digests: declared_key.Digests,
   end
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
-  -- Each distinct feature once, sorted: every processor lists them.
-  -- Only those the code a test runs chooses code by (`dispatched`),
-  -- which an audit of the vendored C and the disassembled cores found:
+  -- Each distinct feature once, sorted. Only those the code a test
+  -- runs chooses code by (`dispatched`), which an audit of the vendored
+  -- C and the disassembled cores found:
   -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
   -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
   -- crc32_arm64.h (`crc32`). No Linux core links a libm that
@@ -1129,10 +1126,11 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- code, are not keyed either. The whole list would split GitHub's
   -- hosted runners of one leg on flags nothing reads (avx512*, a
   -- hypervisor's bits, md_clear), and each split is a verdict not
-  -- shared. A vendored library that
-  -- comes to dispatch on another feature adds it to `dispatched` and to
-  -- .github/scripts/host-features.sh alike.
-  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo, from.machine), " ")
+  -- shared. A vendored library that comes to dispatch on another
+  -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
+  -- answers (core/syscalls.c) and to .github/scripts/host-features.sh
+  -- alike.
+  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
   local worker_uid, worker_gid = from.worker_uid, from.worker_gid
   lines[#lines + 1] = "uid " .. tostring(worker_uid or from.uid or sys.getuid())
   -- Dropped from the runner's user, which built its root and so gave it
@@ -1352,13 +1350,14 @@ end
 --- system volume's SystemVersion.plist, and nothing (`darwin_system`).
 --- It is what .github/scripts/host-features.sh prints, which names a
 --- leg's verdict cache, so a run restores one whose keys its host
---- reaches. `sources` moves where it looks (`cpuinfo`, `machine`,
---- `sysname`, and `system`'s second and third paths), for a test.
+--- reaches. `sources` stands in for what it reads of this host
+--- (`cpu_features`, `machine`, `sysname`, and `system`'s second and
+--- third paths), for a test.
 function declared_key.host_features(sources?: declared_key.HostSources): string
   local from: declared_key.HostSources = sources or {}
   local system = system_of(from)
   local parts: {string} = {}
-  for _, flag in ipairs(features(from.cpuinfo, from.machine)) do
+  for _, flag in ipairs(features(from.cpu_features, from.machine)) do
     parts[#parts + 1] = flag .. "\n"
   end
   for i = 2, 3 do

@@ -34,6 +34,7 @@
 #include "memory.h"
 #include "sqlite3.h"
 #include "store.h"
+#include "syscalls.h"
 
 /* One state per process, and a test worker is its own process. */
 static struct {
@@ -230,6 +231,17 @@ static int testing_executable_path (lua_State *L) {
   return 1;
 }
 
+/* mountinfo_local_flock(text, device): whether the mountinfo `text`
+ * lists the filesystem on `device` with local_lock "flock" or "all",
+ * as cosmic_mountinfo_local_flock answers it for `flock_kind`. */
+static int testing_mountinfo_local_flock (lua_State *L) {
+  size_t used;
+  const char *text = luaL_checklstring(L, 1, &used);
+  const char *device = luaL_checkstring(L, 2);
+  lua_pushboolean(L, cosmic_mountinfo_local_flock(text, used, device));
+  return 1;
+}
+
 /* Every other core registers these names as stand-ins that raise
  * (core/testing.c): edit the two lists together. */
 static const luaL_Reg instruments[] = {
@@ -240,6 +252,7 @@ static const luaL_Reg instruments[] = {
   {"fail_at", testing_fail_at},
   {"live_transfers", testing_live_transfers},
   {"executable_path", testing_executable_path},
+  {"mountinfo_local_flock", testing_mountinfo_local_flock},
   {NULL, NULL},
 };
 

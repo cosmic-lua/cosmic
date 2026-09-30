@@ -173,35 +173,6 @@ local own_cores <const> = test_sandbox.scratch .. "/cores"
 -- that user could signal or trace them.
 local worker_id <const> = 65532
 
---- Of `path`, a /proc/<pid>/uid_map or gid_map, whether it maps `id`
---- inside.
-local function maps(path: string, id: integer): boolean
-  local text, _ = Fs.read(path)
-  for line in (text or ""):gmatch("[^\n]+") do
-    local inside, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
-    local first, many = math.tointeger(tonumber(inside)), math.tointeger(tonumber(count))
-    if first ~= nil and many ~= nil and id >= first and id < first + many then return true end
-  end
-  return false
-end
-
---- Whether this process is root, as /proc/self/status says: its
---- effective user 0, holding in effect CAP_SETGID (6), CAP_SETUID (7)
---- and CAP_SETFCAP (31), which mapping a worker's namespace from
---- outside takes (core/process.h's `Sandbox.user`).
-local function root_here(): boolean
-  local status, _ = Fs.read("/proc/self/status")
-  if status == nil then return false end
-  local effective = status:match("\nUid:%s+%d+%s+(%d+)")
-  local caps = status:match("\nCapEff:%s+(%x+)")
-  if effective ~= "0" or caps == nil then return false end
-  local low = math.tointeger(tonumber(caps:sub(-8), 16)) or 0
-  for _, bit in ipairs({ 6, 7, 31 }) do
-    if (low >> bit) & 1 == 0 then return false end
-  end
-  return true
-end
-
 --- What a worker run as `worker_id` has this program's core in place
 --- of the cache it is in, by that cache's name ([`Plan`]'s `sandbox`),
 --- where it runs a core the launcher extracted (build/launcher.tl),
@@ -381,7 +352,8 @@ end
 
 --- Whether, and as whom, a sandboxed worker runs in place of this
 --- process's own user: `worker_id`, as user and group, where this
---- process is root ([`root_here`]), its user namespace maps root and that
+--- process is root holding what mapping another user's ids takes
+--- ([`confine.may_map_ids`]), its user namespace maps root and that
 --- id -- the host's does, and a container's usual 65536 ids -- the
 --- worker has a core it may run ([`worker_cores`]), and a start as that
 --- user succeeds ([`starts_as`]). Such a worker gives root up for them
@@ -400,10 +372,9 @@ local worker_copy: Cores = { copy = "", cache = "" }
 function test_sandbox.runs_as(): test_sandbox.User | nil, string
   if worker_trouble == nil then
     worker_trouble = "this process is not root, holding CAP_SETUID, CAP_SETGID and CAP_SETFCAP"
-    if root_here() then
+    if confine.may_map_ids() then
       worker_trouble = "this user namespace does not map root and " .. tostring(worker_id)
-      if maps("/proc/self/uid_map", 0) and maps("/proc/self/uid_map", worker_id) and
-          maps("/proc/self/gid_map", 0) and maps("/proc/self/gid_map", worker_id) then
+      if confine.maps_id(0) and confine.maps_id(worker_id) then
         local copy, trouble = worker_cores()
         worker_trouble = trouble
         if copy ~= nil then
