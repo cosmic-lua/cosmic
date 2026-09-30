@@ -344,12 +344,51 @@ local function test_a_worker_handed_what_is_no_listener_fails(tmp: string)
   assert(sys.close(file))
 end
 
---- A worker whose protocol never ends -- it waits on after its waits
---- fail, stalling the worker's run -- is sent SIGKILL a second past
---- grace_ms after the stop, and reported; the supervisor then returns
---- true.
+--- A worker whose protocol never ends -- it holds the thread rather
+--- than wait through the run, so its task cannot be killed at grace_ms
+--- -- is sent SIGKILL a second past grace_ms after the stop, and
+--- reported; the supervisor then returns true.
 local function test_a_worker_outlasting_the_stop_is_killed(tmp: string)
   local h <close> = started(tmp, "stuck.tl", [[
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
+return function(argv: {string}): integer
+  local troubles: {string} = {}
+  local ok, why = Net.serve{
+    listeners = { Net.unix(argv[1] .. "/s.sock") },
+    workers = 1,
+    grace_ms = 0,
+    serve = function(conn: Net.Conn)
+      assert(Stream.lines(conn):read())
+      assert(conn:write("held\n"))
+      while true do local _, _ = Time.sleep_ns(10000000) end
+    end,
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 30000 }))
+      assert(conn:write("hold\n"))
+      assert(Stream.lines(conn):read() == "held")
+      server:stop()
+    end,
+  }
+  assert(Fs.put(Fs.stdout, tostring(ok) .. " " .. why .. "\n" .. table.concat(troubles, "\n")))
+  return 0
+end
+]], { tmp }, { stdout = "capture", stderr = "capture" })
+  local r = assert(h:wait(60000))
+  assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
+  local said = r.stdout or ""
+  assert(said:find("^true \nworker %d+ was still running 1000 ms past grace_ms after the stop, " ..
+    "and was killed$") ~= nil, said)
+end
+
+--- A worker whose protocol waits on through the run after the stop,
+--- ignoring every failure, has its task killed at grace_ms and exits
+--- on its own, before the supervisor would send it SIGKILL.
+local function test_a_worker_waiting_past_the_stop_exits_at_grace_ms(tmp: string)
+  local h <close> = started(tmp, "waits.tl", [[
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -379,7 +418,6 @@ end
 ]], { tmp }, { stdout = "capture", stderr = "capture" })
   local r = assert(h:wait(60000))
   assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
-  local said = r.stdout or ""
-  assert(said:find("^true \nworker %d+ was still running 1000 ms past grace_ms after the stop, " ..
-    "and was killed$") ~= nil, said)
+  -- The worker's line and the supervisor's, neither reporting trouble.
+  assert(r.stdout == "true \ntrue \n", string.format("%q", r.stdout))
 end

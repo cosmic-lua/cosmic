@@ -15,9 +15,10 @@
 --- `delay` or a Task's `join`, each of which answers true and "" once
 --- what it waits for happens, or false and [`Poll.TIMEOUT`] once its
 --- `timeout_ms` passes first, or false and [`Poll.CANCELLED`] once the task
---- is cancelled. Nothing else here waits: a call that blocks the thread
---- (a blocking read, [`Http.get`], a SQLite query) holds every task until
---- it returns.
+--- is cancelled; a Task's `kill` ends one outright, for a task that
+--- goes on after its waits fail. Nothing else here waits: a call that
+--- blocks the thread (a blocking read, [`Http.get`], a SQLite query)
+--- holds every task until it returns.
 ---
 --- An error a task raises ends [`Poll.run`] at once: every other task is
 --- closed where it waits, its `<close>` variables closed, and `run`
@@ -33,12 +34,28 @@ local record Poll
     --- Waits for the task to end, at most `timeout_ms` milliseconds (no
     --- limit when nil): true and "" once it has returned, false and
     --- [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] otherwise -- CANCELLED, too, for
-    --- a task a failed run closed where it waited.
+    --- a task killed, or one a failed run closed where it waited.
     join: function(Task, timeout_ms?: integer): boolean, string
     --- Ends the task at its next wait: the wait it is in, if any, and
     --- every one after, answers false and [`Poll.CANCELLED`] at once. A
     --- task that has ended is left alone.
     cancel: function(Task)
+    --- Ends the task now, where it waits or before it starts, without
+    --- resuming it: the pending `<close>` variables of its own coroutine
+    --- are closed (not those of a coroutine it made and left
+    --- suspended), none of its waits answers it again, and each task
+    --- joining it answers false and [`Poll.CANCELLED`]. A task that has
+    --- ended is left alone. Unlike `cancel`, it is called from a task's
+    --- own coroutine, and raises elsewhere in the run, and in the task
+    --- it would kill. A `<close>` handler of a task being killed cannot
+    --- wait, spawn or kill: each raises at once, and [`Poll.in_task`]
+    --- still answers true there, so a module that waits raises rather
+    --- than hold the thread. What such a handler raises, `kill` raises,
+    --- the task ended all the same -- an error in the killing task,
+    --- which ends the run unless that task catches it. Only a task that
+    --- waits can be killed: one that computes without waiting holds the
+    --- run, and every other task, until it waits.
+    kill: function(Task)
   end
 
   --- What a wait answers once its `timeout_ms` passes first.
@@ -79,7 +96,7 @@ local record State
   --- Set while the task is yielded in one of this module's waits.
   waiting: boolean
   ended: boolean
-  --- Set for a task a failed run closed where it waited.
+  --- Set for a task killed, or one a failed run closed where it waited.
   killed: boolean
   cancelled: boolean
   parked: Wait
@@ -165,6 +182,7 @@ local function current(what: string, level: integer): State
   if loop.closing then error(what .. " while Poll.run closes its tasks", level + 1) end
   local task = loop.tasks[coroutine.running()]
   if task == nil then error(what .. " outside a task's own coroutine", level + 1) end
+  if task.killed then error(what .. " while its task is killed", level + 1) end
   return task
 end
 
@@ -233,6 +251,29 @@ function Poll.delay(ms: integer): boolean, string
   return park(task, { task = task, expiry_ok = true }, ms)
 end
 
+--- Ends `task`, suspended, as a Task's `kill` says: its wait is marked
+--- answered and its wakes taken from the ready queue, so nothing resumes
+--- it, and it is settled as ended before what its closing raised is
+--- raised.
+local function close_task(task: State)
+  task.killed = true
+  if task.parked ~= nil then
+    task.parked.done = true
+    task.parked = nil
+  end
+  local ready: {Wake} = {}
+  for _, wakened in ipairs(loop.ready) do
+    if wakened.task ~= task then ready[#ready + 1] = wakened end
+  end
+  loop.ready = ready
+  local closed, err: boolean, any = coroutine.close(task.co)
+  task.ended = true
+  loop.tasks[task.co] = nil
+  loop.live = loop.live - 1
+  for _, w in ipairs(task.joiners) do wake(w, false, Poll.CANCELLED) end
+  if not closed then error(err, 0) end
+end
+
 --- A new task running `fn`, ready to run.
 local function start(fn: function()): Poll.Task
   local state: State = { co = coroutine.create(fn), loop = loop, joiners = {} }
@@ -253,6 +294,11 @@ local function start(fn: function()): Poll.Task
       if state.loop ~= loop or state.ended or state.cancelled then return end
       state.cancelled = true
       if state.parked ~= nil then wake(state.parked, false, Poll.CANCELLED) end
+    end,
+    kill = function(_self: Poll.Task)
+      if state.loop ~= loop or state.ended then return end
+      if state == current("Task:kill", 2) then error("a task cannot kill itself", 2) end
+      close_task(state)
     end,
   }
   loop.tasks[state.co] = state
@@ -375,7 +421,10 @@ local function turn()
     -- those waiting on a descriptor or on time.
     local batch = loop.ready
     loop.ready = {}
-    for _, wakened in ipairs(batch) do step(wakened.task, wakened.ok, wakened.why) end
+    for _, wakened in ipairs(batch) do
+      -- One killed by a task earlier in the batch is passed by.
+      if not wakened.task.ended then step(wakened.task, wakened.ok, wakened.why) end
+    end
     if loop.live == 0 then break end
     poll_once(next_timeout())
     expire()
@@ -396,6 +445,9 @@ end
 --- Whether the caller is a task of a running [`Poll.run`], whose waits
 --- let the other tasks run: what a module that waits asks, to wait
 --- through `readable` and `writable` there and on its own elsewhere.
+--- It answers true, too, in a `<close>` handler of a task being killed,
+--- where those raise: a wait there fails at once rather than hold the
+--- thread.
 function Poll.in_task(): boolean
   return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
 end

@@ -152,9 +152,10 @@ local function test_timeout_ms_bounds_each_connection(tmp: string)
 end
 
 --- Stopping closes the listener, removing its socket file, at once; a
---- connection in flight finishes, and one still open at grace_ms is
---- cancelled, before Net.serve returns.
-local function test_stop_drains_then_cancels_after_grace_ms(tmp: string)
+--- connection in flight finishes, and one still open at grace_ms has
+--- its task killed, its protocol never resumed, before Net.serve
+--- returns.
+local function test_stop_drains_then_kills_after_grace_ms(tmp: string)
   local path = tmp .. "/s.sock"
   local started = 0
   local stuck_why = ""
@@ -193,7 +194,7 @@ local function test_stop_drains_then_cancels_after_grace_ms(tmp: string)
   assert(ended == nil and why == "", why)
   local _, _ = stuck.conn:close()
   assert(answer == "slow", answer)
-  assert(stuck_why == Poll.CANCELLED, stuck_why)
+  assert(stuck_why == "", stuck_why)
   assert(returned_at - stopped_at >= 200, tostring(returned_at - stopped_at))
 end
 
@@ -251,38 +252,119 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   assert(Fs.stat(tmp .. "/s.sock") == nil)
 end
 
---- A protocol that goes on after its reads fail still ends: at
---- grace_ms its connection is closed as well as cancelled, so a read
---- after the cancelled one fails "connection is closed". Were it only
---- cancelled, every read would fail "cancelled" and the loop never end.
-local function test_a_protocol_ignoring_failures_ends_once_its_connection_is_closed(tmp: string)
+local record Closer
+  metamethod __close: function(Closer)
+end
+
+--- A protocol that ignores every failure and waits on, on its
+--- connection or on time, is killed at grace_ms, and Net.serve returns:
+--- its `<close>` variables are closed, its connection with them, and
+--- nothing is reported of it.
+local function test_a_protocol_ignoring_failures_is_killed_at_grace_ms(tmp: string)
   local failures: {string} = {}
-  local started = false
-  local held: Client
+  local errors: {string} = {}
+  local started, closed = 0, 0
+  local closer_mt: metatable<Closer> = { __close = function() closed = closed + 1 end }
+  local held: {Client} = {}
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
     grace_ms = 20,
     serve = function(conn: Net.Conn)
-      started = true
+      local _ <close> = setmetatable({} as Closer, closer_mt)
+      started = started + 1
+      local reads = started == 1
       while true do
-        local data, why = conn:read()
-        if data == nil then
-          failures[#failures + 1] = why
-          -- A bound, so a regression fails the assertion below rather
-          -- than looping until the test times out.
-          if why == "connection is closed" or #failures == 4 then return end
-        end
+        local _, why: any, string
+        if reads then _, why = conn:read() else _, why = Poll.delay(60000) end
+        failures[#failures + 1] = why
+        -- A bound, so a regression fails the assertion below rather
+        -- than looping until the test times out.
+        if #failures == 100 then return end
       end
     end,
+    on_error = function(trouble: string) errors[#errors + 1] = trouble end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      held[1] = client(addresses[1])
+      held[2] = client(addresses[1])
+      while started < 2 do assert(Poll.delay(1)) end
+      server:stop()
+    end,
+  })
+  for _, c in ipairs(held) do
+    local ended, why = c.lines:read()
+    assert(ended == nil and why == "", why)
+    local _, _ = c.conn:close()
+  end
+  assert(closed == 2, "closed " .. closed .. " of 2")
+  assert(#failures == 0, table.concat(failures, ","))
+  assert(#errors == 0, table.concat(errors, "\n"))
+end
+
+--- What a killed protocol's `<close>` handler raises is reported, and
+--- the rest are served on to their end.
+local function test_a_killed_protocols_close_error_is_reported(tmp: string)
+  local errors: {string} = {}
+  local started = false
+  local raiser_mt: metatable<Closer> = { __close = function() error("broken close", 0) end }
+  local held: Client
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    grace_ms = 0,
+    serve = function(_conn: Net.Conn)
+      local _ <close> = setmetatable({} as Closer, raiser_mt)
+      started = true
+      assert(Poll.delay(60000))
+    end,
+    on_error = function(trouble: string) errors[#errors + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       held = client(addresses[1])
       while not started do assert(Poll.delay(1)) end
       server:stop()
     end,
   })
+  local ended, why = held.lines:read()
+  assert(ended == nil and why == "", why)
   local _, _ = held.conn:close()
-  assert(table.concat(failures, ",") == "cancelled,connection is closed",
-    table.concat(failures, ","))
+  assert(#errors == 1 and errors[1] == "broken close", table.concat(errors, "\n"))
+end
+
+--- A killed protocol's `<close>` handler meets its connection closed:
+--- a write there fails at once, where it would otherwise wait on a peer
+--- that reads nothing, and another wait raises, reported; Net.serve
+--- returns soon after grace_ms.
+local function test_a_killed_protocols_close_cannot_wait(tmp: string)
+  local errors: {string} = {}
+  local wrote = ""
+  local started = false
+  local stopped_at, returned_at = 0, 0
+  local held: Client
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    grace_ms = 50,
+    serve = function(conn: Net.Conn)
+      local farewell_mt: metatable<Closer> = { __close = function()
+        local _, why = conn:write(string.rep("x", 8 * 1024 * 1024))
+        wrote = why
+        assert(Poll.delay(0))
+      end }
+      local _ <close> = setmetatable({} as Closer, farewell_mt)
+      started = true
+      while true do local _, _ = Poll.delay(60000) end
+    end,
+    on_error = function(trouble: string) errors[#errors + 1] = trouble end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      held = client(addresses[1])
+      while not started do assert(Poll.delay(1)) end
+      stopped_at = now_ms()
+      server:stop()
+    end,
+  })
+  returned_at = now_ms()
+  local _, _ = held.conn:close()
+  assert(wrote == "connection is closed", wrote)
+  assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true),
+    table.concat(errors, "\n"))
+  assert(returned_at - stopped_at < 5000, tostring(returned_at - stopped_at))
 end
 
 --- The limit counts connections across listeners: while one listener's
@@ -401,7 +483,7 @@ local function test_sigterm_stops_the_server_and_it_drains(tmp: string)
 end
 
 --- A second signal while the server drains ends the grace at once,
---- though it has no bound: the connection still open is cancelled. The
+--- though it has no bound: the connection still open is killed. The
 --- first is SIGINT, to stop on either kind: a worker started with
 --- SIGINT ignored, whose guard leaves it so, fails this case.
 local function test_a_second_signal_ends_the_grace(tmp: string)
@@ -427,7 +509,7 @@ local function test_a_second_signal_ends_the_grace(tmp: string)
     end,
   })
   local _, _ = stuck.conn:close()
-  assert(stuck_why == Poll.CANCELLED, stuck_why)
+  assert(stuck_why == "", stuck_why)
   assert(outer:release() == sys.SIGTERM)
 end
 
