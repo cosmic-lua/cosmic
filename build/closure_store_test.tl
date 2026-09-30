@@ -7,6 +7,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local closure_store = require("build.closure_store")
+local docs = require("build.docs")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
@@ -269,18 +270,68 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
     "('greet', 'a', 'A.', 'greet.tl', 1, 'a()'), " ..
     "('greet_test', 'b', 'B.', 'greet_test.tl', 1, 'b()')")
   held("the examples' order across modules", examples_again, examples_rows)
+  -- A link is its closure's where a module or a declaration of it makes
+  -- it, whatever it names.
+  local function link(from_module: string, from_file: string): string
+    return "INSERT INTO links (module, symbol, path, anchor, from_file, line, column, " ..
+      "from_module, kind, form, source, text) VALUES ('greet', 'greet.hello', '', '', '" ..
+      from_file .. "', 1, 5, '" .. from_module .. "', 'symbol', 'shortcut', 'comment', " ..
+      "'greet.hello')"
+  end
+  moved("a link", link("greet", "greet.tl"))
+  held("a link from a module outside the closure", link("other", "other.tl"))
+  held("a link from a file that is no module", link("", "notes.md"))
   local extra_doc = doc .. "('extra', 'extra.y', 'extra.y', 1, 'function', '', " ..
     "'Y.', 'extra.d.tl', 1)"
   local extra_decl = "INSERT INTO decls (path, source) VALUES ('extra', deflate('return {}'))"
   held("a doc of a declaration outside the closure", extra_doc, extra_decl)
+  held("a link of a declaration outside the closure", link("extra", "extra.d.tl"), extra_decl)
   names = { "extra", "greet", "greet_test" }
   moved("a declaration's doc", extra_doc, extra_decl)
+  moved("a declaration's link", link("extra", "extra.d.tl"), extra_decl)
   names = { "greet", "greet_test" }
   -- SQLite's quote() ends a text at its first NUL: what follows it moves
   -- the address too.
   moved("a doc's text past a NUL", "UPDATE docs SET text = 'a' || char(0) || 'c' " ..
     "WHERE symbol = 'greet.z'", doc .. "('greet', 'greet.z', 'greet.z', 1, 'function', '', " ..
     "'a' || char(0) || 'b', 'greet.tl', 1)")
+end
+
+--- A lookup over a closure store -- `cosmic uses` or `cosmic docs` run
+--- by a process a worker starts, whose o/cosmic.db it is -- finds the
+--- links its closure's modules make, and none a module outside it makes.
+local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    "-- Checks [`greet.hello`].",
+    "local function test_hello()",
+    '  assert(greet.hello() ~= "")',
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/other.tl", table.concat({
+    'local greet = require("greet")',
+    "-- Wraps [`greet.hello`].",
+    "return greet.hello",
+    "",
+  }, "\n")))
+  local handle = build_and_write(root, "world", tmp .. "/whole.db")
+  assert(work.close(handle))
+  local names = { "greet", "greet_test" }
+  local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+  local address = closure_store.address(basis, names, "salt")
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", names, basis, address))
+  local db = assert(Sqlite.open(tmp .. "/store.db", false))
+  local view = assert(docs.view({ db }))
+  local found = assert(docs.uses(view, "greet.hello"))
+  assert(db:close())
+  local links: {string} = {}
+  for _, use in ipairs(found) do
+    if use.link then links[#links + 1] = use.from_file .. ":" .. use.line end
+  end
+  assert(table.concat(links, " ") == "greet_test.tl:2", table.concat(links, " "))
 end
 
 --- An edit to a declaration of one of the core's raw modules --
