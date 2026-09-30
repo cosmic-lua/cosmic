@@ -235,6 +235,18 @@ that reuses the queue's run saves through `seed`, below). The driver
 reads neither (both are `COSMIC_CI_*`, which a suite's workers are
 never given).
 
+A `light` run has three platform legs, not four: alpine-x86_64, which
+is linux-x86_64's runner and target in another image, runs on every
+`full` run, the merge queue's among them. A matrix cannot read `env`, so
+the legs' `name` list tests the scope's condition again and takes one
+of two lists. The matrix's `include` adds each leg's values by name,
+and an entry naming a leg the list leaves out would start that leg
+anyway (GitHub adds an entry that fits no combination as one of its
+own, `exclude` or not); so alpine-x86_64's entry names no leg, comes
+first and is added to every leg, and each later entry overwrites all of
+its values for its own leg (build/workflows_test.tl expands the matrix
+as GitHub does, for either scope).
+
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
 run one at a time, in one concurrency group, so the caches they save
