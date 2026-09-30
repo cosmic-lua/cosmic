@@ -526,10 +526,16 @@ end
 --- (COSMIC_FIXTURE_RUNTIME), the launcher contract's
 --- (COSMIC_FIXTURE_LAUNCHER) or the format decoders'
 --- (COSMIC_FIXTURE_FORMAT) -- so its key holds what each holds, not
---- where it is. Each declares the product's `cosmic` among them, which
---- [`fixture_test`] gives it: the bytes the leg attests ([`phase_attest`])
---- are in every verdict's key, so no fixture stands on a verdict another
---- product reached (orchestration_test.tl holds each to it).
+--- where it is. Each is tied to the parts of the product the leg attests
+--- ([`phase_attest`]) that it exercises: the product's `prefix`, its
+--- launcher, manifest and cores, which [`fixture_test`] gives it, and
+--- the content-keyed artifacts it runs, each by its bytes, so no fixture
+--- stands on a verdict another launcher, core or artifact reached
+--- (orchestration_test.tl holds each to the prefix). `product` checks
+--- the whole product, and declares every file of it; the rest run
+--- artifacts of their own setup, and do not declare the product's
+--- `cosmic`, whose database moves with every edit to the tool's code
+--- though none of theirs runs it.
 ---
 --- A fixture that declares `system` is keyed by what the system's
 --- paths hold, a /bin/sh or uname changed under the same packages
@@ -559,7 +565,7 @@ Orchestration.sandboxed_fixtures = {
 --- run reached where the leg's suites do not (`stands`). Its project is
 --- made afresh each run ([`fixture_project`]), so what stands is only what
 --- the shared file holds, under a key that holds what the fixture
---- declares it reads, the product among them.
+--- declares it reads, the product's prefix among them.
 -- TODO: hand a merge-queue run's fixtures.db to the run behind it, as
 -- its verdicts.db is (ci.yml's "keep the suite's verdicts for the run
 -- behind in the queue", `verdicts-merge`): that upload is made once the
@@ -1084,15 +1090,20 @@ local function phase_sandbox(p: PlatformContext): integer
 end
 
 --- The tree's format check (`fix --check .`, which also builds and
---- type-checks the tree). It is the first thing assemble does, and all a
---- branch push's light run does after the native suite (see ci.yml's
---- COSMIC_CI_SCOPE). A tree formats and type-checks the same on every
---- platform, so the workflow runs it on one leg, and the others set
---- COSMIC_CI_FORMAT=skip, as COSMIC_CI_CHECKED_SUITE does the checked
---- suite.
+--- type-checks the tree). It is the first thing assemble does, where a
+--- tree formats and type-checks the same on every platform, so the
+--- workflow runs it on one leg, and the others set COSMIC_CI_FORMAT=skip,
+--- as COSMIC_CI_CHECKED_SUITE does the checked suite. On a branch push's
+--- light run it is a phase of its own in ci.yml's `checked` job, which
+--- runs no native suite, off the legs' path.
+--- Where a native suite ran, `fix` writes the working database only
+--- after its boundary was checked (`local-boundary`); a job that ran
+--- none has no boundary to keep.
 local function format_check(p: PlatformContext): integer
-  assert(exists(p.local_diagnostics .. "/local-boundary/hashes.sha256"),
-    "no local-boundary snapshot; run the local-boundary phase first")
+  if exists(p.local_diagnostics .. "/local-immediate/hashes.sha256") then
+    assert(exists(p.local_diagnostics .. "/local-boundary/hashes.sha256"),
+      "no local-boundary snapshot; run the local-boundary phase first")
+  end
   if Env.get("COSMIC_CI_FORMAT") == "skip" then
     Fs.put(Fs.stderr, "format check: skipped on this leg " ..
       "(COSMIC_CI_FORMAT=skip)\n")

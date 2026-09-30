@@ -235,6 +235,18 @@ that reuses the queue's run saves through `seed`, below). The driver
 reads neither (both are `COSMIC_CI_*`, which a suite's workers are
 never given).
 
+A `light` run has three platform legs, not four: alpine-x86_64, which
+is linux-x86_64's runner and target in another image, runs on every
+`full` run, the merge queue's among them. A matrix cannot read `env`, so
+the legs' `name` list tests the scope's condition again and takes one
+of two lists. The matrix's `include` adds each leg's values by name,
+and an entry naming a leg the list leaves out would start that leg
+anyway (GitHub adds an entry that fits no combination as one of its
+own, `exclude` or not); so alpine-x86_64's entry names no leg, comes
+first and is added to every leg, and each later entry overwrites all of
+its values for its own leg (build/workflows_test.tl expands the matrix
+as GitHub does, for either scope).
+
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
 run one at a time, in one concurrency group, so the caches they save
@@ -301,11 +313,12 @@ saves and still carries the products, both taken from the queue's run:
   product (the `TODO:` on `seed`'s relay).
 - Where it finds none (a direct push, or a lookup that failed), and on
   the scheduled and a manual run, which skip `reuse`, the legs run the
-  full scope and save as before. A branch push runs `reuse` with its
-  steps skipped, so it shows as a check run rather than skipped, at
-  the cost of its runner's start before the legs start: seconds, up
-  to about 100 s in a burst of runs. The queue skips it.
-  `seed`, though, shows as a skipped check on a branch push (a `TODO:`).
+  full scope and save as before. Only a push to main runs `reuse`: a
+  branch push shows it as a skipped check rather than hold its legs
+  for a runner's start with nothing to do (seconds, up to about 100 s
+  in a burst of runs); the legs' `!cancelled()` runs them past a
+  skipped `reuse` as past one that found nothing. `seed` too shows as
+  a skipped check on a branch push (a `TODO:`).
 
 What the push gives up is a second run of the same commit: a flake the
 queue's run missed is no longer caught on main, where the nightly run
@@ -368,9 +381,17 @@ use; a leg that skips the suite removes a `checked.db` from its
 verdicts, which would otherwise ride along whole in each save.
 
 It runs wherever the legs do. On a branch push (`light`), which runs
-no checked suite, every step skips, so it shows as a check that ran:
-a runner's start, which the join waits for, and no skipped check. It
-restores linux-x86_64's zig build outputs and compiles, which that leg
+no checked suite, it boots all the same and runs what would otherwise
+hold up a leg: the pinned CI driver's check (`cosmic-driver test
+cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
+skip, and the format check (`platform format`, `fix --check .`, 42 to
+62 s), which ran after linux-aarch64's suite and runs on a full run in
+that leg's assemble. With no suite it mostly finishes before the legs
+(2026-09-30), but not always: its setup, the driver's check, the boot
+and the format check take some 190 s, so on a branch where most
+verdicts stand it can be the run's gate (the `TODO:` on its driver
+check says what would shorten it). Its `operations.db` is kept on
+either scope, as `ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build outputs and compiles, which that leg
 saves, and saves neither. Its verdicts it keeps under a name of its
 own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
 restored, trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's
@@ -531,7 +552,14 @@ worker a fixed path.
 The CI driver check's marker is keyed by what cosmic_ci's tests read
 (`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
 leg's host; an exact hit skips the check, except on the scheduled and
-manual runs.
+manual runs. The host is in the key, the runner's image
+(`ImageVersion`) with it, since the check runs unsandboxed and its tests
+start the host's own programs (`/bin/sh`, `cp`): a marker says the
+driver passed on that image. So a full run checks on each leg, and an
+image rollout misses every marker until main saves again. A branch
+push checks only once, in the checked job, on linux-x86_64's host and
+with no marker, off the legs' path; the queue checks each leg before
+anything lands.
 
 ### artifacts
 

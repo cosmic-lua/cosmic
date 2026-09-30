@@ -7,6 +7,24 @@ local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
 local State = require("cosmic_ci.state")
+local Test = require("cosmic.test")
+
+-- The fixture modules, whose sources [`code_of`] reads (their declarations
+-- are what [`test_every_sandboxed_fixture_is_keyed_by_the_product`]
+-- checks), so an edit to one moves this module's key.
+Test.needs{ reads = { "fixtures/" } }
+
+-- TODO: declare what these tests read of the checkout around ci/
+-- (.github/workflows/ci.yml above all, and the git history a clone
+-- reads) in a [`Test.needs`], once cosmic.test can name a path outside
+-- the project's root relative to it: `reads` refuses a path naming
+-- `..`, and `host` takes only an absolute path written in the source,
+-- which moves with the checkout. Until then a keyed run stands on a
+-- verdict these reached before an edit to ci.yml (a probe edit left
+-- all 32 standing); run them with --all after one. CI's driver check
+-- keeps no verdicts (COSMIC_VERDICT_CACHE=0, a fresh checkout), so
+-- only a local run meets it. The TODO on ci.yml's "move the tree to a
+-- path of its own" names the same gap.
 
 --- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
 --- its parent is the checkout the self-check runs against.
@@ -504,9 +522,13 @@ local function declared_host(source: string): {string:boolean}
 end
 
 --- A sandboxed fixture's verdict is shared across runs and commits, so
---- its key must hold the product it checks: each declares the product's
---- `cosmic` by the variable the driver gives it, which keys the verdict
---- by those bytes, and no other product's verdict stands for it. Each
+--- its key must hold the parts of the product it exercises: each
+--- declares the product's `prefix` -- its launcher, manifest and cores --
+--- by the variable the driver gives it, which keys the verdict by those
+--- bytes, and no other launcher's or core's verdict stands for it; and
+--- `product`, which checks the whole product, declares each of its
+--- files, while no other declares the product's `cosmic` or `cosmic.db`,
+--- which it does not run. Each
 --- unsandboxed one declares the whole environment and nothing else:
 --- nothing holds it to a declaration, and it shares no verdict for one
 --- to key, but a release that keys every unsandboxed run by declaration
@@ -524,14 +546,28 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   for _, name in ipairs(names) do
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
-      assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/cosmic"],
-        name .. ": a sandboxed fixture's key does not hold the product")
+      local host = declared_host(name)
+      assert(host["$COSMIC_FIXTURE_PRODUCT/prefix"],
+        name .. ": a sandboxed fixture's key does not hold the product's prefix")
+      if name ~= "product" then
+        for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
+          assert(not host["$COSMIC_FIXTURE_PRODUCT/" .. whole],
+            name .. ": a sandboxed fixture that does not check the whole product declares its " ..
+            whole .. ", which moves with every edit to the tool's code")
+        end
+      end
     else
       local needs = code_of(name):match("\nTest%.needs%s*%(?%s*(%b{})")
       assert(needs ~= nil and needs:gsub("%s", "") == '{env={"*"}}',
         name .. ": an unsandboxed fixture declares other than the whole environment: " ..
         tostring(needs))
     end
+  end
+  local whole = declared_host("product")
+  for _, part in ipairs({ "cosmic", "hashes.sha256", "prefix", "manifest", "apps/hello",
+                          "apps/second", "cosmic.db", "targets.tsv" }) do
+    assert(whole["$COSMIC_FIXTURE_PRODUCT/" .. part],
+      "product: the fixture that checks the whole product does not declare " .. part)
   end
   local listed = 0
   for _ in pairs(Orchestration.sandboxed_fixtures) do listed = listed + 1 end
@@ -563,6 +599,40 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
     if case.ran then assert(ran == "fix --check .", ran) end
+  end
+end
+
+--- The format check keeps a native suite's boundary: where the suite
+--- ran (its immediate snapshot is there) it runs only after the
+--- boundary was checked. A job that ran no suite (ci.yml's `checked`,
+--- on a light run) has neither snapshot, and the check runs.
+local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: string)
+  local base, project = command(tmp)
+  for _, case in ipairs({
+    { name = "no-suite", immediate = false, boundary = false, ran = true },
+    { name = "suite-unbounded", immediate = true, boundary = false, ran = false },
+    { name = "suite-bounded", immediate = true, boundary = true, ran = true },
+  }) do
+    local fake = tmp .. "/format-boundary-" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    local diagnostics = runner_temp .. "/cosmic-ci/platform/local-diagnostics"
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(diagnostics))
+    for _, snapshot in ipairs({ { "local-immediate", case.immediate }, { "local-boundary", case.boundary } }) do
+      if snapshot[2] then
+        assert(Fs.mkdirs(diagnostics .. "/" .. snapshot[1] as string))
+        assert(Fs.write(diagnostics .. "/" .. snapshot[1] as string .. "/hashes.sha256", ""))
+      end
+    end
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s' \"$*\" > \"$0.ran\"\nexit 0\n", 493)
+    local outcome = Fixture.call("format-boundary-" .. case.name, append(base, { "platform", "format" }),
+      project, tmp .. "/logs", context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run",
+      }))
+    assert(outcome.result.ok == case.ran, case.name .. ": the format phase answered " ..
+      tostring(outcome.result.ok))
+    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
   end
 end
 
@@ -767,22 +837,40 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
   end
 end
 
+--- ci.yml's platform legs on a full run, by name: each of the `name`
+--- list a full run takes, with the values of every `include` entry
+--- that names it or names no leg, a later one's over an earlier one's
+--- (build/workflows_test.tl expands the matrix as GitHub does, for a
+--- light run too).
+local function full_run_legs(platform: {string: any}): {string: {string: string}}
+  local matrix = (platform.strategy as {string: any}).matrix as {string: any}
+  local full = assert((matrix.name as string):match("&& '(%[.-%])' ||"), "the legs' names are no scope's choice")
+  local legs: {string: {string: string}} = {}
+  for _, name in ipairs(assert(Json.decode(full)) as {string}) do
+    local leg: {string: string} = { name = name }
+    for _, entry in ipairs(matrix.include as {{string: string}}) do
+      if entry.name == nil or entry.name == name then
+        for key, value in pairs(entry) do leg[key] = value end
+      end
+    end
+    legs[name] = leg
+  end
+  return legs
+end
+
 --- The checked core's suite runs on no leg of ci.yml's platform job
 --- (COSMIC_CI_CHECKED_SUITE=skip) but in its `checked` job, which runs
 --- the phases that build what it reads and then the suite, beside the
 --- legs: run after a leg's own suites, it would make that leg the run's
 --- longest. The format check, which answers the same on every leg, runs
---- on one.
+--- on one, in a full run's assemble; a branch push's light run makes it
+--- in the checked job after its boot, off the legs' path.
 local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_on_one_leg()
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local jobs = ci.jobs as {string: {string: any}}
   local platform = jobs.platform
-  local legs: {string: boolean} = {}
-  local strategy = platform.strategy as {string: {string: any}}
-  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
-    legs[leg.name] = true
-  end
+  local legs = full_run_legs(platform)
   local env = platform.env as {string: string}
   assert(env.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " ..
     tostring(env.COSMIC_CI_CHECKED_SUITE))
@@ -798,7 +886,7 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
     local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
     if phase ~= nil then phases[#phases + 1] = phase end
   end
-  assert(table.concat(phases, " ") == "boot checked-build checked",
+  assert(table.concat(phases, " ") == "boot format checked-build checked",
     "the checked job runs the phases " .. table.concat(phases, " "))
 end
 
@@ -807,12 +895,7 @@ local function platform_legs_and_env(): {string: {string: string}}, {string: str
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local platform = (ci.jobs as {string: {string: any}}).platform
-  local legs: {string: {string: string}} = {}
-  local strategy = platform.strategy as {string: {string: any}}
-  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
-    legs[leg.name] = leg
-  end
-  return legs, platform.env as {string: string}
+  return full_run_legs(platform), platform.env as {string: string}
 end
 
 --- The fixed-point regression, the slowest fixture on every leg, runs
@@ -974,7 +1057,7 @@ end
 
 --- The portable suite stands on verdicts where the other suites do --
 --- a Linux leg's push or merge queue run -- on those of its own file
---- (`Orchestration.suite_verdicts`), never the local suite's; where
+--- ([`Orchestration.suite_verdicts`]), never the local suite's; where
 --- they do not (main's scheduled run), it runs every test.
 local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
   local base, project = command(tmp)
@@ -1235,12 +1318,12 @@ local sets_what_it_reads: {string:{string:boolean}} = {
   -- As the platform and checked jobs' env set it, and the workflow's;
   -- RUNNER_TEMP and GITHUB_OUTPUT as a step's `run` names them.
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
-    COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_EVENT = true,
+    COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
     COSMIC_CI_BASE_SHA = true, GITHUB_OUTPUT = true, RUNNER_TEMP = true },
 }
 
 --- No tree source names a variable a gating suite's workers are not
---- given (`Orchestration.forget_run`) but one that sets it itself
+--- given ([`Orchestration.forget_run`]) but one that sets it itself
 --- (`sets_what_it_reads`): a test that read one would find it unset in
 --- CI. A new one is kept out of `forget_run` or set by the test.
 local function test_no_tree_source_reads_what_a_suite_forgets()
