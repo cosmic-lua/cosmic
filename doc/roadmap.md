@@ -141,9 +141,10 @@ promises lean on come first:
   `Address`; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode; and
-  a wait on several connections and `Child` handles at once: a
-  scheduler over `sys.poll`, which `cosmic.net` waits through in place
-  of core/socket.h's one-socket `wait`.
+  a wait on several connections and `Child` handles at once:
+  `cosmic.net` and `cosmic.child` waiting through `cosmic.poll` inside
+  `Poll.run`, in place of core/socket.h's one-socket `wait` and the
+  child pump's own poll.
 
 ## documentation and examples
 
