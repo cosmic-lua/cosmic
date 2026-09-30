@@ -217,7 +217,7 @@ COSMIC_SYSCALL(subreaper, 0);
 COSMIC_SYSCALL(sandbox_inits, 0);
 
 /*
- * --- The children of the thread that calls it -- the one that starts every child -- not yet reaped, orphans it adopted as a subreaper among them: Linux's /proc/thread-self/children, named so rather than by `getpid()`, which in a sandbox whose /proc is the host's names another process. ENOSYS where there is no such list, and the error that refused it where it cannot be read (ENOENT from a kernel built without it).
+ * --- The children of the calling thread, which starts every child, that are not yet reaped, orphans it adopted as a subreaper among them. They are read from Linux's /proc/thread-self/children, named so rather than by `getpid()`, which in a sandbox whose /proc is the host's names another process. ENOSYS where there is no such list, and the error that refused it where it cannot be read (ENOENT from a kernel built without it).
  * ---@return {integer}|nil pids their process ids, in the kernel's order, or nil on failure
  * ---@return string error what went wrong, when pids is nil
  * ---@return integer errno the error number, when pids is nil

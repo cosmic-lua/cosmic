@@ -209,7 +209,9 @@ end
 
 --- A socket file, a named pipe and a device are each named for what
 --- they are, by the mode's type and the same words on every system,
---- rather than lumped together as "other".
+--- rather than lumped together as "other". No test reaches "block", or
+--- a device in a listing: a worker is given no block device, and no
+--- directory of the system's to list.
 local function test_stat_names_a_socket_a_fifo_and_a_device(tmp: string)
   local socket = tmp .. "/socket"
   socket_file(socket)
@@ -1131,6 +1133,21 @@ local function test_poll_answers_every_entry_of_a_descriptor_given_twice()
   assert(revents[4] == 0, "an unwatched entry: " .. said)
   assert(revents[5] == 0, "a reading end asked to write: " .. said)
   assert(revents[6] & sys.POLLOUT ~= 0 and revents[6] & sys.POLLIN == 0, said)
+end
+
+--- A hangup and a descriptor not open are answered in every entry of a
+--- descriptor given twice, whatever each asked for.
+local function test_poll_answers_a_hangup_and_a_closed_descriptor_in_every_entry()
+  local ends = assert(process.pipe())
+  sys.close(ends.writer)
+  local closed = assert(sys.dup(ends.reader))
+  sys.close(closed)
+  local revents = assert(sys.poll({ ends.reader, ends.reader, closed, closed },
+    { sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT }, 0))
+  sys.close(ends.reader)
+  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
+  assert(revents[1] & sys.POLLHUP ~= 0 and revents[2] & sys.POLLHUP ~= 0, said)
+  assert(revents[3] & sys.POLLNVAL ~= 0 and revents[4] & sys.POLLNVAL ~= 0, said)
 end
 
 --- `poll` watches as many descriptors as the kernel lets a process

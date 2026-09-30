@@ -49,6 +49,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "guard.h"
 #include "lauxlib.h"
 #include "executable.h"
+#include "memory.h"
 #include "crypto.h"
 #include "environment.h"
 #include "syscalls.h"
@@ -2626,18 +2627,18 @@ COSMIC_SYSCALL(set_nonblocking, 2) {
 }
 
 /* One entry of `poll`'s argument: its descriptor, and where it is in
- * the argument, to sort the entries by descriptor. */
+ * the argument, so the entries sorted by descriptor can be answered in
+ * place. */
 struct poll_entry {
   int fd;
   int at;
 };
 
-/* Orders entries by descriptor, then by place, so the order qsort
- * leaves them in is the same on every libc. */
+/* Orders entries by descriptor; the order among one descriptor's
+ * entries does not matter. */
 static int poll_entry_order (const void *a, const void *b) {
   const struct poll_entry *left = a, *right = b;
-  if (left->fd != right->fd) return left->fd < right->fd ? -1 : 1;
-  return (left->at > right->at) - (left->at < right->at);
+  return (left->fd > right->fd) - (left->fd < right->fd);
 }
 
 /* The kernel is given each descriptor once, asked for every event any
@@ -2657,8 +2658,6 @@ COSMIC_SYSCALL(poll, 3) {
   if ((lua_Integer)lua_rawlen(L, 2) != count)
     return luaL_argerror(L, 2, "one event mask per descriptor");
   size_t each = sizeof(struct pollfd) + sizeof(struct poll_entry) + sizeof(int) + sizeof(short);
-  if ((size_t)count > SIZE_MAX / each)
-    return luaL_argerror(L, 1, "too many descriptors");
   /* A block Lua owns, not a C allocation: a refused descriptor below
    * raises part-way through filling it, and the collector takes it. Its
    * parts are laid out from the widest alignment down. */
@@ -2731,15 +2730,15 @@ COSMIC_SYSCALL(children, 0) {
   /* The list is read whole into a C block before anything is pushed,
    * so the descriptor is closed before a Lua call can raise; the block
    * is the guard's from then on. */
-  struct cosmic_guard *guard = cosmic_guard_push(L, free);
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
   int fd = open("/proc/thread-self/children", O_RDONLY | O_CLOEXEC);
   if (fd < 0) return cosmic_fail(L, errno);
   size_t room = 4096, used = 0;
-  char *text = malloc(room);
+  char *text = cosmic_malloc(room);
   int failure = text == NULL ? ENOMEM : 0;
   while (failure == 0) {
     if (used == room) {
-      char *grown = room > SIZE_MAX / 2 ? NULL : realloc(text, room * 2);
+      char *grown = room > SIZE_MAX / 2 ? NULL : cosmic_realloc(text, room * 2);
       if (grown == NULL) {
         failure = ENOMEM;
         break;
@@ -2755,7 +2754,7 @@ COSMIC_SYSCALL(children, 0) {
   }
   close(fd);
   if (failure != 0) {
-    free(text);
+    cosmic_free(text);
     return cosmic_fail(L, failure);
   }
   guard->resource = text;
@@ -2766,12 +2765,15 @@ COSMIC_SYSCALL(children, 0) {
       at++;
       continue;
     }
-    /* A number past any pid stops growing rather than overflow. */
+    /* A number past any pid names no process, and is skipped. */
     lua_Integer pid = 0;
+    bool fits = true;
     while (at < used && text[at] >= '0' && text[at] <= '9') {
-      if (pid <= INT_MAX) pid = pid * 10 + (text[at] - '0');
+      if (fits) pid = pid * 10 + (text[at] - '0');
+      if (pid > INT_MAX) fits = false;
       at++;
     }
+    if (!fits) continue;
     lua_pushinteger(L, pid);
     lua_rawseti(L, -2, ++count);
   }

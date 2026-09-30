@@ -713,7 +713,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
  * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
- * ---@field EBUSY integer the resource is in use, as while a signal guard is already open
+ * ---@field EBUSY integer the resource is in use
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal

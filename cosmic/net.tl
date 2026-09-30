@@ -319,7 +319,10 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
     end,
     writer = function(self: Net.Conn): Stream.Writer
       -- Once ended, a second close asks nothing of the socket, which
-      -- macOS answers ENOTCONN once the peer has gone.
+      -- macOS answers ENOTCONN once the peer has gone. A first close
+      -- then answers ENOTCONN there, and stays so: the core cannot tell
+      -- a connection that went away from a socket never connected,
+      -- which only this caller knows it had.
       local ended = false
       return {
         write = function(_w: Stream.Writer, data: string): boolean, string
