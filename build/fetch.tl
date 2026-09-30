@@ -315,8 +315,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     -- Held for the download and closed however it leaves, a raise of
     -- `complain` included: closing delivers a caught signal again, so the
-    -- process still dies of it. A guard already open, or one that cannot
-    -- be had, leaves the download uninterruptible as it was.
+    -- process still dies of it. A guard that cannot be had (no
+    -- descriptor left for its pipe) leaves the download uninterruptible
+    -- as it was.
     local held, _ = Child.guard()
     if held == nil then
       return download(function(): boolean return false end)

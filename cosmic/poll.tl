@@ -346,10 +346,10 @@ local function poll_once(timeout: integer)
   if #fds == 0 and timeout < 0 then
     error("every task waits on another: none can go on", 0)
   end
-  -- TODO: end every wait with an interrupt when a Child.guard catches
-  -- SIGINT or SIGTERM, as cosmic.net's waits do, once the guard answers
-  -- through a descriptor the loop can watch: a signal only cuts this
-  -- poll short today, and the loop waits on.
+  -- A signal a Child.guard catches only cuts this poll short, and the
+  -- loop waits on: what one means -- end every wait, or stop taking
+  -- work and drain it, as Net.serve does -- is the run's to say, by a
+  -- task that waits on the guard (`g:wait`).
   local revents, trouble = sys.poll(fds, events, timeout)
   if revents == nil then error("poll: " .. trouble, 0) end
   for i, w in ipairs(kept) do
