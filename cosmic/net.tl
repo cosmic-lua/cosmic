@@ -292,7 +292,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
       if write_failure ~= "" then return false, write_failure end
       local from = 1
       while from <= #data do
-        local sent, why, errno = raw.send(fd, from == 1 and data or data:sub(from))
+        local sent, why, errno = raw.send(fd, data, from)
         if sent ~= nil then
           from = from + sent
         elseif errno ~= raw.EAGAIN then
