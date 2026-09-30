@@ -28,7 +28,7 @@
         iters: {
           description: "FUZZ_ITERS",
           required: false,
-          default: "2000",
+          default: "10000",
         },
       },
     },
@@ -67,10 +67,7 @@
       },
       env: {
         FUZZ_SEED: "${{ inputs.seed || github.run_id }}",
-        # TODO: 10000 once a test's report no longer outgrows the runner's
-        # capture limit (the TODO on build/test_worker.tl's encode_reads):
-        # archive extraction's does past about 5000.
-        FUZZ_ITERS: "${{ inputs.iters || '2000' }}",
+        FUZZ_ITERS: "${{ inputs.iters || '10000' }}",
       },
       steps: [
         {
