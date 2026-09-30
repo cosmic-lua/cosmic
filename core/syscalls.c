@@ -31,13 +31,22 @@
 #include <sys/mount.h>
 #include <sys/socket.h>
 #include <stddef.h>
+#include <sys/auxv.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
+#include <sys/vfs.h>
 /* _XOPEN_SOURCE intentionally hides these libc escape hatches: syscall,
  * for the calls musl has no wrapper for, and clone, which starts a child
  * on this process's memory ([`start_child`]). */
 extern long syscall (long, ...);
 extern int clone (int (*)(void *), void *, int, void *, ...);
+#endif
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
+#if defined(__x86_64__)
+#include <cpuid.h>
 #endif
 #include <string.h>
 #include <time.h>
@@ -2726,38 +2735,83 @@ COSMIC_SYSCALL(subreaper, 0) {
 #endif
 }
 
-COSMIC_SYSCALL(children, 0) {
 #if defined(__linux__)
-  /* The list is read whole into a C block before anything is pushed,
-   * so the descriptor is closed before a Lua call can raise; the block
-   * is the guard's from then on. */
-  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
-  int fd = open("/proc/thread-self/children", O_RDONLY | O_CLOEXEC);
-  if (fd < 0) return cosmic_fail(L, errno);
-  size_t room = 4096, used = 0;
-  char *text = cosmic_malloc(room);
-  int failure = text == NULL ? ENOMEM : 0;
+/* Reads the file at `path` whole into a block of the core's C heap,
+ * which the caller frees, and its length into `used`: 0, or the errno
+ * that refused it, ENOMEM for a block refused. It calls nothing of
+ * Lua's, so its descriptor is closed before a caller's Lua call can
+ * raise. */
+static int read_whole (const char *path, char **text, size_t *used) {
+  *text = NULL;
+  *used = 0;
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return errno;
+  size_t room = 4096, have = 0;
+  char *block = cosmic_malloc(room);
+  int failure = block == NULL ? ENOMEM : 0;
   while (failure == 0) {
-    if (used == room) {
-      char *grown = room > SIZE_MAX / 2 ? NULL : cosmic_realloc(text, room * 2);
+    if (have == room) {
+      char *grown = room > SIZE_MAX / 2 ? NULL : cosmic_realloc(block, room * 2);
       if (grown == NULL) {
         failure = ENOMEM;
         break;
       }
-      text = grown;
+      block = grown;
       room *= 2;
     }
-    ssize_t got = read(fd, text + used, room - used);
+    ssize_t got = read(fd, block + have, room - have);
     if (got < 0 && errno == EINTR) continue;
     if (got < 0) failure = errno;
     if (got <= 0) break;
-    used += (size_t)got;
+    have += (size_t)got;
   }
   close(fd);
   if (failure != 0) {
-    cosmic_free(text);
-    return cosmic_fail(L, failure);
+    cosmic_free(block);
+    return failure;
   }
+  *text = block;
+  *used = have;
+  return 0;
+}
+
+/* Whether the list of ranges `text` holds, as /proc/<pid>/uid_map and
+ * gid_map write them -- a line each of the first id inside, the first
+ * outside and how many -- maps `id` inside. */
+static bool id_mapped (const char *text, size_t used, uint64_t id) {
+  for (size_t at = 0; at < used;) {
+    uint64_t field[3] = { 0, 0, 0 };
+    int fields = 0;
+    while (at < used && text[at] != '\n') {
+      if (text[at] < '0' || text[at] > '9') {
+        at++;
+        continue;
+      }
+      /* Held below 2^40, past every id and count, so it cannot wrap. */
+      uint64_t value = 0;
+      while (at < used && text[at] >= '0' && text[at] <= '9') {
+        if (value < ((uint64_t)1 << 40)) value = value * 10 + (uint64_t)(text[at] - '0');
+        at++;
+      }
+      if (fields < 3) field[fields] = value;
+      fields++;
+    }
+    at++;
+    if (fields == 3 && id >= field[0] && id - field[0] < field[2]) return true;
+  }
+  return false;
+}
+#endif
+
+COSMIC_SYSCALL(children, 0) {
+#if defined(__linux__)
+  /* The list is read whole into a C block before anything is pushed;
+   * the block is the guard's from then on. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
+  char *text;
+  size_t used;
+  int failure = read_whole("/proc/thread-self/children", &text, &used);
+  if (failure != 0) return cosmic_fail(L, failure);
   guard->resource = text;
   lua_newtable(L);
   lua_Integer count = 0;
@@ -2784,6 +2838,142 @@ COSMIC_SYSCALL(children, 0) {
 #endif
 }
 
+COSMIC_SYSCALL(maps_id, 1) {
+  lua_Integer id = luaL_checkinteger(L, 1);
+  luaL_argcheck(L, id >= 0 && id < (lua_Integer)UINT32_MAX, 1, "not an id");
+#if defined(__linux__)
+  static const char *const maps[] = { "/proc/self/uid_map", "/proc/self/gid_map" };
+  for (int m = 0; m < 2; m++) {
+    char *text;
+    size_t used;
+    int failure = read_whole(maps[m], &text, &used);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
+    bool mapped = id_mapped(text, used, (uint64_t)id);
+    cosmic_free(text);
+    /* setuid's answer for an id this namespace does not map. */
+    if (!mapped) return cosmic_fail_effect(L, EINVAL);
+  }
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(may_map_ids, 0) {
+#if defined(__linux__)
+  if (geteuid() != 0) return cosmic_fail_effect(L, EPERM);
+  struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
+  struct __user_cap_data_struct data[2];
+  if (syscall(SYS_capget, &header, data) != 0) return cosmic_fail_effect(L, errno);
+  uint32_t needed = (1u << CAP_SETGID) | (1u << CAP_SETUID) | (1u << CAP_SETFCAP);
+  if ((data[0].effective & needed) != needed) return cosmic_fail_effect(L, EPERM);
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+#if defined(__linux__)
+/* The stack each of `own_proc`'s two children runs on, above a guard
+ * page of its own. */
+#define OWN_PROC_STACK_SIZE (64 * 1024)
+
+/* What `own_proc`'s first child is handed: the ids it maps, whether it
+ * may be left unmapped, as `spawn` decides for an unveiled child, and
+ * the stack its own child runs on. */
+struct own_proc_probe {
+  const char *uid_map;
+  const char *gid_map;
+  int unmap_root;
+  char *mounter_stack;
+};
+
+/* `own_proc`'s second child, pid 1 of the first's pid namespace: mounts
+ * a procfs of it as [`place_proc`] does, on the /proc of a mount
+ * namespace made private first, so neither mount reaches the parent's.
+ * It exits 0, or with the errno that refused it. */
+static _Noreturn int mount_own_proc (void *unused) {
+  (void)unused;
+  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) _exit(errno & 0xff);
+  if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") != 0)
+    _exit(errno & 0xff);
+  _exit(0);
+}
+
+/* `own_proc`'s first child, on the parent's memory with every signal
+ * blocked, as [`start_child`]'s is: makes its namespaces as
+ * [`start_unveiled`] does -- through unshare, which a container's
+ * seccomp profile lets through where it refuses clone's namespace
+ * flags -- maps its ids as [`map_ids`] does for such a child, and starts
+ * [`mount_own_proc`] in them. It exits with what that one exited with,
+ * or the errno that refused a step before it. */
+static _Noreturn int try_own_proc (void *argument) {
+  const struct own_proc_probe *probe = argument;
+  if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS) != 0) _exit(errno & 0xff);
+  int mapped;
+  int failure = map_ids(probe->unmap_root, probe->uid_map, probe->gid_map, &mapped);
+  if (failure) _exit(failure & 0xff);
+  pid_t mounter = clone(mount_own_proc, probe->mounter_stack, CLONE_VM | CLONE_VFORK | SIGCHLD,
+                        NULL);
+  if (mounter < 0) _exit(errno & 0xff);
+  int status = 0;
+  pid_t reaped;
+  while ((reaped = waitpid(mounter, &status, 0)) < 0 && errno == EINTR) {}
+  if (reaped < 0) _exit(errno & 0xff);
+  _exit(WIFEXITED(status) ? WEXITSTATUS(status) : ECHILD);
+}
+#endif
+
+COSMIC_SYSCALL(own_proc, 0) {
+#if defined(__linux__)
+  char uid_map[64], gid_map[64];
+  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
+           (unsigned long)geteuid());
+  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", (unsigned long)getegid(),
+           (unsigned long)getegid());
+  long page = sysconf(_SC_PAGESIZE);
+  if (page <= 0) page = 4096;
+  size_t each = OWN_PROC_STACK_SIZE + (size_t)page, size = 2 * each;
+  char *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (stack == MAP_FAILED) return cosmic_fail_effect(L, errno);
+  int failure = 0;
+  for (int s = 0; !failure && s < 2; s++) {
+    if (mprotect(stack + each * (size_t)s, (size_t)page, PROT_NONE) != 0) failure = errno;
+  }
+  struct own_proc_probe probe = {
+    uid_map, gid_map, inner_user_namespace() && geteuid() == 0, stack + 2 * each,
+  };
+  sigset_t every, before;
+  sigfillset(&every);
+  if (!failure && sigprocmask(SIG_SETMASK, &every, &before) != 0) failure = errno;
+  pid_t child = -1;
+  if (!failure) {
+    child = clone(try_own_proc, stack + each, CLONE_VM | CLONE_VFORK | SIGCHLD, &probe);
+    if (child < 0) failure = errno;
+    sigprocmask(SIG_SETMASK, &before, NULL);
+  }
+  munmap(stack, size);
+  if (failure) return cosmic_fail_effect(L, failure);
+  int status = 0;
+  pid_t reaped;
+  while ((reaped = waitpid(child, &status, 0)) < 0 && errno == EINTR) {}
+  if (reaped < 0) return cosmic_fail_effect(L, errno);
+  if (!WIFEXITED(status)) return cosmic_fail_effect(L, ECHILD);
+  if (WEXITSTATUS(status) != 0) return cosmic_fail_effect(L, WEXITSTATUS(status));
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(sandbox_platform, 0) {
+#if defined(__linux__)
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
 COSMIC_SYSCALL(ignore_sigpipe, 0) {
   struct sigaction previous;
   if (sigaction(SIGPIPE, NULL, &previous) != 0)
@@ -2803,6 +2993,153 @@ COSMIC_SYSCALL(cpu_count, 0) {
   long count = sysconf(_SC_NPROCESSORS_ONLN);
   lua_pushinteger(L, count < 1 ? 1 : (lua_Integer)count);
   return 1;
+}
+
+/* The features `cpu_features` answers, by /proc/cpuinfo's names, in
+ * byte order, each with where this processor says it has it: a bit of
+ * cpuid leaf 1's ECX on x86_64, and of the auxiliary vector's AT_HWCAP
+ * on Linux's aarch64; a name sysctlbyname answers 1 for on Darwin's. */
+#if defined(__aarch64__) && defined(__APPLE__)
+struct cpu_feature {
+  const char *name;
+  const char *sysctl;
+};
+
+static const struct cpu_feature cpu_features[] = {
+  { "aes", "hw.optional.arm.FEAT_AES" }, { "asimd", "hw.optional.AdvSIMD" },
+  { "crc32", "hw.optional.armv8_crc32" }, { "pmull", "hw.optional.arm.FEAT_PMULL" },
+};
+#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
+struct cpu_feature {
+  const char *name;
+  unsigned bit;
+};
+
+#if defined(__x86_64__)
+static const struct cpu_feature cpu_features[] = {
+  { "aes", 25 }, { "pclmulqdq", 1 }, { "sse4_1", 19 }, { "ssse3", 9 },
+};
+#else
+static const struct cpu_feature cpu_features[] = {
+  { "aes", 3 }, { "asimd", 1 }, { "crc32", 7 }, { "pmull", 4 },
+};
+#endif
+#endif
+
+COSMIC_SYSCALL(cpu_features, 0) {
+  lua_newtable(L);
+#if defined(__aarch64__) && defined(__APPLE__)
+  lua_Integer count = 0;
+  for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
+    int value = 0;
+    size_t size = sizeof value;
+    if (sysctlbyname(cpu_features[f].sysctl, &value, &size, NULL, 0) != 0 || value != 1)
+      continue;
+    lua_pushstring(L, cpu_features[f].name);
+    lua_rawseti(L, -2, ++count);
+  }
+#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
+  unsigned long bits = 0;
+#if defined(__x86_64__)
+  unsigned int eax, ebx, ecx, edx;
+  if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) bits = ecx;
+#else
+  bits = getauxval(AT_HWCAP);
+#endif
+  lua_Integer count = 0;
+  for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
+    if (((bits >> cpu_features[f].bit) & 1) == 0) continue;
+    lua_pushstring(L, cpu_features[f].name);
+    lua_rawseti(L, -2, ++count);
+  }
+#endif
+  return 1;
+}
+
+bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *device) {
+  size_t device_length = strlen(device);
+  for (size_t at = 0; at < used;) {
+    size_t end = at;
+    while (end < used && text[end] != '\n') end++;
+    /* Its fields, space-separated: the third the device, and after a
+     * lone "-" at the seventh or later, the type, the source and the
+     * filesystem's own options. */
+    size_t start[64], length[64];
+    int fields = 0;
+    for (size_t f = at; f < end && fields < 64;) {
+      size_t stop = f;
+      while (stop < end && text[stop] != ' ') stop++;
+      start[fields] = f;
+      length[fields] = stop - f;
+      fields++;
+      f = stop + 1;
+    }
+    at = end + 1;
+    if (fields <= 2 || length[2] != device_length ||
+        memcmp(text + start[2], device, device_length) != 0)
+      continue;
+    for (int sep = 6; sep + 3 < fields; sep++) {
+      if (length[sep] != 1 || text[start[sep]] != '-') continue;
+      const char *options = text + start[sep + 3];
+      size_t size = length[sep + 3];
+      for (size_t o = 0; o < size;) {
+        size_t stop = o;
+        while (stop < size && options[stop] != ',') stop++;
+        size_t word = stop - o;
+        if ((word == 16 && memcmp(options + o, "local_lock=flock", 16) == 0) ||
+            (word == 14 && memcmp(options + o, "local_lock=all", 14) == 0))
+          return true;
+        o = stop + 1;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
+COSMIC_SYSCALL(flock_kind, 1) {
+  int fd = cosmic_checkfd(L, 1);
+#if defined(__linux__)
+  struct statfs filesystem;
+  if (fstatfs(fd, &filesystem) != 0) return cosmic_fail(L, errno);
+  uint32_t magic = (uint32_t)filesystem.f_type;
+  /* SMB's client, CIFS_SUPER_MAGIC and SMB2_SUPER_MAGIC, makes every
+   * flock a whole-file fcntl lock. */
+  if (magic == 0xFF534D42u || magic == 0xFE534D42u) {
+    lua_pushliteral(L, "shared");
+    return 1;
+  }
+  /* NFS_SUPER_MAGIC's does too, unless mounted with local_lock "flock"
+   * or "all", which only the mount's options in /proc/self/mountinfo
+   * say: the lines of this file's filesystem are those whose third
+   * field is its device. Where none says, it is taken for NFS's default,
+   * local_lock=none. */
+  if (magic != 0x6969u) {
+    lua_pushliteral(L, "apart");
+    return 1;
+  }
+  struct stat status;
+  if (fstat(fd, &status) != 0) return cosmic_fail(L, errno);
+  char device[32];
+  int wrote = snprintf(device, sizeof device, "%u:%u", major(status.st_dev), minor(status.st_dev));
+  if (wrote < 0 || (size_t)wrote >= sizeof device) return cosmic_fail(L, EOVERFLOW);
+  char *text;
+  size_t used;
+  int failure = read_whole("/proc/self/mountinfo", &text, &used);
+  if (failure == ENOMEM) return cosmic_fail(L, failure);
+  bool local = failure == 0 && cosmic_mountinfo_local_flock(text, used, device);
+  cosmic_free(text);
+  lua_pushstring(L, local ? "apart" : "shared");
+  return 1;
+#else
+  /* Asked of the descriptor only so one not open fails as it does on
+   * Linux: Darwin and the BSDs keep a flock and fcntl locks in one
+   * list, whatever the file. */
+  struct stat status;
+  if (fstat(fd, &status) != 0) return cosmic_fail(L, errno);
+  lua_pushliteral(L, "shared");
+  return 1;
+#endif
 }
 
 COSMIC_SYSCALL(uname, 0) {

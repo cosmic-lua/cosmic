@@ -72,6 +72,8 @@ local exempt: {string: string} = {
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
+  ["core/syscalls.c:cosmic_mountinfo_local_flock"] = "a release core calls it only for a file on NFS, which no " ..
+    "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,
