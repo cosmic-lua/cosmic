@@ -222,3 +222,58 @@ local function test_a_row_follows_its_link_and_its_file(tmp: string)
   same(build_links(handle, out), { "greet.tl:1 symbol hello #" })
   assert(work.close(handle))
 end
+
+--- A member of a type an alias stands for is a row under the alias's
+--- module, whether the link spells it from the alias, from its module
+--- or through a required module, as `cosmic docs` reads it; so is a
+--- field of the record a module's value is typed as.
+local function test_a_member_through_an_alias_or_a_typed_value_is_a_row(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/internal/raw.tl"] = source(
+      "--- Raw things.",
+      "local record raw",
+      "  --- One box.",
+      "  record Box",
+      "    --- Grows the box.",
+      "    grow: function(Box, n: integer): boolean",
+      "  end",
+      "end",
+      "",
+      "return raw"),
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local type raw = require(\"cosmic.internal.raw\")",
+      "",
+      "local record Thing",
+      "  --- A box.",
+      "  type Box = raw.Box",
+      "end",
+      "",
+      "return Thing"),
+    ["cosmic/verbs.tl"] = source(
+      "--- Verbs.",
+      "local record Module",
+      "  --- The order.",
+      "  order: {string}",
+      "end",
+      "",
+      "local module: Module = { order = {} }",
+      "",
+      "return module"),
+    ["build/boot.tl"] = source(
+      "local Thing = require(\"cosmic.thing\")",
+      "local Verbs = require(\"cosmic.verbs\")",
+      "",
+      "-- [`Thing.Box.grow`], [`cosmic.thing.Box.grow`]; not [`Thing.Box.shrink`].",
+      "-- [`Verbs.order`], [`cosmic.verbs.order`]; not [`Verbs.chaos`].",
+      "return Thing"),
+  })
+  same(rows(db, "SELECT from_file, line, column, module, symbol FROM links " ..
+    "WHERE from_file = 'build/boot.tl' ORDER BY line, column"), {
+    "build/boot.tl 4 4 cosmic.thing Box.grow",
+    "build/boot.tl 4 24 cosmic.thing Box.grow",
+    "build/boot.tl 5 4 cosmic.verbs Module.order",
+    "build/boot.tl 5 21 cosmic.verbs Module.order",
+  })
+  assert(db:close())
+end

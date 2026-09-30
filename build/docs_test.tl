@@ -352,6 +352,58 @@ local function test_a_short_module_name_finds_the_public_module(dir: string)
   assert(#read == 1 and read[1].source_symbol == "Fs.read", tostring(#read))
 end
 
+--- A module's member written in full is answered exactly, a field of
+--- the record its value is typed as among them, and so is a member of a
+--- type an alias stands for, spelled from its module. `cosmic docs`
+--- answers the member spelled from the module's last name too.
+local function test_a_modules_member_in_full_is_exact(dir: string)
+  local db = built(dir, {
+    ["cosmic/internal/raw.tl"] = source(
+      "--- Raw things.",
+      "local record raw",
+      "  --- One box.",
+      "  record Box",
+      "    --- Grows the box.",
+      "    grow: function(Box, n: integer): boolean",
+      "  end",
+      "end",
+      "",
+      "return raw"),
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local type raw = require(\"cosmic.internal.raw\")",
+      "",
+      "local record Module",
+      "  --- The order.",
+      "  order: {string}",
+      "  --- A box.",
+      "  type Box = raw.Box",
+      "end",
+      "",
+      "local module: Module = { order = {} }",
+      "",
+      "return module"),
+  })
+  local function exact(query: string): {string}
+    local out: {string} = {}
+    for _, entry in ipairs((assert(docs.exact(view({ db }), query)))) do
+      out[#out + 1] = entry.module .. " " .. entry.symbol
+    end
+    return out
+  end
+  local order = table.concat(exact("cosmic.thing.order"), ", ")
+  assert(order == "cosmic.thing Module.order", order)
+  local grow = table.concat(exact("cosmic.thing.Box.grow"), ", ")
+  assert(grow == "cosmic.thing Module.Box.grow", grow)
+  -- `cosmic docs` reads a module's last name as a caller's alias does.
+  for _, query in ipairs({ "cosmic.thing.order", "Thing.order", "thing.order" }) do
+    local found = assert(docs.lookup(view({ db }), query))
+    assert(found.exact and #found == 1 and found[1].source_symbol == "Module.order",
+      query .. ": " .. #found)
+  end
+  assert(db:close())
+end
+
 --- A verb the bare name names answers first, then the module: `docs
 --- test` shows [`Cli.test`], then [`cosmic.test`].
 local function test_a_short_module_name_keeps_its_verb(dir: string)

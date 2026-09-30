@@ -608,22 +608,6 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
   return out
 end
 
---- The symbols of `entries`, once each.
-local function symbols_of(entries: {docs.Entry}): {link_resolve.Symbol}
-  local out: {link_resolve.Symbol} = {}
-  local seen: {string: boolean} = {}
-  for _, entry in ipairs(entries) do
-    local symbol: link_resolve.Symbol = { module = entry.module, symbol = entry.symbol,
-      file = entry.file }
-    local full = link_resolve.spelled(symbol)
-    if not seen[full] then
-      seen[full] = true
-      out[#out + 1] = symbol
-    end
-  end
-  return out
-end
-
 --- The rows of `view` that `cosmic docs` shows, each from the database
 --- that owns its module, held in memory.
 local function index_of(view: docs.View): symbol_index.Index | nil, string
@@ -634,14 +618,19 @@ local function index_of(view: docs.View): symbol_index.Index | nil, string
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
     if tables == nil then return nil, tables_trouble end
     if #tables > 0 then
+      -- Every row, as [`build.docs`] reads a type an alias stands for
+      -- in any; only those shown, of the database that owns the
+      -- module, answer a name.
       local rows, trouble = Sqlite.text_rows(db,
-        "SELECT d.module, d.symbol, d.source_symbol, d.file FROM docs d WHERE " ..
-        symbols.shown_docs("d", view.public[index] == true) .. " ORDER BY d.module, d.id")
+        "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
+        "d.id, " .. symbols.shown_docs("d", view.public[index] == true) .. " FROM docs d " ..
+        "ORDER BY d.module, d.id")
       if rows == nil then return nil, trouble end
       for _, row in ipairs(rows) do
-        if view.owners[row[1]] == index then
-          symbol_index.add(out, row[1], row[2], row[3], row[4])
-        end
+        symbol_index.add(out, { module = row[1], symbol = row[2], source_symbol = row[3],
+          file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
+          shown = row[9] == "1" and view.owners[row[1]] == index, database = index,
+          id = math.tointeger(tonumber(row[8])) or 0 })
       end
     end
   end
@@ -651,72 +640,37 @@ end
 --- A context over the project at `root` as it is on disk, with symbols
 --- from the view `open` gives, opened the first time a link asks for
 --- one: a file with no link to a symbol reads no database. `unbuilt`
---- says why the view lacks the project's own code, or nil.
----
---- A name is answered from the view's rows held in memory
---- ([`build.symbol_index`]); only a member of a type an alias stands for
---- ([`Sqlite.Handle.exec`]), which none of them names, asks [`build.docs`].
+--- says why the view lacks the project's own code, or nil. A name is
+--- answered from the view's rows held in memory ([`build.symbol_index`]).
 function links.context(root: string, open: function(): docs.View | nil, string,
                        unbuilt: function(): string | nil): link_resolve.Context
-  local view: docs.View | nil = nil
   local held: symbol_index.Index | nil = nil
   local trouble: string | nil = nil
-  local function ready(): docs.View | nil, symbol_index.Index | nil, string
-    if view ~= nil then return view, held, "" end
-    if trouble ~= nil then return nil, nil, trouble end
+  local function ready(): symbol_index.Index | nil, string
+    if held ~= nil then return held, "" end
+    if trouble ~= nil then return nil, trouble end
     local opened, why = open()
     if opened == nil then
       trouble = why
-      return nil, nil, why
+      return nil, why
     end
     local indexed, index_trouble = index_of(opened)
     if indexed == nil then
       trouble = index_trouble
-      return nil, nil, index_trouble
+      return nil, index_trouble
     end
-    view, held = opened, indexed
-    return opened, indexed, ""
+    held = indexed
+    return indexed, ""
   end
   local function named(query: string): {link_resolve.Symbol} | nil, string
-    local ready_view, index, why = ready()
-    if ready_view == nil or index == nil then return nil, why end
-    local found = symbol_index.named(index, query)
-    local prefix = query:gsub(":", "."):match("^([%w_]+%.[%w_%.]+)%.[%w_]+$")
-    if #found == 0 and prefix ~= nil and #symbol_index.named(index, prefix) > 0 then
-      local aliased, aliased_trouble = docs.exact(ready_view, query)
-      if aliased == nil then return nil, aliased_trouble end
-      -- A module's member written in full: `cosmic.thing.Box.grow`.
-      local at = 1
-      while true do
-        local dot = query:find(".", at, true)
-        if dot == nil then break end
-        local module = query:sub(1, dot - 1)
-        if ready_view.owners[module] ~= nil then
-          local members, member_trouble = docs.member(ready_view, module, query:sub(dot + 1))
-          if members == nil then return nil, member_trouble end
-          for _, entry in ipairs(members) do aliased[#aliased + 1] = entry end
-        end
-        at = dot + 1
-      end
-      return symbols_of(aliased), ""
-    end
-    return found, ""
+    local index, why = ready()
+    if index == nil then return nil, why end
+    return symbol_index.named(index, query), ""
   end
-  -- TODO: find a member of a module whose value is a record of another
-  -- name (`Cli.order`, kept as `Module.order`; `ast.walk`, a field of
-  -- `AstModule`), once build.docs records such a record's fields as the
-  -- module's own: a link to one fails, and a span naming one stays as
-  -- written.
   local function member(module: string, name: string): {link_resolve.Symbol} | nil, string
-    local ready_view, index, why = ready()
-    if ready_view == nil or index == nil then return nil, why end
-    local found = symbol_index.member(index, module, name)
-    if #found == 0 and name:find("[.:]") ~= nil then
-      local aliased, aliased_trouble = docs.member(ready_view, module, name)
-      if aliased == nil then return nil, aliased_trouble end
-      return symbols_of(aliased), ""
-    end
-    return found, ""
+    local index, why = ready()
+    if index == nil then return nil, why end
+    return symbol_index.member(index, module, name), ""
   end
   return link_resolve.on_disk(root, named, member, unbuilt)
 end
