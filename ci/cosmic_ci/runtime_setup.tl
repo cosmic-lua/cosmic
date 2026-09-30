@@ -239,7 +239,7 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   -- [`Test.needs`]): test/portable/tool.tl with the modules of the tree it
   -- requires, and build/ with no test but embed_test.tl, the focused
   -- build identity_test.tl runs under the runtime. Each is one file, a
-  -- tar a fixture unpacks where it writes (`Fixture.unpack`), so its
+  -- tar a fixture unpacks where it writes ([`Fixture.unpack`]), so its
   -- declaration names one path whatever the closure holds, and its key
   -- moves only with what the tar holds.
   RuntimeSetup.pack(root, RuntimeSetup.closure(root, "test/portable/tool.tl"),

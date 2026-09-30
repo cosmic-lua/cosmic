@@ -92,7 +92,7 @@ local function count_cache_files(directory: string): integer
 end
 
 -- Find the single generated target whose uname fields match this host.
--- `Fixture.targets` discards those fields, so it cannot perform this lookup.
+-- [`Fixture.targets`] discards those fields, so it cannot perform this lookup.
 local function host_target_field(fixture_dir: string, work: string,
     diagnostics: string): string
   local sysname = host_uname(work, diagnostics, "-s", "sysname")

@@ -31,7 +31,7 @@ local tables: CacheTrim.Tables = { patterns = { "compiled_v[0-9]*", "parsed_v[0-
 --- Removes from the cache at `path` every compile and parse no build
 --- has used or made since `since_ns` (the wall clock, as the cache's
 --- `used_ns` is), then rewrites the file without the space they took
---- (`CacheTrim.trim`). Nil and "" for a file that is not there, which a
+--- ([`CacheTrim.trim`]). Nil and "" for a file that is not there, which a
 --- leg whose builds never started leaves, and nil and why where the
 --- file could not be trimmed.
 function Compiles.trim(path: string, since_ns: integer): CacheTrim.Trimmed | nil, string
@@ -42,8 +42,8 @@ end
 --- it says on standard output and on standard error. It trims the cache
 --- `env.COSMIC_BUILD_CACHE` names to what was used since SINCE, in Unix
 --- seconds, and removes the caches set aside beside it
---- (`CacheTrim.file`), then writes `digest=<hex>` of the rows left
---- (`CacheTrim.digest`) to the step's outputs (`CacheTrim.output`), the
+--- ([`CacheTrim.file`]), then writes `digest=<hex>` of the rows left
+--- ([`CacheTrim.digest`]) to the step's outputs ([`CacheTrim.output`]), the
 --- tail of the key ci.yml saves the cache under. Nothing to do, and no
 --- digest, where the variable names no file or the file is not there.
 --- Only a SINCE that is no count of seconds fails it (2): a cache it
