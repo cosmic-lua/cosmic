@@ -145,10 +145,7 @@ promises lean on come first:
   failing, where today it is reported and the server stops once none
   is left; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
-  (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode; and
-  a wait on `Child` handles beside connections: [`cosmic.child`]
-  waiting through [`cosmic.poll`] inside [`Poll.run`], in place of its
-  pump's own poll, as [`cosmic.net`]'s waits do.
+  (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode.
 
 ## documentation and examples
 
@@ -228,10 +225,8 @@ four-producer provenance join.
 [`Child.end_strays`]: ../cosmic/child.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
-[`cosmic.child`]: ../cosmic/child.tl
 [`cosmic.http`]: ../cosmic/http.tl
 [`cosmic.net`]: ../cosmic/net.tl
-[`cosmic.poll`]: ../cosmic/poll.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
@@ -239,6 +234,5 @@ four-producer provenance join.
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
-[`Poll.run`]: ../cosmic/poll.tl
 [`Shape.record`]: ../cosmic/shape.tl
 [`Shape.strict_record`]: ../cosmic/shape.tl

@@ -774,3 +774,28 @@ local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: stri
   assert(slowest < 500 * 1000000, "a confined start and wait took " ..
     tostring(slowest // 1000000) .. " ms")
 end
+
+--- `exit_watch`'s descriptor is readable once its child has exited, and
+--- not before; a pid reaped has none to give. The child is this program, reading its stdin to the
+--- end: it exits once this process closes the other end.
+local function test_an_exit_watch_is_readable_once_its_child_exits()
+  local ok, raised = pcall(process.exit_watch, 0)
+  assert(not ok and tostring(raised):find("pid is out of range", 1, true), tostring(raised))
+  local ends = assert(process.pipe())
+  local started = this_program.program({ "-e",
+    'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end' })
+  local pid = process.spawn(started.argv[1], started.argv, started.options.env, nil,
+    ends.reader, nil, nil, false, spawn_fds(started))
+  sys.close(ends.reader)
+  assert(pid, "the child did not start")
+  local watch = assert(process.exit_watch(pid))
+  assert(assert(sys.poll({ watch }, { sys.POLLIN }, 50))[1] == 0,
+    "the watch was readable while its child ran")
+  sys.close(ends.writer)
+  local ready = assert(sys.poll({ watch }, { sys.POLLIN }, 30000))
+  assert(ready[1] & sys.POLLIN ~= 0, "the child's exit left its watch unreadable")
+  assert(process.waitpid(pid, false))
+  sys.close(watch)
+  local none, _, errno = process.exit_watch(pid)
+  assert(none == nil and errno == sys.ESRCH, "a reaped child's pid was watched")
+end
