@@ -63,6 +63,10 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
     product .. "/targets.tsv", product .. "/cores",
     product .. "/apps/hello", product .. "/apps/second" }, root, diagnostics)
 
+  Fixture.run("product-database", { cosmic,
+    root .. "/test/portable/tool.tl", "product-database",
+    product .. "/cosmic", product .. "/cosmic.db" }, root, diagnostics)
+
   local names = { "cosmic", "prefix", "manifest", "apps/hello",
     "apps/second", "cosmic.db", "targets.tsv" }
   for _, target in ipairs(targets) do

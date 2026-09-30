@@ -91,7 +91,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "4942e488c251af85703efc977c9e33260b199134d39316c3b9a5579dcaff7830",
 
-  ["build.declared_key"] = "12bfbb2c6deca59688bd36e0173912fce0c13b1c15f278a18b87d14448eccfd0",
+  ["build.declared_key"] = "0635de694afc3ced11dae92c0713b95c5097b9441ed761647fc8a12033465bc0",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 

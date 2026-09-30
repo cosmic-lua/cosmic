@@ -7,6 +7,12 @@ local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
 local State = require("cosmic_ci.state")
+local Test = require("cosmic.test")
+
+-- The fixture modules, whose sources [`code_of`] reads (their declarations
+-- are what [`test_every_sandboxed_fixture_is_keyed_by_the_product`]
+-- checks), so an edit to one moves this module's key.
+Test.needs{ reads = { "fixtures/" } }
 
 --- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
 --- its parent is the checkout the self-check runs against.
@@ -509,7 +515,8 @@ end
 --- by the variable the driver gives it, which keys the verdict by those
 --- bytes, and no other launcher's or core's verdict stands for it; and
 --- `product`, which checks the whole product, declares each of its
---- files. Each
+--- files, while no other declares the product's `cosmic` or `cosmic.db`,
+--- which it does not run. Each
 --- unsandboxed one declares the whole environment and nothing else:
 --- nothing holds it to a declaration, and it shares no verdict for one
 --- to key, but a release that keys every unsandboxed run by declaration
@@ -527,8 +534,16 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   for _, name in ipairs(names) do
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
-      assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/prefix"],
+      local host = declared_host(name)
+      assert(host["$COSMIC_FIXTURE_PRODUCT/prefix"],
         name .. ": a sandboxed fixture's key does not hold the product's prefix")
+      if name ~= "product" then
+        for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
+          assert(not host["$COSMIC_FIXTURE_PRODUCT/" .. whole],
+            name .. ": a sandboxed fixture that does not check the whole product declares its " ..
+            whole .. ", which moves with every edit to the tool's code")
+        end
+      end
     else
       local needs = code_of(name):match("\nTest%.needs%s*%(?%s*(%b{})")
       assert(needs ~= nil and needs:gsub("%s", "") == '{env={"*"}}',

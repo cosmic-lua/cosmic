@@ -383,10 +383,11 @@ end
 --- with what the program carrying it does: `boot_hash`, a digest of
 --- every file the tool's trees hold but their tests, and
 --- `projected`, the signature of the whole projection it was written
---- from, which only a tool written by a writer older than
---- [`build.writer`]'s `carried` leaving it out carries -- the first
---- stage of a rebuild from one. What reads them at run time compares them with a value the
---- same binary carries, or with a tree's own fingerprint, which at test
+--- from. A tool no longer carries `projected` ([`build.writer`]'s
+--- `carried` leaves it out), but one whose database an older writer
+--- wrote still does: the first stage of a rebuild from an older tool.
+--- What reads them at run time compares them with a value the same
+--- binary carries, or with a tree's own fingerprint, which at test
 --- time is the tree the binary was built from (a stale tool rebuilds
 --- before it tests, or refuses) and in a fixture is a tree of the
 --- test's own; or names a cache entry by them, or prints them -- none
