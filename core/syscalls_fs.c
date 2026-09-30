@@ -1005,16 +1005,21 @@ COSMIC_SYSCALL(fsync, 1) {
  * special, since what lies below goes unseen. */
 #define TREE_DEPTH_MAX 128
 
+/* The devices whose every answer is the same or random, as
+ * build/filesystem_observations.tl's `inert_device` counts them, so a
+ * tree holding one is not special. */
+static const char *const inert_devices[] = { "/dev/null", "/dev/zero", "/dev/full", "/dev/urandom" };
+
 /* A walk of a tree for `tree_digest`: the digest being built, whether
- * files are hashed by their contents, the devices whose every answer is
- * the same or random, the name below the tree of the entry being
- * walked, and whether the walk has met anything that answers from past
- * the tree or that it could not see -- either of which no digest can
- * hold, so the tree is special. */
+ * files are hashed by their contents, which of `inert_devices` this host
+ * has, the name below the tree of the entry being walked, and whether
+ * the walk has met anything that answers from past the tree or that it
+ * could not see -- either of which no digest can hold, so the tree is
+ * special. */
 struct tree_walk {
   psa_hash_operation_t hash;
   int contents;
-  dev_t inert[3];
+  dev_t inert[sizeof inert_devices / sizeof *inert_devices];
   int inert_count;
   int special;
   int failed;
@@ -1236,7 +1241,7 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
     if (!walk->failed) {
       int number = tree_name_push(walk, names[i]);
       if (number != 0) walk->failed = number;
-      else tree_walk_entry(walk, dirfd(dir), names[i], depth + 1);
+      else tree_walk_entry(walk, fd, names[i], depth + 1);
       walk->name_length = length;
       walk->name[length] = '\0';
     }
@@ -1271,14 +1276,9 @@ int cosmic_query_tree_digest (lua_State *L) {
   walk->contents = contents;
   walk->name_room = 64;
   walk->name = malloc(walk->name_room);
-  /* TODO: count /dev/full inert here too, and in syscalls.h's `special`,
-   * as build/filesystem_observations.tl's `inert_device` does: its every
-   * answer is the same, yet a tree holding one is `special`, which errs
-   * safe, refusing only to key that tree. */
-  static const char *const inert[] = { "/dev/null", "/dev/zero", "/dev/urandom" };
-  for (size_t i = 0; i < sizeof inert / sizeof *inert; i++) {
+  for (size_t i = 0; i < sizeof inert_devices / sizeof *inert_devices; i++) {
     struct stat device;
-    if (stat(inert[i], &device) == 0 && S_ISCHR(device.st_mode)) {
+    if (stat(inert_devices[i], &device) == 0 && S_ISCHR(device.st_mode)) {
       walk->inert[walk->inert_count++] = device.st_rdev;
     }
   }
