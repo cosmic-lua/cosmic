@@ -409,6 +409,13 @@ function Poll.in_task(): boolean
   return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
 end
 
+--- Starts `main` as the first task and runs the loop until every task
+--- has ended.
+local function run_tasks(main: function())
+  start(main)
+  turn()
+end
+
 --- Runs `main` as the first task and every task it spawns, returning
 --- once all have ended. It raises what a task raised, having closed the
 --- rest; and raises when every task left waits on another, which none
@@ -417,10 +424,10 @@ function Poll.run(main: function())
   if loop ~= nil then error("Poll.run is already running", 2) end
   if type(main) ~= "function" then error("Poll.run takes a function", 2) end
   loop = { tasks = {}, live = 0, ready = {}, watched = {}, timers = {}, seq = 0 }
-  local ok, err: boolean, any = pcall(function()
-    start(main)
-    turn()
-  end)
+  -- Nothing may allocate between setting `loop` and the pcall, or a
+  -- refused allocation would raise past the teardown and leave `loop`
+  -- set for every later run: so no closure is made here.
+  local ok, err: boolean, any = pcall(run_tasks, main)
   if not ok then local _, _: boolean, any = pcall(close_all) end
   loop = nil
   if not ok then error(err, 0) end

@@ -128,8 +128,11 @@ end
 
 --- A C or Zig comment's lines: after `//` (and `/` or `!`), or inside
 --- `/* */` with each line's leading `*` taken off; and the byte of
---- `text` each line begins at.
-local function slash_comment(text: string): {string}, {integer}
+--- `text` each line begins at. A line with no `*` is taken past the
+--- whitespace that sets it under the first line's text, which starts
+--- past `/*` at byte `column` of its line, so that its indent is read
+--- against the first line's rather than the file's.
+local function slash_comment(text: string, column: integer): {string}, {integer}
   if text:sub(1, 2) == "/*" then
     local body = text:sub(3):gsub("%*/$", "")
     local raw = split_lines(body)
@@ -138,7 +141,8 @@ local function slash_comment(text: string): {string}, {integer}
     local at = 3
     for index = 2, #raw do
       at = at + #raw[index - 1] + 1
-      local marker = raw[index]:match("^[ \t]*%*") or ""
+      local marker = raw[index]:match("^[ \t]*%*") or
+        raw[index]:match("^" .. ("[ \t]?"):rep(column + 1)) or ""
       out[index] = raw[index]:sub(#marker + 1)
       starts[index] = at + #marker
     end
@@ -181,7 +185,7 @@ local function zig_comments(source: string): {link_text.Comment}
         j = j + 1
       elseif line:sub(j, j + 1) == "\\\\" or line:sub(j, j + 1) == "//" then
         if line:sub(j, j + 1) == "//" then
-          local lines, at = slash_comment(line:sub(j))
+          local lines, at = slash_comment(line:sub(j), j)
           out[#out + 1] = placed({ line = number, lines = lines, doc = false }, this_start + j - 1, at)
         end
         break
@@ -206,8 +210,9 @@ local function comment_blocks(kind: string, source: string, built: compiler, nam
   elseif kind == "c" then
     local line_starts = ast.line_starts(source)
     for _, comment in ipairs(c_check.comments(source)) do
-      local lines, at = slash_comment(comment.text)
-      local raw_at = source:find(comment.text, line_starts[comment.line] or 1, true) or 0
+      local line_start = line_starts[comment.line] or 1
+      local raw_at = source:find(comment.text, line_start, true) or 0
+      local lines, at = slash_comment(comment.text, raw_at > 0 and raw_at - line_start + 1 or 1)
       comments[#comments + 1] = placed({ line = comment.line, lines = lines, doc = false }, raw_at, at)
     end
   elseif kind == "zig" then

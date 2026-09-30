@@ -76,6 +76,8 @@
 ---     connect P        connects to the unix socket file P, waiting five
 ---                      seconds at most, saying `connected` or why not,
 ---                      a line to stdout
+---     connect-tcp H P  connects to port P of numeric host H, as
+---                      `connect` does
 ---     writable P       fails unless file P opens to write, appending
 ---                      and writing nothing, as `: >> P` does, but never
 ---                      making it

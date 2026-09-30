@@ -27,6 +27,7 @@
 #include <unistd.h>
 
 #include "check.h"
+#include "errnos.h"
 #include "fail.h"
 #include "lauxlib.h"
 #include "process.h"
@@ -157,9 +158,12 @@ static int address_of (lua_State *L, int index, struct target *out) {
  * was before this returns: 0, or why not. No Lua runs between, and the
  * Lua state is this process's one thread, so nothing else meets the
  * directory changed. Neither macOS nor Linux has bindat and connectat
- * (FreeBSD's) to name the directory by its descriptor instead. */
-static int reach_from (int fd, int there, const struct target *target, bool binding) {
+ * (FreeBSD's) to name the directory by its descriptor instead. Where
+ * the process cannot return -- its directory no longer searchable --
+ * `*stranded` is why, and it is left in `there`; else 0. */
+static int reach_from (int fd, int there, const struct target *target, bool binding, int *stranded) {
   const struct sockaddr *address = (const struct sockaddr *)&target->address;
+  *stranded = 0;
   int here = open(".", DIRECTORY_FLAGS);
   if (here < 0) return errno;
   int failure = 0;
@@ -168,26 +172,38 @@ static int reach_from (int fd, int there, const struct target *target, bool bind
   } else {
     int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
     if (done != 0) failure = errno;
-    if (fchdir(here) != 0 && failure == 0) failure = errno;
+    if (fchdir(here) != 0) *stranded = errno;
   }
   close(here);
   return failure;
 }
 
 /* Binds `fd` to `target`, or connects it there: 0, or why not. A
- * target reached from its directory is reached as [`reach_from`] says. */
-static int reach (int fd, const struct target *target, bool binding) {
+ * target reached from its directory is reached as [`reach_from`] says,
+ * `*stranded` with it. */
+static int reach (int fd, const struct target *target, bool binding, int *stranded) {
   const struct sockaddr *address = (const struct sockaddr *)&target->address;
+  *stranded = 0;
   if (target->directory[0] == '\0') {
     int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
     return done == 0 ? 0 : errno;
   }
   int there = open(target->directory, DIRECTORY_FLAGS);
   if (there < 0) return errno;
-  int failure = reach_from(fd, there, target, binding);
+  int failure = reach_from(fd, there, target, binding, stranded);
   close(there);
   return failure;
 }
+
+/* Raises for a process [`reach_from`] left in another directory, which
+ * no failure returned would tell its caller: every relative path it
+ * names from then on would name another file. `why` is the errno of
+ * the return. A macro, since no test can reach it: where "." is opened
+ * to be searched (O_PATH, O_SEARCH), only a directory made unsearchable
+ * between that open and the return strands the process. */
+#define STRANDED_ERROR(L, why) \
+  luaL_error((L), "the process could not return to its working directory: %s", \
+    cosmic_errno_describe((why), NULL))
 
 /* Makes `fd` what every socket of the table is: closed on exec,
  * nonblocking, and, where a send cannot say so itself, answering EPIPE
@@ -374,6 +390,15 @@ static int ready (int fd, short events, int64_t deadline) {
   }
 }
 
+/* What ended the connection `fd` had in progress (SO_ERROR), once it
+ * has ended: 0 once made. */
+static int pending (int fd) {
+  int failure = 0;
+  socklen_t size = sizeof failure;
+  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) return errno;
+  return failure;
+}
+
 /* Waits for the connection `fd` has in progress to be made or refused,
  * in slices as `cosmic_paused` does: 0 once made, its failure (SO_ERROR) once
  * refused, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
@@ -381,9 +406,7 @@ static int ready (int fd, short events, int64_t deadline) {
 static int settled (int fd, int64_t deadline) {
   int failure = ready(fd, POLLOUT, deadline);
   if (failure != 0) return failure;
-  socklen_t size = sizeof failure;
-  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) return errno;
-  return failure;
+  return pending(fd);
 }
 
 COSMIC_SYSCALL(listen, 2) {
@@ -423,9 +446,10 @@ COSMIC_SYSCALL(listen, 2) {
    * whole, so the kernel keeps its whole name for `ss`, `lsof` and a
    * peer's `getpeername`, which a name alone, bound from the
    * directory, would not give them. */
+  int stranded = 0;
   failure = unix_socket && target.directory[0] != '\0'
-    ? reach_from(owned->fd, owned->directory, &target, true)
-    : reach(owned->fd, &target, true);
+    ? reach_from(owned->fd, owned->directory, &target, true, &stranded)
+    : reach(owned->fd, &target, true, &stranded);
   /* The file the bind made, read back at once: a file of another kind
    * has taken its name already, and is not the socket's to remove. A
    * process that replaced it with a socket file in that moment would
@@ -440,10 +464,11 @@ COSMIC_SYSCALL(listen, 2) {
    * retargeted -- between its open and the bind: the file is read back
    * from the directory opened, finds another file or none there, and the
    * bind's own file is left to whoever moved the directory, as it is
-   * left where the read back fails at all, or the bind's return to the
-   * working directory does: a file whose identity was not read is not
-   * told from one that took its name, and removing it could remove
-   * another's. */
+   * left where the read back fails at all: a file whose identity was
+   * not read is not told from one that took its name, and removing it
+   * could remove another's. A process the bind left in another
+   * directory reads it back even so, from the directory the socket
+   * holds, before it raises. */
   struct stat st;
   if (failure == 0 && unix_socket) {
     if (fstatat(owned->directory, owned->name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
@@ -456,6 +481,10 @@ COSMIC_SYSCALL(listen, 2) {
       owned->inode = st.st_ino;
     }
   }
+  if (stranded != 0) {
+    released(owned);
+    return STRANDED_ERROR(L, stranded);
+  }
   if (failure == 0 && listen(owned->fd, backlog) != 0) failure = errno;
   if (failure != 0) {
     released(owned);
@@ -464,16 +493,42 @@ COSMIC_SYSCALL(listen, 2) {
   return 1;
 }
 
+/* Whether accept's errno `e` is the failure of one pending connection
+ * rather than of the listener, which accept(2) says to answer by taking
+ * the next one: ECONNABORTED for a client that reset before it was
+ * taken (macOS; Linux hands such a connection over), and on Linux a
+ * pending connection's network error. */
+#if defined(__linux__)
+#define CONNECTION_FAILED(e) \
+  ((e) == ECONNABORTED || (e) == EPROTO || (e) == ENETDOWN || \
+   (e) == ENOPROTOOPT || (e) == EHOSTDOWN || (e) == ENONET || \
+   (e) == EHOSTUNREACH || (e) == ENETUNREACH)
+#else
+#define CONNECTION_FAILED(e) ((e) == ECONNABORTED || (e) == EPROTO)
+#endif
+
+/* How many failed pending connections in a row accept takes before it
+ * answers the last failure. It is bounded because the same errno can
+ * also be the listener's own and persist: macOS answers ECONNABORTED
+ * for every accept on a listener whose receive side is shut down. */
+#define ACCEPT_RETRIES 16
+
 COSMIC_SYSCALL(accept, 1) {
   int listener = cosmic_checkfd(L, 1);
   struct owned *owned = owner_push(L, 0);
-  do {
+  /* TODO: test a connection reset before it is taken, once cosmic.net
+   * can set SO_LINGER to close with a reset; only macOS reports it. */
+  int retries = 0;
+  for (;;) {
 #if defined(SOCK_CLOEXEC)
     owned->fd = accept4(listener, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
 #else
     owned->fd = accept(listener, NULL, NULL);
 #endif
-  } while (owned->fd < 0 && errno == EINTR);
+    if (owned->fd >= 0) break;
+    if (errno == EINTR) continue;
+    if (!CONNECTION_FAILED(errno) || ++retries > ACCEPT_RETRIES) break;
+  }
   if (owned->fd < 0) return cosmic_fail(L, errno);
   int failure = made(owned->fd);
   if (failure != 0) {
@@ -496,8 +551,13 @@ COSMIC_SYSCALL(connect, 2) {
    * slices, asking again, as `wait` does. A TCP one answers EINPROGRESS
    * and connects over time, which `settled` waits out. */
   int64_t pause = 1;
+  int stranded = 0;
   for (;;) {
-    failure = reach(owned->fd, &target, false);
+    failure = reach(owned->fd, &target, false, &stranded);
+    if (stranded != 0) {
+      released(owned);
+      return STRANDED_ERROR(L, stranded);
+    }
     if (failure == EAGAIN) {
       failure = cosmic_paused(deadline, &pause);
       if (failure == 0) continue;
@@ -513,21 +573,70 @@ COSMIC_SYSCALL(connect, 2) {
   return 1;
 }
 
-COSMIC_SYSCALL(bound, 1) {
-  int fd = cosmic_checkfd(L, 1);
-  struct sockaddr_storage address;
-  socklen_t length = sizeof address;
-  memset(&address, 0, sizeof address);
-  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+COSMIC_SYSCALL(start, 1) {
+  struct target target;
+  int failure = address_of(L, 1, &target);
+  if (failure != 0) return cosmic_fail(L, failure);
+  struct owned *owned = owner_push(L, 0);
+  owned->fd = stream_socket(target.address.ss_family);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
+  int stranded = 0;
+  failure = reach(owned->fd, &target, false, &stranded);
+  if (stranded != 0) {
+    released(owned);
+    return STRANDED_ERROR(L, stranded);
+  }
+  if (failure != 0 && failure != EINPROGRESS) {
+    released(owned);
+    return cosmic_fail(L, failure);
+  }
+  return 1;
+}
+
+COSMIC_SYSCALL(connected, 1) {
+  int failure = pending(cosmic_checkfd(L, 1));
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(pair, 0) {
+  lua_createtable(L, 0, 2);
+  struct owned *first = owner_push(L, 0);
+  struct owned *second = owner_push(L, 0);
+  int ends[2];
+#if defined(SOCK_CLOEXEC)
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, ends) != 0) {
+    return cosmic_fail(L, errno);
+  }
+#else
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, ends) != 0) return cosmic_fail(L, errno);
+#endif
+  first->fd = ends[0];
+  second->fd = ends[1];
+  int failure = made(first->fd);
+  if (failure == 0) failure = made(second->fd);
+  if (failure != 0) {
+    released(first);
+    released(second);
+    return cosmic_fail(L, failure);
+  }
+  lua_setfield(L, -3, "second");
+  lua_setfield(L, -2, "first");
+  return 1;
+}
+
+/* Pushes the "tcp" address `address` holds: 1, or what `cosmic_fail`
+ * pushes for one of another family, EAFNOSUPPORT. */
+static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address) {
   char host[INET6_ADDRSTRLEN];
   int port = 0;
   const char *named = NULL;
-  if (address.ss_family == AF_INET) {
-    struct sockaddr_in *v4 = (struct sockaddr_in *)&address;
+  if (address->ss_family == AF_INET) {
+    const struct sockaddr_in *v4 = (const struct sockaddr_in *)address;
     named = inet_ntop(AF_INET, &v4->sin_addr, host, sizeof host);
     port = ntohs(v4->sin_port);
-  } else if (address.ss_family == AF_INET6) {
-    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&address;
+  } else if (address->ss_family == AF_INET6) {
+    const struct sockaddr_in6 *v6 = (const struct sockaddr_in6 *)address;
     named = inet_ntop(AF_INET6, &v6->sin6_addr, host, sizeof host);
     port = ntohs(v6->sin6_port);
   } else {
@@ -541,6 +650,42 @@ COSMIC_SYSCALL(bound, 1) {
   lua_setfield(L, -2, "host");
   lua_pushinteger(L, port);
   lua_setfield(L, -2, "port");
+  return 1;
+}
+
+COSMIC_SYSCALL(bound, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  return tcp_pushed(L, &address);
+}
+
+COSMIC_SYSCALL(peer, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getpeername(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  if (address.ss_family == AF_INET || address.ss_family == AF_INET6) {
+    return tcp_pushed(L, &address);
+  }
+  /* Any other peer is a unix one: one bound nowhere may answer no path,
+   * and no family either, and a path's length may count its NUL. */
+  const struct sockaddr_un *unix_address = (const struct sockaddr_un *)&address;
+  size_t offset = offsetof(struct sockaddr_un, sun_path);
+  size_t size = 0;
+  if (length > offset) {
+    size_t most = (size_t)length - offset;
+    if (most > sizeof unix_address->sun_path) most = sizeof unix_address->sun_path;
+    size = strnlen(unix_address->sun_path, most);
+  }
+  lua_createtable(L, 0, 2);
+  lua_pushliteral(L, "unix");
+  lua_setfield(L, -2, "kind");
+  lua_pushlstring(L, unix_address->sun_path, size);
+  lua_setfield(L, -2, "path");
   return 1;
 }
 

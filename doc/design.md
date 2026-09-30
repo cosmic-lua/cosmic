@@ -892,7 +892,9 @@ on macOS both enforce: read, write, and exec under paths; network
 none, loopback, or all; TCP connect and bind by port; new processes
 allowed or denied; inherited by children and never liftable. on
 Linux, Landlock carries the path and port rules and seccomp carries
-the rest: `network none` denies `socket` for the internet families,
+the rest (today the core's `landlock_ruleset` holds paths alone, and
+`spawn`'s `offline` namespace holds the network, the same on every
+kernel): `network none` denies `socket` for the internet families,
 because Landlock cannot see UDP at all, and `no new processes`
 denies `clone`, because denying `execve` would refuse the box its
 own launch and a self-replacing exec is not a new process. every

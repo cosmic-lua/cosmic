@@ -265,11 +265,16 @@ saves and still carries the products, both taken from the queue's run:
 
 - Each leg of a queue run that passed keeps what main would save
   (`queue-seed.sh stage`): its trimmed verdicts and compiles, where
-  they differ from the entry it restored, and the driver check's marker,
+  they differ from the entry it restored, the driver check's marker,
   where the check ran, with `seed.keys` naming the key each is saved
   under, the key main's own save would compute. It uploads them as
-  `seed-<leg>`, kept a day. The checked job (below) keeps its verdicts
-  the same way, as `seed-linux-x86_64-checked`.
+  `seed-<leg>`, kept a day. Where it restored no entry of this core and
+  vendor part, it keeps its zig build outputs too, as a tar (an artifact
+  keeps no file's mode) in an artifact of their own, `seed-zig-<leg>`,
+  whose failure fails nothing: they save only time. The checked job
+  (below) keeps its verdicts the same way, as
+  `seed-linux-x86_64-checked`; its zig build outputs are
+  linux-x86_64's, whose leg keeps them.
 - A push to main first runs `reuse` (`queue-seed.sh find`), which asks
   the API for a `merge_group` run of ci.yml on a
   `gh-readonly-queue/main/` branch whose `head_sha` is the push's, that
@@ -285,7 +290,9 @@ saves and still carries the products, both taken from the queue's run:
   hashes its path, the runner's), saves that leg's seed under the keys
   it names and uploads the queue's `portable-product-<leg>` as this
   run's; its checked entry saves the checked job's verdicts and relays
-  no product. The `ci` join
+  no product. After the relay, and failing nothing, it saves the leg's
+  zig build outputs, unless an entry of their core and vendor part is
+  there already (an earlier queue run's of the same core). The `ci` join
   compares those products as it does a platform run's, reading `seed`'s
   result in place of the legs' and the checked job's, and
   prerelease.yml publishes them
@@ -294,23 +301,25 @@ saves and still carries the products, both taken from the queue's run:
   product (the `TODO:` on `seed`'s relay).
 - Where it finds none (a direct push, or a lookup that failed), and on
   the scheduled and a manual run, which skip `reuse`, the legs run the
-  full scope and save as before. A branch push runs `reuse` with its
-  steps skipped, so it shows as a check run rather than skipped, at
-  the cost of its runner's start before the legs start: seconds, up
-  to about 100 s in a burst of runs. The queue skips it.
-  `seed`, though, shows as a skipped check on a branch push (a `TODO:`).
+  full scope and save as before. Only a push to main runs `reuse`: a
+  branch push shows it as a skipped check rather than hold its legs
+  for a runner's start with nothing to do (seconds, up to about 100 s
+  in a burst of runs); the legs' `!cancelled()` runs them past a
+  skipped `reuse` as past one that found nothing. `seed` too shows as
+  a skipped check on a branch push (a `TODO:`).
 
 What the push gives up is a second run of the same commit: a flake the
 queue's run missed is no longer caught on main, where the nightly run
 still runs every test. A seed decides only how many tests stand: every
-row is keyed by its own inputs. The zig build outputs are not seeded:
-main saved them only on the first run after a vendor change, which the
-nightly's cold build and save now does alone. Until then a branch or a
-queue run restores the leg's newest entry of another vendor part (the
-second restore) and recompiles only what moved, and main has no run
-that builds but a direct push's or a manual one's. Seeding them too
-would move some 130 MB a leg through an artifact for the few hours
-before the nightly.
+row is keyed by its own inputs. The zig build outputs are seeded once
+per core or vendor change: without them only the nightly saved any,
+and each queue run after a change to `core/` compiled the core again
+on every leg and for the checked build, some four to five minutes of
+the gate, where one that restores an entry of its own core boots in
+seconds. Seeding them moves a leg's raw tar, larger than its cache
+entry of a few hundred MB compressed, through an artifact the gate
+waits to upload (at deflate's fastest), on the queue's runs that
+restored no such entry.
 
 ### the run ahead
 
@@ -360,9 +369,17 @@ use; a leg that skips the suite removes a `checked.db` from its
 verdicts, which would otherwise ride along whole in each save.
 
 It runs wherever the legs do. On a branch push (`light`), which runs
-no checked suite, every step skips, so it shows as a check that ran:
-a runner's start, which the join waits for, and no skipped check. It
-restores linux-x86_64's zig build outputs and compiles, which that leg
+no checked suite, it boots all the same and runs what would otherwise
+hold up a leg: the pinned CI driver's check (`cosmic-driver test
+cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
+skip, and the format check (`platform format`, `fix --check .`, 42 to
+62 s), which ran after linux-aarch64's suite and runs on a full run in
+that leg's assemble. With no suite it mostly finishes before the legs
+(2026-09-30), but not always: its setup, the driver's check, the boot
+and the format check take some 190 s, so on a branch where most
+verdicts stand it can be the run's gate (the `TODO:` on its driver
+check says what would shorten it). Its `operations.db` is kept on
+either scope, as `ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build outputs and compiles, which that leg
 saves, and saves neither. Its verdicts it keeps under a name of its
 own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
 restored, trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's
@@ -484,20 +501,25 @@ takes the leg's newest of any, since in one step a ref's own older entry
 would win over main's.
 
 Main saves an entry only where assemble passed and it had nothing
-`full` for this vendor part, so once per vendor part and leg, not once
-per core change; a push that reuses the queue's run builds nothing and
-saves none, so that is now the nightly's (the queue's result, above).
+`full` for this vendor part, so once per vendor part and leg; a push
+that reuses the queue's run builds nothing, and saves instead the
+queue's leg's entry where that leg restored none of its core and vendor
+part (the queue's result, above), so once per core change too.
 The scheduled run restores nothing, compiles cold and saves a compact
-entry. An entry saved per core change would be past the
-repository's 10 GB cache at main's rate: a whole entry is about 0.5 GB
-for the four legs, and it grows with each save, since zig never prunes
-its cache and a save carries all it restored. When main saved after
-every run, GitHub evicted the least recently used entries, the fuzz
-job's and other legs' own among them, which then built cold. The
-nightly cold build is what bounds an entry. The cost: a vendor change's
-first main run builds cold (minutes a leg), and a core change is
-compiled again, incrementally, by every run after it until the nightly
-save. Where assemble fails on the first main run after a vendor change,
+entry. An entry is a few hundred MB compressed a leg (linux-x86_64's
+grew 323 to 388 MB over a day's runs: the `TODO:` on ci.yml's names),
+about 1 GB a set of the four legs, and it grows
+with each save, since zig never prunes its cache and a save carries all
+it restored: a day's core changes each save one that holds the last's,
+until the nightly's cold build, which is what bounds an entry. When
+main saved after every run, GitHub evicted the least recently used
+entries, the fuzz job's and other legs' own among them, which then
+built cold; one a core change is fewer, and the older of them are the
+least recently used (the `TODO:` on the queue leg's seed, should they
+still crowd out entries in use). The cost: a vendor change's first
+main run builds cold (minutes a leg), and a queue run that lands on a
+core change not yet on main (the run ahead's) compiles it again,
+incrementally. Where assemble fails on the first main run after a vendor change,
 nothing is saved, so every main run builds vendor/ cold until one
 passes assemble or the nightly saves; a branch stays warm through the
 restore of another vendor part.
@@ -518,7 +540,14 @@ worker a fixed path.
 The CI driver check's marker is keyed by what cosmic_ci's tests read
 (`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
 leg's host; an exact hit skips the check, except on the scheduled and
-manual runs.
+manual runs. The host is in the key, the runner's image
+(`ImageVersion`) with it, since the check runs unsandboxed and its tests
+start the host's own programs (`/bin/sh`, `cp`): a marker says the
+driver passed on that image. So a full run checks on each leg, and an
+image rollout misses every marker until main saves again. A branch
+push checks only once, in the checked job, on linux-x86_64's host and
+with no marker, off the legs' path; the queue checks each leg before
+anything lands.
 
 ### artifacts
 
