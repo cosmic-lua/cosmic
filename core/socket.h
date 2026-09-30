@@ -68,7 +68,7 @@ COSMIC_SYSCALL(listen, 2);
 /*
  * --- Takes the next connection waiting on a listening descriptor, as a socket of its own, closed on exec and nonblocking.
  * ---@param fd integer the listening descriptor
- * ---@return Socket|nil connection the connection's socket, or nil on failure: EAGAIN when none is waiting
+ * ---@return Socket|nil connection the connection's socket, or nil on failure: EAGAIN when none is waiting. A pending connection that failed before it was taken is passed over for the next.
  * ---@return string error what went wrong, when connection is nil
  * ---@return integer errno the error number, when connection is nil
  */
