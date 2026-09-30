@@ -1067,7 +1067,7 @@ plural_exempt["build/test.tl:tables"] = "a label before its value (\"tables <dig
 plural_exempt["cosmic/net.tl:bytes"] = "SOCKET_NAME_MAX is the platform's sun_path size, never 1"
 plural_exempt["build/patch.tl:matches"] = "runs on the bootstrap release " ..
   "(bin/vendor applies patches), which cannot require build.plural"
-plural_exempt["build/zig.tl:attempts"] = "runs on the bootstrap release " ..
+plural_exempt["build/zig_fetch.tl:attempts"] = "runs on the bootstrap release " ..
   "(bin/zig), which cannot require build.plural"
 
 --- Words after a number that are verbs or particles, not nouns:

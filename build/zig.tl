@@ -5,12 +5,14 @@
 ---
 --- This file runs standalone, against the bootstrap binary's own
 --- embedded standard library and never the tree it sits in, so it
---- requires `cosmic.*` modules only. Before a build it runs one more
---- file the same way, [`build/patch.tl`], which patches the vendored trees
---- (`patch`); nothing else of the tree is loaded. So a bootstrap older or
---- newer than the tree, a core edit nobody has booted yet, or a syntax
---- error elsewhere in the tree cannot stop zig from running, which is
---- what rebuilds all of those. A syntax error in either file can.
+--- requires `cosmic.*` modules only. It runs two more files the same
+--- way: before a build, [`build/patch.tl`], which patches the vendored
+--- trees (`patch`), and, when the pinned zig is not installed yet,
+--- [`build/zig_fetch.tl`], which fetches it; nothing else of the tree is
+--- loaded. So a bootstrap older or newer than the tree, a core edit
+--- nobody has booted yet, or a syntax error elsewhere in the tree cannot
+--- stop zig from running, which is what rebuilds all of those. A syntax
+--- error in one of those files can.
 ---
 --- The pin is [`bin/zig.pin`]: a `version` line, then one line per host
 --- naming that host's release tarball's sha256. `COSMIC_ZIG` names an
@@ -23,15 +25,12 @@
 --- see [`Fs.cache_dir`], which also refuses a cache directory someone else
 --- could write to). `<sha>` is the first 16 hex digits of the host's
 --- sha256 ([`Zig.install_name`]). If `<install>/zig` is already there it
---- is used as is. Otherwise the tarball `zig-<host>-<version>.tar.xz` is
---- downloaded, checked by [`Http.download`]'s `sha256` option, from a few
---- of zig's community mirrors and then
---- `https://ziglang.org/download/<version>/`, retried in rounds
---- ([`Zig.sources`], [`Zig.fetch`]). It goes into a scratch `.work.<pid>`
---- directory under the cache, is extracted with [`cosmic.archive`], and is
---- renamed into place, tolerating a concurrent winner, whose copy is the
---- same bytes. The scratch directory is removed on every path out, and
---- one a dead process left behind is removed by the next install.
+--- is used as is. Otherwise [`build/zig_fetch.tl`], run standalone as
+--- `patch` is, downloads the tarball `zig-<host>-<version>.tar.xz`,
+--- checks it against the pin's sha256 and unpacks it into place
+--- ([`Zig.ensure_installed`]). It is a file apart so that what downloads
+--- and unpacks is no part of this module's import closure, which
+--- build.c, and every test that reaches it, holds.
 ---
 --- `build` gets a prefix flag naming the repository's `o/` (the root is
 --- found from this script's own path) and flags naming zig's two caches.
@@ -65,11 +64,9 @@
 --- it is found but cannot be run, 1 for anything else that stops it from
 --- starting.
 
-local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Http = require("cosmic.http")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
@@ -81,15 +78,6 @@ local record Zig
   record Pin
     version: string
     shas: {string:string}
-  end
-
-  --- What [`Zig.fetch`] downloads with, pauses with (for milliseconds)
-  --- and reads the time from (in milliseconds): [`Http.download`],
-  --- [`sys.nanosleep`] and [`Time.monotonic_ns`] unless a test says otherwise.
-  record Fetcher
-    download: function(url: string, path: string, opts: Http.Options): boolean, string
-    sleep: function(ms: integer)
-    now: function(): integer
   end
 
   --- Where [`bin/zig.pin`]'s release for a host is installed: `path`,
@@ -214,273 +202,46 @@ function Zig.build_args(root: string, project: string, shared: string,
   return out
 end
 
---- Removes every `.work.<pid>` under `cache` whose process is gone:
---- what an install killed partway left behind. A live process's own
---- scratch directory is left alone.
--- TODO: judge a scratch directory's owner by a lock it holds rather than
--- its pid, and name the directory by something no pid namespace
--- repeats, once ci/cosmic-driver.pin names a release that carries
--- sys.flock: a process confined in a pid namespace of its own
--- (core/process.h's `unveil`) sees none outside it, so, given this
--- cache to write, it would take a live one's directory for gone, and
--- two confined ones, each its namespace's pid 2, would share one.
-function Zig.sweep(cache: string)
-  local names, _ = Fs.list(cache)
-  if names == nil then
-    return
-  end
-  for _, name in ipairs(names) do
-    local pid = tonumber(name:match("^%.work%.(%d+)$"))
-    if pid ~= nil then
-      local _, _, number = sys.kill(math.tointeger(pid), 0)
-      if pid ~= Proc.pid() and number == sys.ESRCH then
-        local _, _ = Fs.remove_tree(cache .. "/" .. name)
-      end
+--- Runs `root`'s `script` standalone on this same binary with `words`,
+--- its stdout captured: what [`patch`] and [`Zig.ensure_installed`]
+--- start. The binary is started past its launcher ([`Proc.relaunch`]), as
+--- a test worker is, so running the script takes no shell and lands on
+--- this same core; one with no artifact to relaunch is started as
+--- [`Proc.executable`] names it.
+local function standalone(root: string, script: string,
+                          words: {string}): Child.Result | nil, string
+  local argv: {string} = {}
+  local env: {string:string} = Env.all()
+  local fds: {integer:integer | string} = {}
+  local relaunch, _ = Proc.relaunch()
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for number, fd in pairs(relaunch.fds) do fds[number] = fd end
+  else
+    local self, self_trouble = Proc.executable()
+    if self == nil then
+      return nil, self_trouble
     end
+    argv[1] = self
   end
-end
-
---- zig's community mirrors of `https://ziglang.org/download/`, copied
---- from https://ziglang.org/download/community-mirrors.txt on
---- 2026-09-24. Refresh this list by copying that file's lines here. A
---- mirror may be down or lack a release, which costs an attempt each
---- when drawn, ziglang.org still ending every round. A mirror serves a
---- release's files flat, at `<mirror>/<name>`. No mirror is trusted:
---- each download is held to [`bin/zig.pin`]'s sha256, so a stale, broken
---- or hostile one costs an attempt and nothing more, and the minisign
---- signature zig publishes beside each file is not needed.
--- TODO: check this list against community-mirrors.txt from ci/ (a
--- scheduled job that fails on a difference) rather than by hand.
-local MIRRORS <const>: {string} = {
-  "https://pkg.hexops.org/zig",
-  "https://zigmirror.hryx.net/zig",
-  "https://zig.linus.dev/zig",
-  "https://zig.squirl.dev",
-  "https://zig.mirror.mschae23.de/zig",
-  "https://ziglang.freetls.fastly.net",
-  "https://zig.tilok.dev",
-  "https://zig-mirror.tsimnet.eu/zig",
-  "https://zig.karearl.com/zig",
-  "https://pkg.earth/zig",
-  "https://fs.liujiacai.net/zigbuilds",
-  "https://zigmirror.com",
-  "https://zig.chainsafe.dev",
-  "https://zig.savalione.com",
-  "https://zig.bcr.ist",
-  "https://zig.vortan.dev/zig",
-}
-
---- How many mirrors one install tries before ziglang.org.
-local MIRRORS_TRIED <const> = 4
---- How many times over the sources an install goes before it gives up.
-local ROUNDS <const> = 3
---- The pause before round `n` is `(n - 1)` times this.
-local BACKOFF_MS <const> = 2000
-
---- What bounds the attempts. The limits are there to stop a slow or
---- hostile mirror, not a slow link, which slows every source alike:
----
---- - A mirror attempt gives up on no connection in 10 s, under 64 KiB/s
----   for 20 s straight, or no whole tarball in 3 minutes (a ~55 MB one
----   needs about 300 KiB/s on average), so a trickling mirror costs at
----   most 3 minutes. Mirror attempts and the pauses between rounds share
----   a 12-minute budget: none starts once it is spent, and each one's
----   limits are cut to what is left of it, so the mirrors together cost
----   at most about 12 minutes.
---- - The fallback, ziglang.org, keeps the 10 s connect limit and only a
----   stall guard, under 1 KiB/s for 60 s, which catches a dead stream
----   and nothing slower: no ceiling, and the budget does not cut it, so
----   a slow link still installs. It is bounded only by that guard, by
----   design. It is tried once a round, and once more, last, when the
----   budget runs out partway through the mirrors -- at most `ROUNDS`
----   times in all.
-local CONNECT_TIMEOUT_MS <const> = 10000
-local MIRROR_LOW_SPEED_BYTES <const> = 64 * 1024
-local MIRROR_LOW_SPEED_SECONDS <const> = 20
-local MIRROR_TIMEOUT_MS <const> = 3 * 60 * 1000
-local FALLBACK_LOW_SPEED_BYTES <const> = 1024
-local FALLBACK_LOW_SPEED_SECONDS <const> = 60
-local BUDGET_MS <const> = 12 * 60 * 1000
-
---- The URLs to fetch `name`, zig `version`'s release tarball, from, in
---- the order to try them: `MIRRORS_TRIED` of `mirrors` in a random order
---- (`random(n)` picks from 1 to n, `math.random` by default), then
---- ziglang.org.
----
---- zig asks automated downloaders, CI above all, to use the community
---- mirrors and keep ziglang.org, which is served on a budget, for last.
---- Shuffling spreads that load and keeps one dead mirror from being
---- every run's first attempt. ziglang.org comes last rather than never,
---- so a list gone stale still installs. Each mirror URL carries
---- `?source=cosmic`, which zig asks for so mirror operators can tell who
---- fetches.
-function Zig.sources(version: string, name: string, mirrors: {string},
-    random?: function(integer): integer): {string}
-  local pick = random or math.random
-  local order: {string} = {}
-  for i, mirror in ipairs(mirrors) do
-    order[i] = mirror
+  argv[#argv + 1] = "--standalone"
+  argv[#argv + 1] = root .. "/" .. script
+  for _, word in ipairs(words) do
+    argv[#argv + 1] = word
   end
-  for i = #order, 2, -1 do
-    local j = pick(i)
-    order[i], order[j] = order[j], order[i]
+  local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture" })
+  if result == nil then
+    return nil, script .. ": " .. trouble
   end
-  local out: {string} = {}
-  for i = 1, math.min(#order, MIRRORS_TRIED) do
-    out[i] = order[i] .. "/" .. name .. "?source=cosmic"
-  end
-  out[#out + 1] = "https://ziglang.org/download/" .. version .. "/" .. name
-  return out
-end
-
-local function real_sleep(ms: integer)
-  local _, _ = sys.nanosleep(ms * 1000 * 1000)
-end
-
-local function real_now_ms(): integer
-  return Time.monotonic_ns() // (1000 * 1000)
-end
-
---- Downloads the file whose sha256 is `sha256` to `path` from the first
---- of `urls` that serves it, going over them up to `ROUNDS` times with a
---- growing pause between rounds. Every url but the last is a mirror,
---- held to the mirror limits and the budget; the last is the fallback
---- (ziglang.org), held only to a stall guard (see the limits above
---- `CONNECT_TIMEOUT_MS`). Once the budget is spent the mirrors are
---- skipped and the fallback is tried one last time.
----
---- Each attempt starts from no file at `path` ([`Http.download`] writes a
---- fresh temporary file and renames it into place only once the digest
---- matches). A mirror that served the wrong bytes is not asked again;
---- one that failed any other way is, in the next round. The fallback is
---- never barred: a transfer cut short without an error reads as a
---- mismatch too, and giving up the one source every list ends with on
---- that would make it fatal. When every attempt fails, the message names
---- each source, its last trouble and how long that attempt ran.
-function Zig.fetch(urls: {string}, path: string, sha256: string,
-    via?: Zig.Fetcher): boolean, string
-  local download = via ~= nil and via.download or Http.download
-  local sleep = via ~= nil and via.sleep or real_sleep
-  local now = via ~= nil and via.now or real_now_ms
-  local deadline = now() + BUDGET_MS
-  local last: {string:string} = {}
-  local wrong: {string:boolean} = {}
-  local attempts = 0
-  local out_of_time = false
-
-  local function attempt(url: string, opts: Http.Options): boolean
-    attempts = attempts + 1
-    local _, _ = Fs.remove(path)
-    opts.sha256 = sha256
-    local started = now()
-    local ok, trouble = download(url, path, opts)
-    if ok then
-      return true
-    end
-    -- Http.download names the URL itself for some failures; the
-    -- report names each source once.
-    -- TODO: keep `trouble` whole, and drop this function's entry in
-    -- build.contracts' `parsing`, once ci/cosmic-driver.pin names a
-    -- cosmic whose Http.download leaves the URL, which its caller
-    -- already holds, out of every reason; today's names it beside an
-    -- HTTP status alone.
-    if String.starts_with(trouble, url .. ": ") then
-      trouble = trouble:sub(#url + 3)
-    end
-    last[url] = trouble .. " (after " .. tostring((now() - started) // 1000) .. " s)"
-    return false
-  end
-
-  local fallback = urls[#urls]
-  for round = 1, ROUNDS do
-    if round > 1 then
-      sleep((round - 1) * BACKOFF_MS)
-    end
-    for i = 1, #urls - 1 do
-      local url = urls[i]
-      if not wrong[url] and not out_of_time then
-        local left = deadline - now()
-        if left <= 0 then
-          out_of_time = true
-        else
-          local ok = attempt(url, {
-            connect_timeout_ms = math.min(CONNECT_TIMEOUT_MS, left),
-            low_speed_bytes = MIRROR_LOW_SPEED_BYTES,
-            low_speed_seconds = MIRROR_LOW_SPEED_SECONDS,
-            timeout_ms = math.min(MIRROR_TIMEOUT_MS, left),
-          })
-          if ok then
-            return true, ""
-          end
-          -- TODO: tell a digest mismatch apart by something other than
-          -- Http.download's message text, once ci/cosmic-driver.pin names
-          -- a cosmic whose Http.download reports which failure it hit
-          -- apart from the text (test_fetch_sees_a_real_mismatch fails if
-          -- the text changes first).
-          if last[url]:find("sha256 mismatch", 1, true) ~= nil then
-            wrong[url] = true
-          end
-        end
-      end
-    end
-    if fallback ~= nil then
-      local ok = attempt(fallback, {
-        connect_timeout_ms = CONNECT_TIMEOUT_MS,
-        low_speed_bytes = FALLBACK_LOW_SPEED_BYTES,
-        low_speed_seconds = FALLBACK_LOW_SPEED_SECONDS,
-      })
-      if ok then
-        return true, ""
-      end
-    end
-    if out_of_time then
-      break
-    end
-  end
-  local lines: {string} = {}
-  for _, url in ipairs(urls) do
-    lines[#lines + 1] = "\n  " .. url .. ": " .. (last[url] or "not tried")
-  end
-  local why = out_of_time and "mirrors out of time; every source failed after " or
-    "every source failed after "
-  return false, why .. tostring(attempts) .. " attempts:" .. table.concat(lines)
-end
-
---- Downloads, verifies and extracts `pin`'s release for `host` into
---- `work`, returning the extracted directory.
-local function unpack(work: string, pin: Zig.Pin, host: string): string | nil, string
-  local sha256 = pin.shas[host]
-  if sha256 == nil then
-    return nil, "bin/zig.pin names no sha256 for " .. host
-  end
-  local made, mtrouble = Fs.mkdirs(work)
-  if not made then
-    return nil, mtrouble
-  end
-  local name = "zig-" .. host .. "-" .. pin.version .. ".tar.xz"
-  local archive = work .. "/" .. name
-  local ok, dtrouble = Zig.fetch(Zig.sources(pin.version, name, MIRRORS), archive, sha256)
-  if not ok then
-    return nil, "download of " .. name .. " failed: " .. dtrouble
-  end
-  local written, xtrouble = Archive.extract(archive, work)
-  if written == nil then
-    return nil, archive .. ": " .. xtrouble
-  end
-  local extracted = work .. "/zig-" .. host .. "-" .. pin.version
-  local has_zig, look_trouble = Fs.exists(extracted .. "/zig")
-  if has_zig == nil then
-    return nil, look_trouble
-  end
-  if not has_zig then
-    return nil, name .. " holds no zig binary"
-  end
-  return extracted, ""
+  return result, ""
 end
 
 --- `install/zig`, fetching the release into it first unless it is
 --- already there -- the cache hit, which never touches the network.
-function Zig.ensure_installed(cache: string, install: string, pin: Zig.Pin,
+--- The fetch is [`build/zig_fetch.tl`]'s, run standalone from `root`,
+--- so nothing that downloads or unpacks is this file's to load.
+function Zig.ensure_installed(root: string, cache: string, install: string, pin: Zig.Pin,
                               host: string): string | nil, string
   local zig = install .. "/zig"
   local installed, look_trouble = Fs.exists(zig)
@@ -490,22 +251,14 @@ function Zig.ensure_installed(cache: string, install: string, pin: Zig.Pin,
   if installed then
     return zig, ""
   end
-  local made, mtrouble = Fs.mkdirs(cache)
-  if not made then
-    return nil, mtrouble
-  end
-  Zig.sweep(cache)
-  local work = cache .. "/.work." .. tostring(Proc.pid())
-  local _, _ = Fs.remove_tree(work)
-  local extracted, trouble = unpack(work, pin, host)
-  if extracted ~= nil then
-    -- A concurrent install may have won; its copy is the same bytes,
-    -- so a failed rename is fine as long as a zig ends up in place.
-    local _, _ = Fs.rename(extracted, install)
-  end
-  local _, _ = Fs.remove_tree(work)
-  if extracted == nil then
+  local result, trouble = standalone(root, "build/zig_fetch.tl",
+    { cache, install, pin.version, host, pin.shas[host] or "" })
+  if result == nil then
     return nil, trouble
+  end
+  if not result.ok then
+    local why = result.stdout or ""
+    return nil, why ~= "" and why or "build/zig_fetch.tl failed"
   end
   installed, look_trouble = Fs.exists(zig)
   if installed == nil then
@@ -612,7 +365,7 @@ local function locate(root: string): string | nil, string
   if install == nil then
     return nil, trouble
   end
-  return Zig.ensure_installed(cache, install.path, install.pin, install.host)
+  return Zig.ensure_installed(root, cache, install.path, install.pin, install.host)
 end
 
 --- Where one of zig's caches is: `variable` from `environment` (the
@@ -941,33 +694,11 @@ end
 --- which build.zig reads (`-Dpatched=`). Answers the manifest's path.
 --- build.zig compiles every vendored file from these directories, each
 --- named by its contents, so its path is the same from every checkout.
---- The binary is started past its launcher ([`Proc.relaunch`]), as a test
---- worker is, so running the script takes no shell and lands on this
---- same core; one with no artifact to relaunch is started as
---- [`Proc.executable`] names it.
 local function patch(root: string, project: string): string | nil, string
-  local argv: {string} = {}
-  local env: {string:string} = Env.all()
-  local fds: {integer:integer | string} = {}
-  local relaunch, _ = Proc.relaunch()
-  if relaunch ~= nil then
-    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
-    for name, value in pairs(relaunch.env) do env[name] = value end
-    for number, fd in pairs(relaunch.fds) do fds[number] = fd end
-  else
-    local self, self_trouble = Proc.executable()
-    if self == nil then
-      return nil, self_trouble
-    end
-    argv[1] = self
-  end
-  for _, word in ipairs({ "--standalone", root .. "/build/patch.tl", root,
-      project .. "/cosmic-vendor" }) do
-    argv[#argv + 1] = word
-  end
-  local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture" })
+  local result, trouble = standalone(root, "build/patch.tl",
+    { root, project .. "/cosmic-vendor" })
   if result == nil then
-    return nil, "build/patch.tl: " .. trouble
+    return nil, trouble
   end
   if not result.ok then
     return nil, "build/patch.tl failed"

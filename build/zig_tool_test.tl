@@ -14,12 +14,13 @@ local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 -- The script bin/zig runs, which its tests copy and start: of the
 -- closure, so its source is there to read.
-local type _ = require("build.zig")
+local Zig = require("build.zig")
 
 --- A source whose build a test interrupts, and the program itself, which
 --- its tests start. bin/zig is started with an environment of the
 --- test's own, and the stand-in reads none of the one it inherits.
-Test.needs{ reads = { "build/patch.tl" }, tool = true }
+--- build/zig_fetch.tl is the script a cache miss starts.
+Test.needs{ reads = { "build/patch.tl", "build/zig_fetch.tl" }, tool = true }
 
 --- [`bin/zig`] exits as a shell would when the zig it is given cannot
 --- run: 127 when there is none on PATH, 126 when there is one that is
@@ -42,6 +43,33 @@ local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp:
   assert(denied.code == 126, tostring(denied.stderr))
   local denied_err = denied.stderr or ""
   assert(denied_err:find("zig-for-test: permission denied", 1, true), denied_err)
+end
+
+--- A cache miss runs build/zig_fetch.tl in a process of its own, whose
+--- trouble comes back as ensure_installed's: a pin with no sha256 for
+--- the host fails there before any download, and leaves no scratch
+--- directory in the cache it was given.
+local function test_a_cache_miss_reports_the_fetch_scripts_trouble(tmp: string)
+  local root = assert(Fs.absolute("."))
+  local cache = tmp .. "/cache"
+  local pin: Zig.Pin = { version = "0.16.0", shas = {} }
+  local zig, trouble = Zig.ensure_installed(root, cache, cache .. "/0.16.0-x86_64-linux", pin,
+    "x86_64-linux")
+  assert(zig == nil, "a pin with no sha256 installed a zig")
+  assert(trouble:find("names no sha256 for x86_64-linux", 1, true) ~= nil, trouble)
+  assert(#assert(Fs.list(cache)) == 0, "a .work directory was left behind")
+end
+
+--- build/zig_fetch.tl run without the words it needs exits 2, naming
+--- them.
+local function test_the_fetch_script_refuses_missing_words()
+  local script = assert(Fs.absolute("build/zig_fetch.tl"))
+  local started = this_program.program({ "--standalone", script, "/cache" }, {
+    env = {}, stdout = "capture", stderr = "capture", timeout_ms = 30000,
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 2, tostring(result.stderr))
+  assert((result.stdout or ""):find("usage: build/zig_fetch.tl", 1, true), result.stdout)
 end
 
 --- A root of its own under `tmp` for [`build/zig.tl`] to build from: the
