@@ -221,6 +221,12 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   refused({ serve = echo }, "spec.listeners must be")
   refused({ listeners = {}, serve = echo }, "spec.listeners must be")
   refused({ listeners = { "s.sock" }, serve = echo }, "spec.listeners[1] must be")
+  refused({ listeners = { address, Net.unix("") }, serve = echo },
+    "spec.listeners[2] must be a unix address whose path")
+  refused({ listeners = { { kind = "tcp", host = "127.0.0.1", port = "80" } }, serve = echo },
+    "spec.listeners[1] must be a tcp address")
+  refused({ listeners = { Net.tcp("127.0.0.1", 65536) }, serve = echo },
+    "spec.listeners[1] must be a tcp address")
   refused({ listeners = { address } }, "spec.serve must be")
   refused({ listeners = { address }, serve = echo, limits = { connections = 0 } },
     "spec.limits.connections must be")
@@ -234,4 +240,107 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
     refused({ listeners = { address }, serve = echo }, "cannot be called in a task")
   end)
   assert(Fs.stat(tmp .. "/s.sock") == nil)
+end
+
+--- A protocol that goes on after its reads fail still ends: at
+--- grace_ms its connection is closed as well as cancelled, so a read
+--- after the cancelled one fails "connection is closed". Were it only
+--- cancelled, every read would fail "cancelled" and the loop never end.
+local function test_a_protocol_ignoring_failures_ends_once_its_connection_is_closed(tmp: string)
+  local failures: {string} = {}
+  local started = false
+  local held: Client
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    grace_ms = 20,
+    serve = function(conn: Net.Conn)
+      started = true
+      while true do
+        local data, why = conn:read()
+        if data == nil then
+          failures[#failures + 1] = why
+          if why == "connection is closed" then return end
+        end
+      end
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      held = client(addresses[1])
+      while not started do assert(Poll.delay(1)) end
+      server:stop()
+    end,
+  })
+  local _, _ = held.conn:close()
+  assert(table.concat(failures, ",") == "cancelled,connection is closed",
+    table.concat(failures, ","))
+end
+
+--- The limit counts connections across listeners: while one listener's
+--- connection holds the only place, another listener accepts nothing.
+local function test_the_connection_limit_is_shared_by_every_listener(tmp: string)
+  local waiting_why = ""
+  local answer = ""
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/a.sock"), Net.unix(tmp .. "/b.sock") },
+    limits = { connections = 1 },
+    serve = echo,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local second: Client
+      do
+        local first <close> = client(addresses[1])
+        assert(first.conn:write("one\n"))
+        assert(first.lines:read() == "one")
+        second = client(addresses[2])
+        assert(second.conn:write("two\n"))
+        second.conn.timeout_ms = 100
+        local nothing: string
+        nothing, waiting_why = second.conn:read()
+        assert(nothing == nil)
+        second.conn.timeout_ms = 5000
+      end
+      answer = assert(second.lines:read())
+      local _, _ = second.conn:close()
+      server:stop()
+    end,
+  })
+  assert(waiting_why == "timed out", waiting_why)
+  assert(answer == "two", answer)
+end
+
+--- A connection's protocol may stop the server it is served by, and
+--- still finish its own answer.
+local function test_a_protocol_stops_its_server(tmp: string)
+  local path = tmp .. "/s.sock"
+  local answer = ""
+  local serving: Net.Server
+  assert(Net.serve{
+    listeners = { Net.unix(path) },
+    serve = function(conn: Net.Conn)
+      if assert(Stream.lines(conn):read()) == "stop" then serving:stop() end
+      assert(conn:write("bye\n"))
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      serving = server
+      local c <close> = client(addresses[1])
+      assert(c.conn:write("stop\n"))
+      answer = assert(c.lines:read())
+    end,
+  })
+  assert(answer == "bye", answer)
+  assert(Fs.stat(path) == nil, "the socket file was left")
+end
+
+--- A server stopped before it accepts anything returns at once, its
+--- protocol never run; stopping it again does nothing.
+local function test_a_server_stopped_twice_before_accepting_returns(tmp: string)
+  local served = false
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    serve = function(_conn: Net.Conn) served = true end,
+    on_ready = function(_addresses: {Net.Address}, server: Net.Server)
+      server:stop()
+      server:stop()
+    end,
+  })
+  assert(not served)
+  assert(Fs.stat(tmp .. "/s.sock") == nil, "the socket file was left")
 end
