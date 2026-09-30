@@ -4,6 +4,7 @@ local Test = require("cosmic.test")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local importer = require("build.importer")
+local link_index = require("build.link_index")
 local link_files = require("build.link_files")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -187,12 +188,13 @@ local function write_project(root: string, target: string, bye: string)
     "return greet.hello")))
 end
 
---- Builds the project `handle` holds into `out` and answers its links,
+--- Builds the project `handle` holds into `out`, its links naming no
+--- standard library ([`link_index.none`]), and answers its links,
 --- each as `file:line kind symbol path#anchor`.
 local function build_links(handle: work.Handle, out: string): {string}
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
-  assert(writer.write_result(handle, out, result))
+  assert(writer.write_result(handle, out, result, nil, link_index.none))
   local db = assert(Sqlite.open(out, false))
   local found = rows(db, "SELECT from_file || ':' || line, kind, symbol, path || '#' || anchor " ..
     "FROM links ORDER BY from_file, line, column")
@@ -376,7 +378,7 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
   end
   local function signed(): string
     local result = assert(importer.compile(handle, built, "link-index-test"))
-    return (assert(writer.signature(handle, result, "a writer")))
+    return (assert(writer.signature(handle, result, "a writer", link_index.none)))
   end
   assert(staged().read == 4)
   local first = signed()
@@ -419,8 +421,8 @@ local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)
   local function signed(): string
     assert(work.stage(handle, false))
     local result = assert(importer.compile(handle, built, "link-index-test"))
-    local signature = assert(writer.signature(handle, result, "a writer"))
-    assert(writer.write_result(handle, out, result))
+    local signature = assert(writer.signature(handle, result, "a writer", link_index.none))
+    assert(writer.write_result(handle, out, result, nil, link_index.none))
     return signature
   end
   local first = signed()
@@ -481,11 +483,201 @@ local function test_a_c_comments_links_are_rows_but_not_ci(tmp: string)
   assert(work.stage(handle, true))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   local out = root .. "/o/cosmic.db"
-  assert(writer.write_result(handle, out, result))
+  assert(writer.write_result(handle, out, result, nil, link_index.none))
   assert(work.close(handle))
   same(file_links(out), {
     "core/greet.c:1:14 comment symbol hello #",
     "core/greet.c:4:11 comment symbol bye #",
   })
   same(places(out, "greet.hello"), { "core/greet.c:1 link", "greet.tl:1 link", "wave.tl:3" })
+end
+
+--- A standard library standing in for the binary's, named `identity`:
+--- [`cosmic.fs`], whose `write` it carries only `with_write`, linking to
+--- its own `read`, and an internal module no project sees.
+local function library(dir: string, identity: string, with_write: boolean): link_index.Library
+  local lines = { "--- Files.", "local record Fs", "end", "",
+    "--- Reads; [`Fs.read`] is where every read starts.",
+    "function Fs.read(path: string): string", "  return path", "end", "" }
+  if with_write then
+    for _, line in ipairs({ "--- Writes.", "function Fs.write(path: string): string",
+        "  return path", "end", "" }) do
+      lines[#lines + 1] = line
+    end
+  end
+  lines[#lines + 1] = "return Fs"
+  local db = fixture.database(dir, {
+    ["cosmic/fs.tl"] = source(table.unpack(lines)),
+    ["cosmic/internal/raw.tl"] = source("--- Raw.", "local record raw", "end", "",
+      "--- Opens.", "function raw.open(): integer", "  return 0", "end", "", "return raw"),
+  })
+  return { identity = identity,
+    databases = function(): {Sqlite.Handle} | nil, string return { db } end }
+end
+
+--- A project whose module and README link to the standard library.
+local function write_linking_project(root: string)
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.write(root .. "/greet.tl", source(
+    "--- Greets; reads with [`cosmic.fs.read`] and [`Fs.write`],",
+    "--- never [`cosmic.internal.raw.open`] or [`cosmic.fs.gone`].",
+    "local record greet",
+    "end",
+    "",
+    "--- Says hello.",
+    "function greet.hello(): string",
+    "  return \"hello\"",
+    "end",
+    "",
+    "return greet")))
+  assert(Fs.write(root .. "/README.md", source("Read with [`cosmic.fs.read`].")))
+end
+
+--- A project's links to the standard library are rows of its
+--- projection, resolved against the library the binary carries as
+--- `cosmic fix` resolves them, a module `cosmic docs` hides from a
+--- project named by none; `cosmic uses` lists them and a page counts
+--- them, once each, beside the library's own.
+local function test_a_projects_links_to_the_standard_library_are_rows(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_linking_project(root)
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local stdlib = library(tmp, "docs one", true)
+  assert(writer.write_result(handle, out, result, nil, stdlib))
+  assert(work.close(handle))
+  local db = assert(Sqlite.open(out, false))
+  same(rows(db, "SELECT from_file, line, column, from_module, module, symbol FROM links " ..
+    "ORDER BY from_file, line, column"), {
+    "README.md 1 11  cosmic.fs read",
+    "greet.tl 1 24 greet cosmic.fs read",
+    "greet.tl 1 47 greet cosmic.fs write",
+  })
+  local handles = assert(stdlib.databases())
+  local view = assert(docs.view({ db, handles[1] }, { false, true }))
+  local listed: {string} = {}
+  for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
+    listed[#listed + 1] = use.from_file .. ":" .. use.line .. (use.link and " link" or "")
+  end
+  same(listed, { "README.md:1 link", "cosmic/fs.tl:5 link", "greet.tl:1 link" })
+  local found = assert(docs.lookup(view, "cosmic.fs.read"))
+  local page = table.concat(assert(docs.render(view, found[1])), "\n")
+  assert(page:find("\n  linked from 3 places; cosmic uses Fs.read", 1, true) ~= nil, page)
+  assert(db:close())
+end
+
+--- What determines the library's docs signs a project's projection: a
+--- binary carrying the same writes nothing again, and one carrying
+--- other docs writes the projection again, its rows resolved against
+--- them. A project none of whose links asks for a symbol reads nothing
+--- of the library, and is not signed by it.
+local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_linking_project(root)
+  local one = library(tmp, "docs one", true)
+  local again = library(tmp, "docs one", true)
+  local two = library(tmp, "docs two", false)
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local first = assert(writer.signature(handle, result, "a writer", one))
+  assert(writer.signature(handle, result, "a writer", again) == first)
+  assert(writer.signature(handle, result, "a writer", two) ~= first)
+  local function written(stdlib: link_index.Library): {string}
+    assert(writer.write_result(handle, out, result, nil, stdlib))
+    local db = assert(Sqlite.open(out, false))
+    local found = rows(db, "SELECT from_file || ':' || line, symbol FROM links " ..
+      "UNION ALL SELECT 'kept', value FROM meta WHERE key = 'kept' ORDER BY 1, 2")
+    assert(db:close())
+    return found
+  end
+  same(written(one), { "README.md:1 read", "greet.tl:1 read", "greet.tl:1 write" })
+  -- A row the write would not leave says whether the file was written.
+  local db = assert(Sqlite.open(out, true))
+  assert(db:exec("INSERT INTO meta (key, value) VALUES ('kept', 'yes')"))
+  assert(db:close())
+  same(written(again), { "README.md:1 read", "greet.tl:1 read", "greet.tl:1 write", "kept yes" })
+  same(written(two), { "README.md:1 read", "greet.tl:1 read" })
+  -- No link asks for a symbol: the library is neither read nor signed.
+  assert(Fs.write(root .. "/greet.tl", source("--- Greets.", "return {}")))
+  assert(Fs.remove(root .. "/README.md"))
+  assert(Fs.remove(root .. "/wave.tl"))
+  assert(work.stage(handle, false))
+  local plain = assert(importer.compile(handle, built, "link-index-test"))
+  local refusing: link_index.Library = { identity = "docs three",
+    databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
+  assert(writer.signature(handle, plain, "a writer", refusing) ==
+    writer.signature(handle, plain, "a writer", one))
+  assert(writer.write_result(handle, out, plain, nil, refusing))
+  assert(work.close(handle))
+end
+
+--- cosmic's own tree documents its standard library itself: its links
+--- are resolved against its own projection, whatever the binary
+--- building it carries.
+local function test_cosmics_own_tree_reads_no_library(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/tree"
+  write_linking_project(root)
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", source("return {}")))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local refusing: link_index.Library = { identity = "docs three",
+    databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
+  assert(writer.signature(handle, result, "a writer", refusing) ==
+    writer.signature(handle, result, "a writer", library(tmp, "docs one", true)))
+  local out = root .. "/o/cosmic.db"
+  assert(writer.write_result(handle, out, result, nil, refusing))
+  assert(work.close(handle))
+  local db = assert(Sqlite.open(out, false))
+  same(rows(db, "SELECT count(*) FROM links WHERE module = 'cosmic.fs'"), { "0" })
+  assert(db:close())
+end
+
+--- A project whose links name only its own symbols builds with the
+--- running binary's library in a test that may not read the store: a
+--- link settled by the project's own modules reads nothing of the
+--- library. One to the standard library cannot, and says what the test
+--- must declare.
+local function test_a_projects_own_links_read_no_library(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.write(root .. "/other.tl", source(
+    "--- Other things.",
+    "local record other",
+    "end",
+    "",
+    "--- Does one.",
+    "function other.fn(): integer",
+    "  return 1",
+    "end",
+    "",
+    "return other")))
+  assert(Fs.write(root .. "/README.md", source("See [`other.fn`].")))
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "link-index-test"))
+  assert(writer.write_result(handle, out, result))
+  local db = assert(Sqlite.open(out, false))
+  same(rows(db, "SELECT from_file || ':' || line, module, symbol FROM links " ..
+    "ORDER BY from_file, line, column"), {
+    "README.md:1 other fn",
+    "greet.tl:1 greet hello",
+    "wave.tl:2 greet bye",
+  })
+  assert(db:close())
+  assert(Fs.write(root .. "/README.md", source("See [`cosmic.fs.read`].")))
+  assert(work.stage(handle, false))
+  local linked = assert(importer.compile(handle, built, "link-index-test"))
+  local ok, trouble = writer.write_result(handle, out, linked)
+  assert(not ok, "a link to the standard library reads the store")
+  assert(trouble:find("standard library", 1, true) ~= nil and
+    trouble:find("store = true", 1, true) ~= nil, trouble)
+  assert(work.close(handle))
 end

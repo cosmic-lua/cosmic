@@ -13,6 +13,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
+local link_index = require("build.link_index")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -63,9 +64,11 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
     "SELECT key, '', '', '', 0 FROM plan"))
   written = written + 1
   local path = dir .. "/cosmic-" .. written .. ".db"
+  -- A fixture's tree stands in for cosmic's own, whose links name its
+  -- own standard library and not the binary's.
   assert(writer.write_result(handle, path, {
     modules = {}, tool = "", refused = {}, compiled = 0, cached = 0, shared = 0,
-  }))
+  }, nil, link_index.none))
   assert(db:close())
   return (assert(Sqlite.open(path, false)))
 end
