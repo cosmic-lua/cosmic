@@ -128,6 +128,21 @@ What it shows:
   re-acknowledged modules without bumping the epoch. It should refuse
   `--all` runs.
 
+Why a test-only edit moves the product (researched 2026-09-30):
+`o/carried.db` keeps the projection's `projected` row, a signature of
+the whole projection with tests (`build/writer.tl:532`). That row alone
+changes `product/cosmic`. Separately, `ProductSetup.build` copies
+`o/cosmic.db`, tests included, into `product/cosmic.db`, from which
+`runtime.*` is built (`ci/cosmic_ci/product_setup.tl:46`). A prototype
+drops `projected` from the carried database and ships `o/carried.db` as
+the product's database. With it, a test-only edit moved 0 of 64 fixture
+inputs, where it had moved 17, and runtime, identity and launcher stood
+17 of 17. The launcher, runtime and identity fixtures never read
+`product/cosmic` and declare it only to tie their verdict to the
+attested product; declaring `product/prefix` instead would let them
+stand whenever cores and launcher are unchanged. That loosens a stated
+rule, so it waits on a decision.
+
 Next, in order: the product moving on test-only edits; the release and
 checked builds on a cached leg; the unsandboxed fixtures (self-rebuild,
 self-driven) standing; the checked job's deadline for the run ahead; and
