@@ -429,8 +429,9 @@ end
 --- `find root -type f` lists them: a link is neither listed nor
 --- walked into, whatever it leads to.
 --- `skip` is asked about each entry's relative path, its bare name
---- second, and what the listing says it is third (`"file"`, `"dir"`,
---- `"link"` or `"other"`), and may refuse a whole directory. The
+--- second, and what the listing says it is third, as [`Fs.stat`]'s
+--- `kind` names it (`"file"`, `"dir"`, `"link"`, `"socket"` and so
+--- on), and may refuse a whole directory. The
 --- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
                  skip?: function(string, string, string): boolean): {string} | nil, string

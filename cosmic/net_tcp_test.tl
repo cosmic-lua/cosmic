@@ -23,6 +23,12 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   assert(assert(Stream.read_all(client)) == "pong")
 end
 
+--- `reclaim` raises for a TCP address rather than listen without it.
+local function test_reclaim_of_a_tcp_address_raises()
+  local ok, err = pcall(Net.listen, Net.tcp("127.0.0.1", 0), { reclaim = true })
+  assert(not ok and tostring(err):find("reclaim takes a unix address", 1, true) ~= nil, tostring(err))
+end
+
 --- A port one listener holds is not another's; once it closes, nothing
 --- listens there, and connecting is refused.
 local function test_a_port_held_is_refused_and_one_closed_refuses()
@@ -126,4 +132,32 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
     refused, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ms = 5000 })
   end)
   assert(refused == nil and why == "127.0.0.1:" .. port .. ": Connection refused", why)
+end
+
+--- One protocol serves every listener, a TCP one and a unix one alike,
+--- and on_ready is told the port the kernel chose for one at port 0.
+local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
+  local bound: {Net.Address} = {}
+  local answers: {string} = {}
+  assert(Net.serve{
+    listeners = { Net.tcp("127.0.0.1", 0), Net.unix(tmp .. "/s.sock") },
+    serve = function(conn: Net.Conn)
+      local line = assert(Stream.lines(conn):read())
+      assert(conn:write(line:upper() .. "\n"))
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      bound = addresses
+      assert(server.addresses == addresses)
+      for _, address in ipairs(addresses) do
+        local conn <close> = assert(Net.connect(address, { timeout_ms = 5000 }))
+        assert(conn:write(address.kind .. "\n"))
+        answers[#answers + 1] = assert(Stream.lines(conn):read())
+      end
+      server:stop()
+    end,
+  })
+  assert(bound[1].kind == "tcp" and bound[1].host == "127.0.0.1", bound[1].host)
+  assert(bound[1].port > 0 and bound[1].port <= 65535, tostring(bound[1].port))
+  assert(bound[2].kind == "unix" and bound[2].path == tmp .. "/s.sock", bound[2].path)
+  assert(table.concat(answers, ",") == "TCP,UNIX", table.concat(answers, ","))
 end

@@ -256,13 +256,15 @@ local function index_of(db: Sqlite.Handle, qualifier: string): symbol_index.Inde
   end
   for _, row in ipairs(modules) do symbol_index.module(out, row[1]) end
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT module, symbol, source_symbol, file FROM " .. qualifier .. "docs " ..
-    "ORDER BY module, exported DESC, id")
+    "SELECT module, symbol, source_symbol, file, kind, signature, exported, id FROM " ..
+    qualifier .. "docs ORDER BY module, exported DESC, id")
   if rows == nil then
     return nil, trouble
   end
   for _, row in ipairs(rows) do
-    symbol_index.add(out, row[1], row[2], row[3], row[4])
+    symbol_index.add(out, { module = row[1], symbol = row[2], source_symbol = row[3],
+      file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
+      shown = true, database = 1, id = math.tointeger(tonumber(row[8])) or 0 })
   end
   return out, ""
 end
@@ -280,11 +282,6 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
   local function member_of(module: string, name: string): {link_resolve.Symbol} | nil, string
     return symbol_index.member(index, module, name), ""
   end
-  -- TODO: resolve a member of a type an alias stands for
-  -- ([`Sqlite.Handle.close`]), as [`docs.exact`] does through
-  -- `through_alias`, once that lookup is split from build.docs, which
-  -- build.writer cannot require (build.docs requires build.rebuild,
-  -- which requires build.writer).
   local function symbols_of(query: string): {link_resolve.Symbol} | nil, string
     return symbol_index.named(index, query), ""
   end

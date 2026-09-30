@@ -118,14 +118,15 @@ COSMIC_SYSCALL(connected, 1);
 COSMIC_SYSCALL(pair, 0);
 
 /*
- * --- Sends what of `data` the socket takes now. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
+ * --- Sends what of `data` the socket takes now, from byte `from` on, so a caller sending the rest after a partial send copies none of it. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
  * ---@param fd integer the connected descriptor
  * ---@param data string the bytes to send
- * ---@return integer|nil sent how many bytes were sent, from the first, or nil on failure: EAGAIN when the socket takes none now
+ * ---@param from? integer the first byte to send, from 1 (the default) to one past the last; any other raises
+ * ---@return integer|nil sent how many bytes were sent, from `from`, or nil on failure: EAGAIN when the socket takes none now
  * ---@return string error what went wrong, when sent is nil
  * ---@return integer errno the error number, when sent is nil
  */
-COSMIC_SYSCALL(send, 2);
+COSMIC_SYSCALL(send, 3);
 
 /*
  * --- Where a TCP socket is bound: its host and port, the port the kernel chose for one listening at port 0.

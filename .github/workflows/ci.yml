@@ -25,11 +25,12 @@
   permissions: {contents: "read"},
 
   env: {
-    # A branch push is `light`: each leg builds and runs its native
-    # suite, and the checked job, in place of its suite, the pinned CI
-    # driver's check and the format check. The merge queue, main and a
-    # manual run are `full`: the checked core, the product and portable
-    # suites, the regressions, attestation and provenance.
+    # A branch push is `light`: each leg but alpine-x86_64 builds and
+    # runs its native suite, and the checked job, in place of its
+    # suite, the pinned CI driver's check and the format check. The
+    # merge queue, main and a manual run are `full`: every leg, the
+    # checked core, the product and portable suites, the regressions,
+    # attestation and provenance.
     COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
     # Whether this run's platform legs save the caches every run
     # restores: a push to main and the scheduled run, no other (a push
@@ -109,11 +110,29 @@
       strategy: {
         "fail-fast": false,
         matrix: {
+          # A branch push (`light`, COSMIC_CI_SCOPE's test, which a
+          # matrix cannot read) runs no alpine-x86_64 leg, linux-x86_64's
+          # runner and target in another image; the merge queue, main and
+          # a scheduled or manual run run all four.
+          name: "${{ fromJSON((github.event_name != 'push' || github.ref == 'refs/heads/main') && '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\", \"alpine-x86_64\"]' || '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\"]') }}",
+          # Each entry adds to the legs of its `name`; the first, which
+          # names none, adds alpine-x86_64's to every leg, and each
+          # later one replaces all of them for its own. An entry naming
+          # a leg the list above leaves out would start a leg of its own,
+          # which is why alpine-x86_64's names none.
           include: [
-            # The Linux legs run in ci/images/'s images (ci-images.yml),
-            # pinned by digest; their `run` steps run in the container as
-            # an unprivileged `runner` of the host runner's uid, through
-            # `leg-shell` (.github/scripts/leg-container.sh).
+            {
+              runner: "ubuntu-24.04",
+              target: "x86_64-linux-musl",
+              image: "ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72",
+              prepare: "adduser -D -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+              shell: "leg-shell {0}",
+            },
+            # The Linux legs, alpine-x86_64 above too, run in ci/images/'s
+            # images (ci-images.yml), pinned by digest; their `run` steps
+            # run in the container as an unprivileged `runner` of the host
+            # runner's uid, through `leg-shell`
+            # (.github/scripts/leg-container.sh).
             {
               name: "linux-x86_64",
               runner: "ubuntu-24.04",
@@ -131,15 +150,7 @@
               prepare: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
               shell: "leg-shell {0}",
             },
-            {name: "macos-aarch64", runner: "macos-15", target: "aarch64-macos", image: "", shell: "sh"},
-            {
-              name: "alpine-x86_64",
-              runner: "ubuntu-24.04",
-              target: "x86_64-linux-musl",
-              image: "ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72",
-              prepare: "adduser -D -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
-              shell: "leg-shell {0}",
-            },
+            {name: "macos-aarch64", runner: "macos-15", target: "aarch64-macos", image: "", prepare: "", shell: "sh"},
           ],
         },
       },

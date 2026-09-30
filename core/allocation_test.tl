@@ -294,6 +294,22 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
     (bytes - before_bytes) .. " bytes) on the C heap")
 end
 
+--- `children` reads its list into a block of the core's C heap, and
+--- closes the list's descriptor, whichever allocation is refused. Off
+--- Linux it allocates nothing, and there is nothing to walk.
+local function test_children_releases_its_block_whenever_an_allocation_fails(tmp: string)
+  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  local before = next_descriptor(tmp)
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    assert(process.children())
+  end)
+  assert(ended > 0, "listing the children allocates")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert_c_heap(bytes, blocks, "children under refusal")
+end
+
 --- The C heap counts what the core's C allocates and frees, and a
 --- refused C allocation is counted with Lua's.
 local function test_the_c_heap_counts_its_blocks_and_refusals()

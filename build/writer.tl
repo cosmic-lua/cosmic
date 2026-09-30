@@ -467,7 +467,12 @@ local carried_internal_types =
 --- [`build.schema`], so `*` names the same columns in the same order. A
 --- rowid table's `id` is assigned again, in the projection's order.
 local carry: {string} = {
-  "INSERT INTO main.meta SELECT * FROM whole.meta ORDER BY key",
+  -- Every row of the projection's `meta` but `projected`, which signs
+  -- the whole projection, tests and examples among it: carried, it would
+  -- move the tool's bytes with an edit to a test, which the tool does not
+  -- carry (see [`writer.carried`]).
+  "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key <> 'projected' " ..
+    "ORDER BY key",
   dropped_modules .. "INSERT INTO main.modules SELECT * FROM whole.modules " ..
     "WHERE path NOT IN dropped ORDER BY path",
   dropped_modules .. "INSERT INTO main.imports SELECT * FROM whole.imports " ..
@@ -529,8 +534,14 @@ local carry: {string} = {
 --- docs, uses, links and examples, the only ones a reader asks the tool for
 --- (see `carry`). Like the projection, it is a function of
 --- its input alone: a fresh schema, filled in one order, vacuumed.
---- Its `meta` is the projection's, `projected` included: that signs the
---- projection it came from, not these rows.
+--- Its `meta` is the projection's but for `projected`, which signs the
+--- whole projection it came from, not these rows: a tool that carried it
+--- would move with an edit to a test or an example, which it leaves out,
+--- and so would everything keyed by its bytes (CI's fixtures, keyed by
+--- the product they run). Nothing needs it from a tool: build.writer
+--- reads it from a projection it wrote, and build.reboot's `replaced`
+--- tells a rebuilt tool apart by `boot_hash`, `written_by` and
+--- `compiled_by`, one of which every rebuild moves.
 function writer.carried(whole: string, out: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: {string} = {}
