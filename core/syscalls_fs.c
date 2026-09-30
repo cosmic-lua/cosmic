@@ -77,6 +77,10 @@ static const char *mode_kind (mode_t mode) {
   if (S_ISREG(mode)) return "file";
   if (S_ISDIR(mode)) return "dir";
   if (S_ISLNK(mode)) return "link";
+  if (S_ISSOCK(mode)) return "socket";
+  if (S_ISFIFO(mode)) return "fifo";
+  if (S_ISCHR(mode)) return "char";
+  if (S_ISBLK(mode)) return "block";
   return "other";
 }
 
@@ -693,6 +697,14 @@ COSMIC_SYSCALL(readdir, 1) {
       kind = "file";
     } else if (type == DT_LNK) {
       kind = "link";
+    } else if (type == DT_SOCK) {
+      kind = "socket";
+    } else if (type == DT_FIFO) {
+      kind = "fifo";
+    } else if (type == DT_CHR) {
+      kind = "char";
+    } else if (type == DT_BLK) {
+      kind = "block";
     } else if (type == DT_UNKNOWN) {
       struct stat st;
       if (dir_fd >= 0 && fstatat(dir_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0) {

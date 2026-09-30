@@ -320,7 +320,10 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
     end,
     writer = function(self: Net.Conn): Stream.Writer
       -- Once ended, a second close asks nothing of the socket, which
-      -- macOS answers ENOTCONN once the peer has gone.
+      -- macOS answers ENOTCONN once the peer has gone. A first close
+      -- then answers ENOTCONN there, and stays so: the core cannot tell
+      -- a connection that went away from a socket never connected,
+      -- which only this caller knows it had.
       local ended = false
       return {
         write = function(_w: Stream.Writer, data: string): boolean, string
@@ -487,10 +490,6 @@ end
 --- then times out rather than being refused.
 local PROBE_MS <const> = 1000
 
---- The type bits of a socket file (S_IFSOCK) in [`Stat.mode`], the same
---- on Linux and macOS.
-local SOCKET_TYPE <const> = 0xC000
-
 --- How long `reclaim` waits for another's lock, which each holds for
 --- a probe and two binds: far past that, the holder is stuck.
 local LOCK_MS <const> = 10 * PROBE_MS
@@ -538,7 +537,7 @@ end
 local function left_behind(address: Net.Address): string
   local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
-  if st.mode & 0xF000 ~= SOCKET_TYPE then return "" end
+  if st.kind ~= "socket" then return "" end
   -- TODO: probe through the run in a task of Poll.run, as a connect
   -- does, once reclaim's lock waits through it: the probe runs under
   -- that lock, and a second reclaim's flock of the same path would hold

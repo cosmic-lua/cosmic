@@ -282,7 +282,7 @@ local standard: verb.Io = {
 --- open, so a sums file cannot make it read a FIFO or a device.
 local function is_regular(path: string): boolean
   local st, _ = Fs.stat(path)
-  return st ~= nil and (st.mode & 0xF000) == 0x8000
+  return st ~= nil and st.kind == "file"
 end
 
 --- The digest of the file `name`, or of standard input for `-`; nil and
