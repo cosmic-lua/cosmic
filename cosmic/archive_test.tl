@@ -130,6 +130,24 @@ local function test_open_stream_fails_on_a_truncated_gzip_stream()
   assert(failed, "a truncated stream passed as complete")
 end
 
+--- A gzip whose deflate body is a block with no codes at all, which
+--- the decompressor once read as literal zeros without end: `next`
+--- spun at the tar's end, draining them. It answers an error at once.
+local function test_a_gzip_block_with_no_codes_fails_next_rather_than_spinning(tmp: string)
+  local bytes = "\31\139\8\0\0\0\0\0\0\255\237\211" .. string.rep("\0", 12)
+  local path = tmp .. "/nocodes.tar.gz"
+  assert(Fs.write(path, bytes))
+  local readers: {Archive.Reader} = {
+    assert(Archive.open(path)),
+    (assert(Archive.open_stream(Stream.from_string(bytes)))),
+  }
+  for i, r in ipairs(readers) do
+    local e, why = r:next()
+    assert(e == nil and why:find("corrupt compressed data", 1, true) ~= nil, i .. ": " .. why)
+    r:close()
+  end
+end
+
 local function test_open_refuses_an_unrecognized_file(tmp: string)
   local path = tmp .. "/plain.txt"
   assert(Fs.write(path, "just some text, not an archive"))

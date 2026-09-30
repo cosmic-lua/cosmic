@@ -1,0 +1,31 @@
+file: miniz.c
+note: the fast literal/length path's first lookup fails on an unused slot, as TINFL_HUFF_DECODE does (see 01-invalid-code-decode.txt), in a state of its own (54), clear of every index tinfl uses.
+--- find
+                            if ((sym2 = r->m_look_up[0][bit_buf & (TINFL_FAST_LOOKUP_SIZE - 1)]) >= 0)
+                                code_len = sym2 >> 9;
+                            else
+                            {
+                                code_len = TINFL_FAST_LOOKUP_BITS;
+                                do
+                                {
+                                    sym2 = r->m_tree_0[~sym2 + ((bit_buf >> code_len++) & 1)];
+                                } while (sym2 < 0);
+                            }
+                            counter = sym2;
+--- replace
+                            if ((sym2 = r->m_look_up[0][bit_buf & (TINFL_FAST_LOOKUP_SIZE - 1)]) >= 0)
+                            {
+                                code_len = sym2 >> 9;
+                                if (!code_len)
+                                    TINFL_CR_RETURN_FOREVER(54, TINFL_STATUS_FAILED);
+                            }
+                            else
+                            {
+                                code_len = TINFL_FAST_LOOKUP_BITS;
+                                do
+                                {
+                                    sym2 = r->m_tree_0[~sym2 + ((bit_buf >> code_len++) & 1)];
+                                } while (sym2 < 0);
+                            }
+                            counter = sym2;
+--- end

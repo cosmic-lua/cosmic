@@ -229,6 +229,15 @@ __attribute__((noinline)) static int fail (lua_State *L, struct stream *s, luaL_
 
 /* ---- tinfl: raw deflate, zlib, and the gzip body ---- */
 
+/* tinfl refuses bits that name no code of a Huffman table, as zlib does,
+ * only through cosmic's patch (patch/miniz/01-invalid-code-decode.txt):
+ * upstream it read them as literal 0 of no bits, without end.
+ * TODO: tinfl still takes a table of one code longer than ten bits,
+ * which zlib refuses as incomplete, and reads the branches that code
+ * leaves empty as symbol 0 -- bounded, but corrupt data decoded rather
+ * than refused. The fix is another patch/miniz record refusing, in the
+ * table build, an incomplete table unless its one code is one bit long. */
+
 static int inflate_step (struct stream *s, const unsigned char *p, size_t n,
                          size_t *used, struct sink *out, const char **err) {
   struct inflate_state *f = s->inf;

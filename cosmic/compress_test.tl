@@ -132,6 +132,47 @@ local function test_corrupt_deflate_data_is_refused()
   assert(out == nil and trouble ~= "")
 end
 
+-- A gzip member whose deflate body is a dynamic block with no codes at
+-- all: every code-length code's length is zero, so every literal's is
+-- too. tinfl decoded that as literal 0 of zero bits, forever, from
+-- these bytes (the head of the input a fuzz run of cosmic.archive
+-- found). The zeros after the block's first bytes are input to spare,
+-- so the decoder takes its fast path rather than waiting for more.
+local NO_CODES_GZIP <const> = "\31\139\8\0\0\0\0\0\0\255\237\211" .. string.rep("\0", 12)
+
+-- A raw deflate dynamic block whose literal/length table holds one
+-- code, end-of-block's, one bit long: `0` ends the block, `1` is no
+-- code at all. This is the block's header and tables; the byte after
+-- it holds the data: "\31" a well-formed empty block, "\95" the `1`.
+local EOB_ONLY <const> = "\5\224\129\8\0\0\0\0\32\248\91"
+
+local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever()
+  for _, format in ipairs({ "gzip", "raw" } as {Compress.Format}) do
+    local bytes = format == "gzip" and NO_CODES_GZIP or NO_CODES_GZIP:sub(11)
+    local dec = assert(Compress.inflater(format))
+    -- One update is enough: before, it answered a full megabyte of
+    -- zeros, and every update after it another.
+    local out, trouble = dec:update(bytes)
+    assert(out == nil and trouble == "corrupt compressed data", format .. ": " .. tostring(out and #out))
+    local one_shot, why = Compress.inflate(format, bytes)
+    assert(one_shot == nil and why ~= "", format)
+  end
+end
+
+local function test_bits_that_name_no_code_are_refused()
+  -- The one code the table holds decodes.
+  local dec = assert(Compress.inflater("raw"))
+  local out, trouble = drive(dec, EOB_ONLY .. "\31")
+  assert(out == "" and trouble == "", trouble)
+  -- The bits no code has: read on the fast path, with input to spare
+  -- after them, and on the slow one, at the input's end.
+  for _, tail in ipairs({ string.rep("\0", 8), "" }) do
+    dec = assert(Compress.inflater("raw"))
+    out, trouble = drive(dec, EOB_ONLY .. "\95" .. tail)
+    assert(out == "" and trouble ~= "", #tail .. ": " .. trouble)
+  end
+end
+
 local function test_crc32_matches_the_known_value_and_continues()
   -- crc32("hello, cosmic!") from Python's binascii.crc32.
   local whole = Compress.crc32("hello, cosmic!")
