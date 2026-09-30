@@ -10,7 +10,7 @@
  *
  * An address is a table whose `kind` says how the rest of it is read,
  * so a kind of socket is one more branch where an address becomes a
- * `sockaddr`, not a call of its own. Only "unix" is read so far.
+ * `sockaddr`, not a call of its own.
  *
  * The grammar and the two shapes are core/syscalls.h's: each entry is a
  * LuaCATS annotation block followed by COSMIC_SYSCALL naming it, which
@@ -85,6 +85,39 @@ COSMIC_SYSCALL(accept, 1);
 COSMIC_SYSCALL(connect, 2);
 
 /*
+ * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails as `connect` does where that fails at once, and EAGAIN, the socket closed, where a unix listener's backlog is full on Linux: ask again with a new socket, since waiting for writable does not wait for room there.
+ * ---@param address Address where to connect
+ * ---@return Socket|nil socket the socket, connected or connecting, closed on exec and nonblocking, or nil on failure
+ * ---@return string error what went wrong, when socket is nil
+ * ---@return integer errno the error number, when socket is nil
+ */
+COSMIC_SYSCALL(start, 1);
+
+/*
+ * --- Whether the connection `start` began on a socket, which has since polled writable, was made: true, or false and what refused it (SO_ERROR), ECONNREFUSED where nothing listens at the port. Asked before the socket is writable, it answers true for a connection still being made.
+ * ---@param fd integer the connecting descriptor
+ * ---@return boolean ok false once the connection failed
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(connected, 1);
+
+/*
+ * --- Two unix stream sockets connected to each other, each a `Socket` of its own.
+ * ---@class Pair
+ * ---@field first Socket one end
+ * ---@field second Socket the other end
+ */
+
+/*
+ * --- Makes two unix stream sockets connected to each other (socketpair), each closed on exec and nonblocking, and each sending as `send` does, EPIPE rather than SIGPIPE once the other has gone.
+ * ---@return Pair|nil pair the two ends, or nil on failure
+ * ---@return string error what went wrong, when pair is nil
+ * ---@return integer errno the error number, when pair is nil
+ */
+COSMIC_SYSCALL(pair, 0);
+
+/*
  * --- Sends what of `data` the socket takes now, from byte `from` on, so a caller sending the rest after a partial send copies none of it. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
  * ---@param fd integer the connected descriptor
  * ---@param data string the bytes to send
@@ -103,6 +136,15 @@ COSMIC_SYSCALL(send, 3);
  * ---@return integer errno the error number, when address is nil
  */
 COSMIC_SYSCALL(bound, 1);
+
+/*
+ * --- Where a connected socket's peer is: a TCP one's host and port, or a unix one's path as its socket was bound, "" for one bound nowhere (as every socket `connect`, `start` and `pair` make is) or in Linux's abstract namespace.
+ * ---@param fd integer the connected descriptor
+ * ---@return Address|nil address the peer's address, or nil on failure: ENOTCONN once the socket is not connected, as a TCP one reset by its peer may be
+ * ---@return string error what went wrong, when address is nil
+ * ---@return integer errno the error number, when address is nil
+ */
+COSMIC_SYSCALL(peer, 1);
 
 /*
  * --- Ends one direction of a connection, or both: after "write" the peer reads the end of what was sent.
@@ -128,7 +170,7 @@ COSMIC_SYSCALL(wait, 3);
 /*
  * --- The error numbers the calls above answer that a caller acts on, and the bound on a socket file's name, from this libc.
  * ---@class Constants
- * ---@field EAGAIN integer nothing to take or send now: wait, then ask again
+ * ---@field EAGAIN integer nothing to take or send now, or no room at a unix listener to `start` a connection: wait, then ask again
  * ---@field EINTR integer a guard caught a signal while `wait` waited
  * ---@field ETIMEDOUT integer `wait`'s time ran out
  * ---@field EADDRINUSE integer an address taken: a socket file or port another has

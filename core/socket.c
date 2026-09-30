@@ -374,6 +374,15 @@ static int ready (int fd, short events, int64_t deadline) {
   }
 }
 
+/* What ended the connection `fd` had in progress (SO_ERROR), once it
+ * has ended: 0 once made. */
+static int pending (int fd) {
+  int failure = 0;
+  socklen_t size = sizeof failure;
+  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) return errno;
+  return failure;
+}
+
 /* Waits for the connection `fd` has in progress to be made or refused,
  * in slices as `cosmic_paused` does: 0 once made, its failure (SO_ERROR) once
  * refused, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
@@ -381,9 +390,7 @@ static int ready (int fd, short events, int64_t deadline) {
 static int settled (int fd, int64_t deadline) {
   int failure = ready(fd, POLLOUT, deadline);
   if (failure != 0) return failure;
-  socklen_t size = sizeof failure;
-  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) return errno;
-  return failure;
+  return pending(fd);
 }
 
 COSMIC_SYSCALL(listen, 2) {
@@ -539,21 +546,65 @@ COSMIC_SYSCALL(connect, 2) {
   return 1;
 }
 
-COSMIC_SYSCALL(bound, 1) {
-  int fd = cosmic_checkfd(L, 1);
-  struct sockaddr_storage address;
-  socklen_t length = sizeof address;
-  memset(&address, 0, sizeof address);
-  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+COSMIC_SYSCALL(start, 1) {
+  struct target target;
+  int failure = address_of(L, 1, &target);
+  if (failure != 0) return cosmic_fail(L, failure);
+  struct owned *owned = owner_push(L, 0);
+  owned->fd = stream_socket(target.address.ss_family);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
+  failure = reach(owned->fd, &target, false);
+  if (failure != 0 && failure != EINPROGRESS) {
+    released(owned);
+    return cosmic_fail(L, failure);
+  }
+  return 1;
+}
+
+COSMIC_SYSCALL(connected, 1) {
+  int failure = pending(cosmic_checkfd(L, 1));
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(pair, 0) {
+  lua_createtable(L, 0, 2);
+  struct owned *first = owner_push(L, 0);
+  struct owned *second = owner_push(L, 0);
+  int ends[2];
+#if defined(SOCK_CLOEXEC)
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, ends) != 0) {
+    return cosmic_fail(L, errno);
+  }
+#else
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, ends) != 0) return cosmic_fail(L, errno);
+#endif
+  first->fd = ends[0];
+  second->fd = ends[1];
+  int failure = made(first->fd);
+  if (failure == 0) failure = made(second->fd);
+  if (failure != 0) {
+    released(first);
+    released(second);
+    return cosmic_fail(L, failure);
+  }
+  lua_setfield(L, -3, "second");
+  lua_setfield(L, -2, "first");
+  return 1;
+}
+
+/* Pushes the "tcp" address `address` holds: 1, or what `cosmic_fail`
+ * pushes for one of another family, EAFNOSUPPORT. */
+static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address) {
   char host[INET6_ADDRSTRLEN];
   int port = 0;
   const char *named = NULL;
-  if (address.ss_family == AF_INET) {
-    struct sockaddr_in *v4 = (struct sockaddr_in *)&address;
+  if (address->ss_family == AF_INET) {
+    const struct sockaddr_in *v4 = (const struct sockaddr_in *)address;
     named = inet_ntop(AF_INET, &v4->sin_addr, host, sizeof host);
     port = ntohs(v4->sin_port);
-  } else if (address.ss_family == AF_INET6) {
-    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&address;
+  } else if (address->ss_family == AF_INET6) {
+    const struct sockaddr_in6 *v6 = (const struct sockaddr_in6 *)address;
     named = inet_ntop(AF_INET6, &v6->sin6_addr, host, sizeof host);
     port = ntohs(v6->sin6_port);
   } else {
@@ -567,6 +618,42 @@ COSMIC_SYSCALL(bound, 1) {
   lua_setfield(L, -2, "host");
   lua_pushinteger(L, port);
   lua_setfield(L, -2, "port");
+  return 1;
+}
+
+COSMIC_SYSCALL(bound, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  return tcp_pushed(L, &address);
+}
+
+COSMIC_SYSCALL(peer, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getpeername(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  if (address.ss_family == AF_INET || address.ss_family == AF_INET6) {
+    return tcp_pushed(L, &address);
+  }
+  /* Any other peer is a unix one: one bound nowhere may answer no path,
+   * and no family either, and a path's length may count its NUL. */
+  const struct sockaddr_un *unix_address = (const struct sockaddr_un *)&address;
+  size_t offset = offsetof(struct sockaddr_un, sun_path);
+  size_t size = 0;
+  if (length > offset) {
+    size_t most = (size_t)length - offset;
+    if (most > sizeof unix_address->sun_path) most = sizeof unix_address->sun_path;
+    size = strnlen(unix_address->sun_path, most);
+  }
+  lua_createtable(L, 0, 2);
+  lua_pushliteral(L, "unix");
+  lua_setfield(L, -2, "kind");
+  lua_pushlstring(L, unix_address->sun_path, size);
+  lua_setfield(L, -2, "path");
   return 1;
 }
 

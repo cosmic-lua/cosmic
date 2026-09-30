@@ -618,3 +618,94 @@ local function test_in_a_run_waits_time_out_as_they_do_out_of_one(tmp: string)
     assert(data == nil and read_why == "timed out", read_why)
   end)
 end
+
+--- In a task, a connection to a unix listener whose backlog is full
+--- waits for room through the run on Linux, so the task that makes the
+--- room goes on meanwhile; a connection that held the thread would find
+--- none and time out. macOS refuses it at once.
+local function test_in_a_run_a_connect_waits_for_room_while_others_run(tmp: string)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"),
+    { backlog = 1, timeout_ms = 5000 }))
+  local held: {Net.Conn} = {}
+  for _ = 1, 16 do
+    local conn = Net.connect(server.address, { timeout_ms = 0 })
+    if conn == nil then break end
+    held[#held + 1] = conn
+  end
+  local order: {string} = {}
+  local conn: Net.Conn
+  local why = ""
+  Poll.run(function()
+    local connecting = Poll.spawn(function()
+      conn, why = Net.connect(server.address, { timeout_ms = 5000 })
+      order[#order + 1] = "connected"
+    end)
+    assert(Poll.delay(20))
+    order[#order + 1] = "made room"
+    held[#held + 1] = assert(server:accept())
+    assert(connecting:join(5000))
+  end)
+  for _, held_conn in ipairs(held) do assert(held_conn:close()) end
+  if assert(sys.uname()).sysname == "Darwin" then
+    assert(conn == nil and why == tmp .. "/s.sock: Connection refused", why)
+    return
+  end
+  assert(conn ~= nil, why)
+  assert(conn:close())
+  assert(table.concat(order, ",") == "made room,connected", table.concat(order, ","))
+end
+
+--- A connection in a task whose listener's backlog stays full times out
+--- as one out of a run does.
+local function test_in_a_run_a_connect_to_a_full_backlog_times_out(tmp: string)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { backlog = 1 }))
+  local held: {Net.Conn} = {}
+  for _ = 1, 16 do
+    local conn = Net.connect(server.address, { timeout_ms = 0 })
+    if conn == nil then break end
+    held[#held + 1] = conn
+  end
+  local conn: Net.Conn
+  local why = ""
+  Poll.run(function()
+    conn, why = Net.connect(server.address, { timeout_ms = 20 })
+  end)
+  for _, held_conn in ipairs(held) do assert(held_conn:close()) end
+  local darwin = assert(sys.uname()).sysname == "Darwin"
+  local want = tmp .. "/s.sock: " .. (darwin and "Connection refused" or "timed out")
+  assert(conn == nil and why == want, why)
+end
+
+--- A pair's ends are connected to each other, both ways, in a run or
+--- out of one, and are bound nowhere; a write to an end whose other
+--- has gone fails rather than raising SIGPIPE.
+local function test_a_pair_carries_bytes_both_ways()
+  local ends <close> = assert(Net.pair())
+  local first, second = ends.first, ends.second
+  assert(first:write("ping"))
+  assert(first:shutdown("write"))
+  assert(assert(Stream.read_all(second)) == "ping")
+  Poll.run(function()
+    Poll.spawn(function() assert(second:write("pong")) end)
+    assert(assert(first:read()) == "pong")
+  end)
+  local peer = assert(first:peer())
+  assert(peer.kind == "unix" and peer.path == "", peer.path)
+  assert(first:close())
+  local ok, why = second:write("after")
+  assert(not ok and why ~= "", "a write to a pair whose other end has gone succeeded")
+end
+
+--- A connection to a unix listener names the listener's socket file as
+--- its peer; the one accepted names a socket bound nowhere, "". A
+--- closed one names none.
+local function test_a_unix_peer_is_the_path_its_socket_was_bound_at(tmp: string)
+  local p <close> = pair(tmp)
+  local client_peer = assert(p.client:peer())
+  assert(client_peer.kind == "unix" and client_peer.path == tmp .. "/s.sock", client_peer.path)
+  local accepted_peer = assert(p.accepted:peer())
+  assert(accepted_peer.kind == "unix" and accepted_peer.path == "", accepted_peer.path)
+  assert(p.client:close())
+  local none, why = p.client:peer()
+  assert(none == nil and why == "connection is closed", why)
+end
