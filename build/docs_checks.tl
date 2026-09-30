@@ -27,17 +27,6 @@ local record docs_checks
   end
 end
 
---- What makes the texts `cosmic help` prints, set by [`provide_help`].
-local help_source: function(): {string: string} | nil = nil
-
---- Names what makes the texts `cosmic help` prints, for [`help_texts`].
---- [`build.dispatch`] calls it as it loads: it reaches the `fix` verb,
---- which runs these checks, through [`build.verb_list`], so requiring it
---- here would close a cycle of imports.
-function docs_checks.provide_help(source: function(): {string: string})
-  help_source = source
-end
-
 --- The database a release binary carries of the projection at `whole`
 --- ([`build.writer`]'s `carried`): the only rows a public source has,
 --- read without a query of the rest. Made at `scratch`, opened, and
@@ -57,17 +46,6 @@ function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle | ni
     return nil, remove_trouble
   end
   return db
-end
-
---- What `cosmic help` prints, by what asks for it: `""` the index,
---- `exit`, and each verb's own; the input `references` reads help from.
---- Nil and why until [`build.dispatch`] has loaded and called
---- [`provide_help`].
-function docs_checks.help_texts(): {string: string} | nil, string
-  if help_source == nil then
-    return nil, "build.dispatch has not provided the texts of `cosmic help`"
-  end
-  return help_source(), ""
 end
 
 --- The kinds whose page lists other symbols, which only the renderer
@@ -408,7 +386,7 @@ end
 --- module's docs (its own and its symbols'), in each user guide, and in
 --- every text `cosmic help` prints.
 --- @param help what `cosmic help` prints, by what asks for it (see
----   [`help_texts`]); none by default
+---   [`build.help_source`]' `texts`); none by default
 --- @param verbs the words `cosmic help <verb>` takes; defaults to the
 ---   tree's own
 --- @param allowed the references left dangling on purpose, by the text
