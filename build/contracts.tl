@@ -436,16 +436,16 @@ end
 
 --- One walk of a checked module's tree, kept for every rule to read
 --- rather than each walking it again. `order` holds each node reached
---- from the root through its children (`ast.children`, which passes by
+--- from the root through its children ([`ast.children`], which passes by
 --- the fields `skipped` names), depth first, at its first reach.
 --- `parent` is the node it was first reached from. `reached` holds
---- every node `ast.walk` reaches, which follows the fields `skipped`
+--- every node [`ast.walk`] reaches, which follows the fields `skipped`
 --- names too, in no promised order.
 local record Index
   order: {Node}
   parent: {Node: Node}
   kids: {Node: {Node}}
-  --- What `ast.walk` reaches from a node beyond `kids`: the nodes of
+  --- What [`ast.walk`] reaches from a node beyond `kids`: the nodes of
   --- the fields `skipped` names, and of a bare array in its array part.
   passed: {Node: {Node}}
   reached: {Node}

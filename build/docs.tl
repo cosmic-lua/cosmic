@@ -16,6 +16,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
+local alias_members = require("build.alias_members")
 local clock = require("build.clock")
 local link_text = require("build.link_text")
 local narrow = require("build.narrow")
@@ -58,6 +59,9 @@ local record docs
     use_counts: {string: integer}
     --- How many links name a module/symbol pair, as `use_counts`.
     link_counts: {string: integer}
+    --- The record each module's value is typed as (`""` for none), by
+    --- module, as [`value_record`] reads it, cached as `use_counts` is.
+    value_records: {string: string}
   end
 
   --- One worked example, matched to a symbol by content rather than by
@@ -71,7 +75,7 @@ local record docs
   end
 
   --- One row of `docs`, with where it came from.
-  record Entry
+  record Entry is alias_members.Declared
     module: string
     symbol: string
     source_symbol: string
@@ -992,6 +996,48 @@ local function calling_module(use: docs.Use): string
   return use.from_module
 end
 
+--- The record `module`'s value is typed as when the module returns a
+--- name that is not that record (`local module: Module`), as its own
+--- row records it ([`alias_members.value_record`]); nil when it returns
+--- its record by name, or has no row of its own.
+local function value_record(db: Sqlite.Handle, module: string): string | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT signature FROM docs WHERE module = ?1 AND symbol = '' AND kind = 'module' " ..
+    "ORDER BY id LIMIT 1", { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil
+  end
+  return alias_members.value_record(rows[1][1])
+end
+
+--- The name `entry` is used by, as a use of it is recorded, when that
+--- differs from its symbol: `order` for cosmic.cli's `Module.order`,
+--- a member of the record the module's value is typed as. Nil when the
+--- two are one, or nil and why when the owning database cannot be read.
+local function used_as(view: docs.View, entry: docs.Entry): string | nil, string
+  local owner = view.owners[entry.module]
+  if owner == nil or entry.symbol == "" then
+    return nil
+  end
+  local cached = view.value_records[entry.module]
+  if cached == nil then
+    local record, trouble = value_record(view.databases[owner], entry.module)
+    if record == nil and trouble ~= nil then
+      return nil, trouble
+    end
+    cached = record or ""
+    view.value_records[entry.module] = cached
+  end
+  local prefix = cached .. "."
+  if cached ~= "" and entry.source_symbol:sub(1, #prefix) == prefix then
+    return (entry.source_symbol:sub(#prefix + 1):gsub(":", ".")), ""
+  end
+  return nil
+end
+
 local function use_key(module: string, symbol: string): string
   return module .. "\n" .. symbol
 end
@@ -1086,7 +1132,11 @@ end
 
 local function effective_counts(view: docs.View, entries: {docs.Entry}): boolean, string
   for _, entry in ipairs(entries) do
-    local uses, trouble = count_uses(view, entry.module, entry.symbol)
+    local used, used_trouble = used_as(view, entry)
+    if used == nil and used_trouble ~= nil then
+      return false, used_trouble
+    end
+    local uses, trouble = count_uses(view, entry.module, used or entry.symbol)
     if uses == nil then
       return false, trouble
     end
@@ -1128,7 +1178,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
     end
   end
   return { databases = databases, public = scope, owners = owners,
-           use_counts = {}, link_counts = {} }
+           use_counts = {}, link_counts = {}, value_records = {} }
 end
 
 --- `entries` as a lookup's answer.
@@ -1150,7 +1200,7 @@ end
 
 --- The verbs whose symbol, prose and options together carry every word
 --- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
---- and a verb's options are data (`Cli.options`), so what one does is
+--- and a verb's options are data ([`Cli.options`]), so what one does is
 --- matched here instead, against the options of the binary answering,
 --- as `render` shows them. Each word is a phrase, as [`fts_query`] quotes
 --- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
@@ -1201,12 +1251,23 @@ end
 local through_alias: function(view: docs.View, query: string): {docs.Entry} | nil, string
 local aliased_members: function(view: docs.View, owners: {docs.Entry},
                                 name: string): {docs.Entry} | nil, string
+--- What a dotted query names through a type alias, else as a module's
+--- member written in full ([`cosmic.fs.read`], [`cosmic.cli.order`]),
+--- as a link names one. Defined after [`member_of`].
+local in_full: function(view: docs.View, query: string): {docs.Entry} | nil, string
+--- What `Q.name` names when `Q` is the last name of a module, either
+--- case ([`Cli.order`], `fs.read`): that module's member `name`, as a
+--- caller that requires it under that name reads it. Defined after
+--- [`member_of`].
+local by_last_name: function(view: docs.View, query: string): {docs.Entry} | nil, string
 
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
 --- - the public module a bare lowercase name ends (`json`, `fs`), with
 ---   its verb first if it is one (`test`);
---- - its exact matches, when it names a symbol or a module;
+--- - its exact matches, when it names a symbol or a module, a member of
+---   a type an alias stands for, or a module's member written in full
+---   ([`cosmic.fs.read`]) or from its last name ([`Cli.order`]);
 --- - for a qualified name that names nothing, what its qualifier offers
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
@@ -1307,11 +1368,22 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
       return lookup(held, true, #held), ""
     end
   end
-  local through, through_trouble = through_alias(view, query)
+  local through, through_trouble = in_full(view, query)
   if through == nil then
     return nil, through_trouble
   end
+  if #through == 0 then
+    local short, short_trouble = by_last_name(view, query)
+    if short == nil then
+      return nil, short_trouble
+    end
+    through = short
+  end
   if #through > 0 then
+    local counted, count_trouble = effective_counts(view, through)
+    if not counted then
+      return nil, count_trouble
+    end
     return lookup(through, true, #through), ""
   end
   local found: {docs.Entry} = {}
@@ -1444,8 +1516,9 @@ end
 --- (only those, when there are any), else every row `named` finds,
 --- else the module the index lists under that whole name, else the
 --- member of a type an alias stands for ([`Sqlite.Handle.close`], whose
---- row is [`cosmic.internal.sqlite`]'s). It neither searches nor counts
---- uses, so it is cheap to ask once per name.
+--- row is [`cosmic.internal.sqlite`]'s), else a module's member written in
+--- full ([`cosmic.fs.read`]). It neither searches nor counts uses, so it
+--- is cheap to ask once per name.
 function docs.exact(view: docs.View, query: string): {docs.Entry} | nil, string
   if query:match("^%l[%w_]*$") ~= nil then
     local modules, modules_trouble = across(view,
@@ -1479,41 +1552,157 @@ function docs.exact(view: docs.View, query: string): {docs.Entry} | nil, string
       return held, ""
     end
   end
-  return through_alias(view, query)
+  return in_full(view, query)
 end
 
 --- The rows of `module` whose symbol is `name`, as the symbol column
 --- reads (`read`, [`Writer.write`]) or as the source spells it
---- ([`Fs.read`]), a method's `:` read as `.`; else, as [`docs.exact`] does,
---- the member of a type an alias of the module stands for
---- (`Handle.close` of [`cosmic.sqlite`]). None when the view holds no
---- such module. The database that owns the module answers.
-function docs.member(view: docs.View, module: string, name: string): {docs.Entry} | nil, string
+--- ([`Fs.read`]), a method's `:` read as `.`; else the exported member
+--- `name` of the record the module's value is typed as (`Module.order`
+--- of cosmic.cli, whose value is `local module: Module`); else, as
+--- [`docs.exact`] does, the member of a type an alias of the module
+--- stands for (`Handle.close` of [`cosmic.sqlite`]). None when the view
+--- holds no such module. The database that owns the module answers.
+local function member_of(view: docs.View, module: string, name: string): {docs.Entry} | nil, string
   local owner = view.owners[module]
   if owner == nil then
     return {}, ""
   end
-  local rows, trouble = Sqlite.text_rows(view.databases[owner],
+  local db = view.databases[owner]
+  local shown = symbols.shown_docs("d", view.public[owner] == true)
+  local dotted = name:gsub(":", ".")
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.member_where("d") .. " AND " ..
-    symbols.shown_docs("d", view.public[owner] == true) .. " ORDER BY d.id",
-    { text(module), text((name:gsub(":", "."))) })
+    shown .. " ORDER BY d.id", { text(module), text(dotted) })
   if rows == nil then
     return nil, trouble
   end
   local found = entries_of(rows)
-  local prefix, last = name:gsub(":", "."):match("^(.+)%.([%w_]+)$")
-  if #found > 0 or prefix == nil then
+  if #found > 0 then
     return found, ""
   end
-  local owners, owners_trouble = docs.member(view, module, prefix)
+  local record, record_trouble = value_record(db, module)
+  if record == nil and record_trouble ~= nil then
+    return nil, record_trouble
+  end
+  if record ~= nil then
+    local typed, typed_trouble = Sqlite.text_rows(db,
+      "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.exported = 1 AND " ..
+      "replace(d.source_symbol, ':', '.') = ?2 AND " .. shown .. " ORDER BY d.id",
+      { text(module), text(record .. "." .. dotted) })
+    if typed == nil then
+      return nil, typed_trouble
+    end
+    found = entries_of(typed)
+    if #found > 0 then
+      return found, ""
+    end
+  end
+  local prefix, last = dotted:match("^(.+)%.([%w_]+)$")
+  if prefix == nil then
+    return found, ""
+  end
+  local owners, owners_trouble = member_of(view, module, prefix)
   if owners == nil then
     return nil, owners_trouble
   end
   return aliased_members(view, owners, last)
 end
 
+in_full = function(view: docs.View, query: string): {docs.Entry} | nil, string
+  local through, through_trouble = through_alias(view, query)
+  if through == nil then
+    return nil, through_trouble
+  end
+  if #through > 0 then
+    return through, ""
+  end
+  local out: {docs.Entry} = {}
+  local at = 1
+  while true do
+    local dot = query:find(".", at, true)
+    if dot == nil then break end
+    local module = query:sub(1, dot - 1)
+    if view.owners[module] ~= nil then
+      local members, trouble = member_of(view, module, query:sub(dot + 1))
+      if members == nil then
+        return nil, trouble
+      end
+      for _, entry in ipairs(members) do out[#out + 1] = entry end
+    end
+    at = dot + 1
+  end
+  return out, ""
+end
+
+by_last_name = function(view: docs.View, query: string): {docs.Entry} | nil, string
+  local out: {docs.Entry} = {}
+  local qualifier, name = query:match("^([%w_]+)%.(.+)$")
+  if qualifier == nil then
+    return out, ""
+  end
+  local modules: {string} = {}
+  for module in pairs(view.owners) do
+    if module:match("[^.]+$"):lower() == qualifier:lower() and module ~= qualifier and
+        module:sub(1, 16) ~= "cosmic.internal." and module:sub(-5) ~= "_test" and
+        module:sub(-8) ~= "_example" then
+      modules[#modules + 1] = module
+    end
+  end
+  table.sort(modules)
+  for _, module in ipairs(modules) do
+    local members, trouble = member_of(view, module, name)
+    if members == nil then
+      return nil, trouble
+    end
+    for _, entry in ipairs(members) do out[#out + 1] = entry end
+  end
+  return out, ""
+end
+
+--- The uses of `module`'s member recorded as `used`, and the links to
+--- its row `symbol`, in `db`.
+local function member_uses(db: Sqlite.Handle, public: boolean, module: string, symbol: string,
+                           used: string): {docs.Use} | nil, string
+  local out: {docs.Use} = {}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT from_module, from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 AND " ..
+    symbols.public_only("module", public) .. " AND " ..
+    symbols.public_only("from_module", public), { text(module), text(used) })
+  if rows == nil then
+    return nil, trouble
+  end
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = module, symbol = used, from_module = row[1], from_file = row[2],
+      line = math.tointeger(tonumber(row[3])) or 0, link = false, path = "", anchor = "" }
+  end
+  local linked, linked_trouble = has_links(db)
+  if linked == nil then
+    return nil, linked_trouble
+  end
+  if not linked then
+    return out, ""
+  end
+  local links, links_trouble = Sqlite.text_rows(db,
+    "SELECT from_module, from_file, line FROM links WHERE kind = 'symbol' AND module = ?1 " ..
+    "AND symbol = ?2 AND " .. symbols.public_only("module", public) .. " AND " ..
+    symbols.public_only("from_module", public) .. " ORDER BY from_file, line, column",
+    { text(module), text(symbol) })
+  if links == nil then
+    return nil, links_trouble
+  end
+  for _, row in ipairs(links) do
+    out[#out + 1] = { module = module, symbol = symbol, from_module = row[1], from_file = row[2],
+      line = math.tointeger(tonumber(row[3])) or 0, link = true, path = "", anchor = "" }
+  end
+  return out, ""
+end
+
 --- Every place across `databases` that refers to what `query` names,
 --- in file and line order: one per line for each thing it names there.
+--- A module's member, written in full ([`cosmic.cli.order`]) or from the
+--- module's last name ([`Cli.order`]), is found as [`docs.lookup`] finds
+--- it, and its uses and links are those of that module's member alone.
 function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   local found, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Use} | nil, string
@@ -1521,6 +1710,28 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
     end, calling_module)
   if found == nil then
     return nil, trouble
+  end
+  local members: {docs.Entry} = {}
+  for _, look in ipairs({ in_full, by_last_name }) do
+    local answered, answered_trouble = look(view, query)
+    if answered == nil then
+      return nil, answered_trouble
+    end
+    for _, entry in ipairs(answered) do members[#members + 1] = entry end
+  end
+  for _, entry in ipairs(members) do
+    local used, used_trouble = used_as(view, entry)
+    if used == nil and used_trouble ~= nil then
+      return nil, used_trouble
+    end
+    local more, more_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {docs.Use} | nil, string
+        return member_uses(db, public, entry.module, entry.symbol, used or entry.symbol)
+      end, calling_module)
+    if more == nil then
+      return nil, more_trouble
+    end
+    for _, use in ipairs(more) do found[#found + 1] = use end
   end
   local out: {docs.Use} = {}
   local seen: {string: boolean} = {}
@@ -1598,25 +1809,6 @@ local function listed(item: docs.Entry): string
   return shown .. (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
 end
 
---- The types a declaration stands for: `type Handle = raw_sqlite.Handle`
---- is one, `record Options is raw_http.Options` another (a list, comma
---- separated, when it extends several). Each is spelled as the module
---- wrote it.
-local function type_references(entry: docs.Entry): {string}
-  local out: {string} = {}
-  local alias = entry.signature:match("^type [%w_]+ = ([%w_%.]+)$")
-  if alias ~= nil then
-    out[1] = alias
-    return out
-  end
-  local bases = entry.signature:match("^[%a ]*record [%w_]+ is ([%w_%.,%s]+)$") or
-    entry.signature:match("^[%a ]*interface [%w_]+ is ([%w_%.,%s]+)$")
-  if bases ~= nil then
-    for base in bases:gmatch("[%w_%.]+") do out[#out + 1] = base end
-  end
-  return out
-end
-
 --- The first row `sql` finds in any of `view`'s databases: the databases
 --- are read whole, whatever they are public for, because a name a public
 --- page hands out (an alias, a base) stands for the record it points at
@@ -1639,56 +1831,6 @@ local function first_declared(view: docs.View, sql: string,
     end
   end
   return nil
-end
-
---- The record, interface or enum that `reference`, written in `module`,
---- names: one the module declares, one of `cosmic.internal.<module>`
---- (`raw_sqlite.Handle` is [`sqlite.Handle`] there), or one that another
---- module's own alias ([`Compress.Stream`]) points on to. Nil when it
---- names none, or nil and why on a database that cannot be read.
-local function resolved_type(view: docs.View, module: string, reference: string,
-                             depth: integer): docs.Entry | nil, string
-  local types = "d.kind IN ('record', 'interface', 'enum') "
-  local same, same_trouble = first_declared(view,
-    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.source_symbol = ?2 " ..
-    "AND " .. types .. "ORDER BY d.id LIMIT 1",
-    { text(module), text(reference) })
-  if same == nil and same_trouble ~= nil then
-    return nil, same_trouble
-  end
-  if same ~= nil then
-    return same
-  end
-  local stem, rest = reference:match("^([%w_]+)%.([%w_%.]+)$")
-  if stem == nil then
-    return nil
-  end
-  local record = stem:gsub("^raw_", ""):lower()
-  local internal, internal_trouble = first_declared(view,
-    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.source_symbol = ?2 " ..
-    "AND " .. types .. "ORDER BY d.id LIMIT 1",
-    { text("cosmic.internal." .. record), text(record .. "." .. rest) })
-  if internal == nil and internal_trouble ~= nil then
-    return nil, internal_trouble
-  end
-  if internal ~= nil then
-    return internal
-  end
-  if depth >= 4 then
-    return nil
-  end
-  local alias, alias_trouble = first_declared(view,
-    "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol = ?1 " ..
-    "AND d.signature GLOB 'type * = *' AND d.exported = 1 ORDER BY d.id LIMIT 1",
-    { text(reference) })
-  if alias == nil then
-    return nil, alias_trouble
-  end
-  local onward = type_references(alias)[1]
-  if onward == nil then
-    return nil
-  end
-  return resolved_type(view, alias.module, onward, depth + 1)
 end
 
 --- The fields, methods or values declared directly under `target`, as
@@ -1724,6 +1866,36 @@ local function members_under(view: docs.View, target: docs.Entry): {docs.Entry} 
   return out
 end
 
+--- The rows of `view` that [`build.alias_members`] follows a
+--- declaration through, each read from whichever database holds it.
+local function type_source(view: docs.View): alias_members.Source<docs.Entry>
+  local types = "d.kind IN ('record', 'interface', 'enum') "
+  return {
+    declared = function(module: string, name: string): docs.Entry | nil, string
+      return first_declared(view,
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.source_symbol = ?2 " ..
+        "AND " .. types .. "ORDER BY d.id LIMIT 1",
+        { text(module), text(name) })
+    end,
+    alias = function(name: string): docs.Entry | nil, string
+      return first_declared(view,
+        "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol = ?1 " ..
+        "AND d.signature GLOB 'type * = *' AND d.exported = 1 ORDER BY d.id LIMIT 1",
+        { text(name) })
+    end,
+    under = function(target: docs.Entry): {docs.Entry} | nil, string
+      return members_under(view, target)
+    end,
+    as_member = function(owner: docs.Entry, member: docs.Entry, name: string): docs.Entry
+      member.module = owner.module
+      member.symbol = owner.symbol .. "." .. name
+      member.source_symbol = owner.source_symbol .. "." .. name
+      member.exported = true
+      return member
+    end,
+  }
+end
+
 --- What a declaration that stands for another type adds to its page:
 --- the target's fields (or values), and its methods, each with its
 --- documentation. [`Sqlite.Handle`] and [`Child.Options`] are aliases, so
@@ -1732,7 +1904,7 @@ end
 --- stands for nothing.
 local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | nil, string
   local lines: {string} = {}
-  local references = entry.symbol ~= "" and type_references(entry) or {}
+  local references = entry.symbol ~= "" and alias_members.references(entry) or {}
   if #references == 0 then
     return lines
   end
@@ -1749,7 +1921,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | n
   local methods: {string} = {}
   local values: {string} = {}
   for _, reference in ipairs(references) do
-    local target, target_trouble = resolved_type(view, entry.module, reference, 0)
+    local target, target_trouble = alias_members.resolved(type_source(view), entry.module, reference)
     if target == nil and target_trouble ~= nil then
       return nil, target_trouble
     end
@@ -1795,31 +1967,7 @@ end
 --- `close` of the record its `Handle` aliases).
 aliased_members = function(view: docs.View, owners: {docs.Entry},
                            name: string): {docs.Entry} | nil, string
-  local out: {docs.Entry} = {}
-  for _, owner in ipairs(owners) do
-    for _, reference in ipairs(type_references(owner)) do
-      local target, target_trouble = resolved_type(view, owner.module, reference, 0)
-      if target == nil and target_trouble ~= nil then
-        return nil, target_trouble
-      end
-      if target ~= nil then
-        local members, members_trouble = members_under(view, target)
-        if members == nil then
-          return nil, members_trouble
-        end
-        for _, member in ipairs(members) do
-          if member.source_symbol:match("([^.]*)$") == name then
-            member.module = owner.module
-            member.symbol = owner.symbol .. "." .. name
-            member.source_symbol = owner.source_symbol .. "." .. name
-            member.exported = true
-            out[#out + 1] = member
-          end
-        end
-      end
-    end
-  end
-  return out, ""
+  return alias_members.named(type_source(view), owners, name)
 end
 
 through_alias = function(view: docs.View, query: string): {docs.Entry} | nil, string
@@ -1987,7 +2135,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   end
   if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
-  -- A verb's options are data, `Cli.options`, not prose: shown under
+  -- A verb's options are data, [`Cli.options`], not prose: shown under
   -- its field as `cosmic help <verb>` shows them, and searched by
   -- [`by_options`].
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
@@ -2011,8 +2159,14 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
         said[#said + 1] = (entry.uses > 0 and "linked from " .. entry.links or
           "linked from " .. plural.count(entry.links, "place"))
       end
+      -- A member of the record the module's value is typed as is asked
+      -- for by the module's name, which no other module's shares.
+      local used, used_trouble = used_as(view, entry)
+      if used == nil and used_trouble ~= nil then
+        return nil, used_trouble
+      end
       lines[#lines + 1] = "  " .. table.concat(said, " and ") .. "; cosmic uses " ..
-        entry.source_symbol
+        (used ~= nil and entry.module .. "." .. used or entry.source_symbol)
     end
     local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string

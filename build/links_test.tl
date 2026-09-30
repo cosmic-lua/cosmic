@@ -590,6 +590,44 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
   })
 end
 
+--- A module whose value is typed by a record of another name hands out
+--- that record's fields as its own members: `Cli.order` through the
+--- required alias, and [`cosmic.cli.order`] in full; another record it
+--- exports (`Result`) is no member's.
+local function test_a_module_typed_by_another_record_answers_its_fields(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/cli.tl"] = lines(
+      "--- Verbs.",
+      "--- What a verb answers.",
+      "local record Result",
+      "  --- Whether it did.",
+      "  ok: boolean",
+      "end",
+      "",
+      "local record Module",
+      "  --- The order.",
+      "  order: {string}",
+      "  --- Runs one.",
+      "  run: function(): Result",
+      "end",
+      "",
+      "local module: Module = { order = {}, run = function(): Result return { ok = true } end }",
+      "",
+      "return module"),
+  })
+  local context = links.context(dir, function(): docs.View | nil, string
+    return docs.view({ db })
+  end, function(): string | nil return nil end)
+  same(checked(context, dir .. "/b.tl", "teal", lines(
+    "local Cli = require(\"cosmic.cli\")",
+    "-- [`Cli.order`], [`cosmic.cli.order`], [`Module.order`]; not [`Cli.chaos`],",
+    "-- nor a field of another record the module hands out: [`Cli.ok`].",
+    "return Cli")), {
+    dir .. "/b.tl:2: link: Cli.chaos does not resolve (cosmic.cli has no chaos)",
+    dir .. "/b.tl:3: link: Cli.ok does not resolve (cosmic.cli has no ok)",
+  })
+end
+
 --- `source`, a file of `kind` at `path`, as [`links.rewrite`] links it,
 --- and what it says it linked.
 local function rewritten(context: link_resolve.Context, path: string, kind: string,
