@@ -8,11 +8,11 @@
 ---
 --- Some statement kinds do not begin where tl stamped them. A `local`
 --- or `global` declaration's node sits at its first name, a `local
---- type`'s or `global type`'s at the name it binds, a `global
---- function`'s at its `function` and a pragma's at its name, not at the
---- keyword that opens each. [`begins_at`] walks back over the token
---- stream to that keyword, so the statement is indented from where it
---- starts.
+--- type`'s or `global type`'s at the name it binds, a `local
+--- macroexp`'s at its name, a `global function`'s at its `function` and
+--- a pragma's at its name, not at the keyword that opens each.
+--- [`begins_at`] walks back over the token stream to that keyword, so
+--- the statement is indented from where it starts.
 
 local ast = require("build.ast")
 local ctx_mod = require("build.fix.ctx")
@@ -27,9 +27,10 @@ local type Ctx = ctx_mod.Ctx
 local statement: function(Ctx, Node)
 
 --- Where a statement's first character really is. `local a = 1` and
---- `local type T = U` are stamped at `a` and at `T`, `global function
---- f` at `function` and `--#pragma k v` at `k`; every other kind is
---- stamped at its own opening keyword or at its leftmost operand.
+--- `local type T = U` are stamped at `a` and at `T`, `local macroexp
+--- m` at `m`, `global function f` at `function` and `--#pragma k v` at
+--- `k`; every other kind is stamped at its own opening keyword or at its
+--- leftmost operand.
 --- @param c Ctx
 --- @param s Node
 --- @return integer The 1-based line
@@ -44,6 +45,9 @@ local function begins_at(c: Ctx, s: Node): integer, integer
     back = 1
   elseif kind == "local_type" or kind == "global_type" then
     anchor = s.var
+    back = 2
+  elseif kind == "local_macroexp" then
+    anchor = s
     back = 2
   elseif (kind == "global_function" and not s.implicit_global_function)
       or kind == "pragma" then
@@ -129,8 +133,9 @@ local function closes(c: Ctx, n: Node, word: string)
 end
 
 --- A function's signature and body, from its type parameters onward:
---- shared by a `local function` and a `function M.f`, and by nothing
---- else, since a function literal is an expression.
+--- shared by a `local function`, a `global function`, a bare
+--- `function f` and a `function M.f`, and by nothing else, since a
+--- function literal is an expression.
 --- @param c Ctx
 --- @param n Node
 --- @param name Node The declared name, which any `<T>` follows
