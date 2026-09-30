@@ -1,3 +1,4 @@
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -345,4 +346,74 @@ local function test_a_server_stopped_twice_before_accepting_returns(tmp: string)
   })
   assert(not served)
   assert(Fs.stat(tmp .. "/s.sock") == nil, "the socket file was left")
+end
+
+--- Waits, in a task, until `path` is gone -- the server that listened
+--- there has stopped -- failing after five seconds.
+local function until_gone(path: string)
+  local deadline = now_ms() + 5000
+  while Fs.stat(path) ~= nil do
+    assert(now_ms() < deadline, "the server did not stop")
+    assert(Poll.delay(1))
+  end
+end
+
+--- SIGTERM stops a server as `stop` does: the listener closes at once,
+--- and the connection in flight finishes before Net.serve returns true.
+--- The server releases its guard, so the signal is not delivered again;
+--- a guard of the caller's around the call sees it.
+local function test_sigterm_stops_the_server_and_it_drains(tmp: string)
+  local path = tmp .. "/s.sock"
+  local started = false
+  local answer = ""
+  local outer = assert(Child.guard())
+  local ok, why = Net.serve{
+    listeners = { Net.unix(path) },
+    serve = function(conn: Net.Conn)
+      local line = assert(Stream.lines(conn):read())
+      started = true
+      assert(Poll.delay(50))
+      assert(conn:write(line .. "\n"))
+    end,
+    on_ready = function(addresses: {Net.Address}, _server: Net.Server)
+      local c <close> = client(addresses[1])
+      assert(c.conn:write("slow\n"))
+      while not started do assert(Poll.delay(1)) end
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+      until_gone(path)
+      answer = assert(c.lines:read())
+    end,
+  }
+  assert(ok and why == "", why)
+  assert(answer == "slow", answer)
+  assert(outer:cancelled() == sys.SIGTERM)
+  assert(outer:release() == sys.SIGTERM)
+end
+
+--- A second signal while the server drains ends the grace at once,
+--- though it has no bound: the connection still open is cancelled.
+local function test_a_second_signal_ends_the_grace(tmp: string)
+  local path = tmp .. "/s.sock"
+  local started = false
+  local stuck_why = ""
+  local stuck: Client
+  local outer = assert(Child.guard())
+  assert(Net.serve{
+    listeners = { Net.unix(path) },
+    serve = function(conn: Net.Conn)
+      started = true
+      local line, why = conn:read()
+      if line == nil then stuck_why = why end
+    end,
+    on_ready = function(addresses: {Net.Address}, _server: Net.Server)
+      stuck = client(addresses[1])
+      while not started do assert(Poll.delay(1)) end
+      assert(sys.kill(sys.getpid(), sys.SIGINT))
+      until_gone(path)
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    end,
+  })
+  local _, _ = stuck.conn:close()
+  assert(stuck_why == Poll.CANCELLED, stuck_why)
+  assert(outer:release() == sys.SIGTERM)
 end

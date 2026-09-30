@@ -7,6 +7,8 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
@@ -45,4 +47,24 @@ end
   local said = result.stdout or ""
   if said == "ignored" then return end
   assert(said:find("^false ") ~= nil and #said > #"false ", said)
+end
+
+--- A connection's protocol runs a child while the server holds its
+--- signal guard: the run holds one of its own inside the server's.
+local function test_a_protocol_runs_a_child_under_the_server_s_guard(tmp: string)
+  local answer = ""
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    serve = function(conn: Net.Conn)
+      local started = this_program.program({ "-e", "return 6" }, { timeout_ms = 30000 })
+      local r, why = Child.run(started.argv, started.options)
+      assert(conn:write((r ~= nil and tostring(r.code) or why) .. "\n"))
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 30000 }))
+      answer = assert(Stream.lines(conn):read())
+      server:stop()
+    end,
+  })
+  assert(answer == "6", answer)
 end

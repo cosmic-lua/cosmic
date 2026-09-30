@@ -51,7 +51,7 @@ local record Http
   --- and the redirect refused fails the request. An empty list or any
   --- other entry raises (`follow = false` is how to take no redirect).
   ---
-  --- While a [`Child.guard`] is open and has caught SIGINT or SIGTERM, an
+  --- While the innermost open [`Child.guard`] has caught SIGINT or SIGTERM, an
   --- open still waiting for its response fails with "interrupted", and
   --- so does a body's `read` that has no data to give, or a streamed
   --- body's `write` or `finish` that must wait. The signal stays the

@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -2817,8 +2818,28 @@ COSMIC_SYSCALL(uname, 0) {
   return 1;
 }
 
-static volatile sig_atomic_t child_cancelled;
-static int child_signals_guarded;
+/* The signals the guards have caught, as one stamp: how many, times
+ * SIGNAL_STAMP_UNIT, plus the number of the last. One word, so a reader
+ * sees a count with the signal that goes with it, and the handler moves
+ * it without a lock. It is never reset: a guard asks whether it moved
+ * since the stamp that guard last read. It wraps only past 2^57
+ * signals. */
+static _Atomic long long child_signal_stamp;
+_Static_assert(ATOMIC_LLONG_LOCK_FREE == 2,
+               "a signal handler may move only a lock-free atomic");
+_Static_assert(SIGINT < SIGNAL_STAMP_UNIT && SIGTERM < SIGNAL_STAMP_UNIT,
+               "a stamp holds the last signal's number below its unit");
+/* The wake pipe's write end while a guard is open, and -1 otherwise:
+ * the handler writes a byte there for a task of cosmic.poll that
+ * waits on the read end. */
+static volatile sig_atomic_t child_signal_wake = -1;
+static int child_signal_read_end = -1;
+/* How many guards are open: the first installs the handler, and the
+ * last restores what the first found. */
+static int child_guard_depth;
+/* The stamp the innermost guard last read, which [`cosmic_signal_caught`]
+ * asks after. */
+static long long child_signal_read_to;
 static struct sigaction previous_int;
 static struct sigaction previous_term;
 /* Whether the guard caught each signal: one this process ignored stays
@@ -2826,15 +2847,28 @@ static struct sigaction previous_term;
 static int int_caught;
 static int term_caught;
 
-/* The last signal delivered since the last read wins: a SIGTERM after a
-   Ctrl-C a supervised child handled must not be lost to the earlier one.
-   Two pending together arrive in the kernel's order, not the sender's. */
+/* The last signal delivered wins: a SIGTERM after a Ctrl-C a supervised
+   child handled must not be lost to the earlier one. Two pending
+   together arrive in the kernel's order, not the sender's. A full pipe
+   is readable already, so the byte it refuses is not missed. */
 static void catch_child_cancel (int number) {
-  child_cancelled = number;
+  int saved = errno;
+  long long seen = atomic_load(&child_signal_stamp);
+  long long next;
+  do {
+    next = (seen / SIGNAL_STAMP_UNIT + 1) * SIGNAL_STAMP_UNIT + number;
+  } while (!atomic_compare_exchange_weak(&child_signal_stamp, &seen, next));
+  int wake = child_signal_wake;
+  if (wake >= 0) {
+    ssize_t wrote = write(wake, "", 1);
+    (void)wrote;
+  }
+  errno = saved;
 }
 
 bool cosmic_signal_caught (void) {
-  return child_cancelled != 0;
+  return child_guard_depth > 0 &&
+         atomic_load(&child_signal_stamp) != child_signal_read_to;
 }
 
 int64_t cosmic_now_ms (void) {
@@ -2867,84 +2901,128 @@ static void child_signal_set (sigset_t *set) {
   sigaddset(set, SIGTERM);
 }
 
-COSMIC_SYSCALL(guard_child_signals, 0) {
-  sigset_t blocked, previous_mask;
-  child_signal_set(&blocked);
-  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
-    return cosmic_fail_effect(L, errno);
-  if (child_signals_guarded) {
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, EBUSY);
+/* The wake pipe, both ends close-on-exec and non-blocking, so the
+ * handler never blocks on a full one: 0, or the errno that refused it.
+ * One thread and no fork between these calls, so setting CLOEXEC after
+ * the fact cannot leak an end into a child. */
+static int open_wake_pipe (int ends[2]) {
+  if (pipe(ends) != 0) return errno;
+  for (int i = 0; i < 2; i++) {
+    int flags = fcntl(ends[i], F_GETFL);
+    if (flags < 0 || fcntl(ends[i], F_SETFD, FD_CLOEXEC) != 0 ||
+        fcntl(ends[i], F_SETFL, flags | O_NONBLOCK) != 0) {
+      int number = errno;
+      close(ends[0]);
+      close(ends[1]);
+      return number;
+    }
   }
-  struct sigaction action;
-  action.sa_handler = catch_child_cancel;
-  child_signal_set(&action.sa_mask);
-  action.sa_flags = 0;
-  child_cancelled = 0;
-  if (sigaction(SIGINT, NULL, &previous_int) != 0 ||
-      sigaction(SIGTERM, NULL, &previous_term) != 0) {
-    int number = errno;
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, number);
-  }
-  int_caught = previous_int.sa_handler != SIG_IGN;
-  term_caught = previous_term.sa_handler != SIG_IGN;
-  if (int_caught && sigaction(SIGINT, &action, NULL) != 0) {
-    int number = errno;
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, number);
-  }
-  if (term_caught && sigaction(SIGTERM, &action, NULL) != 0) {
-    int number = errno;
-    if (int_caught) sigaction(SIGINT, &previous_int, NULL);
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, number);
-  }
-  child_signals_guarded = 1;
-  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0) {
-    int number = errno;
-    if (int_caught) sigaction(SIGINT, &previous_int, NULL);
-    if (term_caught) sigaction(SIGTERM, &previous_term, NULL);
-    child_signals_guarded = 0;
-    return cosmic_fail_effect(L, number);
-  }
-  return cosmic_ok(L);
+  return 0;
 }
 
-COSMIC_SYSCALL(unguard_child_signals, 0) {
-  sigset_t blocked, previous_mask;
-  child_signal_set(&blocked);
-  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
-    return cosmic_fail(L, errno);
-  if (!child_signals_guarded) {
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    lua_pushinteger(L, 0);
-    return 1;
+/* The first guard's opening, with both signals blocked: the wake pipe,
+ * then the handler for each signal this process does not ignore. 0, or
+ * the errno that refused it, with nothing left changed. */
+static int install_child_guard (void) {
+  int ends[2];
+  int failure = open_wake_pipe(ends);
+  if (failure != 0) return failure;
+  struct sigaction action;
+  memset(&action, 0, sizeof action);
+  action.sa_handler = catch_child_cancel;
+  child_signal_set(&action.sa_mask);
+  if (sigaction(SIGINT, NULL, &previous_int) != 0 ||
+      sigaction(SIGTERM, NULL, &previous_term) != 0)
+    failure = errno;
+  if (failure == 0) {
+    int_caught = previous_int.sa_handler != SIG_IGN;
+    term_caught = previous_term.sa_handler != SIG_IGN;
+    child_signal_wake = ends[1];
+    if (int_caught && sigaction(SIGINT, &action, NULL) != 0) {
+      failure = errno;
+    } else if (term_caught && sigaction(SIGTERM, &action, NULL) != 0) {
+      failure = errno;
+      if (int_caught) sigaction(SIGINT, &previous_int, NULL);
+    }
   }
+  if (failure != 0) {
+    child_signal_wake = -1;
+    close(ends[0]);
+    close(ends[1]);
+    return failure;
+  }
+  child_signal_read_end = ends[0];
+  return 0;
+}
+
+/* The last guard's closing, with both signals blocked: the dispositions
+ * the first found, and the wake pipe closed. 0, or the errno of the
+ * first disposition that could not be restored. */
+static int uninstall_child_guard (void) {
   int first = 0;
   if (int_caught && sigaction(SIGINT, &previous_int, NULL) != 0) first = errno;
   if (term_caught && sigaction(SIGTERM, &previous_term, NULL) != 0 && first == 0)
     first = errno;
-  int cancelled = child_cancelled;
-  child_signals_guarded = 0;
-  child_cancelled = 0;
-  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0 && first == 0)
-    first = errno;
-  if (first != 0) return cosmic_fail(L, first);
-  lua_pushinteger(L, cancelled);
-  return 1;
+  int wake = child_signal_wake;
+  child_signal_wake = -1;
+  close(wake);
+  close(child_signal_read_end);
+  child_signal_read_end = -1;
+  return first;
 }
 
-COSMIC_SYSCALL(cancelled_child_signal, 0) {
+COSMIC_SYSCALL(guard_child_signals, 0) {
   sigset_t blocked, previous_mask;
   child_signal_set(&blocked);
   if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
     return cosmic_fail(L, errno);
-  int number = child_cancelled;
-  child_cancelled = 0;
-  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0)
+  int failure = child_guard_depth == 0 ? install_child_guard() : 0;
+  long long outer_read_to = child_signal_read_to;
+  if (failure == 0) {
+    child_guard_depth++;
+    child_signal_read_to = atomic_load(&child_signal_stamp);
+  }
+  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0 && failure == 0) {
+    failure = errno;
+    child_guard_depth--;
+    child_signal_read_to = outer_read_to;
+    if (child_guard_depth == 0) uninstall_child_guard();
+  }
+  if (failure != 0) return cosmic_fail(L, failure);
+  lua_pushinteger(L, child_signal_read_to);
+  return 1;
+}
+
+COSMIC_SYSCALL(unguard_child_signals, 1) {
+  lua_Integer read_to = luaL_checkinteger(L, 1);
+  sigset_t blocked, previous_mask;
+  child_signal_set(&blocked);
+  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
     return cosmic_fail(L, errno);
-  lua_pushinteger(L, number);
+  long long stamp = atomic_load(&child_signal_stamp);
+  int first = 0;
+  if (child_guard_depth > 0) {
+    child_guard_depth--;
+    if (child_guard_depth == 0) first = uninstall_child_guard();
+    else child_signal_read_to = read_to;
+  }
+  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0 && first == 0)
+    first = errno;
+  if (first != 0) return cosmic_fail(L, first);
+  lua_pushinteger(L, stamp);
+  return 1;
+}
+
+COSMIC_SYSCALL(child_signal_read, 1) {
+  luaL_checktype(L, 1, LUA_TBOOLEAN);
+  long long stamp = atomic_load(&child_signal_stamp);
+  if (lua_toboolean(L, 1)) child_signal_read_to = stamp;
+  lua_pushinteger(L, stamp);
+  return 1;
+}
+
+COSMIC_SYSCALL(child_signal_fd, 0) {
+  lua_pushinteger(L, child_signal_read_end);
   return 1;
 }
 
