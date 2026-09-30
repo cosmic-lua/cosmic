@@ -28,7 +28,7 @@ local QUEUE <const> = "gh-readonly-queue/main/pr-7-fedcba"
 local RUNS_FILTER <const> = [[.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "none") \(.head_sha) \(.head_branch) \(.html_url)"]]
 local ARTIFACTS_FILTER <const> = ".artifacts[] | select(.expired | not) | .name"
 local AHEAD_RUNS_FILTER <const> = [[.workflow_runs[] | select(.event == "merge_group") | "\(.id) \(.status) \(.head_sha) \(.head_branch)"]]
-local JOBS_FILTER <const> = [[.jobs[] | "\(.status) \(.started_at // "" | if . == "" then "none" else fromdateiso8601 end) \(.name)"]]
+local JOBS_FILTER <const> = [[.jobs[] | "\(.status) \(.started_at // "" | if . == "" then "none" else fromdateiso8601 end) \(if (env.SUITE_STEP // "") == "" then "-" elif any(.steps[]?; .name == env.SUITE_STEP and (.status == "in_progress" or .status == "completed")) then "reached" else "before" end) \(.name)"]]
 
 --- A fake `gh api URL --jq FILTER`: each lookup of the runs answers the
 --- next of the lookups written (one "FAIL" fails), the last again once
@@ -354,16 +354,29 @@ local function test_a_failing_zig_tar_keeps_the_rest(tmp: string)
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
 end
 
+--- The name of the step after which a job keeps its verdicts, in the
+--- `ahead` cases that name one (SUITE_STEP): spaced and quoted, as
+--- ci.yml's is.
+local SUITE <const> = "run the leg's suite"
+
 --- A run's jobs, as the API lists them: each `status name`, or
---- `status name started` with `started` seconds ago.
+--- `status name started` with `started` seconds ago, and then, where
+--- given, the status of its step SUITE (after the step that finds the
+--- run ahead, queued or not).
 local function jobs(...: string): string
   local items: {string} = {}
   for _, job in ipairs({ ... }) do
-    local status, name, ago = job:match("^(%S+) (%S+) ?(%d*)$")
+    local status, name, ago, suite = job:match("^(%S+) (%S+) ?(%d*) ?(%S*)$")
     local started = ago ~= "" and ('"' .. Time.format_rfc3339(Time.now_ns() - math.tointeger(tonumber(ago)) * 1000000000,
       { digits = 0 }) .. '"')
       or "null"
-    items[#items + 1] = '{"name":"' .. name .. '","status":"' .. status .. '","started_at":' .. started .. "}"
+    local steps = ""
+    if suite ~= "" then
+      steps = ',"steps":[{"name":"find the run ahead in the queue","status":"' ..
+        (suite == "queued" and "in_progress" or "completed") .. '"},{"name":"' .. SUITE ..
+        '","status":"' .. suite .. '"}]'
+    end
+    items[#items + 1] = '{"name":"' .. name .. '","status":"' .. status .. '","started_at":' .. started .. steps .. "}"
   end
   return '{"total_count":' .. #items .. ',"jobs":[' .. table.concat(items, ",") .. "]}"
 end
@@ -482,6 +495,32 @@ local function test_a_job_ahead_that_cannot_keep_them_in_time_is_not_waited_for(
   assert(code == 0 and output == "run=42\n" and lookups(calls) == 2, output .. calls .. said)
 end
 
+--- Where the job ahead names the step after which it keeps its
+--- verdicts (SUITE_STEP, a leg's), one that has not begun it -- not
+--- started, still building, or itself waiting on the run ahead of it
+--- -- is not waited for; one in its suite, or past it, is. Verdicts
+--- the run ahead holds already are taken whatever its job is doing.
+local function test_a_job_ahead_before_its_suite_is_not_waited_for(tmp: string)
+  if not has_jq() then return end
+  local running = listed(run("42", "in_progress", nil, SHA, QUEUE))
+  local suite: {string: string} = { SUITE_STEP = SUITE, WITHIN_SECONDS = "30" }
+  for _, job in ipairs({ "in_progress a 60 queued", "in_progress a 60", "queued a", "queued b",
+      "in_progress a 60 pending" }) do
+    local output, calls, code, said = ahead(tmp, SHA, { running }, {}, { ["42"] = jobs(job) }, suite)
+    assert(code == 0 and output == "run=\n" and lookups(calls) == 1, job .. ": " .. output .. calls)
+    assert(said:find("has not begun '" .. SUITE .. "'", 1, true), job .. ": " .. said)
+  end
+  for _, job in ipairs({ "in_progress a 60 in_progress", "in_progress a 60 completed" }) do
+    local output, calls, code, said = ahead(tmp, SHA, { running },
+      { ["42-1"] = artifacts({}, {}), ["42"] = KEPT }, { ["42"] = jobs(job) }, suite)
+    assert(code == 0 and output == "run=42\n" and lookups(calls) == 2, job .. ": " .. output .. calls .. said)
+  end
+  local output, calls, code, said = ahead(tmp, SHA, { running }, { ["42"] = KEPT },
+    { ["42"] = jobs("in_progress a 60 queued") }, suite)
+  assert(code == 0 and output == "run=42\n" and lookups(calls) == 1 and not calls:find("/jobs", 1, true),
+    output .. calls .. said)
+end
+
 --- A base no queue run has for its head -- main's already, whose
 --- verdicts the restore took -- is none at once, as is another
 --- commit's, another queue's, and a push's run; with no base at all
@@ -558,6 +597,20 @@ end
 
 local HEX64 <const> = "95301174f75ffeb84a42bb8a48da9110e55de69d2379ca686f538663fe25529d"
 
+--- Whether leg `leg` runs in a container (its matrix `image`), in ci.yml's
+--- platform matrix: an entry of its name, else the entry that names
+--- none (alpine-x86_64's, which adds to every leg).
+local function in_container(leg: string): boolean
+  local platform = (workflow().jobs as {string: {string: any}}).platform
+  local image: string
+  for _, entry in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
+    if entry.name == leg then return (entry.image as string) ~= "" end
+    if entry.name == nil then image = entry.image as string end
+  end
+  assert(image ~= nil, "no platform leg " .. leg)
+  return image ~= ""
+end
+
 --- Each runner image a leg's run names, `<ImageOS>-<ImageVersion>` as
 --- ci.yml's "name the zig build cache" step writes it: linux-aarch64's
 --- as run 36730873187 named it (ImageOS ubuntu24-arm64, whose `-` the
@@ -594,6 +647,9 @@ local function expand(template: string, leg: string, steps: {{string: any}}): st
   }
   return (template:gsub("%${{ (.-) }}", function(expression: string): string
     if expression:match("^hashFiles%(") then return HEX64 end
+    if expression == "matrix.image && 'container' || steps.names.outputs.image" then
+      return in_container(leg) and "container" or IMAGES[leg]
+    end
     if expression == "steps.zig-cache-restore.outputs.cache-primary-key" then
       return expand((step_of(steps, "zig-cache-restore").with as {string: string}).key, leg, steps)
     end
@@ -646,7 +702,15 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
     local marker: string
     if not leg.checked then
       marker = expand((step_of(steps, "driver-check-restore").with as {string: string}).key, name, steps)
-      assert(marker:find(IMAGES[name], 1, true), marker)
+      -- A container leg's marker names its container (in the host's
+      -- prefix), not the runner's image, which a mixed fleet varies;
+      -- macOS's, on the runner's own userland, names the image.
+      if in_container(name) then
+        assert(marker:find("-container-verdicts-" .. name .. "-", 1, true) and
+          not marker:find(IMAGES[name], 1, true), marker)
+      else
+        assert(marker:find("-" .. IMAGES[name] .. "-verdicts-" .. name .. "-", 1, true), marker)
+      end
     end
     local _, keys = stage(tmp, env, marker ~= nil, marker)
     -- Each cache the leg saves is named: the verdicts twice, and where

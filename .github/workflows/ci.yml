@@ -372,7 +372,14 @@
         # read and this host; an exact hit skips the check. Looked up
         # before the tree moves, since hashFiles reads the checkout. A
         # branch push (`light`) checks the driver in the checked job
-        # instead, off the legs' path.
+        # instead, off the legs' path. The host is the leg's container
+        # on a Linux leg (its image by digest, how it is started and the
+        # engine's version, all in host-id's prefix), whose programs the
+        # check runs, and not the runner's image (ImageVersion), which
+        # the fleet rolls out unevenly: a leg on the other image missed
+        # main's marker and checked again (ci/README.md's "the
+        # caches"). macOS runs on the runner's own userland, so its key
+        # holds that image.
         {
           name: "find a passing CI driver check",
           id: "driver-check-restore",
@@ -380,7 +387,7 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/driver-checked",
-            key: "driver-checked-v2-${{ matrix.name }}-${{ steps.names.outputs.image }}-${{ steps.host-id.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/workflows/ci.yml') }}",
+            key: "driver-checked-v2-${{ matrix.name }}-${{ matrix.image && 'container' || steps.names.outputs.image }}-${{ steps.host-id.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/workflows/ci.yml') }}",
             "lookup-only": true,
           },
         },
@@ -411,7 +418,7 @@
         # read the checkout around ci/ (the TODO above). On every leg of
         # a full run, the merge queue's too, since those tests start the
         # host's own programs (/bin/sh, cp), which the marker's key holds
-        # by the runner's image and the leg's container.
+        # by the leg's container, or on macOS by the runner's image.
         {
           name: "check the pinned CI driver",
           id: "driver-check",
@@ -433,9 +440,13 @@
         # main's newest, a change or more behind. That run's leg keeps its
         # suite's verdicts the moment the suite passes (below), and this
         # one adds them to what it restored (verdicts-merge, a union),
-        # waiting up to two and a half minutes for them while that leg
-        # runs. A row stands only under its own key, so they decide how
-        # many tests stand, never whether one passes. Not where the
+        # where they are there already or come within half a minute,
+        # and only from a leg ahead that has begun its suite
+        # (SUITE_STEP): one still building, or itself waiting on the run
+        # ahead of it, would cost this leg more than its verdicts save
+        # (waits of 97 and 132 s, chained, in the queue of 2026-09-30).
+        # A row stands only under its own key, so they decide how many
+        # tests stand, never whether one passes. Not where the
         # restore took the base's own entry (it landed), nor where the
         # change moves the harness and every test runs (queue-seed.sh
         # ahead); where none are found, or a step fails, the suite runs
@@ -447,15 +458,16 @@
           "working-directory": ".",
           shell: "sh",
           "continue-on-error": true,
-          "timeout-minutes": 4,
+          "timeout-minutes": 2,
           env: {
             GH_TOKEN: "${{ github.token }}",
             REPOSITORY: "${{ github.repository }}",
             BASE: "${{ github.event.merge_group.base_sha }}",
             JOB: "${{ matrix.name }}",
             ARTIFACT: "verdicts-${{ matrix.name }}",
-            WITHIN_SECONDS: "150",
+            WITHIN_SECONDS: "30",
             WAIT_SECONDS: "15",
+            SUITE_STEP: "run release Cosmic's native suite",
           },
           run: "sh .github/scripts/queue-seed.sh ahead",
         },
@@ -1203,9 +1215,9 @@
             "github-token": "${{ github.token }}",
           },
         },
-        # The driver check's marker names the runner's image,
-        # <ImageOS>-<ImageVersion>, of any number of `-`-joined parts
-        # (linux-aarch64's is ubuntu24-arm64-<version>).
+        # The driver check's marker names the runner's image on macOS,
+        # <ImageOS>-<ImageVersion>, of any number of `-`-joined parts,
+        # and `container` on a Linux leg.
         # build/queue_seed_test.tl reads each leg's keys through this.
         {
           name: "read the keys the queue's leg named",
