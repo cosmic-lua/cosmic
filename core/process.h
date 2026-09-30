@@ -225,6 +225,39 @@ COSMIC_SYSCALL(sandbox_inits, 0);
 COSMIC_SYSCALL(children, 0);
 
 /*
+ * --- Whether this process's user namespace maps `id` inside, as a user and as a group, as its /proc/self/uid_map and gid_map list them: false with EINVAL, setuid's answer for an id it does not map, where either does not, and ENOSYS off Linux.
+ * ---@param id integer the id, from 0 below 2^32 - 1
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(maps_id, 1);
+
+/*
+ * --- Whether this process may map ids of another user than its own into a user namespace from outside, as `spawn`'s `user` does: its effective user is root, holding CAP_SETUID, CAP_SETGID and CAP_SETFCAP in effect. False with EPERM where it may not, and ENOSYS off Linux.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(may_map_ids, 0);
+
+/*
+ * --- Whether a sandbox gets a procfs of its own pid namespace here (`spawn`'s `unveil`), as the kernel answers a child started to mount one as a sandbox does, in user, mount and pid namespaces of its own: false with the errno that refused it where it would get the host's /proc instead -- EPERM where a user namespace may not mount a procfs, as where a container's runtime masks parts of /proc, or where no user namespace is to be had; EINVAL from a kernel before 5.8 -- and ENOSYS off Linux.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(own_proc, 0);
+
+/*
+ * --- Whether this platform can sandbox a child at all -- `spawn`'s `unveil`, `ruleset` and `pledge`, `landlock_ruleset`, `subreaper` -- whatever this host's kernel or its settings then refuse: true on Linux, false with ENOSYS elsewhere.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(sandbox_platform, 0);
+
+/*
  * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back.
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false

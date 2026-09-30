@@ -7,8 +7,8 @@
 --- each of those features is keyed for its machine. A vendor refetch or
 --- a patch that brings a new site, or a new question to a named one,
 --- fails here, naming its file, until its features are keyed (in
---- `dispatched` and .github/scripts/host-features.sh alike) and it is
---- named below.
+--- `dispatched`, [`sys.cpu_features`] and .github/scripts/host-features.sh
+--- alike) and it is named below.
 ---
 --- The walk does not reach zig's own lib (compiler_rt) or musl, which
 --- the audit that chose `dispatched` read: a change of the zig pin is
@@ -92,6 +92,12 @@ local SITES <const>: {string:Site} = {
   -- that says it may: neither reads a feature.
   ["vendor/xz/src/liblzma/check/crc_common.h"] = { lines = "02b9a4dfc40599e0", reads = {} },
   ["core/xz_config/config.h"] = { lines = "6696e76730b82c2d", reads = {} },
+  -- `cpu_features`, which answers what the processor has for a key
+  -- (build/declared_key.tl's `features`), its declaration and its test:
+  -- none chooses code by it.
+  ["core/syscalls.c"] = { lines = "831b9adae618e24b", reads = {} },
+  ["core/syscalls.h"] = { lines = "b61d799e030c5448", reads = {} },
+  ["core/syscalls_test.tl"] = { lines = "8d0bded5af38f8bd", reads = {} },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
@@ -245,8 +251,8 @@ local function test_every_site_that_asks_the_processor_is_named()
     local digest = Hash.hex_sha256(table.concat(lines, "\n")):sub(1, 16)
     if site == nil then
       problems[#problems + 1] = path .. " asks what the processor can do: key the features " ..
-        "it reads in build/declared_key.tl's `dispatched` and " ..
-        ".github/scripts/host-features.sh, and name it in SITES (lines = \"" .. digest ..
+        "it reads in build/declared_key.tl's `dispatched`, core/syscalls.c's `cpu_features` " ..
+        "and .github/scripts/host-features.sh, and name it in SITES (lines = \"" .. digest ..
         "\"), or name it with `reads = {}` if it reads none"
     elseif site.lines ~= digest then
       problems[#problems + 1] = path .. " asks the processor otherwise than SITES says " ..

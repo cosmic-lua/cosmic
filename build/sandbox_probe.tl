@@ -305,8 +305,8 @@ end
 
 --- Probes this host and prints the report; 0 whatever it found.
 function SandboxProbe.main(_argv: {integer:string}): integer
-  local names, _ = sys.uname()
-  if names == nil or names.sysname ~= "Linux" then
+  local sandboxes, _, _ = process.sandbox_platform()
+  if not sandboxes then
     assert(Fs.put(Fs.stdout, "Confinement: not probed; the sandbox is Linux's alone.\n"))
     return 0
   end

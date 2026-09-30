@@ -310,6 +310,24 @@ local function test_children_releases_its_block_whenever_an_allocation_fails(tmp
   assert_c_heap(bytes, blocks, "children under refusal")
 end
 
+--- `maps_id` reads each map into a block of the core's C heap, and
+--- closes the map's descriptor, whichever allocation is refused: a
+--- refused block answers ENOMEM, and one granted an answer. Off Linux
+--- it allocates nothing, and there is nothing to walk.
+local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
+  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  local before = next_descriptor(tmp)
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local ok, why, errno = process.maps_id(0)
+    assert(ok or errno == sys.EINVAL, why)
+  end)
+  assert(ended > 0, "reading the maps allocates")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert_c_heap(bytes, blocks, "maps_id under refusal")
+end
+
 --- The C heap counts what the core's C allocates and frees, and a
 --- refused C allocation is counted with Lua's.
 local function test_the_c_heap_counts_its_blocks_and_refusals()
