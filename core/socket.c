@@ -550,26 +550,17 @@ COSMIC_SYSCALL(connect, 2) {
   struct owned *owned = owner_push(L, 0);
   owned->fd = stream_socket(target.address.ss_family);
   if (owned->fd < 0) return cosmic_fail(L, errno);
-  /* A unix socket connects at once or answers EAGAIN, its listener's
-   * backlog full, where a blocking one would wait: this waits in
-   * slices, asking again, as `wait` does. A TCP one answers EINPROGRESS
-   * and connects over time, which `settled` waits out. */
-  int64_t pause = 1;
+  /* A unix socket connects or fails at once -- where its listener's
+   * backlog is full, EAGAIN on Linux and ECONNREFUSED on macOS; a TCP
+   * one answers EINPROGRESS and connects over time, which `settled`
+   * waits out. */
   int stranded = 0;
-  for (;;) {
-    failure = reach(owned->fd, &target, false, &stranded);
-    if (stranded != 0) {
-      released(owned);
-      return STRANDED_ERROR(L, stranded);
-    }
-    if (failure == EAGAIN) {
-      failure = cosmic_paused(deadline, &pause);
-      if (failure == 0) continue;
-    } else if (failure == EINPROGRESS) {
-      failure = settled(owned->fd, deadline);
-    }
-    break;
+  failure = reach(owned->fd, &target, false, &stranded);
+  if (stranded != 0) {
+    released(owned);
+    return STRANDED_ERROR(L, stranded);
   }
+  if (failure == EINPROGRESS) failure = settled(owned->fd, deadline);
   if (failure != 0) {
     released(owned);
     return cosmic_fail(L, failure);

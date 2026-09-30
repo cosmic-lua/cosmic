@@ -85,7 +85,7 @@ COSMIC_SYSCALL(listen, 2);
 COSMIC_SYSCALL(accept, 1);
 
 /*
- * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, Linux's waits for room, while macOS's fails ECONNREFUSED at once, as though nothing listened. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
+ * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, it fails at once: EAGAIN on Linux, and ECONNREFUSED on macOS, which cannot tell a busy listener from none. A caller that would wait for room asks again. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A failure the connect itself answers, rather than the wait, is answered at once, EAGAIN included (Linux's where it has no local port or other resource for the connection). A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
  * ---@param address Address where to connect
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit
  * ---@return Socket|nil socket the connected socket, closed on exec and nonblocking, or nil on failure
@@ -95,7 +95,7 @@ COSMIC_SYSCALL(accept, 1);
 COSMIC_SYSCALL(connect, 2);
 
 /*
- * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails, or raises, as `connect` does where that fails at once, and EAGAIN, the socket closed, where a unix listener's backlog is full on Linux: ask again with a new socket, since waiting for writable does not wait for room there.
+ * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails, or raises, as `connect` does where that fails at once, a unix listener whose backlog is full included.
  * ---@param address Address where to connect
  * ---@return Socket|nil socket the socket, connected or connecting, closed on exec and nonblocking, or nil on failure
  * ---@return string error what went wrong, when socket is nil
@@ -203,7 +203,7 @@ COSMIC_SYSCALL(wait, 3);
 /*
  * --- The error numbers the calls above answer that a caller acts on, and the bound on a socket file's name, from this libc.
  * ---@class Constants
- * ---@field EAGAIN integer nothing to take or send now, or no room at a unix listener to `start` a connection: wait, then ask again
+ * ---@field EAGAIN integer nothing to take or send now, or, on Linux, a unix listener's backlog full to `connect` or `start`: wait, then ask again
  * ---@field EINTR integer a guard caught a signal while `wait` waited
  * ---@field ETIMEDOUT integer `wait`'s time ran out
  * ---@field EADDRINUSE integer an address taken: a socket file or port another has

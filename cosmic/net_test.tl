@@ -105,34 +105,53 @@ local function test_a_writer_closed_leaves_the_answer_to_read(tmp: string)
   assert(data == nil and why == "connection is closed", why)
 end
 
---- A listener whose backlog is full is waited on for room on Linux,
---- which the time runs out on here, no one accepting; macOS refuses the
---- connection at once.
-local function test_connecting_to_a_full_backlog(tmp: string)
-  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { backlog = 1 }))
+--- A unix listener whose backlog is full, no one accepting.
+local record Full
+  server: Net.Listener
+  held: {Net.Conn}
+  metamethod __close: function(Full)
+end
+
+local full_mt: metatable<Full> = {
+  __close = function(self: Full)
+    for _, conn in ipairs(self.held) do local _, _ = conn:close() end
+    local _, _ = self.server:close()
+  end,
+}
+
+local function full(path: string): Full
+  local server = assert(Net.listen(Net.unix(path), { backlog = 1 }))
   local held: {Net.Conn} = {}
-  local why = ""
   for _ = 1, 16 do
-    local conn, trouble = Net.connect(server.address, { timeout_ms = 20 })
-    if conn == nil then
-      why = trouble
-      break
-    end
+    local conn = Net.connect(server.address, { timeout_ms = 0 })
+    if conn == nil then break end
     held[#held + 1] = conn
   end
-  local darwin = assert(sys.uname()).sysname == "Darwin"
-  local want = tmp .. "/s.sock: " .. (darwin and "Connection refused" or "timed out")
-  assert(why == want, why)
-  -- A signal a guard catches ends the wait for room, which has no limit
-  -- of its own here, rather than asking again for good.
-  local guard = assert(Child.guard())
-  assert(sys.kill(sys.getpid(), sys.SIGINT))
-  local conn, interrupted = Net.connect(server.address)
-  assert(assert(guard:release()) == sys.SIGINT)
-  if conn ~= nil then assert(conn:close()) end
-  want = tmp .. "/s.sock: " .. (darwin and "Connection refused" or "interrupted")
-  assert(conn == nil and interrupted == want, interrupted)
-  for _, held_conn in ipairs(held) do assert(held_conn:close()) end
+  return setmetatable({ server = server, held = held }, full_mt)
+end
+
+--- What connecting to a full listener at `path` fails with: on Linux,
+--- saying the listener is busy, told from "Connection refused", which
+--- `reclaim` takes for a listener gone; macOS cannot tell the two apart.
+local function busy(path: string): string
+  if assert(sys.uname()).sysname == "Darwin" then return path .. ": Connection refused" end
+  return path .. ": Resource temporarily unavailable (the listener is busy: its backlog is full)"
+end
+
+--- The monotonic clock, in milliseconds.
+local function now_ms(): integer
+  return assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) // 1000000
+end
+
+--- A connection to a unix listener whose backlog is full fails at once,
+--- however long it may wait, rather than waiting for room.
+local function test_connecting_to_a_full_backlog_fails_at_once(tmp: string)
+  local path = tmp .. "/s.sock"
+  local _full <close> = full(path)
+  local began = now_ms()
+  local conn, why = Net.connect(Net.unix(path), { timeout_ms = 20000 })
+  assert(now_ms() - began < 10000, "the connection waited for room")
+  assert(conn == nil and why == busy(path), why)
 end
 
 local function test_accept_with_no_one_connecting_times_out(tmp: string)
@@ -333,22 +352,15 @@ local function test_reclaim_takes_over_only_a_socket_file_left_behind(tmp: strin
 end
 
 --- A live listener whose backlog is full keeps its file: on Linux the
---- connection that asks waits for room, and its time runs out rather
---- than its being refused. (macOS refuses it, as `reclaim`'s doc says.)
+--- connection that asks is answered EAGAIN, busy, rather than refused.
+--- (macOS refuses it, as `reclaim`'s doc says.)
 local function test_reclaim_leaves_a_full_live_listener_alone(tmp: string)
   if assert(sys.uname()).sysname == "Darwin" then return end
   local path = tmp .. "/s.sock"
-  local server <close> = assert(Net.listen(Net.unix(path), { backlog = 1 }))
-  local held: {Net.Conn} = {}
-  for _ = 1, 16 do
-    local conn, _ = Net.connect(server.address, { timeout_ms = 20 })
-    if conn == nil then break end
-    held[#held + 1] = conn
-  end
+  local _full <close> = full(path)
   local again, live = Net.listen(Net.unix(path), { reclaim = true })
   assert(again == nil and live == path .. ": Address in use", live)
   assert(Fs.stat(path) ~= nil, "the live listener's file was taken")
-  for _, conn in ipairs(held) do assert(conn:close()) end
 end
 
 --- A socket file at `path` with nothing listening, as a killed
@@ -622,60 +634,18 @@ local function test_in_a_run_waits_time_out_as_they_do_out_of_one(tmp: string)
 end
 
 --- In a task, a connection to a unix listener whose backlog is full
---- waits for room through the run on Linux, so the task that makes the
---- room goes on meanwhile; a connection that held the thread would find
---- none and time out. macOS refuses it at once.
-local function test_in_a_run_a_connect_waits_for_room_while_others_run(tmp: string)
-  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"),
-    { backlog = 1, timeout_ms = 5000 }))
-  local held: {Net.Conn} = {}
-  for _ = 1, 16 do
-    local conn = Net.connect(server.address, { timeout_ms = 0 })
-    if conn == nil then break end
-    held[#held + 1] = conn
-  end
-  local order: {string} = {}
+--- fails at once, as one out of a run does.
+local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: string)
+  local path = tmp .. "/s.sock"
+  local _full <close> = full(path)
   local conn: Net.Conn
   local why = ""
+  local began = now_ms()
   Poll.run(function()
-    local connecting = Poll.spawn(function()
-      conn, why = Net.connect(server.address, { timeout_ms = 5000 })
-      order[#order + 1] = "connected"
-    end)
-    assert(Poll.delay(20))
-    order[#order + 1] = "made room"
-    held[#held + 1] = assert(server:accept())
-    assert(connecting:join(5000))
+    conn, why = Net.connect(Net.unix(path), { timeout_ms = 20000 })
   end)
-  for _, held_conn in ipairs(held) do assert(held_conn:close()) end
-  if assert(sys.uname()).sysname == "Darwin" then
-    assert(conn == nil and why == tmp .. "/s.sock: Connection refused", why)
-    return
-  end
-  assert(conn ~= nil, why)
-  assert(conn:close())
-  assert(table.concat(order, ",") == "made room,connected", table.concat(order, ","))
-end
-
---- A connection in a task whose listener's backlog stays full times out
---- as one out of a run does.
-local function test_in_a_run_a_connect_to_a_full_backlog_times_out(tmp: string)
-  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { backlog = 1 }))
-  local held: {Net.Conn} = {}
-  for _ = 1, 16 do
-    local conn = Net.connect(server.address, { timeout_ms = 0 })
-    if conn == nil then break end
-    held[#held + 1] = conn
-  end
-  local conn: Net.Conn
-  local why = ""
-  Poll.run(function()
-    conn, why = Net.connect(server.address, { timeout_ms = 20 })
-  end)
-  for _, held_conn in ipairs(held) do assert(held_conn:close()) end
-  local darwin = assert(sys.uname()).sysname == "Darwin"
-  local want = tmp .. "/s.sock: " .. (darwin and "Connection refused" or "timed out")
-  assert(conn == nil and why == want, why)
+  assert(now_ms() - began < 10000, "the connection waited for room")
+  assert(conn == nil and why == busy(path), why)
 end
 
 --- A pair's ends are connected to each other, both ways, in a run or
