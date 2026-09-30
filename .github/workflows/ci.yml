@@ -382,16 +382,10 @@
         # caches"). macOS runs on the runner's own userland, so its key
         # holds that image. The checked job's light run looks up
         # linux-x86_64's under this key too.
-        # TODO: move cosmic_ci's tests of the tree itself into the
-        # tree's own suite, whose verdicts are keyed by what they read:
-        # orchestration_test's test_no_tree_source_reads_what_a_suite_forgets
-        # reads build/, cosmic/, core/, test/, eval/, cmd/ and doc/, and
-        # its darwin list's test the modules ci/darwin-tests.txt names,
-        # none of which this key hashes, so a hit skips them over a
-        # change there until the scheduled run, which checks regardless.
-        # Hashing those directories here would not do: 297 of main's
-        # last 300 commits touched one (107 what the key hashes now,
-        # 2026-09-30), so a hit would all but never come.
+        # What cosmic_ci's tests read of the checkout around ci/ is
+        # bin/ and ci.yml, which the key hashes with ci/ itself; the
+        # checks of the tree's own sources are build/ci_tree_test.tl's,
+        # in the tree's suite, whose verdicts are keyed by what they read.
         {
           name: "find a passing CI driver check",
           id: "driver-check-restore",
@@ -968,12 +962,14 @@
         # (its "find a passing CI driver check" says what the key holds),
         # the host named as that leg's: the same container, started the
         # same way, on the same runner. Its COSMIC_HOST_ID is not kept
-        # (GITHUB_ENV), and a light run saves no marker. Before the tree
-        # moves, since hashFiles reads the checkout.
+        # (GITHUB_ENV), and a light run saves no marker. Where it fails,
+        # the key names no host and misses, and the driver is checked.
+        # Before the tree moves, since hashFiles reads the checkout.
         {
           name: "name linux-x86_64's host",
           id: "driver-host",
           if: "env.COSMIC_CI_SCOPE == 'light'",
+          "continue-on-error": true,
           "working-directory": ".",
           shell: "sh",
           run: "GITHUB_ENV=/dev/null sh .github/scripts/leg-host-id.sh \"linux-x86_64\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",

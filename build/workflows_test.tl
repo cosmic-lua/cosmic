@@ -1484,8 +1484,8 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   local host, lookup = ours["name linux-x86_64's host"], ours["find a passing CI driver check"]
   local their_host, their_lookup = theirs["name the leg's host"], theirs["find a passing CI driver check"]
   assert(host ~= nil and lookup ~= nil, "a light run looks up no marker of linux-x86_64's")
-  assert(host.id == "driver-host" and host.run == "GITHUB_ENV=/dev/null " .. as_leg(their_host.run as string),
-    "a light run names another host than linux-x86_64's, or keeps it: " .. tostring(host.run))
+  assert(host.id == "driver-host" and host["continue-on-error"] == true and host.run == "GITHUB_ENV=/dev/null " .. as_leg(their_host.run as string),
+    "a light run names another host than linux-x86_64's, keeps it, or fails on it: " .. tostring(host.run))
   for _, key in ipairs({ "shell", "working-directory" }) do
     same("the host's " .. key, host[key], their_host[key])
   end
