@@ -58,7 +58,6 @@
 #include "fail.h"
 #include "fault.h"
 #include "memory.h"
-#include "observed.h"
 #include "process.h"
 #include "store.h"
 
@@ -1280,12 +1279,6 @@ static int open_request (lua_State *L, int streamed) {
   }
   if (memchr(r.url, '\0', url_len) != NULL) {
     return failed(L, "invalid url: contains a NUL byte");
-  }
-  /* A request that could reach past the process is noted before it
-   * connects (core/observed.h); a scripted one connects nowhere. */
-  if (cosmic_observing && !has_script &&
-      !cosmic_observed_note(COSMIC_OBSERVED_HTTP, r.url, url_len)) {
-    return failed(L, "not enough memory to observe the request");
   }
   if (has_headers) {
     lua_pushvalue(L, 5);
