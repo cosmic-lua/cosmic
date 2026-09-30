@@ -100,44 +100,16 @@ function link_text.label_key(label: string): string
   return String.trim((label:gsub("%s+", " "))):lower()
 end
 
---- `text` with every line of a fenced code block, fences and all, left
---- empty, so its lines keep their numbers.
--- TODO: pass over an indented code block and an HTML comment too, as
--- CommonMark does: a link-shaped bracket in either is checked as one.
-function link_text.without_fences(text: string): string
-  local out: {string} = {}
-  local fence: string | nil = nil
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    local opener = line:match("^ ? ? ?(```+)") or line:match("^ ? ? ?(~~~+)")
-    if fence == nil then
-      if opener ~= nil then
-        fence = opener
-        out[#out + 1] = ""
-      else
-        out[#out + 1] = line
-      end
-    else
-      if opener ~= nil and opener:sub(1, 1) == fence:sub(1, 1) and #opener >= #fence and
-          line:match("^%s*[`~]+%s*$") ~= nil then
-        fence = nil
-      end
-      out[#out + 1] = ""
-    end
-  end
-  return table.concat(out, "\n")
-end
-
 --- Where to go on from the backtick at `at`: past the code span it
 --- opens, or past its run of backticks when no run as long closes it
 --- and they are plain text.
-local function past_code_span(text: string, at: integer): integer
+--- A code span ends with its paragraph, which ends at the byte `limit`.
+local function past_code_span(text: string, at: integer, limit: integer): integer
   local run = #text:match("^`+", at)
   local j = at + run
-  -- A code span ends with its paragraph.
-  local paragraph = text:find("\n[ \t]*\n", j) or #text + 1
   while true do
     local s, e = text:find("`+", j)
-    if s == nil or s > paragraph then
+    if s == nil or s > limit then
       return at + run
     end
     if e - s + 1 == run then
@@ -148,16 +120,17 @@ local function past_code_span(text: string, at: integer): integer
 end
 
 --- The `]` that closes the `[` at `at`, brackets nested, code spans and
---- escapes passed over; nil when a blank line or the end comes first.
-local function closing_bracket(text: string, at: integer): integer | nil
+--- escapes passed over; nil when the end of its paragraph, the byte
+--- `limit`, comes first.
+local function closing_bracket(text: string, at: integer, limit: integer): integer | nil
   local depth = 1
   local j = at + 1
-  while j <= #text do
+  while j < limit and j <= #text do
     local c = text:sub(j, j)
     if c == "\\" then
       j = j + 2
     elseif c == "`" then
-      j = past_code_span(text, j)
+      j = past_code_span(text, j, limit)
     elseif c == "[" then
       depth = depth + 1
       j = j + 1
@@ -167,13 +140,343 @@ local function closing_bracket(text: string, at: integer): integer | nil
         return j
       end
       j = j + 1
-    elseif c == "\n" and text:match("^\n[ \t]*\n", j) ~= nil then
-      return nil
     else
       j = j + 1
     end
   end
   return nil
+end
+
+--- The column `s`'s leading spaces and tabs reach, from `s` at
+--- `start` (0 when not given), a tab going on to the next multiple of
+--- four as CommonMark counts one, and the byte that follows them.
+local function indent_of(s: string, start?: integer): integer, integer
+  local column, at = start or 0, 1
+  while true do
+    local c = s:sub(at, at)
+    if c == " " then
+      column = column + 1
+    elseif c == "\t" then
+      column = column + 4 - column % 4
+    else
+      return column, at
+    end
+    at = at + 1
+  end
+end
+
+--- The run that opens a fenced code block at the start of `content`:
+--- three or more backticks, with none in the info string after them,
+--- or three or more tildes.
+local function fence_opener(content: string): string | nil
+  local ticks = content:match("^```+")
+  if ticks ~= nil then
+    return content:find("`", #ticks + 1, true) == nil and ticks or nil
+  end
+  return content:match("^~~~+")
+end
+
+--- Whether `content` is a thematic break: three or more of one of
+--- `-`, `*` or `_`, and nothing else but spaces.
+local function thematic(content: string): boolean
+  local mark = content:match("^[-*_]")
+  if mark == nil then
+    return false
+  end
+  local marks = content:gsub("[ \t]", "")
+  return #marks >= 3 and marks:match("^%" .. mark .. "+$") ~= nil
+end
+
+--- Whether `content` is an ATX heading: one to six `#` and a space or
+--- nothing after them.
+local function heading(content: string): boolean
+  local marks = content:match("^#+")
+  return marks ~= nil and #marks <= 6 and (#content == #marks or content:match("^#+[ \t]") ~= nil)
+end
+
+--- Whether `content`, indented less than code past its container,
+--- starts a block that ends the paragraph before it, where any other
+--- line continues that paragraph (CommonMark's lazy continuation).
+--- `within` says the paragraph is in the container the line is in: a
+--- list item then starts a list there, which it does only when it
+--- holds something and, ordered, counts from 1. A line that falls out
+--- of the paragraph's container starts any list item, a sibling of one
+--- open (`10.` after `9.`) among them.
+local function interrupts(content: string, within: boolean): boolean
+  if fence_opener(content) ~= nil or content:match("^<!%-%-") ~= nil or heading(content) or
+      thematic(content) or content:match("^>") ~= nil then
+    return true
+  end
+  if within then
+    return content:match("^[-+*][ \t]+%S") ~= nil or content:match("^1[.)][ \t]+%S") ~= nil
+  end
+  local marker = content:match("^[-+*]") or content:match("^%d%d?%d?%d?%d?%d?%d?%d?%d?[.)]")
+  return marker ~= nil and content:sub(#marker + 1):match("^[ \t]") ~= nil or content == marker
+end
+
+--- The number of `>` a line is quoted to, what follows them and the
+--- column of space after each, and the column that starts at. A tab
+--- after a `>` gives it one column and leaves the rest of its width.
+local function unquoted(line: string): integer, string, integer
+  local depth, column = 0, 0
+  while true do
+    local _, marker = line:find("^ ? ? ?>")
+    if marker == nil then
+      return depth, line, column
+    end
+    depth = depth + 1
+    column = column + marker
+    line = line:sub(marker + 1)
+    local c = line:sub(1, 1)
+    if c == " " then
+      line = line:sub(2)
+      column = column + 1
+    elseif c == "\t" then
+      line = (" "):rep(3 - column % 4) .. line:sub(2)
+      column = column + 1
+    end
+  end
+end
+
+--- Where the paragraph of each byte of `text` ends, given the lines
+--- that go on with the paragraph of the line before them
+--- (`continues`): the line break after its last line, or one past the
+--- text's end. A line that is no paragraph's (a heading) is one alone.
+local function paragraph_ends(text: string, continues: {integer: boolean}): function(integer): integer
+  local starts: {integer} = { 1 }
+  for at in text:gmatch("()\n") do
+    starts[#starts + 1] = at + 1
+  end
+  local ends: {integer} = {}
+  local stop = #text + 1
+  for number = #starts, 1, -1 do
+    ends[number] = stop
+    if not continues[number] then
+      stop = starts[number] - 1
+    end
+  end
+  return function(at: integer): integer
+    local low, high = 1, #starts
+    while low < high do
+      local mid = (low + high + 1) // 2
+      if starts[mid] <= at then low = mid else high = mid - 1 end
+    end
+    return ends[low]
+  end
+end
+
+--- `text` with each HTML comment within a paragraph, as CommonMark
+--- reads one (`<!-->`, `<!--->`, or `<!--` up to the first `-->`),
+--- blanked byte for byte. A code span or an escape that comes first
+--- holds its `<!--` as text, and so does one whose paragraph ends
+--- first: `continues` holds each line that goes on with the paragraph
+--- of the line before it.
+local function without_inline_comments(text: string, continues: {integer: boolean}): string
+  if text:find("<!--", 1, true) == nil then
+    return text
+  end
+  local ends = paragraph_ends(text, continues)
+  local pieces: {string} = {}
+  local from = 1
+  local at = text:find("[\\`<]", 1)
+  while at ~= nil do
+    local c = text:sub(at, at)
+    if c == "\\" then
+      at = at + 2
+    elseif c == "`" then
+      at = past_code_span(text, at, ends(at))
+    elseif text:sub(at, at + 3) == "<!--" then
+      local stop: integer | nil
+      if text:sub(at + 4, at + 4) == ">" then
+        stop = at + 4
+      elseif text:sub(at + 4, at + 5) == "->" then
+        stop = at + 5
+      else
+        local _, close = text:find("-->", at + 4, true)
+        stop = close
+      end
+      if stop ~= nil and stop < ends(at) then
+        pieces[#pieces + 1] = text:sub(from, at - 1)
+        pieces[#pieces + 1] = (text:sub(at, stop):gsub("[^\n]", " "))
+        from = stop + 1
+        at = stop + 1
+      else
+        at = at + 1
+      end
+    else
+      at = at + 1
+    end
+    at = text:find("[\\`<]", at)
+  end
+  pieces[#pieces + 1] = text:sub(from)
+  return table.concat(pieces)
+end
+
+--- `text` with what CommonMark shows as code, or hides, taken out of
+--- it, so that a link-shaped bracket there is read as no link: each
+--- line of a fenced or an indented code block and of an HTML block
+--- that is a comment left empty, and an HTML comment within a paragraph
+--- blanked byte for byte, so what is left keeps its lines and columns;
+--- and, by its number, each line that goes on with the paragraph of the
+--- line before it, where a code span, a link's text or an HTML comment
+--- may go on too. [`without_code`] is its text alone.
+---
+--- It follows CommonMark's containers as far as these need. A line is
+--- indented code when it is indented four columns or more past its
+--- container and continues no paragraph; the container is the list
+--- item the line is in, whose content starts past its marker and the
+--- one to four spaces after it, or else the text's least indented line,
+--- which a comment's text starts past. A blockquote's lines are read
+--- past their `>`. A fence or an HTML comment closes at its end or
+--- where its list item or quote does.
+---
+--- A comment's text is read as a Markdown file is, since the forms a
+--- link takes are Markdown's and a doc shows it as Markdown.
+---
+--- Left out, as the tree does not need them: HTML blocks other than a
+--- comment, and a quote begun inside a list item (`1. > x`).
+local function visible_of(text: string): string, {integer: boolean}
+  local lines: {string} = {}
+  local least: integer | nil = nil
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = line
+    if line:find("%S") ~= nil then
+      local column = indent_of(line)
+      if least == nil or column < least then
+        least = column
+      end
+    end
+  end
+  local out: {string} = {}
+  -- The open fence's run, the column its container's content starts at
+  -- and the quote it is in.
+  local fence: string | nil = nil
+  local fence_base, fence_depth = 0, 0
+  -- Whether an HTML comment block is open, and its container's column
+  -- and quote as a fence's.
+  local in_comment = false
+  local comment_base, comment_depth = 0, 0
+  -- Each line that goes on with the paragraph of the line before it.
+  local continues: {integer: boolean} = {}
+  -- The column each open list item's content starts at, innermost last.
+  local items: {integer} = {}
+  local paragraph = false
+  local quotes = 0
+  for number, line in ipairs(lines) do
+    local depth, rest, start = unquoted(line)
+    local blank = rest:find("%S") == nil
+    -- The column as the line has it, which a tab's stop is counted
+    -- from, and as its container reads it.
+    local raw, from = indent_of(rest, start)
+    local shift = depth == 0 and math.min(least or 0, raw) or start
+    local column = raw - shift
+    local content = rest:sub(from)
+    local hidden = false
+    if in_comment and (blank or depth >= comment_depth and column >= comment_base) then
+      hidden = true
+      in_comment = line:find("-->", 1, true) == nil
+    elseif fence ~= nil and depth > fence_depth and
+        (fence_depth > 0 or indent_of(line) - (least or 0) >= fence_base) then
+      -- A `>` in the fence's container, past its quote, is its code.
+      hidden = true
+    elseif fence ~= nil and (blank or depth == fence_depth and column >= fence_base) then
+      hidden = true
+      local closer = content:match("^" .. fence:sub(1, 1) .. "+")
+      if closer ~= nil and #closer >= #fence and column - fence_base < 4 and
+          content:sub(#closer + 1):match("^[ \t]*$") ~= nil then
+        fence = nil
+      end
+    elseif blank then
+      paragraph = false
+    else
+      -- Its container closed: the fence or the comment ends with it.
+      fence = nil
+      in_comment = false
+      -- Whether the line goes on with the paragraph before it.
+      local continued = false
+      if depth ~= quotes then
+        continued = paragraph and depth < quotes and (column >= 4 or not interrupts(content, false))
+        if not continued then
+          items = {}
+          quotes = depth
+          paragraph = false
+        end
+      end
+      local open = #items
+      while open > 0 and column < items[open] do
+        open = open - 1
+      end
+      local base = open > 0 and items[open] or 0
+      if not continued and paragraph then
+        local near = column - base < 4
+        if near and open == #items and
+            (content:match("^=+[ \t]*$") ~= nil or content:match("^%-+[ \t]*$") ~= nil) then
+          -- A setext heading's underline, which ends the paragraph; out
+          -- of the paragraph's list item, it is no underline.
+          continued = true
+          paragraph = false
+        elseif not near or not interrupts(content, open == #items) then
+          continued = true
+        end
+      end
+      continues[number] = continued and paragraph
+      if not continued then
+        for index = #items, open + 1, -1 do
+          items[index] = nil
+        end
+        paragraph = false
+        if column - base >= 4 then
+          hidden = true
+        else
+          -- Each list item the line opens, `- 1. x` two of them.
+          while not thematic(content) do
+            local marker = content:match("^[-+*]") or content:match("^%d%d?%d?%d?%d?%d?%d?%d?%d?[.)]")
+            local after = marker ~= nil and content:sub(#marker + 1) or ""
+            if marker == nil or after ~= "" and after:match("^[ \t]") == nil then
+              break
+            end
+            local reached, past = indent_of(after, raw + #marker)
+            local spaces = reached - raw - #marker
+            local body = after:sub(past)
+            if body == "" or spaces > 4 then
+              -- Past five spaces, the item's content is indented code.
+              items[#items + 1] = column + #marker + 1
+              hidden = body ~= ""
+              content = ""
+              break
+            end
+            raw = reached
+            column = reached - shift
+            items[#items + 1] = column
+            content = body
+          end
+          if content == "" or hidden then
+            paragraph = false
+          elseif fence_opener(content) ~= nil then
+            fence = fence_opener(content)
+            fence_base = #items > 0 and items[#items] or 0
+            fence_depth = depth
+            hidden = true
+          elseif content:match("^<!%-%-") ~= nil then
+            hidden = true
+            in_comment = content:find("-->", 3, true) == nil
+            comment_base = #items > 0 and items[#items] or 0
+            comment_depth = depth
+          else
+            paragraph = not heading(content) and not thematic(content)
+          end
+        end
+      end
+    end
+    out[number] = hidden and "" or line
+  end
+  return without_inline_comments(table.concat(out, "\n"), continues), continues
+end
+
+--- `text` with what CommonMark shows as code, or hides, taken out of
+--- it, as [`visible_of`] takes it out.
+function link_text.without_code(text: string): string
+  return (visible_of(text))
 end
 
 --- The target a shortcut's text names: the text when it is one code
@@ -219,12 +522,13 @@ local function destination(raw: string): string | nil
   return target
 end
 
---- Every link of `text` and every definition it holds, in order of the
---- line each is on, and each code span no link holds, added to `spans`
---- when it is given. Fenced code blocks are passed over, and so is
---- every form but the three a link takes.
-local function scan(text: string, spans?: {link_text.Span}): {link_text.Link}
-  text = link_text.without_fences(text)
+--- Every link of `text`, a text as [`visible_of`] leaves it with
+--- the lines that go on with a paragraph (`continues`), and every
+--- definition it holds, in order of the line each is on, and each code
+--- span no link holds, added to `spans` when it is given. Every form but
+--- the three a link takes is passed over.
+local function scan(text: string, continues: {integer: boolean}, spans?: {link_text.Span}): {link_text.Link}
+  local ends = paragraph_ends(text, continues)
   local starts: {integer} = { 1 }
   for at in text:gmatch("()\n") do
     starts[#starts + 1] = at + 1
@@ -270,7 +574,7 @@ local function scan(text: string, spans?: {link_text.Span}): {link_text.Link}
     if long ~= nil then
       return at + #long
     end
-    local close = closing_bracket(text, at)
+    local close = closing_bracket(text, at, ends(at))
     if close == nil or text:sub(at + 1, at + 1) == "^" then
       return nil
     end
@@ -336,7 +640,7 @@ local function scan(text: string, spans?: {link_text.Span}): {link_text.Link}
     elseif c == "\\" then
       at = at + 2
     elseif c == "`" then
-      local past = past_code_span(text, at)
+      local past = past_code_span(text, at, ends(at))
       local run = #text:match("^`+", at)
       local written = text:sub(at, past - 1)
       if spans ~= nil and past > at + run and written:find("\n", 1, true) == nil then
@@ -358,34 +662,7 @@ end
 --- Every link of `text` and every definition it holds, in order of the
 --- line each is on; a pure function of the text.
 function link_text.parse(text: string): {link_text.Link}
-  return scan(text)
-end
-
---- Whether each line of `text` is in an indented code block: indented
---- four columns past the text's least indented line, after a blank line
---- or another such line. A list item's indented paragraph reads as one
---- too, which only leaves a span in it unlinked.
-local function indented_code(text: string): {integer: boolean}
-  local lines: {string} = {}
-  local least: integer | nil = nil
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    lines[#lines + 1] = line
-    if line:match("%S") ~= nil then
-      local indent = #line:match("^ *")
-      if least == nil or indent < least then least = indent end
-    end
-  end
-  local out: {integer: boolean} = {}
-  local previous_blank = true
-  for number, line in ipairs(lines) do
-    local blank = line:match("%S") == nil
-    if not blank and #line:match("^ *") >= (least or 0) + 4 and
-        (previous_blank or out[number - 1]) then
-      out[number] = true
-    end
-    previous_blank = blank
-  end
-  return out
+  return scan(visible_of(text))
 end
 
 --- Every code span of `text` that could be made a shortcut link by
@@ -401,25 +678,20 @@ function link_text.plain_spans(text: string): {link_text.Span}
   if text:find("`", 1, true) == nil then
     return {}
   end
-  -- An HTML comment is blanked byte for byte, so the lines and columns
-  -- of what is left stay where they were.
-  local visible = text:gsub("<!%-%-.-%-%->", function(comment: string): string
-    return (comment:gsub("[^\n]", " "))
-  end)
+  local visible, continues = visible_of(text)
   local found: {link_text.Span} = {}
-  scan(visible, found)
+  scan(visible, continues, found)
   local lines: {string} = {}
   for line in (visible .. "\n"):gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
-  local code = indented_code(visible)
   local out: {link_text.Span} = {}
   for _, span in ipairs(found) do
     local line = lines[span.line] or ""
     local before = line:sub(1, span.column - 1)
     local after = line:sub(span.column + #span.written, span.column + #span.written)
     local kept = span.content ~= "" and span.content == String.trim(span.content) and
-      not code[span.line] and line:match("^%s*#+%s") == nil and
+      line:match("^%s*#+%s") == nil and
       before:match("[%w_%]%)%%!]$") == nil and after ~= "(" and after ~= "[" and
       not (after == ":" and (before:match("^[%s>]*$") ~= nil or before:match("^[%s>]*[-*+]%s+$") ~= nil or
         before:match("^[%s>]*%d+[.)]%s+$") ~= nil))
@@ -731,7 +1003,7 @@ function link_text.unlinked(text: string): string
   end
   local cut: {integer: boolean} = {}
   local dropped: {integer: boolean} = {}
-  for _, link in ipairs(scan(text)) do
+  for _, link in ipairs(scan(visible_of(text))) do
     if link.form == "definition" then
       if link_text.shortcut_target(link.label or "") ~= nil then dropped[link.line] = true end
     elseif (link.form == "shortcut" or link.form == "reference") and

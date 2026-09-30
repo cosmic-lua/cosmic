@@ -15,7 +15,7 @@
 ---
 --- A connection is one object for
 --- both directions; `shutdown("write")` tells the peer the end of what
---- was sent while its answer is still read, and `writer()` is a Writer
+--- was sent while its answer is still read, and [`writer()`] is a Writer
 --- whose `close` does just that, for a wrapper that closes what it
 --- wraps.
 ---
