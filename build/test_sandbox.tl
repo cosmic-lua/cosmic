@@ -483,7 +483,7 @@ function test_sandbox.environment(environment: {string:string},
 end
 
 --- The environment a worker keyed as a sandboxed one but run
---- unsandboxed (COSMIC_TEST_KEY=declared) is keyed by, with
+--- unsandboxed is keyed by, with
 --- `environment` the runner's view of a worker's: what `environment`
 --- gives one of `effective`, but COSMIC_PORTABLE_CACHE as the view has
 --- it. The cores of its own a sandbox gives it are at a path only a

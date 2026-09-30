@@ -344,10 +344,11 @@ end
 --- and nothing else of it, sees nothing of the host it was not given,
 --- and reads only the variables it declares -- and so does a process it
 --- starts; and the run says it was sandboxed. The same suite with the
---- switch off reads all of it, and says it shares no verdict. Where
---- this host cannot sandbox the run's workers the run says so, and runs
---- them unsandboxed, sharing none -- but with the switch on, where it
---- fails. A switch that is neither "1", "0" nor unset is refused.
+--- switch off reads all of the tree and the host, but still only the
+--- variables it declares, and says it is keyed by what it declares and
+--- shares no verdict. Where this host cannot sandbox the run's workers
+--- the run says so, and runs them unsandboxed, sharing none -- but with
+--- the switch on, where it fails. A switch that is neither "1", "0" nor unset is refused.
 local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   suite_tree(tmp, root)
@@ -385,7 +386,8 @@ end
   env.COSMIC_TEST_SANDBOX = "0"
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
-  assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), sharing no verdicts)", 1, true), text)
+  assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
+    "sharing no verdicts)", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   local seen = text:match("seen|([^\n]*)|end")
@@ -393,14 +395,14 @@ end
   local fields: {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
-    fields[5] == "true" and fields[6] == "d" and fields[7] == "u" and
-    fields[8] == "declaredundeclared/d/u", seen)
+    fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
+    fields[8] == "declaredundeclared/d/", seen)
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
   if unsandboxed(text) then
-    assert(text:find("; unsandboxed, as no worker can be sandboxed here, sharing no verdicts)", 1,
-      true), text)
+    assert(text:find("; unsandboxed, as no worker can be sandboxed here, keyed by declared " ..
+      "inputs, sharing no verdicts)", 1, true), text)
     -- Required, the run fails instead.
     env.COSMIC_TEST_SANDBOX = "1"
     text, ok = run(root, tmp .. "/required", env)

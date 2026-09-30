@@ -14,8 +14,7 @@
 ---   naming why.
 --- - Answered wrongly no, the run is unsandboxed. A run held to the
 ---   sandbox (`COSMIC_TEST_SANDBOX=1`) fails. Any other keys its verdicts
----   as unsandboxed, by what each test was seen to read or, under
----   `COSMIC_TEST_KEY=declared`, by what it declares but apart from a
+---   as unsandboxed, by what each test declares but apart from a
 ---   sandboxed run's, so no sandboxed run's key finds them, as on a host
 ---   that cannot sandbox.
 ---

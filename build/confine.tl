@@ -399,11 +399,10 @@ end
 --- Where no stand-in runs (see `enter`) -- no test, `cosmic fix` --
 --- nothing holds it. Where the kernel cannot confine one, it starts
 --- unconfined, noted "p", and with COSMIC_SANDBOX=must it does not
---- start. A run keyed by what its tests were seen to read then never
---- stands. A run keyed by what they declare (COSMIC_TEST_KEY=declared,
---- as CI's macOS leg runs, where nothing confines) stands on that key
---- all the same, which holds none of what the process read: that gap is
---- the leg's own, and a Linux leg's sandbox closes it for the same test.
+--- start. An unsandboxed run, keyed by what its tests declare (as
+--- macOS runs, where nothing confines), stands on that key all the same,
+--- which holds none of what the process read: that gap is the run's
+--- own, and a Linux leg's sandbox closes it for the same test.
 ---
 --- Relative paths are taken from the directory this is called in.
 function confine.declaring(declared: confine.Confinement, fn: function())

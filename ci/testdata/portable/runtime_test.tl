@@ -3,6 +3,12 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+--- Where identity_test.tl has each run append what it ran under: a run
+--- of the runtimes it starts is unsandboxed, and gives a worker only the
+--- variables its module declares.
+Test.needs{ env = { "COSMIC_FIXTURE_COUNTER" } }
 
 local function test_runtime_identity_change_runs_again()
   local counter = assert(Env.get("COSMIC_FIXTURE_COUNTER"))
