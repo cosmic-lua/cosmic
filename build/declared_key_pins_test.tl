@@ -4,9 +4,9 @@
 --- computed, and so what a key names, must bump `version` there, or
 --- verdicts kept under the old keys stand for what the new ones name;
 --- this fails until it is bumped and the digests here are taken again.
---- The store of a test's closure is not pinned: its address is salted
---- by the code that writes it ([`build.test`]'s `store_salt`), so an edit
---- there moves every address already.
+--- The store of a test's closure is not pinned: a key holds it by its
+--- bytes ([`declared_key.store_digest`]), so an edit to the code that
+--- writes it that moves them moves every key that holds one already.
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")

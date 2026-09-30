@@ -3,8 +3,12 @@
 --- given at o/cosmic.db in the projection's place ([`build.test_sandbox`]),
 --- derived from the projection [`build.writer`] writes and kept by
 --- `cosmic test` under o/stores by its address ([`build.test`]), so an
---- edit to a module outside the closure leaves the store, and the
---- test's key, as they were.
+--- edit to a module outside the closure leaves the store as it was. A
+--- test's key holds the store by the digest of its bytes
+--- ([`build.declared_key`]'s `store_digest`), not by its address: the
+--- address says only where a store is and whether it must be written, so
+--- an edit to the code that writes it that leaves its bytes as they were
+--- moves no key.
 ---
 --- It is apart from the projection's writer because its code salts
 --- every store's address ([`build.test`]'s `store_writer`), and that
@@ -301,7 +305,9 @@ end
 --- declaration outside the closure moves none of these, and neither
 --- does adding or removing one, except a module an example of the
 --- closure could be paired with. So neither the address nor the store
---- moves.
+--- moves. The store holds no trace of its address (`write`), so two
+--- addresses of the same rows -- an edit to the writer's comments, say
+--- -- name stores of the same bytes, which a key holds alike.
 function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string): string
   local lines: {string} = { basis.shared, salt }
@@ -379,12 +385,14 @@ end
 --- is `basis`: what a sandboxed worker of a test whose module's import
 --- closure `names` holds is given at o/cosmic.db in the projection's
 --- place ([`build.test_sandbox`]), so an edit outside the closure leaves
---- it as it was. Its `meta` names `address` as `closure`. Like the
---- projection, a function of its inputs alone: a fresh schema, filled
---- in one order, vacuumed; and synced before it is moved into place,
---- since a store is written once and read as it is from then on.
+--- it as it was. Like the projection, a function of its rows alone: a
+--- fresh schema, filled in one order, vacuumed, naming neither its
+--- address nor the code that wrote it, so a key holds it by its bytes
+--- (build/closure_store_test.tl holds two writes of the same rows to
+--- the same bytes); and synced before it is moved into place, since a
+--- store is written once and read as it is from then on.
 function closure_store.write(whole: string, out: string, names: {string},
-                             basis: closure_store.Basis, address: string): boolean, string
+                             basis: closure_store.Basis): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: {string} = {}
     for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
@@ -413,9 +421,6 @@ function closure_store.write(whole: string, out: string, names: {string},
         local ok, failure = db:exec(statement)
         if not ok then return false, failure end
       end
-      local noted, note_trouble = Sqlite.run(db,
-        "INSERT INTO main.meta (key, value) VALUES ('closure', ?1)", { text(address) })
-      if not noted then return false, note_trouble end
       for _, statement in ipairs(schema.rebuild("main.")) do
         local ok, failure = db:exec(statement)
         if not ok then return false, failure end

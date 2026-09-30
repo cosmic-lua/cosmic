@@ -7,6 +7,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local closure_store = require("build.closure_store")
+local declared_key = require("build.declared_key")
 local docs = require("build.docs")
 local importer = require("build.importer")
 local teal = require("build.teal")
@@ -91,7 +92,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     assert(work.close(handle))
     local basis = assert(closure_store.basis(tmp .. "/whole.db"))
     local address = closure_store.address(basis, closure, salt or "salt")
-    assert(closure_store.write(tmp .. "/whole.db", out, closure, basis, address))
+    assert(closure_store.write(tmp .. "/whole.db", out, closure, basis))
     return address
   end
   local first = store("world", tmp .. "/first.db")
@@ -109,6 +110,8 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "a module added outside the closure moved its store")
   assert(store("world", tmp .. "/salted.db", "another writer") ~= first,
     "the code that writes it left its address")
+  assert(Fs.read(tmp .. "/salted.db") == Fs.read(tmp .. "/first.db"),
+    "the code that writes it, writing the same rows, moved its bytes")
   local function extra(field: string)
     assert(Fs.write(root .. "/extra.d.tl", "local type base = require 'base'\n" ..
       "local record extra\n  " .. field .. ": base\nend\nreturn extra\n"))
@@ -153,13 +156,13 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
     "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
     "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
-    "(SELECT value FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
+    "(SELECT count(*) FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
   assert(db:close())
   local row = rows[1]
   assert(row[1] == "greet greet_test", row[1])
   assert(row[2] == "0", "a doc of a module outside the closure is in its store")
   assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
-  assert(row[4] == first, row[4])
+  assert(row[4] == "0", "the store names its address, which a key would then hold")
   assert(row[5] == "0", "a declaration outside the closure is in its store")
 end
 
@@ -185,7 +188,7 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
     assert(work.close(handle))
     local basis = assert(closure_store.basis(tmp .. "/whole.db"))
     local address = closure_store.address(basis, names, "salt")
-    assert(closure_store.write(tmp .. "/whole.db", out, names, basis, address))
+    assert(closure_store.write(tmp .. "/whole.db", out, names, basis))
     return address
   end
   local first = store("one compiler", tmp .. "/first.db")
@@ -211,7 +214,7 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
         assert(db:close())
       end
       local basis = assert(closure_store.basis(tmp .. "/whole.db"))
-      assert(closure_store.write(tmp .. "/whole.db", out, names, basis, "probe"))
+      assert(closure_store.write(tmp .. "/whole.db", out, names, basis))
       return closure_store.address(basis, names, "salt")
     end
     local before = address(setup or "", tmp .. "/before.db")
@@ -321,8 +324,7 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(work.close(handle))
   local names = { "greet", "greet_test" }
   local basis = assert(closure_store.basis(tmp .. "/whole.db"))
-  local address = closure_store.address(basis, names, "salt")
-  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", names, basis, address))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", names, basis))
   local db = assert(Sqlite.open(tmp .. "/store.db", false))
   local view = assert(docs.view({ db }))
   local found = assert(docs.uses(view, "greet.hello"))
@@ -405,4 +407,98 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     "an edit to a declaration left the store of a closure that holds it")
   assert(after["greet_test"] == before["greet_test"],
     "an edit to a declaration moved the store of a closure that does not hold it")
+end
+
+--- A closure store is a function of its rows alone: written twice from
+--- one projection, and again from that projection written afresh, it is
+--- the same bytes, wherever it is written -- which is what lets a key
+--- hold it by its bytes ([`declared_key.store_digest`]).
+local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet_test.tl", 'local greet = require("greet")\n' ..
+    "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
+  local names = { "greet", "greet_test" }
+  -- The projection of the project, with a doc, a use, a catalog entry
+  -- and an example of the closure beside what the build wrote, so the
+  -- store carries rows of each table its full-text indexes are built
+  -- from.
+  local function projected()
+    assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
+    local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+    assert(db:exec("INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
+      "signature, text, file, line) VALUES ('greet', 'greet.wave', 'greet.wave', 1, " ..
+      "'function', 'function(): string', 'Waves at the world.', 'greet.tl', 2); " ..
+      "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
+      "('greet', 'hello', 'greet_test', 'greet_test.tl', 99); " ..
+      "INSERT INTO catalog (kind, module, symbol, message, text, file, line) VALUES " ..
+      "('error', 'greet', 'greet.hello', 'no world to greet', 'Raised with none.', " ..
+      "'greet.tl', 4); " ..
+      "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
+      "('greet', 'hello', 'Greets the world.', 'greet.tl', 5, 'print(greet.hello())')"))
+    assert(db:close())
+  end
+  projected()
+  local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/one.db", names, basis))
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/elsewhere/two.db", names, basis))
+  assert(Fs.remove(tmp .. "/whole.db"))
+  projected()
+  local again = assert(closure_store.basis(tmp .. "/whole.db"))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/three.db", names, again))
+  local one = assert(Fs.read(tmp .. "/one.db"))
+  assert(assert(Fs.read(tmp .. "/elsewhere/two.db")) == one,
+    "a second write of the same rows moved the store's bytes")
+  assert(assert(Fs.read(tmp .. "/three.db")) == one,
+    "a write from the projection written afresh moved the store's bytes")
+  local db = assert(Sqlite.open(tmp .. "/one.db", false))
+  local counts = assert(Sqlite.text_rows(db, "SELECT (SELECT count(*) FROM docs_fts " ..
+    "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
+    "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
+    "(SELECT count(*) FROM uses)"))
+  assert(db:close())
+  assert(table.concat(counts[1], " ") == "1 1 1 2", table.concat(counts[1], " "))
+end
+
+--- The key of a test given a closure store holds the store by its bytes,
+--- not its address: an edit to the code that writes it that writes the
+--- same bytes (a comment in build/schema.tl, which salts the address)
+--- moves the address and leaves the key; a change to the rows it
+--- carries moves both.
+local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet_test.tl", 'local greet = require("greet")\n' ..
+    "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
+  local names = { "greet", "greet_test" }
+  assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
+  local digests = declared_key.digests(tmp)
+  --- The address of the store written under `salt` at `out`, and the
+  --- key of a test given it.
+  local function keyed(salt: string, out: string): string, string
+    local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+    local address = closure_store.address(basis, names, salt)
+    assert(closure_store.write(tmp .. "/whole.db", out, names, basis))
+    local key, why = declared_key.compute(digests, {
+      id = "greet_test test_hello", group = "greet_test", module_key = "module",
+      runtime = "runtime", compiler = "", host = "host", epoch = "1-00000000",
+      timeout_ms = 30000, declaration = "", environment = {},
+      effective = { files = {}, reads = {}, host = {}, env = {}, network = {}, tool = false,
+        store = false, caches = {}, cache_paths = {} },
+      closure_store = declared_key.store_digest(digests, out),
+    })
+    assert(key ~= nil, why)
+    return address, key
+  end
+  local address, key = keyed("the writer", tmp .. "/first.db")
+  local commented, commented_key = keyed("the writer, commented", tmp .. "/commented.db")
+  assert(commented ~= address, "the writer's edit left the address")
+  assert(commented_key == key, "an edit to the writer that writes the same bytes moved the key")
+  local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+  assert(db:exec("UPDATE modules SET bytecode = bytecode || X'00' WHERE path = 'greet'"))
+  assert(db:close())
+  local moved, moved_key = keyed("the writer", tmp .. "/moved.db")
+  assert(moved ~= address, "a row of the closure left the address")
+  assert(moved_key ~= key, "a change to the store's bytes left the key")
 end

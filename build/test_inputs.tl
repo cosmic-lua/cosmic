@@ -115,7 +115,7 @@ local corpora <const> = "testdata/fuzz/"
 --- patches -- is no file of it, though build.teal loads it as bytecode
 --- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
 --- parse follows it: a key over the closure holds it apart, by its
---- bytecode, in the address of the closure store that carries it beside
+--- bytecode, in the bytes of the closure store that carries it beside
 --- build.teal ([`build.closure_store`]'s `loaded_beside`), as it holds every
 --- module of the closure by what the compiler made of it.
 local function closure(m: Module, by_path: {string:Module},

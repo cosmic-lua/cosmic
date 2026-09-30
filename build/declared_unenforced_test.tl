@@ -123,7 +123,7 @@ local function test_an_unenforced_verdict_stands_again_and_in_another_checkout(t
   local env = environment(tmp .. "/cache/verdicts.db")
   checkout(tmp .. "/first")
   -- Each worker attaches the store of its module's closure, as a
-  -- sandbox gives it one, which its key holds by address.
+  -- sandbox gives it one, which its key holds by its bytes.
   local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
   assert(first:find("test: declared: 2 closure stores written", 1, true), first)
   says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")
@@ -245,9 +245,7 @@ end
 
 --- Its worker attaches the store of its module's closure, not the
 --- tree's projection at o/cosmic.db: the database it holds open is
---- under o/stores/. The store's own `closure` row, which names its
---- address, would say so too, but the store's hold keeps a test from
---- reading that row (build.test_worker's `held_meta`), so the case
+--- under o/stores/. The store names nothing of where it is, so the case
 --- reads the worker's descriptors from /proc instead -- where there is
 --- one: macOS has none, and a Linux leg checks it.
 local function test_an_unenforced_worker_attaches_its_closure_store(tmp: string)

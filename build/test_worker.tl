@@ -413,7 +413,7 @@ end
 --- The `meta` rows a held worker's [`Store.meta`] reads of the databases
 --- the store's hold covers ([`hold_store`]), whatever its closure: those
 --- a closure store keeps of the projection ([`build.closure_store`]'s
---- `closure_meta`), which its address digests, and `boot_hash`. The
+--- `closure_meta`), which its bytes, and so the key, hold, and `boot_hash`. The
 --- rows the running program answers itself, from its core and the
 --- database it carries -- `runtime_context`, `host`, `host_image`,
 --- `runtime`, `runtime_basis` and `artifact` -- are answered ahead of

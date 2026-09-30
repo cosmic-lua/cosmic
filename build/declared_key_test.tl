@@ -152,11 +152,11 @@ local function test_each_input_moves_it(tmp: string)
   s.program = "another program"
   differs("the program that runs, for one that runs the tool", s)
   s = spec()
-  s.closure_store = "one address"
+  s.closure_store = "one store's digest"
   differs("the store of the closure, given", s)
   s = spec()
-  s.closure_store = "another address"
-  differs("the store of the closure's address", s)
+  s.closure_store = "another store's digest"
+  differs("the store of the closure's bytes", s)
   s = spec()
   s.module_key = "another module"
   differs("the module's key", s)
@@ -1126,4 +1126,36 @@ local function test_key_part_matches_known_hex_for_edge_bytes()
   assert(key_parts.key_part("s", edges, "") == "s 000a7fff ")
   assert(key_parts.key_part("o", "", edges) == "o  000a7fff")
   assert(key_parts.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
+end
+
+--- A closure store is keyed by its bytes ([`declared_key.store_digest`]):
+--- the same bytes at another path -- another address -- digest alike,
+--- other bytes do not, and a store rewritten in place is read again.
+local function test_a_store_is_digested_by_its_bytes(tmp: string)
+  local digests = declared_key.digests(tmp)
+  assert(Fs.write(tmp .. "/one.db", "rows"))
+  assert(Fs.write(tmp .. "/two.db", "rows"))
+  assert(Fs.write(tmp .. "/three.db", "other rows"))
+  local one = declared_key.store_digest(digests, tmp .. "/one.db")
+  assert(one == Hash.hex_sha256("rows"), one)
+  assert(declared_key.store_digest(digests, tmp .. "/two.db") == one)
+  assert(declared_key.store_digest(digests, tmp .. "/three.db") ~= one)
+  assert(declared_key.store_digest(digests, tmp .. "/none.db") == "missing")
+  assert(Fs.write(tmp .. "/one.db", "rewritten rows"))
+  assert(declared_key.store_digest(digests, tmp .. "/one.db") == Hash.hex_sha256("rewritten rows"))
+end
+
+--- A file an earlier run kept a hash of, rewritten since, is read once
+--- in a run however many keys hold it: the hash this run took stands
+--- ahead of the earlier run's, which no longer matches what `lstat`
+--- says. Only the reads move; each answer is the file's hash either way.
+local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: string)
+  local path = tmp .. "/store.db"
+  assert(Fs.write(path, "rows"))
+  local digests = declared_key.digests(tmp, { { "store\0" .. path, "an earlier lstat",
+    Hash.hex_sha256("earlier rows") } })
+  for _ = 1, 3 do
+    assert(declared_key.store_digest(digests, path) == Hash.hex_sha256("rows"))
+  end
+  assert(digests.read == 1, "read " .. tostring(digests.read) .. " times")
 end

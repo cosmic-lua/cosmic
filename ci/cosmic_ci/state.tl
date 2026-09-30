@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS suite_runs (
   ran INTEGER, stood INTEGER, every INTEGER, assumed INTEGER, shared INTEGER,
   failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, host_features TEXT,
   host TEXT, system TEXT, runtime TEXT, compiler TEXT, harness TEXT,
-  launcher TEXT, program TEXT, held TEXT);
+  launcher TEXT, program TEXT, held TEXT, store TEXT);
 ]]
 
 function State.canonical_directory(path: string): string
@@ -81,8 +81,28 @@ function State.external_path(path: string, candidate: string): string
   return absolute
 end
 
+--- The columns of `suite_runs` in `db`, as a set: one written before a
+--- column was lacks it.
+local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
+  local out: {string:boolean} = {}
+  for _, row in ipairs((assert(Sqlite.text_rows(db,
+      "SELECT name FROM pragma_table_info('suite_runs')")))) do
+    out[row[1]] = true
+  end
+  return out
+end
+
 function State.open(path: string): Sqlite.Handle
   local db = assert(Sqlite.open(path, true)); assert(db:exec(State.schema))
+  -- A table written before a key part or `held` was gains its column.
+  local present = suite_columns_of(db)
+  local wanted: {string} = { "held" }
+  for _, part in ipairs(State.key_parts) do wanted[#wanted + 1] = part[2] end
+  for _, name in ipairs(wanted) do
+    if not present[name] then
+      assert(db:exec("ALTER TABLE suite_runs ADD COLUMN " .. name .. " TEXT"))
+    end
+  end
   return db
 end
 
@@ -116,7 +136,7 @@ end
 State.key_parts = {
   { "host features", "host_features" }, { "host", "host" }, { "system", "system" },
   { "runtime", "runtime" }, { "compiler", "compiler" }, { "harness", "harness" },
-  { "launcher", "launcher" }, { "program", "program" },
+  { "launcher", "launcher" }, { "program", "program" }, { "store", "store" },
 }
 
 --- `suite_runs`' columns before its key parts, in order.
@@ -138,13 +158,13 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   for _, name in ipairs(State.suite_columns) do
     selected[#selected + 1] = name .. " IS NULL, COALESCE(CAST(" .. name .. " AS TEXT), '')"
   end
+  -- An operations database written before a column was lacks it.
+  local columns = suite_columns_of(db)
   for _, part in ipairs(State.key_parts) do
-    selected[#selected + 1] = part[2] .. " IS NULL, COALESCE(" .. part[2] .. ", '')"
+    selected[#selected + 1] = columns[part[2]] and
+      (part[2] .. " IS NULL, COALESCE(" .. part[2] .. ", '')") or "1, ''"
   end
-  -- An operations database written before the column was lacks it.
-  local has_held = #assert(Sqlite.text_rows(db,
-    "SELECT 1 FROM pragma_table_info('suite_runs') WHERE name = 'held'")) > 0
-  selected[#selected + 1] = has_held and "held IS NULL, COALESCE(held, '')" or "1, ''"
+  selected[#selected + 1] = columns.held and "held IS NULL, COALESCE(held, '')" or "1, ''"
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
     " FROM suite_runs ORDER BY id"))
   local out: {State.SuiteRun} = {}
