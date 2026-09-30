@@ -486,16 +486,42 @@ COSMIC_SYSCALL(listen, 2) {
   return 1;
 }
 
+/* Whether accept's errno `e` is the failure of one pending connection
+ * rather than of the listener, which accept(2) says to answer by taking
+ * the next one: ECONNABORTED for a client that reset before it was
+ * taken (macOS; Linux hands such a connection over), and on Linux a
+ * pending connection's network error. */
+#if defined(__linux__)
+#define CONNECTION_FAILED(e) \
+  ((e) == ECONNABORTED || (e) == EPROTO || (e) == ENETDOWN || \
+   (e) == ENOPROTOOPT || (e) == EHOSTDOWN || (e) == ENONET || \
+   (e) == EHOSTUNREACH || (e) == ENETUNREACH)
+#else
+#define CONNECTION_FAILED(e) ((e) == ECONNABORTED || (e) == EPROTO)
+#endif
+
+/* How many failed pending connections in a row accept takes before it
+ * answers the last failure. It is bounded because the same errno can
+ * also be the listener's own and persist: macOS answers ECONNABORTED
+ * for every accept on a listener whose receive side is shut down. */
+#define ACCEPT_RETRIES 16
+
 COSMIC_SYSCALL(accept, 1) {
   int listener = cosmic_checkfd(L, 1);
   struct owned *owned = owner_push(L, 0);
-  do {
+  /* TODO: test a connection reset before it is taken, once cosmic.net
+   * can set SO_LINGER to close with a reset; only macOS reports it. */
+  int retries = 0;
+  for (;;) {
 #if defined(SOCK_CLOEXEC)
     owned->fd = accept4(listener, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
 #else
     owned->fd = accept(listener, NULL, NULL);
 #endif
-  } while (owned->fd < 0 && errno == EINTR);
+    if (owned->fd >= 0) break;
+    if (errno == EINTR) continue;
+    if (!CONNECTION_FAILED(errno) || ++retries > ACCEPT_RETRIES) break;
+  }
   if (owned->fd < 0) return cosmic_fail(L, errno);
   int failure = made(owned->fd);
   if (failure != 0) {
