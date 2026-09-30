@@ -150,7 +150,7 @@
    every project, naming the rule. A test that needs a service starts
    its own on 127.0.0.1. A
    worker, and every process it starts, is given at o/cosmic.db the
-   store of its module's import closure alone, keyed by its address.
+   store of its module's import closure alone, keyed by its bytes.
    Sandboxed or not, a worker whose module does not declare `store`
    (`tool` does not lift it) holds every other lookup in the store to
    that closure too

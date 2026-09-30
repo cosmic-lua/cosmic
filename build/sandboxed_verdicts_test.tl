@@ -580,8 +580,8 @@ end
 --- reads the compiler's identity (build/declared_key.tl's
 --- `compiler_readers`, which the fixture's [`core.allocation_test`]
 --- stands in for by its name): the module's key the key holds is the
---- compiler's graph key, the store's address holds what the compiler
---- made, and the compiler itself only where it is read.
+--- compiler's graph key, the store's bytes hold what the compiler made,
+--- and the compiler itself only where it is read.
 local function test_a_compiler_that_makes_the_same_bytecode_runs_only_its_readers(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -693,4 +693,36 @@ end
   assert(inside:find("1 ran, 0 stood", 1, true), inside)
   local now = closure_stores()
   assert(#now == 1 and now[1] ~= stores[1], table.concat(now, " "))
+end
+
+--- A test is keyed by the bytes of the store of its closure, not by
+--- where the store is: an edit to the code that writes it -- stood in
+--- for by COSMIC_TEST_STORE_SALT, which moves every store's address, as
+--- a comment in build/schema.tl does -- writes each store again, at its
+--- new address, and every test stands on it; an edit to a module of a
+--- closure, which moves its store's bytes, runs its tests again. And a
+--- checkout of the same content that has no store stands on the
+--- verdicts another reached without writing one: the digest of each
+--- store's bytes is kept by its address beside them.
+local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  assert(first:find("3 ran, 0 stood", 1, true), first)
+  env.COSMIC_TEST_STORE_SALT = "another writer"
+  local rewritten = run(root, tmp .. "/rewritten.out", env)
+  assert(rewritten:find("0 ran, 3 stood", 1, true) and
+    rewritten:find("3 closure stores written", 1, true), rewritten)
+  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  local edited = run(root, tmp .. "/edited.out", env)
+  assert(edited:find("1 ran, 2 stood", 1, true), edited)
+  checkout(tmp .. "/second")
+  assert(Fs.write(tmp .. "/second/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  local second = run(tmp .. "/second", tmp .. "/second.out", env)
+  assert(second:find("0 ran, 3 stood", 1, true) and
+    not second:find("closure store", 1, true), second)
+  local stores, _ = Fs.list(tmp .. "/second/o/stores")
+  assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
 end

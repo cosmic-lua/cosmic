@@ -471,8 +471,11 @@ local function remembered(digests: declared_key.Digests, name: string, st: sys.S
                           compute: function(data: string): string): string
   local said = signature(st)
   digests.used[name] = true
-  local was = digests.hashed[name] or digests.this_run[name]
-  if was ~= nil and was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  -- This run's first: a file rewritten since an earlier run kept its
+  -- hash is taken again by what this run read, not read at every look.
+  for _, was in ipairs({ digests.this_run[name] or "", digests.hashed[name] or "" }) do
+    if was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  end
   local data, _ = Fs.read(name:match("^[^\0]*\0(.*)$"))
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end

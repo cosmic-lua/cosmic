@@ -38,11 +38,14 @@ local Plural = require("cosmic_ci.plural")
 local record Verdicts
 end
 
---- The tables of build/shared_verdicts.tl's formats: `declared_v<n>`,
---- and the observation-keyed `verdicts_v<n>`, which the tree's tool does
---- not stamp, so every row of it goes wherever the file is trimmed.
-local tables: CacheTrim.Tables = { patterns = { "declared_v[0-9]*", "verdicts_v[0-9]*" },
-  whole_unless_reached = true }
+--- The tables of build/shared_verdicts.tl's formats: `declared_v<n>`;
+--- `stores_v<n>`, the digest of each closure store's bytes by its
+--- address, which a run stamps as it keys a test by it, so a leg that
+--- restores it keys its tests without writing the stores; and the
+--- observation-keyed `verdicts_v<n>`, which the tree's tool does not
+--- stamp, so every row of it goes wherever the file is trimmed.
+local tables: CacheTrim.Tables = { patterns = { "declared_v[0-9]*", "stores_v[0-9]*",
+  "verdicts_v[0-9]*" }, whole_unless_reached = true }
 
 --- The caches in `dir`, each a `.db` file: not their logs, nor what
 --- was set aside beside them, which [`CacheTrim.file`] removes.
