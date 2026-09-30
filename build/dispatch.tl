@@ -29,8 +29,8 @@ local log = verdict.log
 --- The full text of each verb's `cosmic help <verb>`, generated from
 --- [`cosmic.cli`]'s own fields ([`cosmic.cli.Cli.run`],
 --- [`cosmic.cli.Cli.test`], ...) so this wording is never a second,
---- hand-kept copy of what `cosmic docs build` (or any verb [`Cli.order`]
---- names) already answers.
+--- hand-kept copy of what `cosmic docs build` (or any verb
+--- [`cosmic.cli.order`] names) already answers.
 --- Falls back to naming the lookup that failed, rather than silently
 --- dropping a verb from its own help, if [`cosmic.cli`]'s own database
 --- row is ever missing.
@@ -197,7 +197,8 @@ local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): 
 end
 
 --- The index `cosmic help` prints: what `cosmic` is, each verb's usage
---- and purpose in the sections [`Cli.groups`] names, and where to read more.
+--- and purpose in the sections [`cosmic.cli.groups`] names, and where to
+--- read more.
 local function index_help(): string
   local Cli = require("cosmic.cli")
   local width = 0
@@ -635,8 +636,8 @@ end
 local dispatch = {}
 
 --- Every text `cosmic help` prints, by what asks for it: `""` is the
---- index, `exit` its page, and each verb of [`Cli.order`] its own, so a
---- check reads what a user reads.
+--- index, `exit` its page, and each verb of [`cosmic.cli.order`] its own,
+--- so a check reads what a user reads.
 local function help_texts(): {string: string}
   local Cli = require("cosmic.cli")
   local verb_list = require("build.verb_list")
