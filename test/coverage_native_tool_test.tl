@@ -1,6 +1,7 @@
 --- The case of test/coverage_native_test.tl about a process's first
 --- coverage window, which only a fresh process shows: it declares
---- `tool` because it starts this program.
+--- `lua` because it starts this program only to run a script
+--- standalone.
 
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
@@ -9,7 +10,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its test starts.
-Test.needs{ tool = true }
+Test.needs{ lua = true }
 
 --- A process's first window keeps the C that ran before it opened --
 --- startup -- and every later one starts empty. Run in a fresh process,
@@ -31,7 +32,7 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ script },
+  local started = this_program.program({ "--standalone", script },
     { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))

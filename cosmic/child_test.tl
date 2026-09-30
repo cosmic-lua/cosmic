@@ -1,7 +1,7 @@
 --- The cases of cosmic.child that start nothing of this program: a
 --- bare name not found, options and streams refused before a start,
 --- and the signal guard. Those that start a child, which is this
---- program again, are in cosmic/child_tool_test.tl.
+--- program again, are in cosmic/child_lua_test.tl and cosmic/child_tool_test.tl.
 ---
 --- The `/bin/sh` a refusal case here names is never started: its
 --- option is refused before a start, and a sandboxed worker has no sh

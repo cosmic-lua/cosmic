@@ -14,7 +14,7 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
 --- The program itself, which the test starts.
-Test.needs{ tool = true }
+Test.needs{ lua = true }
 
 local function test_a_write_to_a_closed_peer_does_not_end_the_process(tmp: string)
   local script = tmp .. "/write.tl"

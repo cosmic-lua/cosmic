@@ -13,7 +13,7 @@ local this_program = require("build.this_program")
 Test.needs{
   host = { "/proc" },
   env = { "*" },
-  tool = true,
+  lua = true,
 }
 
 --- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.

@@ -2,7 +2,8 @@
 --- runs: what it refuses, and what it hands a runner. A test module may
 --- call `needs` only once, at its top, so each case runs in a script of
 --- its own, which plays the runner through the hook [`build.test_worker`]
---- installs. They declare `tool` because they start this program.
+--- installs. They declare `lua` because they start this program only to run
+--- a script standalone.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -10,7 +11,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.needs{ lua = true }
 
 --- Runs `body` as a script under this program, with a runner installed
 --- that says what `needs` is handed, answering what it wrote.

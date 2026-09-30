@@ -1333,7 +1333,11 @@ local function can_forbid(rec: Recording, m: importer.Module): boolean
 end
 
 --- How a sandboxed worker of `m`'s tests stands to running this
---- program: "declared" where its module declares `tool`, "forbidden"
+--- program: "declared" where its module declares `tool`; "lua" where it
+--- declares `lua`, whose worker may run it as "allowed" says but holds
+--- what it starts to what its key holds ([`build.test_worker`]'s
+--- `hold_children`), so its key holds no more of the program than of its
+--- closure; "forbidden"
 --- where it is kept from running it ([`can_forbid`]), and "allowed" where
 --- it is not -- its module declares `nests`, whose worker no Landlock
 --- ruleset holds, or it cannot be -- which its key holds as if its
@@ -1341,6 +1345,7 @@ end
 --- line ([`hold_of`]) both take it from here.
 local enum ToolUse
   "declared"
+  "lua"
   "forbidden"
   "allowed"
 end
@@ -1348,6 +1353,7 @@ end
 local function tool_use(rec: Recording, m: importer.Module): ToolUse
   local effective = rec.effective[m.path]
   if effective.tool then return "declared" end
+  if effective.lua then return "lua" end
   if effective.nests then return "allowed" end
   return can_forbid(rec, m) and "forbidden" or "allowed"
 end
@@ -2095,7 +2101,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local command = worker.invocation({
     start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), hold = hold,
-    open = declared ~= nil and declared.store, store = attached,
+    lua = rec.effective[job.m.path].lua, open = declared ~= nil and declared.store, store = attached,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
     sandbox = sandbox, program = job.plan ~= nil and job.plan.program or nil,
   })

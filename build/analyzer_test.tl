@@ -1330,7 +1330,7 @@ end
 --- refused, naming its line and what is wrong with it.
 local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
-    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, nests, network" },
+    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, lua, nests, network" },
     -- No test reaches beyond loopback, which is 127/8.
     { 'Test.needs { network = true }', "fixture_test.tl:3: test.needs: network = true: " ..
       "network takes loopback addresses 127.a.b.c only: no test reaches another host" },
@@ -1340,6 +1340,11 @@ local function test_a_malformed_needs_call_is_refused()
     { 'Test.needs { network = { "localhost" } }',
       'network "localhost": network takes loopback addresses' },
     { 'Test.needs { network = false }', "network takes a list of string literals, written out" },
+    -- `lua` holds what the tests start to its key, which a host program,
+    -- a cached cosmic or `tool`'s wider key would slip past.
+    { 'Test.needs { lua = true, tool = true }', "fixture_test.tl:3: test.needs: lua is refused beside tool" },
+    { 'Test.needs { lua = true, system = true }', "lua is refused beside system: a host program" },
+    { 'Test.needs { lua = true, caches = { "zig" } }', "lua is refused beside caches" },
     -- A host path names a file, or /proc.
     { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
       "files, or /proc: declare the files the tests read" },
