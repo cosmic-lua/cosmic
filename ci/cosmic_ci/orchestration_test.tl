@@ -1057,7 +1057,7 @@ end
 
 --- The portable suite stands on verdicts where the other suites do --
 --- a Linux leg's push or merge queue run -- on those of its own file
---- ([`Orchestration.suite_verdicts`]), never the local suite's; where
+--- ([`cosmic_ci.orchestration.suite_verdicts`]), never the local suite's; where
 --- they do not (main's scheduled run), it runs every test.
 local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
   local base, project = command(tmp)
@@ -1323,7 +1323,7 @@ local sets_what_it_reads: {string:{string:boolean}} = {
 }
 
 --- No tree source names a variable a gating suite's workers are not
---- given ([`Orchestration.forget_run`]) but one that sets it itself
+--- given ([`cosmic_ci.orchestration.forget_run`]) but one that sets it itself
 --- (`sets_what_it_reads`): a test that read one would find it unset in
 --- CI. A new one is kept out of `forget_run` or set by the test.
 local function test_no_tree_source_reads_what_a_suite_forgets()
