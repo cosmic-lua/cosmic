@@ -1178,10 +1178,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
   end
   local owners: {string: integer} = {}
   for index, db in ipairs(databases) do
-    local rows, trouble = Sqlite.text_rows(db,
-      "SELECT path FROM modules UNION SELECT path FROM decls " ..
-      "WHERE path IN (SELECT module FROM docs) UNION SELECT module FROM docs " ..
-      "WHERE symbol = '' AND module GLOB 'doc.guides.*' ORDER BY path")
+    local rows, trouble = Sqlite.text_rows(db, symbols.owned_modules(""))
     if rows == nil then
       return nil, trouble
     end

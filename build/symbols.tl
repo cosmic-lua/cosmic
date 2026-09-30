@@ -76,6 +76,19 @@ local function public_docs(column: string, public: boolean): string
     symbols.guide_module(column) .. ")"
 end
 
+--- The modules a database under `qualifier` (`""`, or `"out."`) answers
+--- for, sorted: its modules, a declaration only where it documents one
+--- -- a database that copied a declaration without its docs must not
+--- hide the one that does -- and a guide by its own row. Which database
+--- owns a module is the first of a lookup's that answers for it, for
+--- `cosmic docs`, `cosmic fix` and the index of links alike.
+function symbols.owned_modules(qualifier: string): string
+  return "SELECT path FROM " .. qualifier .. "modules UNION SELECT path FROM " ..
+    qualifier .. "decls WHERE path IN (SELECT module FROM " .. qualifier .. "docs) " ..
+    "UNION SELECT module FROM " .. qualifier .. "docs " ..
+    "WHERE symbol = '' AND module GLOB 'doc.guides.*' ORDER BY 1"
+end
+
 --- The condition under which `alias` (a row of `docs`) is a `local`
 --- declaration the module never hands out: not the module's surface.
 function symbols.local_declaration(alias: string): string
@@ -98,14 +111,16 @@ function symbols.shown_docs(alias: string, public: boolean): string
   local dotted = "replace(" .. symbol .. ", ':', '.')"
   -- The declaration is found by where it is written, `source_symbol`: a
   -- module's [`Fs.walk`] and its private `local function walk` share the
-  -- symbol `walk`.
+  -- symbol `walk`. `docs` has no index to look it up by, so the local
+  -- declarations are gathered once (an uncorrelated `IN`) rather than
+  -- scanned for again at every row.
   local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
   return module .. " AND (" .. symbol .. " = '' OR (" ..
     "NOT " .. symbols.local_declaration(alias) .. " AND NOT (" .. alias ..
     ".kind IN ('field', 'function', 'method') AND (" .. dotted .. " GLOB '*._*' OR " ..
-    dotted .. " GLOB '_*')) AND NOT EXISTS (SELECT 1 FROM docs lr WHERE lr.module = " ..
-    alias .. ".module AND lr.source_symbol = substr(" .. source .. ", 1, instr(" .. source ..
-    " || '.', '.') - 1) AND " .. symbols.local_declaration("lr") .. ")))"
+    dotted .. " GLOB '_*')) AND (" .. alias .. ".module, substr(" .. source .. ", 1, instr(" ..
+    source .. " || '.', '.') - 1)) NOT IN (SELECT lr.module, lr.source_symbol FROM docs lr " ..
+    "WHERE " .. symbols.local_declaration("lr") .. ")))"
 end
 
 --- The condition under which the SQL `name` ends in `.` or `:` and then
