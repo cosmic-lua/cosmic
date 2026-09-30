@@ -64,7 +64,11 @@
 # under the step's timeout (build/workflows_test.tl). Where READY_SECONDS
 # is set, JOB is taken to keep ARTIFACT that long after it started: one
 # not started yet, or that would keep it only after the wait ends, is
-# not waited for. None is found at once where the checkout's change
+# not waited for. Where SUITE_STEP is set, the name of JOB's step after
+# which it keeps ARTIFACT (its suite), a JOB ahead that has not begun
+# that step is not waited for either: one not started, still building,
+# or itself waiting on the run ahead of it, whose ARTIFACT is more than
+# a short wait away. None is found at once where the checkout's change
 # moves build/harness_epoch.tl from BASE's, when every suite runs every
 # test (--all) and stands on no verdict; where BASE heads no queue run
 # (it is main's already: ci.yml skips the step where the restore took
@@ -185,17 +189,22 @@ EOF
         elif [ "$status" = completed ]; then
           said="the run ahead, $run, completed without $ARTIFACT: the restore's verdicts alone."
         elif jobs=$(api "repos/$REPOSITORY/actions/runs/$run/jobs?per_page=100" \
-            --jq '.jobs[] | "\(.status) \(.started_at // "" | if . == "" then "none" else fromdateiso8601 end) \(.name)"'); then
-          job=$(printf '%s\n' "$jobs" | while read -r state started name; do
-            [ "$name" != "$JOB" ] || { echo "$state $started"; break; }
+            --jq '.jobs[] | "\(.status) \(.started_at // "" | if . == "" then "none" else fromdateiso8601 end) \(if (env.SUITE_STEP // "") == "" then "-" elif any(.steps[]?; .name == env.SUITE_STEP and (.status == "in_progress" or .status == "completed")) then "reached" else "before" end) \(.name)"'); then
+          # "<status> <started> <reached>", where <reached> says whether
+          # JOB has begun SUITE_STEP ("-" where none is named).
+          job=$(printf '%s\n' "$jobs" | while read -r state started reached name; do
+            [ "$name" != "$JOB" ] || { echo "$state $started $reached"; break; }
           done)
+          started=${job#* } reached=${job##* }
+          started=${started%% *}
           case $job in
             "completed "*)
               said="$JOB of the run ahead, $run, completed without $ARTIFACT: the restore's verdicts alone." ;;
             *)
               pending=1
-              if [ -n "${READY_SECONDS-}" ]; then
-                started=${job#* }
+              if [ -n "${SUITE_STEP-}" ] && [ "$reached" != reached ]; then
+                said="$JOB of the run ahead, $run, has not begun '$SUITE_STEP' (not started, building, or waiting on its own run ahead): the restore's verdicts alone."
+              elif [ -n "${READY_SECONDS-}" ]; then
                 case $started in
                   "" | none | *[!0-9]*)
                     said="$JOB of the run ahead, $run, has not started: the restore's verdicts alone." ;;

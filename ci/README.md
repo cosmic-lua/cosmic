@@ -353,7 +353,12 @@ above), between its boot (`platform boot`) and its native suite
 (`platform local-suite`, the `build` phase's suite, which run-local
 still runs with its boot as `build`). While the run ahead is in
 progress and its leg has not completed, it asks again every 15 s, for
-two and a half minutes at most. The checked job waits a minute and a
+half a minute at most, and not at all where that leg has not begun its
+native suite (`SUITE_STEP`): one not started, still building, or itself
+waiting on the run ahead of it. A longer wait cost more than it saved:
+in the queue of 2026-09-30, legs waited 97 and 132 s, one on a leg that
+was itself waiting, where the suite stands mostly on what was restored
+anyway. The checked job waits a minute and a
 half at most, and not at all for a checked job ahead that will not
 have kept its verdicts by then, some seven minutes after it started.
 A run, or its leg, that completed without the artifact, a base that
@@ -552,11 +557,27 @@ worker a fixed path.
 The CI driver check's marker is keyed by what cosmic_ci's tests read
 (`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
 leg's host; an exact hit skips the check, except on the scheduled and
-manual runs. The host is in the key, the runner's image
-(`ImageVersion`) with it, since the check runs unsandboxed and its tests
-start the host's own programs (`/bin/sh`, `cp`): a marker says the
-driver passed on that image. So a full run checks on each leg, and an
-image rollout misses every marker until main saves again. A branch
+manual runs. The host is in the key, since the check runs unsandboxed
+and its tests start the host's own programs (`/bin/sh`, `cp`): a marker
+says the driver passed on that host. On a Linux leg those programs are
+the container's, so the host is the container (`COSMIC_HOST_ID`'s hash:
+its image by digest, how it is started and the engine's version), not
+the runner's image, which GitHub rolls out over days: with
+`ImageVersion` in the key, a queue leg on the other image of a mixed
+fleet missed main's marker and checked again (3 of 12 queue runs on
+2026-09-30, 53 s each on the gating leg). Keyed by the container,
+a leg on either image of a mixed fleet finds the marker only while
+both ship the same engine: its
+`Server.Version` is in `COSMIC_HOST_ID`, so an image that moves the
+engine (a moby bump) still misses main's marker until main saves
+again. What the runner's image
+still gives a Linux leg, its kernel and the engine, reaches the check
+only through the engine (keyed) and the kernel's system calls, which
+the check's tests (processes, files) use as any Linux does; the
+scheduled run checks on every leg whatever was saved. The macOS leg
+runs on the runner's own userland, so its key holds the runner's image
+(`ImageVersion`), and an image rollout misses its marker until main
+saves again. So a full run checks on each leg where its key moved. A branch
 push checks only once, in the checked job, on linux-x86_64's host and
 with no marker, off the legs' path; the queue checks each leg before
 anything lands.
