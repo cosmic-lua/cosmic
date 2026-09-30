@@ -452,7 +452,8 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
 
-  -- Held as a run rebuilding the tool holds it (build.reboot).
+  -- The rebuild lock's SQLite half, which a tool from before the flock
+  -- holds alone and every run still waits for (build.rebuild_lock).
   local lock = assert(Sqlite.open(tree .. "/o/rebuild.lock", true))
   assert(lock:exec("BEGIN IMMEDIATE"))
   local held_ok, failure = pcall(function(): boolean
