@@ -163,6 +163,55 @@ local function test_a_fence_closes_on_its_own_run()
   same(parsed(lines("```", "`~~~", "[a](b.md)", "```", "``` [c](d.md) `x`")), { "5 inline d.md" })
 end
 
+--- An ordered item that is a sibling of an open one starts, whatever
+--- it counts from: the paragraph before it is its sibling's, not one it
+--- would go on with. So the line after the blank is its paragraph. In
+--- an item's own paragraph, one not counting from 1 goes on with it,
+--- and the line after the blank is that item's code.
+local function test_a_sibling_item_starts_whatever_it_counts_from()
+  same(parsed(lines("9. a", "10. b", "", "       [a](b.md)")), { "4 inline b.md" })
+  same(parsed(lines("1. a", "2.    b", "", "       [c](d.md)")), { "4 inline d.md" })
+  same(parsed(lines("- x", "  9. a", "  10. b", "", "         [e](f.md)")), {})
+end
+
+--- A tab after a list marker goes to the next stop from where the
+--- marker ends, not from the start of the line.
+local function test_a_tab_after_a_marker_counts_from_the_marker()
+  same(parsed(lines("-\titem", "", "\t[a](b.md)")), { "3 inline b.md" })
+  same(parsed(lines("1.\titem", "", "\t[c](d.md)")), { "3 inline d.md" })
+end
+
+--- An inline HTML comment ends with its paragraph, which a heading or
+--- a list item ends as a blank line does.
+local function test_an_inline_comment_ends_with_its_paragraph()
+  same(parsed(lines("text <!-- note", "# Heading [a](b.md) -->")), { "2 inline b.md" })
+  same(parsed(lines("text <!-- note", "- [c](d.md) -->")), { "2 inline d.md" })
+  same(parsed(lines("text <!-- note", "goes on [e](f.md) -->")), {})
+end
+
+--- A code span ends with its paragraph, which a heading ends as a
+--- blank line does; an underline out of a list item's paragraph makes
+--- no heading of it, and the paragraph goes on.
+local function test_a_code_span_ends_with_its_paragraph()
+  same(parsed(lines("a `x", "# h [a](b.md) `")), { "2 inline b.md" })
+  same(parsed(lines("a `x", "===", "[c](d.md) `")), { "3 inline d.md" })
+  same(parsed(lines("9. a `x", "===", "[e](f.md) `")), {})
+end
+
+--- In a quote, a tab counts its stops from the line's start, a line
+--- indented as code goes on with the quote's paragraph, and a fence's
+--- `>` past the fence's quote is its code.
+local function test_a_quote_is_read_past_its_marker()
+  same(parsed(lines(">\t- a", "> \t- [a](b.md)")), { "2 inline b.md" })
+  same(parsed(lines("> a", "\t> [c](d.md)")), { "2 inline d.md" })
+  same(parsed(lines("```", "> ```", "[e](f.md)", "```")), {})
+end
+
+--- An HTML comment block no `-->` closes ends with its list item.
+local function test_an_html_comment_ends_with_its_list_item()
+  same(parsed(lines("- <!--", "", "  [a](b.md)", "", "[c](d.md)")), { "5 inline d.md" })
+end
+
 --- A comment's text is read past the space its lines start with.
 local function test_a_comments_indented_code_hides_links()
   same(parsed(lines(" Text.", "", "     [a](b.md) is code;", "", "    [c](d.md) is not.")),
@@ -449,6 +498,15 @@ local function test_a_link_in_code_or_a_comment_goes_unchecked()
     "    [broken](still_nowhere.md)")
   same(checked(world({ ["/p/a.md"] = source }), "/p/a.md", "markdown", source), {
     "/p/a.md:9: link: still_nowhere.md does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
+--- A C comment's lines with no `*` are read against its first line's
+--- text, not the file's margin: its second paragraph is no code.
+local function test_a_c_comments_starless_lines_are_read_against_its_first()
+  local source = lines("int x;", "    /* First paragraph.", "", "       Second [x](broken.md). */")
+  same(checked(world({ ["/p/a.c"] = source }), "/p/a.c", "c", source), {
+    "/p/a.c:4: link: broken.md does not resolve (no declaration, symbol or file by that name)",
   })
 end
 

@@ -2,7 +2,8 @@
 --- text, and each link it finds lies inside that text -- on one of its
 --- lines, its `[` at the column it names -- with a target unless it is
 --- a reference nothing defines -- and [`link_text.without_code`] keeps
---- every line of the text, and every byte of a line it does not empty.
+--- every line of the text, and every byte of a line it does not empty
+--- but those of an HTML comment, which it blanks.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -12,7 +13,7 @@ local link_text = require("build.link_text")
 --- link takes, and what hides or breaks one.
 local PIECES <const> = {
   "[", "]", "(", ")", "`", "``", "\\", "\n", "\n\n", " ", "x", "t", "%", "!",
-  "[`a.b`]", "[text](doc/a.md)", "[t][l]", "[l]: b.md\n", "\n[l]: b.md\n", "[l]", "[]", "[t][]",
+  "[`a.b`]", " [`c.d`]", "[text](doc/a.md)", "[t][l]", "[l]: b.md\n", "\n[l]: b.md\n", "[l]", "[]", "[t][]",
   "```\n", "~~~\n", "--[[", "[=[", "<x>", "#h", "\u{e9}", "\xff",
 }
 
@@ -65,10 +66,18 @@ local function parse_holds(input: string): boolean, string
   for line in (link_text.without_code(input) .. "\n"):gmatch("([^\n]*)\n") do shown[#shown + 1] = line end
   if #shown ~= #lines then return false, "without_code made " .. #lines .. " lines " .. #shown end
   for number, line in ipairs(shown) do
-    if line ~= "" and #line ~= #lines[number] then
+    local was = lines[number]
+    if line ~= "" and #line ~= #was then
       return false, "without_code moved the bytes of line " .. number
     end
-    if line ~= lines[number] then Fuzz.label("hidden") end
+    -- A line it keeps is the same, but for a comment's bytes blanked.
+    for at = 1, #line do
+      local c = line:sub(at, at)
+      if c ~= was:sub(at, at) and c ~= " " then
+        return false, "without_code changed byte " .. at .. " of line " .. number
+      end
+    end
+    if line ~= was then Fuzz.label("hidden") end
   end
   local again = link_text.parse(input)
   if #again ~= #found then return false, "a second parse differs" end
