@@ -316,18 +316,30 @@ local function one_of(found: {string}, none: string): string | nil
     (#found > 5 and ", ..." or "") .. "; link the one meant in full"
 end
 
---- Whether the dotted `name` is a value this program's globals hold
---- (`string.format`, `print`, `warn`), read from `_G` as it is now.
---- Every run of this resolver is a cosmic program on the core the
---- programs it checks run on, and no module of the tree but a test sets
---- a global, so that `_G` is the core's: what every such program reads.
+--- Whether the dotted `name` is a value the running tool's globals
+--- hold (`string.format`, `print`, `warn`), read from `_G` as it is
+--- now: a project checked by one version of cosmic resolves against
+--- that version's globals, not those of the one its programs run on.
 --- Each step is a `rawget`, so a name the core refuses (`io`,
---- `dofile`), which only its metatable answers, does not resolve.
+--- `dofile`), which only its metatable answers, does not resolve. Nor
+--- does a step back into `_G` (`_G._G.print`) or into
+--- `package.loaded` or `package.preload`, which hold what this process
+--- happened to load, and `_G` again.
 local function standard(name: string): boolean
-  local value: any = _G
+  local globals: any = _G
+  local package_table: any = package
+  local value: any = globals
+  local steps = 0
   for part in name:gmatch("[^.]+") do
+    steps = steps + 1
     if value is {any: any} then
+      if rawequal(value, package_table) and (part == "loaded" or part == "preload") then
+        return false
+      end
       value = rawget(value, part)
+      if steps > 1 and rawequal(value, globals) then
+        return false
+      end
     else
       return false
     end
@@ -400,6 +412,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     if own.names[dotted] then
       return made("declared", { name = dotted })
     end
+    -- A global comes before a symbol, so one a later core adds shadows a symbol of its name.
     if standard(dotted) then
       return made("standard", { name = dotted })
     end

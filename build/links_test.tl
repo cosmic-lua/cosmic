@@ -416,12 +416,28 @@ end
 local function test_a_global_the_runtime_adds_resolves()
   local globals = _G as {string: any}
   rawset(globals, "links_test_added", { member = true })
-  local found = checked(world({}), "/p/a.md", "markdown",
+  local ok, found = pcall(checked, world({}), "/p/a.md", "markdown",
     "[`links_test_added.member`] [`links_test_added.other`] [`links_test_never`]\n")
   rawset(globals, "links_test_added", nil)
-  same(found, {
+  assert(ok, tostring(found))
+  same(found as {string}, {
     "/p/a.md:1: link: links_test_added.other does not resolve (no declaration, symbol or file by that name)",
     "/p/a.md:1: link: links_test_never does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+  })
+end
+
+--- A global is reached from `_G` once: `_G` and `package.config`
+--- resolve, but neither a step back into `_G` nor one into
+--- `package.loaded` or `package.preload`, which hold what this process
+--- loaded, does.
+local function test_a_global_is_not_reached_through_g_or_package_loaded()
+  same(checked(world({}), "/p/a.md", "markdown",
+    "[`_G`] [`package.config`] [`_G._G.print`] [`package.loaded._G.warn`] " ..
+    "[`package.loaded.string.format`] [`package.preload`]\n"), {
+    "/p/a.md:1: link: _G._G.print does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: package.loaded._G.warn does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: package.loaded.string.format does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: package.preload does not resolve (no declaration, symbol or file by that name)",
   })
 end
 
