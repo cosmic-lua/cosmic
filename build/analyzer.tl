@@ -10,6 +10,7 @@ local ast = require("build.ast")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local cache_names = require("build.cache_names")
+local scopes = require("build.scopes")
 
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
@@ -943,18 +944,18 @@ local back_up: {string: boolean} = { if_parent = true }
 --- own declaration, and neither is a word in a string or a comment)
 --- and the first name of each type it writes (`Release` in
 --- `x: Release`, `Fs` in [`Fs.Stat`]). Scoping follows the blocks
---- [`references_of`] does; a type's name is not scoped, since a local
+--- [`scopes.walk`] does; a type's name is not scoped, since a local
 --- rarely shadows a type.
 local function uses_of(root: ast.Node, used: {string: boolean})
-  local scopes: {{string: boolean}} = { {} }
+  local stack: {{string: boolean}} = { {} }
   local function bound(name: string): boolean
-    for at = #scopes, 1, -1 do
-      if scopes[at][name] then return true end
+    for at = #stack, 1, -1 do
+      if stack[at][name] then return true end
     end
     return false
   end
   local function bind(name: string | nil)
-    if name ~= nil then scopes[#scopes][name] = true end
+    if name ~= nil then stack[#stack][name] = true end
   end
   local walk: function(ast.Node)
   local function walk_all(list: ast.Node | nil)
@@ -972,30 +973,30 @@ local function uses_of(root: ast.Node, used: {string: boolean})
     elseif kind == "local_function" or kind == "record_function"
         or kind == "global_function" or kind == "function" then
       if kind == "local_function" and n.name ~= nil then bind(n.name.tk) end
-      scopes[#scopes + 1] = {}
+      stack[#stack + 1] = {}
       for _, parameter in ipairs(n.args or {}) do bind(parameter.tk) end
       walk_all(n.body)
-      scopes[#scopes] = nil
+      stack[#stack] = nil
     elseif kind == "fornum" or kind == "forin" then
       walk_all(n.from)
       walk_all(n.to)
       walk_all(n.step)
       walk_all(n.exps)
-      scopes[#scopes + 1] = {}
+      stack[#stack + 1] = {}
       bind(n.var ~= nil and n.var.tk or nil)
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
       walk_all(n.body)
-      scopes[#scopes] = nil
+      stack[#stack] = nil
     elseif kind == "repeat" then
       -- Lua keeps the body's locals in scope through `until`.
-      scopes[#scopes + 1] = {}
+      stack[#stack + 1] = {}
       for _, stmt in ipairs(n.body or {}) do walk(stmt) end
       walk_all(n.exp)
-      scopes[#scopes] = nil
+      stack[#stack] = nil
     elseif kind == "statements" then
-      scopes[#scopes + 1] = {}
+      stack[#stack + 1] = {}
       for _, stmt in ipairs(n) do walk(stmt) end
-      scopes[#scopes] = nil
+      stack[#stack] = nil
     else
       for _, child in ipairs(ast.children(n, back_up)) do walk(child) end
     end
@@ -1236,210 +1237,21 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.Examp
   return out
 end
 
---- Direct `local name = require("module")` bindings, keyed by the local
---- declaration node. Scope and lifetime are handled by [`references_of`];
---- this pattern only recognizes the one import form whose identity is sure.
-local function aliases_of(built: compiler, parsed: ast.Parsed): {ast.Node: string}, string
-  local pattern, trouble = ast.compile_pattern(built, "local $ALIAS = require($M)")
-  if pattern == nil then
-    return {}, trouble
-  end
-  local out: {ast.Node: string} = {}
-  for _, hit in ipairs(ast.find_all(parsed.node, pattern)) do
-    local alias = hit.caps["_ALIAS"]
-    local named = hit.caps["_M"]
-    if alias ~= nil and alias.tk ~= nil and named ~= nil
-       and named.kind == "string" and named.conststr ~= nil then
-      out[hit.node] = named.conststr
-    end
-  end
-  return out, ""
-end
-
-local type Scopes = {{string: string}}
-
-local function binding(scopes: Scopes, name: string): string | nil
-  for index = #scopes, 1, -1 do
-    local value = scopes[index][name]
-    if value ~= nil then
-      return value ~= "" and value or nil
-    end
-  end
-  return nil
-end
-
---- Whether any scope binds `name`, to an import or to anything else.
-local function bound(scopes: Scopes, name: string): boolean
-  for index = #scopes, 1, -1 do
-    if scopes[index][name] ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
-local function bind(scopes: Scopes, name: string, value: string)
-  scopes[#scopes][name] = value
-end
-
---- Assignment changes the nearest lexical binding. An import binding never
---- becomes definite again through ordinary assignment: propagation through
---- arbitrary values would require checker identities, so uncertainty is
---- represented by omitting later edges.
-local function invalidate(scopes: Scopes, name: string)
-  for index = #scopes, 1, -1 do
-    if scopes[index][name] ~= nil then
-      scopes[index][name] = ""
-      return
-    end
-  end
-end
-
---- The module `call` names when it is `require("<module>")`, a call
---- of `require` on one string literal; nil for any other expression.
-local function required_name(call: ast.Node): string | nil
-  if call.kind ~= "op" or call.op == nil or call.op.op ~= "@funcall" then
-    return nil
-  end
-  local callee, args = call.e1, call.e2
-  if callee == nil or callee.kind ~= "variable" or callee.tk ~= "require"
-     or args == nil or #args ~= 1 or args[1].kind ~= "string" then
-    return nil
-  end
-  return args[1].conststr
-end
-
 --- Every `alias.member` whose `alias` still resolves to a lexical direct
 --- require binding, and every `require("module").member` while `require`
---- is not shadowed. Parameters, locals and loop variables shadow
---- bindings; reassignment in any possibly-executed branch invalidates
---- the outer alias.
+--- is not shadowed ([`scopes.walk`]).
 --- This is deliberately bounded: indirect aliases and unknown receiver types
 --- produce no edge rather than one guessed from spelling.
-local function references_of(built: compiler, parsed: ast.Parsed): {analyzer.Reference}, string
-  local aliases, trouble = aliases_of(built, parsed)
-  if trouble ~= "" then
-    return {}, trouble
-  end
+local function references_of(parsed: ast.Parsed): {analyzer.Reference}
   local seen: {string: boolean} = {}
   local out: {analyzer.Reference} = {}
-  local scopes: Scopes = { {} }
-  local process_block: function(ast.Node)
-  local process_function: function(ast.Node)
-  local walk_expression: function(ast.Node)
-
-  walk_expression = function(n: ast.Node)
-    if n.kind == "function" then
-      process_function(n)
-      return
+  scopes.walk(parsed, function(module: string, name: string, line: integer)
+    local id = module .. "\n" .. name .. "\n" .. line
+    if not seen[id] then
+      seen[id] = true
+      out[#out + 1] = { module = module, member = name, line = line }
     end
-    if n.kind == "op" and n.op ~= nil and n.op.op == "." and n.e1 ~= nil
-       and n.e2 ~= nil and n.e2.tk ~= nil then
-      -- `alias.member`, or a member read straight off the module a
-      -- literal `require` names: `require("build.test").run`.
-      local module: string | nil = nil
-      if n.e1.kind == "variable" and n.e1.tk ~= nil then
-        module = binding(scopes, n.e1.tk)
-      elseif not bound(scopes, "require") then
-        module = required_name(n.e1)
-      end
-      if module ~= nil then
-        local id = module .. "\n" .. n.e2.tk .. "\n" .. n.e1.y
-        if not seen[id] then
-          seen[id] = true
-          out[#out + 1] = { module = module, member = n.e2.tk, line = n.e1.y }
-        end
-      end
-    end
-    for _, child in ipairs(ast.children(n, back_up)) do
-      walk_expression(child)
-    end
-  end
-
-  process_function = function(fn: ast.Node)
-    scopes[#scopes + 1] = {}
-    if fn.args ~= nil then
-      for _, parameter in ipairs(fn.args) do
-        if parameter.tk ~= nil then
-          bind(scopes, parameter.tk, "")
-        end
-      end
-    end
-    if fn.body ~= nil then
-      process_block(fn.body)
-    end
-    scopes[#scopes] = nil
-  end
-
-  process_block = function(block: ast.Node)
-    for _, stmt in ipairs(block) do
-      if stmt.kind == "local_declaration" then
-        if stmt.exps ~= nil then
-          walk_expression(stmt.exps)
-        end
-        if stmt.vars ~= nil then
-          for _, var in ipairs(stmt.vars) do
-            if var.tk ~= nil then
-              bind(scopes, var.tk, aliases[stmt] or "")
-            end
-          end
-        end
-      elseif stmt.kind == "local_function" then
-        if stmt.name ~= nil and stmt.name.tk ~= nil then
-          bind(scopes, stmt.name.tk, "")
-        end
-        process_function(stmt)
-      elseif stmt.kind == "record_function" or stmt.kind == "global_function" then
-        process_function(stmt)
-      elseif stmt.kind == "assignment" then
-        if stmt.exps ~= nil then
-          walk_expression(stmt.exps)
-        end
-        if stmt.vars ~= nil then
-          for _, var in ipairs(stmt.vars) do
-            if var.kind == "variable" and var.tk ~= nil then
-              invalidate(scopes, var.tk)
-            end
-          end
-        end
-      elseif stmt.kind == "if" and stmt.if_blocks ~= nil then
-        for _, branch in ipairs(stmt.if_blocks) do
-          if branch.exp ~= nil then walk_expression(branch.exp) end
-          scopes[#scopes + 1] = {}
-          if branch.body ~= nil then process_block(branch.body) end
-          scopes[#scopes] = nil
-        end
-      elseif stmt.kind == "fornum" or stmt.kind == "forin" then
-        if stmt.from ~= nil then walk_expression(stmt.from) end
-        if stmt.to ~= nil then walk_expression(stmt.to) end
-        if stmt.step ~= nil then walk_expression(stmt.step) end
-        if stmt.exps ~= nil then walk_expression(stmt.exps) end
-        scopes[#scopes + 1] = {}
-        if stmt.var ~= nil and stmt.var.tk ~= nil then bind(scopes, stmt.var.tk, "") end
-        if stmt.vars ~= nil then
-          for _, var in ipairs(stmt.vars) do
-            if var.tk ~= nil then bind(scopes, var.tk, "") end
-          end
-        end
-        if stmt.body ~= nil then process_block(stmt.body) end
-        scopes[#scopes] = nil
-      elseif stmt.kind == "repeat" then
-        -- Lua keeps the repeat body's locals in scope through `until`.
-        scopes[#scopes + 1] = {}
-        if stmt.body ~= nil then process_block(stmt.body) end
-        if stmt.exp ~= nil then walk_expression(stmt.exp) end
-        scopes[#scopes] = nil
-      elseif stmt.kind == "while" or stmt.kind == "do" then
-        if stmt.exp ~= nil then walk_expression(stmt.exp) end
-        scopes[#scopes + 1] = {}
-        if stmt.body ~= nil then process_block(stmt.body) end
-        scopes[#scopes] = nil
-      elseif stmt.kind == "return" or stmt.kind == "op" then
-        walk_expression(stmt)
-      end
-    end
-  end
-  process_block(parsed.node)
+  end)
   table.sort(out, function(p: analyzer.Reference, q: analyzer.Reference): boolean
     if p.line ~= q.line then
       return p.line < q.line
@@ -1449,7 +1261,7 @@ local function references_of(built: compiler, parsed: ast.Parsed): {analyzer.Ref
     end
     return p.member < q.member
   end)
-  return out, ""
+  return out
 end
 
 --- What each field of a `needs` declaration takes: a list of string
@@ -1701,7 +1513,7 @@ end
 --- The facts of `analyze`, read off a chunk that was parsed already, so a
 --- caller that needs the parse for another question too pays for it
 --- once. `built` is needed only to compile the patterns the catalog
---- and the references match against; a pattern-compile failure is
+--- matches against; a pattern-compile failure is
 --- reported as an ordinary failure rather than dropping them silently.
 --- `source` is the text `parsed` came from, for the signatures the docs
 --- quote.
@@ -1731,10 +1543,7 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   if catalog_trouble ~= "" then
     return nil, catalog_trouble
   end
-  local references, reference_trouble = references_of(built, parsed)
-  if reference_trouble ~= "" then
-    return nil, reference_trouble
-  end
+  local references = references_of(parsed)
   local declared, inputs_trouble = inputs_of(parsed)
   if inputs_trouble ~= "" then
     return nil, inputs_trouble

@@ -1,5 +1,6 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local ast = require("build.ast")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local link_resolve = require("build.link_resolve")
@@ -301,8 +302,9 @@ local function test_a_name_the_file_declares_resolves_and_shadows_a_symbol()
     "  width: integer",
     "end",
     "",
-    "--- Grows [`Box.width`] by [`step`]; see [`helper`] and [`Box.grow`].",
+    "--- Grows [`Box.width`]; see [`helper`] and [`Box.grow`].",
     "function Box.grow(step: integer)",
+    "  -- By [`step`].",
     "end",
     "",
     "local function helper()",
@@ -321,6 +323,127 @@ local function test_a_required_alias_names_its_modules_members()
   local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read" } })
   same(checked(context, "/p/a.tl", "teal", source), {
     "/p/a.tl:2: link: Fs.nope does not resolve (cosmic.fs has no nope)",
+  })
+end
+
+--- A comment sees an alias where Lua has it in scope: after its
+--- declaration, to the end of the block that declares it.
+local function test_an_alias_in_one_function_names_nothing_in_another()
+  local source = lines(
+    "local function a()",
+    "  -- Not yet: [`Fs.read`].",
+    "  local _ = 1",
+    "  local Fs = require(\"cosmic.fs\")",
+    "  -- [`Fs.read`] reads.",
+    "  return Fs.read",
+    "end",
+    "",
+    "--- Not here: [`Fs.read`].",
+    "local function b()",
+    "  -- Nor here: [`Fs.read`].",
+    "end",
+    "",
+    "return { a = a, b = b }")
+  local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read" } })
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: Fs.read does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:9: link: Fs.read does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:11: link: Fs.read does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
+--- A top-level alias is the file's: every comment sees it, one above
+--- its declaration too.
+local function test_a_top_level_alias_names_its_module_everywhere()
+  local source = lines(
+    "--- Reads with [`Fs.read`].",
+    "local function a(): function(string): string",
+    "  -- [`Fs.read`] again.",
+    "  return Fs.read",
+    "end",
+    "",
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "return a")
+  local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read" } })
+  same(checked(context, "/p/a.tl", "teal", source), {})
+end
+
+--- A local of an alias's name shadows it where it is in scope, and a
+--- local's name is declared only there.
+local function test_a_local_shadows_an_alias_where_it_is_in_scope()
+  local source = lines(
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "local function a(Fs: {string: integer}, count: integer): integer",
+    "  -- [`Fs.read`] is no alias here; [`count`] is a parameter.",
+    "  return Fs.read + count",
+    "end",
+    "",
+    "--- [`Fs.read`] is again, and [`count`] is nothing.",
+    "local function b()",
+    "end",
+    "",
+    "return { a = a, b = b }")
+  local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read" } })
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:4: link: Fs.read does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:8: link: count does not resolve (a name alone links only to a declaration of its own file; " ..
+      "write another module's symbol in full (`module.member`))",
+  })
+end
+
+--- A doc comment above a declaration sees the scope the declaration is
+--- in, the declaration's own name included and its parameters left to
+--- its body; a function type's parameters no comment sees.
+local function test_a_doc_comment_sees_its_declarations_scope()
+  local source = lines(
+    "local record Shape",
+    "  --- By [`scale`].",
+    "  grow: function(scale: integer)",
+    "end",
+    "",
+    "local function outer(): integer",
+    "  --- [`inner`] counts to [`n`].",
+    "  local function inner(n: integer): integer",
+    "    -- To [`n`].",
+    "    return n",
+    "  end",
+    "  return inner(1)",
+    "end",
+    "",
+    "return { outer = outer, Shape = Shape }")
+  local no_name = " does not resolve (a name alone links only to a declaration of its own file; " ..
+    "write another module's symbol in full (`module.member`))"
+  same(checked(world({}), "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: scale" .. no_name,
+    "/p/a.tl:7: link: n" .. no_name,
+  })
+end
+
+--- The build records each link with what its comment's scope makes of
+--- it: whether the file declares the name there, and the alias its
+--- first part is there.
+local function test_a_link_is_recorded_by_the_scope_it_is_in()
+  local source = lines(
+    "local function a()",
+    "  local Fs = require(\"cosmic.fs\")",
+    "  local step = 1",
+    "  -- [`Fs.read`] by [`step`].",
+    "  return Fs.read, step",
+    "end",
+    "",
+    "-- [`Fs.read`] by [`step`].",
+    "return a")
+  local parsed_source = assert(ast.parse(built, source, "a.tl"))
+  local got: {string} = {}
+  for _, found in ipairs(link_text.found(built, parsed_source.node, source, "a.tl")) do
+    got[#got + 1] = found.link.line .. " " .. found.link.target .. " " .. tostring(found.own) ..
+      " " .. found.alias
+  end
+  same(got, {
+    "4 Fs.read false cosmic.fs", "4 step true ",
+    "8 Fs.read false ", "8 step false ",
   })
 end
 
@@ -694,6 +817,24 @@ local function test_a_plain_span_links_only_when_it_names_one_thing()
   local again, more = rewritten(linking_world(), "/p/a.tl", "teal", got)
   same({ again }, { got })
   same(more, {})
+end
+
+--- A plain span through an alias is linked only where the alias is in
+--- scope.
+local function test_a_span_links_through_an_alias_only_in_its_scope()
+  local source = lines(
+    "local function a()",
+    "  local Fs = require(\"cosmic.fs\")",
+    "  -- `Fs.read` reads.",
+    "  return Fs.read",
+    "end",
+    "",
+    "-- `Fs.read` reads.",
+    "return a")
+  local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read@cosmic/fs.tl" } })
+  local got, linked = rewritten(context, "/p/a.tl", "teal", source)
+  same({ got }, { (source:gsub("  %-%- `Fs.read`", "  -- [`Fs.read`]")) })
+  same(linked, { "/p/a.tl:3: link: `Fs.read` would link to cosmic.fs.read" })
 end
 
 --- Where the file's scopes are not read, a bare name links only to

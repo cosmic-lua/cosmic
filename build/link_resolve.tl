@@ -356,10 +356,11 @@ end
 
 --- What `target`, linked from the file at the absolute path `from`,
 --- resolves to; nil and why when it resolves to nothing or to more
---- than one thing. `declared` gives what that file declares, asked
---- only when the target could be a name. A `path_first` target, an
---- inline link's or a definition's, is a URL or a path first, as in
---- Markdown: a file it names wins over a name.
+--- than one thing. `declared` gives what that file declares where the
+--- link is ([`link_text.Declarations`]), asked only when the target
+--- could be a name. A `path_first` target, an inline link's or a
+--- definition's, is a URL or a path first, as in Markdown: a file it
+--- names wins over a name.
 function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, target: string,
                               declared: function(): link_text.Declared,
                               path_first: boolean): link_resolve.Target | nil, string

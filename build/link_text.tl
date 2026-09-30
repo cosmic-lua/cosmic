@@ -11,6 +11,7 @@
 local String = require("cosmic.string")
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
+local scopes = require("build.scopes")
 
 local record link_text
   --- One link of a text, or one definition a reference link reads.
@@ -50,10 +51,12 @@ local record link_text
     content: string
   end
 
-  --- What a Teal source declares (`declarations`): file-wide, and at
-  --- its top level as far as a plain span may be linked to it.
+  --- What a Teal source declares (`declarations`): where a comment
+  --- stands, and at its top level as far as a plain span may be linked
+  --- to it.
   record Declarations
-    declared: Declared
+    --- What a comment on `line` sees declared.
+    at: function(line: integer): Declared
     --- Each module-level name, dotted as [`Declared.names`] holds it,
     --- that nothing else of the file declares.
     module_level: {string: boolean}
@@ -61,7 +64,9 @@ local record link_text
 
   --- What a file declares, for the first step of resolution.
   record Declared
-    --- Each name, and each dotted path of a record's field or member.
+    --- Each name, and each dotted path of a record's field or member:
+    --- a set to look up, not to walk, since a Teal file's inherits what
+    --- every comment of the file sees (`__index`).
     names: {string: boolean}
     --- Each local bound to `require` of a module, and that module.
     aliases: {string: string}
@@ -833,16 +838,34 @@ local function is_name(tk: string | nil): boolean
   return tk ~= nil and tk:match("^[%a_][%w_]*$") ~= nil and not KEYWORDS[tk]
 end
 
---- What the Teal source `parsed` declares, file-wide, and what it
---- declares at its top level and nowhere else.
+--- What the Teal source `parsed` declares where each of its comments
+--- stands, and what it declares at its top level and nowhere else.
 ---
---- Declared: each local, whatever its depth; each function, by its
---- name and its path (`grow`, `Box.grow`); each record, enum and type,
---- and a top-level one's members spelled in full (`Box.width`) and by
---- their own names; each loop's variable; each parameter a signature
---- names with a type (`n: integer`), a function type's included -- a
---- record's field or a `.d.tl` declaration, whose names the parser's
---- tree keeps nowhere -- and each `local alias = require("m")`.
+--- A comment sees what Lua would have in scope at the token it stands
+--- before -- the lexer hands a comment to the next token -- and
+--- whatever the file declares for good:
+---
+--- - Each name its top-level block binds (a local, a `local function`,
+---   a type, an alias `local Fs = require("m")`), wherever the comment
+---   is: the chunk's names are the file's, and its doc comments speak of
+---   them before or after their declarations.
+--- - Each name a nested block binds -- a local, a parameter, a loop's
+---   variable -- where Lua has it in scope ([`scopes.in_scope`]): from
+---   the line the statement binding it starts on, or from a parameter or
+---   loop variable itself, to the end of its block. A doc comment
+---   directly above a declaration so sees the scope that declaration is
+---   in, the declaration's own names included and its parameters left
+---   out: those are its body's, and a comment inside the body sees them.
+---   An inner binding shadows an outer one, so a local of an alias's
+---   name ends the alias there.
+--- - Each function by its name and its path (`grow`, `Box.grow`), and a
+---   top-level record's, enum's or type's members spelled in full
+---   (`Box.width`) and by their own names: a path names a field, which
+---   no scope holds.
+---
+--- A function type's parameters (a record's field, a `.d.tl`
+--- declaration) are no body's, so no comment sees them, as the one
+--- above a function sees none of its own.
 ---
 --- At the top level and nowhere else: a function, record, enum or type
 --- declared at the start of a line (the layout `cosmic fix` writes puts
@@ -853,19 +876,17 @@ end
 --- variable, nor a field by its own name.
 ---
 --- It is read off the tokens, with the tree's top-level statements for
---- a record's members: a walk of every node would cost each file of a
---- run many times more.
--- TODO: resolve a name by the scope at the link's line rather than
--- file-wide, once build.analyzer exposes the names in scope at a line
--- (its `uses_of` and `references_of` walk the scopes, then drop them).
+--- a record's members; the scopes are walked once, the first time a
+--- comment asks, and each place's answer is kept.
 function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
+  -- `names` holds what no scope does; `top` and `inner` say where each
+  -- name is declared, for `module_level`.
   local names: {string: boolean} = {}
-  local aliases: {string: string} = {}
   local top: {string: boolean} = {}
   local inner: {string: boolean} = {}
-  local function declare(name: string | nil, at_top: boolean)
+  local function declare(name: string | nil, at_top: boolean, scoped: boolean)
     if name == nil or name == "" then return end
-    names[name] = true
+    if not scoped then names[name] = true end
     if at_top then top[name] = true else inner[name] = true end
   end
   local function declare_type(prefix: string, t: ast.TypeNode | nil, depth: integer)
@@ -873,14 +894,14 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
     local shape: ast.TypeNode = t.def or t
     local fields: {string: ast.TypeNode} = shape.fields or {}
     for field, field_type in pairs(fields) do
-      declare(prefix .. "." .. field, true)
-      declare(field, field_type.typename == "typedecl" or field_type.typename == "function")
+      declare(prefix .. "." .. field, true, false)
+      declare(field, field_type.typename == "typedecl" or field_type.typename == "function", false)
       declare_type(prefix .. "." .. field, field_type, depth + 1)
     end
     local meta_fields: {string: ast.TypeNode} = shape.meta_fields or {}
-    for field in pairs(meta_fields) do declare(prefix .. "." .. field, true) end
+    for field in pairs(meta_fields) do declare(prefix .. "." .. field, true, false) end
     local values: {string: boolean} = shape.enumset or {}
-    for value in pairs(values) do declare(prefix .. "." .. value, true) end
+    for value in pairs(values) do declare(prefix .. "." .. value, true, false) end
   end
   for _, statement in ipairs(parsed.node) do
     local var, value = statement.var, statement.value
@@ -894,48 +915,38 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
     local token = tokens[at]
     return token ~= nil and token.tk or ""
   end
-  --- The module a `require("m")` at `at` names, or nil.
-  local function required_at(at: integer): string | nil
-    if tk_at(at) ~= "require" or tk_at(at + 1) ~= "(" or tk_at(at + 3) ~= ")" then return nil end
-    return tk_at(at + 2):match("^[\"'](.*)[\"']$")
-  end
+  -- The token each comment's line stands before.
+  local before: {integer: compiler.Token} = {}
   for at, token in ipairs(tokens) do
     local tk = token.tk
     local at_top = token.x == 1
+    for _, comment in ipairs(token.comments or {}) do
+      before[comment.y] = token
+    end
     if tk == "local" then
       local kind = tk_at(at + 1)
       if kind == "function" then
-        declare(tk_at(at + 2), at_top)
+        declare(tk_at(at + 2), at_top, true)
       elseif kind == "record" or kind == "enum" or kind == "interface" or kind == "type" then
         local name = tk_at(at + 2)
         if is_name(name) then
-          local module = tk_at(at + 3) == "=" and required_at(at + 4) or nil
-          if module ~= nil then
-            aliases[name] = module
-            declare(name, false)
-          else
-            declare(name, at_top)
-          end
+          local alias = tk_at(at + 3) == "=" and tk_at(at + 4) == "require"
+          declare(name, at_top and not alias, true)
         end
       else
         local j = at + 1
-        local bound: {string} = {}
         while is_name(tk_at(j)) do
-          bound[#bound + 1] = tk_at(j)
-          declare(tk_at(j), false)
+          declare(tk_at(j), false, true)
           j = j + 1
           if tk_at(j) == "<" then j = j + 3 end
           if tk_at(j) ~= "," then break end
           j = j + 1
         end
-        while tk_at(j) ~= "=" and tk_at(j) ~= "" and tokens[j].y == token.y do j = j + 1 end
-        local module = #bound == 1 and tk_at(j) == "=" and required_at(j + 1) or nil
-        if module ~= nil then aliases[bound[1]] = module end
       end
     elseif tk == "function" then
-      local before = tk_at(at - 1)
+      local before_tk = tk_at(at - 1)
       local j = at + 1
-      if before == "local" then
+      if before_tk == "local" then
         j = at + 2
       elseif is_name(tk_at(j)) then
         local path = tk_at(j)
@@ -944,9 +955,9 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
           path = path .. "." .. tk_at(j + 1)
           j = j + 2
         end
-        local named_top = at_top or before == "global" and tokens[at - 1].x == 1
-        declare(path, named_top)
-        declare(path:match("([^.]+)$"), named_top)
+        local named_top = at_top or before_tk == "global" and tokens[at - 1].x == 1
+        declare(path, named_top, false)
+        declare(path:match("([^.]+)$"), named_top, false)
       end
       if tk_at(j) == "<" then
         while tk_at(j) ~= ">" and tk_at(j) ~= "" do j = j + 1 end
@@ -962,7 +973,7 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
           elseif each == ")" or each == "}" or each == "]" then
             depth = depth - 1
           elseif depth == 1 and is_name(each) and (tk_at(j + 1) == ":" or tk_at(j + 1) == "?") then
-            declare(each, false)
+            declare(each, false, true)
           end
           j = j + 1
         end
@@ -970,7 +981,7 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
     elseif tk == "for" then
       local j = at + 1
       while is_name(tk_at(j)) do
-        declare(tk_at(j), false)
+        declare(tk_at(j), false, true)
         if tk_at(j + 1) ~= "," then break end
         j = j + 2
       end
@@ -980,13 +991,46 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
   for name in pairs(top) do
     if not inner[name] then module_level[name] = true end
   end
-  return { declared = { names = names, aliases = aliases }, module_level = module_level }
-end
-
---- What the Teal source parsed to `root`, whose tokens are `tokens`,
---- declares, file-wide: the first step of resolution.
-local function declared_in(root: ast.Node, tokens: {compiler.Token}): link_text.Declared
-  return link_text.declarations({ node = root, tokens = tokens }).declared
+  local bindings: {scopes.Binding} | nil = nil
+  -- What every comment sees: `names`, the top-level block's bindings,
+  -- and its aliases, the last binding of each name deciding.
+  local everywhere: {string: boolean} = {}
+  local top_aliases: {string: string} = {}
+  local function scoped(): {scopes.Binding}
+    local found = bindings
+    if found == nil then
+      found = scopes.bindings_of(parsed)
+      bindings = found
+      for _, each in ipairs(found) do
+        if each.top then
+          everywhere[each.name] = true
+          top_aliases[each.name] = each.module ~= "" and each.module or nil
+        end
+      end
+      for name in pairs(names) do everywhere[name] = true end
+    end
+    return found
+  end
+  local seen: {integer: link_text.Declared} = {}
+  local function at(line: integer): link_text.Declared
+    local token = before[line]
+    local y, x = token ~= nil and token.y or line, token ~= nil and token.x or 0
+    local place = scopes.position(y, x)
+    local known = seen[place]
+    if known ~= nil then return known end
+    local in_scope = scopes.in_scope(scoped(), y, x)
+    local here: {string: boolean} = setmetatable({}, { __index = everywhere })
+    local aliases: {string: string} = {}
+    for name, module in pairs(top_aliases) do aliases[name] = module end
+    for name, module in pairs(in_scope) do
+      here[name] = true
+      aliases[name] = module ~= "" and module or nil
+    end
+    known = { names = here, aliases = aliases }
+    seen[place] = known
+    return known
+  end
+  return { at = at, module_level = module_level }
 end
 
 --- `text` as a reader is shown it: each shortcut link, and each
@@ -1061,12 +1105,11 @@ function link_text.found(built: compiler, root: ast.Node, source: string,
     doc[comment.line] = comment.doc
     column[comment.line] = comment.column
   end
-  local known: link_text.Declared | nil = nil
-  local function declared(): link_text.Declared
-    if known == nil then
-      known = declared_in(root, tokens)
-    end
-    return known
+  local known: link_text.Declarations | nil = nil
+  local function declared(line: integer): link_text.Declared
+    local found: link_text.Declarations = known or link_text.declarations({ node = root, tokens = tokens })
+    known = found
+    return found.at(line)
   end
   for _, link in ipairs(link_text.in_blocks(link_text.blocks_of(comments))) do
     if link.form ~= "definition" then
@@ -1074,10 +1117,11 @@ function link_text.found(built: compiler, root: ast.Node, source: string,
       local named = link_text.name_of(link.target)
       if named ~= nil then
         local dotted = named:gsub(":", ".")
-        own = declared().names[dotted] == true
+        local here = declared(link.line)
+        own = here.names[dotted] == true
         local first = dotted:match("^([%a_][%w_]*)%.")
         if first ~= nil then
-          alias = declared().aliases[first] or ""
+          alias = here.aliases[first] or ""
         end
       end
       -- The link's column in its file, not in its comment's text.
