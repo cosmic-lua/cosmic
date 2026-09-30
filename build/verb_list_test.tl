@@ -10,7 +10,7 @@ local verb_list = require("build.verb_list")
 
 --- The verbs that run code -- a file, a chunk, `--version` -- which no
 --- module of the list holds, and `help`, which build/dispatch.tl holds
---- itself: what `Cli.order` has around the list.
+--- itself: what [`Cli.order`] has around the list.
 local before <const> = { "run", "standalone", "eval", "version" }
 local after <const> = { "help" }
 

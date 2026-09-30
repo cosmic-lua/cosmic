@@ -373,10 +373,13 @@ end
 
 --- Every check runs, each line named by its check: a projection with
 --- none of the tree's own anchors, stand-ins, docs or quieted records
---- fails each check that expects them.
+--- fails each check that expects them, and a public member with no doc
+--- comment fails the rendered docs.
 local function test_a_run_names_each_check(dir: string)
   local db = fixture.database(dir, {
     ["build/thing.tl"] = source("local record thing", "end", "return thing"),
+    ["cosmic/bare.tl"] = source("--- Bare.", "local record Bare", "end",
+      "function Bare.go()", "end", "return Bare"),
   })
   local seen: {string: boolean} = {}
   for _, line in ipairs(tree_checks.run(db, "")) do

@@ -352,6 +352,118 @@ local function test_a_short_module_name_finds_the_public_module(dir: string)
   assert(#read == 1 and read[1].source_symbol == "Fs.read", tostring(#read))
 end
 
+--- A module's member written in full is answered exactly, a field of
+--- the record its value is typed as among them, and so is a member of a
+--- type an alias stands for, spelled from its module. `cosmic docs`
+--- answers the member spelled from the module's last name too.
+local function test_a_modules_member_in_full_is_exact(dir: string)
+  local db = built(dir, {
+    ["cosmic/internal/raw.tl"] = source(
+      "--- Raw things.",
+      "local record raw",
+      "  --- One box.",
+      "  record Box",
+      "    --- Grows the box.",
+      "    grow: function(Box, n: integer): boolean",
+      "  end",
+      "end",
+      "",
+      "return raw"),
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local type raw = require(\"cosmic.internal.raw\")",
+      "",
+      "--- What a thing answers.",
+      "local record Result",
+      "  --- Whether it did.",
+      "  ok: boolean",
+      "end",
+      "",
+      "local record Module",
+      "  --- The order.",
+      "  order: {string}",
+      "  --- A box.",
+      "  type Box = raw.Box",
+      "  --- Runs one.",
+      "  run: function(): Result",
+      "end",
+      "",
+      "local module: Module = { order = {}, run = function(): Result return { ok = true } end }",
+      "",
+      "return module"),
+  })
+  local function exact(query: string): {string}
+    local out: {string} = {}
+    for _, entry in ipairs((assert(docs.exact(view({ db }), query)))) do
+      out[#out + 1] = entry.module .. " " .. entry.symbol
+    end
+    return out
+  end
+  local order = table.concat(exact("cosmic.thing.order"), ", ")
+  assert(order == "cosmic.thing Module.order", order)
+  local grow = table.concat(exact("cosmic.thing.Box.grow"), ", ")
+  assert(grow == "cosmic.thing Module.Box.grow", grow)
+  -- `cosmic docs` reads a module's last name as a caller's alias does.
+  for _, query in ipairs({ "cosmic.thing.order", "Thing.order", "thing.order" }) do
+    local found = assert(docs.lookup(view({ db }), query))
+    assert(found.exact and #found == 1 and found[1].source_symbol == "Module.order",
+      query .. ": " .. #found)
+  end
+  -- `Result` is exported, as `run` hands it out, but the value is not one.
+  local ok = table.concat(exact("cosmic.thing.ok"), ", ")
+  assert(ok == "", ok)
+  for _, query in ipairs({ "cosmic.thing.ok", "Thing.ok" }) do
+    local found = assert(docs.lookup(view({ db }), query))
+    assert(not found.exact or #found == 0 or found[1].source_symbol ~= "Result.ok", query)
+  end
+  assert(db:close())
+end
+
+--- `cosmic uses` finds a member of the record a module's value is typed
+--- as by the module's name, and lists its uses and the links to it --
+--- that module's alone, not another's `Module.order` -- and the page
+--- names that command.
+local function test_uses_of_a_typed_values_member_are_that_modules(dir: string)
+  local function verbs(name: string): string
+    return source(
+      "--- " .. name .. ".",
+      "local record Module",
+      "  --- The order.",
+      "  order: {string}",
+      "end",
+      "",
+      "local module: Module = { order = {} }",
+      "",
+      "return module")
+  end
+  local db = built(dir, {
+    ["cosmic/thing.tl"] = verbs("Things"),
+    ["cosmic/other.tl"] = verbs("Others"),
+    ["build/boot.tl"] = source(
+      "local Thing = require(\"cosmic.thing\")",
+      "local Other = require(\"cosmic.other\")",
+      "",
+      "-- Counts [`Thing.order`] and [`Other.order`].",
+      "local n = #Thing.order + #Other.order",
+      "return n"),
+  })
+  for _, query in ipairs({ "cosmic.thing.order", "Thing.order" }) do
+    local listed: {string} = {}
+    for _, use in ipairs((assert(docs.uses(view({ db }), query)))) do
+      listed[#listed + 1] = use.module .. " " .. use.from_file .. ":" .. use.line ..
+        (use.link and " link" or "")
+    end
+    local got = table.concat(listed, ", ")
+    assert(got == "cosmic.thing build/boot.tl:4 link, cosmic.thing build/boot.tl:5" or
+      got == "cosmic.thing build/boot.tl:5, cosmic.thing build/boot.tl:4 link", query .. ": " .. got)
+  end
+  local page = table.concat(assert(docs.render(view({ db }),
+    (assert(docs.lookup(view({ db }), "Thing.order")))[1])), "\n")
+  assert(page:find("used in 1 place and linked from 1; cosmic uses cosmic.thing.order", 1, true),
+    page)
+  assert(db:close())
+end
+
 --- A verb the bare name names answers first, then the module: `docs
 --- test` shows [`Cli.test`], then [`cosmic.test`].
 local function test_a_short_module_name_keeps_its_verb(dir: string)
