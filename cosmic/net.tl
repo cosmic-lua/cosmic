@@ -23,9 +23,15 @@
 --- most the object's `timeout_ms` (no limit by default), failing with
 --- "timed out", and ends with "interrupted", within a tenth of a second,
 --- when an open [`Child.guard`] catches SIGINT or SIGTERM, as
---- [`cosmic.http`]'s do. One connection is served at a time: nothing here
---- waits on several at once.
+--- [`cosmic.http`]'s do.
+---
+--- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to accept, to read
+--- or to write waits through the run, so its other tasks go on
+--- meanwhile: a server serves each connection in a task of its own. A
+--- cancelled task's wait there fails "cancelled", and a signal does not
+--- end one. Anywhere else a wait holds the thread until it ends.
 
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
@@ -122,7 +128,7 @@ local record Net
     timeout_ms: integer
     --- The next connection, waiting for one as long as `timeout_ms`
     --- (this call's, or the listener's); nil and "timed out",
-    --- "interrupted", or why not.
+    --- "interrupted", "cancelled" (in a task of [`Poll.run`]), or why not.
     accept: function(Listener, timeout_ms?: integer): Conn | nil, string
     --- Stops listening. A unix listener removes its socket file too,
     --- unless another file has taken the name since. Safe to call more
@@ -139,12 +145,14 @@ local record Net
     timeout_ms: integer
     --- What has arrived, at most `max` bytes (64 KiB by default), once
     --- something has; nil and "" once the peer has ended what it sends.
-    --- nil and "timed out" or "interrupted" takes nothing, and a later
-    --- read may still answer; nil and any other failure is every read's
-    --- after. A failed read leaves writing be.
+    --- nil and "timed out", "interrupted" or "cancelled" (in a task of
+    --- [`Poll.run`]) takes nothing, and a later read may still answer; nil
+    --- and any other failure is every read's after. A failed read leaves
+    --- writing be.
     read: function(Conn, max?: integer): string | nil, string
     --- Sends all of `data`, waiting as the peer takes it. False and
-    --- "timed out", "interrupted" or why not may leave part of it sent,
+    --- "timed out", "interrupted", "cancelled" (in a task of [`Poll.run`])
+    --- or why not may leave part of it sent,
     --- so it is every write's after; reading is left be.
     write: function(Conn, data: string): boolean, string
     --- Ends one direction, or both: after "write" the peer reads the
@@ -203,7 +211,20 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
 end
 
 local function waited(fd: integer, writable: boolean, timeout_ms: integer | nil): boolean, string
-  local ok, trouble, errno = raw.wait(fd, writable, milliseconds(timeout_ms))
+  local ms = milliseconds(timeout_ms)
+  if Poll.in_task() then
+    local ready, why: boolean, string
+    if writable then
+      ready, why = Poll.writable(fd, timeout_ms)
+    else
+      ready, why = Poll.readable(fd, timeout_ms)
+    end
+    if ready then return true, "" end
+    -- Poll.TIMEOUT is this module's own "timed out", which
+    -- test_in_a_run_waits_time_out_as_they_do_out_of_one holds it to.
+    return false, why
+  end
+  local ok, trouble, errno = raw.wait(fd, writable, ms)
   if ok then return true, "" end
   return false, said(trouble, errno)
 end
@@ -242,6 +263,9 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
         -- read to try again.
         local ready, waiting = waited(fd, false, conn.timeout_ms)
         if not ready then return nil, waiting end
+        -- Another task may have closed the connection while this one
+        -- waited in a run, and its descriptor gone to another socket.
+        if not open then return nil, "connection is closed" end
       end
     end,
     write = function(_self: Net.Conn, data: string): boolean, string
@@ -261,6 +285,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
             write_failure = waiting
             return false, waiting
           end
+          if not open then return false, "connection is closed" end
         end
       end
       return true, ""
@@ -295,6 +320,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
     close = function(_self: Net.Conn): boolean, string
       if not open then return true, "" end
       open = false
+      Poll.closing(fd)
       local ok, why = socket:close()
       if not ok then return false, why end
       return true, ""
@@ -339,11 +365,13 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
         if errno ~= raw.EAGAIN then return nil, why end
         local ready, waiting = waited(fd, false, wait_ms)
         if not ready then return nil, waiting end
+        if not open then return nil, "listener is closed" end
       end
     end,
     close = function(_self: Net.Listener): boolean, string
       if not open then return true, "" end
       open = false
+      Poll.closing(fd)
       local ok, why = socket:close()
       if not ok then return false, named(address) .. ": " .. why end
       return true, ""
@@ -480,6 +508,11 @@ end
 --- nothing listens at the port.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
   local timeout_ms = opts ~= nil and opts.timeout_ms or nil
+  -- TODO: wait out a connection being made through the run in a task
+  -- of Poll.run, as reads and writes do, once core/socket.h can start
+  -- one and answer it in progress: raw.connect waits in C, holding
+  -- every task, for a TCP one to be made and, on Linux, for room at a
+  -- unix listener whose backlog is full.
   local socket, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ms))
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
   return new_conn(socket, timeout_ms), ""
