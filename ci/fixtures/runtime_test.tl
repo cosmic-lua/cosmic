@@ -8,15 +8,17 @@ local Test = require("cosmic.test")
 
 -- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
--- and the product it was made from (COSMIC_FIXTURE_PRODUCT): its bytes
--- are in every verdict's key, so no verdict stands for a product it was
--- not reached on (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
+-- which holds the database it was written from, and the prefix of the
+-- product it was made from (COSMIC_FIXTURE_PRODUCT's `prefix`: its
+-- launcher, manifest and cores): each is in every verdict's key, so no
+-- verdict stands for a product part it was not reached on
+-- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
 -- A core of another target's is not there, and is keyed as missing.
 -- `system`: runtime.* launch through /bin/sh, and the fixtures run
 -- uname, mkfifo, cat and tee through /usr/bin/env (cosmic_ci/process.tl).
 Test.needs{
   host = {
-    "$COSMIC_FIXTURE_PRODUCT/cosmic",
+    "$COSMIC_FIXTURE_PRODUCT/prefix",
     "$COSMIC_FIXTURE_RUNTIME/runtime.old",
     "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix-sha256",
     "$COSMIC_FIXTURE_RUNTIME/runtime.new",
