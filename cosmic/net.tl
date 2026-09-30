@@ -432,6 +432,20 @@ local record Attempt
   errno: integer
 end
 
+--- A socket being connected in a task, closed when the task leaves it
+--- unclaimed -- a run torn down while it waits included -- rather than
+--- left to the collector.
+local record Connecting
+  socket: raw_socket.Socket
+  metamethod __close: function(Connecting)
+end
+
+local connecting_mt: metatable<Connecting> = {
+  __close = function(self: Connecting)
+    if self.socket ~= nil then local _, _ = self.socket:close() end
+  end,
+}
+
 --- A socket connected to `address`, waiting at most `timeout_ms`: in a
 --- task of [`Poll.run`], through the run; anywhere else, holding the
 --- thread.
@@ -448,15 +462,14 @@ local function connection(address: Net.Address, timeout_ms: integer | nil): Atte
     local left: integer = nil
     if deadline ~= nil then left = math.max(deadline - now_ms(), 0) end
     if socket ~= nil then
+      local holder: Connecting = { socket = socket }
+      local held <close> = setmetatable(holder, connecting_mt)
       local ready, why = Poll.writable(socket:fd(), left)
-      if not ready then
-        local _, _ = socket:close()
-        return { trouble = why, errno = 0 }
-      end
+      if not ready then return { trouble = why, errno = 0 } end
       local made, refused, number = raw.connected(socket:fd())
-      if made then return { socket = socket } end
-      local _, _ = socket:close()
-      return { trouble = refused, errno = number }
+      if not made then return { trouble = refused, errno = number } end
+      held.socket = nil
+      return { socket = socket }
     end
     if errno ~= raw.EAGAIN then return { trouble = trouble, errno = errno } end
     -- A unix listener's backlog is full, and writable says nothing of
@@ -525,13 +538,18 @@ local function left_behind(address: Net.Address): string
   local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
   if st.mode & 0xF000 ~= SOCKET_TYPE then return "" end
-  local probe = connection(address, PROBE_MS)
-  if probe.socket ~= nil then
-    local _, _ = probe.socket:close()
+  -- TODO: probe through the run in a task of Poll.run, as a connect
+  -- does, once reclaim's lock waits through it: the probe runs under
+  -- that lock, and a second reclaim's flock of the same path would hold
+  -- the thread -- and with it the task that holds the lock -- for as
+  -- long as LOCK_MS. Holding the thread here keeps the lock's hold short.
+  local probe, _, errno = raw.connect(raw_address(address), PROBE_MS)
+  if probe ~= nil then
+    local _, _ = probe:close()
     return ""
   end
-  if probe.errno == raw.ECONNREFUSED then return "refused" end
-  return probe.errno == sys.ENOENT and "gone" or ""
+  if errno == raw.ECONNREFUSED then return "refused" end
+  return errno == sys.ENOENT and "gone" or ""
 end
 
 --- A unix listener at `address`; with `reclaim`, taking over a socket
