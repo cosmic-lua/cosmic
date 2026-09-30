@@ -141,9 +141,10 @@ promises lean on come first:
   `Address`; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode; and
-  a wait on several connections and `Child` handles at once: a
-  scheduler over [`sys.poll`], which [`cosmic.net`] waits through in place
-  of core/socket.h's one-socket `wait`.
+  a wait on several connections and `Child` handles at once:
+  [`cosmic.net`] and [`cosmic.child`] waiting through [`cosmic.poll`] inside
+  [`Poll.run`], in place of core/socket.h's one-socket `wait` and the
+  child pump's own poll.
 
 ## documentation and examples
 
@@ -223,14 +224,16 @@ four-producer provenance join.
 [`Child.end_strays`]: ../cosmic/child.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
+[`cosmic.child`]: ../cosmic/child.tl
 [`cosmic.http`]: ../cosmic/http.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.poll`]: ../cosmic/poll.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`Json.decode`]: ../cosmic/json.tl
+[`Poll.run`]: ../cosmic/poll.tl
 [`Shape.record`]: ../cosmic/shape.tl
 [`Shape.strict_record`]: ../cosmic/shape.tl
-[`sys.poll`]: ../core/syscalls.h
