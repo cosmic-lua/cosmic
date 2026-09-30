@@ -9,6 +9,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 
 --- A bare name is not looked for on PATH, and the failure says so and
@@ -66,21 +67,99 @@ local function test_options_are_validated()
   assert(not pcall(Child.start, { "/bin/sh" }, { capture_limit = 0 } as Child.Options))
 end
 
-local function test_guard_is_one_at_a_time_and_closes_once()
-  local guard = assert(Child.guard())
-  local second, trouble = Child.guard()
-  local named = "a guard (Child.guard or another Child.run) is already open"
-  assert(second == nil and trouble:find(named, 1, true), trouble)
-  local r, run_trouble = Child.run({ "/bin/sh", "-c", "exit 0" })
-  assert(r == nil and run_trouble:find("signal guard: ", 1, true), run_trouble)
-  -- A bare "Resource busy" would not say what holds the signals.
-  assert(run_trouble:find(named, 1, true), run_trouble)
-  assert(guard:cancelled() == 0)
-  assert(guard:close())
-  assert(guard:close())
-  assert(guard:cancelled() == 0)
+--- Guards nest, and each closes once: a guard opened inside another
+--- is taken, and every guard closed, the next one taken afresh.
+local function test_guards_nest_and_each_closes_once()
+  local outer = assert(Child.guard())
+  local inner = assert(Child.guard())
+  assert(inner:cancelled() == 0)
+  assert(inner:close())
+  assert(inner:close())
+  assert(outer:cancelled() == 0)
+  assert(outer:close())
+  assert(outer:close())
+  assert(outer:cancelled() == 0)
   local again = assert(Child.guard())
   assert(again:close())
+end
+
+--- What an inner guard sees and takes, the outer still sees and takes;
+--- the inner's close, with the outer open, delivers nothing; and a
+--- guard opened after the signal sees none of it. The signals are this
+--- process's own, and every guard is released, so none is delivered
+--- again.
+local function test_an_outer_guard_sees_what_an_inner_one_took()
+  local outer = assert(Child.guard())
+  local inner = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  assert(inner:take() == sys.SIGTERM)
+  assert(inner:take() == 0)
+  assert(inner:close())
+  assert(inner:cancelled() == sys.SIGTERM)
+  local late = assert(Child.guard())
+  assert(late:cancelled() == 0, "a guard opened after the signal saw it")
+  assert(late:release() == 0)
+  assert(outer:take() == sys.SIGTERM)
+  assert(outer:release() == sys.SIGTERM)
+end
+
+--- A guard's wait takes the next signal while the run's other tasks go
+--- on, however many tasks wait on it and another guard at once: each
+--- wakes, and neither takes the other's. With none to take, a wait
+--- ends at its timeout; outside a task it raises.
+local function test_guard_wait_takes_a_signal_in_a_task()
+  local outer = assert(Child.guard())
+  local inner = assert(Child.guard())
+  local got: {string} = {}
+  Poll.run(function()
+    local function waiter(g: Child.Guard, name: string): Poll.Task
+      return Poll.spawn(function()
+        local signal, why = g:wait(5000)
+        got[#got + 1] = name .. "=" .. tostring(signal) .. why
+      end)
+    end
+    local a = waiter(outer, "outer")
+    local b = waiter(inner, "inner")
+    assert(Poll.delay(10))
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    assert(a:join())
+    assert(b:join())
+    local signal, why = inner:wait(10)
+    got[#got + 1] = tostring(signal) .. " " .. why
+  end)
+  table.sort(got)
+  local term = tostring(sys.SIGTERM)
+  assert(table.concat(got, ",") == "0 " .. Poll.TIMEOUT .. ",inner=" .. term .. ",outer=" .. term,
+    table.concat(got, ","))
+  local ok, raised = pcall(outer.wait, outer)
+  assert(not ok and tostring(raised):find("in a task of Poll.run", 1, true), tostring(raised))
+  assert(inner:release() == sys.SIGTERM)
+  assert(outer:release() == sys.SIGTERM)
+end
+
+--- A guard's wait ends once that guard closes, though another stays
+--- open; a wait on the one still open waits on.
+local function test_a_guard_s_wait_ends_when_it_closes_under_another()
+  local outer = assert(Child.guard())
+  local inner = assert(Child.guard())
+  local got: {string} = {}
+  Poll.run(function()
+    local on_inner = Poll.spawn(function()
+      local signal, why = inner:wait(5000)
+      got[#got + 1] = "inner=" .. tostring(signal) .. " " .. why
+    end)
+    local on_outer = Poll.spawn(function()
+      local signal, why = outer:wait(100)
+      got[#got + 1] = "outer=" .. tostring(signal) .. " " .. why
+    end)
+    assert(Poll.delay(10))
+    assert(inner:close())
+    assert(on_inner:join())
+    assert(on_outer:join())
+  end)
+  assert(table.concat(got, ",") == "inner=0 the guard is closed,outer=0 " .. Poll.TIMEOUT,
+    table.concat(got, ","))
+  assert(outer:release() == 0)
 end
 
 local function test_guard_release_with_nothing_caught_answers_zero()
