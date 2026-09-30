@@ -131,11 +131,6 @@ promises lean on come first:
   range, a pattern, a length) as `Shape.check(spec, fn)` or a few named
   ones; and `Shape.lazy(function(): Spec)`, so a spec can name itself for
   a tree-shaped payload, `need_spec` checking it on first use.
-- a public descriptor-poll API, once a caller outside `cosmic.child`
-  waits on a descriptor: a module over `set_nonblocking` and `poll`, say,
-  or both back in `cosmic.sys`. They live in core/process.h today,
-  `cosmic.child` their one caller; `cosmic.net` waits on one socket at a
-  time through core/socket.h's own `wait`.
 - `cosmic.net` past stream sockets over unix socket files and TCP, each
   once a caller needs it: a host name looked up (c-ares, which curl
   already carries) where a "tcp" `Address` takes a numeric one; an
@@ -146,8 +141,9 @@ promises lean on come first:
   `Address`; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode; and
-  a wait on several connections and `Child` handles at once, where the
-  public poll above would land.
+  a wait on several connections and `Child` handles at once: a
+  scheduler over `sys.poll`, which `cosmic.net` waits through in place
+  of core/socket.h's one-socket `wait`.
 
 ## documentation and examples
 

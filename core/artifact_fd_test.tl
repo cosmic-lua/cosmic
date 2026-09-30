@@ -87,7 +87,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   bound = function(_: integer, fd: integer): {any} return { fd } end,
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
-  poll = function(_: integer, fd: integer): {any} return { { fd }, { process.POLLIN }, 0 } end,
+  poll = function(_: integer, fd: integer): {any} return { { fd }, { sys.POLLIN }, 0 } end,
   spawn = function(at: integer, fd: integer): {any}
     local args: {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
       nil, nil }
@@ -261,8 +261,8 @@ local function test_other_descriptors_still_work(tmp: string)
   assert(sys.ftruncate(copy, 2))
   assert(sys.pread(fd, 16, 0) == "he")
   assert(not sys.isatty(fd))
-  assert(process.set_nonblocking(fd, true))
-  assert(#assert(process.poll({ fd }, { process.POLLIN }, 0)) == 1)
+  assert(sys.set_nonblocking(fd, true))
+  assert(#assert(sys.poll({ fd }, { sys.POLLIN }, 0)) == 1)
   assert(sys.close(copy))
   assert(sys.close(fd))
 end
