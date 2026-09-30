@@ -235,7 +235,8 @@ local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
     "declaration") ~= nil, table.concat(found, "\n"))
 end
 
---- Only the public standard library's files are held to earn no note.
+--- The files held to earn no note are the public standard library's:
+--- `cosmic/` outside `cosmic/internal/`.
 local function test_the_standard_library_is_the_public_cosmic_tree()
   assert(tree_checks.standard("cosmic/fs.tl"))
   assert(tree_checks.standard("./cosmic/child/group.tl"))

@@ -23,8 +23,9 @@ local function declaring(fields: analyzer.Declared): analyzer.Declared
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
---- module of its own and one only a declaration file answers for; the
---- helper runs fuzz properties when `fuzzes` says so.
+--- module of its own and one only a declaration file answers for, and a
+--- module nothing requires. The helper runs fuzz properties when
+--- `fuzzes` says so.
 local function tree(inputs?: analyzer.Declared, fuzzes?: boolean): Module, {string:Module}
   local helper_requires = { "lib.deep", "lib.declared" }
   if fuzzes then helper_requires[#helper_requires + 1] = "build.fuzz" end
@@ -169,7 +170,7 @@ end
 --- A `host` path that is a directory where the host has it, written
 --- out or where a variable says, fails its module's tests, naming the
 --- declaration: a key holds a host path by what the file holds, and none
---- walks a directory (R3). A path that is not there is given, as a file
+--- walks a directory. A path that is not there is given, as a file
 --- of another platform's is (/proc, which no key could hold by what it
 --- holds: build/declared_key_test.tl, which declares it).
 local function test_a_host_directory_is_refused_but_proc(tmp: string)
@@ -202,9 +203,8 @@ end
 
 --- A declaration's canonical text is one for each declaration: what the
 --- build reads and what `needs` is handed agree on a flag `false` and
---- none, an empty list and none; the
---- literal's order and its duplicates are kept; and a value is quoted,
---- so no two declarations share a text.
+--- none, an empty list and none; the literal's order and its duplicates
+--- are kept; and a value is quoted, so no two declarations share a text.
 local function test_canonical_text_names_one_declaration()
   local function of(needs: declared_inputs.Needs): string
     return test_inputs.canonical(test_inputs.as_declared(needs))

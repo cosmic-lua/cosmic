@@ -3,12 +3,12 @@
 --- by hand, as `cosmic test` starts one, runs a module whose closure is
 --- small, and what its report says it ran of the tree -- all but Lua's
 --- libraries and the core's own -- is that module's closure and
---- [`worker.loads`], which
---- names nothing it did not run but [`cosmic.removed`], which the core
---- loads only for a test that reaches for a removed global. Nor does it
---- run the code that computes a key but the parts it spells
---- (build.key_parts), nor hash through cosmic.hash and cosmic.codec
---- rather than build.digest. It starts this program, so it declares `tool`.
+--- [`worker.loads`], which names nothing it did not run but
+--- [`cosmic.removed`], which the core loads only for a test that reaches
+--- for a removed global. Nor does it run the code that computes a key
+--- but the parts it spells (build.key_parts), nor hash through
+--- cosmic.hash and cosmic.codec rather than build.digest. It starts this
+--- program, so it declares `tool`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")

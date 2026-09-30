@@ -1,15 +1,13 @@
 --- `cosmic test`'s sandboxed worker (build/test_sandbox.tl): a worker's
 --- whole plan, and, end to end, what a test run with the switch on
---- sees. These cases declare `tool`, each for a reason of its own:
---- - a plan reads this program: it gives a worker the program's own
----   paths, and so stats them (build.confine's `worker_unveil`);
---- - the end-to-end cases start this program, a `cosmic test` run on a
----   suite of their own;
---- - and the workers of that run nest a sandbox in this test's own,
----   confining each in a root of its own, which a worker that does not
----   declare `tool` cannot give: it is held to running anything but
----   this program through a Landlock domain (build.confine's
----   `forbid_running`), and the kernel refuses a mount inside one.
+--- sees. These cases declare `tool`: a plan reads this program, since
+--- it gives a worker the program's own paths and so stats them
+--- (build.confine's `worker_unveil`), and the end-to-end cases start
+--- this program, a `cosmic test` run on a suite of their own. They
+--- declare `nests` because the workers of that run nest a sandbox in
+--- this test's own, each in a root of its own, whose mounts the kernel
+--- refuses under the Landlock ruleset that holds every other worker
+--- (build/test_worker.tl's `Hold`).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -25,7 +23,7 @@ local Test = require("cosmic.test")
 
 --- What a worker's plan gives it of the host, the program it runs,
 --- roots of their own for the sandboxed workers it starts (`nests`), and
---- what holds a run to sandboxing (`unsandboxed`).
+--- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
@@ -35,9 +33,9 @@ Test.needs{
 
 --- Makes `root`, a tree for a suite, with a stand-in program
 --- (build/stand_in.tl) at bin/probe for its tests to start, which
---- declare it -- not this program, which would take `tool`, and with it
---- the store's hold these tests look at: in the tree, since a sandboxed
---- worker has a /tmp of its own over this test's.
+--- declare it -- not this program, which would take `tool` -- in the
+--- tree, since a sandboxed worker has a /tmp of its own over this
+--- test's.
 local function suite_tree(tmp: string, root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/bin"))
@@ -145,9 +143,10 @@ end
 
 --- A worker is given the tree's store, its closure's files and what its
 --- module declares of the tree, each at its name under /tree; its
---- scratch directory to write, at [`test_sandbox.scratch`]; the host files it declares at
---- their own names; and no network but its own loopback. A path that is
---- not there is not given: a read of it finds nothing either way.
+--- scratch directory to write, at [`test_sandbox.scratch`]; the host
+--- files it declares at their own names; and no network but its own
+--- loopback. A path that is not there is not given: a read of it finds
+--- nothing either way.
 local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_name(tmp: string)
   local root, scratch, dir = tmp .. "/root", scratch_in(tmp), tmp .. "/host"
   for _, made in ipairs({ root .. "/o", root .. "/a", root .. "/data", dir }) do
@@ -281,14 +280,12 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(not holds(tooled.sandbox.unveil.reads, root .. "/o/bin"))
 end
 
---- Whether the run that printed `text` sandboxed none of its workers,
---- where that is allowed. The workers nest in this test's own sandbox,
---- which a host may refuse (the kernel lets root nest one only two deep:
---- core/syscalls.c's `map_ids`); a case of a sandboxed run then has
---- nothing to check. It says it is skipped ([`Test.skip`]),
---- which a run held to sandboxing fails
---- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
---- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
+--- Whether the run that printed `text` sandboxed none of its workers; if
+--- so, the running test is skipped ([`Test.skip`]), since a case of a
+--- sandboxed run then has nothing to check. The workers nest in this
+--- test's own sandbox, which a host may refuse: the kernel lets root nest
+--- one only two deep (core/syscalls.c's `map_ids`). A run held to
+--- sandboxing fails the skip; CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if not text:find("no worker can be sandboxed here", 1, true) then return false end
   sandbox_skip.nested(text)
@@ -332,7 +329,8 @@ end
 --- variables it declares, and says it is keyed by what it declares and
 --- shares no verdict. Where this host cannot sandbox the run's workers
 --- the run says so, and runs them unsandboxed, sharing none -- but with
---- the switch on, where it fails. A switch that is neither "1", "0" nor unset is refused.
+--- the switch on, where it fails. A switch that is neither "1", "0" nor
+--- unset is refused.
 local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   suite_tree(tmp, root)

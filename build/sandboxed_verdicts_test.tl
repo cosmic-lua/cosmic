@@ -8,9 +8,9 @@
 --- refuses root (core/syscalls.c's `map_ids`) -- the run says so, and
 --- there is nothing more to check, unless the run is held to
 --- sandboxing (`unsandboxed`): then it fails. A test that runs this
---- program undeclared is refused it, sandboxed, and one that declares `tool`
---- runs again when the tool does -- when what the tool runs as does,
---- not when only the rows every edit of the tree moves do.
+--- program undeclared is refused it, sandboxed, and one that declares
+--- `tool` runs again when the tool does -- when what the tool runs as
+--- does, not when only the rows every edit of the tree moves do.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -26,7 +26,8 @@ local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
---- program it runs, and roots of their own for its workers (`nests`).
+--- program it runs, roots of their own for its workers (`nests`), and
+--- the variables `unsandboxed` reads, which hold a run to sandboxing.
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
@@ -74,15 +75,13 @@ end
 ]]))
 end
 
---- Whether a run that said `text` sandboxed no worker, which skips the
---- test ([`Test.skip`]): false where it did sandbox them. A host that
---- refuses a worker's workers a sandbox of their own -- one running the
---- tests as root, this test's run confined in a sandbox already --
---- checks nothing here, and a run held to sandboxing --
---- COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
---- COSMIC_CI_REQUIRE_SANDBOX=1 -- fails a skipped test, so a run held to
---- it proves the runs it starts sandbox theirs, nested in its own as
---- they are (CI's unprivileged runner nests them).
+--- Whether a run that said `text` sandboxed no worker; if so, the
+--- running test is skipped ([`Test.skip`]). A host that refuses a
+--- worker's workers a sandbox of their own -- one running the tests as
+--- root, this test's run confined in a sandbox already -- checks nothing
+--- here. A run held to sandboxing fails the skip, so it proves the runs
+--- it starts sandbox theirs, nested in its own as they are (CI's
+--- unprivileged runner nests them).
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
   sandbox_skip.nested(text)
@@ -120,11 +119,12 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
-  -- A run that never started sandboxed nothing, and says nothing of it.
   assert(result ~= nil, tostring(trouble) .. text)
   assert(unchecked or result.ok, tostring(trouble) .. text)
   return text
 end
+
+local type Said = function(string, ?{string}): string
 
 --- A checkout of the suite in `tmp`, run once, sandboxed: the
 --- environment its runs take, and a check of a run after the last one
@@ -132,8 +132,6 @@ end
 --- in; nil where no worker could be sandboxed. Each case below seeds
 --- its own, so none starts more nested runs than a test's bound (10 s
 --- in CI) holds under load.
-local type Said = function(string, ?{string}): string
-
 local function seeded(tmp: string): {string:string}, Said, string
   local root = tmp .. "/root"
   checkout(root)

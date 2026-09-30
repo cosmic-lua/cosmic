@@ -81,10 +81,10 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
       assert(out:find("\n  " .. shown .. " ", 1, true), verb .. ": " .. out)
     end
   end
-  -- `cosmic docs` shows them under the verb's field too.
-  -- Asked nothing, it lists the modules there are.
+  -- `cosmic docs` asked nothing lists the modules there are.
   local index = verbs_fixture.expect(tmp, "docs", { "docs" }, 0).stdout or ""
   assert(index:find("\ncosmic.fs  ", 1, true), index)
+  -- It shows the options under the verb's field too.
   local docs = verbs_fixture.expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout or ""
   assert(docs:find("\n  options:\n", 1, true) and docs:find("\n    --jobs <n> ", 1, true) and
     docs:find("\n    --all ", 1, true), docs)
@@ -261,7 +261,7 @@ local function test_db_takes_paths_to_narrow_it(tmp: string)
   -- lib/reader.tl is one module and one staged file.
   assert(narrowed:find("\n +1  modules\n"), narrowed)
   assert(narrowed:find("\n +1  files\n"), narrowed)
-  -- and one row of `parsed`, a table keyed only by its source's hash.
+  -- And one row of `parsed`, a table keyed only by its source's hash.
   assert(narrowed:find("\n +1  parsed\n"), narrowed)
   assert(not narrowed:find("builds, latest first", 1, true), narrowed)
   assert(not narrowed:find("pages", 1, true), narrowed)

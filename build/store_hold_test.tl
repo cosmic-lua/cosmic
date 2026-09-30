@@ -1,5 +1,5 @@
 --- A test worker holds the store, not only `require`, to its module's
---- import closure ([`build.test_worker`]'s `hold_requires`): a module of
+--- import closure ([`build.test_worker`]'s `hold_store`): a module of
 --- the tree outside it, read by [`Store.bytecode`], [`Store.source`] or a
 --- searcher called by hand, is none of the store's, and
 --- [`Store.databases()`], whose handles read every module's rows, raises

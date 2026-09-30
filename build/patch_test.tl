@@ -41,8 +41,7 @@ local function test_no_patch_directory_leaves_the_copy_pristine(dir: string)
 end
 
 --- A file keeps its permission bits, which a patched one keeps too; one
---- its owner cannot write is still written whole. (Whether anything was
---- synced is not seen here.)
+--- its owner cannot write is still written whole.
 local function test_a_copy_keeps_each_files_mode(dir: string)
   checkout(dir .. "/root", { ["run.sh"] = "echo old\n", ["plain.h"] = "x\n",
     ["fixed.h"] = "y\n" },
@@ -183,7 +182,8 @@ local function test_names_are_the_pinned_trees(dir: string)
 end
 
 --- A link is not upstream source: neither it nor what it names is
---- copied, and a loop of them stops nothing. An empty directory is.
+--- copied, and a loop of them stops nothing. An empty directory is
+--- copied.
 local function test_links_are_left_out_and_empty_directories_kept(dir: string)
   checkout(dir .. "/root", { ["a.h"] = "x\n" })
   assert(Fs.write(dir .. "/outside", "not the tree's"))
