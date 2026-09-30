@@ -49,6 +49,13 @@ end
 Poll.TIMEOUT = "timed out"
 Poll.CANCELLED = "cancelled"
 
+--- The longest wait `sys.poll` takes, and so the longest timeout here.
+local MOST_MS <const> = 0x7fffffff
+
+--- Readiness `poll` reports whatever was asked: each ends a wait on the
+--- descriptor, whose read or write then says what happened.
+local ALWAYS <const> = sys.POLLERR | sys.POLLHUP | sys.POLLNVAL
+
 --- One wait a task is parked in, and what ends it: a descriptor ready, a
 --- time reached, a task joined. `done` is set once one of them has
 --- answered it, so the others that still hold it pass it by.
@@ -64,24 +71,30 @@ local record Wait
   done: boolean
 end
 
---- What the loop keeps of a task, beside the handle `spawn` answers.
+--- What a run keeps of a task, beside the handle `spawn` answers.
 local record State
   handle: Poll.Task
   co: thread
+  --- The run the task belongs to: a handle kept past it answers as a
+  --- task that has ended.
+  loop: Loop
+  started: boolean
+  --- Set while the task is yielded in one of this module's waits.
+  waiting: boolean
   ended: boolean
   cancelled: boolean
   parked: Wait
   joiners: {Wait}
 end
 
---- A wait answered, with what it answers, for the loop to resume.
+--- A task to resume, with what its wait answers.
 local record Wake
   task: State
   ok: boolean
   why: string
 end
 
---- The loop's state while `Poll.run` runs; nil otherwise.
+--- A run's state while `Poll.run` runs; nil otherwise.
 local record Loop
   tasks: {thread: State}
   live: integer
@@ -91,6 +104,8 @@ local record Loop
   --- Time waits, a binary heap on `at` then `seq`.
   timers: {Wait}
   seq: integer
+  --- Set while the run closes its tasks, when nothing may start or wait.
+  closing: boolean
 end
 
 local loop: Loop = nil
@@ -135,7 +150,7 @@ local function heap_pop(heap: {Wait}): Wait
   return top
 end
 
---- Answers `w`, once: the loop resumes its task with `ok` and `why`.
+--- Answers `w`, once: the run resumes its task with `ok` and `why`.
 local function wake(w: Wait, ok: boolean, why: string)
   if w.done then return end
   w.done = true
@@ -143,46 +158,56 @@ local function wake(w: Wait, ok: boolean, why: string)
   loop.ready[#loop.ready + 1] = { task = w.task, ok = ok, why = why }
 end
 
---- The task the calling coroutine is, raising where there is none: a
---- wait outside `Poll.run`, or in a coroutine a task made of its own.
-local function current(what: string): State
-  if loop == nil then error(what .. " outside Poll.run", 3) end
-  local co = coroutine.running()
-  local task = loop.tasks[co]
-  if task == nil then error(what .. " outside a task's own coroutine", 3) end
+--- The task the calling coroutine is, raising at `level` where there is
+--- none: a wait outside `Poll.run`, in a coroutine a task made of its
+--- own, or while the run closes its tasks.
+local function current(what: string, level: integer): State
+  if loop == nil then error(what .. " outside Poll.run", level + 1) end
+  if loop.closing then error(what .. " while Poll.run closes its tasks", level + 1) end
+  local task = loop.tasks[coroutine.running()]
+  if task == nil then error(what .. " outside a task's own coroutine", level + 1) end
   return task
 end
 
-local function checked_timeout(timeout_ms: integer | nil, level: integer): integer | nil
-  if timeout_ms ~= nil and (math.type(timeout_ms) ~= "integer" or timeout_ms < 0) then
-    error("timeout_ms must be an integer from 0", level + 1)
+local function checked_ms(value: integer | nil, name: string, level: integer)
+  if value ~= nil and (math.type(value) ~= "integer" or value < 0 or value > MOST_MS) then
+    error(name .. " must be an integer from 0 to " .. MOST_MS, level + 1)
   end
-  return timeout_ms
 end
 
---- Parks `task` in `w`, bounded by `timeout_ms`, and answers what ends it.
+--- Parks `task` in `w`, bounded by `timeout_ms`, and answers what ends
+--- it. A cancelled task still yields, answered at once, so a task that
+--- waits in a loop lets the others run.
 local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, string
-  if task.cancelled then return false, Poll.CANCELLED end
-  if timeout_ms ~= nil then
-    loop.seq = loop.seq + 1
-    w.at, w.seq = now_ms() + timeout_ms, loop.seq
-    heap_push(loop.timers, w)
-  end
   task.parked = w
+  if task.cancelled then
+    wake(w, false, Poll.CANCELLED)
+  else
+    if w.fd ~= nil then loop.watched[#loop.watched + 1] = w end
+    if timeout_ms ~= nil then
+      loop.seq = loop.seq + 1
+      w.at, w.seq = now_ms() + timeout_ms, loop.seq
+      -- TODO: drop done waits from the heap once they outnumber the live
+      -- ones: one leaves only on reaching the top, so a server whose long
+      -- timeouts are answered early holds one per wait until each expires.
+      heap_push(loop.timers, w)
+    end
+  end
+  task.waiting = true
   local ok, why = coroutine.yield(w)
+  task.waiting = false
   if ok == true then return true, "" end
   if ok == false and why is string then return false, why end
   error("a task was resumed other than by Poll.run", 2)
 end
 
 local function wait_fd(fd: integer, events: integer, timeout_ms: integer | nil, what: string): boolean, string
-  local task = current(what)
-  checked_timeout(timeout_ms, 3)
-  if math.type(fd) ~= "integer" or fd < 0 then error("fd must be a descriptor", 3) end
-  local w: Wait = { task = task, fd = fd, events = events }
-  if task.cancelled then return false, Poll.CANCELLED end
-  loop.watched[#loop.watched + 1] = w
-  return park(task, w, timeout_ms)
+  local task = current(what, 3)
+  checked_ms(timeout_ms, "timeout_ms", 3)
+  if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_MS then
+    error("fd must be a descriptor", 3)
+  end
+  return park(task, { task = task, fd = fd, events = events }, timeout_ms)
 end
 
 --- Waits until `fd` can be read without waiting -- data, the end of what
@@ -202,27 +227,29 @@ end
 --- they have passed, false and `Poll.CANCELLED` once the task is
 --- cancelled first.
 function Poll.delay(ms: integer): boolean, string
-  local task = current("Poll.delay")
-  if math.type(ms) ~= "integer" or ms < 0 then error("ms must be an integer from 0", 2) end
+  local task = current("Poll.delay", 2)
+  if ms == nil then error("ms must be an integer from 0 to " .. MOST_MS, 2) end
+  checked_ms(ms, "ms", 2)
   return park(task, { task = task, expiry_ok = true }, ms)
 end
 
 --- A new task running `fn`, ready to run.
 local function start(fn: function()): Poll.Task
-  local state: State = { co = coroutine.create(fn), joiners = {} }
+  local state: State = { co = coroutine.create(fn), loop = loop, joiners = {} }
   state.handle = {
     join = function(_self: Poll.Task, timeout_ms?: integer): boolean, string
-      local task = current("Task:join")
-      checked_timeout(timeout_ms, 2)
-      if state.ended then return true, "" end
+      local task = current("Task:join", 2)
+      checked_ms(timeout_ms, "timeout_ms", 2)
+      if state.ended or state.loop ~= loop then return true, "" end
       if state == task then error("a task cannot join itself", 2) end
-      if task.cancelled then return false, Poll.CANCELLED end
       local w: Wait = { task = task }
       state.joiners[#state.joiners + 1] = w
+      -- TODO: drop a joiner's wait once a timeout answers it: a task
+      -- joined over and over with a timeout keeps every one until it ends.
       return park(task, w, timeout_ms)
     end,
     cancel = function(_self: Poll.Task)
-      if loop == nil or state.ended or state.cancelled then return end
+      if state.loop ~= loop or state.ended or state.cancelled then return end
       state.cancelled = true
       if state.parked ~= nil then wake(state.parked, false, Poll.CANCELLED) end
     end,
@@ -235,16 +262,23 @@ end
 
 --- Starts `fn` as a task of its own, run once the calling task waits.
 function Poll.spawn(fn: function()): Poll.Task
-  current("Poll.spawn")
+  current("Poll.spawn", 2)
   if type(fn) ~= "function" then error("Poll.spawn takes a function", 2) end
   return start(fn)
 end
 
---- Ends every task but `except` where it waits, closing its pending
---- `<close>` variables.
-local function close_all(except: State)
-  for co, task in pairs(loop.tasks) do
-    if task ~= except and coroutine.status(co) == "suspended" then
+--- Ends every task where it waits, closing its pending `<close>`
+--- variables, and marks each ended, so a handle kept past the run
+--- answers as one. What a `<close>` handler raises is dropped: the run
+--- is already ending with an error of its own.
+local function close_all()
+  loop.closing = true
+  local cos: {thread} = {}
+  for co in pairs(loop.tasks) do cos[#cos + 1] = co end
+  for _, co in ipairs(cos) do
+    local task = loop.tasks[co]
+    task.ended, task.parked = true, nil
+    if coroutine.status(co) == "suspended" then
       local _, _ = coroutine.close(co)
     end
   end
@@ -253,21 +287,23 @@ end
 --- Resumes `task` with a wait's answer and settles what it did next:
 --- ended, parked in a wait, or raised.
 local function step(task: State, ok: boolean, why: string)
-  local resumed, err = coroutine.resume(task.co, ok, why)
-  if not resumed then
-    task.ended = true
-    close_all(task)
-    loop = nil
-    error(err, 0)
+  local resumed, err: boolean, any
+  if task.started then
+    resumed, err = coroutine.resume(task.co, ok, why)
+  else
+    task.started = true
+    resumed, err = coroutine.resume(task.co)
   end
+  -- TODO: carry the task's traceback with its error, taken from its
+  -- coroutine before it is closed, once cosmic.errors can trace another
+  -- coroutine: only the message crosses resume today.
+  if not resumed then error(err, 0) end
   if coroutine.status(task.co) == "dead" then
     task.ended = true
     loop.tasks[task.co] = nil
     loop.live = loop.live - 1
     for _, w in ipairs(task.joiners) do wake(w, true, "") end
-  elseif task.parked == nil then
-    close_all(nil)
-    loop = nil
+  elseif not task.waiting then
     error("a task yielded other than through cosmic.poll", 0)
   end
 end
@@ -280,26 +316,33 @@ local function next_timeout(): integer
   if #loop.timers == 0 then return -1 end
   local left = loop.timers[1].at - now_ms()
   if left < 0 then return 0 end
-  return left
+  return math.min(left, MOST_MS)
 end
 
 --- Waits on every watched descriptor for as long as `timeout`, and
---- answers each wait whose descriptor is ready.
+--- answers each wait whose descriptor is ready. A descriptor several
+--- waits share goes to `poll` once, asked for all they want: macOS
+--- answers only one entry of a descriptor given twice.
 local function poll_once(timeout: integer)
   local fds: {integer} = {}
   local events: {integer} = {}
+  local at: {integer: integer} = {}
   local kept: {Wait} = {}
+  -- TODO: keep the descriptor set between polls, changed as waits begin
+  -- and end, rather than built again from every wait each time round.
   for _, w in ipairs(loop.watched) do
     if not w.done then
       kept[#kept + 1] = w
-      fds[#fds + 1] = w.fd
-      events[#events + 1] = w.events
+      local i = at[w.fd]
+      if i == nil then
+        i = #fds + 1
+        at[w.fd], fds[i], events[i] = i, w.fd, 0
+      end
+      events[i] = events[i] | w.events
     end
   end
   loop.watched = kept
   if #fds == 0 and timeout < 0 then
-    close_all(nil)
-    loop = nil
     error("every task waits on another: none can go on", 0)
   end
   -- TODO: end every wait with an interrupt when a Child.guard catches
@@ -307,13 +350,9 @@ local function poll_once(timeout: integer)
   -- through a descriptor the loop can watch: a signal only cuts this
   -- poll short today, and the loop waits on.
   local revents, trouble = sys.poll(fds, events, timeout)
-  if revents == nil then
-    close_all(nil)
-    loop = nil
-    error("poll: " .. trouble, 0)
-  end
-  for i, w in ipairs(kept) do
-    if revents[i] ~= 0 then wake(w, true, "") end
+  if revents == nil then error("poll: " .. trouble, 0) end
+  for _, w in ipairs(kept) do
+    if revents[at[w.fd]] & (w.events | ALWAYS) ~= 0 then wake(w, true, "") end
   end
 end
 
@@ -328,6 +367,19 @@ local function expire()
   end
 end
 
+local function turn()
+  while loop.live > 0 do
+    while #loop.ready > 0 do
+      local batch = loop.ready
+      loop.ready = {}
+      for _, wakened in ipairs(batch) do step(wakened.task, wakened.ok, wakened.why) end
+    end
+    if loop.live == 0 then break end
+    poll_once(next_timeout())
+    expire()
+  end
+end
+
 --- Runs `main` as the first task and every task it spawns, returning
 --- once all have ended. It raises what a task raised, having closed the
 --- rest; and raises when every task left waits on another, which none
@@ -337,17 +389,10 @@ function Poll.run(main: function())
   if type(main) ~= "function" then error("Poll.run takes a function", 2) end
   loop = { tasks = {}, live = 0, ready = {}, watched = {}, timers = {}, seq = 0 }
   start(main)
-  while loop.live > 0 do
-    while #loop.ready > 0 do
-      local batch = loop.ready
-      loop.ready = {}
-      for _, wake_ in ipairs(batch) do step(wake_.task, wake_.ok, wake_.why) end
-    end
-    if loop.live == 0 then break end
-    poll_once(next_timeout())
-    expire()
-  end
+  local ok, err: boolean, any = pcall(turn)
+  if not ok then close_all() end
   loop = nil
+  if not ok then error(err, 0) end
 end
 
 return Poll
