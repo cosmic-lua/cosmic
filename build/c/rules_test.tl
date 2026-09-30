@@ -647,8 +647,11 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   -- own, where the kernel gives one.
   local sandboxed = root == "/tree"
   local outcome = c.check(root, { "case.c" }, tmp)[1]
-  if not sandboxed and outcome.findings ~= nil then
-    -- The kernel could confine none: the compiler read what it found.
+  local not_found = outcome.findings == nil and outcome.trouble ~= nil and
+    outcome.trouble:find("AGENTS.md' file not found", 1, true) ~= nil
+  if not sandboxed and not not_found then
+    -- The kernel could confine none: the compiler read what it found,
+    -- which, not being C, it answers with errors rather than findings.
     sandbox_skip.refused("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
     return
   end
