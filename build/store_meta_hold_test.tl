@@ -3,10 +3,11 @@
 --- the runtime's and those a closure store keeps answer, while a row of
 --- the running tool's own or of the whole projection -- `projected`,
 --- which moves with every edit to a module -- raises, naming `store`,
---- which this module does not declare. Nor does its closure hold a module that reads the
---- compiler's identity, so that is held too. Without the hold such a
---- read answers from a database no key of this module's tests holds,
---- and a verdict could stand on it after the row changed.
+--- which this module does not declare. Nor does its closure hold a
+--- module that reads the compiler's identity, so that is held too.
+--- Without the hold such a read answers from a database no key of this
+--- module's tests holds, and a verdict could stand on it after the row
+--- changed.
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")

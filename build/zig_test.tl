@@ -3,8 +3,8 @@
 --- statuses a failed exec means, the cache hit, the sweep of a dead
 --- install's scratch directory, and the snapshots that catch a source
 --- edited while a build runs, the rebuild lock a boot holds, and what
---- [`Zig.run`] answers of a stand-in zig ([`build.stand_in`]). The tests that start bin/zig are
---- build/zig_tool_test.tl's.
+--- [`Zig.run`] answers of a stand-in zig ([`build.stand_in`]). The tests
+--- that start bin/zig are build/zig_tool_test.tl's.
 
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
@@ -93,8 +93,6 @@ local function test_build_args_passes_other_subcommands_through()
   assert(#got == 1 and got[1] == "version")
 end
 
--- The global cache is shared: named outright, else in this user's cache
--- directory, and in the checkout only when there is no cache directory.
 --- A zig command other than `build` runs with zig's caches where `build`
 --- puts them, unless the caller names its own.
 local function test_other_subcommands_use_the_build_s_caches()
@@ -107,6 +105,8 @@ local function test_other_subcommands_use_the_build_s_caches()
   assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p")
 end
 
+-- The global cache is shared: named outright, else in this user's cache
+-- directory, and in the checkout only when there is no cache directory.
 local function test_global_cache_is_named_then_shared_then_local(tmp: string)
   assert(Zig.global_cache("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/ci/zig-global",
     XDG_CACHE_HOME = tmp }) == "/ci/zig-global")
@@ -545,10 +545,10 @@ local function test_a_boot_handed_the_lock_goes_on_under_it(tmp: string)
   assert(lock == false, "a handed boot answered " .. tostring(lock) .. " " .. trouble)
 end
 
---- build/zig.tl names a holder of the lock as build/rebuild_lock.tl does,
---- whose copy of the roles and of the holder file's reading it keeps:
---- each role, one it does not know, none, and a pid no process answers
---- to or this one's own.
+--- build/zig.tl, which keeps its own copy of build/rebuild_lock.tl's
+--- roles and of how it reads the holder file, names a holder of the lock
+--- as that module does: each role, one it does not know, none, and a pid
+--- no process answers to or this one's own.
 local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root .. "/o"))

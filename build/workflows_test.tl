@@ -1405,7 +1405,8 @@ end
 --- ci.yml's provenance join is. A step may still skip on a branch. So
 --- does a job that runs only where a job it needs found something (an
 --- output `!= ''`), which a branch push's never does: ci.yml's `seed`
---- alone, named in SKIPPED_ON_A_BRANCH with the TODO above it.
+--- alone, named in SKIPPED_ON_A_BRANCH. The TODO above that job in
+--- ci.yml says what would end the exception.
 local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
 local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = { [DIR .. "/ci.yml seed"] = true }
 

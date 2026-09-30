@@ -371,7 +371,7 @@ local function test_a_negative_count_is_refused_and_a_negative_bound_is_a_bound(
   assert(ran.err:find("-n needs a whole number", 1, true), ran.err)
   local bound = run({ "int", "-n", "2", "-4", "-4" })
   assert(bound.code == 0 and bound.out == "-4\n-4\n", bound.out .. bound.err)
-  -- Only int reads a word that begins with the marker as a bound.
+  -- Only int reads a word that begins with `-` as a number, not an option.
   local other = run({ "shuffle", "-5" }, { stdin = "a\n" })
   assert(other.code == 2, other.err)
 end

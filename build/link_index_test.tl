@@ -32,8 +32,8 @@ local function same(got: {string}, want: {string})
   assert(a == b, "got:\n" .. a .. "\nwant:\n" .. b)
 end
 
---- Two modules whose comments link to each other's symbols, to their
---- own, to a file and to a heading of one, beside links that name
+--- Modules whose comments link to another's symbols, to their own, to
+--- a file and to a heading of one, beside links that name
 --- nothing, a URL and a parameter, which are left out.
 local function linking_tree(dir: string): Sqlite.Handle
   assert(Fs.mkdirs(dir .. "/doc"))
@@ -186,8 +186,8 @@ local function write_project(root: string, target: string, bye: string)
     "return greet.hello")))
 end
 
---- Builds the project at `root` into `out` through `handle` and
---- answers its links, each as `file:line kind symbol path#anchor`.
+--- Builds the project `handle` holds into `out` and answers its links,
+--- each as `file:line kind symbol path#anchor`.
 local function build_links(handle: work.Handle, out: string): {string}
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))

@@ -3,9 +3,10 @@
 --- another checkout of the same content, at another path with its own
 --- o/, through the cache `COSMIC_VERDICT_CACHE` names, by its declared
 --- key (build/declared_key.tl), while a changed file or variable its
---- module declares, or `--all`, runs it again. Only a run whose workers are sandboxed
---- shares its verdicts: each suite declares what its tests read, and a
---- case stops where the run it starts cannot sandbox one (`shares`).
+--- module declares, or `--all`, runs it again. Only a run whose workers
+--- are sandboxed shares its verdicts: each suite declares what its tests
+--- read, and a case stops where the run it starts cannot sandbox one
+--- (`shares`).
 --- They declare `tool` because they start this program.
 
 local Child = require("cosmic.child")
@@ -18,8 +19,8 @@ local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, roots of their own for
---- the sandboxed workers of the runs they start (`nests`), and what
---- holds a run to sandboxing (`shares`).
+--- the sandboxed workers of the runs they start (`nests`), and the
+--- variables `shares` reads, which hold a run to sandboxing.
 Test.needs{
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
@@ -78,11 +79,10 @@ local unready <const> = 1600000000
 
 --- A checkout of the suite at `root`, its data file holding `data`, its
 --- outside test reading the file f in the directory beside `root` named
---- outside, and failing where f was last written at `unready` (below).
+--- outside, and failing where f was last written at `unready`.
 local function checkout(root: string, data: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/data.txt", data))
-  assert(Fs.write(root .. "/suite/marker.txt", "marked\n"))
   assert(Fs.write(root .. "/suite/reads_test.tl", [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -113,11 +113,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/marker.txt" }, host = { "]] .. Fs.dirname(root) ..
+Test.needs { host = { "]] .. Fs.dirname(root) ..
     [[/outside/f" }, env = { "OUTSIDE" } }
 
 local function test_reads_outside()
-  assert(Fs.stat("suite/marker.txt") ~= nil)
   local f = assert(Env.get("OUTSIDE")) .. "/f"
   assert(assert(Fs.stat(f)).mtime ~= ]] .. unready .. [[)
   assert(Fs.read(f) == "out\n")
@@ -125,14 +124,14 @@ end
 ]]))
 end
 
+local type Said = function(string, string, string, ?{string}): string
+
 --- A shared cache seeded by a first checkout's run under `tmp`: the
 --- environment its runs are given, a `said` that runs `cosmic test` on
 --- a checkout and checks what it printed, and that first run's output,
 --- or nil where the run shared nothing, as `shares` has it. Each case
 --- below seeds its own, so none starts more nested runs than a test's
 --- bound (10 s in CI) holds under load.
-local type Said = function(string, string, string, ?{string}): string
-
 local function seeded(tmp: string): {string:string}, Said, string
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
@@ -167,9 +166,9 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   -- Credited the lines the first run's tests hit.
   local covered = first:match("coverage [^\n]*")
   assert(covered ~= nil and covered == second:match("coverage [^\n]*"), first .. second)
-  -- Now its own: its o/ holds them -- the read of the whole environment
-  -- too, keyed on what its worker saw, where the cache is off, not on
-  -- what the run that started it sees.
+  -- Now its own: its o/ holds them, the read of the whole environment's
+  -- too, keyed on the environment its worker saw rather than the one
+  -- the run that started it sees.
   local again = said("again", tmp .. "/second", "0 ran, 5 stood")
   assert(not again:find("another checkout", 1, true), again)
 end
@@ -203,10 +202,10 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   assert(Fs.write(tmp .. "/first/suite/data.txt", "three\n"))
   local edited = said("edited", tmp .. "/first", "4 ran, 1 stood")
   assert(not edited:find("shared verdicts: none of", 1, true), edited)
-  -- Asked (--census), the same edit says it, though its tests ran in
-  -- this checkout before -- CI's checked suite's case, in a checkout
-  -- the local suite ran in -- with the launcher among the parts where
-  -- an artifact runs it.
+  -- Asked (--census), a run after the same kind of edit says it, though
+  -- the module's tests ran in this checkout before, as CI's checked
+  -- suite does in a checkout the local suite ran in. Where an artifact
+  -- runs the tool, the launcher is among the parts it names.
   assert(Fs.write(tmp .. "/first/suite/data.txt", "five\n"))
   local asked = said("asked", tmp .. "/first", "4 ran, 1 stood", { "--census" })
   assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and
@@ -266,10 +265,11 @@ local function test_without_the_cache_a_checkout_runs_everything(tmp: string)
   said("alone", tmp .. "/alone", "5 ran, 0 stood")
 end
 
---- A database a test reads through [`cosmic.sqlite`] is read by SQLite
---- in C, not through [`cosmic.sys`]: a checkout whose database holds
---- something else runs the test again, and fails it, while one whose
---- database is the same stands on the first one's verdict.
+--- A database a test declares and reads through [`cosmic.sqlite`], in
+--- SQLite's C, is keyed by its contents as any declared file is: a
+--- checkout whose database holds something else runs the test again,
+--- and fails it, while one whose database is the same stands on the
+--- first one's verdict.
 local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string)
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
@@ -348,10 +348,10 @@ local function linked(tmp: string): {string:string} | nil
   return env
 end
 
---- What `lstat` and `readlink` answer of a file of the tree is keyed,
---- logged by those bindings themselves: a checkout whose link leads
---- elsewhere runs what read it again, and fails it, while one the same
---- stands on the first one's verdicts.
+--- A declared link is keyed by what it is and where it leads,
+--- unfollowed, as `lstat` and `readlink` answer: a checkout whose link
+--- leads elsewhere runs what read it again, and fails it, while one the
+--- same stands on the first one's verdicts.
 local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
   local env = linked(tmp)
   if env == nil then return end
@@ -443,9 +443,9 @@ local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_st
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
   env.TMPDIR = tmp .. "/temp"
-  -- Unsandboxed, as on macOS, whose /var the link stands for: the case
-  -- is a verdict keyed by what its test read, which a sandboxed one is
-  -- not, its directory in its scratch directory through no link.
+  -- Unsandboxed, as on macOS, whose /var the link stands for: a
+  -- sandboxed worker's directory is in its scratch directory, reached
+  -- through no link.
   env.COSMIC_TEST_SANDBOX = "0"
   local root = tmp .. "/checkout"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -510,7 +510,7 @@ end
 end
 
 --- A row stands only under the key this checkout reaches for it --
---- which holds the runtime, the module and everything it read (see
+--- which holds the runtime, the module and everything it declares (see
 --- `test_distinct_runtimes_never_share_a_key` for the runtime): one
 --- whose key differs, its test and module the same, runs.
 local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(tmp: string)
@@ -667,9 +667,8 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/outside_test.tl" })
   assert(first:find("1 ran", 1, true), first)
   -- The second runs, its own failure standing against the shared pass
-  -- though a file it stat'd was touched since, which moves its own key.
+  -- under the same key.
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
-  touch(tmp .. "/second/suite/marker.txt")
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
   assert(again:find("1 of 5 failed", 1, true), again)
   -- ...and the row it would have stood on is gone: a third checkout
@@ -716,8 +715,8 @@ end
 end
 
 --- A test that failed here runs until it passes here, though its
---- failing run stopped short of a read the passing one elsewhere made,
---- so no key of its own matches that one's.
+--- failing run stopped short of a read the passing one elsewhere made
+--- under the same key.
 local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp: string)
   local env, resolved = early_suite(tmp)
   tmp = resolved

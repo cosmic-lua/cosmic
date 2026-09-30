@@ -3,11 +3,10 @@
 --- would have saved, under the keys it would have saved it under
 --- (`stage`), and finds the run ahead of a queue run whose verdicts it
 --- takes (`ahead`). `find` and `ahead` run against a fake `gh` holding
---- the API's JSON,
---- which it answers through the script's own `--jq` filters with the
---- system's jq, one lookup at a time; where the system has no jq (CI's
---- images), those cases return unchecked, and the filters are held to
---- their text alone.
+--- the API's JSON, which it answers through the script's own `--jq`
+--- filters with the system's jq, one lookup at a time. Where the system
+--- has no jq (CI's images), those cases return unchecked, and the
+--- filters are held to their text alone.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -72,7 +71,7 @@ local function run(id: string, status: string, conclusion: string | nil, sha: st
     '","head_branch":"' .. branch .. '","html_url":"https://github.com/o/r/actions/runs/' .. id .. '"}'
 end
 
---- The API's list of `runs`.
+--- The API's list of the runs given.
 local function listed(...: string): string
   return '{"total_count":' .. select("#", ...) .. ',"workflow_runs":[' .. table.concat({ ... }, ",") .. "]}"
 end
@@ -210,8 +209,8 @@ local function test_a_passing_run_beside_a_failed_one_is_found(tmp: string)
   assert(output == found("42"), output)
 end
 
---- What `stage` keeps under $RUNNER_TEMP/seed, run with `env`, and
---- its seed.keys.
+--- What `stage` keeps under $RUNNER_TEMP/seed, run with `env` and, where
+--- `marker`, a passing driver check's marker, and its seed.keys.
 local function stage(tmp: string, env: {string: string}, marker: boolean): string, string
   runs = runs + 1
   local temp = tmp .. "/stage-" .. runs
@@ -260,10 +259,11 @@ local function test_stage_keeps_what_main_would_save(tmp: string)
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v" and not Fs.exists(seed .. "/build-cache"))
 end
 
---- The verdicts are kept under the queue's merge too, the commit main's
---- push saves them under for a branch based on it, even where their
---- digest names the entry the run restored, which main saves again under
---- no key of its own; a run that trimmed nothing keeps no such copy.
+--- The verdicts are kept under the commit too (`verdicts-sha`), the key
+--- main's push saves them under for a branch based on it. That copy is
+--- kept even where their digest names the entry the run restored, which
+--- main saves under no key of its own; a run whose trim named no digest
+--- keeps none.
 local function test_stage_keeps_the_verdicts_under_the_commit(tmp: string)
   local seed, keys = stage(tmp, {
     VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d0", VERDICTS_RESTORED = "verdicts-leg-h-f-d0",
@@ -303,8 +303,8 @@ end
 --- and what it said; `answers` are the runs' lookups, as `find`'s are,
 --- `listing` names each run's artifacts (`<id>`, or `<id>-<k>` for the
 --- k-th lookup), `listed_jobs` its jobs, and `extra` sets more of the
---- environment, in `cwd` where given. It waits a second between rounds
---- and asks for five.
+--- environment, in `cwd` where given. It waits a second between rounds,
+--- for five seconds in all.
 local function ahead(tmp: string, base: string, answers: {string}, listing: {string: string},
     listed_jobs?: {string: string}, extra?: {string: string}, cwd?: string): string, string, integer, string
   runs = runs + 1

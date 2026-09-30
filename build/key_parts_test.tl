@@ -1,7 +1,7 @@
 --- The parts of a key a worker spells (build/key_parts.tl): hexadecimal
 --- as [`cosmic.codec`] spells it, a fixed framing, and a fixed name for the
 --- tree, so a key does not change with them. build.declared_key answers
---- each of them too.
+--- the compiler's readers too.
 
 local Codec = require("cosmic.codec")
 local declared_key = require("build.declared_key")
@@ -30,9 +30,9 @@ local function test_hex_is_codec_hex_and_unhex_inverts_it()
   end
 end
 
---- A contribution is framed as the kind, then the path and the
---- answer, each in lowercase hex, a space between.
-local function test_a_key_part_is_framed_as_before()
+--- A contribution is framed as the kind, then the path and the answer
+--- in lowercase hex, a space between each.
+local function test_a_key_part_is_the_kind_then_path_and_answer_in_hex()
   local edges = "\0\n\x7f\xff"
   assert(key_parts.key_part("s", edges, "") == "s 000a7fff ")
   assert(key_parts.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
@@ -52,9 +52,9 @@ local function test_tree_name_names_the_tree_by_a_marker()
   assert(key_parts.tree_name("/etc/passwd", "/w/tree") == "/etc/passwd")
 end
 
---- build.declared_key answers these parts as its own, so its callers
---- need not name build.key_parts.
-local function test_declared_key_answers_the_parts_it_moved()
+--- build.declared_key answers the compiler's readers as its own, so its
+--- callers need not name build.key_parts.
+local function test_declared_key_answers_the_compiler_readers()
   assert(declared_key.compiler_readers == key_parts.compiler_readers)
   assert(declared_key.reads_compiler == key_parts.reads_compiler)
   assert(key_parts.reads_compiler({ "build.a", key_parts.compiler_readers[1] }))

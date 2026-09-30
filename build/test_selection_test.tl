@@ -16,8 +16,7 @@ local function invoke(root: string, output: string, selector: string): Child.Res
   -- a choice runs and reports, is the same either way, and a sandbox
   -- nested in this test's own is one a host may refuse (root nests one
   -- only two deep, where its runner cannot run its workers as a user of
-  -- their own), where the run would go unsandboxed only there. The
-  -- rerun line it prints repeats the switch.
+  -- their own). The rerun line it prints repeats the switch.
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
   -- What its failing tests keep stays in this test's directory.
@@ -214,10 +213,9 @@ local function test_cli_fails_when_no_module_matches(tmp: string)
   end
 end
 
---- Regression: `runs.elapsed_ns` must reflect how long the test function
---- itself actually took, not merely be present. A test that sleeps a known
---- short duration must be recorded as having taken at least that long, and
---- comfortably less than a generous upper bound.
+--- `runs.elapsed_ns` is how long the test function took, not merely a
+--- value: a test that sleeps 50 ms is recorded as taking at least that,
+--- and well under 5 s.
 local function test_records_the_tests_elapsed_duration(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/timing"))

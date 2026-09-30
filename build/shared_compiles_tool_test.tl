@@ -21,7 +21,7 @@ Test.needs{ tool = true }
 
 --- The project every case builds: `a` requires `b`, which requires `c`
 --- and reads a field of a record `c` declares, so its compile finds a
---- record-field use (`typed_refs`); `d` nothing requires.
+--- record-field use (`typed_refs`).
 local project: {string:string} = {
   ["c.tl"] = [[
 local record c
@@ -225,7 +225,7 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   end
   assert(db:close())
   local cache = assert(Sqlite.open(path, true))
-  -- `b`'s Lua no stream at all, `c`'s another row's.
+  -- `b`'s Lua becomes no stream at all, and `c`'s becomes `a`'s.
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = x'deadbeef' WHERE key = ?1",
     { { text = keys.b } }))
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = (SELECT lua FROM compiled_v2 " ..
@@ -245,8 +245,8 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   built(tmp .. "/third", env, "(0 compiled, 3 cached, 3 of them taken from another checkout;")
 end
 
---- A cache whose directory others can write is refused, and the build
---- goes on without it: a row's bytecode runs.
+--- A cache whose directory others can write is refused, since a row's
+--- bytecode runs, and the build goes on without it.
 local function test_a_cache_others_can_write_is_refused(tmp: string)
   tmp = assert(Fs.absolute(tmp))
   local env = environment(tmp)

@@ -25,11 +25,12 @@
 --- when an open [`Child.guard`] catches SIGINT or SIGTERM, as
 --- [`cosmic.http`]'s do.
 ---
---- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to accept, to read
---- or to write waits through the run, so its other tasks go on
---- meanwhile: a server serves each connection in a task of its own. A
---- cancelled task's wait there fails "cancelled", and a signal does not
---- end one. Anywhere else a wait holds the thread until it ends.
+--- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to connect, to
+--- accept, to read or to write waits through the run, so its other
+--- tasks go on meanwhile: a server serves each connection in a task of
+--- its own. A cancelled task's wait there fails "cancelled", and a
+--- signal does not end one. Anywhere else a wait holds the thread until
+--- it ends.
 
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -167,7 +168,25 @@ local record Net
     close: function(Conn): boolean, string
     --- The same as `close`: nothing sent can be taken back.
     abort: function(Conn): boolean, string
+    --- Where the other end is: a TCP peer's host and port, or a unix
+    --- peer's path as its socket was bound, "" for one bound nowhere. A
+    --- connection to a unix listener names the listener's path (its
+    --- file's own name alone, for a path too long to bind whole); one a
+    --- listener accepts from [`Net.connect`], and either end of
+    --- [`Net.pair`], names "". nil and "connection is closed", or why
+    --- not: a TCP connection its peer has reset may no longer say.
+    peer: function(Conn): Address | nil, string
     metamethod __close: function(Conn)
+  end
+
+  --- Two connections, each the other's peer, answered by [`Net.pair`].
+  record Pair
+    --- One end, whose peer is `second`.
+    first: Conn
+    --- The other end, whose peer is `first`.
+    second: Conn
+    --- Closes both.
+    metamethod __close: function(Pair)
   end
 end
 
@@ -328,6 +347,13 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
     abort = function(self: Net.Conn): boolean, string
       return self:close()
     end,
+    peer = function(_self: Net.Conn): Net.Address | nil, string
+      if not open then return nil, "connection is closed" end
+      local address, why = raw.peer(fd)
+      if address == nil then return nil, why end
+      if address.kind == "tcp" then return Net.tcp(address.host, address.port), "" end
+      return Net.unix(address.path), ""
+    end,
   }
   return setmetatable(conn, conn_mt)
 end
@@ -383,6 +409,76 @@ end
 --- `address` as the raw table reads one.
 local function raw_address(address: Net.Address): raw_socket.Address
   return { kind = address.kind, path = address.path, host = address.host, port = address.port }
+end
+
+--- The clock a connection in a task waits out its timeout on.
+local function now_ms(): integer
+  local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
+  if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble) end
+  return reading // 1000000
+end
+
+--- The longest a connection in a task sleeps before it asks a unix
+--- listener whose backlog was full again, as core/socket.c's `connect`
+--- does out of one.
+local ROOM_PAUSE_MS <const> = 100
+
+--- What [`connection`] made: the socket, or, where there is none, what
+--- went wrong and its errno, which [`left_behind`] tells apart. `errno`
+--- is 0 for a wait's own "timed out" or "cancelled" in a task.
+local record Attempt
+  socket: raw_socket.Socket
+  trouble: string
+  errno: integer
+end
+
+--- A socket being connected in a task, closed when the task leaves it
+--- unclaimed -- a run torn down while it waits included -- rather than
+--- left to the collector.
+local record Connecting
+  socket: raw_socket.Socket
+  metamethod __close: function(Connecting)
+end
+
+local connecting_mt: metatable<Connecting> = {
+  __close = function(self: Connecting)
+    if self.socket ~= nil then local _, _ = self.socket:close() end
+  end,
+}
+
+--- A socket connected to `address`, waiting at most `timeout_ms`: in a
+--- task of [`Poll.run`], through the run; anywhere else, holding the
+--- thread.
+local function connection(address: Net.Address, timeout_ms: integer | nil): Attempt
+  local ms = milliseconds(timeout_ms)
+  if not Poll.in_task() then
+    local socket, trouble, errno = raw.connect(raw_address(address), ms)
+    return { socket = socket, trouble = trouble, errno = errno }
+  end
+  local deadline = timeout_ms ~= nil and now_ms() + timeout_ms or nil
+  local pause = 1
+  while true do
+    local socket, trouble, errno = raw.start(raw_address(address))
+    local left: integer = nil
+    if deadline ~= nil then left = math.max(deadline - now_ms(), 0) end
+    if socket ~= nil then
+      local holder: Connecting = { socket = socket }
+      local held <close> = setmetatable(holder, connecting_mt)
+      local ready, why = Poll.writable(socket:fd(), left)
+      if not ready then return { trouble = why, errno = 0 } end
+      local made, refused, number = raw.connected(socket:fd())
+      if not made then return { trouble = refused, errno = number } end
+      held.socket = nil
+      return { socket = socket }
+    end
+    if errno ~= raw.EAGAIN then return { trouble = trouble, errno = errno } end
+    -- A unix listener's backlog is full, and writable says nothing of
+    -- room there: ask again after a pause, as the wait out of a run does.
+    if left == 0 then return { trouble = Poll.TIMEOUT, errno = 0 } end
+    local paused, why = Poll.delay(left ~= nil and math.min(pause, left) or pause)
+    if not paused then return { trouble = why, errno = 0 } end
+    pause = math.min(pause * 2, ROOM_PAUSE_MS)
+  end
 end
 
 --- How long [`left_behind`] waits to connect: a live listener on Linux
@@ -442,6 +538,11 @@ local function left_behind(address: Net.Address): string
   local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
   if st.mode & 0xF000 ~= SOCKET_TYPE then return "" end
+  -- TODO: probe through the run in a task of Poll.run, as a connect
+  -- does, once reclaim's lock waits through it: the probe runs under
+  -- that lock, and a second reclaim's flock of the same path would hold
+  -- the thread -- and with it the task that holds the lock -- for as
+  -- long as LOCK_MS. Holding the thread here keeps the lock's hold short.
   local probe, _, errno = raw.connect(raw_address(address), PROBE_MS)
   if probe ~= nil then
     local _, _ = probe:close()
@@ -508,14 +609,29 @@ end
 --- nothing listens at the port.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
   local timeout_ms = opts ~= nil and opts.timeout_ms or nil
-  -- TODO: wait out a connection being made through the run in a task
-  -- of Poll.run, as reads and writes do, once core/socket.h can start
-  -- one and answer it in progress: raw.connect waits in C, holding
-  -- every task, for a TCP one to be made and, on Linux, for room at a
-  -- unix listener whose backlog is full.
-  local socket, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ms))
-  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
-  return new_conn(socket, timeout_ms), ""
+  local attempt = connection(address, timeout_ms)
+  if attempt.socket == nil then
+    return nil, named(address) .. ": " .. said(attempt.trouble, attempt.errno, address)
+  end
+  return new_conn(attempt.socket, timeout_ms), ""
+end
+
+local pair_mt: metatable<Net.Pair> = {
+  __close = function(self: Net.Pair)
+    local _, _ = self.first:close()
+    local _, _ = self.second:close()
+  end,
+}
+
+--- Two connections to each other and to nothing else: for plumbing
+--- within a process -- a task of [`Poll.run`] at each end -- and for
+--- tests. Each waits with no limit until its `timeout_ms` is set.
+function Net.pair(): Net.Pair | nil, string
+  local ends, trouble = raw.pair()
+  if ends == nil then return nil, trouble end
+  local pair: Net.Pair = { first = new_conn(ends.first, nil), second = new_conn(ends.second, nil) }
+  setmetatable(pair, pair_mt)
+  return pair, ""
 end
 
 return Net

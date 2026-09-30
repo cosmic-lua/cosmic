@@ -8,9 +8,9 @@
 local Cli = require("cosmic.cli")
 local verb_list = require("build.verb_list")
 
---- The verbs that name a file to run, which no module of the list holds, and
---- `help`, which build/dispatch.tl holds itself: what `Cli.order` has
---- around the list.
+--- The verbs that run code -- a file, a chunk, `--version` -- which no
+--- module of the list holds, and `help`, which build/dispatch.tl holds
+--- itself: what `Cli.order` has around the list.
 local before <const> = { "run", "standalone", "eval", "version" }
 local after <const> = { "help" }
 
@@ -34,7 +34,7 @@ local function test_a_name_is_listed_once()
     seen[spec.name] = true
   end
   for _, name in ipairs(before) do
-    assert(not seen[name], name .. " names a file to run, not a listed module")
+    assert(not seen[name], name .. " runs code, not a listed module")
   end
   for _, name in ipairs(after) do
     assert(not seen[name], name .. " is dispatch's own")

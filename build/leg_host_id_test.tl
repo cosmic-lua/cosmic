@@ -20,10 +20,11 @@ local SCRIPT <const> = assert(Fs.absolute(".github/scripts/leg-host-id.sh"))
 --- The host's features, as host-features.sh prints them.
 local FEATURES <const> = "0123456789abcdef"
 
---- What the script appends to $GITHUB_ENV and to $GITHUB_OUTPUT, run
---- with `args` and `extra` added to a bare environment, and a `docker`
---- on PATH that names engine 28.0.4; or its status and what it said.
 local runs = 0
+
+--- What the script appends to $GITHUB_ENV and to $GITHUB_OUTPUT, its
+--- status and what it said, run with `args` and `extra` added to a bare
+--- environment, and a `docker` on PATH that names engine 28.0.4.
 local function named(tmp: string, args: {string}, extra: {string:string}):
     string, string, integer, string
   runs = runs + 1
@@ -81,8 +82,8 @@ local function test_the_macos_leg_is_named_by_its_runner(tmp: string)
   assert(again == output, again)
 end
 
---- A leg with no image and no runner, or none whose runner names its
---- image (ImageOS, ImageVersion), features that are no digest
+--- A leg with no image and no runner, or with no image and a runner that
+--- names no image (ImageOS, ImageVersion), features that are no digest
 --- (host-features.sh failed, which the step's command substitution
 --- does not stop for), or the wrong count of words, is refused before
 --- anything is written.
