@@ -129,13 +129,30 @@ COSMIC_SYSCALL(pair, 0);
 COSMIC_SYSCALL(send, 3);
 
 /*
- * --- Where a TCP socket is bound: its host and port, the port the kernel chose for one listening at port 0.
+ * --- Where a socket is bound: a TCP one's host and port, the port the kernel chose for one listening at port 0, or a unix one's path as it was bound -- its file's own name alone, for a path too long to bind whole -- "" for one bound nowhere.
  * ---@param fd integer the descriptor
- * ---@return Address|nil address its address, or nil on failure: EAFNOSUPPORT for a unix one
+ * ---@return Address|nil address its address, or nil on failure
  * ---@return string error what went wrong, when address is nil
  * ---@return integer errno the error number, when address is nil
  */
 COSMIC_SYSCALL(bound, 1);
+
+/*
+ * --- A listening stream socket another process handed this one as `fd`, as a `Socket` of its own: a new descriptor on it, closed on exec, which owns no socket file, so closing it leaves the file to the process that made it. The socket is made nonblocking, which the process that handed it sees too, as it shares it. `fd` itself is left open, the caller's to close. It fails ENOTSOCK for a descriptor that is no socket, EPROTOTYPE for a socket that is not a stream, EAFNOSUPPORT for one that is not of `kind`, and EINVAL for one that is connected, or not listening where the platform answers SO_ACCEPTCONN.
+ * ---@param fd integer the descriptor handed
+ * ---@param kind string "unix" or "tcp", the kind of `Address` the socket must be at
+ * ---@return Socket|nil socket the socket, or nil on failure
+ * ---@return string error what went wrong, when socket is nil
+ * ---@return integer errno the error number, when socket is nil
+ */
+COSMIC_SYSCALL(adopt, 2);
+
+/*
+ * --- Reads an environment variable and removes it from this process's environment, so no process started from here on inherits it: how a process handed listeners by the one that started it reads their descriptors once.
+ * ---@param name string the variable, a name holding no "=" and no NUL
+ * ---@return string|nil value its value, or nil where it is not set
+ */
+COSMIC_SYSCALL(take_variable, 1);
 
 /*
  * --- Where a connected socket's peer is: a TCP one's host and port, or a unix one's path as its socket was bound, "" for one bound nowhere (as every socket `connect`, `start` and `pair` make is) or in Linux's abstract namespace.

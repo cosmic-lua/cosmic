@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -656,27 +657,16 @@ static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address) {
   return 1;
 }
 
-COSMIC_SYSCALL(bound, 1) {
-  int fd = cosmic_checkfd(L, 1);
-  struct sockaddr_storage address;
-  socklen_t length = sizeof address;
-  memset(&address, 0, sizeof address);
-  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
-  return tcp_pushed(L, &address);
-}
-
-COSMIC_SYSCALL(peer, 1) {
-  int fd = cosmic_checkfd(L, 1);
-  struct sockaddr_storage address;
-  socklen_t length = sizeof address;
-  memset(&address, 0, sizeof address);
-  if (getpeername(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
-  if (address.ss_family == AF_INET || address.ss_family == AF_INET6) {
-    return tcp_pushed(L, &address);
+/* Pushes the address `length` bytes of `address` hold, as getsockname
+ * or getpeername answered them: 1. Any but a TCP one is a unix one: one
+ * bound nowhere may answer no path, and no family either, and a path's
+ * length may count its NUL. */
+static int address_pushed (lua_State *L, const struct sockaddr_storage *address,
+                           socklen_t length) {
+  if (address->ss_family == AF_INET || address->ss_family == AF_INET6) {
+    return tcp_pushed(L, address);
   }
-  /* Any other peer is a unix one: one bound nowhere may answer no path,
-   * and no family either, and a path's length may count its NUL. */
-  const struct sockaddr_un *unix_address = (const struct sockaddr_un *)&address;
+  const struct sockaddr_un *unix_address = (const struct sockaddr_un *)address;
   size_t offset = offsetof(struct sockaddr_un, sun_path);
   size_t size = 0;
   if (length > offset) {
@@ -689,6 +679,89 @@ COSMIC_SYSCALL(peer, 1) {
   lua_setfield(L, -2, "kind");
   lua_pushlstring(L, unix_address->sun_path, size);
   lua_setfield(L, -2, "path");
+  return 1;
+}
+
+COSMIC_SYSCALL(bound, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  return address_pushed(L, &address, length);
+}
+
+COSMIC_SYSCALL(peer, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getpeername(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  return address_pushed(L, &address, length);
+}
+
+/* Whether `fd` is a listening stream socket of the family `tcp` says:
+ * 0, or why not, as `adopt` answers it. Where getsockopt does not
+ * answer SO_ACCEPTCONN (ENOPROTOOPT), a socket bound but not listening
+ * passes, and every accept of it fails, EINVAL. */
+static int listening_stream (int fd, bool tcp) {
+  int type = 0;
+  socklen_t size = sizeof type;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0) return errno;
+  if (type != SOCK_STREAM) return EPROTOTYPE;
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return errno;
+  bool inet = address.ss_family == AF_INET || address.ss_family == AF_INET6;
+  if (tcp ? !inet : address.ss_family != AF_UNIX) return EAFNOSUPPORT;
+  length = sizeof address;
+  if (getpeername(fd, (struct sockaddr *)&address, &length) == 0) return EINVAL;
+  int accepting = 0;
+  size = sizeof accepting;
+  if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &accepting, &size) == 0) {
+    if (!accepting) return EINVAL;
+  } else if (errno != ENOPROTOOPT) {
+    return errno;
+  }
+  return 0;
+}
+
+COSMIC_SYSCALL(adopt, 2) {
+  int handed = cosmic_checkfd(L, 1);
+  static const char *const kinds[] = {"unix", "tcp", NULL};
+  bool tcp = luaL_checkoption(L, 2, NULL, kinds) == 1;
+  struct owned *owned = owner_push(L, 0);
+  owned->fd = fcntl(handed, F_DUPFD_CLOEXEC, 3);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
+  int failure = listening_stream(owned->fd, tcp);
+  if (failure == 0) {
+    int flags = fcntl(owned->fd, F_GETFL);
+    if (flags < 0 || fcntl(owned->fd, F_SETFL, flags | O_NONBLOCK) != 0) failure = errno;
+  }
+  if (failure != 0) {
+    released(owned);
+    return cosmic_fail(L, failure);
+  }
+  return 1;
+}
+
+COSMIC_SYSCALL(take_variable, 1) {
+  const char *name = luaL_checkstring(L, 1);
+  luaL_argcheck(L, name[0] != '\0' && strchr(name, '=') == NULL &&
+                   strlen(name) == lua_rawlen(L, 1),
+                1, "name must be non-empty and hold no \"=\" or NUL");
+  const char *value = getenv(name);
+  if (value == NULL) {
+    lua_pushnil(L);
+    return 1;
+  }
+  /* Copied before it is removed: the copy can raise on memory, leaving
+   * the variable set, while unsetenv may free what `value` points to. */
+  lua_pushstring(L, value);
+  if (unsetenv(name) != 0) {
+    return luaL_error(L, "unsetenv %s: %s", name, cosmic_errno_describe(errno, NULL));
+  }
   return 1;
 }
 

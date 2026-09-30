@@ -35,11 +35,16 @@
 ---
 --- [`Net.serve`] is that server, for any protocol: a function of a
 --- connection, run for each one accepted at any of its listeners, whose
---- failure closes that connection alone.
+--- failure closes that connection alone. With [`ServeSpec.workers`] it
+--- serves in that many processes of this same program, started again
+--- with its own arguments, which take connections from the listeners it
+--- hands them.
 
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
+local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
@@ -214,7 +219,9 @@ local record Net
     record Limits
       --- The most connections open at once, from 1; nil for no limit.
       --- At the limit no listener accepts: a connection that comes waits
-      --- in its listener's backlog until one open closes.
+      --- in its listener's backlog until one open closes. With
+      --- [`ServeSpec.workers`], each worker's limit: a connection one
+      --- worker at its limit leaves waiting is taken by another.
       connections: integer
     end
     --- Bounds on what the server takes on; nil for none.
@@ -238,6 +245,46 @@ local record Net
     --- What it raises, [`Net.serve`] raises, having closed every listener
     --- and connection, as an error in [`Poll.run`] ends it.
     on_error: function(trouble: string)
+    --- How many processes serve, from 0; nil or 0 serves in this one.
+    ---
+    --- From 1, this process -- the supervisor -- listens at every
+    --- listener, then starts that many workers: this same program,
+    --- started again ([`Proc.relaunch`]) with the arguments it was
+    --- started with ([`Proc.arguments`]) and this process's
+    --- environment, each handed the listeners as descriptors from 3 on,
+    --- in the order of `listeners`, and `COSMIC_NET_WORKER` set to
+    --- their numbers, comma-separated ("3,4"), with its stdin
+    --- /dev/null and this process's stdout and stderr, in a process
+    --- group of its own, so a terminal's ^C reaches the supervisor
+    --- alone and it stops the workers. The supervisor accepts
+    --- nothing itself. [`on_ready`] is called in it once every worker has
+    --- started, and its [`Server.stop`], or SIGINT or SIGTERM, closes
+    --- its listeners -- removing each socket file, so a client that
+    --- comes after is refused -- and sends each worker SIGTERM, which
+    --- a worker stops on as a server in one process does. A second
+    --- signal is sent on to each worker, ending its grace. A worker
+    --- still running `grace_ms` and a second more after the stop is
+    --- sent SIGKILL. [`Net.serve`] returns once every worker has
+    --- exited.
+    ---
+    --- A worker that exits before the stop is reported to [`on_error`],
+    --- with how it ended, and not started again; once none is left,
+    --- the server stops, and [`Net.serve`] returns false, "every worker
+    --- exited before the server stopped".
+    ---
+    --- A worker is the process started with `COSMIC_NET_WORKER`
+    --- set: its first [`Net.serve`] takes the variable out of its
+    --- environment, so no process it starts inherits it, and serves
+    --- the descriptors it names in place of listening, whatever
+    --- `workers` says there, never calling [`on_ready`]. The worker's spec
+    --- must name the listeners the supervisor's did -- a program
+    --- reaches the same call with the same arguments -- and each
+    --- descriptor must be a listening stream socket there: of the
+    --- address's kind, at its path, or at its port unless that is 0. A
+    --- descriptor that is not fails [`Net.serve`], naming it. A
+    --- worker's listeners close without removing their socket files,
+    --- which are the supervisor's.
+    workers: integer
   end
 
   --- A server [`Net.serve`] runs, handed to its [`ServeSpec.on_ready`].
@@ -724,8 +771,17 @@ end
 --- rather than being ignored.
 local SPEC_FIELDS <const>: {string: boolean} = {
   listeners = true, serve = true, limits = true, timeout_ms = true, grace_ms = true,
-  on_ready = true, on_error = true,
+  on_ready = true, on_error = true, workers = true,
 }
+
+--- The variable naming a worker's listeners: see [`ServeSpec.workers`].
+local WORKER_VARIABLE <const> = "COSMIC_NET_WORKER"
+
+--- The first descriptor a worker is handed a listener as, and the last
+--- one: [`Proc.relaunch`] hands the program its artifact and core as
+--- the two above it.
+local FIRST_HANDED <const> = 3
+local LAST_HANDED <const> = 253
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
 local function spec_error(field: string, must: string)
@@ -796,6 +852,15 @@ local function checked_spec(spec: any)
     local fn = spec[field]
     if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
   end
+  local workers = spec.workers
+  if workers ~= nil and not (workers is integer and workers >= 0) then
+    spec_error("workers", "nil or an integer from 0")
+  end
+  if workers is integer and workers >= 1 and listeners is {any} and
+      #listeners > LAST_HANDED - FIRST_HANDED + 1 then
+    spec_error("listeners", "a list no longer than " .. (LAST_HANDED - FIRST_HANDED + 1) ..
+      " with workers, which are handed a descriptor for each")
+  end
 end
 
 --- A listener a server accepts at, and the task accepting there while
@@ -856,12 +921,17 @@ local serving_mt: metatable<Serving> = {
 --- not retried, and reported, without pause.
 local ACCEPT_PAUSE_MS <const> = 100
 
-local function report(s: Serving, trouble: string)
-  if s.spec.on_error ~= nil then
-    s.spec.on_error(trouble)
+--- Gives `trouble` to `spec`'s [`ServeSpec.on_error`], or stderr.
+local function reported(spec: Net.ServeSpec, trouble: string)
+  if spec.on_error ~= nil then
+    spec.on_error(trouble)
     return
   end
   local _, _ = Fs.put(Fs.stderr, "Net.serve: " .. trouble .. "\n")
+end
+
+local function report(s: Serving, trouble: string)
+  reported(s.spec, trouble)
 end
 
 --- What a protocol raised, with the stack it raised from, which is gone
@@ -988,8 +1058,43 @@ local function watch(s: Serving)
   end
 end
 
---- The body of [`Net.serve`]'s run.
-local function serving(spec: Net.ServeSpec): boolean, string
+--- The listener over `fd`, a worker's descriptor handed for
+--- `listeners[i]`, `address`; nil and why it is not one. `fd` itself is
+--- closed either way: the listener holds a descriptor of its own.
+local function adopted(fd: integer, address: Net.Address, i: integer): Opened | nil, string
+  local socket, trouble = raw.adopt(fd, address.kind)
+  local _, _ = sys.close(fd)
+  local handed = "descriptor " .. fd .. ", handed for listeners[" .. i .. "] (" ..
+    named(address) .. ")"
+  if socket == nil then return nil, handed .. ": " .. trouble end
+  local bound, why = raw.bound(socket:fd())
+  if bound == nil then
+    local _, _ = socket:close()
+    return nil, handed .. ": " .. why
+  end
+  if address.kind == "tcp" then
+    if address.port ~= 0 and bound.port ~= address.port then
+      local _, _ = socket:close()
+      return nil, handed .. ": it listens at port " .. bound.port
+    end
+    return new_listener(socket, Net.tcp(bound.host, bound.port), nil), ""
+  end
+  -- A path too long to bind whole was bound from its directory, and
+  -- the socket knows its file's own name alone.
+  local path = address.path
+  local own = #path > raw.SOCKET_NAME_MAX and path:match("[^/]*$") or path
+  if bound.path ~= own then
+    local _, _ = socket:close()
+    return nil, handed .. ": it listens at " ..
+      (bound.path == "" and "no path" or string.format("%q", bound.path))
+  end
+  return new_listener(socket, Net.unix(path), nil), ""
+end
+
+--- The body of [`Net.serve`]'s run: in a worker, over the descriptors
+--- `handed` for its listeners, in the order of `spec.listeners`; else
+--- over listeners of its own.
+local function serving(spec: Net.ServeSpec, handed: {integer} | nil): boolean, string
   local state: Serving = {
     spec = spec, most = spec.limits and spec.limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
@@ -1001,8 +1106,18 @@ local function serving(spec: Net.ServeSpec): boolean, string
   s.guard = guard
   local addresses: {Net.Address} = {}
   for i, address in ipairs(spec.listeners) do
-    local opened, trouble = listening(address, {}, 1)
-    if opened == nil then return false, trouble end
+    local opened, trouble: Opened, string
+    if handed ~= nil then
+      opened, trouble = adopted(handed[i], address, i)
+    else
+      opened, trouble = listening(address, {}, 1)
+    end
+    if opened == nil then
+      if handed ~= nil then
+        for j = i + 1, #handed do local _, _ = sys.close(handed[j]) end
+      end
+      return false, trouble
+    end
     s.accepts[i] = { listener = opened.listener, fd = opened.fd, failing = 0 }
     addresses[i] = opened.listener.address
   end
@@ -1012,7 +1127,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
   }
   resume_accepting(s)
   s.watcher = Poll.spawn(function() watch(s) end)
-  if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
+  if spec.on_ready ~= nil and handed == nil then spec.on_ready(addresses, server) end
   if not s.stopping then
     s.waiter = Poll.spawn(function()
       while not s.stopping do local _, _ = Poll.delay(MOST_MS) end
@@ -1036,6 +1151,266 @@ local function serving(spec: Net.ServeSpec): boolean, string
   return true, ""
 end
 
+--- How often a supervisor asks whether a worker has exited.
+local WORKER_POLL_MS <const> = 50
+
+--- How long past `grace_ms` a supervisor waits for a worker it has
+--- stopped before it sends SIGKILL: the worker's own drain ends at
+--- `grace_ms`, and it then closes what it cancelled and exits.
+local KILL_MARGIN_MS <const> = 1000
+
+--- A supervisor's state for the length of its run. Closing it closes
+--- every listener and ends every worker still running, so a run that
+--- raises -- [`on_ready`] or [`on_error`] did -- leaves neither behind.
+local record Supervising
+  spec: Net.ServeSpec
+  listeners: {Net.Listener}
+  --- Each worker not yet reaped, by its pid.
+  workers: {integer: Child.Handle}
+  --- How many `workers` holds.
+  running: integer
+  stopping: boolean
+  --- The pids of the workers sent SIGKILL for outlasting the stop.
+  killed: {integer: boolean}
+  --- Why the server failed, "" while it has not.
+  failure: string
+  --- Waits, from [`on_ready`]'s end, for `stop` to cancel it.
+  waiter: Poll.Task
+  --- Reaps the workers that exit before the stop.
+  monitor: Poll.Task
+  --- Holds SIGINT and SIGTERM for the run.
+  guard: Child.Guard
+  --- Waits on `guard`: its first signal stops the server, and each
+  --- after is sent on to the workers.
+  watcher: Poll.Task
+  --- Set once a signal `guard` caught has stopped the server.
+  signalled: boolean
+  metamethod __close: function(Supervising)
+end
+
+local supervising_mt: metatable<Supervising> = {
+  __close = function(self: Supervising)
+    for _, listener in ipairs(self.listeners) do local _, _ = listener:close() end
+    for _, handle in pairs(self.workers) do local _, _ = handle:close() end
+    if self.guard ~= nil then local _, _ = self.guard:close() end
+  end,
+}
+
+--- Sends `signal` to every worker still running.
+local function signal_workers(s: Supervising, signal: integer)
+  for pid, handle in pairs(s.workers) do
+    local sent, why = handle:stop(signal)
+    if not sent then reported(s.spec, "signalling worker " .. pid .. ": " .. why) end
+  end
+end
+
+--- Stops `s`, as [`Server.stop`] does.
+local function stop_supervising(s: Supervising)
+  if s.stopping then return end
+  s.stopping = true
+  for _, listener in ipairs(s.listeners) do
+    local closed, why = listener:close()
+    if not closed then reported(s.spec, why) end
+  end
+  signal_workers(s, sys.SIGTERM)
+  if s.waiter ~= nil then s.waiter:cancel() end
+  if s.monitor ~= nil then s.monitor:cancel() end
+end
+
+--- How a worker's `result` says it ended.
+local function ended(result: Child.Result): string
+  if result.signal ~= nil then return "ended by signal " .. result.signal end
+  return "exited with status " .. tostring(result.code)
+end
+
+--- Reaps every worker that has exited, reporting one that exited before
+--- the stop or was killed for outlasting it.
+local function reap(s: Supervising)
+  for pid, handle in pairs(s.workers) do
+    local answer, why = handle:try_wait()
+    local trouble = ""
+    if answer == nil then
+      trouble = "worker " .. pid .. ": " .. why
+    elseif answer.finished and s.killed[pid] then
+      trouble = "worker " .. pid .. " was still running " .. KILL_MARGIN_MS ..
+        " ms past grace_ms after the stop, and was killed"
+    elseif answer.finished and not s.stopping then
+      trouble = "worker " .. pid .. " " .. ended(answer.result)
+    end
+    if answer == nil or answer.finished then
+      s.workers[pid] = nil
+      s.running = s.running - 1
+    end
+    if trouble ~= "" then reported(s.spec, trouble) end
+  end
+end
+
+--- Reaps the workers until the stop, and stops the server once none is
+--- left.
+-- TODO: wait on the workers' exits through the run rather than asking
+-- every WORKER_POLL_MS, once cosmic.child waits through cosmic.poll in a
+-- task of Poll.run (doc/roadmap.md's wait on Child handles).
+-- TODO: start a worker that exits before the stop again, after a pause
+-- that grows while workers keep failing: today one is only reported,
+-- and the server stops once none is left.
+local function monitor(s: Supervising)
+  while not s.stopping do
+    reap(s)
+    if s.running == 0 then
+      s.failure = "every worker exited before the server stopped"
+      stop_supervising(s)
+      return
+    end
+    local _, _ = Poll.delay(WORKER_POLL_MS)
+  end
+end
+
+--- Stops `s` at the first signal its guard takes, and sends each after
+--- on to its workers, until the task is cancelled.
+local function watch_supervising(s: Supervising)
+  while true do
+    local signal, _ = s.guard:wait()
+    if signal == 0 then return end
+    if not s.stopping then
+      s.signalled = true
+      stop_supervising(s)
+    else
+      signal_workers(s, signal)
+    end
+  end
+end
+
+--- Waits for every worker to exit once `s` has stopped, sending SIGKILL
+--- to those still running `grace_ms` and KILL_MARGIN_MS after.
+local function wind_down(s: Supervising)
+  local grace = s.spec.grace_ms
+  local deadline = grace ~= nil and now_ms() + grace + KILL_MARGIN_MS or nil
+  local killing = false
+  while true do
+    reap(s)
+    if s.running == 0 then return end
+    if deadline ~= nil and not killing and now_ms() >= deadline then
+      killing = true
+      for pid, _ in pairs(s.workers) do s.killed[pid] = true end
+      signal_workers(s, sys.SIGKILL)
+    end
+    local _, _ = Poll.delay(WORKER_POLL_MS)
+  end
+end
+
+--- How to start a worker handed `fds`, each listener's descriptor in
+--- order: this program again, with its arguments, and this process's
+--- environment with the variable naming them. Nil and why where this
+--- program cannot be found to start again.
+local record WorkerStart
+  argv: {string}
+  options: Child.Options
+end
+
+-- TODO: end a worker whose supervisor dies without stopping it (killed,
+-- say), which today serves on until it is signalled: hand each worker
+-- the read end of a pipe the supervisor holds, and stop at its end of
+-- file.
+local function worker_start(fds: {integer}): WorkerStart | nil, string
+  local relaunch, _ = Proc.relaunch()
+  local argv: {string} = {}
+  local env = Env.all()
+  local handed: {integer: integer | string} = {}
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for number, fd in pairs(relaunch.fds) do handed[number] = fd end
+  else
+    local path, why = Proc.executable()
+    if path == nil then return nil, "this program cannot be found to start again: " .. why end
+    argv[1] = path
+  end
+  for _, word in ipairs(Proc.arguments()) do argv[#argv + 1] = word end
+  local numbers: {string} = {}
+  for i, fd in ipairs(fds) do
+    handed[FIRST_HANDED + i - 1] = fd
+    numbers[i] = tostring(FIRST_HANDED + i - 1)
+  end
+  env[WORKER_VARIABLE] = table.concat(numbers, ",")
+  return { argv = argv, options = { env = env, fds = handed, stdin = "null" } }, ""
+end
+
+--- The body of [`Net.serve`]'s run with [`ServeSpec.workers`].
+local function supervising(spec: Net.ServeSpec): boolean, string
+  local state: Supervising = {
+    spec = spec, listeners = {}, workers = {}, running = 0, stopping = false,
+    killed = {}, failure = "", signalled = false,
+  }
+  local s <close> = setmetatable(state, supervising_mt)
+  local guard, guard_trouble = Child.guard()
+  if guard == nil then return false, "signal guard: " .. guard_trouble end
+  s.guard = guard
+  local addresses: {Net.Address} = {}
+  local fds: {integer} = {}
+  for i, address in ipairs(spec.listeners) do
+    local opened, trouble = listening(address, {}, 1)
+    if opened == nil then return false, trouble end
+    s.listeners[i] = opened.listener
+    fds[i] = opened.fd
+    addresses[i] = opened.listener.address
+  end
+  local start, start_trouble = worker_start(fds)
+  if start == nil then return false, "starting a worker: " .. start_trouble end
+  for i = 1, spec.workers do
+    local handle, trouble = Child.start(start.argv, start.options)
+    if handle == nil then return false, "starting worker " .. i .. ": " .. trouble end
+    s.workers[handle.pid] = handle
+    s.running = s.running + 1
+  end
+  local server: Net.Server = {
+    addresses = addresses,
+    stop = function(_self: Net.Server) stop_supervising(s) end,
+  }
+  s.watcher = Poll.spawn(function() watch_supervising(s) end)
+  s.monitor = Poll.spawn(function() monitor(s) end)
+  if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
+  if not s.stopping then
+    s.waiter = Poll.spawn(function()
+      while not s.stopping do local _, _ = Poll.delay(MOST_MS) end
+    end)
+    local _, _ = s.waiter:join()
+  end
+  wind_down(s)
+  s.watcher:cancel()
+  local restore_trouble: string
+  if s.signalled then
+    local _, trouble = guard:release()
+    restore_trouble = trouble
+  else
+    local _, trouble = guard:close()
+    restore_trouble = trouble
+  end
+  if restore_trouble ~= "" then return false, "signal restore: " .. restore_trouble end
+  if s.failure ~= "" then return false, s.failure end
+  return true, ""
+end
+
+--- The descriptors `value`, [`WORKER_VARIABLE`]'s, names for `count`
+--- listeners; nil and why it names no such list.
+local function handed_descriptors(value: string, count: integer): {integer} | nil, string
+  local fds: {integer} = {}
+  local seen: {integer: boolean} = {}
+  for word in (value .. ","):gmatch("([^,]*),") do
+    local fd = word:match("^%d+$") and math.tointeger(tonumber(word)) or nil
+    if fd == nil or fd < FIRST_HANDED or fd > LAST_HANDED or seen[fd] then
+      return nil, WORKER_VARIABLE .. " must name descriptors from " .. FIRST_HANDED .. " to " ..
+        LAST_HANDED .. ", each once, separated by commas, not " .. string.format("%q", value)
+    end
+    seen[fd] = true
+    fds[#fds + 1] = fd
+  end
+  if #fds ~= count then
+    return nil, WORKER_VARIABLE .. " must name a descriptor for each listener: it names " ..
+      #fds .. ", and the spec has " .. count
+  end
+  return fds, ""
+end
+
 --- Serves `spec.serve` at each of `spec.listeners`, each connection in a
 --- task of its own, in a [`Poll.run`] of its own: so it cannot be called
 --- in a task of another. It returns true once [`Server.stop`] has been
@@ -1056,6 +1431,10 @@ end
 --- reads and writes fail holds Net.serve from returning; one that goes
 --- on calling them after "connection is closed", which fails without
 --- waiting, stalls every task of the run.
+---
+--- With [`ServeSpec.workers`], this process supervises workers that
+--- serve, as that field says, and the connections, protocols and
+--- signals below are each worker's.
 ---
 --- SIGINT and SIGTERM stop the server as [`Server.stop`] does: it holds
 --- a [`Child.guard`] for its run, and the first signal of either kind
@@ -1079,8 +1458,21 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   if Poll.in_task() then
     error("Net.serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
+  local variable = raw.take_variable(WORKER_VARIABLE)
+  local handed: {integer} = nil
+  if variable ~= nil then
+    local fds, trouble = handed_descriptors(variable, #spec.listeners)
+    if fds == nil then return false, trouble end
+    handed = fds
+  end
   local ok, why = true, ""
-  Poll.run(function() ok, why = serving(spec) end)
+  Poll.run(function()
+    if handed == nil and (spec.workers or 0) >= 1 then
+      ok, why = supervising(spec)
+    else
+      ok, why = serving(spec, handed)
+    end
+  end)
   if not ok then return false, why end
   return true, ""
 end

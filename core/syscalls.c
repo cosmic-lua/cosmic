@@ -2573,6 +2573,25 @@ COSMIC_SYSCALL(relaunch, 2) {
   return 1;
 }
 
+/* The command line [`cosmic_process_arguments`] recorded. */
+static int entered_count;
+static char **entered;
+
+void cosmic_process_arguments (int argc, char **argv) {
+  entered_count = argc;
+  entered = argv;
+}
+
+COSMIC_SYSCALL(arguments, 0) {
+  int count = entered_count > 1 ? entered_count - 1 : 0;
+  lua_createtable(L, count, 0);
+  for (int i = 0; i < count; i++) {
+    lua_pushstring(L, entered[i + 1]);
+    lua_seti(L, -2, i + 1);
+  }
+  return 1;
+}
+
 COSMIC_SYSCALL(pipe, 0) {
   /* The answer and its keys are made before the pipe, and filling a
    * table sized for them allocates nothing: a raise after the pipe

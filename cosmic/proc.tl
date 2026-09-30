@@ -92,6 +92,15 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
   return relaunch, ""
 end
 
+--- The arguments this program was started with, after its own name:
+--- with [`relaunch`]'s `argv` before them, the command line that starts
+--- this program again as it was started. They are the program's whole
+--- command line, not a script's: `cosmic app.tl serve` answers
+--- `{ "app.tl", "serve" }`, where app.tl's main is handed `{ "serve" }`.
+function Proc.arguments(): {string}
+  return raw.arguments()
+end
+
 -- The search list `find` uses when PATH is unset, as execvp does.
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 

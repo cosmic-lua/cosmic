@@ -140,9 +140,7 @@ promises lean on come first:
   socket of their own with `send_to` and `receive_from` over the same
   `Address`; a [`Net.serve`] listener taking a listen's own options
   (`reclaim`, for a daemon restarting at its socket file, and
-  `backlog`), or an already-open `Listener` beside an address, for a
-  relaunched worker handed its parent's sockets, whose stop closes it
-  without removing a socket file it does not own; of a unix socket, its peer's user and process
+  `backlog`); of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode; and
   a wait on `Child` handles beside connections: [`cosmic.child`]
