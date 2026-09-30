@@ -7,8 +7,10 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
+local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 -- The script bin/zig runs, which its tests copy and start: of the
 -- closure, so its source is there to read.
@@ -104,4 +106,41 @@ local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local result = build_with_stand_in(tmp, script, false)
   assert(result.signal == sys.SIGTERM,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
+end
+
+--- A build of the boot step holds the checkout's rebuild lock while zig
+--- runs, so a `cosmic test` run or a rebuild in the checkout waits for
+--- it, and hands it on to zig, whose bridge writes o/cosmic.db holding
+--- it (build/writer.tl): the stand-in zig records the variable, and
+--- waits while this test finds the lock busy.
+local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
+  local script = bare_root(tmp)
+  local root = tmp .. "/root"
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+    "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
+  local started = this_program.program({ "--standalone", script, "build", "boot" }, {
+    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
+    stdout = "capture", stderr = "capture",
+  })
+  local h = assert(Child.start(started.argv, started.options))
+  local deadline = Time.monotonic_ns() + 20 * 1000000000
+  local handed: string | nil = nil
+  while handed == nil and Time.monotonic_ns() < deadline do
+    handed = Fs.read(tmp .. "/handed")
+    if handed == nil then assert(sys.nanosleep(20 * 1000000)) end
+  end
+  local taken, trouble = rebuild_lock.take(root, 0, "test")
+  if taken == "held" then rebuild_lock.release() end
+  assert(Fs.write(tmp .. "/go", ""))
+  local result = assert(h:wait(20000))
+  assert(result.ok, tostring(result.stderr))
+  local named = tostring(handed):match("^%[(.*)%]\n$")
+  local given, _ = sys.stat(named or "")
+  local own, _ = sys.stat(root .. "/o/rebuild.lock")
+  assert(given ~= nil and own ~= nil and given.ino == own.ino and given.dev == own.dev,
+    "the boot handed on no lock of its tree: " .. tostring(handed))
+  assert(taken == "busy", "the boot's lock was taken under it: " .. tostring(taken) .. " " .. trouble)
+  assert(rebuild_lock.take(root, 0, "test") == "held", "the boot left the lock held")
+  rebuild_lock.release()
 end
