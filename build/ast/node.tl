@@ -160,15 +160,16 @@ local record Node is {Node}
   --- about this field rather than about the spacing of three tokens.
   attribute: string | nil
 
-  -- "local_declaration" and "assignment": the names being bound, a
-  -- "variable_list" node.
+  -- "local_declaration", "global_declaration" and "assignment": the
+  -- names being bound, a "variable_list" node.
   vars: Node | nil
-  --- "local_declaration": the type list written after the names, whose
-  --- own position is the `:` that opens it. Empty when the declaration
-  --- carries no annotation at all.
+  --- "local_declaration" and "global_declaration": the type list
+  --- written after the names, whose own position is the `:` that opens
+  --- it. Empty when the declaration carries no annotation at all.
   decltuple: TypeNode | nil
 
-  -- "local_function", "record_function", and a "function" literal.
+  -- "local_function", "global_function", "record_function", a
+  -- "function" literal, and a "macroexp".
   args: Node | nil
   rets: TypeNode | nil
   --- Comments tl's parser attached to a statement directly. The
@@ -186,9 +187,11 @@ local record Node is {Node}
   -- "newtype": the record, enum, or type alias being declared.
   newtype: TypeNode | nil
 
-  -- "local_type": the name it binds, and what it binds to -- a
-  -- "newtype" node for a declaration or alias, any other expression for
-  -- a `local type x = require(...)`; also a "literal_table_item"'s value.
+  -- "local_type" and "global_type": the name it binds, and what it
+  -- binds to -- a "newtype" node for a declaration or alias, any other
+  -- expression for a `local type x = require(...)`, none for a `global
+  -- type x` that declares only the name; also a "literal_table_item"'s
+  -- value.
   var: Node | nil
   value: Node | nil
 
@@ -206,6 +209,18 @@ local record Node is {Node}
   --- the parser inserts at the `(`'s own position, which the source
   --- never wrote.
   is_self: boolean | nil
+
+  --- "global_function": set when the source wrote `function f` with no
+  --- `global` in front, which tl reads as the same kind of node.
+  implicit_global_function: boolean | nil
+
+  -- "local_macroexp": the "macroexp" node holding its signature and the
+  -- one expression it returns (in `exp`).
+  macrodef: Node | nil
+
+  -- "pragma": the name and value written after `--#pragma`.
+  pkey: string | nil
+  pvalue: string | nil
 
   -- "goto" and "label": the name jumped to, or declared.
   label: string | nil

@@ -1,9 +1,10 @@
 --- A function's signature: its type parameters, its argument list, and
 --- its return types.
 ---
---- It is shared because the three places a function is written (a
---- `local function`, a `function M.f`, and a function literal inside an
---- expression) differ only in what comes before the `(`.
+--- It is shared because the places a function is written (a `local
+--- function`, a `global function`, a `function M.f`, a function literal
+--- inside an expression, and a `local macroexp`) differ only in what
+--- comes before the `(`.
 ---
 --- An argument is written from its own node: the name, a `?` when the
 --- parser marked it optional, and its type as original bytes. The
@@ -113,14 +114,17 @@ end
 
 --- Write a function's return types, when it declares any. The region
 --- starts after the `:` that follows the argument list's own `)` and
---- runs to the last token before the body, so a parenthesized list
+--- runs to the last token before (`by`, `bx`) -- a function's body, or
+--- a macroexp's `return` -- so a parenthesized list
 --- (`: (string, integer)`) carries its parentheses over with everything
 --- else.
 --- @param c Ctx
 --- @param rets TypeNode The return tuple the parser built
 --- @param list Node The argument list, whose `)` anchors the region
---- @param body Node The function's body, whose first token bounds it
-local function returns(c: Ctx, rets: TypeNode, list: Node, body: Node)
+--- @param by integer The line of the first token after the types
+--- @param bx integer That token's column
+local function returns(c: Ctx, rets: TypeNode, list: Node, by: integer,
+                       bx: integer)
   local declared = rets.tuple
   if declared == nil or #declared == 0 then
     return
@@ -131,7 +135,7 @@ local function returns(c: Ctx, rets: TypeNode, list: Node, body: Node)
     return
   end
   if not ctx_mod.annotation(c, close + 2,
-                            typescan.bounded_end(c.scan, body.y, body.x)) then
+                            typescan.bounded_end(c.scan, by, bx)) then
     refuse(c, "a return type with no tokens of its own")
   end
 end
@@ -139,7 +143,7 @@ end
 local record SigModule
   typeargs: function(c: Ctx, anchor: integer | nil)
   arguments: function(c: Ctx, list: Node)
-  returns: function(c: Ctx, rets: TypeNode, list: Node, body: Node)
+  returns: function(c: Ctx, rets: TypeNode, list: Node, by: integer, bx: integer)
 end
 
 local M: SigModule = {

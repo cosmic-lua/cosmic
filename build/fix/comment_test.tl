@@ -185,16 +185,16 @@ local function test_a_pragma_shaped_comment_survives_the_rewrite()
 end
 
 --- A run that does spell `--#pragma` is a pragma token, not a comment,
---- and the end of the input does not turn it into one. This renderer
---- has no spelling for a pragma, so these are refused, loudly. That is
---- the point: if the end-of-input guard did not name the pragma states,
---- `--#pragma` with no newline after it would vanish from the token
---- stream and the file would be rewritten without it.
-local function test_a_real_pragma_at_the_end_of_input_is_still_refused()
+--- and the end of the input does not turn it into one: if the
+--- end-of-input guard did not name the pragma states, `--#pragma` with
+--- no newline after it would vanish from the token stream and the file
+--- would be rewritten without it. An incomplete one is refused, and a
+--- whole one is written back.
+local function test_a_real_pragma_at_the_end_of_input_is_still_a_pragma()
   refuses("--#pragma", "expected pragma name")
   refuses("--#pragma\n", "expected pragma name")
-  refuses("--#pragma arity on", "no spelling for an expression of kind")
-  refuses("--#pragma arity on\n", "no spelling for an expression of kind")
+  writes("--#pragma arity on", "--#pragma arity on\n")
+  keeps("--#pragma arity on\n")
 end
 
 --- A comment in front of a `--#` run is kept. The run is cut as a
@@ -229,6 +229,22 @@ local function test_a_comment_in_front_of_a_statement_inside_a_block()
   keeps("for i = 1, 3 do\n  --[[ f ]] print(i)\nend\n")
   keeps("local function g()\n  --[[ fn ]] return 1\nend\nprint(g())\n")
   keeps("do\n  --[[ d ]] print(1)\nend\n")
+end
+
+--- The same around each spelling of a `global` statement, a
+--- `local macroexp` and a pragma: in front of one, inside one, and
+--- behind one.
+local function test_comments_around_globals_macroexps_and_pragmas()
+  keeps("-- g\nglobal x = 1 -- t\nprint(x)\n")
+  keeps("global --[[ c ]] y: integer\n")
+  keeps("--[[ f ]] global function g()\n  --[[ b ]] return 1\nend\n")
+  keeps("--- doc\nfunction h() end -- t\n")
+  keeps("-- r\nglobal record R\n  -- x\n  x: integer\nend\n")
+  keeps("-- a\nglobal type T = integer -- t\n")
+  keeps("global type U -- t\n")
+  keeps("-- m\nlocal macroexp m(a: integer): integer\n" ..
+        "  -- body\n  return a + 1 -- sum\nend\n")
+  keeps("-- p\n--#pragma arity on\nprint(1)\n")
 end
 
 --- A statement moves by the distance its line moves, not its first

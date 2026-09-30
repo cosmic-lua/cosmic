@@ -24,7 +24,9 @@
 --- renderer alone: that reparses what it wrote and compares the trees,
 --- so a golden string here is checked for meaning as well as for text.
 
+local ast = require("build.ast")
 local fix = require("build.fix")
+local render = require("build.fix.render")
 local teal = require("build.teal")
 
 local built, load_trouble = teal.load()
@@ -414,11 +416,95 @@ local function test_a_trailing_comment_stays_behind_the_code_it_follows()
   writes(source, source)
 end
 
---- A construct this renderer has no spelling for is named and refused,
---- rather than written as something else.
+--- A `global` declaration is written as a `local` one is, names,
+--- attributes, type list and values, under its own keyword.
+local function test_global_declarations()
+  writes(lines({
+    "global gfn: function(integer): integer = function(gp: integer): integer",
+    "  local gl = gp",
+    "  return gl",
+    "end",
+  }), lines({
+    "global gfn: function(integer): integer = function(gp: integer): integer",
+    "  local gl = gp",
+    "  return gl",
+    "end",
+  }))
+  writes("global   x=1\n", "global x = 1\n")
+  writes("global y:integer\n", "global y: integer\n")
+  writes("global a < const > ,b:integer, string=1,\"x\"\n",
+         "global a <const>, b: integer, string = 1, \"x\"\n")
+end
+
+--- A `global function` and a bare `function g`, which tl reads as the
+--- same kind of node, each keep the keywords the source gave them.
+local function test_global_functions()
+  writes("global  function g(a:integer):integer\n      return a\nend\n",
+         "global function g(a: integer): integer\n  return a\nend\n")
+  writes("function h() end\n", "function h() end\n")
+  writes("global function k<T>(t: T): T return t end\n",
+         "global function k<T>(t: T): T return t end\n")
+  writes("if x then\nglobal function m()\nend\nend\n",
+         "if x then\n  global function m()\n  end\nend\n")
+end
+
+--- `global record`, `global enum` and `global interface` are written
+--- as the bytes they were read from, as a `local` one is; a `global
+--- type` is an alias, a bound require, or a name alone, declared with
+--- nothing after it.
+local function test_global_types()
+  local record_body = "global record R\n  --- what bar is for\n  bar: string\nend\n"
+  writes(record_body, record_body)
+  writes("global enum E\n  \"a\"\nend\n", "global enum E\n  \"a\"\nend\n")
+  writes("global interface I\n  x: integer\nend\n",
+         "global interface I\n  x: integer\nend\n")
+  writes("global  type T=integer\n", "global type T = integer\n")
+  writes("global type L<X> = {X}\n", "global type L<X> = {X}\n")
+  writes("global type c = require(\"build.compiler\")\n",
+         "global type c = require(\"build.compiler\")\n")
+  writes("global   type   U\n", "global type U\n")
+  writes("global type V<X>\n", "global type V<X>\n")
+end
+
+--- `local type T = record ... end` spells the same record with its
+--- name ahead of the keyword. The statement's bytes are copied from its
+--- `local`, not from the `record`, or the name would be lost.
+local function test_a_record_bound_by_a_type_declaration()
+  writes("local type T = record\n  x: integer\nend\n",
+         "local type T = record\n  x: integer\nend\n")
+  writes("global type G = enum\n  \"a\"\nend\n",
+         "global type G = enum\n  \"a\"\nend\n")
+end
+
+--- A `local macroexp` is a signature and one `return`, laid out as a
+--- `local function` is: the `return` indented a level, the `end` lined
+--- up with the `local`.
+local function test_a_local_macroexp()
+  writes("local  macroexp m(a:integer):integer\n      return a+1\n   end\n",
+         "local macroexp m(a: integer): integer\n  return a + 1\nend\n")
+  writes("local macroexp n(): integer return 1 end\n",
+         "local macroexp n(): integer return 1 end\n")
+  writes("do\nlocal macroexp p(a: integer, b: integer): integer\n" ..
+         "return a +\n  b\nend\nend\n",
+         "do\n  local macroexp p(a: integer, b: integer): integer\n" ..
+         "    return a +\n      b\n  end\nend\n")
+end
+
+--- A pragma is written as its name and value, indented as any other
+--- statement is.
+local function test_a_pragma()
+  writes("--#pragma   arity   on\nprint(1)\n", "--#pragma arity on\nprint(1)\n")
+  writes("do\n--#pragma arity off\nend\n", "do\n  --#pragma arity off\nend\n")
+end
+
+--- A node of a kind this renderer has no spelling for is named and
+--- refused, rather than written as something else.
 local function test_an_unknown_construct_is_refused_by_name()
-  local result, trouble = fix.source(built, "local macroexp m(): integer\n" ..
-                                     "  return 1\nend\n", "macro.tl")
-  assert(result == nil, "a macroexp should be refused")
-  assert(trouble:find("local_macroexp", 1, true) ~= nil, "got: " .. trouble)
+  local source = "print(1)\n"
+  local parsed = ast.parse(built, source, "unknown.tl")
+  assert(parsed ~= nil, "the fixture should parse")
+  parsed.node[1].kind = "invented_kind"
+  local result, trouble = render.rendered(parsed, source)
+  assert(result == nil, "an unknown kind should be refused")
+  assert(trouble:find("invented_kind", 1, true) ~= nil, "got: " .. trouble)
 end
