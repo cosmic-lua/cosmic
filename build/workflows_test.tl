@@ -907,7 +907,8 @@ local function test_a_main_push_reuses_the_queue_run()
     local with = step.with as {string: string}
     local artifact = uses:find("actions/download-artifact@", 1, true) ~= nil or
       uses:find("actions/upload-artifact@", 1, true) ~= nil
-    if artifact then
+    -- The zig outputs' download is held apart, below.
+    if artifact and with.name ~= "seed-zig-${{ matrix.name }}" then
       local product = with.name == "portable-product-${{ matrix.name }}"
       assert(step["if"] == (product and "!matrix.checked" or nil),
         "seed relays a product on the checked job's leg, or skips its seed there: " .. tostring(step["if"]))
@@ -937,7 +938,10 @@ local function test_a_main_push_reuses_the_queue_run()
   -- none of linux-x86_64-checked's.
   assert(keys.id == "keys" and keys.run == "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-" ..
     "[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|" ..
-    "compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-" ..
+    "compiles=compiles-${{ matrix.name }}-[0-9a-f]+|" ..
+    "zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|" ..
+    "zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|" ..
+    "driver-checked=driver-checked-v2-${{ matrix.name }}-" ..
     "[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' " ..
     "\"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
     "seed reads other keys: " .. tostring(keys.run))
@@ -952,9 +956,50 @@ local function test_a_main_push_reuses_the_queue_run()
     assert(theirs_saved[path], "seed saves " .. path .. ", which no platform leg saves")
     local name = key:match("^%${{ steps%.keys%.outputs%.([%w-]+) }}$")
     assert(name ~= nil, path .. " is seeded under a key the queue did not name: " .. key)
-    assert(step["if"] == "steps.keys.outputs." .. name .. " != ''", path .. " is seeded where no key was named")
+    -- The zig outputs' save is held apart, below.
+    if name ~= "zig-build" then
+      assert(step["if"] == "steps.keys.outputs." .. name .. " != ''", path .. " is seeded where no key was named")
+      assert(step["continue-on-error"] == nil, path .. "'s seed may fail unseen")
+    end
   end
-  assert(saved == 4, "the verdicts (by content and by commit), compiles and driver marker: " .. saved)
+  assert(saved == 5, "the verdicts (by content and by commit), compiles, zig outputs and driver marker: " .. saved)
+  -- The zig outputs, after the product's relay, and none of it a
+  -- failure: a lookup by the prefix of their core and vendor part, a
+  -- leg's restore's first, then, where it found none, the queue leg's
+  -- artifact of them, the tar laid out with its modes, and the save.
+  local zig_steps: {{string: any}} = {}
+  local relay: integer
+  for i, step in ipairs(steps) do
+    local with = step.with as {string: string}
+    if with ~= nil and with.name == "portable-product-${{ matrix.name }}" and
+        (step.uses as string):find("actions/upload-artifact@", 1, true) ~= nil then
+      relay = i
+    end
+    if relay ~= nil and i > relay then zig_steps[#zig_steps + 1] = step end
+  end
+  assert(#zig_steps == 4, "the zig outputs take other steps than four after the relay: " .. #zig_steps)
+  for _, step in ipairs(zig_steps) do
+    assert(step["continue-on-error"] == true, tostring(step.name or step.id) .. " can fail seed")
+  end
+  local lookup, download, unpack, zig = zig_steps[1], zig_steps[2], zig_steps[3], zig_steps[4]
+  local lwith = lookup.with as {string: any}
+  assert((lookup.uses as string):find("actions/cache/restore@", 1, true) ~= nil and lwith["lookup-only"] == true and
+    lookup["if"] == "steps.keys.outputs.zig-build != ''" and
+    lwith.path == "${{ runner.temp }}/zig-build" and lwith.key == "${{ steps.keys.outputs.zig-build }}" and
+    lwith["restore-keys"] == "${{ steps.keys.outputs.zig-build-exact }}\n",
+    "seed looks up another entry than one of the core and vendor part it saves")
+  local dwith = download.with as {string: string}
+  assert((download.uses as string):find("actions/download-artifact@", 1, true) ~= nil and
+    dwith.name == "seed-zig-${{ matrix.name }}" and dwith.path == "${{ runner.temp }}" and
+    download["if"] == "steps.keys.outputs.zig-build != '' && steps." .. (lookup.id as string) ..
+      ".outputs.cache-matched-key == ''",
+    "seed downloads the zig outputs elsewhere, or where an entry of their core holds them: " .. tostring(download["if"]))
+  assert(unpack["if"] == "steps." .. (download.id as string) .. ".outcome == 'success'" and unpack.run ==
+    "tar -xf \"$RUNNER_TEMP/zig-build.tar\" -C \"$RUNNER_TEMP\" && rm \"$RUNNER_TEMP/zig-build.tar\"",
+    "the zig outputs are laid out elsewhere, or on other runs, than downloaded: " .. tostring(unpack.run))
+  assert(zig == save_of(steps, "${{ runner.temp }}/zig-build") and
+    zig["if"] == "steps." .. (unpack.id as string) .. ".outcome == 'success'",
+    "the zig outputs are saved other than right after they are laid out: " .. tostring(zig["if"]))
 
   local join = jobs.ci
   local needs = join.needs as {string}
@@ -1003,6 +1048,23 @@ local function test_the_queue_keeps_what_main_would_save()
       env[cache .. "_RESTORED"]:match("^%${{ (.-) }}$"), 1, true) ~= nil,
       cache .. "'s seed is compared with another entry than main's save is")
   end
+  -- The zig outputs under the key main's save names, the restore's own,
+  -- except where that restore took an entry of this core and vendor
+  -- part: the first prefix it asks for.
+  local zig = save_of(steps, "${{ runner.temp }}/zig-build")
+  local zkey = (zig.with as {string: string}).key
+  local restore = zkey:match("^%${{ steps%.([%w-]+)%.outputs%.cache%-primary%-key }}$")
+  assert(restore ~= nil and env.ZIG_BUILD_KEY == zkey and
+    env.ZIG_BUILD_RESTORED == "${{ steps." .. restore .. ".outputs.cache-matched-key }}",
+    "the zig outputs are seeded under another key than main saves them under, or held to another entry: " ..
+    tostring(env.ZIG_BUILD_KEY))
+  local zrestore: {string: any}
+  for _, step in ipairs(steps) do
+    if step.id == restore then zrestore = step end
+  end
+  local first = (((zrestore.with as {string: string})["restore-keys"]):match("^([^\n]*)\n"))
+  assert(env.ZIG_BUILD_EXACT == first and first:find("-${{ steps.names.outputs.core }}-", 1, true) ~= nil,
+    "the zig outputs are held to another entry than one of this core: " .. tostring(env.ZIG_BUILD_EXACT))
   -- And the verdicts under the commit, which is the queue's merge.
   local _, twin = save_of(steps, "${{ runner.temp }}/verdicts")
   assert(env.SHA == "${{ github.sha }}" and
@@ -1022,8 +1084,15 @@ local function test_the_queue_keeps_what_main_would_save()
   assert(trimmed < at and compiled < at and back < at, "the seed is kept before a trim, or with the tree moved")
   local upload = steps[at + 1]
   local with = upload.with as {string: string}
-  assert(upload["if"] == QUEUE and with.name == "seed-${{ matrix.name }}" and with.path == "${{ runner.temp }}/seed",
-    "the seed is not uploaded as the leg's")
+  assert(upload["if"] == QUEUE and with.name == "seed-${{ matrix.name }}" and with.path == "${{ runner.temp }}/seed" and
+    upload["continue-on-error"] == nil, "the seed is not uploaded as the leg's, or may fail unseen")
+  -- The zig outputs apart, where a failure fails nothing.
+  local zupload = steps[at + 2]
+  local zwith = zupload.with as {string: any}
+  assert(zupload["if"] == QUEUE and zupload["continue-on-error"] == true and
+    zwith.name == "seed-zig-${{ matrix.name }}" and zwith.path == "${{ runner.temp }}/seed-zig" and
+    zwith["if-no-files-found"] == "ignore",
+    "the zig outputs are uploaded other than apart from the seed, and failing nothing: " .. tostring(zwith.name))
   local download: {string: string}
   for _, step in ipairs(jobs.seed.steps as {{string: any}}) do
     local w = step.with as {string: string}
@@ -1049,6 +1118,8 @@ local function test_the_queue_keeps_what_main_would_save()
     "the checked job's seed is compared with another entry than main's save is")
   assert(cenv.COMPILES_PREFIX == nil and save_of(csteps, "${{ runner.temp }}/build-cache") == nil,
     "the checked job keeps compiles, which linux-x86_64's leg saves")
+  assert(cenv.ZIG_BUILD_KEY == nil and save_of(csteps, "${{ runner.temp }}/zig-build") == nil,
+    "the checked job keeps zig outputs, which linux-x86_64's leg saves under the same key")
   local _, ctrim = step_running(csteps, "driver.tl verdicts-trim")
   local removed: integer
   for i, step in ipairs(csteps) do

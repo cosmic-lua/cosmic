@@ -30,6 +30,7 @@ local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -257,6 +258,29 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
   local after = next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
   assert(sys.lstat(path) == nil, "a refused allocation left the socket file behind")
+end
+
+--- The same holds of a connect that waits through a run, of a pair,
+--- and of a connection's peer: a refusal anywhere, a run torn down by
+--- one included, leaves no descriptor to the process.
+local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local path = tmp .. "/r.sock"
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ms = 5000 }))
+    Poll.run(function()
+      local _client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+      local accepted <close> = assert(server:accept())
+      assert(accepted:peer())
+    end)
+    local pair <close> = assert(Net.pair())
+    assert(pair.first:write("x"))
+    assert(pair.second:read() == "x")
+  end)
+  assert(ended > 0, "connecting in a run and pairing allocate")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
 --- Asserts the core's own C heap holds what it held when `c_heap`
