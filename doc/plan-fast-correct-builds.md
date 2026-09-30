@@ -107,8 +107,15 @@ linux-aarch64's driver marker).
   - 7 of 8 restored the exact per-core zig entry; boot is 13 to 27 s
     with an exact hit, 51 to 66 s after a core change.
   - The long pole is now the x86_64 suite when its verdicts don't
-    stand: 100 to 165 s. Two runs stood nothing because the
-    `compiler` key part moved (a tool edit).
+    stand: 100 to 165 s. One run stood nothing after a core change,
+    as expected. Another stood nothing because of a comment in
+    `build/schema.tl`: every test that doesn't declare `store` holds
+    its closure store's address, salted with the source of the store
+    writer's closure (closure_store, schema, and cosmic.fs, hash,
+    sqlite, env, codec). The census doesn't name that part, so the
+    report blamed `compiler`, which only the 12 compiler readers'
+    closures hold. Next: key a store by the digest of its bytes, and
+    name the part in the census.
 - **Queue:** gate 594 to 782 s on runs that moved carried code.
   #2466, test-only, stood every sandboxed fixture on all three Linux
   legs and gated in 444 s. The launcher stood alone on two more runs.
