@@ -1219,6 +1219,13 @@ local record Recording
   store_digests: {string:string}
   consult_shared: boolean
   store_runtime: string
+  --- What the shared verdicts keep of each address this run looked up
+  --- ("" for none), the closure and kind each address was keyed for, and
+  --- the addresses whose bytes it found to differ, said once each.
+  store_kept: {string:string}
+  store_names: {string:{string}}
+  store_bases: {string:boolean}
+  store_mismatched: {string:boolean}
   --- How many of them this run wrote, their bytes, and the time taken.
   written: integer
   written_bytes: integer
@@ -1726,6 +1733,7 @@ local function address_stores(rec: Recording, modules: {importer.Module},
   local basis, trouble = closure_store.basis(rec.projection)
   if basis == nil then return false, trouble end
   rec.basis, rec.stores, rec.built, rec.store_digests = basis, {}, {}, {}
+  rec.store_kept, rec.store_names, rec.store_bases, rec.store_mismatched = {}, {}, {}, {}
   -- The code that writes a store, and the core that runs it -- SQLite
   -- and its bindings -- whose bytes it follows from too: so one address
   -- names one store's bytes wherever it is written, which a digest kept
@@ -1757,7 +1765,8 @@ local function sweep_stores(rec: Recording)
   named[base_name(rec.base_store)] = true
   local listed, _ = Fs.list(directory)
   for _, entry in ipairs(listed or {}) do
-    if not named[entry] then
+    -- One kept aside for a report ([`mismatch_path`]) stays until removed.
+    if not named[entry] and not entry:match("%.mismatch%.db$") then
       local gone, trouble = Fs.remove(directory .. "/" .. entry)
       if not gone then
         log:complain("test: " .. directory .. "/" .. entry .. ": " .. trouble)
@@ -1805,6 +1814,60 @@ local function given_store(rec: Recording, m: importer.Module): string | nil, st
   return store_at(rec, address, rec.closures[m.path])
 end
 
+--- Where a store whose bytes did not match another write of its
+--- address is kept aside for a report: beside the stores, which
+--- [`sweep_stores`] leaves it.
+local function mismatch_path(rec: Recording, address: string): string
+  return stores_directory(rec.root) .. "/" .. address .. ".mismatch.db"
+end
+
+--- Records, as an error of the run, that the store at `path`, written
+--- for `address`, digests to `digest` where another write of the
+--- address digested to `kept`, which `where` says where it is, or was
+--- kept. The one at `path` is kept aside ([`mismatch_path`]), moved there
+--- where `move` says it is this run's own copy, else copied, since a
+--- worker may be given it.
+local function mismatched(rec: Recording, address: string, path: string, digest: string,
+                          kept: string, where: string, move: boolean)
+  local aside = mismatch_path(rec, address)
+  local saved, trouble: boolean, string = false, ""
+  if move then
+    saved, trouble = Fs.rename(path, aside)
+  else
+    local data, read_trouble = Fs.read(path)
+    if data == nil then
+      trouble = read_trouble
+    else
+      saved, trouble = Fs.write(aside, data)
+    end
+  end
+  rec.errors[#rec.errors + 1] = "the closure store at address " .. address .. " was written " ..
+    "with bytes whose digest is " .. digest .. ", but " .. where .. " has " .. kept ..
+    ": a store's bytes must follow from its address alone (build.closure_store's " ..
+    "`address`), and these do not. " .. (saved and ("This run's is kept at " .. aside) or
+    ("This run's could not be kept aside (" .. trouble .. ")")) .. "; report it with the " ..
+    "other, and both digests, and remove it once reported. The next run keeps " .. digest ..
+    " for the address in the shared verdicts, in place of " .. kept .. "."
+end
+
+--- The digest the shared verdicts keep for the store at `address`, as a
+--- run that wrote it kept it, looked up once a run ([`Recording.store_kept`]);
+--- nil for none, or where the run has no shared verdicts.
+local function shared_digest(rec: Recording, address: string): string | nil
+  local kept = rec.store_kept[address]
+  if kept == nil then
+    kept = ""
+    if rec.shared ~= nil then
+      local found, trouble = shared_verdicts.store_digest(rec.shared, address)
+      if found == nil and trouble ~= "" then drop_shared(rec, trouble) end
+      kept = found or ""
+    end
+    rec.store_kept[address] = kept
+  end
+  if kept == "" then return nil end
+  return kept
+end
+
 --- The digest of the bytes of the closure store at `address`, of the
 --- import closure `names` (`base` for the store of no module,
 --- [`store_at`]): what a key holds of the store, not the address that
@@ -1821,22 +1884,22 @@ end
 --- bytes. And it is checked: a test that runs is given its store as
 --- written, which its key is computed again from once it ends, so a
 --- verdict is kept only under the digest of what it was given; a store
---- whose bytes differ from what was kept of its address is an error of
---- the run. Nil and why where it could not be written.
+--- this checkout has or writes whose bytes differ from what the shared
+--- verdicts keep of its address is an error of the run (`mismatched`),
+--- and so is one sampled each run that writes none ([`verify_sample`]).
+--- Nil and why where it could not be written.
 local function address_digest(rec: Recording, address: string, names: {string},
                               base: boolean): string | nil, string
   local started = Time.monotonic_ns()
+  rec.store_names[address] = names
+  rec.store_bases[address] = base
   local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or
     (address .. ".db"))
   local digest: string = nil
   local there, _ = sys.stat(path)
   if rec.built[address] == nil and there == nil then
     digest = rec.store_digests[address]
-    if digest == nil and rec.shared ~= nil and rec.consult_shared then
-      local found, trouble = shared_verdicts.store_digest(rec.shared, address)
-      if found == nil and trouble ~= "" then drop_shared(rec, trouble) end
-      digest = found
-    end
+    if digest == nil and rec.consult_shared then digest = shared_digest(rec, address) end
   end
   if digest == nil then
     rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
@@ -1844,17 +1907,65 @@ local function address_digest(rec: Recording, address: string, names: {string},
     if made == nil then return nil, trouble end
     started = Time.monotonic_ns()
     digest = declared_key.store_digest(rec.digests, made)
-    local kept = rec.store_digests[address]
-    if kept ~= nil and kept ~= digest then
-      rec.errors[#rec.errors + 1] = "the closure store " .. made .. ": its bytes' digest is " ..
-        digest .. ", but a run that wrote it kept " .. kept .. " of its address: its bytes " ..
-        "do not follow from its address alone (build.closure_store's `address`)"
+    -- Held to what this run took for it, else to what the shared
+    -- verdicts keep, whether this run wrote it or found it here.
+    local took = rec.store_digests[address]
+    local kept, where = took, "the digest this run took for it"
+    if kept == nil then
+      kept = shared_digest(rec, address)
+      where = rec.shared ~= nil and ("the shared verdicts at " .. rec.shared.path) or ""
+    end
+    if kept ~= nil and kept ~= digest and not rec.store_mismatched[address] then
+      rec.store_mismatched[address] = true
+      mismatched(rec, address, made, digest, kept, where, false)
     end
   end
   rec.store_digests[address] = digest
   rec.owed.stores[address] = digest
   rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
   return digest, ""
+end
+
+--- Writes one store of this run again, aside, and holds its bytes to
+--- the digest the run keyed its tests by: a run that wrote no store
+--- would otherwise never see a write, and so never a store whose bytes
+--- do not follow from its address. The store is chosen by the run's
+--- number among those it keyed, so runs take each in turn; one costs
+--- tens of milliseconds, counted with the keys'. A mismatch is an error
+--- of the run (`mismatched`); no file is left but one kept aside.
+local function verify_sample(rec: Recording)
+  if rec.written > 0 then return end
+  local addresses: {string} = {}
+  for address in pairs(rec.store_digests) do addresses[#addresses + 1] = address end
+  if #addresses == 0 then return end
+  table.sort(addresses)
+  local started = Time.monotonic_ns()
+  local address = addresses[(rec.run or 0) % #addresses + 1]
+  local path = stores_directory(rec.root) .. "/" .. address .. ".verify.db"
+  local made, _ = Fs.mkdirs(stores_directory(rec.root))
+  local written, trouble = false, "no stores directory"
+  if made then
+    written, trouble = closure_store.write(rec.projection, path, rec.store_names[address],
+      rec.basis)
+  end
+  if not written then
+    rec.errors[#rec.errors + 1] = "the closure store at address " .. address ..
+      ", written again to check it: " .. trouble
+  else
+    local data, read_trouble = Fs.read(path)
+    local digest = data ~= nil and hex_sha256(data) or ("unreadable: " .. read_trouble)
+    local kept = rec.store_digests[address]
+    if digest ~= kept and not rec.store_mismatched[address] then
+      rec.store_mismatched[address] = true
+      local other = stores_directory(rec.root) .. "/" .. (rec.store_bases[address] and
+        base_name(address) or (address .. ".db"))
+      local there, _ = sys.stat(other)
+      mismatched(rec, address, path, digest, kept, there ~= nil and other or
+        "the store this run keyed its tests by", true)
+    end
+  end
+  local _, _ = Fs.remove(path)
+  rec.digests.spent_ns = rec.digests.spent_ns + (Time.monotonic_ns() - started)
 end
 
 --- The digest of the bytes of the closure store a worker of `m`'s tests
@@ -2652,6 +2763,14 @@ local function run(argv: {integer:string}): integer
       Store.meta("runtime_basis") or "")
     rec.runtime = rec.store_runtime .. rec.runtime:sub(#identity + 1)
   end
+  -- A core that writes stores otherwise a test stands in for, in a tree
+  -- not cosmic's own, so it can see the core move every store's address
+  -- (build/sandboxed_verdicts_test.tl): mixed into the stores' salt
+  -- alone, never in its place.
+  local store_core = Env.get("COSMIC_TEST_STORE_RUNTIME")
+  if not own_tree and store_core ~= nil and store_core ~= "" then
+    rec.store_runtime = hex_sha256(rec.store_runtime .. "\0" .. store_core)
+  end
   -- The store of each test module's closure, by its address, salted with
   -- the core above, and none that no module names any longer.
   rec.projection = database
@@ -2790,6 +2909,7 @@ local function run(argv: {integer:string}): integer
       if held ~= nil then log:say(shared_verdicts.census_line(held)) end
     end
   end
+  verify_sample(rec)
   -- From here each key looks again: a verdict is kept only under a
   -- key its inputs still reach once its test has run.
   declared_key.thaw(rec.digests)

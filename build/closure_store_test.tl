@@ -369,8 +369,24 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
   assert(Fs.write(root .. "/greet_test.tl", 'local greet = require("greet")\n' ..
     "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
   local names = { "greet", "greet_test" }
+  -- The projection of the project, with a doc, a use, a catalog entry
+  -- and an example of the closure beside what the build wrote, so the
+  -- store carries rows of each table its full-text indexes are built
+  -- from.
   local function projected()
     assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
+    local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+    assert(db:exec("INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
+      "signature, text, file, line) VALUES ('greet', 'greet.wave', 'greet.wave', 1, " ..
+      "'function', 'function(): string', 'Waves at the world.', 'greet.tl', 2); " ..
+      "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
+      "('greet', 'hello', 'greet_test', 'greet_test.tl', 99); " ..
+      "INSERT INTO catalog (kind, module, symbol, message, text, file, line) VALUES " ..
+      "('error', 'greet', 'greet.hello', 'no world to greet', 'Raised with none.', " ..
+      "'greet.tl', 4); " ..
+      "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
+      "('greet', 'hello', 'Greets the world.', 'greet.tl', 5, 'print(greet.hello())')"))
+    assert(db:close())
   end
   projected()
   local basis = assert(closure_store.basis(tmp .. "/whole.db"))
@@ -386,6 +402,13 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
     "a second write of the same rows moved the store's bytes")
   assert(assert(Fs.read(tmp .. "/three.db")) == one,
     "a write from the projection written afresh moved the store's bytes")
+  local db = assert(Sqlite.open(tmp .. "/one.db", false))
+  local counts = assert(Sqlite.text_rows(db, "SELECT (SELECT count(*) FROM docs_fts " ..
+    "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
+    "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
+    "(SELECT count(*) FROM uses)"))
+  assert(db:close())
+  assert(table.concat(counts[1], " ") == "1 1 1 2", table.concat(counts[1], " "))
 end
 
 --- The key of a test given a closure store holds the store by its bytes,

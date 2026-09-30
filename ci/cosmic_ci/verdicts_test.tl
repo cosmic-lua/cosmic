@@ -374,4 +374,16 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
     out:find("added 2 rows to stores_v1", 1, true) ~= nil, out .. err)
   assert(addresses(ours .. "/verdicts.db") == "a1 0\na2 1000\na3 0",
     addresses(ours .. "/verdicts.db"))
+  -- A digest the run ahead kept for an address ours holds otherwise is
+  -- warned of, and ours kept.
+  local db = assert(Sqlite.open(ahead .. "/verdicts.db", true))
+  assert(db:exec("UPDATE stores_v1 SET digest = 'e' WHERE address = 'a2'"))
+  assert(db:close())
+  code, out, err = Verdicts.merge({ ahead }, env)
+  assert(code == 0 and err:find("warning: the run ahead kept another digest of a closure " ..
+    "store for 1 address of stores_v1", 1, true) ~= nil, out .. err)
+  db = assert(Sqlite.open(ours .. "/verdicts.db"))
+  local digest = assert(Sqlite.text_rows(db, "SELECT digest FROM stores_v1 WHERE address = 'a2'"))
+  assert(db:close())
+  assert(digest[1][1] == "d", digest[1][1])
 end

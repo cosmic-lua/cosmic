@@ -14,6 +14,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
@@ -698,8 +699,9 @@ end
 --- A test is keyed by the bytes of the store of its closure, not by
 --- where the store is: an edit to the code that writes it -- stood in
 --- for by COSMIC_TEST_STORE_SALT, which moves every store's address, as
---- a comment in build/schema.tl does -- writes each store again, at its
---- new address, and every test stands on it; an edit to a module of a
+--- a comment in build/schema.tl does -- or to the core that runs it
+--- writes each store again, at its new address, and every test stands
+--- on it; an edit to a module of a
 --- closure, which moves its store's bytes, runs its tests again. And a
 --- checkout of the same content that has no store stands on the
 --- verdicts another reached without writing one: the digest of each
@@ -715,6 +717,12 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   local rewritten = run(root, tmp .. "/rewritten.out", env)
   assert(rewritten:find("0 ran, 3 stood", 1, true) and
     rewritten:find("3 closure stores written", 1, true), rewritten)
+  -- So does the core that runs that code -- SQLite, and its bindings --
+  -- stood in for by COSMIC_TEST_STORE_RUNTIME.
+  env.COSMIC_TEST_STORE_RUNTIME = "another core"
+  local recored = run(root, tmp .. "/recored.out", env)
+  assert(recored:find("0 ran, 3 stood", 1, true) and
+    recored:find("3 closure stores written", 1, true), recored)
   assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
   local edited = run(root, tmp .. "/edited.out", env)
   assert(edited:find("1 ran, 2 stood", 1, true), edited)
@@ -727,20 +735,69 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
 end
 
---- A digest kept of a store's address that its bytes, written again,
---- do not match is an error of the run, never a key a verdict is kept
---- under: a test that runs is keyed again by the store it was given.
+--- A digest kept of a store's address that its bytes, here or written
+--- again, do not match is an error of the run, never a key a verdict is
+--- kept under: a test that runs is keyed again by the store it was
+--- given, and the store is kept aside for a report.
 local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_run(tmp: string)
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
   if unsandboxed(first) then return end
-  local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", true))
-  assert(db:exec("UPDATE stores_v1 SET digest = 'not the digest of its bytes'"))
-  assert(db:close())
+  local function forge()
+    local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", true))
+    assert(db:exec("UPDATE stores_v1 SET digest = 'not the digest of its bytes'"))
+    assert(db:close())
+  end
+  -- Where the stores are here, as they were written: each is held to
+  -- what the shared verdicts keep of its address. The run keeps its own
+  -- digests in their place, and says so.
+  forge()
+  local here = run(root, tmp .. "/here.out", env, nil, true)
+  assert(here:find("must follow from its address alone", 1, true) and
+    here:find("the shared verdicts at", 1, true) and here:find("The next run keeps", 1, true) and
+    here:find("test: FAIL", 1, true), here)
+  -- Where they are not: the checkout takes the digests kept, and its
+  -- tests, given stores that are not those bytes, are keyed again.
+  forge()
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "--all" }, true)
-  assert(second:find("do not follow from its address alone", 1, true) and
+  assert(second:find("must follow from its address alone", 1, true) and
     second:find("test: FAIL", 1, true), second)
+  local kept_aside = false
+  for _, entry in ipairs(Fs.list(tmp .. "/second/o/stores") or {}) do
+    if entry:match("%.mismatch%.db$") then kept_aside = true end
+  end
+  assert(kept_aside, "the store whose bytes differ was not kept aside")
+end
+
+--- A run that writes no store writes one again, aside, and holds it to
+--- the store it keyed its tests by: a store here whose bytes no write of
+--- its address makes, though the shared verdicts agree with it, is an
+--- error of the run, naming both.
+local function test_a_run_that_writes_no_store_checks_one(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  -- Every store, and what the shared verdicts keep of it, made to agree
+  -- on bytes no write makes.
+  local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", true))
+  local listed: {string} = assert(Fs.list(root .. "/o/stores"))
+  for _, entry in ipairs(listed) do
+    local address = entry:match("^base%-(%x+)%.db$") or entry:match("^(%x+)%.db$")
+    if address ~= nil then
+      local path = root .. "/o/stores/" .. entry
+      local data = assert(Fs.read(path)) .. "tampered"
+      assert(Fs.write(path, data))
+      assert(Sqlite.run(db, "UPDATE stores_v1 SET digest = ?1 WHERE address = ?2",
+        { { text = Hash.hex_sha256(data) }, { text = address } }))
+    end
+  end
+  assert(db:close())
+  local checked = run(root, tmp .. "/checked.out", env, nil, true)
+  assert(checked:find("must follow from its address alone", 1, true) and
+    checked:find("%.db has %x+") ~= nil and checked:find("test: FAIL", 1, true), checked)
 end

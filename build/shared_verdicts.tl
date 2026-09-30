@@ -431,6 +431,9 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     local addresses: {string} = {}
     for address in pairs(owed.stores or {}) do addresses[#addresses + 1] = address end
     table.sort(addresses)
+    -- A digest here that differs from the run's for the same address
+    -- was reported by the run as an error ([`build.test`]'s
+    -- `mismatched`), which says the run's replaces it.
     for _, address in ipairs(addresses) do
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
         " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
