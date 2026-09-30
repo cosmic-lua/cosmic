@@ -30,7 +30,8 @@
 --- handle included: there the flock alone excludes both kinds of tool,
 --- and taking SQLite's as well would find it always busy. So does a
 --- checkout Linux reaches over NFS or SMB, which make a flock a
---- whole-file fcntl lock ([`kept_apart`]).
+--- whole-file fcntl lock: [`sys.flock_kind`] says which the lock's file
+--- is.
 ---
 --- The system drops the lock with its descriptors, so a holder that dies
 --- or execs (each is opened close-on-exec) never leaves it held. Closing
@@ -52,7 +53,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
-local mountinfo = require("build.mountinfo")
 local log = require("build.verdict").log
 local plural = require("build.plural")
 
@@ -130,41 +130,6 @@ local lock_mt: metatable<Lock> = {
 local held: Lock | nil = nil
 local held_root: string | nil = nil
 
---- The filesystems whose Linux client makes a flock a whole-file fcntl
---- lock: SMB's, and NFS's unless mounted with `local_lock` "flock" or
---- "all", which keep a flock on the client, apart from fcntl locks.
-local emulated_by_fstype <const>: {string:boolean} = {
-  nfs = true, nfs4 = true, cifs = true, smb3 = true,
-}
-
---- Whether a flock of a file beneath `root` is kept apart from fcntl
---- locks, so the lock takes SQLite's half too: on Linux, unless `root`
---- is on a mount whose filesystem makes a flock an fcntl lock. Where the
---- mount cannot be read (no /proc, a link that does not resolve), it is
---- taken for a local one. Nil and why when the host cannot be named.
-local function kept_apart(root: string): boolean | nil, string
-  local names, trouble = sys.uname()
-  if names == nil then
-    return nil, "uname: " .. trouble
-  end
-  if names.sysname ~= "Linux" then
-    return false, ""
-  end
-  local resolved, _ = Fs.absolute(root)
-  local text, _ = Fs.read("/proc/self/mountinfo")
-  if resolved == nil or text == nil then
-    return true, ""
-  end
-  local mount = mountinfo.mount_of(text, resolved)
-  if mount == nil or not emulated_by_fstype[mount.fstype] then
-    return true, ""
-  end
-  local options = "," .. mount.options .. ","
-  local local_flock = options:find(",local_lock=flock,", 1, true) ~= nil or
-    options:find(",local_lock=all,", 1, true) ~= nil
-  return mount.fstype:sub(1, 3) == "nfs" and local_flock, ""
-end
-
 --- Whether `trouble`, from beginning a transaction, says another
 --- connection holds the lock rather than something wrong with the file.
 --- SQLite gives its reason only as text, which build/work.tl's `locked`
@@ -223,10 +188,6 @@ function rebuild_lock.take(root: string, wait_ms: integer,
     return nil, "this process holds " .. tostring(held_root) .. lock_name ..
       " and cannot take another checkout's too"
   end
-  local both, platform_trouble = kept_apart(root)
-  if both == nil then
-    return nil, platform_trouble
-  end
   local path = root .. lock_name
   local started_ns = Time.monotonic_ns()
   -- For writing, which an exclusive flock over NFS or SMB needs.
@@ -246,7 +207,11 @@ function rebuild_lock.take(root: string, wait_ms: integer,
     end
     return nil, path .. ": " .. flock_trouble
   end
-  if both then
+  local kind, kind_trouble = sys.flock_kind(fd)
+  if kind == nil then
+    return nil, path .. ": " .. kind_trouble
+  end
+  if kind == "apart" then
     local left_ms = wait_ms - (Time.monotonic_ns() - started_ns) // 1000000
     local taken, trouble = take_sqlite(taking, path, math.max(left_ms, 0))
     if taken == nil then

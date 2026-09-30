@@ -105,6 +105,7 @@ local function test_only_the_checked_core_instruments()
     fail_at = function() testing.fail_at() end,
     live_transfers = function() testing.live_transfers() end,
     executable_path = function() testing.executable_path(4096) end,
+    mountinfo_local_flock = function() testing.mountinfo_local_flock("", "0:1") end,
   }
   for name, use in pairs(instruments) do
     local ok, err: boolean, any = pcall(use)
@@ -308,6 +309,27 @@ local function test_children_releases_its_block_whenever_an_allocation_fails(tmp
   collectgarbage("collect")
   assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
   assert_c_heap(bytes, blocks, "children under refusal")
+end
+
+--- `maps_id` reads each map into a block of the core's C heap, and
+--- closes the map's descriptor, whichever allocation is refused. A
+--- refused block fails the call, which then raises, since every
+--- allocation past the first refused is refused too, its failure's
+--- message among them; so the walk checks what is left behind, not
+--- the ENOMEM no caller here can see. Off Linux it allocates nothing,
+--- and there is nothing to walk.
+local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
+  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  local before = next_descriptor(tmp)
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local ok, why, errno = process.maps_id(0)
+    assert(ok or errno == sys.EINVAL, why)
+  end)
+  assert(ended > 0, "reading the maps allocates")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert_c_heap(bytes, blocks, "maps_id under refusal")
 end
 
 --- The C heap counts what the core's C allocates and frees, and a

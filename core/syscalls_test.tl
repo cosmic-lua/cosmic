@@ -10,7 +10,9 @@
 --- [`cosmic.child`] and [`cosmic.hash`]. [`sys.exit`] is the one binding with
 --- no test here: it ends the process the test runs in.
 
+local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
@@ -83,6 +85,11 @@ end
 local function failed_with(errno: integer, value: any, message: any, number: any)
   failed(value, message, number)
   assert(number == errno, "expected errno " .. errno .. ", got " .. tostring(number))
+end
+
+--- The file at `path`, or "" where it cannot be read.
+local function read_file(path: string): string
+  return (Fs.read(path)) or ""
 end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
@@ -853,6 +860,42 @@ local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
   assert(ignored(child) & bit == 0, child)
 end
 
+--- The features `cpu_features` can answer, by machine.
+local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
+  x86_64 = { aes = true, pclmulqdq = true, sse4_1 = true, ssse3 = true },
+  aarch64 = { aes = true, asimd = true, crc32 = true, pmull = true },
+  arm64 = { aes = true, asimd = true, crc32 = true, pmull = true },
+}
+
+--- `cpu_features` names each feature this processor has, of those it
+--- can answer for its machine, once and in byte order, as
+--- /proc/cpuinfo's "flags" or "Features" does where the worker has one
+--- to read: its own procfs, a sandbox's, has none.
+local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
+  local names = assert(sys.uname())
+  local known = KNOWN_FEATURES[names.machine] or {}
+  local features = sys.cpu_features()
+  for i, name in ipairs(features) do
+    assert(known[name], names.machine .. " answers " .. name)
+    assert(i == 1 or features[i - 1] < name, "not in byte order, or twice: " .. name)
+  end
+  local cpuinfo = read_file("/proc/cpuinfo")
+  if cpuinfo == "" then return end
+  local listed: {string:boolean} = {}
+  for line in cpuinfo:gmatch("[^\n]+") do
+    local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
+    for flag in (flags or ""):gmatch("%S+") do listed[flag] = true end
+  end
+  local expected: {string} = {}
+  for name in pairs(known) do
+    if listed[name] then expected[#expected + 1] = name end
+  end
+  table.sort(expected)
+  assert(table.concat(features, " ") == table.concat(expected, " "),
+    "cpu_features answers " .. table.concat(features, " ") .. ", /proc/cpuinfo lists " ..
+    table.concat(expected, " "))
+end
+
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
   assert(math.type(count) == "integer" and count >= 1)
@@ -1086,6 +1129,90 @@ local function test_children_lists_a_running_child_until_it_is_reaped(tmp: strin
   end
 end
 
+--- Of a /proc/<pid>/uid_map or gid_map's text, whether it maps `id`
+--- inside: what `maps_id` is checked against.
+local function listed_in_map(text: string, id: integer): boolean
+  for line in text:gmatch("[^\n]+") do
+    local inside, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+    local first, many = math.tointeger(tonumber(inside)), math.tointeger(tonumber(count))
+    if first ~= nil and many ~= nil and id >= first and id < first + many then return true end
+  end
+  return false
+end
+
+--- `maps_id` answers whether this process's user namespace maps an id
+--- as a user and as a group, as its maps list them: false with EINVAL
+--- where either does not; off Linux, ENOSYS. An id no namespace can
+--- map, -1 or past 32 bits, raises.
+local function test_maps_id_answers_as_the_namespace_maps_list()
+  local names = assert(sys.uname())
+  local users, groups = read_file("/proc/self/uid_map"), read_file("/proc/self/gid_map")
+  for _, id in ipairs({ 0, 1, sys.getuid(), 65532, 65534, 4294967294 }) do
+    local ok, why, errno = process.maps_id(id)
+    if names.sysname ~= "Linux" then
+      assert(not ok and errno == sys.ENOSYS, why)
+    elseif listed_in_map(users, id) and listed_in_map(groups, id) then
+      assert(ok, id .. ": " .. tostring(why))
+    else
+      failed(ok, why, errno)
+      assert(errno == sys.EINVAL, id .. ": " .. tostring(why))
+    end
+  end
+  raises(process.maps_id, -1)
+  raises(process.maps_id, 4294967295)
+end
+
+--- `may_map_ids` answers whether this process is root holding
+--- CAP_SETGID (6), CAP_SETUID (7) and CAP_SETFCAP (31) in effect, as
+--- /proc/self/status says: false with EPERM where it is not; off Linux,
+--- ENOSYS.
+local function test_may_map_ids_answers_as_the_status_says()
+  local ok, why, errno = process.may_map_ids()
+  local names = assert(sys.uname())
+  if names.sysname ~= "Linux" then
+    assert(not ok and errno == sys.ENOSYS, why)
+    return
+  end
+  local status = read_file("/proc/self/status")
+  local effective = assert(status:match("\nUid:%s+%d+%s+(%d+)"), status)
+  local caps = assert(math.tointeger(tonumber(assert(status:match("\nCapEff:%s+(%x+)")):sub(-8), 16)))
+  local root = effective == "0" and (caps >> 6) & 1 == 1 and (caps >> 7) & 1 == 1 and
+    (caps >> 31) & 1 == 1
+  if root then
+    assert(ok, why)
+  else
+    failed(ok, why, errno)
+    assert(errno == sys.EPERM, why)
+  end
+end
+
+--- `own_proc` answers whether a sandbox gets a procfs of its own here:
+--- true, or false with the errno the kernel refused one with -- as it
+--- does a worker a Landlock ruleset holds, which may mount nothing --
+--- and off Linux, ENOSYS. That a sandbox then gets what it says is
+--- build/confine_test.tl's.
+local function test_own_proc_answers_or_says_why_not()
+  local ok, why, errno = process.own_proc()
+  if assert(sys.uname()).sysname ~= "Linux" then
+    assert(not ok and errno == sys.ENOSYS, why)
+  elseif not ok then
+    failed(ok, why, errno)
+  end
+end
+
+--- `sandbox_platform` answers true on Linux, the one platform with a
+--- sandbox, whatever this host refuses of it, and false with ENOSYS
+--- elsewhere.
+local function test_sandbox_platform_answers_true_on_linux_alone()
+  local ok, why, errno = process.sandbox_platform()
+  if assert(sys.uname()).sysname == "Linux" then
+    assert(ok == true and why == nil, why)
+  else
+    failed(ok, why, errno)
+    assert(errno == sys.ENOSYS, why)
+  end
+end
+
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
 --- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
@@ -1096,7 +1223,8 @@ end
 local function test_the_process_calls_are_off_the_public_table()
   local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
-  for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "relaunch", "pipe",
+  for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "maps_id",
+      "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
       "ignore_sigpipe", "landlock_ruleset",
       "landlock_restrict_execute",
       "guard_child_signals", "unguard_child_signals", "child_signal_read", "child_signal_fd" }) do
@@ -1391,6 +1519,57 @@ local function test_flock_excludes_another_open_until_released(tmp: string)
   raises(sys.flock, 0, "both")
   raises(sys.flock, 0, "exclusive", -2)
   raises(sys.flock, 0, "exclusive", 1 << 40)
+end
+
+--- `flock_kind` says whether a flock and an fcntl lock -- SQLite's --
+--- exclude each other: with an exclusive flock held through one open of
+--- a file, SQLite's write lock through another is taken where they are
+--- "apart" and refused where they are "shared". A descriptor not open
+--- fails, EBADF.
+local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: string)
+  local path = tmp .. "/lock.db"
+  local fd = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x180))
+  local kind, trouble = sys.flock_kind(fd)
+  assert(kind == "apart" or kind == "shared", trouble)
+  assert(sys.flock(fd, "exclusive"))
+  local db = assert(Sqlite.open(path, true))
+  -- Asked once: a connection waits a minute for a lock by default.
+  assert(db:exec("PRAGMA busy_timeout = 0"))
+  local taken, why = db:exec("BEGIN IMMEDIATE")
+  assert(taken == (kind == "apart"), kind .. ": " .. tostring(why))
+  assert(db:close())
+  assert(sys.close(fd))
+  local none, said, errno = sys.flock_kind(fd)
+  failed(none, said, errno)
+  assert(errno == sys.EBADF, said)
+end
+
+--- `flock_kind`'s reading of an NFS file's mount (checked core only,
+--- whose instrument reaches it): the lines of its device, the third
+--- field, say whether local_lock "flock" or "all" is among the
+--- filesystem's own options, after the lone "-"; a mount's own options
+--- before it, another device's line, a word that only begins so, and a
+--- line that does not parse say nothing.
+local function test_flock_kind_reads_an_nfs_mounts_local_lock()
+  if testing.configuration ~= "sanitized" then return end
+  local sample = table.concat({
+    "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw",
+    "30 22 0:40 / /home rw,relatime shared:5 - nfs4 server:/home " ..
+      "rw,vers=4.2,rsize=1048576,local_lock=none,addr=10.0.0.1",
+    "31 22 0:41 / /mnt/my\\040share rw master:3 shared:7 - nfs server:/a local_lock=flock,rw",
+    "32 22 0:42 / /srv rw - nfs server:/srv rw,vers=3,local_lock=all",
+    "33 22 0:43 / /opt rw,local_lock=flock - nfs server:/opt rw,local_lock=flocks",
+    "a line that does not parse",
+    "34 22 0:44 / /mnt/nosep rw shared:9 local_lock=flock",
+  }, "\n") .. "\n"
+  local want: {string:boolean} = { ["8:1"] = false, ["0:40"] = false, ["0:41"] = true,
+    ["0:42"] = true, ["0:43"] = false, ["0:44"] = false, ["0:4"] = false, ["0:420"] = false }
+  for device, local_flock in pairs(want) do
+    assert(testing.mountinfo_local_flock(sample, device) == local_flock, device)
+  end
+  assert(not testing.mountinfo_local_flock("", "0:41"))
+  assert(testing.mountinfo_local_flock("32 22 0:42 / /srv rw - nfs s:/srv local_lock=all", "0:42"),
+    "a last line with no newline")
 end
 
 --- Whether the wake pipe of the open guards has a byte to read.
