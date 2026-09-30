@@ -76,6 +76,19 @@ local function public_docs(column: string, public: boolean): string
     symbols.guide_module(column) .. ")"
 end
 
+--- The modules a database under `qualifier` (`""`, or `"out."`) answers
+--- for, sorted: its modules, a declaration only where it documents one
+--- -- a database that copied a declaration without its docs must not
+--- hide the one that does -- and a guide by its own row. Which database
+--- owns a module is the first of a lookup's that answers for it, for
+--- `cosmic docs`, `cosmic fix` and the index of links alike.
+function symbols.owned_modules(qualifier: string): string
+  return "SELECT path FROM " .. qualifier .. "modules UNION SELECT path FROM " ..
+    qualifier .. "decls WHERE path IN (SELECT module FROM " .. qualifier .. "docs) " ..
+    "UNION SELECT module FROM " .. qualifier .. "docs " ..
+    "WHERE symbol = '' AND module GLOB 'doc.guides.*' ORDER BY 1"
+end
+
 --- The condition under which `alias` (a row of `docs`) is a `local`
 --- declaration the module never hands out: not the module's surface.
 function symbols.local_declaration(alias: string): string

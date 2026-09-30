@@ -129,10 +129,12 @@ link_index.none = {
 --- The standard library of the binary running this build: its own
 --- database, named by its `boot_hash`, which is over every file of the
 --- tree it was built from ([`work.record_fingerprint`]), each source whose
---- docs it carries and the analyzer that read them included. It moves
---- with a file that moves no doc too, which costs a project one more
---- write of its projection on such a binary, never a wrong row. A
---- binary with none carries no database, and no docs.
+--- docs it carries and the analyzer that read them included. A binary
+--- with none carries no database, and no docs. What the store refuses
+--- (a test that does not declare `store`) is said as the library's.
+-- TODO: sign a digest of the docs the binary carries rather than its
+-- boot_hash, once writer.carried records one in meta: a binary whose
+-- docs did not change rewrites a project's projection once.
 function link_index.running(): link_index.Library
   return {
     identity = "binary " .. (Store.meta("boot_hash") or ""),
@@ -141,7 +143,7 @@ function link_index.running(): link_index.Library
       local all: {Sqlite.Handle} = {}
       local ok, refused: boolean, any = pcall(function() all = Store.databases() end)
       if not ok then
-        return nil, tostring(refused)
+        return nil, "the standard library a project's links name: " .. tostring(refused)
       end
       return { all[#all] }
     end,
@@ -335,12 +337,11 @@ function link_index.pending(db: Sqlite.Handle, root: string,
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory, with
---- each module it holds set in `held`.
+--- each module it answers for ([`symbols.owned_modules`]) set in `held`.
 local function index_of(db: Sqlite.Handle, qualifier: string,
                         held: {string: boolean}): symbol_index.Index | nil, string
   local out = symbol_index.new()
-  local modules, modules_trouble = Sqlite.text_rows(db,
-    "SELECT path FROM " .. qualifier .. "modules UNION SELECT path FROM " .. qualifier .. "decls")
+  local modules, modules_trouble = Sqlite.text_rows(db, symbols.owned_modules(qualifier))
   if modules == nil then
     return nil, modules_trouble
   end
@@ -365,7 +366,8 @@ end
 --- Adds to `index` the rows of `library`'s databases that `cosmic docs`
 --- shows a project, each module answered by the first that holds it
 --- and none the projection holds (`held`), as [`docs.view`] owns them
---- and [`build.links`] reads them for `cosmic fix`.
+--- ([`symbols.owned_modules`]) and [`build.links`] reads them for
+--- `cosmic fix`.
 local function add_library(index: symbol_index.Index, held: {string: boolean},
                            library: link_index.Library): boolean, string
   local databases, trouble = library.databases()
@@ -375,10 +377,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
   local owners: {string: integer} = {}
   for at, db in ipairs(databases) do
     local database = at + 1
-    local modules, modules_trouble = Sqlite.text_rows(db,
-      "SELECT path FROM modules UNION SELECT path FROM decls " ..
-      "WHERE path IN (SELECT module FROM docs) UNION SELECT module FROM docs " ..
-      "WHERE symbol = '' AND module GLOB 'doc.guides.*'")
+    local modules, modules_trouble = Sqlite.text_rows(db, symbols.owned_modules(""))
     if modules == nil then
       return false, modules_trouble
     end
@@ -415,7 +414,8 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     return false, index_trouble
   end
   local index: symbol_index.Index = indexed
-  -- The library is read the first time a link asks for a symbol.
+  -- The library is read the first time a link the projection's own
+  -- symbols do not settle asks for one.
   local library = pending.library
   local function ready(): boolean, string
     if library == nil then
@@ -425,14 +425,41 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     library = nil
     return add_library(index, held, adding)
   end
+  -- A member of a module the projection holds is one of its own rows
+  -- ([`symbol_index.member`] reads only the owner's), unless it is found
+  -- through a type an alias stands for, which may be the library's: so
+  -- only a member the projection alone does not find reads it.
   local function member_of(module: string, name: string): {link_resolve.Symbol} | nil, string
+    if held[module] then
+      local own = symbol_index.member(index, module, name)
+      if #own > 0 then
+        return own, ""
+      end
+    end
     local ok, trouble = ready()
     if not ok then
       return nil, trouble
     end
     return symbol_index.member(index, module, name), ""
   end
+  -- A name in full that starts with a module the projection holds,
+  -- and which names a symbol of the projection's, is taken as that:
+  -- the library's modules are cosmic's, which no project holds, so
+  -- only one of its symbols spelled with the same last names
+  -- (`X.other.fn` beside the project's `other.fn`) could make it two,
+  -- which `cosmic fix` would refuse and the index keeps as the
+  -- project's.
   local function symbols_of(query: string): {link_resolve.Symbol} | nil, string
+    local ours = false
+    for at in query:gmatch("()[.:]") do
+      ours = ours or held[query:sub(1, at - 1)] == true
+    end
+    if ours then
+      local own = symbol_index.named(index, query)
+      if #own > 0 then
+        return own, ""
+      end
+    end
     local ok, trouble = ready()
     if not ok then
       return nil, trouble

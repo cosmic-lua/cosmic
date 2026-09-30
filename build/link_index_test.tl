@@ -638,3 +638,46 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
   same(rows(db, "SELECT count(*) FROM links WHERE module = 'cosmic.fs'"), { "0" })
   assert(db:close())
 end
+
+--- A project whose links name only its own symbols builds with the
+--- running binary's library in a test that may not read the store: a
+--- link settled by the project's own modules reads nothing of the
+--- library. One to the standard library cannot, and says what the test
+--- must declare.
+local function test_a_projects_own_links_read_no_library(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.write(root .. "/other.tl", source(
+    "--- Other things.",
+    "local record other",
+    "end",
+    "",
+    "--- Does one.",
+    "function other.fn(): integer",
+    "  return 1",
+    "end",
+    "",
+    "return other")))
+  assert(Fs.write(root .. "/README.md", source("See [`other.fn`].")))
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "link-index-test"))
+  assert(writer.write_result(handle, out, result))
+  local db = assert(Sqlite.open(out, false))
+  same(rows(db, "SELECT from_file || ':' || line, module, symbol FROM links " ..
+    "ORDER BY from_file, line, column"), {
+    "README.md:1 other fn",
+    "greet.tl:1 greet hello",
+    "wave.tl:2 greet bye",
+  })
+  assert(db:close())
+  assert(Fs.write(root .. "/README.md", source("See [`cosmic.fs.read`].")))
+  assert(work.stage(handle, false))
+  local linked = assert(importer.compile(handle, built, "link-index-test"))
+  local ok, trouble = writer.write_result(handle, out, linked)
+  assert(not ok, "a link to the standard library reads the store")
+  assert(trouble:find("standard library", 1, true) ~= nil and
+    trouble:find("store = true", 1, true) ~= nil, trouble)
+  assert(work.close(handle))
+end
