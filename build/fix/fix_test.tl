@@ -471,18 +471,41 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
 end
 
 --- A project that has not been built checks no link against symbols,
---- and says so once as a note rather than failing each.
+--- and says so once as a note rather than failing each: a name in
+--- full, and a member of a module through its alias alike.
 local function test_links_to_symbols_wait_for_a_build(tmp: string)
   local root = assert(Fs.absolute(tmp))
   assert(Fs.write(root .. "/a.md", "[`m.one`] [`m.two`] [gone](gone.md)\n"))
+  assert(Fs.write(root .. "/b.tl", 'local M = require("m")\n\n--- See [`M.three`].\n' ..
+    "local function f(): integer return M.three() end\n\nreturn f\n"))
   local source = fix.link_context(root, false, false,
     function(_: string): boolean, string return true, "" end,
     function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
-  local found = fix.links(source.context, built, { root .. "/a.md" })
+  local found = fix.links(source.context, built, { root .. "/a.md", root .. "/b.tl" })
   source.close()
   assert(#found.broken == 1 and found.broken[1]:find("gone.md", 1, true), table.concat(found.broken, "\n"))
-  assert(#found.notes == 1 and found.notes[1]:find("2 links to a symbol not checked", 1, true),
+  assert(#found.notes == 1 and found.notes[1]:find("3 links to a symbol not checked", 1, true),
     table.concat(found.notes, "\n"))
+end
+
+--- Unbuilt, a member through an alias to a module the symbols already
+--- know (the standard library's) is still checked: one it lacks fails
+--- rather than waiting for a build that would not add it.
+local function test_an_unbuilt_project_still_checks_a_known_modules_members(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- See [`Fs.nosuch`].\n' ..
+    'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
+  local context = link_resolve.on_disk(root,
+    function(query: string): {link_resolve.Symbol} | nil, string
+      if query == "cosmic.fs" then return { { module = "cosmic.fs", symbol = "" } }, "" end
+      return {}, ""
+    end,
+    function(_: string, _: string): {link_resolve.Symbol} | nil, string return {}, "" end,
+    function(): string | nil return "not built" end)
+  local found = fix.links(context, built, { root .. "/a.tl" })
+  assert(#found.broken == 1 and found.broken[1]:find("Fs.nosuch does not resolve (cosmic.fs has no nosuch)",
+    1, true), table.concat(found.broken, "\n"))
+  assert(#found.notes == 0, table.concat(found.notes, "\n"))
 end
 
 --- A Markdown or Zig file is never among what fix renders or lays out,

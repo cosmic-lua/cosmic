@@ -44,14 +44,14 @@ end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
 --- `o/cosmic.db` as the tree stands. It does nothing, answering true,
---- where `root` is not one to build ([`is_project`]), saying so on stderr
---- when it looks like a project no build has been made of. Answers false and
---- why when the build fails, which the caller may say and go on from
---- the last build.
-local function project(root: string, verb: string): boolean, string
+--- where `root` is not one to build ([`is_project`]) and `start` is not
+--- set, saying so on stderr when it looks like a project no build has
+--- been made of. Answers false and why when the build fails, which the
+--- caller may say and go on from the last build.
+local function project(root: string, verb: string, start: boolean): boolean, string
   local found, found_trouble = is_project(root)
   if found == nil then return false, found_trouble end
-  if not found then
+  if not found and not start then
     if looks_unbuilt(root) then
       log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
         "first to include its modules")
@@ -84,11 +84,15 @@ local function project(root: string, verb: string): boolean, string
 end
 
 --- Builds the project in the working directory, as `project` does, for
---- the verb `verb`, which names itself in what it says.
-function rebuild.here(verb: string): boolean, string
+--- the verb `verb`, which names itself in what it says. With `start`, it
+--- builds one no build has been made of yet too: `cosmic fix`, which
+--- stages and compiles the directory to check it whatever it holds
+--- ([`build.fix.spill`]), so that what its links name is the tree as it
+--- stands rather than whatever an earlier `cosmic test` left.
+function rebuild.here(verb: string, start?: boolean): boolean, string
   local root, trouble = Fs.absolute(".")
   if root == nil then return false, trouble end
-  return project(root, verb)
+  return project(root, verb, start == true)
 end
 
 return rebuild

@@ -590,7 +590,7 @@ Orchestration.sandboxed_fixtures = {
 --- not the leg's cache, which ci.yml restores and saves
 --- (cosmic_ci/compiles.tl), so no fixture's rows are kept from one run
 --- to the next, nor the boot's work taken back. A child a fixture starts
---- takes none (`Fixture.environment`): what a fresh tree compiles, and
+--- takes none ([`Fixture.environment`]): what a fresh tree compiles, and
 --- what the tool built from it compiles again (fixed_point_test,
 --- self_rebuild_test), it must compile and parse.
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
@@ -1248,7 +1248,7 @@ end
 --- from the `git archive` assemble made of it (`archive`, beside
 --- `p.fresh`, where the portable suite has written its o/ since): the
 --- tree a fixture that boots or rebuilds one copies
---- (COSMIC_FIXTURE_SOURCE, `Fixture.source_tree`), the one the product
+--- (COSMIC_FIXTURE_SOURCE, [`Fixture.source_tree`]), the one the product
 --- was booted from.
 local function fixture_source(p: PlatformContext, destination: string): integer
   return step(p.operation, "fixture source extract", function(): boolean, string

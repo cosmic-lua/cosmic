@@ -417,6 +417,15 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     if first ~= nil and own.aliases[first] ~= nil then
       local module = own.aliases[first]
       local members = members_named(resolver, module, rest)
+      -- Unbuilt, the members of a module the symbols do not know yet
+      -- (the project's own) may be ones the build would record, as for
+      -- a name in full below; a known module's (the standard library's)
+      -- are all there, so a member it lacks still fails.
+      if #members == 0 and not path_first and resolver.context.unbuilt() ~= nil and
+          #symbols_named(resolver, module) == 0 then
+        resolver.unchecked = resolver.unchecked + 1
+        return nil, ""
+      end
       local spelled: {string} = {}
       for _, member in ipairs(members) do spelled[#spelled + 1] = link_resolve.spelled(member) end
       local problem = one_of(spelled, module .. " has no " .. rest)
