@@ -8,6 +8,18 @@ local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
 local State = require("cosmic_ci.state")
 
+-- TODO: declare what these tests read of the checkout around ci/
+-- (.github/workflows/ci.yml above all, and the git history a clone
+-- reads) in a [`Test.needs`], once cosmic.test can name a path outside
+-- the project's root relative to it: `reads` refuses a path naming
+-- `..`, and `host` takes only an absolute path written in the source,
+-- which moves with the checkout. Until then a keyed run stands on a
+-- verdict these reached before an edit to ci.yml (a probe edit left
+-- all 32 standing); run them with --all after one. CI's driver check
+-- keeps no verdicts (COSMIC_VERDICT_CACHE=0, a fresh checkout), so
+-- only a local run meets it. The TODO on ci.yml's "move the tree to a
+-- path of its own" names the same gap.
+
 --- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
 --- its parent is the checkout the self-check runs against.
 local function checkout_root(): string

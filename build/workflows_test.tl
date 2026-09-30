@@ -1204,6 +1204,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   local light <const>: {string: boolean} = { ["bootstrap the pinned CI driver"] = true,
     ["build release Cosmic"] = true, ["summarize worker operations"] = true,
     ["describe the leg's container"] = true, ["remove the leg's container"] = true,
+    ["preserve CI driver database"] = true,
     ["preserve checked suite failure diagnostics"] = true,
     [CHECKOUT] = true }
   for key in pairs(BOTH) do light[key] = true end
@@ -1245,6 +1246,13 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   for _, step in ipairs(platform.steps as {{string: any}}) do
     assert(not (step.run as string or ""):find("platform format", 1, true), "a leg checks the format apart from assemble")
   end
+  -- Whatever failed, on either scope, it keeps its operations, as a leg
+  -- does, under its own name.
+  local kept = ours["preserve CI driver database"]
+  assert(kept ~= nil and kept["if"] == "always()" and
+    (kept.with as {string: string}).name == "ci-driver-" .. name and
+    (kept.with as {string: string}).path == ((theirs["preserve CI driver database"].with) as {string: string}).path,
+    "the checked job keeps its operations only on some runs, or under another name: " .. tostring(kept and kept["if"]))
 end
 
 --- A job that moves its tree (.github/scripts/place-tree.sh) moves it

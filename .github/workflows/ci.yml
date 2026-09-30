@@ -26,7 +26,8 @@
 
   env: {
     # A branch push is `light`: each leg builds and runs its native
-    # suite, one leg the format check too. The merge queue, main and a
+    # suite, and the checked job, in place of its suite, the pinned CI
+    # driver's check and the format check. The merge queue, main and a
     # manual run are `full`: the checked core, the product and portable
     # suites, the regressions, attestation and provenance.
     COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
@@ -890,7 +891,15 @@
         },
         # A light run's check of the pinned CI driver, which a full run
         # makes on every leg (theirs says how). Every light run makes
-        # it: off the legs' path, a marker would save only runner time.
+        # it, with no marker.
+        # TODO: skip it on a light run whose diff from its merge base on
+        # main (merge-base.sh's sha, fetched) touches none of what the
+        # marker's key hashes (ci/, bin/, .github/scripts/, the driver
+        # action, ci.yml), and check only the changed paths' format
+        # below where no formatter or type rule moved: on a branch
+        # where most verdicts stand, this job (some 190 s of setup, the
+        # driver's check, the boot and the format check) can outlast
+        # the legs and gate the run.
         {
           name: "check the pinned CI driver",
           if: "env.COSMIC_CI_SCOPE == 'light'",
@@ -991,7 +1000,7 @@
         },
         {
           name: "preserve CI driver database",
-          if: "always() && env.COSMIC_CI_SCOPE == 'full'",
+          if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "ci-driver-linux-x86_64-checked",

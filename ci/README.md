@@ -366,8 +366,12 @@ hold up a leg: the pinned CI driver's check (`cosmic-driver test
 cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
 skip, and the format check (`platform format`, `fix --check .`, 42 to
 62 s), which ran after linux-aarch64's suite and runs on a full run in
-that leg's assemble. With no suite it finishes before the legs do
-(2026-09-30). It restores linux-x86_64's zig build outputs and compiles, which that leg
+that leg's assemble. With no suite it mostly finishes before the legs
+(2026-09-30), but not always: its setup, the driver's check, the boot
+and the format check take some 190 s, so on a branch where most
+verdicts stand it can be the run's gate (the `TODO:` on its driver
+check says what would shorten it). Its `operations.db` is kept on
+either scope, as `ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build outputs and compiles, which that leg
 saves, and saves neither. Its verdicts it keeps under a name of its
 own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
 restored, trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's
