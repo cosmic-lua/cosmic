@@ -133,8 +133,8 @@ promises lean on come first:
   a tree-shaped payload, `need_spec` checking it on first use.
 - [`cosmic.net`] past stream sockets over unix socket files and TCP, each
   once a caller needs it: a host name looked up (c-ares, which curl
-  already carries) where a "tcp" `Address` takes a numeric one; an
-  accepted connection's peer address; TLS over a connection, for the
+  already carries) where a "tcp" `Address` takes a numeric one; TLS
+  over a connection, for the
   loopback server build/fetch_test.tl's https `TODO:` waits on;
   datagrams ("udp", "unixgram") as a
   socket of their own with `send_to` and `receive_from` over the same

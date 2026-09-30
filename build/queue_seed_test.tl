@@ -210,10 +210,14 @@ local function test_a_passing_run_beside_a_failed_one_is_found(tmp: string)
 end
 
 --- What `stage` keeps under $RUNNER_TEMP/seed, run with `env` and, where
---- `marker`, a passing driver check's marker, and its seed.keys.
+--- `marker`, a passing driver check's marker, and its seed.keys. The
+--- zig build outputs hold a program, whose mode their seed keeps.
 local function stage(tmp: string, env: {string: string}, marker: boolean): string, string
   runs = runs + 1
   local temp = tmp .. "/stage-" .. runs
+  assert(Fs.mkdirs(temp .. "/zig-build/zig-project/o/abc"))
+  assert(Fs.write(temp .. "/zig-build/zig-project/o/abc/build", "z"))
+  assert(Fs.chmod(temp .. "/zig-build/zig-project/o/abc/build", 493))
   assert(Fs.mkdirs(temp .. "/verdicts"))
   assert(Fs.write(temp .. "/verdicts/verdicts.db", "v"))
   assert(Fs.mkdirs(temp .. "/build-cache"))
@@ -282,6 +286,69 @@ local function test_stage_keeps_the_verdicts_under_the_commit(tmp: string)
 
   seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "", SHA = SHA }, false)
   assert(keys == "" and not Fs.exists(seed .. "/verdicts"), keys)
+end
+
+local ZIG <const> = "zig-build-leg-v1-"
+local CORE <const> = ZIG .. "full-c1-"
+
+--- The tar `stage` kept the zig build outputs in, beside the seed in an
+--- artifact of their own.
+local function zig_tar(seed: string): string
+  return seed .. "-zig/zig-build.tar"
+end
+
+--- The program the tar `stage` kept the zig build outputs in lays out,
+--- under `dir`.
+local function unpacked(seed: string, dir: string): string
+  assert(Fs.mkdirs(dir))
+  local result = assert(Child.run({ "/bin/sh", "-c", 'tar -xf "$1" -C "$2"', "sh", zig_tar(seed), dir },
+    { stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
+  return dir .. "/zig-build/zig-project/o/abc/build"
+end
+
+--- The zig build outputs are kept, with their modes, under the key the
+--- run's restore named, where it restored no entry of this core and
+--- vendor part: another core's, another vendor part's, or none. The
+--- prefix of such an entry goes with them, for main's lookup.
+local function test_stage_keeps_the_zig_build_outputs_of_a_new_core(tmp: string)
+  for i, restored in ipairs({ ZIG .. "full-c0-8-1", ZIG .. "light-c1-8-1", "zig-build-leg-v0-full-c1-8-1", "" }) do
+    local seed, keys = stage(tmp, { ZIG_BUILD_KEY = CORE .. "9-1", ZIG_BUILD_EXACT = CORE,
+      ZIG_BUILD_RESTORED = restored }, false)
+    assert(keys == "zig-build=" .. CORE .. "9-1\nzig-build-exact=" .. CORE .. "\n", restored .. ": " .. keys)
+    assert(not Fs.exists(seed .. "/zig-build.tar"), "the zig build outputs are kept in the seed itself")
+    local program = unpacked(seed, tmp .. "/unpacked-" .. i)
+    assert(Fs.read(program) == "z" and assert(Fs.stat(program)).mode & 0x1ff == 493,
+      restored .. ": the zig build outputs lost a file or its mode")
+  end
+end
+
+--- An entry of this core and vendor part restored answers already, so
+--- nothing of zig's is kept; nor where the job names no key (the
+--- checked job).
+local function test_stage_keeps_no_zig_build_outputs_an_entry_holds(tmp: string)
+  local seed, keys = stage(tmp, { ZIG_BUILD_KEY = CORE .. "9-1", ZIG_BUILD_EXACT = CORE,
+    ZIG_BUILD_RESTORED = CORE .. "8-1" }, false)
+  assert(keys == "" and not Fs.exists(zig_tar(seed)), keys)
+  seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d2" }, false)
+  assert(keys == "verdicts=verdicts-leg-h-f-d2\n" and not Fs.exists(zig_tar(seed)), keys)
+end
+
+--- A tar that fails keeps none of zig's and names no key for it, and
+--- the stage goes on to keep the rest: the outputs save only time.
+local function test_a_failing_zig_tar_keeps_the_rest(tmp: string)
+  local bin = tmp .. "/failing-tar"
+  assert(Fs.mkdirs(bin))
+  assert(Fs.write(bin .. "/tar", "#!/bin/sh\necho partial > \"$2\"\nexit 1\n"))
+  assert(Fs.chmod(bin .. "/tar", 493))
+  local seed, keys = stage(tmp, {
+    PATH = bin .. ":" .. (Env.get("PATH") or "/usr/bin:/bin"),
+    VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d1", VERDICTS_RESTORED = "",
+    ZIG_BUILD_KEY = CORE .. "9-1", ZIG_BUILD_EXACT = CORE, ZIG_BUILD_RESTORED = "",
+  }, true)
+  assert(keys == "verdicts=verdicts-leg-h-f-d1\ndriver-checked=driver-checked-v2-leg-x\n", keys)
+  assert(not Fs.exists(zig_tar(seed)), "a failed tar is kept")
+  assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
 end
 
 --- A run's jobs, as the API lists them: each `status name`, or
