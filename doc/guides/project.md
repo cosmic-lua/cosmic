@@ -1,6 +1,6 @@
 # your first project
 
-<!-- needs: processes = true, tool = true -->
+<!-- needs: tool = true -->
 
 A cosmic project is a directory of modules, tests, examples and
 programs. They are Teal files: typed Lua, documented at

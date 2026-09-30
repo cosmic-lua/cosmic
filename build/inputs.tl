@@ -1,7 +1,7 @@
 --- What a test module declares it reads beyond its default inputs, as
 --- the build sees it: the `needs` call of `cosmic.test`, whose `Needs`
---- is the declaration's type, and which `cosmic test --audit` holds
---- each test's observed reads to (see `build.test_inputs`).
+--- is the declaration's type, and which a sandboxed worker holds each
+--- test to (see `build.test_inputs`).
 ---
 ---     local Test = require("cosmic.test")
 ---     Test.needs {
@@ -31,7 +31,7 @@
 ---
 --- A doc guide, whose examples cannot `require` before the doc's first
 --- block, declares its examples' in a line of its own outside any
---- fence, which renders as nothing: `<!-- needs: processes = true -->`
+--- fence, which renders as nothing: `<!-- needs: tool = true -->`
 --- (doc/meta.md), which `build.doctest` turns into the call.
 
 local type Test = require("cosmic.test")

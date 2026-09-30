@@ -454,9 +454,6 @@ local module: Module = {
     test = {
       ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
         "checkout or another (COSMIC_TEST_ALL=1)" },
-      ["--audit"] = { about = "run every test, then name what each read beyond its " ..
-        "default and declared inputs (`cosmic docs Test.needs` says how to " ..
-        "declare one), and fail if any did" },
       ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
         "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
       ["--census"] = { about = "say the digests every key of the run holds, and where none " ..

@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
@@ -164,28 +164,41 @@ local function test_render_marks_unblamed_and_boundary_rows()
 end
 
 --- A tree in no repository is listed unblamed without git: none is
---- looked for on PATH, and no process is started.
+--- looked for on PATH, which is where a start of it would find it, and
+--- none is asked after anywhere else.
 local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: unblamed" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local listing: todos.Listing
-  local captured = observations.capture(function()
-    listing = assert(todos.list(handle.db, root))
-  end)
-  assert(captured.ok, tostring(captured.produced))
+  -- What `cosmic.sys`'s shared table is asked while the listing runs,
+  -- each call's first argument: every lookup of a variable (`Env`) and
+  -- of a path (`Proc.find`, `Fs.exists`) goes through it.
+  local asked: {string} = {}
+  local calls = sys as {string:any}
+  local stood: {string:any} = {}
+  for _, name in ipairs({ "getenv", "stat", "lstat", "access", "open" }) do
+    local was = calls[name] as function(any...): any...
+    stood[name] = was
+    calls[name] = function(...: any): any...
+      local given: any = ...
+      if given is string then asked[#asked + 1] = name .. " " .. given end
+      return was(...)
+    end
+  end
+  local ok, listing = pcall(todos.list, handle.db, root)
+  for name, was in pairs(stood) do calls[name] = was end
+  assert(ok, tostring(listing))
   assert(work.close(handle))
-  assert(listing.blamed == 0, "blamed " .. listing.blamed)
-  assert(#listing.todos == 1 and listing.todos[1].commit == "", listing.todos[1].commit)
+  local listed = listing as todos.Listing
+  assert(listed.blamed == 0, "blamed " .. listed.blamed)
+  assert(#listed.todos == 1 and listed.todos[1].commit == "", listed.todos[1].commit)
   local asked_after_git = false
-  for _, read in ipairs(captured.reads) do
-    assert(read.kind ~= "p" and read.kind ~= "x" and read.kind ~= "y",
-      "a process: " .. read.kind .. " " .. read.path)
-    assert(not (read.kind == "e" and read.path == "PATH"), "PATH was read")
-    assert(read.path:match("/git$") == nil, "git was looked for: " .. read.kind .. " " .. read.path)
-    if read.path:match("/%.git$") ~= nil then asked_after_git = true end
+  for _, call in ipairs(asked) do
+    assert(call ~= "getenv PATH", "PATH was read")
+    assert(call:match("/git$") == nil, "git was looked for: " .. call)
+    if call:match("/%.git$") ~= nil then asked_after_git = true end
   end
   assert(asked_after_git, "no .git was looked for")
 end

@@ -3,9 +3,8 @@
 ---
 --- A cache here is content-addressed: what a tool finds in it is what it
 --- would have made again, so it only saves time and never changes a
---- result. That is why none enters a verdict's key, and why a test's
---- read or write of one is no input the audit asks a declaration of,
---- beyond the name.
+--- result. That is why none enters a verdict's key, and why a test
+--- declares one by its name alone.
 ---
 --- - `zig`: the pinned zig `bin/zig` runs and the caches it builds in --
 ---   its installs (`Fs.cache_path("zig")`, build/zig.tl's `locate`), its

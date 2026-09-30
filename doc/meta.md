@@ -47,7 +47,7 @@ doctest machinery of its own.
   only as a file's first line, is always a skip, shown for reading,
   never run.
 - a block tagged `text` is prose in a box. nothing runs.
-- a line `<!-- needs: processes = true -->`, alone and outside any
+- a line `<!-- needs: tool = true -->`, alone and outside any
   fence, is what the doc's examples read beyond their default inputs,
   as a test module's `Test.needs { ... }` declares it (`cosmic.test`).
   it renders as nothing, and a doc has one at most.

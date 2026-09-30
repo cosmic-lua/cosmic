@@ -266,7 +266,7 @@ local function test_reads_a_needs_line_outside_a_fence()
   local blocks, trouble = markdown.parse_blocks(doc({
     "# a guide",
     "",
-    "<!--   needs: processes = true   -->",
+    "<!--   needs: tool = true   -->",
     "<!-- a comment -->",
     "```teal",
     "<!-- needs: tool = true -->",
@@ -274,7 +274,7 @@ local function test_reads_a_needs_line_outside_a_fence()
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 2, "expected 2 blocks, got " .. #blocks)
-  assert(blocks[1].lang == "needs" and blocks[1].content == "processes = true",
+  assert(blocks[1].lang == "needs" and blocks[1].content == "tool = true",
     blocks[1].lang .. ": " .. blocks[1].content)
   assert(blocks[1].line == 3)
   assert(blocks[2].lang == "teal" and blocks[2].content == "<!-- needs: tool = true -->")

@@ -188,13 +188,13 @@ end
 --- which the build reads as a test module's; a second is refused.
 local function test_a_docs_needs_become_its_declaration()
   local blocks: {Block} = {
-    { lang = "needs", modifiers = no_mods, content = "processes = true", line = 3 },
+    { lang = "needs", modifiers = no_mods, content = "tool = true", line = 3 },
     block("teal", "local x = 1", no_mods),
   }
   local code, trouble = generate.from_blocks(blocks, "fixture.md")
   assert(code ~= nil, "generate failed: " .. tostring(trouble))
   assert(code:find('\nlocal __doctest_test = require("cosmic.test")\n' ..
-    "__doctest_test.needs { processes = true }\n", 1, true) ~= nil, "got:\n" .. code)
+    "__doctest_test.needs { tool = true }\n", 1, true) ~= nil, "got:\n" .. code)
   assert(code:find("local function example_1", 1, true) ~= nil, "got:\n" .. code)
   blocks[#blocks + 1] = { lang = "needs", modifiers = no_mods, content = "tool = true", line = 9 }
   local again, again_trouble = generate.from_blocks(blocks, "fixture.md")

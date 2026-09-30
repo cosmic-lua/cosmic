@@ -9,7 +9,6 @@ local Test = require("cosmic.test")
 Test.needs{
   host = { "/proc" },
   env = { "*" },
-  processes = true,
   nests = true,
   system = true,
 }

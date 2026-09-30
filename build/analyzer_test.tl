@@ -1273,7 +1273,7 @@ local function test_a_needs_call_is_read_as_data()
     '  host = { "/etc/localtime" },',
     '  env = { "PATH" },',
     '  network = { "127.0.0.1", "127.0.0.2" },',
-    "  processes = true, tool = false, nests = true, store = true,",
+    "  tool = false, nests = true, store = true,",
     "}",
   }))
   assert(got ~= nil, trouble)
@@ -1282,7 +1282,7 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.host == 1 and got.host[1] == "/etc/localtime")
   assert(#got.env == 1 and got.env[1] == "PATH")
   assert(#got.network == 2 and got.network[1] == "127.0.0.1" and got.network[2] == "127.0.0.2")
-  assert(got.processes and not got.tool and got.nests and got.store)
+  assert(not got.tool and got.nests and got.store)
   -- A host file a variable names, and /proc, a directory, beneath which
   -- no key could hold what anything holds.
   local named = assert(declared(lines({
@@ -1295,7 +1295,7 @@ local function test_a_needs_call_is_read_as_data()
     'local t = require("cosmic.test")',
     't.needs({ network = { "127.0.0.1" } })',
   })))
-  assert(hosts.network[1] == "127.0.0.1" and not hosts.processes and hosts.line == 2)
+  assert(hosts.network[1] == "127.0.0.1" and not hosts.tool and hosts.line == 2)
   local none, none_trouble = declared("local function test_x() end\n")
   assert(none == nil and none_trouble == "", none_trouble)
   -- A jump at the top of a module that declares nothing is its own.

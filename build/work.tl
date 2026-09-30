@@ -97,7 +97,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "26"
+local version <const> = "27"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -209,10 +209,10 @@ local version <const> = "26"
 --- `runs` is one row per test, keyed by the module and the test's own
 --- name inside it, so a later run of the same test replaces its row
 --- rather than piling up a history the runner has no use for yet.
---- `key` is what the verdict is a function of: the module's key and
---- the hash of every file under the root the test was observed to
---- read; `reads` is what it opened, as recorded, and `run_at_ns` the
---- `cosmic test` invocation whose coverage rows credit the verdict.
+--- `key` is what the verdict is a function of, the digest of the
+--- test's declared inputs (`build.declared_key`), and, after a space,
+--- the key it is shared under; `run_at_ns` the `cosmic test`
+--- invocation whose coverage rows credit the verdict.
 --- `elapsed_ns` is how long the test function itself took to run, by
 --- `cosmic.time`'s monotonic clock: wall time, not CPU time. For a test
 --- answered from a standing verdict it is the elapsed time of the run
@@ -354,7 +354,6 @@ for _, statement in ipairs({
                                      passed INTEGER NOT NULL,
                                      message TEXT NOT NULL,
                                      ran_at_ns INTEGER NOT NULL,
-                                     reads TEXT NOT NULL,
                                      key TEXT NOT NULL,
                                      run_at_ns INTEGER NOT NULL,
                                      elapsed_ns INTEGER NOT NULL,

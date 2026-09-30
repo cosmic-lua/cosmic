@@ -22,7 +22,6 @@ local Test = require("cosmic.test")
 Test.needs{
   host = { "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
-  processes = true,
   tool = true,
   nests = true,
 }

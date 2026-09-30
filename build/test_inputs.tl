@@ -1,7 +1,6 @@
 --- What a test may read: its effective inputs, the default ones its
 --- module's place in the tree gives it and the ones its module declares
---- (`build.inputs`), and what `cosmic test --audit` finds a test read
---- beyond them.
+--- (`build.inputs`).
 ---
 --- A test's default inputs are
 ---
@@ -16,8 +15,8 @@
 ---
 --- Its module declares the rest: paths of the tree (`reads`), of the
 --- host (`host`), environment variables (`env`), the network
---- (`network`), processes no sandbox holds (`processes`), the tool
---- itself (`tool`), the tree's projection opened directly (`store`),
+--- (`network`), the tool itself (`tool`), a root of its own for what it
+--- starts (`nests`), the tree's projection opened directly (`store`),
 --- and the system's own programs and files (`system`).
 ---
 --- Whatever it declares, a worker lets a test `require` no module of the
@@ -25,15 +24,13 @@
 --- sandboxed worker is held to all the declared inputs
 --- (`build.test_sandbox`), and its verdict keyed by them
 --- (`build.declared_key`). An unsandboxed one is held to nothing more,
---- and keyed by them all the same. The audit compares the two, test by
---- test, with what its sandbox refused it (`build.refusals`) or,
---- unsandboxed, what observation saw (`build.filesystem_observations`).
+--- and keyed by them all the same. A sandboxed test that reads what it
+--- does not declare finds nothing there, and fails with its own error.
 
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local cache_names = require("build.cache_names")
-local Test = require("cosmic.test")
 local type analyzer = require("build.analyzer")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -57,7 +54,6 @@ local record test_inputs
     env: {string:boolean}
     --- The loopback addresses the tests may reach, by address.
     network: {string:boolean}
-    processes: boolean
     tool: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own (`cosmic.test`'s `nests`).
@@ -84,15 +80,6 @@ local record test_inputs
     spelled: {string:string}
     located: {string:string}
     unresolved: string
-  end
-
-  --- One input a test read that its effective inputs do not hold,
-  --- named by the field of `cosmic.test`'s `Needs` that would declare it:
-  --- "reads", "host", "env", "network", "processes", "tool", "nests",
-  --- "store" or "system".
-  record Finding
-    field: string
-    value: string
   end
 end
 
@@ -188,7 +175,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
+    tool = false, nests = false, store = false, system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations)
@@ -219,7 +206,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     for name in pairs(variables) do out.variables[#out.variables + 1] = name end
     table.sort(out.variables)
     for _, name in ipairs(declared.network) do out.network[name] = true end
-    out.processes, out.tool, out.store = declared.processes, declared.tool, declared.store
+    out.tool, out.store = declared.tool, declared.store
     out.nests = declared.nests == true
     out.system = declared.system == true
     -- A cache is declared with the variables that locate it.
@@ -368,294 +355,6 @@ function test_inputs.spelling(effective: test_inputs.Effective, path: string,
   return "$" .. best .. rest
 end
 
---- Whether `path` is a directory some input of `effective` sits
---- beneath, of the tree when `absolute` is false: asking what such a
---- directory is, or where it leads, is part of reaching the input.
-local function leads_to(effective: test_inputs.Effective, path: string,
-                        absolute: boolean): boolean
-  path = path:gsub("/+$", "")
-  local function under(input: string): boolean
-    return input ~= path and beneath(input, path)
-  end
-  if absolute then
-    for _, input in ipairs(effective.host) do
-      if under(input) then return true end
-    end
-    return path == ""
-  end
-  if path == "" or path == "." then return true end
-  for file in pairs(effective.files) do
-    if under(file) then return true end
-  end
-  for _, input in ipairs(effective.reads) do
-    if under(input) then return true end
-  end
-  return false
-end
-
---- Whether `effective` holds a read of `relative`, a path of the tree,
---- by an observation of `kind` (`build.filesystem_observations`): a
---- file of the closure, beneath a declared path or a corpus, the tool
---- or the projection when they are declared, or -- for a stat, an
---- lstat or a realpath, which ask only what a path is -- a directory an
---- input sits beneath.
-function test_inputs.covers_tree(effective: test_inputs.Effective, relative: string,
-                                 kind: string): boolean
-  if effective.files[relative] then return true end
-  for _, input in ipairs(effective.reads) do
-    if beneath(relative, input) then return true end
-  end
-  if effective.tool and relative == "o/bin/cosmic" then return true end
-  if effective.store and beneath(relative, "o/cosmic.db") then return true end
-  if kind == "s" or kind == "l" or kind == "a" then
-    return leads_to(effective, relative, false)
-  end
-  return false
-end
-
---- Whether `effective` holds a read of `path`, absolute and outside the
---- tree, by an observation of `kind`, as `covers_tree` does a path of it.
-function test_inputs.covers_host(effective: test_inputs.Effective, path: string,
-                                 kind: string): boolean
-  for _, input in ipairs(effective.host) do
-    if beneath(path, input) then return true end
-  end
-  if kind == "s" or kind == "l" or kind == "a" then
-    return leads_to(effective, path, true)
-  end
-  return false
-end
-
---- Whether `effective` holds a read of the variable `name`.
-function test_inputs.covers_env(effective: test_inputs.Effective, name: string): boolean
-  return effective.env["*"] == true or effective.env[name] == true
-end
-
---- The host a request for `url` names, lowercased: what follows its
---- scheme's slashes up to a port, a path or the end.
-local function host_of(url: string): string
-  local rest = url:match("^%s*%a[%w+.-]*:/*(.*)$") or url
-  local host = rest:match("^%[([^%]]*)%]") or rest:match("^([^/:?#]*)") or ""
-  host = host:gsub("^.*@", "")
-  return host:lower()
-end
-
---- Whether `effective` holds a request for `url`: one to a loopback
---- address it declares (`cosmic.test`'s `network`).
-function test_inputs.covers_network(effective: test_inputs.Effective, url: string): boolean
-  return effective.network[host_of(url)] == true
-end
-
---- Paths, as `reads` or `host` would declare them: each directory that
---- more than `most` of them sit directly in stands for them, with a
---- trailing "/", level by level -- but never the root itself.
-local function collapsed(paths: {string}, most: integer): {string}
-  local set: {string:boolean} = {}
-  for _, path in ipairs(paths) do set[path] = true end
-  local changed = true
-  while changed do
-    changed = false
-    local by_parent: {string:{string}} = {}
-    for path in pairs(set) do
-      local parent = path:gsub("/+$", ""):match("^(.*)/[^/]*$")
-      if parent ~= nil and parent ~= "" then
-        local members = by_parent[parent] or {}
-        by_parent[parent] = members
-        members[#members + 1] = path
-      end
-    end
-    for parent, members in pairs(by_parent) do
-      if #members > most then
-        for _, path in ipairs(members) do set[path] = nil end
-        set[parent .. "/"] = true
-        changed = true
-      end
-    end
-  end
-  -- A path and the same with a "/" after it are one, spelled the
-  -- second way; a path beneath another the set keeps is held by it.
-  local by_name: {string:string} = {}
-  for path in pairs(set) do
-    local name = path:gsub("/+$", "")
-    if by_name[name] == nil or path:sub(-1) == "/" then by_name[name] = path end
-  end
-  local out: {string} = {}
-  for name, path in pairs(by_name) do
-    local held = false
-    for other in pairs(by_name) do
-      if other ~= name and beneath(name, other) then held = true end
-    end
-    if not held then out[#out + 1] = path end
-  end
-  table.sort(out)
-  return out
-end
-
---- How many paths directly in one directory a suggestion names before
---- it names the directory instead.
-local most_named = 3
-
---- How many tests a line of the audit names before it counts the rest.
-local most_tests = 3
-
---- How many values of one field a line of the audit names before it
---- counts the rest; the declaration it suggests names them all.
-local most_values = 6
-
---- A list of strings as Teal source.
-local function literal_list(values: {string}): string
-  local quoted: {string} = {}
-  for i, value in ipairs(values) do quoted[i] = string.format("%q", value) end
-  return "{ " .. table.concat(quoted, ", ") .. " }"
-end
-
---- The fields of `cosmic.test`'s `Needs`, in the order a suggestion
---- writes them.
-local field_order: {string} = {
-  "reads", "host", "env", "network", "processes", "tool", "nests", "store", "system",
-}
-
---- The audit of one test module, as lines to print: what its tests read
---- that its effective inputs do not hold, field by field with the tests
---- that read it, and the `needs` call that would hold it: what `m`
---- declares already, with what it lacks added. `found` is each of its
---- tests' findings, by test name. Nothing when no test has any.
-function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {string}
-  local by_field: {string:{string:{string:boolean}}} = {}
-  local names: {string} = {}
-  for name, findings in pairs(found) do
-    if #findings > 0 then names[#names + 1] = name end
-    for _, finding in ipairs(findings) do
-      local values = by_field[finding.field] or {}
-      by_field[finding.field] = values
-      local tests = values[finding.value] or {}
-      values[finding.value] = tests
-      tests[name] = true
-    end
-  end
-  if #names == 0 then return {} end
-  table.sort(names)
-  local lines: {string} = {
-    -- Not `plural.noun`: every worker loads this module, and none loads build.plural.
-    string.format("audit: %s (%s): %d of %d %s read what they do not declare",
-      m.path, m.file, #names, #m.tests, #m.tests == 1 and "test" or "tests"),
-  }
-  local declared: analyzer.Declared = m.inputs or {
-    line = 0, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
-  }
-  -- Each value by the tests that read it, and those tests by the set of
-  -- them, so tests that read alike share a line.
-  local wanted: {string:{string}} = {}
-  local groups: {string:{string:{string}}} = {}
-  local group_names: {string} = {}
-  for _, field in ipairs(field_order) do
-    local values = by_field[field]
-    if values ~= nil then
-      local listed: {string} = {}
-      for value in pairs(values) do listed[#listed + 1] = value end
-      table.sort(listed)
-      wanted[field] = listed
-      for _, value in ipairs(listed) do
-        local tests: {string} = {}
-        for name in pairs(values[value]) do tests[#tests + 1] = name end
-        table.sort(tests)
-        local shown: {string} = {}
-        for i = 1, math.min(#tests, most_tests) do shown[i] = tests[i] end
-        local who = table.concat(shown, ", ") ..
-          (#tests > most_tests and (" and " .. (#tests - most_tests) .. " more") or "")
-        local group = groups[who]
-        if group == nil then
-          group = {}
-          groups[who] = group
-          group_names[#group_names + 1] = who
-        end
-        local in_field = group[field] or {}
-        group[field] = in_field
-        in_field[#in_field + 1] = value
-      end
-    end
-  end
-  table.sort(group_names)
-  for _, who in ipairs(group_names) do
-    lines[#lines + 1] = "  " .. who .. ":"
-    for _, field in ipairs(field_order) do
-      local values = groups[who][field]
-      if values ~= nil then
-        local shown: {string} = {}
-        for i = 1, math.min(#values, most_values) do shown[i] = values[i] end
-        lines[#lines + 1] = string.format("    %-12s %s%s", field, table.concat(shown, ", "),
-          #values > most_values and (" and " .. (#values - most_values) .. " more") or "")
-      end
-    end
-  end
-  -- The declaration that holds it all: what is declared, and the rest.
-  local parts: {string} = {}
-  local function list_field(field: string, have: {string}, collapse: boolean)
-    local all: {string} = {}
-    for _, value in ipairs(have) do all[#all + 1] = value end
-    for _, value in ipairs(wanted[field] or {}) do all[#all + 1] = value end
-    if #all == 0 then return end
-    if collapse then
-      all = collapsed(all, most_named)
-    else
-      local set: {string:boolean} = {}
-      for _, value in ipairs(all) do set[value] = true end
-      all = {}
-      -- The whole environment holds every name in it.
-      if set["*"] then set = { ["*"] = true } end
-      for value in pairs(set) do all[#all + 1] = value end
-      table.sort(all)
-    end
-    parts[#parts + 1] = field .. " = " .. literal_list(all)
-  end
-  list_field("reads", declared.reads, true)
-  -- A host path is a file, or /proc, whatever beneath it was read.
-  local host_files: {string} = {}
-  for _, path in ipairs(wanted.host or {}) do
-    host_files[#host_files + 1] = beneath(path, "/proc") and "/proc" or path
-  end
-  if wanted.host ~= nil then wanted.host = host_files end
-  list_field("host", declared.host, false)
-  list_field("env", declared.env, false)
-  -- A loopback address is declared; any other host is one no test may
-  -- reach (`cosmic.test`'s `network`), which the declaration cannot hold.
-  local hosts: {string} = {}
-  local beyond: {string:boolean} = {}
-  for _, url in ipairs(wanted.network or {}) do
-    local host = host_of(url)
-    if Test.network_trouble(host) == "" then
-      hosts[#hosts + 1] = host
-    else
-      beyond[host] = true
-    end
-  end
-  local was = wanted.network
-  wanted.network = hosts
-  list_field("network", declared.network, false)
-  wanted.network = was
-  local refused: {string} = {}
-  for host in pairs(beyond) do refused[#refused + 1] = host end
-  table.sort(refused)
-  for _, flag in ipairs({ "processes", "tool", "nests", "store", "system" }) do
-    local on = flag == "processes" and declared.processes or flag == "tool" and declared.tool or
-      flag == "nests" and declared.nests or flag == "store" and declared.store or
-      flag == "system" and declared.system
-    if on or wanted[flag] ~= nil then parts[#parts + 1] = flag .. " = true" end
-  end
-  if #(declared.caches or {}) > 0 then
-    parts[#parts + 1] = "caches = " .. literal_list(declared.caches)
-  end
-  if #parts > 0 then
-    lines[#lines + 1] = "  declare: Test.needs { " .. table.concat(parts, ", ") .. " }"
-  end
-  for _, host in ipairs(refused) do
-    lines[#lines + 1] = string.format("  reaches %s, beyond loopback, which no test may: " ..
-      "serve what it needs on 127.0.0.1 instead", host)
-  end
-  return lines
-end
-
 --- One declaration as text two can be compared by, and one text for
 --- each declaration: one line for each value of a field, in the
 --- literal's order, duplicates kept, quoted (`%q`, which marks where it
@@ -674,7 +373,6 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   list("host", declared.host)
   list("env", declared.env)
   list("network", declared.network)
-  if declared.processes then lines[#lines + 1] = "processes true" end
   if declared.tool then lines[#lines + 1] = "tool true" end
   if declared.nests then lines[#lines + 1] = "nests true" end
   if declared.store then lines[#lines + 1] = "store true" end
@@ -688,7 +386,7 @@ end
 function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared | nil
   if needs == nil then return nil end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
-    env = needs.env or {}, network = needs.network or {}, processes = needs.processes == true,
+    env = needs.env or {}, network = needs.network or {},
     tool = needs.tool == true, nests = needs.nests == true, store = needs.store == true, system = needs.system == true,
     caches = needs.caches or {} }
 end

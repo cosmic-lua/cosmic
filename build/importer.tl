@@ -349,7 +349,6 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
     each("host", declared.host)
     each("env", declared.env)
     each("network", declared.network)
-    if declared.processes then rows[#rows + 1] = { "processes", "true" } end
     if declared.tool then rows[#rows + 1] = { "tool", "true" } end
     if declared.nests then rows[#rows + 1] = { "nests", "true" } end
     if declared.store then rows[#rows + 1] = { "store", "true" } end
@@ -1294,7 +1293,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
     local one = declared[hash]
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
-        processes = false, tool = false, nests = false, store = false, system = false, caches = {} }
+        tool = false, nests = false, store = false, system = false, caches = {} }
       declared[hash] = one
     end
     if field == "line" then
@@ -1307,8 +1306,6 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.env[#one.env + 1] = value
     elseif field == "network" then
       one.network[#one.network + 1] = value
-    elseif field == "processes" then
-      one.processes = true
     elseif field == "tool" then
       one.tool = true
     elseif field == "nests" then

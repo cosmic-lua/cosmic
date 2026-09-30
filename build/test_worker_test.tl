@@ -14,14 +14,14 @@ end
 --- A passing report whose worker loaded `modules`.
 local function passing(modules: {string}): worker.Report
   return { loaded = true, passed = true, message = "", elapsed_ns = 1,
-    load_reads = {}, test_reads = {}, load_hits = {}, test_hits = {}, modules = modules }
+    load_hits = {}, test_hits = {}, modules = modules }
 end
 
 local function test_a_report_carries_what_its_worker_loaded()
   local back = assert(worker.decode(worker.encode(passing({ "build.a", "cosmic.fs", "string" }))))
   assert(#back.modules == 3 and back.modules[1] == "build.a" and back.modules[3] == "string")
   -- A report of another shape, an older worker's, is none.
-  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-3", "cosmic-test-report-2")
+  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-4", "cosmic-test-report-3")
   assert(worker.decode(older) == nil)
 end
 
@@ -46,7 +46,7 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   assert(failed.message:find("its worker ran build.docs,", 1, true), failed.message)
   assert(failed.message:find("worker.loads", 1, true), failed.message)
   assert(failed.report ~= nil and failed.report.passed)
-  -- Unsandboxed, what a test read keys it, and nothing is held.
+  -- Given no set of what the tool carries, nothing of what it ran is held.
   assert(judged({ "build.docs" }, false).passed)
 end
 
@@ -76,12 +76,12 @@ local function test_a_worker_is_started_as_its_command_line_says()
     start = { argv = { "/bin/cosmic", "--relaunched" }, env = { COVERAGE = "1" },
       fds = { [254] = 7 } },
     env = { PATH = "/bin", COVERAGE = "0" }, root = "/tree", module_path = "suite.a_test",
-    name = "test_x", scratch = "/tmp", needs = "", held = "", hold = "forbid", open = true,
+    name = "test_x", scratch = "/tmp", needs = "", hold = "forbid", open = true,
     closure = { "suite.a_test" }, tree = { "suite.a_test", "suite.b" }, declared = { "d" },
   })
   local argv, options = command.argv, command.options
   local expected = { "/bin/cosmic", "--relaunched", "test", "--worker-no-tool", "/tree",
-    "suite.a_test", "test_x", "/tmp/tmp", "/tmp/children", "", "", "--open", "suite.a_test",
+    "suite.a_test", "test_x", "/tmp/tmp", "/tmp/children", "", "--open", "suite.a_test",
     "--tree", "suite.a_test", "suite.b", "--declared", "d" }
   assert(#argv == #expected, table.concat(argv, " "))
   for i, value in ipairs(expected) do assert(argv[i] == value, i .. ": " .. argv[i]) end
@@ -93,7 +93,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
   for hold, flag in pairs({ mounts = "--worker-held", none = "--worker" } as {string:string}) do
     local held = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
-      module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "", held = "",
+      module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "",
       hold = hold as worker.Hold, open = false, closure = {}, tree = {}, declared = {},
     })
     assert(held.argv[3] == flag, hold .. ": " .. table.concat(held.argv, " "))
@@ -103,11 +103,11 @@ local function test_a_worker_is_started_as_its_command_line_says()
   for _, open in ipairs({ false, true }) do
     local given = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
-      module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "", held = "",
+      module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "",
       hold = "none", open = open, store = "/stores/a.db", closure = { "suite.a_test" },
       tree = {}, declared = {},
     })
-    local said = table.concat(given.argv, " ", 11)
+    local said = table.concat(given.argv, " ", 10)
     local wanted = open and "--open suite.a_test --tree --declared" or
       "--store /stores/a.db suite.a_test --tree --declared"
     assert(said == wanted, said)

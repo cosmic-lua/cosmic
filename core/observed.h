@@ -1,7 +1,8 @@
 /*
- * The syscall table's log of what its calls were asked and answered,
- * which build.filesystem_observations drains into the reads of the test
- * running (core/observed.c). Each observed binding checks
+ * The syscall table's log of what its calls were asked and answered
+ * (core/observed.c). No key or run reads it any more: it is kept, drained
+ * only by its own tests (build/filesystem_observations_test.tl,
+ * core/allocation_test.tl), until plan 4.2's PR 5 removes it. Each observed binding checks
  * `cosmic_observing` itself and, when it is off, is its call and
  * nothing more; every other binding is untouched. The check lives in
  * the binding, so a reference to it taken before logging began is

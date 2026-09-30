@@ -55,8 +55,6 @@ end
 --- build.declared_key answers these parts as its own, so its callers
 --- need not name build.key_parts.
 local function test_declared_key_answers_the_parts_it_moved()
-  assert(declared_key.key_part == key_parts.key_part)
-  assert(declared_key.tree_name == key_parts.tree_name)
   assert(declared_key.compiler_readers == key_parts.compiler_readers)
   assert(declared_key.reads_compiler == key_parts.reads_compiler)
   assert(key_parts.reads_compiler({ "build.a", key_parts.compiler_readers[1] }))

@@ -10,10 +10,10 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- The processes the examples start, as a program would: this program
+--- What the examples start, as a program would: this program
 --- itself, past its launcher (`Proc.relaunch`), so no start takes a
 --- shell.
-Test.needs{ processes = true, tool = true }
+Test.needs{ tool = true }
 
 -- TODO: confine the processes these examples start, once an example
 -- may declare what its processes need, as a test does through

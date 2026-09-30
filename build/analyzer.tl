@@ -84,7 +84,6 @@ local record analyzer
     host: {string}
     env: {string}
     network: {string}
-    processes: boolean
     tool: boolean
     nests: boolean
     store: boolean
@@ -1609,7 +1608,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
+    tool = false, nests = false, store = false, system = false, caches = {},
   }
   local seen: {string:boolean} = {}
   for _, item in ipairs(value) do
@@ -1634,9 +1633,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     end
     if given ~= nil and given.kind == "boolean" and takes ~= "list" then
       local on = given.tk == "true"
-      if field == "processes" then
-        out.processes = on
-      elseif field == "tool" then
+      if field == "tool" then
         out.tool = on
       elseif field == "nests" then
         out.nests = on

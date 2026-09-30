@@ -12,6 +12,7 @@
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 
 --- The scalar fields of a spec a preimage names, in the order it spells
@@ -214,7 +215,7 @@ local function spec_of(d: Drawn, host: string): declared_key.Spec
   for i = 1, #env - 1, 2 do environment[env[i]] = env[i + 1] end
   local effective: test_inputs.Effective = {
     files = files, reads = d.lists.reads, host = hosts, env = {}, network = {},
-    processes = false, tool = true, store = false, system = true, caches = {},
+    tool = true, store = false, system = true, caches = {},
     cache_paths = {},
   }
   local s = d.scalars
@@ -231,7 +232,7 @@ end
 --- `compute` frames it, and its preimage.
 local function spelled(root: string, spec: declared_key.Spec): string
   local preimage = assert(declared_key.preimage(declared_key.digests(root), spec))
-  return declared_key.key_part("i", spec.id, "") .. "\n" .. preimage
+  return key_parts.key_part("i", spec.id, "") .. "\n" .. preimage
 end
 
 local function test_distinct_specs_spell_distinct_preimages(tmp: string)

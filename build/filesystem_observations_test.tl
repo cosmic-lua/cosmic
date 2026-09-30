@@ -1,209 +1,87 @@
-local Child = require("cosmic.child")
-local Env = require("cosmic.env")
+--- What is left of the observation log (build.filesystem_observations):
+--- its C resolution of a path, held to a Teal oracle, and the observed
+--- VFS every `cosmic.sqlite` connection opens through.
+
 local Fs = require("cosmic.fs")
-local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local sandbox_skip = require("build.sandbox_skip")
-local Test = require("cosmic.test")
-local confine = require("build.confine")
-local declared_key = require("build.declared_key")
 local observations = require("build.filesystem_observations")
-local stand_in = require("build.stand_in")
-local test = require("build.test")
-local type raw_process = require("cosmic.internal.process")
-
--- TODO: declare /proc for Linux alone once a declaration can name a
--- host path per platform (a `host` entry for Linux and one for macOS):
--- macOS has no /proc, so there this declares a path that is not there,
--- which gives and keys nothing but says what the tests need wrongly.
---- What the observer is tested observing: processes it cannot confine, the
---- environment, and requests to closed local ports; /proc, where a
---- program a test starts reads its own command line.
-Test.needs{
-  host = { "/proc" },
-  env = { "*" },
-  network = { "127.0.0.1", "127.0.0.2" },
-  processes = true,
-}
+local type raw_observations = require("cosmic.internal.observations")
 
 local type Searcher = function(string): any, any
 
---- A stand-in program built under `tmp` (build/stand_in.tl), which runs
---- the script its first argument holds: what a process a test here
---- starts runs, a static executable that reads only itself (and /proc,
---- where it finds itself), so one confined needs nothing of the
---- system's own.
-local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
-end
-
---- The raw process table build.confine stands in for the spawn of.
-local function raw_process_table(): raw_process
+--- The raw tables the store's searcher hands this module's loader
+--- (core/store.c's `open_observations`).
+local function raw_tables(): raw_observations
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("build.confine")
+    local loader, extra = searcher("build.filesystem_observations")
     if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h defines
+      return extra as raw_observations -- cast: the table core/store.c's open_observations makes
     end
   end
-  error("build.confine is handed no raw table")
+  error("build.filesystem_observations is handed no raw table")
 end
 
-local function test_round_trips_every_path_byte()
-  local path = "a b\n" .. string.char(0) .. "z"
-  local decoded = assert(observations.decode(observations.encode({
-    { kind = "s", path = path, answer = "" },
-  })))
-  assert(#decoded == 1)
-  assert(decoded[1].kind == "s")
-  assert(decoded[1].path == path)
-  assert(observations.decode("plain/old/read.txt") == nil)
-  assert(declared_key.key_part("s", "a\nb", "c") ~=
-    declared_key.key_part("s", "a", "b\nc"))
-end
-
-local function test_capture_preserves_a_produced_table_and_restores(tmp: string)
-  local path = tmp .. "/loaded"
-  assert(Fs.write(path, "hello"))
-  local original = sys.open
-  local produced = { answer = 42 }
-  local c = observations.capture(function(): any
-    assert(Fs.read(path) == "hello")
-    return produced
-  end)
-  local found = c.reads
-  assert(c.ok and c.produced == produced)
-  assert(sys.open == original)
-  assert(#found == 1 and found[1].kind == "o" and found[1].path == path)
-end
-
-local function test_capture_restores_after_an_error()
-  local original = sys.open
-  local c = observations.capture(function()
-    error("expected")
-  end)
-  assert(not c.ok and tostring(c.produced):find("expected", 1, true) ~= nil)
-  assert(sys.open == original)
-end
-
---- Whether `found` notes an open of `path`.
-local function opened(found: {observations.Observation}, path: string): boolean
-  for _, observation in ipairs(found) do
-    if observation.kind == "o" and observation.path == path then return true end
-  end
-  return false
-end
-
---- SQLite reads a database in C, where no stand-in for `cosmic.sys`
---- sees it: each file it opens or asks after through `cosmic.sqlite`
---- -- the database, one attached to it, its journal -- is noted an open
---- all the same, by every capture running, and by none once they end.
-local function test_a_file_sqlite_opens_is_noted(tmp: string)
+--- While it is on, the syscall table's log keeps what each call it
+--- observes was asked and answered, whoever made it -- a query, a
+--- change of directory asked as a stat of where it goes, an open noted
+--- before it acts -- with a path outside the tree resolved as the call
+--- is made, until a drain hands it over; off, it keeps nothing.
+local function test_the_log_keeps_what_its_calls_answered_until_drained(tmp: string)
+  local log = raw_tables().syscalls
   local real = assert(sys.realpath(tmp))
-  for _, name in ipairs({ "main.db", "attached.db" }) do
-    local db = assert(Sqlite.open(tmp .. "/" .. name, true))
-    assert(db:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('" .. name .. "')"))
-    assert(db:close())
-  end
-  local inner: observations.Captured
-  local outer = observations.capture(function()
-    local db = assert(Sqlite.open(tmp .. "/main.db", false))
-    inner = observations.capture(function()
-      assert(db:exec("ATTACH DATABASE '" .. tmp .. "/attached.db' AS other"))
-      local rows = assert(Sqlite.text_rows(db, "SELECT v FROM other.t"))
-      assert(rows[1][1] == "attached.db")
-    end)
-    assert(db:close())
-  end)
-  assert(outer.ok, tostring(outer.produced))
-  assert(inner.ok, tostring(inner.produced))
-  assert(opened(outer.reads, real .. "/main.db"))
-  assert(opened(outer.reads, real .. "/attached.db"))
-  assert(opened(outer.reads, real .. "/attached.db-journal"))
-  -- The inner capture began after the main database was opened, and
-  -- is handed it, held open still, as it begins.
-  assert(opened(inner.reads, real .. "/main.db"))
-  assert(opened(inner.reads, real .. "/attached.db"))
-  -- A database opened while no capture runs is noted by none: not by
-  -- the next one to start.
-  local db = assert(Sqlite.open(tmp .. "/main.db", false))
-  assert(db:close())
-  local after = observations.capture(function() end)
-  assert(not opened(after.reads, real .. "/main.db"))
+  assert(Fs.write(real .. "/f", "x"))
+  local _ = log.observed()
+  log.resolving(real .. "/tree")
+  log.observe(true)
+  local st, _ = sys.stat(real .. "/f")
+  local may, _ = sys.access(real .. "/f", sys.R_OK)
+  local fd = assert(sys.open(real .. "/f", sys.O_RDONLY))
+  local home = sys.getenv("HOME")
+  log.observe(false)
+  log.resolving(nil)
+  assert(sys.close(fd))
+  assert(st ~= nil and may)
+  local calls = log.observed()
+  local seen: {string:raw_observations.Call} = {}
+  for _, call in ipairs(calls) do seen[call.call .. " " .. tostring(call.path)] = call end
+  local stat = assert(seen["stat " .. real .. "/f"], "no stat")
+  assert(stat.resolved == real .. "/f", tostring(stat.resolved))
+  assert((stat[1] as sys.Stat).size == 1)
+  assert(seen["open " .. real .. "/f"] ~= nil, "no open")
+  local getenv = assert(seen["getenv HOME"], "no getenv")
+  assert(getenv[1] == home)
+  assert(#log.observed() == 0, "a drain kept what it handed over")
+  local _ = sys.stat(real .. "/f")
+  assert(#log.observed() == 0, "the log kept a call made while it was off")
 end
 
---- A database a connection opened before the capture began, and holds
---- open still, may be read at any page during it: the capture notes it
---- an open as it begins, so what the test reads of it is keyed by its
---- bytes, and other contents key the verdict otherwise. Once closed, it
---- is handed to no capture.
-local function test_a_database_opened_before_the_capture_is_keyed_by_its_contents(tmp: string)
+--- While it is on, SQLite's record keeps each file a connection opens,
+--- and hands over each one a connection already holds as it turns on,
+--- but one excluded.
+local function test_sqlite_s_record_keeps_what_it_opens_but_what_is_excluded(tmp: string)
+  local sqlite = raw_tables().sqlite
   local real = assert(sys.realpath(tmp))
-  local path = real .. "/held.db"
-  local writer = assert(Sqlite.open(path, true))
-  assert(writer:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('one')"))
-  local db = assert(Sqlite.open(path, false))
-  -- One whose open failed is not held.
-  local missing, _ = Sqlite.open(real .. "/missing.db", false)
-  assert(missing == nil)
-  local function key(): string
-    local c = observations.capture(function()
-      assert(Sqlite.text_rows(db, "SELECT v FROM t"))
-    end)
-    assert(c.ok, tostring(c.produced))
-    assert(opened(c.reads, path), "the held database was not noted")
-    return test.verdict_key(real, {}, "mod.tl name", "modkey", "runtime", c.reads, {}).key
-  end
-  local before = key()
-  assert(key() == before)
-  local held = observations.capture(function() end)
-  assert(not opened(held.reads, real .. "/missing.db"))
-  assert(writer:exec("UPDATE t SET v = 'two'"))
-  assert(key() ~= before, "a held database's contents are not in the key")
-  assert(writer:close())
-  assert(db:close())
-  local after = observations.capture(function() end)
-  assert(not opened(after.reads, path))
-end
-
---- A runner's own connection's file, excluded, is handed to no capture
---- for being held, though one it opens again is noted; one opened after
---- the exclusion is handed over.
-local function test_a_file_excluded_is_not_handed_over(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  local own = assert(Sqlite.open(real .. "/own.db", true))
-  assert(own:exec("CREATE TABLE t (v TEXT)"))
-  observations.exclude_held_files()
-  local later = assert(Sqlite.open(real .. "/later.db", true))
-  local c = observations.capture(function()
-    assert(Sqlite.text_rows(own, "SELECT v FROM t"))
-  end)
-  assert(c.ok, tostring(c.produced))
-  assert(not opened(c.reads, real .. "/own.db"))
-  assert(opened(c.reads, real .. "/later.db"))
-  local again = observations.capture(function()
-    local db = assert(Sqlite.open(real .. "/own.db", false))
-    assert(db:close())
-  end)
-  assert(opened(again.reads, real .. "/own.db"))
-  assert(own:close())
-  assert(later:close())
-end
-
---- A file SQLite fails to open is a read too, whose answer is that it
---- is not there.
-local function test_a_missing_database_sqlite_looked_for_is_noted(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  local c = observations.capture(function()
-    local db, trouble = Sqlite.open(tmp .. "/missing.db", false)
-    assert(db == nil and trouble ~= "")
-  end)
-  assert(c.ok, tostring(c.produced))
-  assert(opened(c.reads, real .. "/missing.db"))
+  local _ = sqlite.observed()
+  local excluded = assert(Sqlite.open(real .. "/excluded.db", true))
+  assert(excluded:exec("CREATE TABLE t (v TEXT)"))
+  sqlite.exclude_held()
+  local held = assert(Sqlite.open(real .. "/held.db", true))
+  assert(held:exec("CREATE TABLE t (v TEXT)"))
+  local handed, trouble = sqlite.observe(true)
+  local opened = assert(Sqlite.open(real .. "/opened.db", true))
+  assert(opened:exec("CREATE TABLE t (v TEXT)"))
+  local _, _ = sqlite.observe(false)
+  assert(handed, trouble)
+  local kept: {string:boolean} = {}
+  for _, path in ipairs(sqlite.observed()) do kept[path] = true end
+  assert(kept[real .. "/held.db"] and kept[real .. "/opened.db"] and
+    not kept[real .. "/excluded.db"])
+  for _, db in ipairs({ excluded, held, opened }) do assert(db:close()) end
 end
 
 --- A connection `cosmic.sqlite` opens reads the clock through the VFS
---- that observes its files, which passes the question to the default
+--- that records its files, which passes the question to the default
 --- one: `julianday('now')` answers rather than ending the process.
 local function test_a_connection_tells_the_time()
   local memory = assert(Sqlite.memory())
@@ -212,467 +90,9 @@ local function test_a_connection_tells_the_time()
   assert(rows[1][1] == "1")
 end
 
-local function test_join_deduplicates_only_identical_observations()
-  local first: {observations.Observation} = {
-    { kind = "s", path = "config", answer = "old" },
-    { kind = "s", path = "config", answer = "old" },
-  }
-  local joined = observations.join(first, {
-    { kind = "s", path = "config", answer = "old" },
-    { kind = "s", path = "config", answer = "new" },
-    { kind = "d", path = "assets", answer = "listing" },
-  })
-  assert(#joined == 3)
-  assert(joined[1].answer == "old" and joined[2].answer == "new")
-  assert(joined[3].answer == "listing")
-  assert(#first == 2)
-end
-
-local function test_captures_answers_when_the_query_occurs(tmp: string)
-  local path = tmp .. "/file"
-  assert(Fs.write(path, "x"))
-  local run = observations.call(function()
-    assert(sys.stat(path))
-    assert(Fs.write(path, "xx"))
-  end, nil)
-  assert(run.passed, run.message)
-  assert(run.reads[1].answer ~= observations.stat_answer(path))
-
-  local directory_run = observations.call(function()
-    assert(sys.readdir(tmp))
-    assert(Fs.write(tmp .. "/added", ""))
-  end, nil)
-  assert(directory_run.passed, directory_run.message)
-  assert(directory_run.reads[1].answer ~= observations.directory_answer(tmp))
-end
-
-local function test_records_stat_directory_and_open_queries(tmp: string)
-  assert(Fs.write(tmp .. "/file", "contents"))
-  local run = observations.call(function()
-    assert(Fs.exists(tmp .. "/missing") == false)
-    assert(Fs.list(tmp))
-    assert(Fs.read(tmp .. "/file"))
-  end, nil)
-  assert(run.passed, run.message)
-  local found = run.reads
-  assert(found[1].kind == "s" and found[1].path == tmp .. "/missing")
-  assert(found[2].kind == "d" and found[2].path == tmp)
-  assert(found[3].kind == "o" and found[3].path == tmp .. "/file")
-end
-
-local function test_stat_answer_changes_for_deletion_and_metadata(tmp: string)
-  local path = tmp .. "/file"
-  assert(Fs.write(path, "same bytes"))
-  local before = observations.stat_answer(path)
-  assert(sys.chmod(path, 0x180))
-  local changed = observations.stat_answer(path)
-  assert(changed ~= before)
-  assert(Fs.remove(path))
-  assert(observations.stat_answer(path) ~= changed)
-end
-
-local function test_directory_answer_changes_for_an_added_entry(tmp: string)
-  local before = observations.directory_answer(tmp)
-  assert(Fs.write(tmp .. "/new", ""))
-  assert(observations.directory_answer(tmp) ~= before)
-end
-
-local function test_restores_all_wrappers_after_an_error()
-  local open, stat, readdir = sys.open, sys.stat, sys.readdir
-  local run = observations.call(function() error("deliberate") end, nil)
-  assert(not run.passed and run.message:find("deliberate", 1, true) ~= nil, run.message)
-  assert(sys.open == open)
-  assert(sys.stat == stat)
-  assert(sys.readdir == readdir)
-end
-
-local function test_getenv_environ_spawn_and_mkdtemp_are_observed(tmp: string)
-  local probe = probe_in(tmp)
-  local run = observations.call(function()
-    Env.get("HOME")
-    assert(Fs.mkdtemp("cosmic-observed-"))
-    assert(Child.run({ probe, "exit 0" }))
-  end, nil)
-  assert(run.passed, run.message)
-  local kinds: {string:integer} = {}
-  for _, observation in ipairs(run.reads) do
-    kinds[observation.kind] = (kinds[observation.kind] or 0) + 1
-  end
-  -- At least the explicit read; `Fs.mkdtemp` and `Child.run` consult
-  -- a platform-dependent number of variables themselves.
-  assert(kinds.e >= 1)
-  assert(kinds.p == 1)
-  assert(kinds.m == 1)
-end
-
---- A request over the network is an answer no key can hold; a scripted
---- request connects nowhere and is not one.
-local function test_a_network_request_is_an_unkeyable_observation()
-  local open, upload = Http.open, Http.upload
-  local run = observations.call(function()
-    -- A request that could connect is noted, refused or not: the
-    -- wrapper cannot tell what answered -- curl takes "http:/host" for
-    -- a host as it does "http://host". One naming a scheme curl is not
-    -- let speak fails before it connects.
-    Http.open("http://127.0.0.1:1/")
-    Http.open("HTTP:/127.0.0.1:1/")
-    Http.open("ftp://example.invalid/")
-    Http.open("Gopher://example.invalid/")
-    -- An upload may connect before its first write, so its binding
-    -- notes it as it starts, as `open`'s does.
-    local up = assert(Http.upload("http://127.0.0.2:1/"))
-    assert(up:abort())
-    assert(assert(Http.upload("http://example.invalid/", { script = {} })):abort())
-    local scripted = assert(Http.get("http://example.invalid/",
-      { script = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" } }))
-    assert(scripted.status == 200)
-  end, nil)
-  assert(run.passed, run.message)
-  local unkeyable: {string} = {}
-  for _, observation in ipairs(run.reads) do
-    if observation.kind == "x" then unkeyable[#unkeyable + 1] = observation.path end
-  end
-  assert(#unkeyable == 3 and unkeyable[1] == "http://127.0.0.1:1/" and
-    unkeyable[2] == "HTTP:/127.0.0.1:1/" and unkeyable[3] == "http://127.0.0.2:1/",
-    table.concat(unkeyable, " "))
-  assert(Http.open == open and Http.upload == upload, "a wrapper was left installed")
-end
-
---- A change of directory is a stat of where it went, and a relative
---- path is noted as the absolute one it names from wherever the call
---- was made.
-local function test_a_relative_path_is_noted_from_the_working_directory(tmp: string)
-  local here = assert(sys.getcwd())
-  assert(Fs.mkdirs(tmp .. "/away"))
-  local away = assert(sys.realpath(tmp .. "/away"))
-  assert(Fs.write(away .. "/f", "x"))
-  local chdir = sys.chdir
-  local run = observations.call(function()
-    assert(sys.chdir(away))
-    assert(Fs.read("f") == "x")
-    assert(sys.chdir(here))
-    local _ = sys.stat("nowhere-relative")
-  end, nil)
-  assert(run.passed, run.message)
-  local noted: {string} = {}
-  for _, observation in ipairs(run.reads) do
-    assert(observation.kind ~= "x", observation.path)
-    if observation.kind == "s" or observation.kind == "o" then
-      noted[#noted + 1] = observation.kind .. " " .. observation.path
-    end
-  end
-  local text = table.concat(noted, "\n")
-  assert(text:find("s " .. away .. "\n", 1, true), text)
-  assert(text:find("o " .. away .. "/f\n", 1, true), text)
-  assert(text:find("s " .. here .. "\n", 1, true), text)
-  assert(text:find("s " .. here .. "/nowhere-relative", 1, true), text)
-  assert(not text:find("o f\n", 1, true), text)
-  assert(sys.chdir == chdir, "a wrapper was left installed")
-end
-
---- A process a library's work starts (build.confine's `declaring`) is
---- held by the sandbox this worker runs in, which it inherits, and heard
---- of by what that gives it -- even in a capture of the test's own,
---- which knows no sandbox -- or, in a worker that runs in none, confined
---- to what the library declared: noted "u", never "p", unless the
---- kernel could confine nothing. One started after it, declared by
---- nothing, is noted "p" by a capture that knows no sandbox.
-local function test_a_process_a_library_declares_is_held(tmp: string)
-  local probe = probe_in(tmp)
-  local run = observations.call(function()
-    confine.declaring({ reads = { probe }, writes = {} }, function()
-      assert(Child.run({ probe, "exit 0" }))
-    end)
-    assert(Child.run({ probe, "exit 0" }))
-  end, nil)
-  assert(run.passed, run.message)
-  local kinds: {string} = {}
-  for _, observation in ipairs(run.reads) do
-    local kind = observation.kind
-    if (kind == "u" or kind == "p") and kinds[#kinds] ~= kind then kinds[#kinds + 1] = kind end
-  end
-  local text = table.concat(kinds, " ")
-  if text == "p" then
-    -- The kernel confined neither: only a worker that runs in no
-    -- sandbox, where it cannot give one, meets that.
-    sandbox_skip.refused("the kernel confined neither process")
-    return
-  end
-  assert(text == "u p", text)
-end
-
---- What a confined process ran with, seen from the run's reads: "p"
---- when it ran unconfined.
-local function confined_notes(run: observations.Run): string, boolean
-  local notes: {string} = {}
-  local unconfined = false
-  for _, observation in ipairs(run.reads) do
-    if observation.kind == "p" then unconfined = true end
-    if observation.kind == "u" or observation.kind == "x" or observation.kind == "p" or
-        (observation.kind == "e" and observation.path == "\0environ") then
-      notes[#notes + 1] = observation.kind .. " " .. observation.path
-    end
-  end
-  return table.concat(notes, "\n") .. "\n", unconfined
-end
-
---- A confined process's path is keyed by its contents under the tree,
---- and by what `lstat` says of everything beneath it elsewhere, links
---- included; a FIFO beneath it answers from past the root.
-local function test_an_unveiled_answer_follows_what_the_path_holds(tmp: string)
-  local tree, outside = tmp .. "/tree", tmp .. "/outside"
-  for _, dir in ipairs({ tree, outside }) do assert(Fs.mkdirs(dir)) end
-  assert(Fs.write(tree .. "/f", "one"))
-  assert(Fs.write(outside .. "/f", "one"))
-  local inside = observations.unveiled_answer(tree, tree)
-  local beyond = observations.unveiled_answer(outside, tree)
-  assert(inside == observations.unveiled_answer(tree, tree), "the same tree answers the same")
-  assert(beyond == observations.unveiled_answer(outside, tree))
-  -- Named below the tree, as any checkout of it names it.
-  assert(inside:sub(1, 6) == "\0tree ", inside)
-  assert(beyond:sub(1, 1) == "/", beyond)
-  assert(Fs.write(tree .. "/f", "two"))
-  assert(observations.unveiled_answer(tree, tree) ~= inside, "contents under the tree")
-  assert(Fs.write(outside .. "/f", "three"))
-  local rewritten = observations.unveiled_answer(outside, tree)
-  assert(rewritten ~= beyond, "a file rewritten outside")
-  assert(Fs.symlink("f", outside .. "/link"))
-  local linked = observations.unveiled_answer(outside, tree)
-  assert(linked ~= rewritten, "a link added outside")
-  assert(observations.unveiled_answer(tmp .. "/missing", tree) == "missing")
-  assert(observations.unveiled_answer(outside, tree):sub(1, 10) ~= "unkeyable ")
-  assert(sys.mkfifo(outside .. "/fifo"))
-  assert(observations.unveiled_answer(outside, tree):sub(1, 10) == "unkeyable ")
-  local decoded = assert(observations.decode(observations.encode({
-    { kind = "u", path = tree, answer = "" },
-  })))
-  assert(#decoded == 1 and decoded[1].kind == "u" and decoded[1].path == tree)
-end
-
---- The observation of `kind` of `path` in `found`, or nil.
-local function noted(found: {observations.Observation}, kind: string,
-                     path: string): observations.Observation | nil
-  for _, observation in ipairs(found) do
-    if observation.kind == kind and observation.path == path then return observation end
-  end
-  return nil
-end
-
---- `lstat`, `readlink`, `realpath`, `getcwd` and `executable` are
---- logged by those bindings themselves, whoever calls them: a
---- reference taken before the capture began is observed too, each call
---- noted with what it answered, and none once the capture ends.
-local function test_a_query_of_the_syscall_table_is_noted_whoever_made_it(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  assert(Fs.write(real .. "/f", "x"))
-  assert(Fs.symlink("f", real .. "/link"))
-  local lstat, readlink, realpath = sys.lstat, sys.readlink, sys.realpath
-  local getcwd, executable = sys.getcwd, sys.executable
-  local c = observations.capture(function()
-    assert(lstat(real .. "/link"))
-    assert(readlink(real .. "/link") == "f")
-    assert(realpath(real .. "/link") == real .. "/f")
-    local missing, _ = lstat(real .. "/missing")
-    assert(missing == nil)
-    assert(getcwd())
-    assert(executable())
-  end)
-  assert(c.ok, tostring(c.produced))
-  local function answer(kind: string, path: string): string
-    local found = noted(c.reads, kind, path)
-    assert(found ~= nil, kind .. " " .. path .. " is not noted")
-    return found.answer
-  end
-  assert(answer("l", real .. "/link") == observations.lstat_answer(real .. "/link"))
-  assert(answer("l", real .. "/link"):find(" link ", 1, true), answer("l", real .. "/link"))
-  assert(answer("l", real .. "/missing") == observations.lstat_answer(real .. "/missing"))
-  assert(answer("l", real .. "/missing"):sub(1, 6) == "error ")
-  assert(answer("k", real .. "/link") == "ok f")
-  assert(answer("k", real .. "/link") == observations.readlink_answer(real .. "/link"))
-  assert(answer("a", real .. "/link") == "ok " .. real .. "/f")
-  assert(answer("a", real .. "/link") == observations.realpath_answer(real .. "/link"))
-  -- The working directory is keyed as the run started in it, whatever
-  -- it answered.
-  assert(answer("c", "") == "")
-  assert(answer("b", "") == observations.executable_answer())
-  -- The program is keyed by what it is, not where: see `tree_name`.
-  assert(answer("b", "") == "ok")
-  assert(lstat(real .. "/f"))
-  local after = observations.capture(function() end)
-  assert(noted(after.reads, "l", real .. "/f") == nil)
-end
-
---- A logged query's relative path is noted as the absolute one it names
---- from the working directory the call was made in, and a query is noted
---- by every capture running when it was made: one made before an inner
---- capture began by the outer one alone.
-local function test_a_logged_query_is_noted_by_every_capture_running(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  local here = assert(sys.getcwd())
-  local inner: observations.Captured
-  local outer = observations.capture(function()
-    local _ = sys.lstat(real .. "/before")
-    assert(sys.chdir(real))
-    inner = observations.capture(function()
-      local _ = sys.readlink("relative")
-    end)
-    assert(sys.chdir(here))
-  end)
-  assert(outer.ok, tostring(outer.produced))
-  assert(inner.ok, tostring(inner.produced))
-  assert(noted(outer.reads, "l", real .. "/before") ~= nil)
-  assert(noted(inner.reads, "l", real .. "/before") == nil)
-  assert(noted(inner.reads, "k", real .. "/relative") ~= nil)
-  assert(noted(outer.reads, "k", real .. "/relative") ~= nil)
-end
-
---- Given the test's own directory, a realpath or an lstat of a path in
---- it is resolved as a stat of one is, but an lstat only as far as its
---- last name: of a link there, it is the test's own, and through one
---- that leads out, it reads where the link leads.
-local function test_a_query_of_the_tests_own_directory_is_judged_by_where_it_leads(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  assert(Fs.write(real .. "/f", "x"))
-  assert(Fs.symlink("/", real .. "/out"))
-  local resolving: observations.Resolving = { tree = real .. "/tree", own = { tmp, real } }
-  local own = observations.call(function()
-    assert(sys.realpath(tmp .. "/f"))
-    local _ = sys.realpath(tmp .. "/missing")
-    assert(sys.lstat(tmp .. "/out"))
-  end, nil, resolving)
-  assert(own.passed, own.message)
-  assert(noted(own.reads, "a", tmp .. "/f") ~= nil)
-  for _, observation in ipairs(own.reads) do
-    assert(observation.kind ~= "x" and observation.kind ~= "t" and observation.kind ~= "w",
-      observation.kind .. " " .. observation.path)
-  end
-  local out = observations.call(function()
-    assert(sys.realpath(tmp .. "/out"))
-    local _ = sys.lstat(tmp .. "/out/proc")
-  end, nil, resolving)
-  assert(out.passed, out.message)
-  local link = assert(noted(out.reads, "t", tmp .. "/out"))
-  assert(link.answer == "/", link.answer)
-  local through = assert(noted(out.reads, "w", tmp .. "/out/proc"))
-  assert(through.answer == "/proc", through.answer)
-end
-
---- Each call the observations note is logged by its binding itself: a
---- reference to it taken before the capture began, as `local open =
---- sys.open`, is observed as the table's own is.
-local function test_a_reference_taken_before_the_capture_is_observed(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  assert(Fs.write(real .. "/f", "x"))
-  local open, stat, readdir = sys.open, sys.stat, sys.readdir
-  local getenv, environ = sys.getenv, sys.environ
-  local mkdir, mkdtemp, chdir = sys.mkdir, sys.mkdtemp, sys.chdir
-  local http_open = Http.open
-  local here = assert(sys.getcwd())
-  local made: string = nil
-  local c = observations.capture(function()
-    sys.close((assert(open(real .. "/f", sys.O_RDONLY))))
-    assert(stat(real .. "/f"))
-    assert(readdir(real))
-    local _ = getenv("COSMIC_OBSERVED_PROBE")
-    assert(environ())
-    assert(mkdir(real .. "/made"))
-    made = assert(mkdtemp(real .. "/temporary-XXXXXX"))
-    assert(chdir(real))
-    assert(chdir(here))
-    local _, _ = http_open("http://127.0.0.1:1/")
-  end)
-  assert(c.ok, tostring(c.produced))
-  local function answer(kind: string, path: string): string
-    local found = noted(c.reads, kind, path)
-    assert(found ~= nil, kind .. " " .. path .. " is not noted")
-    return found.answer
-  end
-  assert(answer("o", real .. "/f") == "")
-  assert(answer("s", real .. "/f") == observations.stat_answer(real .. "/f"))
-  assert(answer("d", real) ~= "")
-  assert(answer("e", "COSMIC_OBSERVED_PROBE") == observations.getenv_current("COSMIC_OBSERVED_PROBE"))
-  assert(answer("e", "\0environ") == observations.getenv_current("\0environ"))
-  assert(answer("m", real .. "/made") == "")
-  assert(answer("m", made) == "")
-  -- A change of directory is a stat of where it went.
-  assert(answer("s", real) == observations.stat_answer(real))
-  assert(answer("x", "http://127.0.0.1:1/") == "")
-end
-
---- A directory made, and a change of directory, that failed are no
---- directory of the test's own and no stat: the log keeps only what was
---- made, and a stat of where a change was asked to go whatever it did.
-local function test_a_failed_mkdir_is_not_the_tests_own(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  local c = observations.capture(function()
-    assert(not sys.mkdir(real .. "/missing/made"))
-    assert(not sys.chdir(real .. "/missing"))
-  end)
-  assert(c.ok, tostring(c.produced))
-  assert(noted(c.reads, "m", real .. "/missing/made") == nil)
-  local went = assert(noted(c.reads, "s", real .. "/missing"))
-  assert(went.answer:sub(1, 6) == "error ", went.answer)
-end
-
---- The process table's own `spawn`, called past the stand-in for it --
---- here through a stand-in kept after its capture ended -- is logged,
---- and the process noted "p" by the capture running then.
-local function test_a_process_started_past_the_stand_in_is_noted(tmp: string)
-  local probe = probe_in(tmp)
-  local process = raw_process_table()
-  local held = process.spawn
-  local first = observations.capture(function() held = process.spawn end)
-  assert(first.ok, tostring(first.produced))
-  local c = observations.capture(function()
-    local pid = assert(held(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false))
-    assert(process.waitpid(pid, false))
-  end)
-  assert(c.ok, tostring(c.produced))
-  assert(noted(c.reads, "p", probe) ~= nil)
-end
-
---- The path of a read outside the tree is resolved as the call is made,
---- in C beside its record, not when the capture ends: a test that
---- retargets a link of its own directory after reading through it is
---- keyed by where the link led when it read, each kind of read alike.
-local function test_a_read_is_resolved_as_it_is_made(tmp: string)
-  local real = assert(sys.realpath(tmp))
-  for _, dir in ipairs({ "/one", "/two" }) do
-    assert(Fs.mkdirs(real .. dir))
-    assert(Fs.write(real .. dir .. "/f", "x"))
-  end
-  local link = real .. "/own/link"
-  assert(Fs.mkdirs(real .. "/own"))
-  assert(Fs.symlink(real .. "/one", link))
-  local resolving: observations.Resolving = { tree = real .. "/tree", own = { real .. "/own" } }
-  local run = observations.call(function()
-    sys.close((assert(sys.open(link .. "/f", sys.O_RDONLY))))
-    assert(sys.stat(link .. "/f"))
-    assert(sys.readdir(link))
-    assert(sys.realpath(link .. "/f"))
-    assert(sys.lstat(link .. "/f"))
-    assert(sys.readlink(link))
-    assert(sys.unlink(link))
-    assert(Fs.symlink(real .. "/two", link))
-  end, nil, resolving)
-  assert(run.passed, run.message)
-  local function resolved(kind: string, path: string): string
-    local found = noted(run.reads, kind, path)
-    assert(found ~= nil, kind .. " " .. path .. " is not noted")
-    return found.answer
-  end
-  assert(resolved("t", link .. "/f") == real .. "/one/f")
-  assert(resolved("t", link) == real .. "/one")
-  assert(resolved("w", link .. "/f") == real .. "/one/f")
-  -- A readlink stops short of the link it reads, which is the test's own.
-  assert(noted(run.reads, "w", link) == nil)
-  for _, observation in ipairs(run.reads) do
-    assert(observation.kind ~= "x", observation.path)
-  end
-end
-
 --- What a path resolves to, in Teal: the oracle `observations.resolution`
---- and `observations.link_resolution` must agree with.
+--- and the log's `resolve` of a link, which stops short of a link the
+--- path ends in, must agree with.
 local function resolved_before(path: string, link: boolean): string
   if path:sub(1, 1) ~= "/" then return "" end
   if link then
@@ -706,7 +126,7 @@ end
 --- links, a missing name and all after it as written, "." and ".."
 --- included, each run of slashes as one, and a link it ends in followed
 --- or not.
-local function test_a_resolution_is_the_one_the_observations_told(tmp: string)
+local function test_a_resolution_is_the_one_the_oracle_tells(tmp: string)
   local real = assert(sys.realpath(tmp))
   assert(Fs.mkdirs(real .. "/d/e"))
   assert(Fs.write(real .. "/d/f", "x"))
@@ -721,91 +141,11 @@ local function test_a_resolution_is_the_one_the_observations_told(tmp: string)
     real .. "/link//", long, long .. "/../f" }
   for _, path in ipairs(paths) do
     for _, link in ipairs({ false, true }) do
-      local told = link and observations.link_resolution(path) or observations.resolution(path)
+      local told = link and raw_tables().syscalls.resolve(path, true) or
+        observations.resolution(path)
       local want = resolved_before(path, link)
       assert(told == want, (link and "link " or "") .. path:sub(1, 80) .. ": " ..
         told:sub(1, 80) .. " ~= " .. want:sub(1, 80))
     end
   end
-end
-
---- A process started with no confinement declared, by a test whose
---- worker runs in a sandbox of its own (`Resolving`'s `held`), runs as
---- it is -- the worker's sandbox holds it, and it reads what the worker
---- may -- and is noted by each path that sandbox gives it, "u", not "p",
---- one not there yet included; and, where the sandbox holds it to
---- nothing a key can hold (`unkeyable`), "x" besides. Without `held` it
---- is noted "p".
-local function test_a_process_a_sandboxed_worker_starts_is_noted_by_what_it_holds(tmp: string)
-  local probe = probe_in(tmp)
-  local given, own = tmp .. "/given", tmp .. "/own"
-  for _, dir in ipairs({ given, own }) do assert(Fs.mkdirs(dir)) end
-  local function started(resolving: observations.Resolving): string
-    local run = observations.call(function()
-      local r = assert(Child.run({ probe, "exit 0" }))
-      assert(r.ok)
-    end, nil, resolving)
-    assert(run.passed, run.message)
-    return (confined_notes(run))
-  end
-  local held = started({ tree = tmp .. "/tree", own = { own },
-    held = { given, tmp .. "/not-yet" } })
-  assert(held:find("u " .. given .. "\n", 1, true) and
-    held:find("u " .. tmp .. "/not-yet\n", 1, true), held)
-  assert(not held:find("\np ", 1, true) and held:sub(1, 2) ~= "p " and
-    not held:find("x ", 1, true), held)
-  local online = started({ tree = tmp .. "/tree", own = { own }, held = { given },
-    unkeyable = "the network" })
-  assert(online:find("u " .. given .. "\n", 1, true) and
-    online:find("x the network\n", 1, true), online)
-  local plain = started({ tree = tmp .. "/tree", own = { own } })
-  assert(plain:find("p " .. probe .. "\n", 1, true) and not plain:find("u ", 1, true), plain)
-end
-
---- A sandboxed worker's process is noted "y" by the program it runs and
---- the interpreter a script's first line names -- here the stand-in,
---- which runs the script's body -- for the audit, which
---- asks `system` of the system's own; these survive encoding. A
---- relative program is noted where it starts from. Unheld, nothing is
---- noted "y".
-local function test_a_sandboxed_worker_s_process_is_noted_by_what_it_runs(tmp: string)
-  local probe = probe_in(tmp)
-  local own = tmp .. "/own"
-  assert(Fs.mkdirs(own))
-  local script = own .. "/script"
-  assert(Fs.write(script, "#!" .. probe .. "\nexit 0\n"))
-  assert(sys.chmod(script, 493)) -- 0o755
-  local function ran(resolving: observations.Resolving, relative?: boolean): {string}
-    local run = observations.call(function()
-      local r = assert(Child.run({ relative and "./script" or script },
-        { cwd = relative and own or nil }))
-      assert(r.ok)
-    end, nil, resolving)
-    assert(run.passed, run.message)
-    local programs: {string} = {}
-    for _, observation in ipairs(assert(observations.decode(observations.encode(run.reads)))) do
-      if observation.kind == "y" then programs[#programs + 1] = observation.path end
-    end
-    return programs
-  end
-  local held = ran({ tree = tmp .. "/tree", own = { own }, held = { own } })
-  assert(table.concat(held, " ") == script .. " " .. probe, table.concat(held, " "))
-  local relative = ran({ tree = tmp .. "/tree", own = { own }, held = { own } }, true)
-  assert(table.concat(relative, " ") == script .. " " .. probe, table.concat(relative, " "))
-  assert(#ran({ tree = tmp .. "/tree", own = { own } }) == 0)
-end
-
---- What a stat answers leaves out the owner, as `sys.tree_digest`'s
---- stamps do: a sandbox nested in another answers it as the overflow
---- id, where the host has its own, and a change of it moves the change
---- time, which the answer keeps.
-local function test_a_stat_answer_leaves_out_the_owner(tmp: string)
-  assert(Fs.write(tmp .. "/f", "x"))
-  local st = assert(sys.stat(tmp .. "/f"))
-  local answer = observations.stat_answer(tmp .. "/f")
-  local fields: {string} = {}
-  for field in answer:gmatch("%S+") do fields[#fields + 1] = field end
-  assert(#fields == 11, answer)
-  assert(fields[1] == "ok" and fields[2] == tostring(st.size) and fields[10] == tostring(st.ctime),
-    answer)
 end

@@ -9,18 +9,16 @@
 --- A test's default inputs are its module's import closure, as source
 --- files; every fuzz corpus (`testdata/fuzz/`), when that closure holds
 --- the fuzz module; and the variables `cosmic test` itself pins. What else
---- the tests read, their module declares. `cosmic test --audit` runs
---- every test and names what each read that neither covers, with the
---- `needs` call that would hold it.
+--- the tests read, their module declares.
 ---
 --- A test's verdict is keyed by what it declares, and stands until that
 --- changes. Where `cosmic test` sandboxes its workers (Linux), a test is
 --- given what it declares and nothing else, so a read it does not
 --- declare fails. Where it cannot (macOS, or COSMIC_TEST_SANDBOX=0), the
 --- run trusts the declaration: an undeclared read works, but its change
---- moves no key, so the verdict stands stale on it. Declare it anyway,
---- and run `cosmic test --audit` to find what is missing; a sandboxed
---- run of the same test is what enforces it.
+--- moves no key, so the verdict stands stale on it. Declare it anyway:
+--- a sandboxed run of the same test is what enforces it, where an
+--- undeclared read finds nothing and the test fails with its own error.
 ---
 --- The closure is what the build finds `require`d by a literal name,
 --- anywhere in the module and in each it requires. Under `cosmic test`,
@@ -103,20 +101,6 @@ local record Test
     --- (a port, brackets, a leading zero) are refused, naming this
     --- rule (`network_trouble`).
     network: {string}
-    -- TODO: audit what a process an unsandboxed worker starts reads, once
-    -- a host without spawn's sandbox (macOS: core/process.h's `unveil` is
-    -- Linux's alone) can observe it: today such a read is seen by no
-    -- audit but a sandboxed run's, where it finds nothing.
-
-    --- Whether the tests hand a process they start what no observation
-    --- accounts for: a descriptor, a path of /proc. Starting one needs no
-    --- declaration: a sandboxed worker holds every process it starts to
-    --- what the module declares, and where a worker runs unsandboxed
-    --- (macOS, a host refusing user namespaces) a test that starts one
-    --- stands on what its module declares, as any test there does,
-    --- which nothing holds the process to, and the audit asks nothing of
-    --- it.
-    processes: boolean
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
     --- and nothing else -- not the store beyond their closure (`store`),
@@ -181,7 +165,7 @@ local record Test
     --- host, and another name fails the build. Only for
     --- a cache whose contents never change a result -- content-addressed,
     --- there to save time: what a test reads or writes there enters no
-    --- verdict's key, and the audit asks nothing more of it. A sandboxed
+    --- verdict's key. A sandboxed
     --- worker has each writable at its own path, with the variables that
     --- locate it.
     caches: {string}
@@ -194,7 +178,7 @@ end
 -- (build/analyzer.tl).
 Test.fields = {
   reads = "list", host = "list", env = "list", network = "list",
-  processes = "flag", tool = "flag", nests = "flag", store = "flag", system = "flag",
+  tool = "flag", nests = "flag", store = "flag", system = "flag",
   caches = "list",
 }
 
