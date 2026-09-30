@@ -81,3 +81,32 @@ local function test_a_listed_function_module_answers_its_name(tmp: string)
   local page = docs_in(project, "cmd.greet.main")
   assert(page:find("Says hello.", 1, true), page)
 end
+
+--- A project's links to the standard library, in its comments and its
+--- Markdown, are its own: `cosmic uses` lists each once, beside the
+--- project's uses, and the symbol's page counts them.
+local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: string)
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  assert(Fs.write(project .. "/greet.tl",
+    "local Fs = require(\"cosmic.fs\")\n\n" ..
+    "--- Reads its greeting with [`Fs.read`].\nlocal record greet\nend\n\n" ..
+    "--- Says hello.\nfunction greet.hello(): string\n" ..
+    "  return (Fs.read(\"hello\")) or \"hello\"\nend\n\nreturn greet\n"))
+  assert(Fs.write(project .. "/README.md", "# Greet\n\nIt reads with [`cosmic.fs.read`].\n"))
+  local built = cosmic(project, { "build" })
+  assert(built.code == 0, built.stdout .. built.stderr)
+  local result = cosmic(project, { "uses", "cosmic.fs.read" })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  local mine: {string} = {}
+  for line in result.stdout:gmatch("[^\n]+") do
+    if line:match("^greet%.tl:") or line:match("^README%.md:") then mine[#mine + 1] = line end
+  end
+  local listed = table.concat(mine, "\n")
+  assert(listed == "README.md:3: link cosmic.fs read\ngreet.tl:3: link cosmic.fs read\n" ..
+    "greet.tl:9: cosmic.fs read", result.stdout)
+  local linked = 0
+  for _ in result.stdout:gmatch(": link cosmic%.fs read\n") do linked = linked + 1 end
+  local page = docs_in(project, "cosmic.fs.read")
+  assert(page:find("linked from " .. linked .. ";", 1, true), linked .. " links listed:\n" .. page)
+end

@@ -98,14 +98,16 @@ function symbols.shown_docs(alias: string, public: boolean): string
   local dotted = "replace(" .. symbol .. ", ':', '.')"
   -- The declaration is found by where it is written, `source_symbol`: a
   -- module's [`Fs.walk`] and its private `local function walk` share the
-  -- symbol `walk`.
+  -- symbol `walk`. `docs` has no index to look it up by, so the local
+  -- declarations are gathered once (an uncorrelated `IN`) rather than
+  -- scanned for again at every row.
   local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
   return module .. " AND (" .. symbol .. " = '' OR (" ..
     "NOT " .. symbols.local_declaration(alias) .. " AND NOT (" .. alias ..
     ".kind IN ('field', 'function', 'method') AND (" .. dotted .. " GLOB '*._*' OR " ..
-    dotted .. " GLOB '_*')) AND NOT EXISTS (SELECT 1 FROM docs lr WHERE lr.module = " ..
-    alias .. ".module AND lr.source_symbol = substr(" .. source .. ", 1, instr(" .. source ..
-    " || '.', '.') - 1) AND " .. symbols.local_declaration("lr") .. ")))"
+    dotted .. " GLOB '_*')) AND (" .. alias .. ".module, substr(" .. source .. ", 1, instr(" ..
+    source .. " || '.', '.') - 1)) NOT IN (SELECT lr.module, lr.source_symbol FROM docs lr " ..
+    "WHERE " .. symbols.local_declaration("lr") .. ")))"
 end
 
 --- The condition under which the SQL `name` ends in `.` or `:` and then

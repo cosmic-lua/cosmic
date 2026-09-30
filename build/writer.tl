@@ -193,7 +193,9 @@ local insert_catalog_extracted =
 --- change to the code finding it redoes under the same key, so that
 --- code's identity (`receivers` in `meta`) is signed too. A link's row
 --- is also a function of the files of the tree it names, which no key
---- holds, so what they said is signed (`?4`, [`build.link_index`]).
+--- holds, so what they said is signed (`?4`, [`build.link_index`]), and
+--- in a project what determines the standard library's docs they may
+--- name ([`link_index.running`]).
 local function signature_sql(): string
   local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'receivers')"
   return "SELECT lower(hex(sha256(" ..
@@ -221,11 +223,43 @@ local function signed(handle: work.Handle, result: importer.Result, pending: lin
   return rows[1][1]
 end
 
+--- What the links of the tree at `root` may name beside its own
+--- symbols: nothing in cosmic's own tree, whose projection documents its
+--- standard library itself; in a project, `given`, or the standard
+--- library of the binary running.
+local function library_for(root: string, given: link_index.Library | nil):
+                           link_index.Library | nil, string
+  local own, trouble = tree.is_own(root)
+  if own == nil then
+    return nil, trouble
+  end
+  if own then
+    return nil, ""
+  end
+  if given ~= nil then
+    return given, ""
+  end
+  return link_index.running(), ""
+end
+
+--- The links of the tree `handle` holds, waiting for its symbols
+--- ([`link_index.pending`]), with what they may name beside its own.
+local function pending_links(handle: work.Handle, given: link_index.Library | nil):
+                             link_index.Pending | nil, string
+  local library, trouble = library_for(handle.root, given)
+  if library == nil and trouble ~= "" then
+    return nil, trouble
+  end
+  return link_index.pending(handle.db, handle.root, library)
+end
+
 --- The signature of `result`'s projection as the writer whose identity
 --- is `binary` would write it -- see [`signature_sql`].
+--- @param library in a project, the standard library its links may
+--- name, in place of the running binary's ([`link_index.running`])
 function writer.signature(handle: work.Handle, result: importer.Result,
-                          binary: string): string | nil, string
-  local pending, trouble = link_index.pending(handle.db, handle.root)
+                          binary: string, library?: link_index.Library): string | nil, string
+  local pending, trouble = pending_links(handle, library)
   if pending == nil then
     return nil, trouble
   end
@@ -361,8 +395,11 @@ end
 --- This ends the run's transaction first: SQLite attaches and vacuums outside
 --- one only. `tree_code` says this process runs the tree's own code
 --- though its fingerprint is not the tree's (`running`).
+--- @param library in a project, the standard library its links may
+--- name, in place of the running binary's ([`link_index.running`])
 function writer.write_result(handle: work.Handle, out: string,
-                             result: importer.Result, tree_code?: boolean): boolean, string
+                             result: importer.Result, tree_code?: boolean,
+                             library?: link_index.Library): boolean, string
   local db = handle.db
   local committed, commit_trouble = work.commit(handle)
   if not committed then
@@ -376,7 +413,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if by == nil then
     return false, by_trouble
   end
-  local pending, pending_trouble = link_index.pending(db, handle.root)
+  local pending, pending_trouble = pending_links(handle, library)
   if pending == nil then
     return false, pending_trouble
   end
