@@ -180,3 +180,22 @@ local function test_a_socket_file_past_path_max_is_removed(tmp: string)
   assert(ok, tostring(failure))
   assert(removed, tostring(trouble))
 end
+
+--- A send starts at the first byte, or at the byte it is given: one
+--- past the last sends nothing, and one outside the string raises.
+local function test_a_send_from_a_byte_sends_the_rest(tmp: string)
+  local path = tmp .. "/s.sock"
+  local listener <close> = assert(raw.listen(unix(path), 1))
+  local client <close> = assert(raw.connect(unix(path), 5000))
+  assert(raw.wait(listener:fd(), false, 5000))
+  local accepted <close> = assert(raw.accept(listener:fd()))
+  assert(assert(raw.send(client:fd(), "ab")) == 2)
+  assert(assert(raw.send(client:fd(), "abcdef", 4)) == 3)
+  assert(assert(raw.send(client:fd(), "abcdef", 7)) == 0)
+  assert(raw.wait(accepted:fd(), false, 5000))
+  assert(assert(sys.read(accepted:fd(), 16)) == "abdef")
+  for _, from in ipairs({ 0, 8, math.mininteger, math.maxinteger }) do
+    local ok, err = pcall(raw.send, client:fd(), "abcdef", from)
+    assert(not ok and tostring(err):find("out of range", 1, true) ~= nil, tostring(err))
+  end
+end

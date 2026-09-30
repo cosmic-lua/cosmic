@@ -56,7 +56,7 @@ int cosmic_open_socket (lua_State *L);
  */
 
 /*
- * --- Makes a stream socket listening at an address. A unix one is a new socket file, the socket's to remove: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and one whose name another file has taken before it could be read back fails with EEXIST and is left to that file. A TCP one fails with EADDRINUSE on a port a listener holds; on Linux it takes one left in TIME_WAIT (SO_REUSEADDR), where macOS refuses it until TIME_WAIT ends.
+ * --- Makes a stream socket listening at an address. A unix one is a new socket file, the socket's to remove: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and one whose name another file has taken before it could be read back fails with EEXIST and is left to that file. A TCP one fails with EADDRINUSE on a port a listener holds; on Linux it takes one left in TIME_WAIT (SO_REUSEADDR), where macOS refuses it until TIME_WAIT ends. A unix path too long to bind whole is bound from its directory, and raises where the process cannot return to its working directory after.
  * ---@param address Address where to listen
  * ---@param backlog integer how many connections may wait to be accepted, from 1
  * ---@return Socket|nil socket the listening socket, or nil on failure
@@ -75,7 +75,7 @@ COSMIC_SYSCALL(listen, 2);
 COSMIC_SYSCALL(accept, 1);
 
 /*
- * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, Linux's waits for room, while macOS's fails ECONNREFUSED at once, as though nothing listened. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal.
+ * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, Linux's waits for room, while macOS's fails ECONNREFUSED at once, as though nothing listened. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
  * ---@param address Address where to connect
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit
  * ---@return Socket|nil socket the connected socket, closed on exec and nonblocking, or nil on failure
@@ -85,7 +85,7 @@ COSMIC_SYSCALL(accept, 1);
 COSMIC_SYSCALL(connect, 2);
 
 /*
- * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails as `connect` does where that fails at once, and EAGAIN, the socket closed, where a unix listener's backlog is full on Linux: ask again with a new socket, since waiting for writable does not wait for room there.
+ * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails, or raises, as `connect` does where that fails at once, and EAGAIN, the socket closed, where a unix listener's backlog is full on Linux: ask again with a new socket, since waiting for writable does not wait for room there.
  * ---@param address Address where to connect
  * ---@return Socket|nil socket the socket, connected or connecting, closed on exec and nonblocking, or nil on failure
  * ---@return string error what went wrong, when socket is nil
@@ -118,14 +118,15 @@ COSMIC_SYSCALL(connected, 1);
 COSMIC_SYSCALL(pair, 0);
 
 /*
- * --- Sends what of `data` the socket takes now. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
+ * --- Sends what of `data` the socket takes now, from byte `from` on, so a caller sending the rest after a partial send copies none of it. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
  * ---@param fd integer the connected descriptor
  * ---@param data string the bytes to send
- * ---@return integer|nil sent how many bytes were sent, from the first, or nil on failure: EAGAIN when the socket takes none now
+ * ---@param from? integer the first byte to send, from 1 (the default) to one past the last; any other raises
+ * ---@return integer|nil sent how many bytes were sent, from `from`, or nil on failure: EAGAIN when the socket takes none now
  * ---@return string error what went wrong, when sent is nil
  * ---@return integer errno the error number, when sent is nil
  */
-COSMIC_SYSCALL(send, 2);
+COSMIC_SYSCALL(send, 3);
 
 /*
  * --- Where a TCP socket is bound: its host and port, the port the kernel chose for one listening at port 0.
