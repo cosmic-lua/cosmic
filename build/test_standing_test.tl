@@ -1,13 +1,12 @@
---- End to end: a test that changes its working directory stands like
---- any other, whether the change is made through `sys.chdir` looked up
---- at call time or through a reference the module took when it loaded:
---- what it read from there is keyed by where that is -- even past a
---- module that stubs `sys.getcwd` -- so it runs again when a file it
---- read changes, and never stands on a read outside the tree.
+--- End to end: unsandboxed, a test stands on what it declares, as a
+--- sandboxed one does, whatever it reads beyond it: none is assumed,
+--- one that reads outside the tree or starts a process as much as any.
+--- Nothing holds it to its declaration there, so what it reads that it
+--- does not declare moves nothing; a Linux leg's sandbox, which refuses
+--- it such a read, is what fails it.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
@@ -15,8 +14,7 @@ local Test = require("cosmic.test")
 Test.needs{ tool = true }
 
 --- Runs `cosmic test` on `root` with `words` after it -- `suite`, which
---- names every test there, so a test no key holds runs while one a key
---- holds may stand, unless others are given.
+--- names every test there, unless others are given.
 local function run(root: string, output: string, env: {string:string}, fails?: boolean,
                    words?: {string}): string
   local fd = assert(Fs.open_write(output))
@@ -33,104 +31,30 @@ local function run(root: string, output: string, env: {string:string}, fails?: b
   return text
 end
 
-local function test_a_chdir_stands_on_what_it_read_from_there(tmp: string)
-  local root = tmp .. "/project"
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/data"))
-  assert(Fs.mkdirs(tmp .. "/outside"))
-  assert(Fs.write(root .. "/data/f", "one\n"))
-  assert(Fs.write(tmp .. "/outside/f", "out\n"))
-  assert(Fs.write(root .. "/suite/loaded_test.tl", [[
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local root = assert(sys.getcwd())
-assert(sys.chdir("data"))
-
-local function test_reads_where_the_module_moved()
-  local ok = Fs.read("f") == "one\n"
-  assert(sys.chdir(root))
-  assert(ok)
-end
-]]))
-  assert(Fs.write(root .. "/suite/stubbed_test.tl", [[
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local root = assert(sys.getcwd())
-sys.getcwd = function(): string, string, integer return root, "", 0 end
-
-local function test_reads_where_it_moved_past_a_stubbed_getcwd()
-  assert(sys.chdir("data"))
-  local ok = Fs.read("f") == "one\n"
-  assert(sys.chdir(root))
-  assert(ok)
-end
-]]))
-  assert(Fs.write(root .. "/suite/moves_test.tl", [[
-local Env = require("cosmic.env")
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local chdir = sys.chdir
-
-local function test_moves_at_call_time()
-  local here = assert(sys.getcwd())
-  assert(sys.chdir("data"))
-  assert(Fs.read("f") == "one\n")
-  assert(sys.chdir(here))
-end
-
-local function test_moves_through_a_loaded_reference()
-  local here = assert(sys.getcwd())
-  assert(chdir(here .. "/data"))
-  assert(Fs.read("f") == "one\n")
-  assert(chdir(here))
-end
-
-local function test_moves_outside()
-  assert(sys.chdir(assert(Env.get("OUTSIDE"))))
-  assert(Fs.read("f") == "out\n")
-end
-
-local function test_plain()
-  assert(1 + 1 == 2)
-end
-]]))
-  local env = this_program.environment()
-  -- Unsandboxed: what is keyed is a worker's read of the host.
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.OUTSIDE = tmp .. "/outside"
-  local first = run(root, tmp .. "/first.out", env)
-  assert(first:find("6 ran, 0 stood", 1, true), first)
-  local second = run(root, tmp .. "/second.out", env)
-  assert(second:find("1 ran, 5 stood", 1, true), second)
-  -- Rewritten in place, so nothing but the file itself says it changed:
-  -- not its directory's listing or stat.
-  local fd = assert(sys.open(root .. "/data/f", sys.O_WRONLY | sys.O_TRUNC))
-  assert(sys.write(fd, "two\n") == 4)
-  sys.close(fd)
-  local third = run(root, tmp .. "/third.out", env, true)
-  assert(third:find("4 of 6 failed", 1, true), third)
-end
-
---- A test no key can hold -- this one reads outside its tree -- is
---- assumed to pass as it last did, until it, what it loads, or what of
---- its reads a key can hold (a file of the tree, a variable) changes, or
---- it is asked for: by --all, by COSMIC_TEST_ALL=1, by COSMIC_SANDBOX=must,
---- or by name. One that
---- failed is never assumed. `--all` and COSMIC_TEST_ALL=1 run the test a
---- key holds too, whatever stands, as AGENTS.md says of them.
-local function test_a_test_no_key_holds_is_assumed_until_asked_for(tmp: string)
+--- A test that reads outside its tree is keyed by what it declares of
+--- it -- a host file by its contents, a variable by its value -- and
+--- stands until one of those changes; `--all` and COSMIC_TEST_ALL=1 run
+--- it whatever stands, while naming it runs nothing more.
+--- COSMIC_SANDBOX=must, which every key holds, keys it apart. A read it does not
+--- declare is trusted, not keyed: a file it reads undeclared changes,
+--- and it stands.
+local function test_an_unsandboxed_test_stands_on_what_it_declares(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(tmp .. "/outside"))
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
-  assert(Fs.write(root .. "/suite/data.txt", "one\n"))
+  assert(Fs.write(tmp .. "/outside/undeclared", "one\n"))
   local source = [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { host = { "$OUTSIDE/f" }, env = { "FLAVOUR" } }
 
 local function test_reads_outside()
-  assert(Fs.read(assert(Env.get("OUTSIDE")) .. "/f") == "out\n")
-  assert(Fs.read("suite/data.txt") ~= nil)
+  local outside = assert(Env.get("OUTSIDE"))
+  assert(Fs.read(outside .. "/f") == "out\n")
+  assert(Fs.read(outside .. "/undeclared") ~= nil)
   assert(Env.get("FLAVOUR") ~= "sour")
 end
 
@@ -140,7 +64,6 @@ end
 ]]
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
   local env = this_program.environment()
-  -- Unsandboxed: what is keyed is a worker's read of the host.
   env.COSMIC_TEST_SANDBOX = "0"
   env.OUTSIDE = tmp .. "/outside"
   env.COSMIC_TEST_ALL = nil
@@ -149,32 +72,31 @@ end
   local function said(name: string, words: {string}, wanted: string, fails?: boolean)
     local text = run(root, tmp .. "/" .. name .. ".out", env, fails, words)
     assert(text:find(wanted, 1, true), name .. ": " .. text)
+    assert(not text:find("assumed", 1, true), name .. ": " .. text)
   end
   said("first", {}, "2 ran, 0 stood")
-  said("second", {}, "0 ran, 1 stood, 1 assumed")
+  said("second", {}, "0 ran, 2 stood")
   said("all", { "--all" }, "2 ran, 0 stood")
-  said("named", { "suite/outside_test.tl" }, "1 ran, 1 stood")
+  said("named", { "suite/outside_test.tl:test_reads_outside" }, "0 ran, 1 stood")
   env.COSMIC_TEST_ALL = "1"
   said("variable", {}, "2 ran, 0 stood")
   env.COSMIC_TEST_ALL = nil
-  -- COSMIC_SANDBOX=must runs it too: it may have passed on a process
-  -- that fell back to running unconfined.
   env.COSMIC_SANDBOX = "must"
-  said("must", {}, "1 ran, 1 stood")
+  said("must", {}, "2 ran, 0 stood")
   env.COSMIC_SANDBOX = nil
-  said("again", {}, "0 ran, 1 stood, 1 assumed")
-  -- What of its reads a key can hold is still held: a file of the tree
-  -- changed, or a variable it read, and it runs.
-  assert(Fs.write(root .. "/suite/data.txt", "two\n"))
-  said("data", {}, "1 ran, 1 stood")
+  said("unheld", {}, "0 ran, 2 stood")
+  -- Undeclared, a read is trusted: its change moves no key.
+  assert(Fs.write(tmp .. "/outside/undeclared", "two\n"))
+  said("undeclared", {}, "0 ran, 2 stood")
+  -- Declared, a host file is keyed by its contents, and a variable by
+  -- its value.
+  assert(Fs.write(tmp .. "/outside/f", "changed\n"))
+  said("host", {}, "1 of 2 failed", true)
+  assert(Fs.write(tmp .. "/outside/f", "out\n"))
+  said("restored", {}, "0 ran, 2 stood")
   env.FLAVOUR = "sour"
   said("sour", {}, "1 of 2 failed", true)
-  -- Failed, it is not assumed, however it is asked for next.
   said("failed", {}, "1 of 2 failed", true)
   env.FLAVOUR = "sweet"
-  said("sweet", {}, "1 ran, 1 stood")
-  -- Changed, it runs.
-  assert(Fs.write(tmp .. "/outside/f", "changed\n"))
-  assert(Fs.write(root .. "/suite/outside_test.tl", source .. "\n"))
-  said("edited", {}, "1 of 2 failed", true)
+  said("sweet", {}, "0 ran, 2 stood")
 end

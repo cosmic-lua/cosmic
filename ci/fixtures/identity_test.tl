@@ -379,9 +379,13 @@ local function test_identity_primary(tmp: string)
     fixture_dir .. "/runtime.old", "unchanged"), 0, 1)
 
   -- These artifact bytes have a different application DB and prefix
-  -- padding, but exactly the same selected raw core and runtime basis.
+  -- padding, but exactly the same selected raw core and runtime basis:
+  -- the runtime identity is the release's (verify-verdicts, below). The
+  -- test runs again all the same: each key holds what selected the core,
+  -- the artifact's launcher and manifest (build/declared_key.tl's
+  -- `launcher_identity`), whose padding moved, as a sandboxed run's does.
   expect_tally(run_release(project, cache, counter, diagnostics,
-    fixture_dir .. "/runtime.new", "application"), 0, 1)
+    fixture_dir .. "/runtime.new", "application"), 1, 0)
 
   -- A project database is searched ahead of the binary after attachment. Its
   -- rows must not override validated portable context or the binary's

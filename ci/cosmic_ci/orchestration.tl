@@ -54,8 +54,8 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 ---
 --- The leg keys by declaration. Its workers are sandboxed and required
 --- to be (COSMIC_CI_REQUIRE_SANDBOX=1, the Linux legs), or they are keyed
---- by what they declare without a sandbox (COSMIC_CI_DECLARED_KEYS=1,
---- which `environment` makes COSMIC_TEST_KEY=declared, the macOS leg).
+--- by what they declare without a sandbox (COSMIC_CI_DECLARED_KEYS=1, the
+--- macOS leg), as every unsandboxed run of the tree's tool is.
 --- Nothing holds a macOS worker to its declaration, but a Linux leg's
 --- sandbox holds the same test under the same declaration and closure,
 --- so a declaration that lies fails there before it merges. Only what
@@ -241,12 +241,16 @@ local function environment(extra?: {string:string}): {string:string}
   end
   -- Where the leg has no sandbox but stands on verdicts all the same
   -- (COSMIC_CI_DECLARED_KEYS, the macOS leg), every operation is given
-  -- COSMIC_TEST_KEY=declared, which only `cosmic test` reads: each
-  -- suite keys each test by what it declares (build/test.tl's
-  -- `key_mode`), which a Linux leg's sandbox enforces, rather than by
-  -- what it was seen to read, which no other checkout shares. A
-  -- fixture's run takes it back out (`Orchestration.fixture`), and a
-  -- test's own `cosmic test` is not given it (`test.worker_environment`).
+  -- COSMIC_TEST_KEY=declared, which only the pinned driver's `cosmic
+  -- test` reads, for the fixtures it runs: without it, that release keys
+  -- each test by what it was seen to read, which no other checkout
+  -- shares. The tree's own tool, which runs the leg's suites, keys every
+  -- unsandboxed run by declaration and reads it nowhere. A fixture's run
+  -- takes it back out (`Orchestration.fixture`), and a test's own
+  -- `cosmic test` is not given it (`test.worker_environment`).
+  -- TODO: drop COSMIC_TEST_KEY here, and from `Orchestration.fixture` and
+  -- orchestration_test.tl, once ci/cosmic-driver.pin names a release
+  -- that keys every unsandboxed run by declaration (plan 4.2's PR 3).
   if all.COSMIC_CI_DECLARED_KEYS == "1" then all.COSMIC_TEST_KEY = "declared" end
   return all
 end
@@ -530,7 +534,7 @@ end
 --- A fixture that declares `system` is keyed by what the system's
 --- paths hold, a /bin/sh or uname changed under the same packages
 --- moving its key; and on the macOS leg, whose workers no sandbox holds
---- (COSMIC_TEST_KEY=declared), by the fixture project's path, so a
+--- (keyed by declaration all the same), by the fixture project's path, so a
 --- verdict that turned on that path stands in no project elsewhere.
 ---
 --- The rest run unsandboxed, as before, and share nothing: `format`,
@@ -596,7 +600,10 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string,
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_NO_SHARED = "1"
   -- Nor is it keyed by what it declares, on a leg whose suites are
-  -- (COSMIC_CI_DECLARED_KEYS): it shares no verdict for a key to name.
+  -- (COSMIC_CI_DECLARED_KEYS), by the pinned driver: it shares no verdict
+  -- for a key to name. A release that keys every unsandboxed run by
+  -- declaration keys it so anyway, and it shares nothing all the same
+  -- (COSMIC_VERDICT_CACHE=0); it declares the whole environment it reads.
   env.COSMIC_TEST_KEY = nil
   return env
 end

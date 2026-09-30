@@ -52,6 +52,17 @@ local function effective(files: {string}): test_inputs.Effective
   return out
 end
 
+--- Makes `tmp`/scratch, a scratch directory laid out as build.test's
+--- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
+--- answers it. A plan takes that layout as given: where it runs its
+--- worker as a user of its own, it hands it and `real` to that user.
+local function scratch_in(tmp: string): string
+  local scratch = tmp .. "/scratch"
+  assert(Fs.mkdirs(scratch .. "/real"))
+  assert(Fs.symlink("real", scratch .. "/tmp"))
+  return scratch
+end
+
 --- Whether `list` holds `value`.
 local function holds(list: {string}, value: string): boolean
   for _, each in ipairs(list) do
@@ -66,8 +77,8 @@ end
 --- one a link on the way leads elsewhere is: the other's bind leaves
 --- the link, which the sandbox would follow to what it does not have.
 local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
-  local root, scratch, dir = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
-  for _, made in ipairs({ root .. "/o", root .. "/data", scratch, dir, tmp .. "/elsewhere" }) do
+  local root, scratch, dir = tmp .. "/root", scratch_in(tmp), tmp .. "/host"
+  for _, made in ipairs({ root .. "/o", root .. "/data", dir, tmp .. "/elsewhere" }) do
     assert(Fs.mkdirs(made))
   end
   for _, file in ipairs({ "o/cosmic.db", "data/x.tl" }) do
@@ -101,8 +112,8 @@ end
 --- /program/<its name>. A worker that is not a tool keeps the
 --- runner's name, which it has no way to read.
 local function test_the_tree_s_own_program_is_named_in_the_tree(tmp: string)
-  local other, tree, scratch = tmp .. "/other", tmp .. "/tree", tmp .. "/scratch"
-  for _, made in ipairs({ other .. "/o/bin", tree .. "/o/bin", scratch }) do
+  local other, tree, scratch = tmp .. "/other", tmp .. "/tree", scratch_in(tmp)
+  for _, made in ipairs({ other .. "/o/bin", tree .. "/o/bin" }) do
     assert(Fs.mkdirs(made))
   end
   assert(Fs.write(other .. "/o/bin/cosmic", "p"))
@@ -140,8 +151,8 @@ end
 --- their own names; and no network but its own loopback. A path that is
 --- not there is not given: a read of it finds nothing either way.
 local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_name(tmp: string)
-  local root, scratch, dir = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
-  for _, made in ipairs({ root .. "/o", root .. "/a", root .. "/data", scratch, dir }) do
+  local root, scratch, dir = tmp .. "/root", scratch_in(tmp), tmp .. "/host"
+  for _, made in ipairs({ root .. "/o", root .. "/a", root .. "/data", dir }) do
     assert(Fs.mkdirs(made))
   end
   for _, file in ipairs({ "o/cosmic.db", "a/x.tl", "data/f" }) do
@@ -168,6 +179,13 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(not Fs.within(host, test_sandbox.scratch) or holds(plan.kept, host), host)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and
     unveil.at[scratch] == test_sandbox.scratch)
+  -- The plan hands a worker it runs as a user of its own (a root
+  -- runner's) the scratch directory and its `real`.
+  assert(plan.trouble == "", plan.trouble)
+  local user = plan.sandbox.user
+  for _, path in ipairs({ scratch, scratch .. "/real" }) do
+    assert(user == nil or assert(sys.stat(path)).uid == user, path)
+  end
   -- A process the worker starts is keyed by what it declares, as the
   -- worker sees it, the runtime's own paths (/dev/null everywhere, /proc
   -- where the host has one: a path that is not there is not given) and
@@ -326,10 +344,11 @@ end
 --- and nothing else of it, sees nothing of the host it was not given,
 --- and reads only the variables it declares -- and so does a process it
 --- starts; and the run says it was sandboxed. The same suite with the
---- switch off reads all of it, and says it shares no verdict. Where
---- this host cannot sandbox the run's workers the run says so, and runs
---- them unsandboxed, sharing none -- but with the switch on, where it
---- fails. A switch that is neither "1", "0" nor unset is refused.
+--- switch off reads all of the tree and the host, but still only the
+--- variables it declares, and says it is keyed by what it declares and
+--- shares no verdict. Where this host cannot sandbox the run's workers
+--- the run says so, and runs them unsandboxed, sharing none -- but with
+--- the switch on, where it fails. A switch that is neither "1", "0" nor unset is refused.
 local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   suite_tree(tmp, root)
@@ -367,7 +386,8 @@ end
   env.COSMIC_TEST_SANDBOX = "0"
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
-  assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), sharing no verdicts)", 1, true), text)
+  assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
+    "sharing no verdicts)", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   local seen = text:match("seen|([^\n]*)|end")
@@ -375,14 +395,14 @@ end
   local fields: {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
-    fields[5] == "true" and fields[6] == "d" and fields[7] == "u" and
-    fields[8] == "declaredundeclared/d/u", seen)
+    fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
+    fields[8] == "declaredundeclared/d/", seen)
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
   if unsandboxed(text) then
-    assert(text:find("; unsandboxed, as no worker can be sandboxed here, sharing no verdicts)", 1,
-      true), text)
+    assert(text:find("; unsandboxed, as no worker can be sandboxed here, keyed by declared " ..
+      "inputs, sharing no verdicts)", 1, true), text)
     -- Required, the run fails instead.
     env.COSMIC_TEST_SANDBOX = "1"
     text, ok = run(root, tmp .. "/required", env)

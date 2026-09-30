@@ -45,8 +45,11 @@ if [ "${1-}" = zig-cache ]; then
   # where it passed (cosmic_ci/verdicts.tl). Whether a suite stands on
   # them is cosmic_ci/orchestration.tl's (`stands`): every leg does, in
   # a push's run and the merge queue's -- the Linux legs sandboxed, the
-  # macOS leg keyed by declared inputs unenforced
-  # (COSMIC_TEST_KEY=declared) -- and none in a manual or scheduled run.
+  # macOS leg keyed by declared inputs unenforced, as the tree's tool
+  # keys every unsandboxed run (the pinned driver, for the fixtures it
+  # runs, only under COSMIC_TEST_KEY=declared, which
+  # cosmic_ci/orchestration.tl sets) -- and none in a manual or
+  # scheduled run.
   # The portable suite keeps its own file beside this one
   # (`suite_verdicts`), in the same cache.
   echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"

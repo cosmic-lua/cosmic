@@ -29,6 +29,11 @@ local record SuiteOutput
     ran: integer
     stood: integer
     every: integer
+    -- TODO: drop `assumed`, here, in cosmic_ci/state.tl's `runs` and in
+    -- their tests, once ci/cosmic-driver.pin names a release that keys
+    -- every unsandboxed run by declaration (plan 4.2's PR 3): the tree's
+    -- tool assumes no verdict, and only the pinned driver's summary, of
+    -- the fixtures it runs, still counts one.
     assumed: integer
     shared: integer
     failed: integer

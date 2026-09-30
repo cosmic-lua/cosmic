@@ -58,9 +58,11 @@ local record Cli
   --- what a failing test printed is shown beneath it. A test whose
   --- verdict still stands is not run again: one this checkout reached,
   --- in o/build.db, or one any checkout of the same content did, which
-  --- every run shares through $XDG_CACHE_HOME/cosmic/verdicts
+  --- every sandboxed run shares through $XDG_CACHE_HOME/cosmic/verdicts
   --- (~/.cache/cosmic/verdicts): COSMIC_VERDICT_CACHE names another
-  --- file, and COSMIC_VERDICT_CACHE=0 turns it off. A module is not
+  --- file, and COSMIC_VERDICT_CACHE=0 turns it off. A run whose workers
+  --- are not sandboxed (COSMIC_TEST_SANDBOX=0, or macOS) shares only
+  --- through a file COSMIC_VERDICT_CACHE names. A module is not
   --- compiled again either, nor a source parsed, where any checkout
   --- compiled or parsed the same, through $XDG_CACHE_HOME/cosmic/build
   --- (~/.cache/cosmic/build): COSMIC_BUILD_CACHE names another file, and
@@ -450,9 +452,8 @@ local module: Module = {
   },
   options = {
     test = {
-      ["--all"] = { about = "run the tests no key can hold rather than assume they pass " ..
-        "as they last did, in this checkout or another; sandboxed, run every test, " ..
-        "whatever stands (COSMIC_TEST_ALL=1)" },
+      ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
+        "checkout or another (COSMIC_TEST_ALL=1)" },
       ["--audit"] = { about = "run every test, then name what each read beyond its " ..
         "default and declared inputs (`cosmic docs Test.needs` says how to " ..
         "declare one), and fail if any did" },
