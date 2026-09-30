@@ -570,10 +570,14 @@ COSMIC_SYSCALL(bound, 1) {
   return 1;
 }
 
-COSMIC_SYSCALL(send, 2) {
+COSMIC_SYSCALL(send, 3) {
   int fd = cosmic_checkfd(L, 1);
   size_t size;
   const char *data = luaL_checklstring(L, 2, &size);
+  lua_Integer from = luaL_optinteger(L, 3, 1);
+  luaL_argcheck(L, from >= 1 && (lua_Unsigned)from - 1 <= size, 3, "out of range");
+  data += from - 1;
+  size -= (size_t)(from - 1);
 #if defined(MSG_NOSIGNAL)
   const int flags = MSG_NOSIGNAL;
 #else
