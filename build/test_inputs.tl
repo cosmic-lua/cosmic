@@ -25,9 +25,9 @@
 --- sandboxed worker is held to all the declared inputs
 --- (`build.test_sandbox`), and its verdict keyed by them
 --- (`build.declared_key`). An unsandboxed one is held to nothing more,
---- and keyed by what it was seen to read. The audit compares the two,
---- test by test, with what observation saw
---- (`build.filesystem_observations`).
+--- and keyed by them all the same. The audit compares the two, test by
+--- test, with what its sandbox refused it (`build.refusals`) or,
+--- unsandboxed, what observation saw (`build.filesystem_observations`).
 
 local sys = require("cosmic.sys")
 local confine = require("build.confine")

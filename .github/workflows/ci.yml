@@ -167,9 +167,11 @@
         # A Linux leg fails where a confined test's sandbox does not hold
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
-        # macOS keys verdicts by what each test declares all the same
-        # (COSMIC_TEST_KEY=declared): a Linux leg's sandbox holds the
-        # same declaration, so one that lies fails there first.
+        # macOS keys verdicts by what each test declares all the same, as
+        # the tree's tool keys every unsandboxed run (the pinned driver,
+        # for its fixtures, under the COSMIC_TEST_KEY=declared
+        # orchestration.tl sets): a Linux leg's sandbox holds the same
+        # declaration, so one that lies fails there first.
         COSMIC_CI_DECLARED_KEYS: "${{ matrix.image && '0' || '1' }}",
         # Pushes and the merge queue stand on verdicts; a manual and the
         # scheduled run run every test (orchestration.tl's `stands`).

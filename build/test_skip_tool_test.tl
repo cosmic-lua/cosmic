@@ -56,21 +56,11 @@ local function test_a_skipped_test_is_counted_and_runs_every_time(tmp: string)
     "check it), ", 1, true), out)
   -- Each reason once.
   assert(out:find("test: SKIP  skip_test test_skips: this host cannot\n", 1, true), out)
-  -- No verdict is kept of it: the pass stands, the skip runs again.
+  -- No verdict is kept of it: the pass stands on its declared key, the
+  -- skip runs again.
   out, code = run(root, {})
   assert(code == 0, out)
   assert(out:find("; 1 ran, 1 stood, 1 skipped ", 1, true), out)
-end
-
---- Keyed by what each test declares, as a sandboxed run is, no verdict
---- is kept of a skip either: it runs again where the pass stands.
-local function test_a_skip_keyed_by_its_declaration_keeps_no_verdict(tmp: string)
-  local root = project(tmp)
-  local keyed = { COSMIC_TEST_KEY = "declared", COSMIC_VERDICT_CACHE = "0" }
-  local out, code = run(root, keyed)
-  assert(code == 0 and out:find("; 2 ran, 0 stood, 1 skipped ", 1, true), out)
-  out, code = run(root, keyed)
-  assert(code == 0 and out:find("; 1 ran, 1 stood, 1 skipped ", 1, true), out)
 end
 
 --- A run held to sandboxing fails a skipped test, naming why it skipped:

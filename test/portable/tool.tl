@@ -78,7 +78,12 @@ local function spoof_database(argv: {string}): integer
   return 0
 end
 
---- Checks that release, changed-basis, and sanitized contexts stay distinct.
+--- Checks that release, changed-basis, and sanitized contexts stay
+--- distinct: three runtimes in the counter. The runs kept four verdicts:
+--- runtime.new's differs from runtime.old's only in its launcher's
+--- padding, which the key of a run a portable artifact starts holds
+--- (build/declared_key.tl's `launcher_identity`), though its runtime is
+--- the release's.
 local function verify_verdicts(argv: {string}): integer
   local database, counter = argv[1], argv[2]
   assert(database ~= nil and counter ~= nil,
@@ -96,8 +101,9 @@ local function verify_verdicts(argv: {string}): integer
   end
   local distinct_count = 0
   for _ in pairs(distinct) do distinct_count = distinct_count + 1 end
-  assert(#keys == 3 and #lines == 3 and distinct_count == 3,
-    "identity fixture: expected three distinct runtime verdicts")
+  assert(#keys == 4 and #lines == 4 and distinct_count == 3 and lines[2] == lines[1],
+    "identity fixture: expected four verdicts of three distinct runtimes, the second the " ..
+    "first's")
   return 0
 end
 

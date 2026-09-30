@@ -82,8 +82,8 @@
    moves the checkout to a path chosen by the commit and the leg to catch
    one that does: a re-run meets the same path, a new commit a new one.
    A sandboxed worker sees the tree at /tree wherever it is, so only an
-   unsandboxed leg (macOS) meets the moved path. There, under
-   `COSMIC_TEST_KEY=declared`, a key holds the tree's path, so no verdict
+   unsandboxed leg (macOS) meets the moved path. There, as in every
+   unsandboxed run, a key holds the tree's path, so no verdict
    stands at a path it was not reached at: a gating run (a push, the
    merge queue) places the tree by the leg alone, at one path from commit
    to commit, and stands on what it ran before; the scheduled run places
@@ -183,31 +183,25 @@
    start is refused outright, naming `nests`, and fails the test rather
    than falling back to running unconfined; a `cosmic test` started
    there refuses to sandbox its workers, and `--audit` names it.
-   Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a
-   test is keyed instead by what it was seen to read, and shares no
-   verdict: environment variables it reads are part of its key, and one
-   that starts a process, reads outside the tree beyond its own
-   temporary directories, or reaches the network has no verdict a key
-   can hold: it is assumed to pass as it last did until it, or what it
-   loads, changes -- the summary counts it "assumed" -- and runs when
-   named, or on `--all`. A key holds of a stat of the tree only its
-   kind, size and mode across checkouts (the rule beside `Test.needs`
-   below).
-   `COSMIC_TEST_KEY=declared` keys an unsandboxed run as a sandboxed
-   one instead, by what each test declares and by where the tree is,
-   which its worker sees, and shares its verdicts apart from sandboxed
-   ones and only with a checkout at the same path: its worker gets only
-   the environment it declares and the store of its closure, but nothing
+   Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot, as
+   on macOS), a test is keyed as a sandboxed one is, by what it
+   declares, and by where the tree is, which its worker sees; nothing is
+   assumed, and one that starts a process or reads outside the tree
+   stands on its declaration like any other. Its worker gets only the
+   environment it declares and the store of its closure, but nothing
    else holds it to its declaration, which a sandboxed run (a Linux leg
-   of CI) must enforce.
+   of CI) must enforce: a read it does not declare moves no key there.
+   Its verdicts are kept apart from sandboxed ones, and shared only
+   through a file `COSMIC_VERDICT_CACHE` names (as CI's macOS leg
+   does), and so only with a checkout at the same path; without one it
+   shares none, and the summary says so.
    Only the sandbox's own tests nest one sandbox in another with
    build.confine's `confine`: where the kernel cannot confine a process,
    `confine` starts it unconfined; `must_confine` fails
    the spawn, and the test, instead, naming the part of the sandbox
    refused and its errno. `COSMIC_SANDBOX=must` (off by default) makes
-   every `confine` one, runs every assumed test as `--all` does, and
-   fails `core/syscalls_test.tl`'s sandbox tests rather than counting
-   them skipped. Likewise a test nests the workers of a
+   every `confine` one, and fails `core/syscalls_test.tl`'s sandbox
+   tests rather than counting them skipped. Likewise a test nests the workers of a
    `cosmic test` it starts in its own sandbox only where its assertion
    is about their sandbox; every other run of `cosmic test` a test
    starts sets `COSMIC_TEST_SANDBOX=0`, so it means the same on every
@@ -266,8 +260,8 @@
    reads, which its key holds by their contents. `--audit` names a host program a
    test ran undeclared. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
-   and the run shares no verdict, unless `COSMIC_TEST_KEY=declared`;
-   `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's Linux legs set it.
+   and the run shares no verdict unless `COSMIC_VERDICT_CACHE` names a
+   file; `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's Linux legs set it.
    Every test's directory, sandboxed or not, is at a path padded to
    macOS's length (`scratch_length` in `build/test_sandbox.tl`), so a
    bound on a path's length (a socket file's, a tar name's) is met on
