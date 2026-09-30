@@ -122,6 +122,16 @@ linux-aarch64's driver marker).
   Runs behind a core change rerun everything, as expected.
 - **aarch64 marker:** main's seed saved it for the first time at 17:19.
 
+**Queue gate (2026-09-30, 12 runs, 16:17 to 19:22 UTC).** linux-x86_64
+gates 10 of 12: it alone runs both the portable suite (about 190 s after
+a core change) and self-rebuild (about 120 s). Landed since: #2473 (a
+closure store is keyed by its bytes, with each address's digest kept in
+the shared verdicts db; a comment in the store writer reran 2830 tests,
+now about 900) and #2477 (a Linux leg's driver marker names its
+container, not the runner image; a leg waits on the run ahead only once
+its suite has begun, 30 s at most). Open decision: move the portable
+suite or self-rebuild off linux-x86_64 at the gate (about 100 s a run).
+
 **Fourth measurement (2026-09-30, 24 gating runs, #2412 to #2444).**
 Read from each run's jobs and `operations.db`, qualifying as `report.tl`
 does. 12 went `--all`; 6 of the 12 ordinary runs qualify, so M1 is still
