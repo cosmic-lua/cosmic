@@ -114,8 +114,11 @@ local record Net
     --- within 5 bytes of the longest a path may be; "timed out" for
     --- another's lock held 10 seconds; "interrupted" for a signal the
     --- innermost open [`Child.guard`] caught; and a directory or a link at its name
-    --- fails too. A path ending in "/" fails "Is a directory", and an
-    --- empty path raises, as it does without `reclaim`. A "tcp" address
+    --- fails too. In a task of [`Poll.run`], the wait for the lock and
+    --- the connection that asks wait through the run, so reclaims of one
+    --- path in tasks of one run take turns as those of two processes do,
+    --- and a task cancelled in either fails "cancelled". A path ending
+    --- in "/" fails "Is a directory", and an empty path raises, as it does without `reclaim`. A "tcp" address
     --- raises: a port holds no file to take over.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
@@ -623,6 +626,37 @@ local PROBE_MS <const> = 1000
 --- a probe and two binds: far past that, the holder is stuck.
 local LOCK_MS <const> = 10 * PROBE_MS
 
+--- The longest a reclaim in a task sleeps before it asks for another's
+--- lock again, as core's `flock` does out of one.
+local LOCK_PAUSE_MS <const> = 100
+
+--- An exclusive lock on the file `fd` is open on, waiting at most
+--- LOCK_MS for another's: in a task of [`Poll.run`], through the run,
+--- since the task holding the other may be one of this run's, which a
+--- wait holding the thread would keep from releasing it; anywhere
+--- else, holding the thread. False and why not otherwise.
+local function locked(fd: integer): boolean, string
+  if not Poll.in_task() then
+    local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
+    if not ok then return false, said(trouble, errno) end
+    return true, ""
+  end
+  local deadline = now_ms() + LOCK_MS
+  local pause = 1
+  while true do
+    -- Asked once, which answers "timed out" where another holds the
+    -- lock, or "interrupted" where a guard has caught a signal.
+    local ok, trouble, errno = sys.flock(fd, "exclusive", 0)
+    if ok then return true, "" end
+    if errno ~= raw.ETIMEDOUT or deadline - now_ms() <= 0 then
+      return false, said(trouble, errno)
+    end
+    local paused, why = Poll.delay(math.min(pause, deadline - now_ms()))
+    if not paused then return false, why end
+    pause = math.min(pause * 2, LOCK_PAUSE_MS)
+  end
+end
+
 --- The lock `reclaim` holds, released when it goes out of scope,
 --- whether the listen returns or raises.
 local record ReclaimLock
@@ -649,10 +683,10 @@ local function reclaim_lock(address: Net.Address): ReclaimLock, string
   local fd, why = sys.open(name,
     sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
   if fd == nil then return nil, name .. ": " .. why end
-  local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
+  local ok, trouble = locked(fd)
   if not ok then
     local _, _ = sys.close(fd)
-    return nil, name .. ": " .. said(trouble, errno)
+    return nil, name .. ": " .. trouble
   end
   local lock: ReclaimLock = { fd = fd }
   return setmetatable(lock, reclaim_lock_mt), ""
@@ -661,24 +695,20 @@ end
 --- What `reclaim` finds at `address`'s path, which a bind found taken,
 --- read from the working directory the bind was: "refused", a socket
 --- file connecting to which is refused, to take over; "gone", nothing
---- there any longer, to bind again; or "", anything else, to leave
---- alone.
+--- there any longer, to bind again; [`Poll.CANCELLED`], its task
+--- cancelled while it asked; or "", anything else, to leave alone.
 local function left_behind(address: Net.Address): string
   local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
   if st.kind ~= "socket" then return "" end
-  -- TODO: probe through the run in a task of Poll.run, as a connect
-  -- does, once reclaim's lock waits through it: the probe runs under
-  -- that lock, and a second reclaim's flock of the same path would hold
-  -- the thread -- and with it the task that holds the lock -- for as
-  -- long as LOCK_MS. Holding the thread here keeps the lock's hold short.
-  local probe, _, errno = raw.connect(raw_address(address), PROBE_MS)
-  if probe ~= nil then
-    local _, _ = probe:close()
+  local probe = connection(address, PROBE_MS)
+  if probe.socket ~= nil then
+    local _, _ = probe.socket:close()
     return ""
   end
-  if errno == raw.ECONNREFUSED then return "refused" end
-  return errno == sys.ENOENT and "gone" or ""
+  if probe.errno == raw.ECONNREFUSED then return "refused" end
+  if probe.errno == 0 and probe.trouble == Poll.CANCELLED then return Poll.CANCELLED end
+  return probe.errno == sys.ENOENT and "gone" or ""
 end
 
 --- A unix listener at `address`; with `reclaim`, taking over a socket
@@ -688,7 +718,10 @@ local function listened(address: Net.Address, backlog: integer, timeout_ms: inte
   local socket, trouble, errno = raw.listen(raw_address(address), backlog)
   if socket == nil and errno == raw.EADDRINUSE and reclaim then
     local found = left_behind(address)
-    if found == "refused" then
+    if found == Poll.CANCELLED then
+      trouble, errno = found, 0
+      found = ""
+    elseif found == "refused" then
       local removed, why, number = sys.unlink(address.path)
       if not removed and number ~= sys.ENOENT then
         trouble, errno = why, number
