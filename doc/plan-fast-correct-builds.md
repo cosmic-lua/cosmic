@@ -638,7 +638,7 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
   `COSMIC_VERDICT_CACHE` names a file.
   - Waits on: PR 2, 4.1, M3, and 3.2's two worker changes.
   - Closes `build/test.tl:3385`.
-- PR 4 (in review): `--audit` goes too, sandboxed and unsandboxed, with
+- PR 4: landed (#2438). `--audit` goes too, sandboxed and unsandboxed, with
   #2423's refusal recording (the user's decision, 2026-09-30): a sandboxed
   test that reads what it does not declare fails with its own error, which
   is the signal. Also: delete the observed key path, the `reads` column of `runs`,
@@ -650,7 +650,14 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
     `build/test_worker.tl:155` and `:186`; `core/sqlite.c:721`.
   - `build/test_worker.tl:186` is the report capture limit. Closing it
     also unblocks `fuzz.yml:70`'s 10,000 iterations.
-- PR 5: delete `core/observed.c` and its hooks, the observed SQLite
+  - Its merge-queue run failed once on the checked core: two walks in
+    `core/allocation_test.tl` depended on the worker's capture having
+    excluded its own SQLite handles, and now exclude them themselves.
+- Found by the 10,000-iteration fuzz run: `cosmic.archive` hung on a
+  gzip whose deflate block has no codes, since miniz's tinfl decoded
+  empty Huffman slots as zero-bit symbols. Fixed by `patch/miniz/`
+  records and an output-to-input bound in `inflate_step` (#2439).
+- PR 5 (in progress): delete `core/observed.c` and its hooks, the observed SQLite
   VFS, and `core/store.c`'s observe knobs. About 1,900 lines of C.
   - Closes `core/observed.c:81` and `:325`, `build/confine_test.tl:193`,
     `build/filesystem_observations.tl:146` and `core/store.c:79`.
