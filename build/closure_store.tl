@@ -148,6 +148,8 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     -- its path, or, for its examples, by its file.
     local carried: {{string:string}} = {}
     local by_file: {boolean} = {}
+    -- The links' digests, which a declaration's line takes too.
+    local linked: {string:string} = {}
     for _, group in ipairs({
       { "path", "requires", "imports", "requires" },
       { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
@@ -162,6 +164,7 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
       local digests, group_trouble = grouped(db, group[1], columns, group[3], group[4])
       if digests == nil then return nil, group_trouble end
       carried[#carried + 1] = digests
+      if group[3] == "links" then linked = digests end
       by_file[#carried] = group[1] == "file"
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
@@ -176,9 +179,6 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
       { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },
       "docs WHERE module IN (SELECT path FROM decls)", "id")
     if declared == nil then return nil, declared_trouble end
-    -- A declaration's links, as a module's: the last group `carried`
-    -- digests, by the path the link is from.
-    local linked = carried[#carried]
     local names, names_trouble = Sqlite.text_rows(db,
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end

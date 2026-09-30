@@ -297,9 +297,9 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
     "'a' || char(0) || 'b', 'greet.tl', 1)")
 end
 
---- A lookup over a closure store -- `cosmic uses` or `cosmic docs` in a
---- worker, whose o/cosmic.db it is -- finds the links its closure's
---- modules make, and none a module outside it makes.
+--- A lookup over a closure store -- `cosmic uses` or `cosmic docs` run
+--- by a process a worker starts, whose o/cosmic.db it is -- finds the
+--- links its closure's modules make, and none a module outside it makes.
 local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   local root = tmp .. "/a"
   assert(Fs.mkdirs(root))
