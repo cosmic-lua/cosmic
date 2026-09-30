@@ -3131,8 +3131,11 @@ COSMIC_SYSCALL(flock_kind, 1) {
   lua_pushstring(L, local ? "apart" : "shared");
   return 1;
 #else
-  (void)fd;
-  /* Darwin and the BSDs keep a flock and fcntl locks in one list. */
+  /* Asked of the descriptor only so one not open fails as it does on
+   * Linux: Darwin and the BSDs keep a flock and fcntl locks in one
+   * list, whatever the file. */
+  struct stat status;
+  if (fstat(fd, &status) != 0) return cosmic_fail(L, errno);
   lua_pushliteral(L, "shared");
   return 1;
 #endif
