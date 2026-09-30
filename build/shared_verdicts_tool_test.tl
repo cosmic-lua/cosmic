@@ -83,7 +83,6 @@ local unready <const> = 1600000000
 local function checkout(root: string, data: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/data.txt", data))
-  assert(Fs.write(root .. "/suite/marker.txt", "marked\n"))
   assert(Fs.write(root .. "/suite/reads_test.tl", [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -114,11 +113,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/marker.txt" }, host = { "]] .. Fs.dirname(root) ..
+Test.needs { host = { "]] .. Fs.dirname(root) ..
     [[/outside/f" }, env = { "OUTSIDE" } }
 
 local function test_reads_outside()
-  assert(Fs.stat("suite/marker.txt") ~= nil)
   local f = assert(Env.get("OUTSIDE")) .. "/f"
   assert(assert(Fs.stat(f)).mtime ~= ]] .. unready .. [[)
   assert(Fs.read(f) == "out\n")
@@ -671,7 +669,6 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   -- The second runs, its own failure standing against the shared pass
   -- under the same key.
   assert(Fs.set_mtime(tmp .. "/outside/f", unready))
-  touch(tmp .. "/second/suite/marker.txt")
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
   assert(again:find("1 of 5 failed", 1, true), again)
   -- ...and the row it would have stood on is gone: a third checkout

@@ -1,9 +1,10 @@
 --- The parts of a verdict key a worker spells too: how one contribution
 --- is framed ([`key_part`]), how a path names the tree ([`tree_name`]), and
---- which modules read the compiler's identity (`compiler_readers`).
---- build.declared_key computes a key from them and answers each as its
---- own, so its callers need not know they live here; a worker
---- (build.test_worker) takes them from here, and so loads none of what the rest of a key takes to compute --
+--- which modules read the compiler's identity (`compiler_readers`,
+--- [`reads_compiler`]). build.declared_key computes a key from them and
+--- answers the compiler's readers as its own, so their callers need not
+--- know they live here; a worker (build.test_worker) takes them from
+--- here, and so loads none of what the rest of a key takes to compute --
 --- the artifact, the core image, the launcher, SQLite.
 ---
 --- Nothing here is taken through a table a test can replace once this
