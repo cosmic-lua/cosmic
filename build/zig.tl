@@ -31,7 +31,7 @@
 --- ([`Zig.ensure_installed`]). It is a file apart so that what downloads
 --- and unpacks is no part of this module's import closure, which
 --- build.c, and every test that reaches it, holds.
-
+---
 --- `build` gets a prefix flag naming the repository's `o/` (the root is
 --- found from this script's own path) and flags naming zig's two caches.
 --- The global cache holds what zig builds of its own (libc, compiler-rt,

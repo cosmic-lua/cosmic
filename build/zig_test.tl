@@ -1,8 +1,9 @@
 --- [`build/zig.tl`]'s parts that need no network: pin parsing, the host
 --- triple, argument rewriting, root detection, `PATH` lookup, the exit
---- statuses a failed exec means, the cache hit, and the snapshots that catch a source
---- edited while a build runs, the rebuild lock a boot holds, and what
---- [`Zig.run`] answers of a stand-in zig ([`build.stand_in`]). The tests
+--- statuses a failed exec means, the cache hit, and the snapshots that
+--- catch a source edited while a build runs, the rebuild lock a boot
+--- holds, and what [`Zig.run`] answers of a stand-in zig
+--- ([`build.stand_in`]). The tests
 --- that start bin/zig are build/zig_tool_test.tl's.
 
 local Fs = require("cosmic.fs")
