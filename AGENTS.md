@@ -62,12 +62,19 @@
    status rather than piping it away. Only the tree's own tool (under
    `o/`) rebuilds or boots; another cosmic run in the tree when it is
    stale -- a release, the bootstrap cache's -- refuses, exiting 3.
-   Runs in one checkout at once (an editor's, a watcher's, a
-   terminal's) rebuild or boot the tool one at a time, under
-   `o/rebuild.lock`: one that finds another at it says so, waits, and
-   re-enters on the tool that run wrote (`build/reboot.tl`). A
-   `bin/zig build boot` run by hand takes no such lock: do not start
-   one while a run in the same checkout may be rebuilding the tool.
+   One `cosmic test` runs per checkout at a time: it holds
+   `o/rebuild.lock` (`build/rebuild_lock.tl`) for its whole run, and so
+   do a rebuild of the tool, a `bin/zig build boot` or `sanitized` (by
+   hand or not) and a write of `o/cosmic.db`. A run that finds another
+   holding it says which, what it is doing and the lock it waits for,
+   waits for it, and says so again every few minutes; one that must
+   rebuild re-enters on the tool that run wrote (`build/reboot.tl`). So
+   `cosmic docs`, `cosmic uses` or `cosmic foo.tl` after an edit waits
+   for a whole test run in the checkout, and a `timeout` around `cosmic
+   test` counts the time it waits for another. A `cosmic test` a test
+   starts must run in a tree of its own, whose lock it takes: one run in
+   this checkout would wait on the run that started it until the test
+   timed out.
 4. Run `timeout 30 o/bin/cosmic test`. Its workers run sandboxed to each
    test's declared inputs where the kernel can -- the default on Linux --
    and a test whose declared inputs, closure, core, harness epoch, timeout

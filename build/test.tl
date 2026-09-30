@@ -117,6 +117,7 @@ local c_functions = require("build.c_functions")
 local importer = require("build.importer")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
+local rebuild_lock = require("build.rebuild_lock")
 local schema = require("build.schema")
 local teal = require("build.teal")
 local tree = require("build.tree")
@@ -2504,6 +2505,9 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- test starts would key as CI's suites do.
   out.COSMIC_TEST_NO_SHARED = nil
   out[retired_switch] = nil
+  -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
+  -- test starts holds none of this run's.
+  out[rebuild_lock.handed_variable] = nil
   return out
 end
 
@@ -3051,6 +3055,17 @@ local function run(argv: {integer:string}): integer
   -- checkout's own evidence, or a run.
   local consult = not (audit or parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
+  -- One run per checkout at a time: this one holds the rebuild lock to
+  -- its end, and one that finds another holding it waits for it, so
+  -- two never write or sweep one another's closure stores, verdicts or
+  -- projection. Taken before the working database is opened, since the
+  -- holder may be waiting for that. A run a rebuild of the tool
+  -- re-enters takes it again, the exec having let it go.
+  local _, lock_trouble = rebuild_lock.hold(root, "test", "test")
+  if lock_trouble ~= "" then
+    log:complain("test: " .. lock_trouble)
+    return 1
+  end
   local started = Time.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
@@ -3759,7 +3774,11 @@ test.spec = {
   name = "test",
   guide = "none: the verb is for the tree's own checks and is described by `cosmic help test`; the quickstart is about reading data and writing programs, not running a tree's suite",
   tests = { "build.test_test", "build.test_selection_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  run = function(argv: {integer:string}): integer
+    local code = run(argv)
+    rebuild_lock.release()
+    return code
+  end,
   bare = false,
   takes = "exact module names, source paths and directories",
 }

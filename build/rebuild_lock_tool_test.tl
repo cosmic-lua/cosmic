@@ -1,13 +1,16 @@
 --- The rebuild lock between processes, as two runs in one checkout meet
 --- it: another process of this program holds or asks for it, the way a
 --- tool from before the flock does (its SQLite half alone) or the way
---- this one does (`rebuild_lock.take`). A process's own fcntl locks
+--- this one does (`rebuild_lock.take`); a child a holder hands it to
+--- goes on under it; and `cosmic test`, and a write of the projection,
+--- hold it, one run per checkout at a time. A process's own fcntl locks
 --- never conflict with one another, and closing any descriptor of the
 --- file drops them, so these ask from another process; the rest is in
 --- `rebuild_lock_test.tl`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
@@ -145,4 +148,182 @@ local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
     assert(taken == "held", tostring(taken) .. " " .. trouble)
     assert(waited_ms >= 100, "took a held lock after " .. tostring(waited_ms) .. " ms")
   end
+end
+
+--- A project whose one test passes, and sleeps `sleep_ms` first.
+local function project(root: string, sleep_ms: integer)
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/slow_test.tl", table.concat({
+    'local sys = require("cosmic.sys")',
+    "local function test_slow()",
+    "  assert(sys.nanosleep(" .. tostring(sleep_ms) .. " * 1000000))",
+    "end",
+  }, "\n") .. "\n"))
+end
+
+--- Starts `cosmic test` on `root`, its stdout and stderr to `output`.
+--- Its workers run unsandboxed (`COSMIC_TEST_SANDBOX=0`): the lock is
+--- the run's, not its workers', and a sandbox nested in this test's own
+--- is one a host may refuse, so the run means the same everywhere.
+local function start_test(root: string, output: string): Child.Handle
+  local fd = assert(Fs.open_write(output))
+  local env = this_program.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_VERDICT_CACHE = "0"
+  local started = this_program.program({ "test" }, {
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
+  })
+  local h = assert(Child.start(started.argv, started.options))
+  assert(Fs.close(fd))
+  return h
+end
+
+--- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
+--- and answers true once it has.
+local function await(what: string, holds: function(): boolean): boolean
+  local deadline = Time.monotonic_ns() + 20 * 1000000000
+  while not holds() do
+    assert(Time.monotonic_ns() < deadline, "gave up waiting for " .. what)
+    assert(sys.nanosleep(20 * 1000000))
+  end
+  return true
+end
+
+--- A second run in a checkout waits for the run holding its lock, saying
+--- so and naming what that run is doing, and passes once it lets go.
+--- The first run is this test, holding the lock as `cosmic test` does.
+local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
+  local root = tmp .. "/project"
+  project(root, 0)
+  assert(rebuild_lock.hold(root, "test", "test"))
+  local output = tmp .. "/second.out"
+  local h = start_test(root, output)
+  local ok, failure = pcall(await, "the second run to wait", function(): boolean
+    local text = Fs.read(output) or ""
+    return text:find("waiting for it", 1, true) ~= nil
+  end)
+  local running, _ = h:try_wait()
+  rebuild_lock.release()
+  local result = assert(h:wait(20000))
+  local text = assert(Fs.read(output))
+  assert(ok, tostring(failure) .. "\n" .. text)
+  assert(running ~= nil and not running.finished, "the second run did not wait:\n" .. text)
+  assert(result.ok, text)
+  assert(text:find("test: another cosmic run (pid " .. tostring(sys.getpid()) ..
+    ") in this checkout is running its tests; waiting for it", 1, true), text)
+  assert(text:find("test: PASS", 1, true), text)
+end
+
+--- A run lets its checkout's lock go however it ends: once it has
+--- failed, and once it is interrupted mid-run, a run after it takes the
+--- lock at once.
+local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
+  local root = tmp .. "/project"
+  project(root, 60000)
+  local h = start_test(root, tmp .. "/interrupted.out")
+  local _ = await("the run to take the lock", function(): boolean
+    return Fs.read(root .. "/o/rebuild.lock.pid") ~= nil and
+      rebuild_lock.take(root, 0, "write") == "busy"
+  end)
+  assert(h:stop(sys.SIGINT))
+  local interrupted = assert(h:wait(20000))
+  assert(not interrupted.ok, "an interrupted run passed")
+  -- Each half is let go with its descriptor, which the run opens
+  -- close-on-exec: these fail should a process the run starts inherit
+  -- it, and keep the flock, which outlives the run in any process
+  -- holding the same open file.
+  assert(rebuild_lock.take(root, 0, "write") == "held",
+    "an interrupted run left the lock held:\n" .. tostring((Fs.read(tmp .. "/interrupted.out"))))
+  rebuild_lock.release()
+
+  assert(Fs.write(root .. "/suite/slow_test.tl",
+    "local function test_fails()\n  error(\"no\")\nend\n"))
+  local failed = assert(start_test(root, tmp .. "/failed.out"):wait(20000))
+  assert(not failed.ok, tostring((Fs.read(tmp .. "/failed.out"))))
+  assert(rebuild_lock.take(root, 0, "write") == "held", "a failed run left the lock held")
+  rebuild_lock.release()
+end
+
+--- Asks for the lock of the tree at the first `%q` by `rebuild_lock.hold`
+--- as the role `%q`, and prints what it answered.
+local holding = [[
+local held, trouble = require("build.rebuild_lock").hold(%q, %q, "probe")
+print(tostring(held) .. " " .. trouble)
+]]
+
+--- A process asking for the lock by `hold` as `role`, with the lock of
+--- `root` handed to it, its stdout and stderr to `output`.
+local function start_handed(root: string, role: string, output: string): Child.Handle
+  local fd = assert(Fs.open_write(output))
+  local env = this_program.environment()
+  env.COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock"
+  local started = this_program.program({ "-e", holding:format(root, role) },
+    { env = env, stdout = fd, stderr = fd, process_group = true })
+  local h = assert(Child.start(started.argv, started.options))
+  assert(Fs.close(fd))
+  return h
+end
+
+--- A write of the projection by a child of the lock's holder, handed
+--- the lock (as a boot's bridge is by the boot), goes on at once under
+--- its parent's hold, which it could never take itself; a `cosmic test`
+--- run handed it waits all the same, so a variable a user set, or one
+--- left over, never lets two runs of the tests in at once.
+local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string)
+  local root = tree(tmp)
+  assert(rebuild_lock.take(root, 0, "test") == "held")
+  local write = start_handed(root, "write", tmp .. "/write.out")
+  local written, write_trouble = write:wait(20000)
+  local test_run = start_handed(root, "test", tmp .. "/test.out")
+  local ok, failure = pcall(await, "the test run to wait", function(): boolean
+    local text = Fs.read(tmp .. "/test.out") or ""
+    return text:find("waiting for it", 1, true) ~= nil
+  end)
+  local running, _ = test_run:try_wait()
+  rebuild_lock.release()
+  local ran = assert(test_run:wait(20000))
+  local write_text = tostring((Fs.read(tmp .. "/write.out")))
+  local test_text = tostring((Fs.read(tmp .. "/test.out")))
+  assert(written ~= nil and written.ok, tostring(write_trouble) .. "\n" .. write_text)
+  assert(write_text == "false \n", write_text)
+  assert(ok, tostring(failure) .. "\n" .. test_text)
+  assert(running ~= nil and not running.finished, "a handed test run went on:\n" .. test_text)
+  assert(ran.ok and test_text:find("\ntrue \n$"), test_text)
+end
+
+--- A write of a checkout's projection, o/cosmic.db, waits while another
+--- run holds the checkout's lock, saying so, and lands once it lets go:
+--- here a file run, which builds its tree and writes the projection
+--- (build/dispatch.tl), while this test holds the lock as `cosmic test`
+--- does.
+local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/o"))
+  assert(Fs.write(root .. "/hello.tl", 'print("hello")\n'))
+  assert(rebuild_lock.take(root, 0, "test") == "held")
+  local output = tmp .. "/run.out"
+  local fd = assert(Fs.open_write(output))
+  local started = this_program.program({ "hello.tl" }, {
+    cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
+    process_group = true,
+  })
+  local h = assert(Child.start(started.argv, started.options))
+  assert(Fs.close(fd))
+  local ok, failure = pcall(await, "the write to wait", function(): boolean
+    local text = Fs.read(output) or ""
+    return text:find("waiting for it", 1, true) ~= nil
+  end)
+  local running, _ = h:try_wait()
+  local projection, _ = sys.stat(root .. "/o/cosmic.db")
+  local unwritten = projection == nil
+  rebuild_lock.release()
+  local result = assert(h:wait(20000))
+  local text = assert(Fs.read(output))
+  assert(ok, tostring(failure) .. "\n" .. text)
+  assert(running ~= nil and not running.finished, "the write did not wait:\n" .. text)
+  assert(unwritten, "the projection was written under the lock")
+  assert(result.ok, text)
+  assert(text:find("o/cosmic.db: another cosmic run (pid " .. tostring(sys.getpid()) ..
+    ") in this checkout is running its tests; waiting for it", 1, true), text)
+  assert(text:find("hello\n", 1, true), text)
 end

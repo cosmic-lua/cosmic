@@ -34,7 +34,6 @@ local work = require("build.work")
 local writer = require("build.writer")
 local log = require("build.verdict").log
 local type compiler = require("build.compiler")
-local plural = require("build.plural")
 
 local record reboot
   --- How the tree stands against the running binary.
@@ -320,13 +319,18 @@ local function into(handle: work.Handle, built: compiler,
   return exec_trouble
 end
 
---- Where the holder of the rebuild lock (`build.rebuild_lock`) sets
---- aside the database of the tool under o/ to read it (`replaced`).
-local probe_name = "/o/rebuild.lock.probe"
+-- The rebuild lock (`build.rebuild_lock`) is held by a run from the
+-- moment it finds it must rebuild or boot the tool until it re-enters
+-- the command on the tool it wrote, or exits. A `cosmic test` run holds
+-- it already, from its start, and a sandboxed test worker never takes
+-- it, since only the tree's own tool (`reboot.own_tool`) rebuilds. A run
+-- waits for its holder as long as it takes, as `rebuild_lock.hold`
+-- does: that may be a whole `cosmic test` run, and a holder that dies
+-- lets it go.
 
---- How long a run waits for another's rebuild or boot before it refuses:
---- a cold boot on a loaded host takes minutes, not half an hour.
-local lock_wait_ms <const> = 30 * 60 * 1000
+--- Where the holder of the rebuild lock sets aside the database of the
+--- tool under o/ to read it (`replaced`).
+local probe_name = "/o/rebuild.lock.probe"
 
 --- The meta a tool's database carries that tells one written apart
 --- from another.
@@ -423,7 +427,7 @@ local function serialize(handle: work.Handle, root: string,
   -- Tried at once, while this run holds the working database: a run
   -- holding the lock may be waiting for that database, so this run
   -- waits for the lock only once it has closed it.
-  local taken, trouble = rebuild_lock.take(root, 0)
+  local taken, trouble = rebuild_lock.take(root, 0, "rebuild")
   if taken == nil then
     log:complain(closing(handle, trouble))
     return 1
@@ -448,18 +452,11 @@ local function serialize(handle: work.Handle, root: string,
     log:complain(close_trouble)
     return 1
   end
-  local other = rebuild_lock.holder(root)
-  log:complain(other .. " in this checkout is rebuilding the tool; waiting for it")
-  local waited, wait_trouble = rebuild_lock.take(root, lock_wait_ms)
-  if waited == nil then
+  local waited, wait_trouble = rebuild_lock.wait(root, "rebuild",
+    rebuild_lock.holder(root) .. "; waiting for it" .. rebuild_lock.suffix(root))
+  if not waited then
     log:complain(wait_trouble)
     return 1
-  end
-  if waited == "busy" then
-    log:complain(other .. " held the tool's rebuild lock past " ..
-      plural.count(lock_wait_ms // 60000, "minute") .. "; stop it, or wait " ..
-      "for it, and run this again")
-    return 3
   end
   -- Released at once: the run entered below takes it again if it must.
   rebuild_lock.release()
@@ -482,8 +479,14 @@ function reboot.boot_into(root: string, argv: {integer:string},
     return "the tool is still stale after a reboot"
   end
   log:complain("the core is stale; running bin/zig build boot")
+  -- The boot takes the rebuild lock (build/zig.tl), which a guard
+  -- calling this holds: handed on, rather than waited for.
+  local boot_environment = environment
+  if rebuild_lock.holds(root) then
+    boot_environment = rebuild_lock.hand(environment, root)
+  end
   local result, trouble = Child.run({ root .. "/bin/zig", "build", "boot" },
-    { cwd = root, env = environment, stdout = 2 })
+    { cwd = root, env = boot_environment, stdout = 2 })
   if result == nil then
     return "bin/zig build boot: " .. trouble
   end
