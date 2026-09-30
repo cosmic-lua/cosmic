@@ -110,4 +110,27 @@ function Example.cancel()
   assert(answer == Poll.CANCELLED)
 end
 
+--- A task that waits on whatever its waits answer is ended by `kill`
+--- where it waits: its `<close>` variables are closed, and a join
+--- answers [`Poll.CANCELLED`].
+function Example.kill()
+  local released = false
+  local record Lease
+    metamethod __close: function(Lease)
+  end
+  local lease_mt: metatable<Lease> = { __close = function() released = true end }
+  Poll.run(function()
+    local stubborn = Poll.spawn(function()
+      local _ <close> = setmetatable({} as Lease, lease_mt)
+      while true do local _, _ = Poll.delay(60000) end
+    end)
+    assert(Poll.delay(0))
+    stubborn:cancel()
+    stubborn:kill()
+    local ended, why = stubborn:join()
+    print(released, ended, why)
+    assert(released and not ended and why == Poll.CANCELLED)
+  end)
+end
+
 return Example

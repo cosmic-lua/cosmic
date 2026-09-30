@@ -244,8 +244,8 @@ local record Net
     --- it waits, from 0; nil for no limit.
     timeout_ms: integer
     --- On stopping, how long open connections have to finish, from 0,
-    --- before their tasks are cancelled and their connections closed;
-    --- nil to wait for every one.
+    --- before their tasks are killed ([`Poll.Task.kill`]) and their
+    --- connections closed; nil to wait for every one.
     grace_ms: integer
     --- Called once every listener listens, in a task of the server's
     --- run, with where each listens -- a port the kernel chose for one
@@ -320,8 +320,8 @@ local record Net
     addresses: {Address}
     --- Stops the server, from any task of its run: every listener is
     --- closed at once, and [`Net.serve`] returns once every task of its
-    --- run has ended, the connections still open after `grace_ms`
-    --- cancelled and closed. Stopping a server that is stopping does
+    --- run has ended, the tasks of the connections still open after
+    --- `grace_ms` killed and the connections closed. Stopping a server that is stopping does
     --- nothing.
     stop: function(Server)
   end
@@ -1041,11 +1041,9 @@ resume_accepting = function(s: Serving)
   end
 end
 
---- Waits for every connection open to finish. Those left once
---- `grace_ms` has passed, or a signal has ended the grace, are
---- cancelled and closed, so every wait of theirs fails, and are waited
---- for again: a protocol that goes on after its reads and writes fail
---- holds the drain open.
+--- Waits for every connection open to finish. The tasks of those left
+--- once `grace_ms` has passed, or a signal has ended the grace, are
+--- killed where they wait, and their connections closed.
 local function drain(s: Serving)
   if not s.hurried then
     local grace = s.spec.grace_ms
@@ -1063,18 +1061,18 @@ local function drain(s: Serving)
     end)
     local _, _ = s.grace:join()
   end
-  if next(s.conns) == nil then return end
-  -- TODO: end a connection's task outright at grace_ms once cosmic.poll
-  -- can kill one task (close its coroutine as close_all does), rather
-  -- than leave it to notice its waits failing.
-  for task, conn in pairs(s.conns) do
-    task:cancel()
+  local left: {Poll.Task} = {}
+  for task in pairs(s.conns) do left[#left + 1] = task end
+  for _, task in ipairs(left) do
+    local conn = s.conns[task]
+    -- A killed task is not resumed, so what serve_conn does once the
+    -- protocol returns is done here; its `held` has closed `conn`
+    -- already, unless a `<close>` handler before it raised.
+    local killed, trouble: boolean, any = pcall(task.kill, task)
     local _, _ = conn:close()
-  end
-  while true do
-    local task = next(s.conns)
-    if task == nil then return end
-    local _, _ = task:join()
+    s.conns[task] = nil
+    s.open = s.open - 1
+    if not killed then report(s, tostring(trouble)) end
   end
 end
 
@@ -1108,8 +1106,8 @@ end
 
 --- How long past `grace_ms` a stopped worker has to exit before it is
 --- ended -- sent SIGKILL by its supervisor, or, where the supervisor is
---- gone, exiting itself: its drain ends at `grace_ms`, and it then
---- closes what it cancelled and exits.
+--- gone, exiting itself: its drain ends at `grace_ms`, unless a
+--- protocol holds the thread, and it then exits.
 local KILL_MARGIN_MS <const> = 1000
 
 --- What a worker is handed, as COSMIC_NET_WORKER names it past the
@@ -1535,12 +1533,13 @@ end
 --- One connection's failure is its own: what its protocol raises is
 --- given to [`ServeSpec.on_error`], the connection is closed, and the
 --- rest are served on. A connection still open `grace_ms` after the
---- stop is cancelled and closed: its waits fail, "cancelled" and then
---- "connection is closed", and what its protocol raises then is
---- reported the same way. A protocol that keeps waiting after its
---- reads and writes fail holds Net.serve from returning; one that goes
---- on calling them after "connection is closed", which fails without
---- waiting, stalls every task of the run.
+--- stop has its task killed where it waits ([`Poll.Task.kill`]) and is
+--- closed: the protocol is not resumed, but its `<close>` variables
+--- are closed, and what one of them raises is reported the same way.
+--- A protocol that loops without waiting -- calling read after
+--- "connection is closed", which fails without waiting, or computing
+--- without end -- cannot be killed: it holds the thread, and so every
+--- task of the run and Net.serve's return, until it waits.
 ---
 --- With [`ServeSpec.workers`], this process supervises workers that
 --- serve, as that field says, and the connections, protocols and
@@ -1549,7 +1548,7 @@ end
 --- SIGINT and SIGTERM stop the server as [`Server.stop`] does: it holds
 --- a [`Child.guard`] for its run, and the first signal of either kind
 --- stops it. One more while it drains ends `grace_ms` at once, the
---- connections still open cancelled and closed. Where a signal stopped
+--- connections still open killed and closed. Where a signal stopped
 --- it, the guard is released, not closed, so Net.serve returns true
 --- without the signal delivered again; a caller that would know of it,
 --- or die of it, holds a [`Child.guard`] of its own around the call,

@@ -344,16 +344,16 @@ local function test_a_worker_handed_what_is_no_listener_fails(tmp: string)
   assert(sys.close(file))
 end
 
---- A worker whose protocol never ends -- it waits on after its waits
---- fail, stalling the worker's run -- is sent SIGKILL a second past
---- grace_ms after the stop, and reported; the supervisor then returns
---- true.
+--- A worker whose protocol never ends -- it holds the thread rather
+--- than wait through the run, so its task cannot be killed at grace_ms
+--- -- is sent SIGKILL a second past grace_ms after the stop, and
+--- reported; the supervisor then returns true.
 local function test_a_worker_outlasting_the_stop_is_killed(tmp: string)
   local h <close> = started(tmp, "stuck.tl", [[
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
 return function(argv: {string}): integer
   local troubles: {string} = {}
   local ok, why = Net.serve{
@@ -363,7 +363,7 @@ return function(argv: {string}): integer
     serve = function(conn: Net.Conn)
       assert(Stream.lines(conn):read())
       assert(conn:write("held\n"))
-      while true do local _, _ = Poll.delay(10) end
+      while true do local _, _ = Time.sleep_ns(10000000) end
     end,
     on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)

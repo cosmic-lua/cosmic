@@ -408,3 +408,116 @@ local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
   sys.close(reader)
   sys.close(writer)
 end
+
+--- A killed task is ended where it waits and never resumed: its
+--- `<close>` variables are closed, its joiners answer CANCELLED, and
+--- neither its descriptor turning ready nor its timeout passing wakes
+--- it after.
+local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  local closed, resumed = false, false
+  local joined_ok, joined_why: boolean, string
+  local closer_mt: metatable<Closer> = { __close = function() closed = true end }
+  Poll.run(function()
+    local sleeper = Poll.spawn(function()
+      local _ <close> = setmetatable({} as Closer, closer_mt)
+      local _, _ = Poll.readable(reader, 20)
+      resumed = true
+    end)
+    local joiner = Poll.spawn(function() joined_ok, joined_why = sleeper:join() end)
+    assert(Poll.delay(0))
+    sleeper:kill()
+    assert(closed, "the killed task's <close> variable was not closed")
+    assert(sys.write(writer, "x") == 1)
+    assert(Poll.delay(50))
+    assert(joiner:join())
+    local ok, why = sleeper:join()
+    assert(not ok and why == Poll.CANCELLED, why)
+  end)
+  assert(not resumed, "a killed task was resumed")
+  assert(not joined_ok and joined_why == Poll.CANCELLED, joined_why)
+  sys.close(reader)
+  sys.close(writer)
+end
+
+--- A task killed while it waits to be resumed -- not yet started, or
+--- answered but not yet run, whether in the ready queue or in the batch
+--- the run is resuming -- never runs again.
+local function test_kill_takes_a_ready_task_from_the_queue()
+  local ran: {string} = {}
+  Poll.run(function()
+    local unstarted = Poll.spawn(function() ran[#ran + 1] = "unstarted" end)
+    unstarted:kill()
+    local answered = Poll.spawn(function()
+      local _, _ = Poll.delay(1000)
+      ran[#ran + 1] = "answered"
+    end)
+    assert(Poll.delay(0))
+    answered:cancel()
+    answered:kill()
+    local later: Poll.Task
+    Poll.spawn(function() later:kill() end)
+    later = Poll.spawn(function() ran[#ran + 1] = "later" end)
+  end)
+  assert(#ran == 0, table.concat(ran, ","))
+end
+
+--- Killing a task that has ended, or one kept past its run, does
+--- nothing; a task killing itself raises.
+local function test_kill_of_an_ended_task_or_of_itself()
+  local kept: Poll.Task
+  Poll.run(function()
+    local done = Poll.spawn(function() end)
+    assert(done:join())
+    done:kill()
+    assert(done:join())
+    local selfish: Poll.Task
+    selfish = Poll.spawn(function()
+      raises(function() selfish:kill() end, "cannot kill itself")
+    end)
+    assert(selfish:join())
+    kept = selfish
+  end)
+  kept:kill()
+end
+
+--- What a `<close>` handler raises as its task is killed, `kill` raises,
+--- the task ended and its other `<close>` variables closed all the same;
+--- uncaught, it ends the run. A handler there cannot wait.
+local function test_kill_raises_what_a_close_handler_raises()
+  local closed = false
+  local wait_trouble = ""
+  local in_task = true
+  local closer_mt: metatable<Closer> = { __close = function() closed = true end }
+  local raiser_mt: metatable<Closer> = { __close = function()
+    local _, err: boolean, any = pcall(Poll.delay, 0)
+    wait_trouble = tostring(err)
+    in_task = Poll.in_task()
+    error("broken close", 0)
+  end }
+  Poll.run(function()
+    local task = Poll.spawn(function()
+      local _ <close> = setmetatable({} as Closer, closer_mt)
+      local _ <close> = setmetatable({} as Closer, raiser_mt)
+      local _, _ = Poll.delay(1000)
+    end)
+    assert(Poll.delay(0))
+    local killed, err: boolean, any = pcall(task.kill, task)
+    assert(not killed and err == "broken close", tostring(err))
+    local ok, why = task:join()
+    assert(not ok and why == Poll.CANCELLED, why)
+  end)
+  assert(closed, "a <close> variable after the raising one was not closed")
+  assert(wait_trouble:find("while its task is killed", 1, true), wait_trouble)
+  assert(not in_task, "in_task answered true for a task being killed")
+  raises(function()
+    Poll.run(function()
+      local task = Poll.spawn(function()
+        local _ <close> = setmetatable({} as Closer, raiser_mt)
+        local _, _ = Poll.delay(1000)
+      end)
+      assert(Poll.delay(0))
+      task:kill()
+    end)
+  end, "broken close")
+end
