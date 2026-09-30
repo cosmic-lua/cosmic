@@ -266,12 +266,14 @@ saves and still carries the products, both taken from the queue's run:
 - Each leg of a queue run that passed keeps what main would save
   (`queue-seed.sh stage`): its trimmed verdicts and compiles, where
   they differ from the entry it restored, the driver check's marker,
-  where the check ran, and its zig build outputs, as a tar (an artifact
-  keeps no file's mode), where it restored no entry of this core and
-  vendor part, with `seed.keys` naming the key each is saved under, the
-  key main's own save would compute. It uploads them as `seed-<leg>`,
-  kept a day. The checked job (below) keeps its verdicts the same way,
-  as `seed-linux-x86_64-checked`; its zig build outputs are
+  where the check ran, with `seed.keys` naming the key each is saved
+  under, the key main's own save would compute. It uploads them as
+  `seed-<leg>`, kept a day. Where it restored no entry of this core and
+  vendor part, it keeps its zig build outputs too, as a tar (an artifact
+  keeps no file's mode) in an artifact of their own, `seed-zig-<leg>`,
+  whose failure fails nothing: they save only time. The checked job
+  (below) keeps its verdicts the same way, as
+  `seed-linux-x86_64-checked`; its zig build outputs are
   linux-x86_64's, whose leg keeps them.
 - A push to main first runs `reuse` (`queue-seed.sh find`), which asks
   the API for a `merge_group` run of ci.yml on a
@@ -288,7 +290,9 @@ saves and still carries the products, both taken from the queue's run:
   hashes its path, the runner's), saves that leg's seed under the keys
   it names and uploads the queue's `portable-product-<leg>` as this
   run's; its checked entry saves the checked job's verdicts and relays
-  no product. The `ci` join
+  no product. After the relay, and failing nothing, it saves the leg's
+  zig build outputs, unless an entry of their core and vendor part is
+  there already (an earlier queue run's of the same core). The `ci` join
   compares those products as it does a platform run's, reading `seed`'s
   result in place of the legs' and the checked job's, and
   prerelease.yml publishes them
@@ -311,9 +315,10 @@ per core or vendor change: without them only the nightly saved any,
 and each queue run after a change to `core/` compiled the core again
 on every leg and for the checked build, some four to five minutes of
 the gate, where one that restores an entry of its own core boots in
-seconds. Seeding them moves a few hundred MB a leg through an artifact
-the gate waits to upload (at deflate's fastest), on the queue's runs
-that restored no such entry.
+seconds. Seeding them moves a leg's raw tar, larger than its cache
+entry of a few hundred MB compressed, through an artifact the gate
+waits to upload (at deflate's fastest), on the queue's runs that
+restored no such entry.
 
 ### the run ahead
 
@@ -492,7 +497,9 @@ that reuses the queue's run builds nothing, and saves instead the
 queue's leg's entry where that leg restored none of its core and vendor
 part (the queue's result, above), so once per core change too.
 The scheduled run restores nothing, compiles cold and saves a compact
-entry. A whole entry is about 0.5 GB for the four legs, and it grows
+entry. An entry is a few hundred MB compressed a leg (linux-x86_64's
+grew 323 to 388 MB over a day's runs: the `TODO:` on ci.yml's names),
+about 1 GB a set of the four legs, and it grows
 with each save, since zig never prunes its cache and a save carries all
 it restored: a day's core changes each save one that holds the last's,
 until the nightly's cold build, which is what bounds an entry. When

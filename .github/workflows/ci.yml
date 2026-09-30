@@ -40,7 +40,10 @@
   # A newer push supersedes a branch's run. Main's pushes run one at a
   # time and to the end, so their saves land in commit order and each
   # completed run can publish a prerelease (one that reuses the queue's
-  # run takes a minute or two, so few wait); the scheduled run and a
+  # run takes a minute or two, so few wait: after a core or vendor
+  # change a little longer, as `seed` moves the queue's zig build
+  # outputs into the cache once it has relayed the products); the
+  # scheduled run and a
   # manual one take groups of their own, so no push cancels them or is
   # cancelled by them.
   concurrency: {
@@ -669,9 +672,10 @@
         # restore one built from it rather than the nightly's, which
         # compiles the core again on every leg (some two to three
         # minutes a boot and a checked build). Once per core change, of
-        # some 0.5 GB for the four legs: the nightly still bounds what
-        # each carries (it restores nothing), and GitHub evicts the least
-        # recently used, so the older of them.
+        # a few hundred MB compressed a leg (linux-x86_64's 323 to 388 MB,
+        # the TODO above), about 1 GB a set of four: the nightly still
+        # bounds what each carries (it restores nothing), and GitHub
+        # evicts the least recently used, so the older of them.
         # TODO: delete a seeded zig build entry once the nightly's
         # supersedes it (in `prune`, as prune-commit-verdicts.sh deletes
         # the verdicts under a commit), should their room in the
@@ -705,8 +709,23 @@
             path: "${{ runner.temp }}/seed",
             "if-no-files-found": "error",
             "retention-days": 1,
-            # The zig build outputs' tar, a few hundred MB, is its bulk,
-            # and the gate waits on the upload: deflate's fastest.
+          },
+        },
+        # The zig build outputs apart, where the stage kept them: a
+        # failure here costs a later run only time, so it fails nothing,
+        # where one of the seed above fails the leg. The raw tar is
+        # larger than the leg's cache entry (a few hundred MB
+        # compressed), and the gate waits on it: deflate's fastest.
+        {
+          name: "upload the zig build outputs main would save of this leg",
+          if: "success() && github.event_name == 'merge_group'",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "seed-zig-${{ matrix.name }}",
+            path: "${{ runner.temp }}/seed-zig",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
             "compression-level": 1,
           },
         },
@@ -1141,7 +1160,7 @@
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
         # Under the commit first, as a leg saves them.
         {
@@ -1161,21 +1180,6 @@
           if: "steps.keys.outputs.compiles != ''",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {path: "${{ runner.temp }}/build-cache", key: "${{ steps.keys.outputs.compiles }}"},
-        },
-        # From the tar the leg kept them in, with their modes, where the
-        # leg saved them, under the queue run's key (`<run>-<attempt>`),
-        # which a restore by the prefix of this core finds as its own.
-        {
-          name: "lay out zig build outputs",
-          if: "steps.keys.outputs.zig-build != ''",
-          shell: "sh",
-          run: "tar -xf \"$RUNNER_TEMP/zig-build.tar\" -C \"$RUNNER_TEMP\" && rm \"$RUNNER_TEMP/zig-build.tar\"",
-        },
-        {
-          name: "save zig build outputs",
-          if: "steps.keys.outputs.zig-build != ''",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {path: "${{ runner.temp }}/zig-build", key: "${{ steps.keys.outputs.zig-build }}"},
         },
         {
           name: "save the CI driver check's marker",
@@ -1210,6 +1214,55 @@
             "if-no-files-found": "error",
             "retention-days": 7,
           },
+        },
+        # The queue leg's zig build outputs, after the relay, and none of
+        # it a failure: an entry missing costs a later run only time.
+        # Not where an entry of this core and vendor part is there
+        # already (an earlier queue run's of the same core, or this
+        # run's first attempt): the lookup asks by the prefix a leg's
+        # restore asks for first. Else from the tar the leg kept them in,
+        # with their modes, where the leg saved them, under the queue
+        # run's key (`<run>-<attempt>`), which a restore by that prefix
+        # finds.
+        {
+          name: "look up zig build outputs of this core",
+          id: "zig-build-lookup",
+          if: "steps.keys.outputs.zig-build != ''",
+          "continue-on-error": true,
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.keys.outputs.zig-build }}",
+            "restore-keys": "${{ steps.keys.outputs.zig-build-exact }}\n",
+            "lookup-only": true,
+          },
+        },
+        {
+          id: "zig-build-download",
+          if: "steps.keys.outputs.zig-build != '' && steps.zig-build-lookup.outputs.cache-matched-key == ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "seed-zig-${{ matrix.name }}",
+            path: "${{ runner.temp }}",
+            "run-id": "${{ needs.reuse.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "lay out zig build outputs",
+          id: "zig-build-unpack",
+          if: "steps.zig-build-download.outcome == 'success'",
+          "continue-on-error": true,
+          shell: "sh",
+          run: "tar -xf \"$RUNNER_TEMP/zig-build.tar\" -C \"$RUNNER_TEMP\" && rm \"$RUNNER_TEMP/zig-build.tar\"",
+        },
+        {
+          name: "save zig build outputs",
+          if: "steps.zig-build-unpack.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/zig-build", key: "${{ steps.keys.outputs.zig-build }}"},
         },
       ],
     },

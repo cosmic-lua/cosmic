@@ -38,12 +38,15 @@
 # to main, for a branch based on it: .github/scripts/merge-base.sh); and
 # `driver-checked` (from $RUNNER_TEMP/driver-checked), the key its marker
 # holds, where the driver check ran and passed; and `zig-build` (from
-# $RUNNER_TEMP/zig-build, as `zig-build.tar`: an artifact keeps no
-# file's mode, and zig's cache holds programs it runs), under
-# ZIG_BUILD_KEY, the restore's primary key, where ZIG_BUILD_EXACT, the
-# prefix of an entry built from this very core and vendor part, does
-# not begin ZIG_BUILD_RESTORED, the entry restored (a job that saves no
-# zig build outputs, ci.yml's `checked`, sets no ZIG_BUILD_*).
+# $RUNNER_TEMP/zig-build, as $RUNNER_TEMP/seed-zig/zig-build.tar, an
+# artifact of its own: an artifact keeps no file's mode, and zig's
+# cache holds programs it runs), under ZIG_BUILD_KEY, the restore's
+# primary key, where ZIG_BUILD_EXACT, the prefix of an entry built from
+# this very core and vendor part, does not begin ZIG_BUILD_RESTORED,
+# the entry restored, with that prefix as `zig-build-exact`, which main's
+# `seed` looks up before it saves (a job that saves no zig build
+# outputs, ci.yml's `checked`, sets no ZIG_BUILD_*). A tar that fails
+# keeps none, and the stage goes on: they save only time.
 #
 # ahead, a merge_group run's job before its suite (ci.yml's "find the
 # run ahead in the queue"): finds the run ahead of this one in the
@@ -232,19 +235,26 @@ entry() {
   echo "$name=$prefix$digest" >> "$seed/seed.keys"
 }
 
-# zig's build outputs under KEY, unless EXACT is empty or begins
-# RESTORED: an entry of this core and vendor part answers already.
+# zig's build outputs under KEY, unless EXACT begins RESTORED (an entry
+# of this core and vendor part answers already; an empty EXACT begins
+# every key). Never a failure: none kept costs only time.
 zig_build() {
   key=$1 exact=$2 restored=$3
-  [ -n "$key" ] && [ -n "$exact" ] && [ -d "$RUNNER_TEMP/zig-build" ] || return 0
+  [ -n "$key" ] && [ -d "$RUNNER_TEMP/zig-build" ] || return 0
   case $restored in "$exact"*) return 0 ;; esac
-  tar -cf "$seed/zig-build.tar" -C "$RUNNER_TEMP" zig-build
+  mkdir -p "$zig" &&
+    tar -cf "$zig/zig-build.tar" -C "$RUNNER_TEMP" zig-build || {
+    rm -f "$zig/zig-build.tar"
+    echo "warning: the zig build outputs could not be kept: none seeded" >&2
+    return 0
+  }
   echo "zig-build=$key" >> "$seed/seed.keys"
+  echo "zig-build-exact=$exact" >> "$seed/seed.keys"
 }
 
 stage() {
-  seed=$RUNNER_TEMP/seed
-  rm -rf "$seed"
+  seed=$RUNNER_TEMP/seed zig=$RUNNER_TEMP/seed-zig
+  rm -rf "$seed" "$zig"
   mkdir -p "$seed"
   : > "$seed/seed.keys"
   entry verdicts verdicts "${VERDICTS_PREFIX-}" "${VERDICTS_DIGEST-}" "${VERDICTS_RESTORED-}"
