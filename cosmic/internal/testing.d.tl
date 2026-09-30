@@ -51,6 +51,12 @@ local record testing
   --- when given a buffer of `room` bytes (1 to 4096), or nil when it
   --- says the path does not fit.
   executable_path: function(room: integer): string | nil
+
+  --- Whether `text`, a /proc/<pid>/mountinfo, lists the filesystem on
+  --- `device` ("major:minor", as its third field writes it) as mounted
+  --- with local_lock "flock" or "all" among the filesystem's own
+  --- options: what [`sys.flock_kind`] asks of an NFS file's mount.
+  mountinfo_local_flock: function(text: string, device: string): boolean
 end
 
 return testing

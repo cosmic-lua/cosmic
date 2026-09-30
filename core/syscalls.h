@@ -32,6 +32,9 @@
 #ifndef COSMIC_SYSCALLS_H
 #define COSMIC_SYSCALLS_H
 
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "lua.h"
 
 /* The process's logical, directly executable relaunch path.
@@ -54,6 +57,13 @@ const char *cosmic_path (lua_State *L, int index);
 
 /* Opens the table as the [`cosmic.sys`] module. */
 int cosmic_open_syscalls (lua_State *L);
+
+/* Whether `text`, `used` bytes of a /proc/<pid>/mountinfo, lists the
+ * filesystem on `device` ("major:minor", as its third field writes it)
+ * as mounted with local_lock "flock" or "all" among the filesystem's
+ * own options, which keep an NFS client's flock apart from its fcntl
+ * locks (`flock_kind`). A line that does not parse is passed over. */
+bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *device);
 
 #endif
 

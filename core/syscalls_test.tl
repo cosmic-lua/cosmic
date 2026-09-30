@@ -1542,6 +1542,34 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   assert(errno == sys.EBADF, said)
 end
 
+--- `flock_kind`'s reading of an NFS file's mount (checked core only,
+--- whose instrument reaches it): the lines of its device, the third
+--- field, say whether local_lock "flock" or "all" is among the
+--- filesystem's own options, after the lone "-"; a mount's own options
+--- before it, another device's line, a word that only begins so, and a
+--- line that does not parse say nothing.
+local function test_flock_kind_reads_an_nfs_mounts_local_lock()
+  if testing.configuration ~= "sanitized" then return end
+  local sample = table.concat({
+    "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw",
+    "30 22 0:40 / /home rw,relatime shared:5 - nfs4 server:/home " ..
+      "rw,vers=4.2,rsize=1048576,local_lock=none,addr=10.0.0.1",
+    "31 22 0:41 / /mnt/my\\040share rw master:3 shared:7 - nfs server:/a local_lock=flock,rw",
+    "32 22 0:42 / /srv rw - nfs server:/srv rw,vers=3,local_lock=all",
+    "33 22 0:43 / /opt rw,local_lock=flock - nfs server:/opt rw,local_lock=flocks",
+    "a line that does not parse",
+    "34 22 0:44 / /mnt/nosep rw shared:9 local_lock=flock",
+  }, "\n") .. "\n"
+  local want: {string:boolean} = { ["8:1"] = false, ["0:40"] = false, ["0:41"] = true,
+    ["0:42"] = true, ["0:43"] = false, ["0:44"] = false, ["0:4"] = false, ["0:420"] = false }
+  for device, local_flock in pairs(want) do
+    assert(testing.mountinfo_local_flock(sample, device) == local_flock, device)
+  end
+  assert(not testing.mountinfo_local_flock("", "0:41"))
+  assert(testing.mountinfo_local_flock("32 22 0:42 / /srv rw - nfs s:/srv local_lock=all", "0:42"),
+    "a last line with no newline")
+end
+
 --- One signal guard is open at a time: a second is refused with EBUSY,
 --- the number cosmic.sys carries, until the first is closed.
 local function test_a_second_signal_guard_is_busy()

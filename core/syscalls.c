@@ -2877,8 +2877,10 @@ COSMIC_SYSCALL(may_map_ids, 0) {
  * pid -- on the parent's memory: whether it may mount a procfs of its
  * pid namespace as [`place_proc`] does, on the /proc of a mount
  * namespace it made private first, so neither mount reaches the
- * parent's. It exits 0, or with the errno that refused it. */
-static int try_own_proc (void *unused) {
+ * parent's. It exits 0, or with the errno that refused it. It runs with
+ * every signal blocked, as [`start_child`]'s child does, so no handler
+ * of the parent's runs on the parent's memory. */
+static _Noreturn int try_own_proc (void *unused) {
   (void)unused;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) _exit(errno & 0xff);
   if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") != 0)
@@ -2899,12 +2901,16 @@ COSMIC_SYSCALL(own_proc, 0) {
   if (stack == MAP_FAILED) return cosmic_fail_effect(L, errno);
   int failure = 0;
   if (mprotect(stack, (size_t)page, PROT_NONE) != 0) failure = errno;
+  sigset_t every, before;
+  sigfillset(&every);
+  if (!failure && sigprocmask(SIG_SETMASK, &every, &before) != 0) failure = errno;
   pid_t child = -1;
   if (!failure) {
     child = clone(try_own_proc, stack + size,
                   CLONE_VM | CLONE_VFORK | CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWPID | SIGCHLD,
                   NULL);
     if (child < 0) failure = errno;
+    sigprocmask(SIG_SETMASK, &before, NULL);
   }
   munmap(stack, size);
   if (failure) return cosmic_fail_effect(L, failure);
@@ -3010,6 +3016,47 @@ COSMIC_SYSCALL(cpu_features, 0) {
   return 1;
 }
 
+bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *device) {
+  size_t device_length = strlen(device);
+  for (size_t at = 0; at < used;) {
+    size_t end = at;
+    while (end < used && text[end] != '\n') end++;
+    /* Its fields, space-separated: the third the device, and after a
+     * lone "-" at the seventh or later, the type, the source and the
+     * filesystem's own options. */
+    size_t start[64], length[64];
+    int fields = 0;
+    for (size_t f = at; f < end && fields < 64;) {
+      size_t stop = f;
+      while (stop < end && text[stop] != ' ') stop++;
+      start[fields] = f;
+      length[fields] = stop - f;
+      fields++;
+      f = stop + 1;
+    }
+    at = end + 1;
+    if (fields <= 2 || length[2] != device_length ||
+        memcmp(text + start[2], device, device_length) != 0)
+      continue;
+    for (int sep = 6; sep + 3 < fields; sep++) {
+      if (length[sep] != 1 || text[start[sep]] != '-') continue;
+      const char *options = text + start[sep + 3];
+      size_t size = length[sep + 3];
+      for (size_t o = 0; o < size;) {
+        size_t stop = o;
+        while (stop < size && options[stop] != ',') stop++;
+        size_t word = stop - o;
+        if ((word == 16 && memcmp(options + o, "local_lock=flock", 16) == 0) ||
+            (word == 14 && memcmp(options + o, "local_lock=all", 14) == 0))
+          return true;
+        o = stop + 1;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
 COSMIC_SYSCALL(flock_kind, 1) {
   int fd = cosmic_checkfd(L, 1);
 #if defined(__linux__)
@@ -3040,42 +3087,7 @@ COSMIC_SYSCALL(flock_kind, 1) {
   size_t used;
   int failure = read_whole("/proc/self/mountinfo", &text, &used);
   if (failure == ENOMEM) return cosmic_fail(L, failure);
-  bool local = false;
-  for (size_t at = 0; failure == 0 && at < used && !local;) {
-    size_t end = at;
-    while (end < used && text[end] != '\n') end++;
-    /* Its fields, space-separated: the third the device, and after a
-     * lone "-" at the seventh or later, the type, the source and the
-     * filesystem's own options. */
-    size_t start[64], length[64];
-    int fields = 0;
-    for (size_t f = at; f < end && fields < 64;) {
-      size_t stop = f;
-      while (stop < end && text[stop] != ' ') stop++;
-      start[fields] = f;
-      length[fields] = stop - f;
-      fields++;
-      f = stop + 1;
-    }
-    bool ours = fields > 2 && length[2] == (size_t)wrote &&
-                memcmp(text + start[2], device, (size_t)wrote) == 0;
-    for (int sep = 6; ours && sep + 3 < fields; sep++) {
-      if (length[sep] != 1 || text[start[sep]] != '-') continue;
-      const char *options = text + start[sep + 3];
-      size_t size = length[sep + 3];
-      for (size_t o = 0; o < size;) {
-        size_t stop = o;
-        while (stop < size && options[stop] != ',') stop++;
-        size_t word = stop - o;
-        if ((word == 16 && memcmp(options + o, "local_lock=flock", 16) == 0) ||
-            (word == 14 && memcmp(options + o, "local_lock=all", 14) == 0))
-          local = true;
-        o = stop + 1;
-      }
-      break;
-    }
-    at = end + 1;
-  }
+  bool local = failure == 0 && cosmic_mountinfo_local_flock(text, used, device);
   cosmic_free(text);
   lua_pushstring(L, local ? "apart" : "shared");
   return 1;

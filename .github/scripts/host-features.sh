@@ -7,10 +7,13 @@
 # each once, in byte order, a line each, less those a core on this
 # machine chooses no code by (`keep` below) -- on macOS, where there is
 # no /proc, those of core/syscalls.c's `cpu_features` that sysctl
-# answers 1 for (`features` below); then the kernel's release and version, as their files hold
-# them -- on macOS, where there is no /proc, the system volume's
-# SystemVersion.plist, which names its build, and nothing
-# (`darwin_system` there).
+# answers 1 for (`features` below); then the kernel's release and
+# version, as their files hold them -- on macOS, where there is no
+# /proc, the system volume's SystemVersion.plist, which names its
+# build, and nothing (`darwin_system` there). On Linux the key asks the
+# processor itself (cpuid, the auxiliary vector) where this reads
+# /proc/cpuinfo: the two differ only where the kernel hides a flag the
+# processor has, which costs a cache hit, not a verdict.
 # ci.yml names a leg's verdict cache by it, so a runner restores the
 # newest cache written on a host whose keys it can reach.
 #
@@ -59,12 +62,13 @@ kept() {
 # The processor's features, a line or a line of them each: CPUINFO's, or
 # on macOS, where there is no /proc/cpuinfo, each sysctl name
 # core/syscalls.c's `cpu_features` asks there that answers 1, by the
-# feature's name.
+# feature's name. sysctl is named by its path: a test's worker has no
+# PATH, and /usr/sbin is not on every shell's default one.
 features() {
   if [ -z "$cpuinfo" ] && [ "$sysname" = Darwin ]; then
     for pair in aes:hw.optional.arm.FEAT_AES asimd:hw.optional.AdvSIMD \
         crc32:hw.optional.armv8_crc32 pmull:hw.optional.arm.FEAT_PMULL; do
-      if [ "$(sysctl -n "${pair#*:}" 2>/dev/null || true)" = 1 ]; then
+      if [ "$(/usr/sbin/sysctl -n "${pair#*:}" 2>/dev/null || true)" = 1 ]; then
         printf '%s\n' "${pair%%:*}"
       fi
     done

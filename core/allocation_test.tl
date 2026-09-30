@@ -105,6 +105,7 @@ local function test_only_the_checked_core_instruments()
     fail_at = function() testing.fail_at() end,
     live_transfers = function() testing.live_transfers() end,
     executable_path = function() testing.executable_path(4096) end,
+    mountinfo_local_flock = function() testing.mountinfo_local_flock("", "0:1") end,
   }
   for name, use in pairs(instruments) do
     local ok, err: boolean, any = pcall(use)
@@ -311,9 +312,12 @@ local function test_children_releases_its_block_whenever_an_allocation_fails(tmp
 end
 
 --- `maps_id` reads each map into a block of the core's C heap, and
---- closes the map's descriptor, whichever allocation is refused: a
---- refused block answers ENOMEM, and one granted an answer. Off Linux
---- it allocates nothing, and there is nothing to walk.
+--- closes the map's descriptor, whichever allocation is refused. A
+--- refused block fails the call, which then raises, since every
+--- allocation past the first refused is refused too, its failure's
+--- message among them; so the walk checks what is left behind, not
+--- the ENOMEM no caller here can see. Off Linux it allocates nothing,
+--- and there is nothing to walk.
 local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
   if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
   local before = next_descriptor(tmp)

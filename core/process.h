@@ -242,7 +242,7 @@ COSMIC_SYSCALL(maps_id, 1);
 COSMIC_SYSCALL(may_map_ids, 0);
 
 /*
- * --- Whether a sandbox gets a procfs of its own pid namespace here (`spawn`'s `unveil`), as the kernel answers a child started to mount one as a sandbox does, in user, mount and pid namespaces of its own: false with the errno that refused it where it would get the host's /proc instead -- EPERM where a user namespace may not mount a procfs, as where a container's runtime masks parts of /proc, or where no user namespace is to be had; EINVAL from a kernel before 5.8 -- and ENOSYS off Linux.
+ * --- Whether a sandbox gets a procfs of its own pid namespace here (`spawn`'s `unveil`), as the kernel answers a child started to mount one as a sandbox does, in user, mount and pid namespaces of its own: false with the errno that refused it where it would get the host's /proc instead -- EPERM where a user namespace may not mount a procfs, as where a container's runtime masks parts of /proc, or where no user namespace is to be had; EINVAL from a kernel before 5.8; ECHILD where that child was ended by a signal -- and ENOSYS off Linux.
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
