@@ -88,7 +88,7 @@ COSMIC_SYSCALL(connect, 2);
  * --- Sends what of `data` the socket takes now, from byte `from` on, so a caller sending the rest after a partial send copies none of it. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
  * ---@param fd integer the connected descriptor
  * ---@param data string the bytes to send
- * ---@param from? integer the first byte to send, from 1 (the default) to one past the last
+ * ---@param from? integer the first byte to send, from 1 (the default) to one past the last; any other raises
  * ---@return integer|nil sent how many bytes were sent, from `from`, or nil on failure: EAGAIN when the socket takes none now
  * ---@return string error what went wrong, when sent is nil
  * ---@return integer errno the error number, when sent is nil
