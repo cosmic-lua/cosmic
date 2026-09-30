@@ -383,7 +383,9 @@ end
 --- with what the program carrying it does: `boot_hash`, a digest of
 --- every file the tool's trees hold but their tests, and
 --- `projected`, the signature of the whole projection it was written
---- from. What reads them at run time compares them with a value the
+--- from, which only a tool written by a writer older than
+--- [`build.writer`]'s `carried` leaving it out carries -- the first
+--- stage of a rebuild from one. What reads them at run time compares them with a value the
 --- same binary carries, or with a tree's own fingerprint, which at test
 --- time is the tree the binary was built from (a stale tool rebuilds
 --- before it tests, or refuses) and in a fixture is a tree of the
@@ -498,9 +500,10 @@ end
 ---
 --- So a program rebuilt from a tree whose edit moved nothing it carries
 --- keys the same, though `tree_wide_meta` moved every byte of its
---- database's meta: `projected` moves with an edit to a test, which no
---- binary carries, though a test is no part of `boot_hash` and so
---- rebuilds no tool; a boot writes one anyway.
+--- database's meta. A tool no longer carries `projected`, which moves
+--- with an edit to a test ([`build.writer`]'s `carried`), so a boot
+--- after one writes the same bytes; `boot_hash` moves with any other
+--- file of the tree, carried or not.
 --- What reads those rows, and why none can turn a verdict:
 ---
 --- - `boot_hash`: build.reboot compares it with the fingerprint of the
@@ -519,7 +522,8 @@ end
 ---   which only moves a name; and an unsandboxed verdict's identity
 ---   (build.test's `identity_of`), which a sandboxed key is not.
 --- - `projected`: build.writer reads it from a projection it wrote, to
----   skip writing the same one again, never from a binary.
+---   skip writing the same one again, never from a binary, which carries
+---   it only when an older writer wrote its database.
 ---
 --- And every sandboxed worker runs this same binary, whether its test
 --- declares `tool` or not; one that does not declare `store` reads

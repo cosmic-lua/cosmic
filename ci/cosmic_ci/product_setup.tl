@@ -10,7 +10,7 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   local targets_path = root .. "/o/targets.tsv"
   local product_exists = Predicate.exists(product)
   assert(not product_exists, "product already exists: " .. product)
-  for _, required in ipairs({ cosmic, root .. "/o/cosmic.db", targets_path }) do
+  for _, required in ipairs({ cosmic, root .. "/o/carried.db", targets_path }) do
     assert(assert(Fs.stat(required)).kind == "file",
       "boot output is missing: " .. required)
   end
@@ -43,7 +43,11 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   Fixture.copy(cosmic, product .. "/cosmic", 0x1ed)
   Fixture.copy(hello, product .. "/apps/hello", 0x1ed)
   Fixture.copy(second, product .. "/apps/second", 0x1ed)
-  Fixture.copy(root .. "/o/cosmic.db", product .. "/cosmic.db")
+  -- The database the tool carries, not the whole projection: that holds
+  -- the tree's tests too, and signs them in its meta, so an edit to a
+  -- test would move the runtime artifacts written from it
+  -- (runtime_setup.tl) and every fixture keyed by one.
+  Fixture.copy(root .. "/o/carried.db", product .. "/cosmic.db")
   Fixture.copy(targets_path, product .. "/targets.tsv")
   local targets = Fixture.targets(product .. "/targets.tsv")
   for _, target in ipairs(targets) do

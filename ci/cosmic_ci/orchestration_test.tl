@@ -504,9 +504,12 @@ local function declared_host(source: string): {string:boolean}
 end
 
 --- A sandboxed fixture's verdict is shared across runs and commits, so
---- its key must hold the product it checks: each declares the product's
---- `cosmic` by the variable the driver gives it, which keys the verdict
---- by those bytes, and no other product's verdict stands for it. Each
+--- its key must hold the parts of the product it exercises: each
+--- declares the product's `prefix` -- its launcher, manifest and cores --
+--- by the variable the driver gives it, which keys the verdict by those
+--- bytes, and no other launcher's or core's verdict stands for it; and
+--- `product`, which checks the whole product, declares each of its
+--- files. Each
 --- unsandboxed one declares the whole environment and nothing else:
 --- nothing holds it to a declaration, and it shares no verdict for one
 --- to key, but a release that keys every unsandboxed run by declaration
@@ -524,14 +527,20 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   for _, name in ipairs(names) do
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
-      assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/cosmic"],
-        name .. ": a sandboxed fixture's key does not hold the product")
+      assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/prefix"],
+        name .. ": a sandboxed fixture's key does not hold the product's prefix")
     else
       local needs = code_of(name):match("\nTest%.needs%s*%(?%s*(%b{})")
       assert(needs ~= nil and needs:gsub("%s", "") == '{env={"*"}}',
         name .. ": an unsandboxed fixture declares other than the whole environment: " ..
         tostring(needs))
     end
+  end
+  local whole = declared_host("product")
+  for _, part in ipairs({ "cosmic", "hashes.sha256", "prefix", "manifest", "apps/hello",
+                          "apps/second", "cosmic.db", "targets.tsv" }) do
+    assert(whole["$COSMIC_FIXTURE_PRODUCT/" .. part],
+      "product: the fixture that checks the whole product does not declare " .. part)
   end
   local listed = 0
   for _ in pairs(Orchestration.sandboxed_fixtures) do listed = listed + 1 end
