@@ -472,9 +472,9 @@ local function parse_new(db: Sqlite.Handle, built: compiler, tally: importer.Par
     end
     -- A source from outside the tree (a doc guide's test module) is
     -- read at lines of its own, not its file's, so its links are not
-    -- kept: they would name lines the file does not have.
-    -- TODO: index a doc guide's links from its Markdown, once the rest
-    -- of the tree's Markdown is (build.link_index's TODO).
+    -- kept: they would name lines the file does not have. The guide's
+    -- links are its Markdown's, which the stage reads ([`build.work`]'s
+    -- `linked`).
     local found_links: {link_text.Found} = {}
     if row[4] ~= "1" then
       found_links = link_text.found(built, parsed.node, source, file)

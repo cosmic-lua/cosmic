@@ -3,8 +3,10 @@
 --- projection is written ([`build.writer`]).
 ---
 --- A parse records each link as written ([`link_text.found`]), keyed by
---- its source's hash like every other row a parse keeps. What a link
---- names cannot be known then: a symbol of another module is known
+--- its source's hash like every other row a parse keeps; so does the
+--- stage for each Markdown, C and Zig file `cosmic fix` checks the links
+--- of ([`build.work`]'s `linked`), whose rows name no module. What a
+--- link names cannot be known then: a symbol of another module is known
 --- only once every module is parsed, and a parse sees one source. So
 --- the link is resolved here, as the projection is written, by the rule
 --- `cosmic fix` checks it by ([`link_resolve.resolve`]), against the
@@ -28,12 +30,6 @@
 -- TODO: keep a project's links to the standard library too, once the
 -- projection's signature holds the binary's docs it would resolve them
 -- against (a stale tool's are not the ones a boot's would be).
--- TODO: index the links of Markdown, C and Zig files too, as `cosmic
--- fix` checks them: no parse keeps them, since none is a module. Read
--- them here, each file's text in [`Pending.digest`], once the stage
--- walks every file `fix --check .` does (it leaves out doc/ but its
--- guides); their rows have no `from_module`, so [`build.docs`] would
--- answer them by the database rather than by the module's owner.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -44,14 +40,17 @@ local link_text = require("build.link_text")
 local symbol_index = require("build.symbol_index")
 
 local record link_index
-  --- One link as a parse recorded it, with the module and file it is in.
+  --- One link as a parse or the stage recorded it, with the module
+  --- and file it is in: `from_module` is "" for a file that is no
+  --- module.
   record Raw
     from_module: string
     from_file: string
     line: integer
     column: integer
     form: string
-    doc: boolean
+    --- What the link is in, as a row of `links` says it.
+    source: string
     text: string
     target: string
     own: boolean
@@ -90,8 +89,12 @@ local record link_index
     root: string
     rows: {Raw}
     memo: Memo
-    --- A hash of every answer in `memo`, from the root down: what
-    --- the rows are a function of beside the projection's own.
+    --- A hash of every answer in `memo`, from the root down -- of a
+    --- file read, the anchors it gives, which is all a link reads of it
+    --- -- and of every link of a file that is no module, as the stage
+    --- read it: what the rows are a function of beside the projection's
+    --- own. So an edit to a file that moves none of its links and none
+    --- of the headings a link names leaves it as it was.
     digest: string
   end
 end
@@ -103,11 +106,17 @@ local text = bind.text
 --- `insert_docs`), each under the module its docs name -- in file and
 --- line order. A source under o/, the build's output (the compiler a
 --- boot puts in), is the tree's by no link.
+--- Then every link the stage read of a file that is no module (`linked`).
 local raw_links =
-  "SELECT m.path, i.file, l.line, l.column, l.form, l.doc, l.text, l.target, l.own, l.alias " ..
+  "SELECT m.path, i.file, l.line, l.column, l.form, " ..
+  "CASE l.doc WHEN 1 THEN 'doc' ELSE 'comment' END, l.text, l.target, l.own, l.alias " ..
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs WHERE kind = 'decl') m " ..
   "JOIN inputs i ON i.path = m.path AND i.file NOT GLOB 'o/*' " ..
-  "JOIN links l ON l.source_hash = i.source_hash ORDER BY i.file, l.line, l.column"
+  "JOIN links l ON l.source_hash = i.source_hash " ..
+  "UNION ALL SELECT '', f.path, l.line, l.column, l.form, " ..
+  "CASE f.kind WHEN 'markdown' THEN 'text' ELSE 'comment' END, l.text, l.target, l.own, '' " ..
+  "FROM linked f JOIN linked_found l ON l.sha256 = f.sha256 AND l.kind = f.kind " ..
+  "ORDER BY 2, 3, 4"
 
 --- A context over the tree at `root` on disk that keeps each answer in
 --- `memo`, and gives one already kept without asking again; its
@@ -182,9 +191,10 @@ local function label_of(raw: link_index.Raw): string | nil
   return link_text.shortcut_target(raw.text)
 end
 
---- `memo`'s answers as one hash, each path from `root`, so the same
---- tree gives the same digest wherever it is checked out.
-local function digest_of(root: string, memo: link_index.Memo): string
+--- `memo`'s answers and the links of `rows` in no module as one hash,
+--- each path from `root`, so the same tree gives the same digest
+--- wherever it is checked out.
+local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.Raw}): string
   local function from_root(path: string): string
     if path == root then return "." end
     if path:sub(1, #root + 1) == root .. "/" then return path:sub(#root + 2) end
@@ -192,6 +202,13 @@ local function digest_of(root: string, memo: link_index.Memo): string
   end
   local real_root = memo.reals[root] ~= nil and memo.reals[root][1] or root
   local lines: {string} = {}
+  for _, raw in ipairs(rows) do
+    if raw.from_module == "" then
+      lines[#lines + 1] = table.concat({ "link", raw.from_file, tostring(raw.line),
+        tostring(raw.column), raw.form, raw.source, raw.text, raw.target,
+        raw.own and "own" or "-" }, " ")
+    end
+  end
   for path, kind in pairs(memo.kinds) do
     lines[#lines + 1] = "kind " .. from_root(path) .. " " .. kind
   end
@@ -203,14 +220,22 @@ local function digest_of(root: string, memo: link_index.Memo): string
   end
   for path, answer in pairs(memo.reads) do
     local read = answer[1]
-    lines[#lines + 1] = "read " .. from_root(path) .. " " .. (read ~= nil and Hash.hex_sha256(read) or "-")
+    local said = "-"
+    if read ~= nil then
+      local anchors: {string} = {}
+      for anchor in pairs(link_resolve.anchors(read)) do anchors[#anchors + 1] = anchor end
+      table.sort(anchors)
+      said = Hash.hex_sha256(table.concat(anchors, "\n"))
+    end
+    lines[#lines + 1] = "read " .. from_root(path) .. " " .. said
   end
   table.sort(lines)
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
---- The links the parse recorded in `db`'s planned modules, resolved
---- as far as the tree at `root` goes, with a digest of what it said.
+--- The links the parse recorded in `db`'s planned modules and the stage
+--- in its files that are none, resolved as far as the tree at `root`
+--- goes, with a digest of what it said.
 function link_index.pending(db: Sqlite.Handle, root: string): link_index.Pending | nil, string
   local absolute, _ = Fs.absolute(root)
   root = absolute or root
@@ -223,7 +248,7 @@ function link_index.pending(db: Sqlite.Handle, root: string): link_index.Pending
     rows[#rows + 1] = {
       from_module = row[1], from_file = row[2],
       line = math.tointeger(tonumber(row[3])) or 0, column = math.tointeger(tonumber(row[4])) or 0,
-      form = row[5], doc = row[6] == "1", text = row[7], target = row[8],
+      form = row[5], source = row[6], text = row[7], target = row[8],
       own = row[9] == "1", alias = row[10],
     }
   end
@@ -243,7 +268,7 @@ function link_index.pending(db: Sqlite.Handle, root: string): link_index.Pending
       local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
     end
   end
-  return { root = root, rows = rows, memo = memo, digest = digest_of(root, memo) }
+  return { root = root, rows = rows, memo = memo, digest = digest_of(root, memo, rows) }
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory.
@@ -303,7 +328,7 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     end
     if target ~= nil then
       local kind, module, symbol = target.kind, target.module, target.symbol
-      if kind == "declared" then
+      if kind == "declared" and raw.from_module ~= "" then
         -- A name the file declares is a symbol of its own module when
         -- that module documents it (a parameter or a block's local is not).
         local own, trouble = member_of(raw.from_module, target.name)
@@ -319,7 +344,7 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
           module = module, symbol = symbol, path = target.path, anchor = target.anchor,
           from_file = raw.from_file, line = raw.line, column = raw.column,
           from_module = raw.from_module, kind = kind, form = raw.form,
-          source = raw.doc and "doc" or "comment", text = raw.text,
+          source = raw.source, text = raw.text,
         }
       end
     end

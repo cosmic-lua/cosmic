@@ -18,6 +18,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
@@ -25,6 +26,7 @@ local analysis_schema = require("build.analysis_schema")
 local todo_scan = require("build.todo_scan")
 local gen_syscalls = require("build.gen_syscalls")
 local bind = require("build.bind")
+local link_files = require("build.link_files")
 local log = require("build.verdict").log
 
 local record work
@@ -122,6 +124,17 @@ local version <const> = "27"
 --- `tool`, without the bytes, and read only to find the TODOs it holds
 --- (see `todos`): the build consumes none of it. A file over
 --- `scanned_limit` is left out, as data rather than text.
+---
+--- `linked` is every file whose links `cosmic fix` checks that is not
+--- Teal ([`link_files.checked`]): its Markdown, its Zig and, in cosmic's
+--- own tree, its C, but for a tree of its own inside it (`ci/`).
+--- Fingerprinted like `tool`, with the kind of file it is, and read to
+--- find its links: `linked_found` holds each link as [`link_files.found`]
+--- reads it, and `linked_texts` each text so read, whether or not it
+--- holds a link, both keyed by the text's hash and kind as a parse's
+--- rows are by their source's, for the projection's index of links
+--- ([`build.link_index`]). They hold what the code `meta`'s `links_by`
+--- names found, and go when other code stages.
 ---
 --- `inputs` is every module source the compiler and checker see, as
 --- a view: each staged `.tl` or `.d.tl` as it is, with the import path
@@ -292,6 +305,26 @@ work.schema = {
                                         ino INTEGER NOT NULL,
                                         dev INTEGER NOT NULL,
                                         sha256 TEXT NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS linked (path TEXT PRIMARY KEY,
+                                       size INTEGER NOT NULL,
+                                       mtime_ns INTEGER,
+                                       ino INTEGER NOT NULL,
+                                       dev INTEGER NOT NULL,
+                                       sha256 TEXT NOT NULL,
+                                       kind TEXT NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS linked_texts (sha256 TEXT NOT NULL,
+                                             kind TEXT NOT NULL,
+                                             PRIMARY KEY (sha256, kind)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS linked_found (sha256 TEXT NOT NULL,
+                                             kind TEXT NOT NULL,
+                                             ordinal INTEGER NOT NULL,
+                                             line INTEGER NOT NULL,
+                                             column INTEGER NOT NULL,
+                                             form TEXT NOT NULL,
+                                             text TEXT NOT NULL,
+                                             target TEXT NOT NULL,
+                                             own INTEGER NOT NULL,
+                                             PRIMARY KEY (sha256, kind, ordinal)) WITHOUT ROWID]],
 }
 for _, statement in ipairs(analysis_schema.statements) do
   work.schema[#work.schema + 1] = statement
@@ -828,6 +861,8 @@ local puts: {string:string} = {
     "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
   scanned = "INSERT OR REPLACE INTO scanned (path, size, mtime_ns, ino, dev, " ..
     "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
+  linked = "INSERT OR REPLACE INTO linked (path, size, mtime_ns, ino, dev, " ..
+    "sha256, kind) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8)",
   todo = "INSERT OR IGNORE INTO todos (sha256, line, last, text) " ..
     "VALUES (?1, ?2, ?3, ?4)",
 }
@@ -953,13 +988,22 @@ local function forget(db: Sqlite.Handle, table_name: string,
   return true, ""
 end
 
+--- Reads the links of the files of `linked` not yet read (see its
+--- definition, which needs [`hash_over`]).
+local find_links: function(handle: work.Handle, texts: {string:string}): boolean, string
+
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
---- what the tool is made of into `tool`, and everything else the walk
---- finds into `scanned`, in one pass: a file is stat'd once and read at
---- most once, and scanned for TODOs in the same moment. A file whose
---- stat matches its row is not read; one that differs, or is new, is
---- read, hashed and written; one the walk no longer finds is deleted.
---- Only a change reaches the database.
+--- what the tool is made of into `tool`, everything else the walk
+--- finds into `scanned`, and each file whose links are checked into
+--- `linked`, in one pass: a file is stat'd once and read at most once,
+--- and scanned for TODOs and read for links in the same moment. A file
+--- whose stat matches its row is not read; one that differs, or is
+--- new, is read, hashed and written; one the walk no longer finds is
+--- deleted. Only a change reaches the database.
+---
+--- The walk goes where `cosmic fix` looks for links, too
+--- ([`link_files.skipper`]): what only that walk reaches (doc/'s prose,
+--- `.claude/`) is staged into `linked` alone.
 --- @param own_tree whether `root` is cosmic's own tree
 function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, string
   local db = handle.db
@@ -977,11 +1021,21 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   -- (`sys -> /usr`), is staged whole, by design. Only a link is
   -- stat'd, so a tree with none costs nothing more.
   local skip_path = own_tree and skip_in_own_tree or skip_input
+  -- Each entry only the walk for links reaches.
+  local links_only: {string:boolean} = {}
+  local link_skip = link_files.skipper(root)
+  local function for_links(entry: string): boolean
+    return not link_skip(entry) and not (own_tree and foreign_trees[first_of(entry)])
+  end
   local ancestors: {string:boolean} = nil
   local above = ""
   local function skip(entry: string, name: string, kind: string): boolean
-    if skip_path(entry, name) then
-      return true
+    local parent = entry:match("^(.*)/[^/]*$")
+    if (parent ~= nil and links_only[parent]) or skip_path(entry, name) then
+      if not for_links(entry) then
+        return true
+      end
+      links_only[entry] = true
     end
     if kind ~= "link" then
       return false
@@ -1027,7 +1081,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   end
   local files: {string} = walked
   local known: {string:{string:Known}} = {}
-  for _, table_name in ipairs({ "files", "tool", "scanned" }) do
+  for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
     local rows, trouble = known_in(db, table_name)
     if rows == nil then
       return nil, trouble
@@ -1035,7 +1089,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     known[table_name] = rows
   end
   local put: {string:Sqlite.Statement} = {}
-  for _, name in ipairs({ "files", "tool", "scanned", "todo" }) do
+  for _, name in ipairs({ "files", "tool", "scanned", "linked", "todo" }) do
     local statement, trouble = db:prepare(puts[name])
     if statement == nil then
       finish(put)
@@ -1045,11 +1099,15 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   end
   local now = Time.now_ns()
   local staged: work.Staged = { files = 0, read = 0 }
+  -- The text of each file of `linked` read here, by path.
+  local texts: {string:string} = {}
 
   for _, file in ipairs(files) do
-    local input = is_input(file, own_tree)
-    local tool = is_tool(file, own_tree)
-    local scan = not input and not tool and holds_own_todos(file)
+    local only = links_only[file] == true
+    local input = not only and is_input(file, own_tree)
+    local tool = not only and is_tool(file, own_tree)
+    local scan = not only and not input and not tool and holds_own_todos(file)
+    local link_kind = for_links(file) and link_files.checked(file, own_tree) or nil
     local st, stat_trouble = Fs.stat(root .. "/" .. file)
     if st == nil then
       finish(put)
@@ -1058,16 +1116,17 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     if scan and st.size > scanned_limit then
       scan = false
     end
-    if input or tool or scan then
+    if input or tool or scan or link_kind ~= nil then
       local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
       local settled = mtime_ns < now - settle_ns
-      if not scan then
+      if input or tool then
         staged.files = staged.files + 1
       end
       local write_files = input and moved(known.files, file, st, mtime_ns)
       local write_tool = tool and moved(known.tool, file, st, mtime_ns)
       local write_scanned = scan and moved(known.scanned, file, st, mtime_ns)
-      if write_files or write_tool or write_scanned then
+      local write_linked = link_kind ~= nil and moved(known.linked, file, st, mtime_ns)
+      if write_files or write_tool or write_scanned or write_linked then
         local data, read_trouble = Fs.read(root .. "/" .. file)
         if data == nil then
           finish(put)
@@ -1075,7 +1134,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         end
         staged.read = staged.read + 1
         local sha256 = Hash.hex_sha256(data)
-        if holds_own_todos(file) then
+        if (input or tool or scan) and holds_own_todos(file) then
           local ok, why = put_todos(put["todo"], data, sha256)
           if not ok then
             finish(put)
@@ -1095,6 +1154,13 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         if ok then
           ok, why = write(write_scanned, put["scanned"])
         end
+        if ok and write_linked then
+          texts[file] = data
+          ok, why = put["linked"]:bind_text(8, link_kind)
+          if ok then
+            ok, why = write(true, put["linked"])
+          end
+        end
         if not ok then
           finish(put)
           return nil, file .. ": " .. why
@@ -1103,11 +1169,15 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
   end
   finish(put)
-  for _, table_name in ipairs({ "files", "tool", "scanned" }) do
+  for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
     local forgot, forget_trouble = forget(db, table_name, known[table_name])
     if not forgot then
       return nil, forget_trouble
     end
+  end
+  local found, found_trouble = find_links(handle, texts)
+  if not found then
+    return nil, found_trouble
   end
   local pruned, prune_trouble = db:exec(
     "DELETE FROM todos WHERE sha256 NOT IN " ..
@@ -1128,6 +1198,158 @@ local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
     return nil, trouble
   end
   return rows[1][1]
+end
+
+--- The code finding links as this process runs it, and the boot hash
+--- of the tool that runs it, kept in `meta` as `links_by` and
+--- `links_boot`. A tool whose boot hash is `links_boot` runs the code
+--- `links_by` names. Any other tool names it by a hash of each module
+--- `require` reaches from [`build.link_files`], by name and source as
+--- the binary holds it, so that only an edit to that code reads every
+--- file's links again. A boot runs the tree's own code and carries no
+--- database: it names its code by the boot hash of the tool it writes
+--- ([`work.record_fingerprint`]'s `boot`), which it keeps as
+--- `links_boot` too, so that tool goes on from the boot's rows.
+local function links_finder(db: Sqlite.Handle): string | nil, string
+  local boot_hash = Store.meta("boot_hash")
+  if boot_hash == nil then
+    local fingerprint, trouble = hash_over(db, "1")
+    if fingerprint == nil then
+      return nil, trouble
+    end
+    local ok, record_trouble = Sqlite.run(db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('links_boot', ?1)", { text(fingerprint) })
+    if not ok then
+      return nil, record_trouble
+    end
+    return fingerprint
+  end
+  local last, last_trouble = Sqlite.text_rows(db,
+    "SELECT key, value FROM meta WHERE key IN ('links_boot', 'links_by')")
+  if last == nil then
+    return nil, last_trouble
+  end
+  local recorded: {string:string} = {}
+  for _, row in ipairs(last) do recorded[row[1]] = row[2] end
+  if recorded["links_boot"] == boot_hash and recorded["links_by"] ~= nil then
+    return recorded["links_by"]
+  end
+  local reached: {string:boolean} = {}
+  local stack: {string} = { "build.link_files" }
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not reached[name] then
+      reached[name] = true
+      local required, trouble = Store.requires(name)
+      if required == nil then
+        return nil, trouble
+      end
+      for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
+    end
+  end
+  local names: {string} = {}
+  for name in pairs(reached) do names[#names + 1] = name end
+  table.sort(names)
+  local parts: {string} = {}
+  for _, name in ipairs(names) do
+    local source, _ = Store.source(name)
+    parts[#parts + 1] = name .. "\n" .. (source or "")
+  end
+  local finder = Hash.hex_sha256(table.concat(parts, "\n\0\n"))
+  local ok, trouble = Sqlite.run(db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('links_boot', ?1)", { text(boot_hash) })
+  if not ok then
+    return nil, trouble
+  end
+  return finder
+end
+
+--- Reads the links of each file of `linked` whose text no row of
+--- `linked_texts` holds yet ([`link_files.found`]): from `texts`, where
+--- the stage read it, or else from the file, which is then written
+--- again if it has changed since it was staged, so that it is staged
+--- again next time. Every row goes first when the code finding them is
+--- not the code that found them, and what no file holds goes after.
+find_links = function(handle: work.Handle, texts: {string:string}): boolean, string
+  local db = handle.db
+  local finder, finder_trouble = links_finder(db)
+  if finder == nil then
+    return false, finder_trouble
+  end
+  local last, last_trouble = Sqlite.text_rows(db,
+    "SELECT value FROM meta WHERE key = 'links_by'")
+  if last == nil then
+    return false, last_trouble
+  end
+  if #last == 0 or last[1][1] ~= finder then
+    for _, statement in ipairs({ "DELETE FROM linked_found", "DELETE FROM linked_texts" }) do
+      local ok, trouble = db:exec(statement)
+      if not ok then
+        return false, trouble
+      end
+    end
+    local ok, trouble = Sqlite.run(db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('links_by', ?1)", { text(finder) })
+    if not ok then
+      return false, trouble
+    end
+  end
+  local unread, unread_trouble = Sqlite.text_rows(db,
+    "SELECT path, kind, sha256 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
+    "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
+  if unread == nil then
+    return false, unread_trouble
+  end
+  for _, row in ipairs(unread) do
+    local path, kind, sha256 = row[1], row[2], row[3]
+    local data = texts[path]
+    if data == nil then
+      local read, read_trouble = Fs.read(handle.root .. "/" .. path)
+      if read == nil then
+        return false, read_trouble
+      end
+      data = read
+      local now_hash = Hash.hex_sha256(data)
+      if now_hash ~= sha256 then
+        sha256 = now_hash
+        local ok, trouble = Sqlite.run(db,
+          "UPDATE linked SET sha256 = ?2, mtime_ns = NULL WHERE path = ?1",
+          { text(path), text(sha256) })
+        if not ok then
+          return false, trouble
+        end
+      end
+    end
+    local fresh, fresh_trouble = Sqlite.text_rows(db,
+      "INSERT OR IGNORE INTO linked_texts (sha256, kind) VALUES (?1, ?2) RETURNING 1",
+      { text(sha256), text(kind) })
+    if fresh == nil then
+      return false, fresh_trouble
+    end
+    if #fresh > 0 then
+      for ordinal, entry in ipairs(link_files.found(kind, data)) do
+        local link = entry.link
+        local ok, trouble = Sqlite.run(db,
+          "INSERT INTO linked_found (sha256, kind, ordinal, line, column, form, text, " ..
+          "target, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+          { text(sha256), text(kind), { integer = ordinal }, { integer = link.line },
+            { integer = link.column }, text(link.form), text(link.text), text(link.target),
+            { integer = entry.own and 1 or 0 } })
+        if not ok then
+          return false, path .. ": " .. trouble
+        end
+      end
+    end
+  end
+  for _, name in ipairs({ "linked_found", "linked_texts" }) do
+    local ok, trouble = db:exec("DELETE FROM " .. name .. " WHERE NOT EXISTS " ..
+      "(SELECT 1 FROM linked l WHERE l.sha256 = " .. name .. ".sha256 AND l.kind = " ..
+      name .. ".kind)")
+    if not ok then
+      return false, trouble
+    end
+  end
+  return true, ""
 end
 
 --- The tool's fingerprints, over `tool` (which holds no test: see

@@ -4,6 +4,7 @@ local Test = require("cosmic.test")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local importer = require("build.importer")
+local link_files = require("build.link_files")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -285,4 +286,206 @@ local function test_a_member_through_an_alias_or_a_typed_value_is_a_row(dir: str
     "build/boot.tl 5 21 cosmic.verbs Module.order",
   })
   assert(db:close())
+end
+
+--- The links of `out`'s files that are no module, each as
+--- `file:line:column source kind symbol path#anchor`.
+local function file_links(out: string): {string}
+  local db = assert(Sqlite.open(out, false))
+  local found = rows(db, "SELECT from_file || ':' || line || ':' || column, source, kind, " ..
+    "symbol, path || '#' || anchor FROM links WHERE from_module = '' " ..
+    "ORDER BY from_file, line, column")
+  assert(db:close())
+  return found
+end
+
+--- What `cosmic uses` lists for `query` in the projection at `out`, each
+--- as `file:line`.
+local function places(out: string, query: string): {string}
+  local db = assert(Sqlite.open(out, false))
+  local found: {string} = {}
+  for _, use in ipairs((assert(docs.uses(assert(docs.view({ db })), query)))) do
+    found[#found + 1] = use.from_file .. ":" .. use.line .. (use.link and " link" or "")
+  end
+  assert(db:close())
+  return found
+end
+
+--- Sets the modification time of each of `paths` under `root` to one
+--- long past, the same for each call with the same `at`, so that a stage
+--- trusts a stat of it.
+local function settle(root: string, at: integer, paths: {string})
+  for _, path in ipairs(paths) do
+    assert(Fs.set_mtime(root .. "/" .. path, 1000000000 + at))
+  end
+end
+
+--- A project's Markdown, wherever `cosmic fix` reads it (doc/'s prose
+--- too, which the build reads nothing else of), and its Zig are indexed
+--- as a module's comments are, each link under its file and no module,
+--- and `cosmic uses` lists them.
+local function test_a_markdown_or_zig_files_links_are_rows(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.mkdirs(root .. "/doc"))
+  assert(Fs.mkdirs(root .. "/.hidden"))
+  assert(Fs.write(root .. "/README.md", source("# Greet", "",
+    "Say it with [`greet.hello`], as [the notes](doc/notes.md#usage) say.")))
+  assert(Fs.write(root .. "/doc/notes.md", source("# Usage", "", "Then [`greet.bye`].")))
+  assert(Fs.write(root .. "/build.zig", source("// Builds what [`greet.hello`] greets.")))
+  assert(Fs.write(root .. "/.hidden/away.md", source("Not [`greet.hello`].")))
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  build_links(handle, out)
+  assert(work.close(handle))
+  same(file_links(out), {
+    "README.md:3:13 text symbol hello #",
+    "README.md:3:33 text anchor  doc/notes.md#usage",
+    "build.zig:1:16 comment symbol hello #",
+    "doc/notes.md:3:6 text symbol bye #",
+  })
+  same(places(out, "greet.hello"),
+    { "README.md:3 link", "build.zig:1 link", "greet.tl:1 link", "wave.tl:3" })
+  same(places(out, "doc/notes.md"), { "README.md:3 link" })
+end
+
+--- A file's links are read once for each text it holds: a stage that
+--- finds every file as it was reads none of them again, and the
+--- projection's signature stands. What signs it is what the index
+--- holds of a file: an edit to its prose that moves no link and no
+--- heading a link names leaves the signature, and one that moves a
+--- link, or a heading a link names, moves it.
+local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  local function readme(...: string)
+    assert(Fs.write(root .. "/README.md", source("# Greet", "",
+      "Say it with [`greet.hello`], as [usage](notes.md#usage) says.", ...)))
+  end
+  local function notes(heading: string, ...: string)
+    assert(Fs.write(root .. "/notes.md", source("# " .. heading, "", ...)))
+  end
+  readme()
+  notes("Usage", "Greet.")
+  settle(root, 1, { "greet.tl", "wave.tl", "README.md", "notes.md" })
+  local handle = assert(work.open(root))
+  local function staged(): work.Staged
+    local stage = assert(work.stage(handle, false))
+    assert(work.commit(handle))
+    return stage
+  end
+  local function signed(): string
+    local result = assert(importer.compile(handle, built, "link-index-test"))
+    return (assert(writer.signature(handle, result, "a writer")))
+  end
+  assert(staged().read == 4)
+  local first = signed()
+  same(rows(handle.db, "SELECT count(*) FROM linked_texts"), { "2" })
+  -- Nothing moved: nothing is read again, and the signature stands.
+  assert(staged().read == 0)
+  assert(signed() == first)
+  -- Prose alone moved, in the linking file and in the file linked to.
+  readme("", "Loudly.")
+  notes("Usage", "Greet, then wave.")
+  settle(root, 2, { "README.md", "notes.md" })
+  assert(staged().read == 2)
+  assert(signed() == first)
+  -- A heading a link names moved.
+  notes("Using", "Greet, then wave.")
+  settle(root, 3, { "notes.md" })
+  assert(staged().read == 1)
+  local renamed = signed()
+  assert(renamed ~= first)
+  -- A link moved.
+  assert(Fs.write(root .. "/README.md", source("# Greet", "", "Say it with [`greet.bye`].")))
+  settle(root, 4, { "README.md" })
+  assert(staged().read == 1)
+  assert(signed() ~= renamed)
+  local out = root .. "/o/cosmic.db"
+  build_links(handle, out)
+  same(file_links(out), { "README.md:3:13 text symbol bye #" })
+  assert(work.close(handle))
+end
+
+--- A file that goes, or is renamed, takes its rows with it, and moves
+--- the signature.
+local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.write(root .. "/README.md", source("Say it with [`greet.hello`].")))
+  assert(Fs.write(root .. "/other.md", source("Or [`greet.bye`].")))
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  local function signed(): string
+    assert(work.stage(handle, false))
+    local result = assert(importer.compile(handle, built, "link-index-test"))
+    local signature = assert(writer.signature(handle, result, "a writer"))
+    assert(writer.write_result(handle, out, result))
+    return signature
+  end
+  local first = signed()
+  same(file_links(out), { "README.md:1:13 text symbol hello #", "other.md:1:4 text symbol bye #" })
+  assert(Fs.rename(root .. "/README.md", root .. "/doc.md"))
+  local renamed = signed()
+  assert(renamed ~= first)
+  same(file_links(out), { "doc.md:1:13 text symbol hello #", "other.md:1:4 text symbol bye #" })
+  assert(Fs.remove(root .. "/other.md"))
+  assert(signed() ~= renamed)
+  same(file_links(out), { "doc.md:1:13 text symbol hello #" })
+  same(rows(handle.db, "SELECT path FROM linked"), { "doc.md" })
+  same(rows(handle.db, "SELECT count(*) FROM linked_texts"), { "1" })
+  same(rows(handle.db, "SELECT count(*) FROM linked_found"), { "1" })
+  assert(work.close(handle))
+end
+
+--- A tree nested in this one is its own: neither the walk `cosmic fix`
+--- checks links by nor the index enters a checkout of its own (a
+--- worktree under `.claude/`, one anywhere else) or any build output or
+--- vendored tree, at any depth; of `.claude/`, only its skills are read.
+local function test_a_nested_tree_is_not_indexed(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  local link = source("See [`greet.hello`].")
+  for _, path in ipairs({ ".claude/skills/greet/SKILL.md", ".claude/worktrees/x/o/n.md",
+      ".claude/worktrees/x/vendor/lib/README.md", ".claude/notes.md", "sub/o/n.md",
+      "sub/vendor/lib/README.md", "sub/patch/p.md", "nested/README.md", "kept/README.md" }) do
+    assert(Fs.mkdirs(Fs.dirname(root .. "/" .. path)))
+    assert(Fs.write(root .. "/" .. path, link))
+  end
+  assert(Fs.write(root .. "/nested/.git", "gitdir: elsewhere\n"))
+  same(assert(link_files.walk(root)), { ".claude/skills/greet/SKILL.md", "greet.tl",
+    "kept/README.md", "wave.tl" })
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  build_links(handle, out)
+  assert(work.close(handle))
+  same(file_links(out), { ".claude/skills/greet/SKILL.md:1:5 text symbol hello #",
+    "kept/README.md:1:5 text symbol hello #" })
+end
+
+--- In cosmic's own tree C is indexed too, at the column of its file a
+--- link is at, and a tree of its own inside it (ci/) is not: its links
+--- are that tree's.
+local function test_a_c_comments_links_are_rows_but_not_ci(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/tree"
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/ci"))
+  assert(Fs.write(root .. "/core/greet.c", source(
+    "/* Greets as [`greet.hello`] does. */",
+    "int greet (void);",
+    "",
+    "  // Then [`greet.bye`].")))
+  assert(Fs.write(root .. "/ci/README.md", source("CI's own [`greet.hello`].")))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local out = root .. "/o/cosmic.db"
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+  same(file_links(out), {
+    "core/greet.c:1:14 comment symbol hello #",
+    "core/greet.c:4:11 comment symbol bye #",
+  })
+  same(places(out, "greet.hello"), { "core/greet.c:1 link", "greet.tl:1 link", "wave.tl:3" })
 end
