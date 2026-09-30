@@ -59,6 +59,13 @@ end
 --- Whether `root`'s last build staged a source at `path` or under it,
 --- `path` relative to `root`; nil and why when its `o/build.db` cannot
 --- be read, which is not an answer either way.
+-- TODO: climb from a directory the last build staged no Teal under --
+-- prose alone (`doc/`, whose Markdown the walk skips), or one made
+-- since -- which is now a root of its own: `cosmic fix` there fails
+-- `../x.tl` as outside the project and writes an `o/` there. The fix is
+-- for the build to record the directories it walked, less the trees of
+-- their own within it (`ci/`, [`work.is_foreign_tree`]), and to climb
+-- on that record.
 local function staged(root: string, path: string): boolean | nil, string
   local file = root .. "/o/build.db"
   local db, open_trouble = Sqlite.open(file, false)

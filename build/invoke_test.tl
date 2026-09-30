@@ -17,9 +17,9 @@ local function test_a_run_captures_what_it_writes_and_exits_with(tmp: string)
 end
 
 --- A command line only a process of its own can run raises to the
---- caller -- a file run before anything runs, a call that would end the
---- process once everything is put back, even one the verb caught -- and
---- leaves everything as it found it.
+--- caller and leaves everything as it found it. A file run raises before
+--- anything runs. A call that would end the process raises once
+--- everything is put back, even when the verb catches it.
 local function test_what_only_a_process_can_do_raises(tmp: string)
   local exit, execve, attach = sys.exit, sys.execve, Store.attach
   local here = assert(sys.getcwd())

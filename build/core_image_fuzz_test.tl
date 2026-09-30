@@ -14,7 +14,8 @@ local artifact = require("build.artifact")
 local core_image = require("build.core_image")
 local fixture = require("build.core_image_fixture")
 
---- Overwrites the little-endian `width`-byte field at `at` in `s`.
+--- Overwrites the `width`-byte field at `at` in `s`, little-endian where
+--- `order` is "<" and big-endian otherwise.
 local function set_field(s: string, at: integer, width: integer, value: integer,
                          order: string): string
   local packed = order == "<" and string.pack("<i8", value):sub(1, width) or
@@ -22,8 +23,9 @@ local function set_field(s: string, at: integer, width: integer, value: integer,
   return s:sub(1, at - 1) .. packed .. s:sub(at + width)
 end
 
---- Draws edits of `fields` ({offset, width}, each from the end where
---- `from_end`) in `order`, cuts and junk onto one of `bases`.
+--- Draws edits of the fields `fields` finds in an input ({1-based
+--- offset, width}, written in `order`), cuts and junk onto one of
+--- `bases`.
 local function gen(bases: {string}, fields: function(string): {{integer}},
                    order: string): function(Fuzz.Source): string
   return function(src: Fuzz.Source): string
@@ -48,8 +50,8 @@ local function gen(bases: {string}, fields: function(string): {{integer}},
   end
 end
 
---- An ELF file's header, first program header and section header
---- fields, as {1-based offset, width}.
+--- An ELF file's header, first program header and first four section
+--- headers' fields, as {1-based offset, width}.
 local function elf_fields(bytes: string): {{integer}}
   local fields: {{integer}} = { { 33, 8 }, { 41, 8 }, { 55, 2 }, { 57, 2 }, { 59, 2 },
     { 61, 2 }, { 63, 2 }, { 73, 8 }, { 97, 8 } }

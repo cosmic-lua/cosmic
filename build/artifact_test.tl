@@ -1,6 +1,8 @@
---- Proves the portable writer's deterministic byte layout before any product
---- build path consumes it. The production C decoder is exercised separately
---- by test/portable/format_test.c against these same writer bytes.
+--- [`build.artifact`]'s byte layout: a prefix the same on every write,
+--- holding each core once where its manifest says, a program's trailer,
+--- a split at the database, and the head a key reads. The C reader of
+--- the same format (core/portable.c) is tested by
+--- test/portable/format_test.c.
 
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")

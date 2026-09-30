@@ -24,8 +24,7 @@ if built == nil then
 end
 
 --- Writes every entry of `files` (filename -> source) into a fresh
---- one-off project directory under `/tmp`, named after `case` and a random
---- suffix so a quickly reused process ID cannot pick up a prior run's cache.
+--- project directory of its own, named after `case`.
 local function write_fixture(case: string, files: {string:string}): string | nil, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
@@ -233,10 +232,8 @@ local function test_language_errors_name_relevant_checked_docs()
   end
 end
 
---- Syntax rejected while constructing the checker environment still keeps its
---- original diagnostic. Its corresponding language guide is independently
---- available rather than being promised by a code path compilation never
---- reaches, which `cosmic fix --check .` holds ([`build.tree_checks`]).
+--- A malformed type, which the parser refuses before the checker runs,
+--- keeps its own diagnostic.
 local function test_malformed_type_keeps_its_error()
   local root = assert(write_fixture("language-guide-malformed-type", {
     ["thing.tl"] = "local x: {string = integer} = {}\nreturn x\n",

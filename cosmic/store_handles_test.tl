@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 Test.needs{ store = true }
 
 --- A path is a filename, never a URI: one whose `vfs=` would pick a
---- VFS no capture observes names no file, and nothing is attached.
+--- VFS of its own names no file, and nothing is attached.
 local function test_attaching_a_uri_is_refused(tmp: string)
   local path = tmp .. "/real.db"
   local db = assert(Sqlite.open(path, true))

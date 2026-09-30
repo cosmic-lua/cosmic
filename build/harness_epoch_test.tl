@@ -162,8 +162,8 @@ local function test_the_harness_is_acknowledged()
   assert(complaint == nil, complaint)
 end
 
---- `retired` as build/harness_epoch.tl held it when `epoch` first had
---- a token: the counts of the epochs before, 1 to 7.
+--- A `retired` of the bare counts "1" to `n`, as build/harness_epoch.tl's
+--- begins with the counts of the epochs that had no token.
 local function counted(n: integer): {string}
   local retired: {string} = {}
   for i = 1, n do retired[i] = tostring(i) end

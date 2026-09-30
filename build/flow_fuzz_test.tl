@@ -89,7 +89,7 @@ local function test_format_refuses_or_lays_out_a_fixed_point(tmp: string)
   })
 end
 
---- A Teal value `from` takes, drawn.
+--- A Teal value [`flow.from`] takes, drawn.
 local function gen_teal(src: Fuzz.Source, depth: integer): any
   local kind = depth <= 0 and 0 or src:int(0, 2)
   if kind == 0 then

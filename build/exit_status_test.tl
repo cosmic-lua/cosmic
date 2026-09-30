@@ -1,8 +1,7 @@
---- What a main function returns is the program's exit status, and one it
---- cannot be is refused rather than passed on (core/check.h,
---- `cosmic_tostatus`): the status read from what it returns, as the
---- core reads it. Programs that return one are built and run in
---- build/exit_status_store_test.tl.
+--- The exit status a main function's return value asks for
+--- ([`build.exit_status.status`]), read as the core reads it
+--- (core/check.h, `cosmic_tostatus`). Programs that return one are built
+--- and run in build/exit_status_store_test.tl.
 
 local exit_status = require("build.exit_status")
 

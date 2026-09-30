@@ -195,10 +195,9 @@ local function fields_of(module: string, record: string): {string}
   return out
 end
 
---- A change to one field of a populated value, and what it holds
---- apart from the populated value (`from`), where one field is keyed
---- only as another says (`program` only for a test that runs the
---- tool): the key of `from`'s value and of `change`'s after it differ.
+--- A change to one field of a populated value, which must move the key.
+--- `from`, where given, first sets what the field is keyed only under
+--- (`closure_store` only where the module does not declare `store`).
 local record Change<T>
   from: function(T)
   change: function(T)
@@ -415,11 +414,11 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
 end
 
 --- A worker a root runner runs as a user of its own is keyed as that
---- user, with no group and no capability but the bounding set, which
---- it keeps, whatever groups and capabilities root had -- but apart
---- from that user's own runner's worker, which its sandbox could give
---- nothing only root may read, and from a worker run as root, or as
---- another user.
+--- user, with no group and no capability but the bounding set it keeps,
+--- whatever groups and capabilities root had. It keys apart from a
+--- worker run as root or as another user, and from the worker of a
+--- runner that is that user: a root runner's sandbox can give its
+--- worker what only root may read.
 local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp: string)
   local function status(name: string, text: string): string
     assert(Fs.write(tmp .. "/" .. name, text))
@@ -456,8 +455,9 @@ end
 --- reads nothing; one rewritten is read again.
 local function test_a_file_hashed_once_is_not_read_again(tmp: string)
   tree(tmp)
-  -- Settled, as a file a run remembers must be: older than a rewrite
-  -- within its timestamp's tick could go unseen.
+  -- Settled, as a file must be for a run to remember its digest: a
+  -- rewrite of a newer one could fall within its timestamp's tick and
+  -- go unseen.
   for _, file in ipairs({ "suite/t_test.tl", "suite/lib.tl", "suite/data/a.txt",
                           "suite/data/deeper/b.txt" }) do
     assert(sys.utimensat(tmp .. "/" .. file, 1000000000, 0, 1000000000, 0))
@@ -523,7 +523,7 @@ end
 --- value in the worker's environment is held by that name too; a
 --- change to what it holds moves the key, as does one to what a link
 --- declared leads to. A directory there is refused before any key is
---- made (R3): no key walks what a host directory holds.
+--- made: no key walks what a host directory holds.
 local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: string)
   local root = tmp .. "/root"
   tree(root)
@@ -835,7 +835,7 @@ local function test_a_change_outside_a_package_moves_what_is_installed(tmp: stri
 end
 
 --- The walk of what is installed leaves out /etc, the host's
---- configuration, which a user added or the clock's drift saved
+--- configuration, which adding a user or saving the clock's drift
 --- rewrites: a /etc/passwd whose modification time alone moved, or
 --- whose contents did, moves nothing.
 local function test_the_walk_of_what_is_installed_leaves_out_etc(tmp: string)
@@ -1003,7 +1003,7 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   assert(image_program ~= program and image_program ~= module_program,
     "the image left the program")
   assert(image_key ~= key and image_key ~= module_key, "the image left the key")
-  -- A text's bytes after a NUL, which quote() would end it at.
+  -- A text's bytes after a NUL, where SQLite's quote() would end it.
   meta.note = "a\0one"
   program_at(tool, "core one", meta, "bytecode one")
   local one_program = keys()

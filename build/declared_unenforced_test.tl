@@ -1,17 +1,20 @@
 --- End to end: an unsandboxed run keys each verdict by its test's
 --- declared inputs, as a sandboxed run does (build/declared_key.tl),
---- though nothing holds a worker to them -- as macOS, which has no
---- sandbox, trusts what CI's Linux legs enforce. Its verdict stands on
---- a run again, and in another checkout at the same path through a
---- shared cache COSMIC_VERDICT_CACHE names -- never through the one
---- every sandboxed checkout shares by default -- until what the test
---- declares changes -- but not in a checkout elsewhere, since its worker sees
---- the tree where it is, not at /tree as a sandboxed one does; its worker is
---- given the environment its key holds and no more, and the store of
---- its closure; and neither a
---- sandboxed verdict nor an unenforced one stands for the other. Each
---- run is unsandboxed by COSMIC_TEST_SANDBOX=0, so every host runs
---- these, whether or not it can sandbox a worker.
+--- though nothing holds a worker to them. macOS, which has no sandbox,
+--- trusts what CI's Linux legs enforce.
+---
+--- An unenforced verdict stands until what its test declares changes:
+--- on a run again, and in another checkout at the same path through a
+--- cache COSMIC_VERDICT_CACHE names, never through the one every
+--- sandboxed checkout shares by default. It stands in no checkout
+--- elsewhere, since its worker sees the tree where it is, not at /tree
+--- as a sandboxed one does. Its worker is given the environment its key
+--- holds and no more, and the store of its closure. Neither a sandboxed
+--- verdict nor an unenforced one stands for the other.
+---
+--- Every run here but the sandboxed one a case starts is unsandboxed by
+--- COSMIC_TEST_SANDBOX=0, so every host runs these, whether or not it
+--- can sandbox a worker.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")

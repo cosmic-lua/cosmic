@@ -47,7 +47,6 @@
 #include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
-#include "observed.h"
 #include "process.h"
 #include "portable.h"
 #include "psa/crypto.h"
@@ -305,11 +304,6 @@ COSMIC_SYSCALL(open, 3) {
   if (path == NULL) return cosmic_fail(L, EINVAL);
   int flags = cosmic_checkint(L, 2);
   int mode = cosmic_optint(L, 3, 0644);
-  /* Noted before it opens: an open may make the file it names. */
-  if (cosmic_observing &&
-      !cosmic_observed_note(COSMIC_OBSERVED_OPEN, path, strlen(path))) {
-    return cosmic_fail(L, ENOMEM);
-  }
   const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
   bool follow = (flags & O_NOFOLLOW) == 0;
   int refused = artifact_through_descriptor(path, follow, artifact, NULL);
@@ -509,13 +503,6 @@ COSMIC_SYSCALL(fstat, 1) {
 }
 
 COSMIC_SYSCALL(stat, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_STAT, cosmic_query_stat);
-  }
-  return cosmic_query_stat(L);
-}
-
-int cosmic_query_stat (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
@@ -527,13 +514,6 @@ int cosmic_query_stat (lua_State *L) {
 }
 
 COSMIC_SYSCALL(lstat, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_LSTAT, cosmic_query_lstat);
-  }
-  return cosmic_query_lstat(L);
-}
-
-int cosmic_query_lstat (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
@@ -550,17 +530,6 @@ COSMIC_SYSCALL(mkdir, 2) {
   int mode = cosmic_optint(L, 2, 0755);
   if (mkdir(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
-  }
-  /* Noted once it is made, as the test's own. When the log cannot keep
-   * the record, the directory is removed again and the call fails with
-   * ENOMEM. The rmdir can fail only where another process raced into
-   * the new, empty directory; it then stays, which costs no key
-   * anything, since a read beneath it is resolved like any other
-   * path's. */
-  if (cosmic_observing &&
-      !cosmic_observed_note(COSMIC_OBSERVED_MKDIR, path, strlen(path))) {
-    (void)rmdir(path);
-    return cosmic_fail_effect(L, ENOMEM);
   }
   return cosmic_ok(L);
 }
@@ -679,13 +648,6 @@ COSMIC_SYSCALL(chown, 3) {
 static void release_dir (void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_READDIR, cosmic_query_readdir);
-  }
-  return cosmic_query_readdir(L);
-}
-
-int cosmic_query_readdir (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   /* Filling the table allocates, and an allocation can raise: the guard
@@ -744,13 +706,6 @@ int cosmic_query_readdir (lua_State *L) {
 }
 
 COSMIC_SYSCALL(getcwd, 0) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_GETCWD, cosmic_query_getcwd);
-  }
-  return cosmic_query_getcwd(L);
-}
-
-int cosmic_query_getcwd (lua_State *L) {
   char room[PATH_MAX];
   if (getcwd(room, sizeof room) == NULL) {
     return cosmic_fail(L, errno);
@@ -762,12 +717,6 @@ int cosmic_query_getcwd (lua_State *L) {
 COSMIC_SYSCALL(chdir, 1) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  /* Noted as a stat of where it goes, from where it was made, before it
-   * goes. */
-  if (cosmic_observing &&
-      !cosmic_observed_ask(L, COSMIC_OBSERVED_STAT, cosmic_query_stat)) {
-    return cosmic_fail_effect(L, ENOMEM);
-  }
   if (chdir(path) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -775,13 +724,6 @@ COSMIC_SYSCALL(chdir, 1) {
 }
 
 COSMIC_SYSCALL(realpath, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_REALPATH, cosmic_query_realpath);
-  }
-  return cosmic_query_realpath(L);
-}
-
-int cosmic_query_realpath (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   char room[PATH_MAX];
@@ -811,13 +753,6 @@ COSMIC_SYSCALL(mkdtemp, 1) {
   if (mkdtemp(room) == NULL) {
     return cosmic_fail(L, errno);
   }
-  /* Noted once it is made, and taken back when the log cannot keep the
-   * record, as `mkdir` does. */
-  if (cosmic_observing &&
-      !cosmic_observed_note(COSMIC_OBSERVED_MKDTEMP, room, len)) {
-    (void)rmdir(room);
-    return cosmic_fail(L, ENOMEM);
-  }
   lua_pushstring(L, room);
   return 1;
 }
@@ -834,13 +769,6 @@ COSMIC_SYSCALL(symlink, 2) {
 }
 
 COSMIC_SYSCALL(readlink, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_READLINK, cosmic_query_readlink);
-  }
-  return cosmic_query_readlink(L);
-}
-
-int cosmic_query_readlink (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   char room[PATH_MAX];
@@ -963,15 +891,6 @@ COSMIC_SYSCALL(access, 2) {
   luaL_argcheck(L, (mode & ~(R_OK | W_OK | X_OK)) == 0, 2,
                 "not 0 or R_OK, W_OK and X_OK or'd together");
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  /* Noted as a stat of the path, which holds its mode and owner. The
-   * shared cache keys a stat by kind, size and mode alone, but the host
-   * identity every sandboxed key holds names the process's ids, groups and
-   * capabilities, and the sandbox fixes each path's mount flags: only an
-   * ACL, which nothing a test is given carries, is left -- accepted. */
-  if (cosmic_observing &&
-      !cosmic_observed_ask(L, COSMIC_OBSERVED_STAT, cosmic_query_stat)) {
-    return cosmic_fail_effect(L, ENOMEM);
-  }
   /* AT_EACCESS only where the effective ids differ from the real ones,
    * where alone it changes the answer: musl asks faccessat2 for any
    * flag, which an older container's seccomp profile refuses with
@@ -1250,19 +1169,10 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
   closedir(dir);
 }
 
-/* Logged as one record of the walk, not one of each entry: its answer is
- * what a key holds, walked again when the key is made. With contents and
- * without, it is two calls to the log, as a key walks each its own way. */
+/* No caller in the tree yet but its tests: kept for the TODO above
+ * build/declared_key.tl's `walk_system`, which is to walk the system's
+ * paths in C through it (see core/syscalls.h). */
 COSMIC_SYSCALL(tree_digest, 2) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, lua_toboolean(L, 2) ? COSMIC_OBSERVED_TREE_DIGEST
-                                                       : COSMIC_OBSERVED_TREE_STAMPS,
-                                cosmic_query_tree_digest);
-  }
-  return cosmic_query_tree_digest(L);
-}
-
-int cosmic_query_tree_digest (lua_State *L) {
   const char *given = cosmic_path(L, 1);
   if (given == NULL) return cosmic_fail(L, EINVAL);
   int contents = lua_toboolean(L, 2);

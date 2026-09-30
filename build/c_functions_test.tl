@@ -89,7 +89,7 @@ local function test_the_source_ends_a_body_at_its_brace()
   })
   local tally = c_functions.tally(functions, hits, { ["core/a.c"] = lines })
   assert(tally.entered == 1 and tally.unentered[1] == "core/a.c:dies")
-  -- Without it, the body runs to the next function, over the helper.
+  -- Without the source, the body runs to the next function, over the helper.
   assert(c_functions.tally(functions, hits).entered == 2)
 end
 

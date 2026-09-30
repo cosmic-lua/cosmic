@@ -276,8 +276,8 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   names = { "extra", "greet", "greet_test" }
   moved("a declaration's doc", extra_doc, extra_decl)
   names = { "greet", "greet_test" }
-  -- quote() ends a text at its first NUL: what follows it moves the
-  -- address too.
+  -- SQLite's quote() ends a text at its first NUL: what follows it moves
+  -- the address too.
   moved("a doc's text past a NUL", "UPDATE docs SET text = 'a' || char(0) || 'c' " ..
     "WHERE symbol = 'greet.z'", doc .. "('greet', 'greet.z', 'greet.z', 1, 'function', '', " ..
     "'a' || char(0) || 'b', 'greet.tl', 1)")

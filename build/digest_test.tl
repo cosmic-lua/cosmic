@@ -61,8 +61,8 @@ local function test_the_published_vectors()
   end
 end
 
---- A finished hasher refuses more, as cosmic.hash's does: the same
---- table's.
+--- A finished hasher refuses more, as cosmic.hash's does: both are the
+--- core's raw hasher.
 local function test_a_finished_hasher_refuses_more()
   local hasher = assert(digest.sha256_hasher())
   hasher:update("x")

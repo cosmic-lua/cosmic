@@ -114,7 +114,7 @@ local function fs_tree(extra?: {string: string}): {string: string}
 end
 
 --- A worked example for [`cosmic.fs`]: `Example.<name>`, its doc comment
---- `text`, its body `body`, declared on line 7 of its file.
+--- `text`, its body `body`, declared on line 8 of its file.
 local function fs_example(name: string, text: string, body: string): string
   return source(
     "local Fs = require(\"cosmic.fs\")",
@@ -1277,8 +1277,9 @@ local function test_an_earlier_database_hides_a_module_in_a_later_one(dir: strin
   end
 end
 
---- Membership owns a module even when it produced no documentation.
---- Old symbols and examples must both stay hidden.
+--- An earlier database owns a module it holds even when the module
+--- documents nothing: a later database's symbols and examples of it stay
+--- hidden.
 local function test_an_undocumented_module_hides_old_docs_and_examples(dir: string)
   local project = built(dir, { ["cosmic/fs.tl"] = source("return {}") })
   local binary = built(dir, fs_tree({
@@ -1701,9 +1702,10 @@ local function test_examples_rank_by_name_and_are_capped(dir: string)
   assert(more:find("truncate", 1, true) and more:find("copy_tree", 1, true), more)
 end
 
---- A test module's top-level [`Test.needs`] call sits outside every
---- example, so the file's first example carries it: [`Test.needs`] has
---- an example, and it shows the call it is about.
+--- A top-level call in an example file, as cosmic/test_example.tl's
+--- [`Test.needs`] is, sits outside every example, so the file's first
+--- example carries it: the function called has an example, and it
+--- shows the call.
 local function test_a_top_level_call_is_carried_by_the_first_example(dir: string)
   local db = built(dir, {
     ["cosmic/thing.tl"] = source(

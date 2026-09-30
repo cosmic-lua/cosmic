@@ -42,7 +42,7 @@ local function names(view: docs.View, query: string): {string}
 end
 
 --- What a person types finds what they meant: the words are stemmed
---- ("reading files" reads a comment on "a file"), a query that no one
+--- ("reading files" finds a comment that says "a file"), a query that no one
 --- symbol answers whole still finds the ones that answer part of it, and
 --- a member named for a word comes before prose that only says it.
 local function test_a_search_in_words_finds_the_symbol_meant()

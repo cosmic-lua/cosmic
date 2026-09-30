@@ -291,11 +291,13 @@ rebuild finish after the starting artifact is renamed or unlinked.
 
 ## test identity and transport
 
-[`build.test`](../../build/test.tl) keys a verdict by the compiled test, runtime
-identity, and supported observations. Those observations include file contents,
-stat results, directory listings, and environment reads. A test that spawns a
-process, or reads outside the tree beyond its temporary directories, is not
-answered from a stored verdict. An unchanged application database cannot hide a
+[`build.test`](../../build/test.tl) keys a verdict by what the test declares,
+before it runs ([`build/declared_key.tl`](../../build/declared_key.tl)): its
+import closure, the inputs its [`Test.needs`] names and their contents and
+values, the core and runtime identity, and the host. Sandboxed, where the
+kernel allows it, a worker sees only those inputs, so a test that reads what it
+does not declare fails rather than standing on a verdict; a test that reaches
+the network beyond loopback has no key and runs every time. An unchanged application database cannot hide a
 changed core or runtime basis. Verdict and coverage history live only in
 `o/build.db` and are bounded.
 
@@ -422,4 +424,5 @@ manifest: names the running core
 [`embed.tree`]: ../../build/embed.tl
 [`Proc.executable()`]: ../../cosmic/proc.tl
 [`Proc.relaunch`]: ../../cosmic/proc.tl
+[`Test.needs`]: ../../cosmic/test.tl
 [`writer.carried`]: ../../build/writer.tl

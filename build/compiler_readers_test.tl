@@ -12,10 +12,11 @@ local function module_of(line: string): string
   return "local Store = require(\"cosmic.store\")\n" .. line .. "\nreturn {}\n"
 end
 
---- Spelled apart, so this module's own source reads nothing: a read by
---- a quoted name of either identity, or by any name not a string, is
---- seen; a function's declaration, and a read of another row, are not.
+--- A read by a quoted name of either identity (`compiler`,
+--- `compiled_by`), or by a name that is no string literal, is seen. A
+--- function's declaration, and a read of another row, are not.
 local function test_a_read_of_the_compiler_is_seen(dir: string)
+  -- Spelled apart, so this module's own source reads nothing.
   local call = "Store.meta"
   local db = fixture.database(dir, {
     ["build/tool.tl"] = module_of("local tool = " .. call .. '("compiler") or ""'),

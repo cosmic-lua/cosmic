@@ -18,10 +18,10 @@ local function run_program(path: string): Child.Result
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
 end
 
---- An exit keeps only the low byte, so 256 would read as success; and a
---- string, a float or a boolean raised outside any protected call would
---- end the process in a panic. Both are refused. Nothing is 0, and a
---- float with an integer's value, or text naming one, is that integer.
+--- An exit keeps only the low byte, so 256 would read as success. It is
+--- refused with exit 2, as are a negative number, a fraction, other text
+--- and a boolean. Nil is 0, and a float with an integer's value, or text
+--- naming one, is that integer.
 local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   local mains: {string:string} = { big = "256", text = "\"three\"", fits = "7", float = "1.5",
     yes = "true", negative = "-1", whole = "3.0", none = "nil", numeric = "\"5\"" }
