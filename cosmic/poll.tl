@@ -391,6 +391,17 @@ local function turn()
   end
 end
 
+--- Answers every wait on `fd` as though it were ready, for a module
+--- about to close it: each waiting task, looking again, finds it closed
+--- rather than waiting on a number the next descriptor opened may take.
+--- Outside a run, and for a descriptor nothing waits on, it does nothing.
+function Poll.closing(fd: integer)
+  if loop == nil then return end
+  for _, w in ipairs(loop.watched) do
+    if w.fd == fd then wake(w, true, "") end
+  end
+end
+
 --- Whether the caller is a task of a running `Poll.run`, whose waits
 --- let the other tasks run: what a module that waits asks, to wait
 --- through `readable` and `writable` there and on its own elsewhere.

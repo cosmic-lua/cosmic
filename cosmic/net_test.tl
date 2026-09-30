@@ -552,3 +552,69 @@ local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled(tmp:
   assert(p.client:write("after"))
   assert(p.accepted:read() == "after", "the connection is usable after the run")
 end
+
+--- A read waiting in a task whose connection another task closes ends
+--- "connection is closed", even where a new connection has taken the
+--- same descriptor number with data waiting, which it leaves alone.
+local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends(tmp: string)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ms = 5000 }))
+  local _first_client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+  local first = assert(server:accept())
+  local answer = ""
+  local later = ""
+  Poll.run(function()
+    local reader = Poll.spawn(function()
+      local data, why = first:read()
+      assert(data == nil, "the closed connection answered " .. tostring(data))
+      answer = why
+    end)
+    assert(Poll.delay(0))
+    assert(first:close())
+    local second_client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    local second = assert(server:accept())
+    assert(second_client:write("second's"))
+    assert(reader:join(5000))
+    later = assert(second:read())
+    assert(second:close())
+  end)
+  assert(answer == "connection is closed", answer)
+  assert(later == "second's", later)
+end
+
+--- A write in a task that fills the peer's buffer waits for it to be
+--- drained by another task, and every byte arrives.
+local function test_in_a_run_a_write_waits_while_another_task_drains(tmp: string)
+  local p <close> = pair(tmp)
+  local size = 4 * 1024 * 1024
+  local got = 0
+  Poll.run(function()
+    Poll.spawn(function()
+      assert(p.client:write(string.rep("x", size)))
+      assert(p.client:shutdown("write"))
+    end)
+    Poll.spawn(function()
+      while true do
+        local data, why = p.accepted:read()
+        if data == nil then
+          assert(why == "", why)
+          break
+        end
+        got = got + #data
+      end
+    end)
+  end)
+  assert(got == size, "got " .. got .. " of " .. size .. " bytes")
+end
+
+--- In a task, a wait past its timeout fails "timed out", as it does out
+--- of one.
+local function test_in_a_run_waits_time_out_as_they_do_out_of_one(tmp: string)
+  local p <close> = pair(tmp)
+  Poll.run(function()
+    local conn, why = p.server:accept(10)
+    assert(conn == nil and why == "timed out", why)
+    p.accepted.timeout_ms = 10
+    local data, read_why = p.accepted:read()
+    assert(data == nil and read_why == "timed out", read_why)
+  end)
+end
