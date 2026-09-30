@@ -130,7 +130,8 @@ local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp
     "\\" .. ABC["md5"] .. "  n\\nl\n")
   assert(Fs.write(tmp .. "/a\rb", "abc") and Fs.write(tmp .. "/c\\d", "abc") and Fs.write(tmp .. "/n\nl", "abc"))
   local checked = run({ "--md5", "--check", gnu }, nil)
-  -- Run in the directory the names are relative to.
+  -- The names are relative to `tmp`, which this run is not in: each
+  -- fails to open, named as the list escapes it.
   assert(checked.code == 1 and checked.out:find("\\a\\rb: FAILED open or read", 1, true), checked.out)
   local absolute = file(tmp, "abs", "\\" .. ABC["md5"] .. "  " .. prefix .. "/a\\rb\n")
   local found = run({ "--md5", "--check", absolute })
@@ -193,7 +194,7 @@ local function test_json_is_an_array_of_path_algorithm_digest(tmp: string)
   assert(run({ "--json" }, "").out:find('"digest"', 1, true))
 end
 
---- A sums file over `a` (right), `b` (wrong), a missing file and a bad line.
+--- A sums file over `a` (right), `b` (wrong) and a missing file.
 local function mixed(tmp: string): string
   local a = file(tmp, "a", "abc")
   local b = file(tmp, "b", "not abc")
@@ -368,7 +369,8 @@ local function test_a_large_input_streams_in_bounded_memory()
   local reader, peak = pattern(total, chunk)
   local ran = run({ "-" }, reader)
   assert(ran.code == 0 and ran.out == want .. "  -\n", ran.out .. ran.err)
-  -- 96 MiB went through; Lua held a few chunks of it at a time, not it.
+  -- 96 MiB went through; Lua held a few chunks of it at a time, never
+  -- the whole.
   local grew = peak() - before
   assert(grew < 8 * 1024, "Lua memory grew by " .. grew .. " KiB while hashing 96 MiB")
 end

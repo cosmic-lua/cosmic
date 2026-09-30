@@ -1,7 +1,9 @@
 --- What the bare verbs share (build/bare.tl): the complaint prefix, the
 --- exit codes, a lost write, the escape of a control byte, the redaction
---- of a URL. Reading a terminal is refused where a pty stands in for one,
---- which a test here has none of: the verbs' own tool tests cover it.
+--- of a URL.
+-- TODO: no test gives standard input a terminal, so none sees a verb
+-- refuse to read one; a verb's tool test would start it on a pty once
+-- cosmic.sys carries openpty.
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -75,7 +77,7 @@ local function test_plain_text_and_high_bytes_pass_through()
   assert(bare.escape("") == "")
   assert(bare.escape("plain text: ~ {}") == "plain text: ~ {}")
   assert(bare.escape("caf\xC3\xA9") == "caf\xC3\xA9")
-  -- Invalid UTF-8 and the C1 range are not a terminal's business here.
+  -- Bytes from 0x80 on pass through, invalid UTF-8 and the C1 range included.
   assert(bare.escape("\xFF\xFE\x80\x9B") == "\xFF\xFE\x80\x9B")
   assert(bare.escape("a\0b") == "a\\x00b")
 end

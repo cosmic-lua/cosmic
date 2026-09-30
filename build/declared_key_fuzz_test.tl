@@ -38,9 +38,9 @@ end
 --- might split on, a NUL, and hex digits, which a framing by hex spells.
 local ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":", "\0" }
 
---- The same, less what a path cannot hold or a key reads as a place
---- ([`test_inputs.plain`]): a path of the tree or of the host is named by
---- what it is, and "a/./b" and "a/b" are one path.
+--- The same less NUL, which no path can hold. Neither alphabet holds "."
+--- or "/": a key reads a path as the place it names
+--- ([`test_inputs.plain`]), so "a/./b" and "a/b" are one path.
 local PATH_ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":" }
 
 local function draw_string(src: Fuzz.Source, alphabet: {string}, least: integer): string
@@ -200,11 +200,11 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
   return out
 end
 
---- The spec `d` names, of a test whose host
---- paths are beneath `host`. Every part a preimage holds only as another
---- says is held: its module runs the tool (`program`), is given the
---- system (`system`), and is given the store of its closure rather than
---- the projection (`closure_store`).
+--- The spec `d` names, of a test whose host paths are beneath `host`.
+--- Every part a preimage holds only as another says is held: its module
+--- runs the tool (`program`), is given the system (`system`), and is
+--- given the store of its closure rather than the projection
+--- (`closure_store`).
 local function spec_of(d: Drawn, host: string): declared_key.Spec
   local files: {string:boolean} = {}
   for _, file in ipairs(d.lists.files) do files[file] = true end

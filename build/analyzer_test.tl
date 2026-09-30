@@ -6,12 +6,7 @@ if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))
 end
 
---- Joins lines the way a real source file would read. Fixtures are
---- tables of plain string literals joined at run time, not long-bracket
---- literals: this file is itself a `_test.tl` module that the importer
---- parses, and a `[[...]]` fixture holding `local function test_*` text
---- would sit in this file's own source for discovery to weigh. A joined
---- fixture is only ever a "string" node's `conststr`.
+--- Joins lines the way a real source file would read.
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end
@@ -62,10 +57,8 @@ local function test_ignores_non_test_functions()
   assert(found[1] == "test_uses_helper")
 end
 
---- A `local function test_*` declared inside another function is a
---- child of that OTHER function's own body, never a direct element of
---- the chunk's own top-level statement array, and is not a test some
---- other function happens to declare for itself.
+--- A `local function test_*` declared inside another function is no
+--- test: only the chunk's own top-level statements are searched.
 local function test_ignores_indented_functions()
   local source = lines({
     "local function outer()",
@@ -966,9 +959,10 @@ local function test_repeat_condition_uses_the_body_scope()
 end
 
 --- A member read straight off a literal `require` is a use of that
---- module's member, as [`build/dispatch.tl`] reaches each verb's `run`;
---- a `require` of a computed name is not, since its target is unknown,
---- nor a call of a local or parameter that shadows `require`.
+--- module's member, as [`build/dispatch.tl`] calls [`build.reboot`]'s
+--- `stale_exit`. A `require` of a computed name is not, since its
+--- target is unknown, nor a call of a local or parameter that shadows
+--- `require`.
 local function test_a_member_of_an_inline_require_is_a_reference()
   local found = assert(analyzer.analyze(built, lines({
     'local name = "cosmic.fs"',
@@ -1283,8 +1277,8 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.env == 1 and got.env[1] == "PATH")
   assert(#got.network == 2 and got.network[1] == "127.0.0.1" and got.network[2] == "127.0.0.2")
   assert(not got.tool and got.nests and got.store)
-  -- A host file a variable names, and /proc, a directory, beneath which
-  -- no key could hold what anything holds.
+  -- A host file a variable names, and /proc or a directory beneath it,
+  -- the one place host takes a directory.
   local named = assert(declared(lines({
     'local Test = require("cosmic.test")',
     'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$_P1/x", "/proc/", "/proc/self/" } }',
@@ -1337,7 +1331,7 @@ end
 local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
     { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, nests, network" },
-    -- No test reaches beyond loopback, which is 127/8 (R1, R2).
+    -- No test reaches beyond loopback, which is 127/8.
     { 'Test.needs { network = true }', "fixture_test.tl:3: test.needs: network = true: " ..
       "network takes loopback addresses 127.a.b.c only: no test reaches another host" },
     { 'Test.needs { network = { "127.0.0.1", "example.com" } }', 'test.needs: network ' ..
@@ -1346,7 +1340,7 @@ local function test_a_malformed_needs_call_is_refused()
     { 'Test.needs { network = { "localhost" } }',
       'network "localhost": network takes loopback addresses' },
     { 'Test.needs { network = false }', "network takes a list of string literals, written out" },
-    -- A host path names a file, or /proc (R3).
+    -- A host path names a file, or /proc.
     { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
       "files, or /proc: declare the files the tests read" },
     { 'Test.needs { host = { "$PRODUCT" } }', 'host: "$PRODUCT" names all PRODUCT holds, a ' ..

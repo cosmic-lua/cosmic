@@ -83,10 +83,9 @@ local function mentioning(found: {string}, word: string): {string}
   return out
 end
 
---- A tree built by the writer's own analysis passes, and is held to the
---- rules it would break: an undocumented function and field are named,
---- an exemption with a reason lets them stand, and one that no longer
---- applies is stale.
+--- A tree built by the writer's own analysis is held to the rules: an
+--- undocumented function and field are named, an exemption with a
+--- reason lets them stand, and one that no longer applies is stale.
 local function test_a_missing_doc_comment_is_named_and_can_be_excused(dir: string)
   local files = {
     ["cosmic/thing.tl"] = source(

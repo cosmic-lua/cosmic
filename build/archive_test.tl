@@ -802,9 +802,9 @@ local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
   assert(made == 1, "a zip still needs its file")
 end
 
---- Extracting `bytes` from standard input and from a file named `name`,
---- into `before`-prepared destinations: the two runs, each with the
---- destination's tree after.
+--- Extracting `bytes` from a file named `name` and from standard input,
+--- with `words` after, each into a destination `prepare` readies: the
+--- two runs, then what each run's directory holds after.
 local function both_ways(tmp: string, name: string, bytes: string, words: {string},
     prepare: function(string)): Ran, Ran, {string}, {string}
   assert(Fs.mkdirs(tmp))
@@ -823,8 +823,8 @@ local function both_ways(tmp: string, name: string, bytes: string, words: {strin
   return results[1], results[2], trees[1], trees[2]
 end
 
---- A complaint with the input's name and its temporary directory's
---- read as one.
+--- `err` with the input file's path read as standard input's name, and
+--- a destination's path as DEST, so a file's run and a stream's compare.
 local function anonymous(err: string, tmp: string, name: string): string
   return (err:gsub(tmp:gsub("%p", "%%%0") .. "/" .. name .. ": ", "standard input: "):gsub(
     tmp:gsub("%p", "%%%0") .. "/[%w/]*dest", "DEST"))
@@ -963,7 +963,8 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
   assert(ok, ran)
   local result = ran as Ran
   assert(result.code == 2 and result.err:find("injected failure", 1, true), result.err)
-  -- The rename names the path it moved from, in the staging directory.
+  -- The complaint names the destination, not the staging directory the
+  -- rename moved from.
   assert(result.err:find(dest .. "/", 1, true) and not result.err:find("cosmic-extract", 1, true), result.err)
   for _, name in ipairs({ "a", "b", "c" }) do
     assert(Fs.read(dest .. "/" .. name .. ".txt") == "old " .. name, name .. " not restored")

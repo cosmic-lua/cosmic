@@ -107,11 +107,12 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
   return fds
 end
 
---- Runs `worker_chunk` in a worker of this very program sandboxed to
---- `worker_unveil`'s paths, as a worker whose module declares nothing
---- of the system's is (the chunk starts a stand-in, in `tmp`, its
---- scratch), in `tmp`: the lines it said, or nil where there is no
---- portable artifact to start again, or no sandbox to be had.
+--- Runs `worker_chunk` in a worker of this very program, sandboxed to
+--- [`confine.worker_unveil`]'s paths as a worker whose module declares
+--- nothing of the system's is, with `tmp` its scratch, where the
+--- stand-in the chunk starts is built. Answers the lines it said, or nil
+--- where there is no portable artifact to start again or no sandbox to
+--- be had.
 local function sandboxed_worker(tmp: string): {string} | nil
   if Proc.relaunch() == nil then return nil end -- no portable artifact to start again
   local probe = probe_in(tmp)

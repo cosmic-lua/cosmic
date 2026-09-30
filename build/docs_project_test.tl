@@ -24,9 +24,9 @@ local function docs_in(dir: string, ...: string): string
   return result.stdout
 end
 
---- `docs` and `uses` answer from the project as it stands: an edit to a
---- doc comment shows with no build between, where a project has one to
---- make, and a directory of no project is left as it was.
+--- `docs` answers from the project as it stands: an edit to a doc
+--- comment shows with no build between, and a directory of no project
+--- is left as it was.
 local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project))
