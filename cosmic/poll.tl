@@ -32,7 +32,8 @@ local record Poll
   record Task
     --- Waits for the task to end, at most `timeout_ms` milliseconds (no
     --- limit when nil): true and "" once it has returned, false and
-    --- `Poll.TIMEOUT` or `Poll.CANCELLED` otherwise.
+    --- `Poll.TIMEOUT` or `Poll.CANCELLED` otherwise -- CANCELLED, too, for
+    --- a task a failed run closed where it waited.
     join: function(Task, timeout_ms?: integer): boolean, string
     --- Ends the task at its next wait: the wait it is in, if any, and
     --- every one after, answers false and `Poll.CANCELLED` at once. A
@@ -82,6 +83,8 @@ local record State
   --- Set while the task is yielded in one of this module's waits.
   waiting: boolean
   ended: boolean
+  --- Set for a task a failed run closed where it waited.
+  killed: boolean
   cancelled: boolean
   parked: Wait
   joiners: {Wait}
@@ -196,6 +199,7 @@ local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, s
   task.waiting = true
   local ok, why = coroutine.yield(w)
   task.waiting = false
+  if not w.done then error("a task was resumed other than by Poll.run", 2) end
   if ok == true then return true, "" end
   if ok == false and why is string then return false, why end
   error("a task was resumed other than by Poll.run", 2)
@@ -240,6 +244,7 @@ local function start(fn: function()): Poll.Task
     join = function(_self: Poll.Task, timeout_ms?: integer): boolean, string
       local task = current("Task:join", 2)
       checked_ms(timeout_ms, "timeout_ms", 2)
+      if state.killed then return false, Poll.CANCELLED end
       if state.ended or state.loop ~= loop then return true, "" end
       if state == task then error("a task cannot join itself", 2) end
       local w: Wait = { task = task }
@@ -277,7 +282,7 @@ local function close_all()
   for co in pairs(loop.tasks) do cos[#cos + 1] = co end
   for _, co in ipairs(cos) do
     local task = loop.tasks[co]
-    task.ended, task.parked = true, nil
+    task.ended, task.killed, task.parked = true, true, nil
     if coroutine.status(co) == "suspended" then
       local _, _ = coroutine.close(co)
     end
@@ -297,7 +302,12 @@ local function step(task: State, ok: boolean, why: string)
   -- TODO: carry the task's traceback with its error, taken from its
   -- coroutine before it is closed, once cosmic.errors can trace another
   -- coroutine: only the message crosses resume today.
-  if not resumed then error(err, 0) end
+  if not resumed then
+    -- resume leaves a coroutine that raised with its `<close>` variables
+    -- open: close answers the error again, which is already in hand.
+    local _, _ = coroutine.close(task.co)
+    error(err, 0)
+  end
   if coroutine.status(task.co) == "dead" then
     task.ended = true
     loop.tasks[task.co] = nil
@@ -369,11 +379,12 @@ end
 
 local function turn()
   while loop.live > 0 do
-    while #loop.ready > 0 do
-      local batch = loop.ready
-      loop.ready = {}
-      for _, wakened in ipairs(batch) do step(wakened.task, wakened.ok, wakened.why) end
-    end
+    -- One batch a turn, then the poll and the clock, so tasks answered
+    -- at once -- a cancelled one waiting in a loop -- cannot hold back
+    -- those waiting on a descriptor or on time.
+    local batch = loop.ready
+    loop.ready = {}
+    for _, wakened in ipairs(batch) do step(wakened.task, wakened.ok, wakened.why) end
     if loop.live == 0 then break end
     poll_once(next_timeout())
     expire()
@@ -388,9 +399,11 @@ function Poll.run(main: function())
   if loop ~= nil then error("Poll.run is already running", 2) end
   if type(main) ~= "function" then error("Poll.run takes a function", 2) end
   loop = { tasks = {}, live = 0, ready = {}, watched = {}, timers = {}, seq = 0 }
-  start(main)
-  local ok, err: boolean, any = pcall(turn)
-  if not ok then close_all() end
+  local ok, err: boolean, any = pcall(function()
+    start(main)
+    turn()
+  end)
+  if not ok then local _, _: boolean, any = pcall(close_all) end
   loop = nil
   if not ok then error(err, 0) end
 end

@@ -288,20 +288,38 @@ end
 
 --- A cancelled task that waits in a loop still lets the others run.
 local function test_a_cancelled_task_waiting_in_a_loop_lets_others_run()
-  local others = 0
+  local spins = 0
+  local spins_at_first = -1
   Poll.run(function()
     local spinner = Poll.spawn(function()
-      for _ = 1, 100 do local _, _ = Poll.delay(1000) end
+      for _ = 1, 100 do
+        local _, _ = Poll.delay(1000)
+        spins = spins + 1
+      end
     end)
     Poll.spawn(function()
-      for _ = 1, 3 do
-        assert(Poll.delay(0))
-        others = others + 1
-      end
+      assert(Poll.delay(0))
+      spins_at_first = spins
     end)
     spinner:cancel()
   end)
-  assert(others == 3, "the other task ran " .. others .. " times")
+  assert(spins == 100, "the spinner spun " .. spins .. " times")
+  assert(spins_at_first >= 0 and spins_at_first < 100,
+    "the delayed task ran only after " .. spins_at_first .. " spins")
+end
+
+--- A task that raises has its own `<close>` variables closed, as code
+--- outside a task would.
+local function test_a_raising_task_closes_its_own_close_variables()
+  local closed = false
+  local closer_mt: metatable<Closer> = { __close = function() closed = true end }
+  raises(function()
+    Poll.run(function()
+      local _ <close> = setmetatable({} as Closer, closer_mt)
+      error("broken", 0)
+    end)
+  end, "broken")
+  assert(closed, "the raising task's <close> variable was not closed")
 end
 
 --- A run that raised, for any reason, leaves the next free to run, and
@@ -327,7 +345,8 @@ local function test_a_failed_run_leaves_the_next_free()
   end, "every task waits on another")
   Poll.run(function()
     kept:cancel()
-    assert(kept:join(0))
+    local joined, why = kept:join(0)
+    assert(not joined and why == Poll.CANCELLED, why)
   end)
 end
 
