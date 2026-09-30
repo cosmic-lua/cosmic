@@ -1,0 +1,237 @@
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
+local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
+
+--- Answers each line with itself until the peer ends what it sends.
+local function echo(conn: Net.Conn)
+  local lines = Stream.lines(conn)
+  for line in lines:each() do assert(conn:write(line .. "\n")) end
+  assert(lines:failure() == "", lines:failure())
+end
+
+--- A client of `address`, and the lines it reads.
+local record Client
+  conn: Net.Conn
+  lines: Stream.Lines
+  metamethod __close: function(Client)
+end
+
+local client_mt: metatable<Client> = {
+  __close = function(self: Client)
+    local _, _ = self.conn:close()
+  end,
+}
+
+local function client(address: Net.Address): Client
+  local conn = assert(Net.connect(address, { timeout_ms = 5000 }))
+  return setmetatable({ conn = conn, lines = Stream.lines(conn) }, client_mt)
+end
+
+local function now_ms(): integer
+  return assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) // 1000000
+end
+
+--- Connections are served at once, each in a task of its own: the last
+--- to connect is answered while the first still waits to be read.
+local function test_several_connections_are_served_at_once(tmp: string)
+  local answers: {string} = {}
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    serve = echo,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local first <close> = client(addresses[1])
+      local second <close> = client(addresses[1])
+      local third <close> = client(addresses[1])
+      for i, c in ipairs({ third, second, first }) do
+        assert(c.conn:write("line " .. i .. "\n"))
+        answers[#answers + 1] = assert(c.lines:read())
+      end
+      server:stop()
+    end,
+  })
+  assert(table.concat(answers, ",") == "line 1,line 2,line 3", table.concat(answers, ","))
+end
+
+--- What a protocol raises closes its own connection alone: it goes to
+--- on_error with where it was raised, and the others, and the
+--- listener, are served on.
+local function test_an_error_in_one_connection_leaves_the_others_served(tmp: string)
+  local troubles: {string} = {}
+  local later = ""
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    serve = function(conn: Net.Conn)
+      local lines = Stream.lines(conn)
+      for line in lines:each() do
+        if line == "boom" then error("the protocol failed") end
+        assert(conn:write(line .. "\n"))
+      end
+    end,
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local steady <close> = client(addresses[1])
+      local failing <close> = client(addresses[1])
+      assert(failing.conn:write("boom\n"))
+      local gone, why = failing.lines:read()
+      assert(gone == nil and why == "", why)
+      assert(steady.conn:write("still\n"))
+      assert(steady.lines:read() == "still")
+      local fresh <close> = client(addresses[1])
+      assert(fresh.conn:write("after\n"))
+      later = assert(fresh.lines:read())
+      server:stop()
+    end,
+  })
+  assert(later == "after", later)
+  assert(#troubles == 1, tostring(#troubles))
+  assert(troubles[1]:find("net_serve_test:%d+: the protocol failed") ~= nil, troubles[1])
+  assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
+end
+
+--- At the limit the server accepts nothing more: a second client waits
+--- in the backlog, neither answered nor closed, until the first
+--- closes, and is then served.
+local function test_at_the_connection_limit_accepting_waits(tmp: string)
+  local accepted = 0
+  local waiting_why = ""
+  local answer = ""
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    limits = { connections = 1 },
+    serve = function(conn: Net.Conn)
+      accepted = accepted + 1
+      echo(conn)
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local second: Client
+      do
+        local first <close> = client(addresses[1])
+        assert(first.conn:write("one\n"))
+        assert(first.lines:read() == "one")
+        second = client(addresses[1])
+        assert(second.conn:write("two\n"))
+        second.conn.timeout_ms = 100
+        local nothing: string
+        nothing, waiting_why = second.conn:read()
+        assert(nothing == nil)
+        assert(accepted == 1, tostring(accepted))
+        second.conn.timeout_ms = 5000
+      end
+      answer = assert(second.lines:read())
+      local _, _ = second.conn:close()
+      server:stop()
+    end,
+  })
+  assert(waiting_why == "timed out", waiting_why)
+  assert(answer == "two", answer)
+  assert(accepted == 2, tostring(accepted))
+end
+
+--- A connection's reads and writes wait at most the spec's timeout_ms.
+local function test_timeout_ms_bounds_each_connection(tmp: string)
+  local why = ""
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    timeout_ms = 20,
+    serve = function(conn: Net.Conn)
+      local data: string
+      data, why = conn:read()
+      assert(data == nil)
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local idle <close> = client(addresses[1])
+      local ended, reason = idle.lines:read()
+      assert(ended == nil and reason == "", reason)
+      server:stop()
+    end,
+  })
+  assert(why == "timed out", why)
+end
+
+--- Stopping closes the listener, removing its socket file, at once; a
+--- connection in flight finishes, and one still open at grace_ms is
+--- cancelled, before Net.serve returns.
+local function test_stop_drains_then_cancels_after_grace_ms(tmp: string)
+  local path = tmp .. "/s.sock"
+  local started = 0
+  local stuck_why = ""
+  local answer = ""
+  local stopped_at, returned_at = 0, 0
+  local stuck: Client
+  assert(Net.serve{
+    listeners = { Net.unix(path) },
+    grace_ms = 200,
+    serve = function(conn: Net.Conn)
+      started = started + 1
+      local lines = Stream.lines(conn)
+      local line, why = lines:read()
+      if line == nil then
+        stuck_why = why
+        return
+      end
+      assert(Poll.delay(50))
+      assert(conn:write(line .. "\n"))
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local slow <close> = client(addresses[1])
+      stuck = client(addresses[1])
+      assert(slow.conn:write("slow\n"))
+      while started < 2 do assert(Poll.delay(1)) end
+      stopped_at = now_ms()
+      server:stop()
+      assert(Fs.stat(path) == nil, "the socket file was left")
+      local refused, why = Net.connect(addresses[1])
+      assert(refused == nil and why:find("No such file", 1, true) ~= nil, why)
+      answer = assert(slow.lines:read())
+    end,
+  })
+  returned_at = now_ms()
+  local ended, why = stuck.lines:read()
+  assert(ended == nil and why == "", why)
+  local _, _ = stuck.conn:close()
+  assert(answer == "slow", answer)
+  assert(stuck_why == Poll.CANCELLED, stuck_why)
+  assert(returned_at - stopped_at >= 200, tostring(returned_at - stopped_at))
+end
+
+--- A listener that cannot listen fails the whole server, having closed
+--- the ones that could and called nothing.
+local function test_a_listener_that_cannot_listen_fails_the_server(tmp: string)
+  local called = false
+  local ok, why = Net.serve{
+    listeners = { Net.unix(tmp .. "/a.sock"), Net.unix(tmp .. "/missing/b.sock") },
+    serve = echo,
+    on_ready = function() called = true end,
+  }
+  assert(not ok and why:find(tmp .. "/missing/b.sock: ", 1, true) == 1, why)
+  assert(not called)
+  assert(Fs.stat(tmp .. "/a.sock") == nil, "the first listener's file was left")
+end
+
+--- A spec of the wrong shape raises, naming the field; so does a
+--- server started in a task of another run.
+local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: string)
+  local address = Net.unix(tmp .. "/s.sock")
+  local function refused(spec: any, field: string)
+    local ok, why = pcall(Net.serve, spec as Net.ServeSpec)
+    assert(not ok and tostring(why):find(field, 1, true) ~= nil, tostring(why))
+  end
+  refused({ serve = echo }, "spec.listeners must be")
+  refused({ listeners = {}, serve = echo }, "spec.listeners must be")
+  refused({ listeners = { "s.sock" }, serve = echo }, "spec.listeners[1] must be")
+  refused({ listeners = { address } }, "spec.serve must be")
+  refused({ listeners = { address }, serve = echo, limits = { connections = 0 } },
+    "spec.limits.connections must be")
+  refused({ listeners = { address }, serve = echo, limits = { conections = 1 } },
+    "spec.limits has no field conections")
+  refused({ listeners = { address }, serve = echo, grace_ms = -1 }, "spec.grace_ms must be")
+  refused({ listeners = { address }, serve = echo, timeout_ms = 1.5 }, "spec.timeout_ms must be")
+  refused({ listeners = { address }, serve = echo, on_ready = true }, "spec.on_ready must be")
+  refused({ listeners = { address }, serve = echo, grace = 10 }, "spec has no field grace")
+  Poll.run(function()
+    refused({ listeners = { address }, serve = echo }, "cannot be called in a task")
+  end)
+  assert(Fs.stat(tmp .. "/s.sock") == nil)
+end

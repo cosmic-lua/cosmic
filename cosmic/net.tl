@@ -31,10 +31,16 @@
 --- its own. A cancelled task's wait there fails "cancelled", and a
 --- signal does not end one. Anywhere else a wait holds the thread until
 --- it ends.
+---
+--- [`Net.serve`] is that server, for any protocol: a function of a
+--- connection, run for each one accepted at any of its listeners, whose
+--- failure closes that connection alone.
 
+local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local errors = require("cosmic.internal.errors")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace and arrives as the second argument
@@ -187,6 +193,54 @@ local record Net
     second: Conn
     --- Closes both.
     metamethod __close: function(Pair)
+  end
+
+  --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
+  --- one not named here, raises, naming it.
+  record ServeSpec
+    --- Where to listen, one address or more: each is listened at, and
+    --- each listener closed, by the server, which so owns every socket
+    --- file it makes and removes it on stopping.
+    listeners: {Address}
+    --- The protocol: run once for each connection accepted, in a task of
+    --- its own, which closes the connection once it returns or raises.
+    --- What it raises goes to [`on_error`], and the server goes on.
+    serve: function(conn: Conn)
+    --- What a server takes on at most.
+    record Limits
+      --- The most connections open at once, from 1; nil for no limit.
+      --- At the limit no listener accepts: a connection that comes waits
+      --- in its listener's backlog until one open closes.
+      connections: integer
+    end
+    --- Bounds on what the server takes on; nil for none.
+    limits: Limits
+    --- Each connection's `timeout_ms`: how long any one read or write of
+    --- it waits, from 0; nil for no limit.
+    timeout_ms: integer
+    --- On stopping, how long open connections have to finish, from 0,
+    --- before their tasks are cancelled; nil to wait for every one.
+    grace_ms: integer
+    --- Called once every listener listens, in a task of the server's
+    --- run, with where each listens -- a port the kernel chose for one
+    --- at port 0 included -- in the order of `listeners`, and the
+    --- server, to stop it by. It may spawn tasks of its own there.
+    on_ready: function(addresses: {Address}, server: Server)
+    --- Given what the protocol raised for a connection, with its stack,
+    --- or why a listener failed to accept; nil to write each to stderr.
+    --- What it raises ends the server, as an error in [`Poll.run`] does.
+    on_error: function(trouble: string)
+  end
+
+  --- A server [`Net.serve`] runs, handed to its [`on_ready`].
+  record Server
+    --- Where each listener listens, as [`on_ready`] was given.
+    addresses: {Address}
+    --- Stops the server, from any task of its run: every listener is
+    --- closed, and [`Net.serve`] returns once the connections open have
+    --- finished, or been cancelled after `grace_ms`. Stopping a server
+    --- that is stopping does nothing.
+    stop: function(Server)
   end
 end
 
@@ -367,6 +421,10 @@ local function named(address: Net.Address): string
   return host .. ":" .. tostring(address.port)
 end
 
+--- Each open listener's descriptor, for [`Net.serve`], which waits on
+--- one and takes a connection only while under its limit.
+local listener_fds: {Net.Listener: integer} = setmetatable({}, { __mode = "k" })
+
 local listener_mt: metatable<Net.Listener> = {
   __close = function(self: Net.Listener)
     local _, _ = self:close()
@@ -397,12 +455,14 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
     close = function(_self: Net.Listener): boolean, string
       if not open then return true, "" end
       open = false
+      listener_fds[listener] = nil
       Poll.closing(fd)
       local ok, why = socket:close()
       if not ok then return false, named(address) .. ": " .. why end
       return true, ""
     end,
   }
+  listener_fds[listener] = fd
   return setmetatable(listener, listener_mt)
 end
 
@@ -632,6 +692,249 @@ function Net.pair(): Net.Pair | nil, string
   local pair: Net.Pair = { first = new_conn(ends.first, nil), second = new_conn(ends.second, nil) }
   setmetatable(pair, pair_mt)
   return pair, ""
+end
+
+--- The fields a [`Net.ServeSpec`] may hold, so a misspelt one raises
+--- rather than being ignored.
+local SPEC_FIELDS <const>: {string: boolean} = {
+  listeners = true, serve = true, limits = true, timeout_ms = true, grace_ms = true,
+  on_ready = true, on_error = true,
+}
+
+--- Raises for the spec's `field`, at the caller of [`Net.serve`].
+local function spec_error(field: string, must: string)
+  error("Net.serve: spec." .. field .. " must be " .. must, 4)
+end
+
+--- Why `ms` is no number of milliseconds a wait can last, or "".
+local function ms_trouble(ms: any): string
+  if ms == nil or (ms is integer and ms >= 0 and ms <= MOST_MS) then return "" end
+  return "nil or an integer from 0 to " .. MOST_MS
+end
+
+--- Raises, naming the field, where `spec` is no [`Net.ServeSpec`].
+local function checked_spec(spec: any)
+  if not spec is {any: any} then error("Net.serve takes a spec table", 3) end
+  for key in pairs(spec) do
+    if not (key is string and SPEC_FIELDS[key]) then
+      error("Net.serve: spec has no field " .. tostring(key), 3)
+    end
+  end
+  local listeners = spec.listeners
+  if not listeners is {any} or #listeners == 0 then
+    spec_error("listeners", "a list of one address or more")
+  end
+  if listeners is {any} then
+    for i, address in ipairs(listeners) do
+      if not address is {any: any} or (address.kind ~= "unix" and address.kind ~= "tcp") then
+        spec_error("listeners[" .. i .. "]", "an address, from Net.unix or Net.tcp")
+      end
+    end
+  end
+  if type(spec.serve) ~= "function" then spec_error("serve", "a function of a connection") end
+  local limits = spec.limits
+  if limits ~= nil then
+    if not limits is {any: any} then
+      spec_error("limits", "a table")
+    else
+      for key in pairs(limits) do
+        if key ~= "connections" then
+          error("Net.serve: spec.limits has no field " .. tostring(key), 3)
+        end
+      end
+      local most = limits.connections
+      if most ~= nil and not (most is integer and most >= 1) then
+        spec_error("limits.connections", "nil or an integer from 1")
+      end
+    end
+  end
+  for _, field in ipairs({ "timeout_ms", "grace_ms" }) do
+    local trouble = ms_trouble(spec[field])
+    if trouble ~= "" then spec_error(field, trouble) end
+  end
+  for _, field in ipairs({ "on_ready", "on_error" }) do
+    local fn = spec[field]
+    if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
+  end
+end
+
+--- A listener a server accepts at, and the task accepting there while
+--- there is one: none at the server's limit, or once it stops.
+local record Accepting
+  listener: Net.Listener
+  fd: integer
+  task: Poll.Task
+end
+
+--- A server's state for the length of its run. Closing it closes every
+--- listener, so a run that raises -- [`on_ready`] or [`on_error`] did --
+--- leaves no socket file behind.
+local record Serving
+  spec: Net.ServeSpec
+  --- The most connections open at once.
+  most: integer
+  open: integer
+  stopping: boolean
+  accepts: {Accepting}
+  --- The task of each connection open.
+  conns: {Poll.Task: boolean}
+  --- Waits, from [`on_ready`]'s end, for `stop` to cancel it.
+  waiter: Poll.Task
+  metamethod __close: function(Serving)
+end
+
+local serving_mt: metatable<Serving> = {
+  __close = function(self: Serving)
+    for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
+  end,
+}
+
+--- How long a listener waits after an accept failed -- out of
+--- descriptors, say -- before it tries again, so a failure that lasts is
+--- not retried, and reported, without pause.
+local ACCEPT_PAUSE_MS <const> = 100
+
+local function report(s: Serving, trouble: string)
+  if s.spec.on_error ~= nil then
+    s.spec.on_error(trouble)
+    return
+  end
+  local _, _ = Fs.put(Fs.stderr, "Net.serve: " .. trouble .. "\n")
+end
+
+--- What a protocol raised, with the stack it raised from, which is gone
+--- once xpcall returns.
+local function traced(err: any): string
+  return errors.trace(tostring(err), 2)
+end
+
+local resume_accepting: function(s: Serving)
+
+--- Serves `conn` in a task of its own, counted open until the protocol
+--- is done with it.
+local function serve_conn(s: Serving, conn: Net.Conn)
+  s.open = s.open + 1
+  conn.timeout_ms = s.spec.timeout_ms
+  local task: Poll.Task
+  task = Poll.spawn(function()
+    local held <close> = conn
+    local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held)
+    local _, _ = held:close()
+    s.open = s.open - 1
+    s.conns[task] = nil
+    resume_accepting(s)
+    if not ok then report(s, tostring(trouble)) end
+  end)
+  s.conns[task] = true
+end
+
+--- Accepts at `a` while the server is under its limit and not stopping.
+--- The limit is checked before each accept with no wait between, so a
+--- connection past it is never taken, only left in the backlog.
+local function accept_loop(s: Serving, a: Accepting)
+  while not s.stopping and s.open < s.most do
+    local socket, why, errno = raw.accept(a.fd)
+    if socket ~= nil then
+      serve_conn(s, new_conn(socket, nil))
+    elseif errno == raw.EAGAIN then
+      -- `stop` closing the listener answers this wait.
+      local _, _ = Poll.readable(a.fd)
+    else
+      report(s, "accepting at " .. named(a.listener.address) .. ": " .. why)
+      local _, _ = Poll.delay(ACCEPT_PAUSE_MS)
+    end
+  end
+  a.task = nil
+end
+
+resume_accepting = function(s: Serving)
+  if s.stopping or s.open >= s.most then return end
+  for _, a in ipairs(s.accepts) do
+    if a.task == nil then a.task = Poll.spawn(function() accept_loop(s, a) end) end
+  end
+end
+
+--- Waits for every connection open to finish, cancelling those left
+--- once `grace_ms` has passed.
+local function drain(s: Serving)
+  local grace = s.spec.grace_ms
+  local deadline = grace ~= nil and now_ms() + grace or nil
+  while true do
+    local task = next(s.conns)
+    if task == nil then return end
+    local left: integer = nil
+    if deadline ~= nil then left = math.max(deadline - now_ms(), 0) end
+    local ended, _ = task:join(left)
+    if not ended then break end
+  end
+  for task in pairs(s.conns) do task:cancel() end
+  while true do
+    local task = next(s.conns)
+    if task == nil then return end
+    local _, _ = task:join()
+  end
+end
+
+--- The body of [`Net.serve`]'s run.
+local function serving(spec: Net.ServeSpec): boolean, string
+  local state: Serving = {
+    spec = spec, most = spec.limits and spec.limits.connections or math.maxinteger,
+    open = 0, stopping = false, accepts = {}, conns = {},
+  }
+  local s <close> = setmetatable(state, serving_mt)
+  local addresses: {Net.Address} = {}
+  for i, address in ipairs(spec.listeners) do
+    local listener, trouble = Net.listen(address)
+    if listener == nil then return false, trouble end
+    s.accepts[i] = { listener = listener, fd = listener_fds[listener] }
+    addresses[i] = listener.address
+  end
+  local server: Net.Server = {
+    addresses = addresses,
+    stop = function(_self: Net.Server)
+      if s.stopping then return end
+      s.stopping = true
+      for _, a in ipairs(s.accepts) do
+        local closed, why = a.listener:close()
+        if not closed then report(s, why) end
+      end
+      if s.waiter ~= nil then s.waiter:cancel() end
+    end,
+  }
+  resume_accepting(s)
+  if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
+  if not s.stopping then
+    -- TODO: stop on SIGTERM and SIGINT, as `stop` does, once a
+    -- Child.guard answers through a descriptor the loop can watch: the
+    -- waiter would wait on that too.
+    s.waiter = Poll.spawn(function()
+      while not s.stopping do local _, _ = Poll.delay(MOST_MS) end
+    end)
+    local _, _ = s.waiter:join()
+  end
+  drain(s)
+  return true, ""
+end
+
+--- Serves `spec.serve` at each of `spec.listeners`, each connection in a
+--- task of its own, in a [`Poll.run`] of its own: so it cannot be called
+--- in a task of another. It returns true once `stop` has been called
+--- (see [`Server.stop`]) and every connection has finished, and false
+--- and why, having called nothing, where a listener cannot listen.
+---
+--- One connection's failure is its own: what its protocol raises is
+--- given to [`on_error`], the connection is closed, and the rest are
+--- served on. A protocol cancelled at `grace_ms` finds its waits fail
+--- "cancelled", and what it raises then is reported the same way.
+function Net.serve(spec: Net.ServeSpec): boolean, string
+  checked_spec(spec)
+  if Poll.in_task() then
+    error("Net.serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
+  end
+  local ok, why = true, ""
+  Poll.run(function() ok, why = serving(spec) end)
+  if not ok then return false, why end
+  return true, ""
 end
 
 return Net
