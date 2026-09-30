@@ -123,7 +123,7 @@ local function test_an_unenforced_verdict_stands_again_and_in_another_checkout(t
   local env = environment(tmp .. "/cache/verdicts.db")
   checkout(tmp .. "/first")
   -- Each worker attaches the store of its module's closure, as a
-  -- sandbox gives it one, which its key holds by address.
+  -- sandbox gives it one, which its key holds by its bytes.
   local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
   assert(first:find("test: declared: 2 closure stores written", 1, true), first)
   says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")

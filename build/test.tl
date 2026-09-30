@@ -900,14 +900,15 @@ local epoch_module <const> = "build.harness_epoch"
 --- carry them.
 ---
 --- The salt holds the code that writes a closure store with all it
---- requires ([`store_code`]), each module by its source and bytecode. It
---- salts data, the store's bytes, which the epoch does not stand for:
---- what build.closure_store writes passes through cosmic.sqlite,
---- cosmic.fs and cosmic.hash, and an edit to one of them (how a blob is
---- bound, a pragma set) can change a store's bytes while every row's
---- digest, and so the address, stays. An edit to build/closure_store.tl
---- or build/schema.tl, or to a module they require, runs every test
---- that does not declare `store` again.
+--- requires ([`store_code`]), each module by its source and bytecode.
+--- It salts where a store is, not what a key holds of it: what
+--- build.closure_store writes passes through cosmic.sqlite, cosmic.fs
+--- and cosmic.hash, and an edit to one of them (how a blob is bound, a
+--- pragma set) can change a store's bytes while every row's digest
+--- stays, so an edit to any of that code writes every store again, at
+--- a new address. A key holds each store by its bytes
+--- ([`declared_key.store_digest`]), so only an edit that changes them
+--- -- not a comment in build/schema.tl -- runs a test again.
 local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 
 --- The names `roots` and `own` hold: each root and every module it
@@ -1198,11 +1199,18 @@ local record Recording
   --- ([`build.closure_store`]'s `write`), by path, for every test and
   --- example module of the tree that does not declare `store`; the
   --- projection that store is derived from, its basis, and each store
-  --- built or found this run, by address ([`given_store`]).
+  --- built or found this run, by address ([`store_at`]). A key holds a
+  --- store by its bytes ([`declared_key.store_digest`]), the address
+  --- only where it is and whether it must be written.
   stores: {string:string}
   projection: string
   basis: closure_store.Basis
   built: {string:string}
+  --- The address of the store of no module, which holds what every
+  --- closure store holds alike -- the schema, as the code that writes
+  --- it lays it out, and the `meta` rows each keeps -- and which the
+  --- census names by its bytes ([`base_store_digest`]).
+  base_store: string
   --- How many of them this run wrote, their bytes, and the time taken.
   written: integer
   written_bytes: integer
@@ -1350,6 +1358,10 @@ local function reads_compiler(rec: Recording, m: importer.Module): boolean
   return declared_key.reads_compiler(rec.closures[m.path] or {})
 end
 
+--- The digest of the store `m`'s workers are given, which its key holds
+--- (defined with the stores, below).
+local store_digest: function(rec: Recording, m: importer.Module): string | nil, string
+
 --- A sandboxed test's key, over its declared inputs as they are now
 --- ([`build.declared_key`]): nil for one that reads a link out of the
 --- tree, which no key holds, said once in `rec.unkeyed`.
@@ -1370,6 +1382,11 @@ end
 -- checkout gave it, and stands on a sibling's verdict where they differ.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
+  local store, store_trouble = store_digest(rec, m)
+  if store == nil and store_trouble ~= "" then
+    rec.unkeyed[m.path] = store_trouble
+    return nil
+  end
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "",
@@ -1380,7 +1397,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     launcher = rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m), runs_tool = tool_use(rec, m) == "allowed",
-    closure_store = rec.stores[m.path],
+    closure_store = store,
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
     tree = not rec.sandbox and rec.root or nil,
   })
@@ -1682,6 +1699,14 @@ local function stores_directory(root: string): string
   return root .. "/o/stores"
 end
 
+--- The name in the stores directory of the store of no module
+--- ([`Recording.base_store`]), at `address`: apart from the closures'
+--- stores, which this run's counts and a test's listing of them leave it
+--- out of.
+local function base_name(address: string): string
+  return "base-" .. address .. ".db"
+end
+
 --- The address of the closure store of each test and example module of
 --- `modules` that does not declare `store`, by path, over the
 --- projection `rec.projection` ([`closure_store.basis`]): every one the tree
@@ -1693,6 +1718,7 @@ local function address_stores(rec: Recording, modules: {importer.Module},
   local basis, trouble = closure_store.basis(rec.projection)
   if basis == nil then return false, trouble end
   rec.basis, rec.stores, rec.built = basis, {}, {}
+  rec.base_store = closure_store.address(basis, {}, rec.store_salt)
   rec.written, rec.written_bytes, rec.writing_ns = 0, 0, 0
   for _, m in ipairs(modules) do
     local declared = m.inputs
@@ -1715,6 +1741,7 @@ local function sweep_stores(rec: Recording)
   local directory = stores_directory(rec.root)
   local named: {string:boolean} = {}
   for _, address in pairs(rec.stores) do named[address .. ".db"] = true end
+  named[base_name(rec.base_store)] = true
   local listed, _ = Fs.list(directory)
   for _, entry in ipairs(listed or {}) do
     if not named[entry] then
@@ -1727,33 +1754,70 @@ local function sweep_stores(rec: Recording)
   end
 end
 
---- The path of the closure store a worker of `m`'s tests is given, made
---- from the projection where it is not there yet -- written aside and
---- moved into place, so a store there is whole -- or nil where `m`
---- declares `store` and is given the whole projection; nil and why
---- where it could not be made.
-local function given_store(rec: Recording, m: importer.Module): string | nil, string
-  local address = rec.stores ~= nil and rec.stores[m.path] or nil
-  if address == nil then return nil, "" end
+--- The path of the closure store at `address`, of the import closure
+--- `names`, made from the projection where it is not there yet --
+--- written aside and moved into place, so a store there is whole; nil
+--- and why where it could not be made. `base` names the store of no
+--- module ([`base_name`]), which the counts of stores written leave out.
+local function store_at(rec: Recording, address: string, names: {string},
+                        base?: boolean): string | nil, string
   local path = rec.built[address]
   if path ~= nil then return path, "" end
   local directory = stores_directory(rec.root)
-  path = directory .. "/" .. address .. ".db"
+  path = directory .. "/" .. (base and base_name(address) or (address .. ".db"))
   local there, _ = sys.stat(path)
   if there == nil then
     local made, trouble = Fs.mkdirs(directory)
     if not made then return nil, directory .. ": " .. trouble end
     local started = Time.monotonic_ns()
-    local written, write_trouble = closure_store.write(rec.projection, path,
-      rec.closures[m.path], rec.basis, address)
+    local written, write_trouble = closure_store.write(rec.projection, path, names, rec.basis)
     if not written then return nil, "the store of its closure: " .. write_trouble end
-    rec.writing_ns = rec.writing_ns + (Time.monotonic_ns() - started)
-    local wrote, _ = sys.stat(path)
-    rec.written = rec.written + 1
-    rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0)
+    if not base then
+      rec.writing_ns = rec.writing_ns + (Time.monotonic_ns() - started)
+      local wrote, _ = sys.stat(path)
+      rec.written = rec.written + 1
+      rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0)
+    end
   end
   rec.built[address] = path
   return path, ""
+end
+
+--- The path of the closure store a worker of `m`'s tests is given
+--- ([`store_at`]), or nil where `m` declares `store` and is given the
+--- whole projection; nil and why where it could not be made.
+local function given_store(rec: Recording, m: importer.Module): string | nil, string
+  local address = rec.stores ~= nil and rec.stores[m.path] or nil
+  if address == nil then return nil, "" end
+  return store_at(rec, address, rec.closures[m.path])
+end
+
+--- The digest of the bytes of the closure store a worker of `m`'s tests
+--- is given ([`declared_key.store_digest`]), which its key holds: written
+--- first where it is not there yet, since what a key holds of it is
+--- what it holds, not the address that says where it is. Nil where `m`
+--- declares `store`; nil and why where it could not be made.
+-- TODO: share closure stores, or what each address's bytes digest to,
+-- across checkouts (by address, under ~/.cache/cosmic, as the shared
+-- verdicts are), so a fresh checkout that stands on another's verdicts
+-- writes none: today it writes every selected module's store before
+-- keying any test, some ten seconds for the whole tree.
+store_digest = function(rec: Recording, m: importer.Module): string | nil, string
+  local path, trouble = given_store(rec, m)
+  if path == nil then return nil, trouble end
+  return declared_key.store_digest(rec.digests, path), ""
+end
+
+--- The digest of the bytes of the store of no module (`base_store`),
+--- which every closure store holds alike: what the census names as the
+--- key part `store`, which moves where every store's bytes move -- the
+--- schema a store is laid out by, or the SQLite that writes it -- but
+--- not for a comment in the code that writes it. "" where it could
+--- not be made.
+local function base_store_digest(rec: Recording): string
+  local path, _ = store_at(rec, rec.base_store, {}, true)
+  if path == nil then return "" end
+  return declared_key.store_digest(rec.digests, path)
 end
 
 --- Starts one job's worker. False when it could not start, which is
@@ -1831,7 +1895,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- o/cosmic.db (a variable build.tree_root reads): today a process
     -- the test starts, which a sandbox would give the closure store at
     -- o/cosmic.db, reads the whole projection there, which its key holds
-    -- only by the closure store's address; a Linux leg's sandbox
+    -- only by the closure store's bytes; a Linux leg's sandbox
     -- enforces what macOS trusts.
     local store, store_trouble = given_store(rec, job.m)
     if store == nil and store_trouble ~= "" then
@@ -2614,6 +2678,13 @@ local function run(argv: {integer:string}): integer
       { "harness", test.harness_word(rec.epoch, rec.timeout_ms) },
     }
     if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
+    -- What every closure store holds alike, by its bytes, which the key
+    -- of every test whose module does not declare `store` holds within
+    -- its store's digest: named so a run whose stores all moved says
+    -- so rather than leaving it to the parts beside it.
+    if rec.base_store ~= nil then
+      parts[#parts + 1] = { "store", base_store_digest(rec):sub(1, 12) }
+    end
     if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(root):sub(1, 12) } end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do

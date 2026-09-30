@@ -626,6 +626,16 @@ end
 --- any longer is taken out.
 local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   local root = tmp .. "/root"
+  -- The closures' stores, less the store of no module the census names
+  -- (build/test.tl's `base_name`).
+  local function closure_stores(): {string}
+    local out: {string} = {}
+    local listed: {string} = assert(Fs.list(root .. "/o/stores"))
+    for _, name in ipairs(listed) do
+      if name:sub(1, 5) ~= "base-" then out[#out + 1] = name end
+    end
+    return out
+  end
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
   assert(Fs.write(root .. "/suite/other.tl", "return { value = 1 }\n"))
@@ -659,7 +669,7 @@ end
   if unsandboxed(first) then return end
   assert(first:find("test: PASS", 1, true) and first:find("1 ran, 0 stood", 1, true), first)
   local projection = assert(Fs.read(root .. "/o/cosmic.db"))
-  local stores = assert(Fs.list(root .. "/o/stores"))
+  local stores = closure_stores()
   assert(#stores == 1, table.concat(stores, " "))
   -- Outside the closure: the projection moves, the verdict stands.
   assert(Fs.write(root .. "/suite/other.tl", "return { value = 2 }\n"))
@@ -671,7 +681,7 @@ end
   assert(Fs.write(root .. "/suite/added.tl", "return {}\n"))
   local added = run(root, tmp .. "/added.out", env)
   assert(added:find("0 ran, 1 stood", 1, true), added)
-  assert(#assert(Fs.list(root .. "/o/stores")) == 1)
+  assert(#closure_stores() == 1)
   env.ADDED = "1"
   local looked = run(root, tmp .. "/looked.out", env)
   assert(looked:find("1 ran, 0 stood", 1, true), looked)
@@ -681,6 +691,6 @@ end
   assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
   local inside = run(root, tmp .. "/inside.out", env)
   assert(inside:find("1 ran, 0 stood", 1, true), inside)
-  local now = assert(Fs.list(root .. "/o/stores"))
+  local now = closure_stores()
   assert(#now == 1 and now[1] ~= stores[1], table.concat(now, " "))
 end
