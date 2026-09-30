@@ -421,6 +421,63 @@ local function test_a_doc_comment_sees_its_declarations_scope()
   })
 end
 
+--- A function a global holds scopes its parameters and locals as any
+--- other does.
+local function test_a_globals_function_scopes_its_names()
+  local source = lines(
+    "global gfn = function(gp: integer): integer",
+    "  local gl = gp",
+    "  -- [`gp`] and [`gl`].",
+    "  return gl",
+    "end")
+  same(checked(world({}), "/p/a.tl", "teal", source), {})
+end
+
+--- A local is in scope past its statement: a plain comment above it
+--- still sees the alias it shadows; the doc comment of the declaration
+--- sees the name it declares.
+local function test_a_local_is_in_scope_past_its_statement()
+  local source = lines(
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "local function a(): integer",
+    "  -- [`Fs.read`] is the alias's.",
+    "  local Fs = 1",
+    "  return Fs",
+    "end",
+    "",
+    "local function b(): integer",
+    "  --- [`Fs.read`] is this local's.",
+    "  local Fs = 1",
+    "  return Fs",
+    "end",
+    "",
+    "return { a = a, b = b }")
+  local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read" } })
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:10: link: Fs.read does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
+--- A comment above a top-level name's first declaration sees that one,
+--- not a later one of the same name.
+local function test_a_comment_above_a_top_level_name_sees_its_first_declaration()
+  local source = lines(
+    "local function a(): integer",
+    "  -- [`Fs.read`] reads.",
+    "  return 1",
+    "end",
+    "",
+    "local Fs = require(\"cosmic.fs\")",
+    "local _ = Fs",
+    "local Fs = require(\"other.fs\")",
+    "-- [`Fs.write`] writes.",
+    "return { a = a, Fs = Fs }")
+  local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read" },
+    ["other.fs.write"] = { "other.fs.write" } })
+  same(checked(context, "/p/a.tl", "teal", source), {})
+end
+
 --- The build records each link with what its comment's scope makes of
 --- it: whether the file declares the name there, and the alias its
 --- first part is there.

@@ -8,8 +8,11 @@ local ast = require("build.ast")
 
 local record scopes
   --- A name a block binds, and the places it is in scope, from
-  --- [`position`] `from` to `to`: from where it is declared to the end
-  --- of the block that binds it (`math.maxinteger` for the chunk's own).
+  --- [`position`] `from` to `to`, as Lua has it: from past the statement
+  --- that declares it (from its name, for a function's or a type's,
+  --- which its own body sees; from itself, for a parameter or a loop's
+  --- variable) to the end of the block that binds it (`math.maxinteger`
+  --- for the chunk's own).
   record Binding
     name: string
     --- The module a `local name = require("m")` binds it to; "" for
@@ -17,6 +20,11 @@ local record scopes
     module: string
     from: integer
     to: integer
+    --- The start of the line the statement that declares it starts
+    --- on, where a doc comment above that statement stands
+    --- ([`in_scope`]'s `heading`); 0 for a parameter or a loop's
+    --- variable.
+    head: integer
     --- Whether the chunk's own block binds it.
     top: boolean
   end
@@ -122,17 +130,23 @@ function scopes.walk(parsed: ast.Parsed,
     ends[#ends] = nil
     stack[#stack] = nil
   end
-  local function declare(name: string | nil, module: string, from: integer)
-    if name == nil then return end
+  local function declare(name: string | nil, module: string, from: integer, head: integer): scopes.Binding | nil
+    if name == nil then return nil end
     stack[#stack][name] = module
-    out[#out + 1] = { name = name, module = module, from = from, to = ends[#ends], top = #ends == 1 }
+    local made: scopes.Binding = { name = name, module = module, from = from, to = ends[#ends],
+                                   head = head, top = #ends == 1 }
+    out[#out + 1] = made
+    return made
   end
-  --- Where the names a statement binds come into scope: the start of
-  --- its line, where its first token is, which the lexer hands the
-  --- comments above it; the node of a `local type` sits at its name,
-  --- past that token.
-  local function line_of(stmt: ast.Node): integer
+  --- Where a doc comment above `stmt` stands: the start of its line,
+  --- whose first token the lexer hands the comments above it (the node
+  --- of a `local type` sits at its name, past that token).
+  local function head_of(stmt: ast.Node): integer
     return scopes.position(stmt.y, 0)
+  end
+  --- Where `node`, a name, starts.
+  local function at(node: ast.Node): integer
+    return scopes.position(node.y, node.x)
   end
   local process_block: function(ast.Node)
   local process_function: function(ast.Node)
@@ -162,21 +176,29 @@ function scopes.walk(parsed: ast.Parsed,
     end
   end
 
+  --- A function, or a macroexp, whose body is one expression.
   process_function = function(fn: ast.Node)
-    open(fn.body)
+    if fn.body ~= nil then open(fn.body) else open(fn) end
     if fn.args ~= nil then
       for _, parameter in ipairs(fn.args) do
-        declare(parameter.tk, "", scopes.position(parameter.y, parameter.x))
+        declare(parameter.tk, "", at(parameter), 0)
       end
     end
     if fn.body ~= nil then
       process_block(fn.body)
+    elseif fn.exp ~= nil then
+      walk_expression(fn.exp)
     end
     close()
   end
 
   process_block = function(block: ast.Node)
+    -- A local's scope starts past its statement, where the next one
+    -- starts, or at the end of the block for its last.
+    local pending: {scopes.Binding} = {}
     for _, stmt in ipairs(block) do
+      for _, each in ipairs(pending) do each.from = head_of(stmt) end
+      pending = {}
       if stmt.kind == "local_declaration" then
         if stmt.exps ~= nil then
           walk_expression(stmt.exps)
@@ -184,14 +206,21 @@ function scopes.walk(parsed: ast.Parsed,
         if stmt.vars ~= nil then
           local module = alias_of(stmt)
           for _, var in ipairs(stmt.vars) do
-            declare(var.tk, module, line_of(stmt))
+            local made = declare(var.tk, module, math.maxinteger, head_of(stmt))
+            if made ~= nil then pending[#pending + 1] = made end
           end
         end
       elseif stmt.kind == "local_type" then
-        declare(stmt.var ~= nil and stmt.var.tk or nil, alias_of(stmt), line_of(stmt))
+        declare(stmt.var ~= nil and stmt.var.tk or nil, alias_of(stmt),
+          stmt.var ~= nil and at(stmt.var) or head_of(stmt), head_of(stmt))
       elseif stmt.kind == "local_function" then
-        declare(stmt.name ~= nil and stmt.name.tk or nil, "", line_of(stmt))
+        declare(stmt.name ~= nil and stmt.name.tk or nil, "",
+          stmt.name ~= nil and at(stmt.name) or head_of(stmt), head_of(stmt))
         process_function(stmt)
+      elseif stmt.kind == "local_macroexp" then
+        declare(stmt.name ~= nil and stmt.name.tk or nil, "",
+          stmt.name ~= nil and at(stmt.name) or head_of(stmt), head_of(stmt))
+        if stmt.macrodef ~= nil then process_function(stmt.macrodef) end
       elseif stmt.kind == "record_function" or stmt.kind == "global_function" then
         process_function(stmt)
       elseif stmt.kind == "assignment" then
@@ -219,11 +248,11 @@ function scopes.walk(parsed: ast.Parsed,
         if stmt.exps ~= nil then walk_expression(stmt.exps) end
         open(stmt.body)
         if stmt.var ~= nil then
-          declare(stmt.var.tk, "", scopes.position(stmt.var.y, stmt.var.x))
+          declare(stmt.var.tk, "", at(stmt.var), 0)
         end
         if stmt.vars ~= nil then
           for _, var in ipairs(stmt.vars) do
-            declare(var.tk, "", scopes.position(var.y, var.x))
+            declare(var.tk, "", at(var), 0)
           end
         end
         if stmt.body ~= nil then process_block(stmt.body) end
@@ -239,17 +268,22 @@ function scopes.walk(parsed: ast.Parsed,
         open(stmt.body)
         if stmt.body ~= nil then process_block(stmt.body) end
         close()
-      elseif stmt.kind == "return" or stmt.kind == "op" then
+      else
+        -- A statement that binds nothing of a scope's (a call, a
+        -- `return`, a global's declaration, a `goto`): what a function
+        -- among its expressions binds is still that function's.
         walk_expression(stmt)
       end
     end
+    for _, each in ipairs(pending) do each.from = ends[#ends] end
   end
   process_block(parsed.node)
   return out
 end
 
 --- Every name `parsed` binds -- each local, `local function`, `local`
---- type, parameter and loop variable, at any depth -- with where its
+--- type, macroexp, parameter and loop variable, at any depth, a
+--- function's in any expression of any statement -- with where its
 --- scope starts and ends, in the order of one walk of its scopes. Ask
 --- it once of a file and [`in_scope`] of it for each place.
 function scopes.bindings_of(parsed: ast.Parsed): {scopes.Binding}
@@ -258,13 +292,18 @@ end
 
 --- The names `bindings` ([`bindings_of`]) holds in scope at line `y`,
 --- column `x`, each with the module it is an alias of, or "": the
---- innermost binding of each, as Lua reads it there.
-function scopes.in_scope(bindings: {scopes.Binding}, y: integer, x: integer): {string: string}
+--- innermost binding of each, as Lua reads it there. With `heading`,
+--- the place is a doc comment's above a statement starting on line
+--- `y`, which sees the names that statement declares too.
+function scopes.in_scope(bindings: {scopes.Binding}, y: integer, x: integer,
+                         heading: boolean): {string: string}
   local at = scopes.position(y, x)
+  local line = scopes.position(y, 0)
   local out: {string: string} = {}
   local from: {string: integer} = {}
   for _, each in ipairs(bindings) do
-    if each.from <= at and at <= each.to and (from[each.name] == nil or each.from >= from[each.name]) then
+    local seen = each.from <= at or heading and each.head == line
+    if seen and at <= each.to and (from[each.name] == nil or each.from >= from[each.name]) then
       out[each.name] = each.module
       from[each.name] = each.from
     end

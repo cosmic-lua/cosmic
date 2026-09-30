@@ -848,16 +848,18 @@ end
 --- - Each name its top-level block binds (a local, a `local function`,
 ---   a type, an alias `local Fs = require("m")`), wherever the comment
 ---   is: the chunk's names are the file's, and its doc comments speak of
----   them before or after their declarations.
+---   them before or after their declarations. Before a name's first
+---   declaration, the first is the one a comment sees.
 --- - Each name a nested block binds -- a local, a parameter, a loop's
 ---   variable -- where Lua has it in scope ([`scopes.in_scope`]): from
----   the line the statement binding it starts on, or from a parameter or
----   loop variable itself, to the end of its block. A doc comment
----   directly above a declaration so sees the scope that declaration is
----   in, the declaration's own names included and its parameters left
----   out: those are its body's, and a comment inside the body sees them.
----   An inner binding shadows an outer one, so a local of an alias's
----   name ends the alias there.
+---   past the statement binding it (a function's or a type's from its
+---   name), or from a parameter or loop variable itself, to the end of
+---   its block. A doc comment (`---`) directly above a declaration sees
+---   the scope that declaration is in and the names it declares; a
+---   plain comment there sees only the scope. Neither sees the
+---   declaration's parameters: those are its body's, and a comment
+---   inside the body sees them. An inner binding shadows an outer one,
+---   so a local of an alias's name ends the alias there.
 --- - Each function by its name and its path (`grow`, `Box.grow`), and a
 ---   top-level record's, enum's or type's members spelled in full
 ---   (`Box.width`) and by their own names: a path names a field, which
@@ -915,13 +917,16 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
     local token = tokens[at]
     return token ~= nil and token.tk or ""
   end
-  -- The token each comment's line stands before.
+  -- The token each comment's line stands before, and whether it is a
+  -- doc comment's line.
   local before: {integer: compiler.Token} = {}
+  local doc: {integer: boolean} = {}
   for at, token in ipairs(tokens) do
     local tk = token.tk
     local at_top = token.x == 1
     for _, comment in ipairs(token.comments or {}) do
       before[comment.y] = token
+      doc[comment.y] = comment.text:match("^%-%-%-") ~= nil
     end
     if tk == "local" then
       local kind = tk_at(at + 1)
@@ -993,7 +998,8 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
   end
   local bindings: {scopes.Binding} | nil = nil
   -- What every comment sees: `names`, the top-level block's bindings,
-  -- and its aliases, the last binding of each name deciding.
+  -- and its aliases, the first binding of each name deciding before a
+  -- later one is in scope.
   local everywhere: {string: boolean} = {}
   local top_aliases: {string: string} = {}
   local function scoped(): {scopes.Binding}
@@ -1002,7 +1008,7 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
       found = scopes.bindings_of(parsed)
       bindings = found
       for _, each in ipairs(found) do
-        if each.top then
+        if each.top and not everywhere[each.name] then
           everywhere[each.name] = true
           top_aliases[each.name] = each.module ~= "" and each.module or nil
         end
@@ -1015,10 +1021,11 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
   local function at(line: integer): link_text.Declared
     local token = before[line]
     local y, x = token ~= nil and token.y or line, token ~= nil and token.x or 0
-    local place = scopes.position(y, x)
+    local doc_line = doc[line] == true
+    local place = scopes.position(y, x) * 2 + (doc_line and 1 or 0)
     local known = seen[place]
     if known ~= nil then return known end
-    local in_scope = scopes.in_scope(scoped(), y, x)
+    local in_scope = scopes.in_scope(scoped(), y, x, doc_line)
     local here: {string: boolean} = setmetatable({}, { __index = everywhere })
     local aliases: {string: string} = {}
     for name, module in pairs(top_aliases) do aliases[name] = module end
