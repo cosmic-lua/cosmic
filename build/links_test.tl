@@ -120,6 +120,74 @@ local function test_an_escaped_bracket_is_text()
   same(parsed("not \\[`x`] a link\n"), {})
 end
 
+--- A line indented four columns past its container is code, unless it
+--- goes on with a paragraph: after a blank line or a heading, a tab as
+--- four; a list item's content is its container, so its indented
+--- paragraph is text and only a line four past that is code.
+local function test_an_indented_code_block_hides_links()
+  same(parsed(lines(
+    "Text.",
+    "",
+    "    [`a`] and [b](c.md)",
+    "",
+    "# Heading",
+    "    [d](e.md)",
+    "A paragraph",
+    "    [f](g.md) goes on with it.",
+    "",
+    "- an item",
+    "",
+    "  [h](i.md) is the item's, as is",
+    "  - a nested [j](k.md)",
+    "",
+    "        [l](m.md) is the nested item's code, and",
+    "",
+    "      [n](o.md) its paragraph.",
+    "",
+    "1.  counted",
+    "",
+    "    [p](q.md) is the item's,",
+    "",
+    "        [r](s.md) its code.",
+    "",
+    "Out of the list,",
+    "",
+    "\t[t](u.md) is code again.")), {
+    "8 inline g.md", "12 inline i.md", "13 inline k.md", "17 inline o.md", "21 inline q.md",
+  })
+end
+
+--- A fence closes only on a run of its own character; a run of
+--- backticks with a backtick after it opens none.
+local function test_a_fence_closes_on_its_own_run()
+  same(parsed(lines("```", "`~~~", "[a](b.md)", "```", "``` [c](d.md) `x`")), { "5 inline d.md" })
+end
+
+--- A comment's text is read past the space its lines start with.
+local function test_a_comments_indented_code_hides_links()
+  same(parsed(lines(" Text.", "", "     [a](b.md) is code;", "", "    [c](d.md) is not.")),
+    { "5 inline d.md" })
+end
+
+--- An HTML comment hides a link, as a block or within a paragraph; a
+--- code span or an escape that comes first holds `<!--` as text, and one
+--- that no `-->` closes in its paragraph is text too.
+local function test_an_html_comment_hides_links()
+  same(parsed(lines(
+    "<!-- [a](b.md)",
+    "[c](d.md) -->",
+    "[e](f.md) <!-- [g](h.md)",
+    "[i](j.md) --> [k](l.md) <!----> [m](n.md)",
+    "`<!--` [o](p.md) \\<!-- [q](r.md) `-->` -->",
+    "",
+    "text <!-- [s](t.md)",
+    "",
+    "[u](v.md) -->")), {
+    "3 inline f.md", "4 inline l.md", "4 inline n.md", "5 inline p.md", "5 inline r.md",
+    "7 inline t.md", "9 inline v.md",
+  })
+end
+
 --- Symbols spelled in full, each split at its first `.`: the module a
 --- message names is the whole spelling either way. A spelling may end
 --- in `@` and the file that declares the symbol.
@@ -363,6 +431,24 @@ end
 local function test_a_definitions_target_is_checked_where_it_is()
   same(checked(world({}), "/p/a.md", "markdown", "[x][y]\n\n[y]: nowhere.md\n"), {
     "/p/a.md:3: link: nowhere.md does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
+--- A Markdown file's broken link in an indented code block or an HTML
+--- comment is not checked; one in a list item's indented paragraph is.
+local function test_a_link_in_code_or_a_comment_goes_unchecked()
+  local source = lines(
+    "Text.",
+    "",
+    "    [broken](nowhere.md)",
+    "",
+    "<!-- [broken](nowhere.md) -->",
+    "",
+    "- an item",
+    "",
+    "    [broken](still_nowhere.md)")
+  same(checked(world({ ["/p/a.md"] = source }), "/p/a.md", "markdown", source), {
+    "/p/a.md:9: link: still_nowhere.md does not resolve (no declaration, symbol or file by that name)",
   })
 end
 
@@ -675,4 +761,22 @@ local function test_a_files_name_alone_is_left_as_written()
   same({ (rewritten(context, "/p/build/a.tl", "teal", source)) },
     { (source:gsub("`build/thing.tl`", "[`build/thing.tl`]")) })
   same(checked(context, "/p/build/a.tl", "teal", lines("-- [`thing.tl`]", "return 1")), {})
+end
+
+--- A plain lowercase word links to its own file's top-level function
+--- only when it is written as a call; any other name stays as written.
+local function test_a_lowercase_name_written_as_a_call_links()
+  local source = lines(
+    "local function render(): string",
+    "  local function inner() end",
+    "  inner()",
+    "  return \"\"",
+    "end",
+    "",
+    "-- `render()` links; `render`, `render(x)`, `inner()` and `other()` do not.",
+    "return { render = render }")
+  local got, linked = rewritten(linking_world(), "/p/a.tl", "teal", source)
+  same({ got }, { (source:gsub("`render%(%)` links", "[`render()`] links")) })
+  same(linked, { "/p/a.tl:7: link: `render()` would link to render" })
+  same(checked(linking_world(), "/p/a.tl", "teal", got), {})
 end
