@@ -1151,7 +1151,7 @@ end
 
 --- The verbs whose symbol, prose and options together carry every word
 --- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
---- and a verb's options are data (`Cli.options`), so what one does is
+--- and a verb's options are data ([`Cli.options`]), so what one does is
 --- matched here instead, against the options of the binary answering,
 --- as `render` shows them. Each word is a phrase, as [`fts_query`] quotes
 --- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
@@ -2018,7 +2018,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   end
   if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
-  -- A verb's options are data, `Cli.options`, not prose: shown under
+  -- A verb's options are data, [`Cli.options`], not prose: shown under
   -- its field as `cosmic help <verb>` shows them, and searched by
   -- [`by_options`].
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil

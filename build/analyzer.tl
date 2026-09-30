@@ -387,7 +387,7 @@ end
 --- Every node under a function declared inside `body` -- a nested
 --- `local function`, a method, or an anonymous `function` value -- so a
 --- hit found there can be told from one in `body`'s own blocks.
---- `ast.find_all` walks the whole subtree and offers no way to stop at
+--- [`ast.find_all`] walks the whole subtree and offers no way to stop at
 --- a function boundary, so the boundary is drawn here instead.
 local function nodes_under_inner_functions(body: ast.Node): {ast.Node: boolean}
   local inner: {ast.Node: boolean} = {}

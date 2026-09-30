@@ -2,7 +2,7 @@
 --- an option it does not know and an argument it does not take are
 --- refused with exit 2, and every exit -- a pass, a failure, a refused
 --- command line -- ends in the verb's verdict line. The verbs come from
---- `Cli.order`, so a new verb is held to this the moment it is listed.
+--- [`Cli.order`], so a new verb is held to this the moment it is listed.
 ---
 --- Its cases start this program, so it declares `tool`; those that read
 --- its store beyond their module's closure (help, docs, and the verbs'

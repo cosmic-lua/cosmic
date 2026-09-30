@@ -20,7 +20,7 @@ end
 --- initializer line (`local Foo = {}`) for a record or enum whose name is
 --- used as a value elsewhere, such as `local record Foo end` with a
 --- `function Foo.bar()` attached later. Whether a name is used as a value
---- takes tl's whole-module usage analysis, which `build.ast.parse` (it
+--- takes tl's whole-module usage analysis, which [`build.ast.parse`] (it
 --- only lexes and parses) does not run, and rederiving it here would risk
 --- counting a line that is elided. So every such statement is excluded,
 --- and a percentage is deflated, never inflated.
@@ -36,12 +36,12 @@ local not_executable: {string: boolean} = {
 --- every statement that is a direct element of a "statements" node, at
 --- any depth (a block inside a function, an `if` or a loop counts, not
 --- only the chunk's top level), except the kinds `not_executable` names.
---- `ast.walk` visits those elements as nodes in their own right, so this
+--- [`ast.walk`] visits those elements as nodes in their own right, so this
 --- only notices the "statements" node itself and reads its array part:
 --- [`Node`] is declared `is {Node}`, so every node is its own array view,
 --- empty for a node that is not a "statements" node.
 ---
---- The line is `ast.span_start`'s, not the statement's own `y`: a
+--- The line is [`ast.span_start`]'s, not the statement's own `y`: a
 --- compound node's `y` sits where the parser finished building it
 --- ([`build/ast/walk.tl`]), which for a statement that begins with a nested
 --- call or expression can be well past its first line. `span_start` is
