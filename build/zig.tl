@@ -72,6 +72,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
@@ -813,7 +814,7 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 --- too, and one it caught cleanly within the quarter second looks here
 --- just like a SIGINT sent to this process alone. A terminal never sends
 --- SIGTERM.
-function Zig.run(argv: {string}): integer
+function Zig.run(argv: {string}, env?: {string:string}): integer
   local opened, guard_trouble = Child.guard()
   if opened == nil then
     log:complain("signal guard: " .. guard_trouble)
@@ -826,7 +827,7 @@ function Zig.run(argv: {string}): integer
   -- none.
   local pending = 0
   local function supervise(): Child.Result | nil, string
-    local h, trouble = Child.start(argv, { process_group = false })
+    local h, trouble = Child.start(argv, { process_group = false, env = env })
     if h == nil then
       return nil, trouble
     end
@@ -906,15 +907,16 @@ end
 
 --- `build` between two snapshots of `root`: zig's own status, unless
 --- a source moved while it ran. A snapshot that cannot be taken first
---- leaves the build unwatched rather than stopped.
-local function watched_build(root: string,
+--- leaves the build unwatched rather than stopped. zig runs in `env`,
+--- this process's environment unless given.
+local function watched_build(root: string, env: {string:string} | nil,
     command: function(): {string} | nil): integer
   local before, _ = Zig.snapshot(root)
   local argv = command()
   if argv == nil then
     return 1
   end
-  local status = Zig.run(argv)
+  local status = Zig.run(argv, env)
   if before == nil or status > 128 then
     return status
   end
@@ -982,6 +984,169 @@ local function patch(root: string, project: string): string | nil, string
   return manifest, ""
 end
 
+--- The checkout's rebuild lock, as build/rebuild_lock.tl holds it --
+--- a lock on `o/rebuild.lock`, its holder's pid and role a line each in
+--- `o/rebuild.lock.pid` -- which this file, run standalone, cannot
+--- require. It takes the lock's SQLite half alone, an fcntl lock, which
+--- keeps out a tool holding the whole lock whether the system keeps
+--- flock apart from fcntl locks (Linux, where that tool takes both) or
+--- not (macOS, where its flock conflicts with this).
+-- TODO: take the flock half too, as build/rebuild_lock.tl does, once
+-- ci/cosmic-driver.pin names a cosmic whose cosmic.sys carries flock.
+local lock_name <const> = "/o/rebuild.lock"
+local holder_name <const> = "/o/rebuild.lock.pid"
+
+--- build/rebuild_lock.tl's `handed_variable`: set, to the lock's path,
+--- in the environment of a child of the lock's holder, which goes on
+--- under that hold rather than wait for it.
+local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
+
+--- build/rebuild_lock.tl's `doing`: what a holder of each role is
+--- doing, as a waiting run says it (build/zig_test.tl holds the two
+--- alike).
+local doing: {string:string} = {
+  test = "is running its tests",
+  rebuild = "is rebuilding the tool",
+  write = "is writing o/cosmic.db",
+}
+
+--- How long a waiting boot waits in one go before it says it still is.
+local reminder_ms <const> = 5 * 60 * 1000
+
+--- Whether `given`, the words after bin/zig, is a build of a step that
+--- boots, writing the working database under o/ beside a tool: `boot`,
+--- and `sanitized`, which boots the checked core into o/sanitized.
+function Zig.boots(given: {string}): boolean
+  if given[1] ~= "build" then
+    return false
+  end
+  for i = 2, #given do
+    if given[i] == "boot" or given[i] == "sanitized" then
+      return true
+    end
+  end
+  return false
+end
+
+--- The run holding the lock of `root`, and what it is doing, as
+--- build/rebuild_lock.tl's `holder` names them.
+function Zig.holder(root: string): string
+  local text, _ = Fs.read(root .. holder_name)
+  local pid: integer | nil = nil
+  local role = "rebuild"
+  if text ~= nil then
+    local number, named = text:match("^(%d+)\n(%l*)\n?$")
+    pid = math.tointeger(tonumber(number))
+    if named ~= nil and doing[named] ~= nil then
+      role = named
+    end
+  end
+  local who = "another cosmic run"
+  if pid ~= nil and pid ~= sys.getpid() then
+    local alive, _ = sys.kill(pid, 0)
+    if alive then
+      who = "another cosmic run (pid " .. tostring(pid) .. ")"
+    end
+  end
+  return who .. " in this checkout " .. doing[role]
+end
+
+--- Whether `trouble`, from beginning a transaction, says another
+--- connection holds the lock rather than something wrong with the file.
+--- SQLite gives its reason only as text, which build/work.tl's `locked`
+--- reads the same way.
+local function says_busy(trouble: string): boolean
+  return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
+end
+
+--- Begins the lock's transaction on `db`, waiting up to `wait_ms`:
+--- "held", "busy" when another run holds it, or nil and why for any
+--- other failure.
+local function begin(db: Sqlite.Handle, path: string, wait_ms: integer): string | nil, string
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(wait_ms))
+  if not timed then
+    return nil, path .. ": " .. time_trouble
+  end
+  local begun, trouble = db:exec("BEGIN IMMEDIATE")
+  if begun then
+    return "held", ""
+  end
+  -- TODO: tell SQLITE_BUSY by its code rather than its text once
+  -- ci/cosmic-driver.pin names a cosmic whose cosmic.sqlite answers one.
+  if says_busy(trouble) then
+    return "busy", ""
+  end
+  return nil, path .. ": " .. trouble
+end
+
+--- The lock, held until this process exits, for a boot: a `cosmic test`
+--- run or a rebuild of the tool in the same checkout, which hold it too,
+--- and this boot wait for one another. Answers the lock, or false when
+--- the lock is busy and `environment` says a parent holding it handed it
+--- on (`handed_variable`: the boot a stale tool starts), or nil and
+--- why: a lock file this process cannot write, which would lock
+--- nothing, among them. One that finds another run holding it says so
+--- and waits for it, saying so again every few minutes, as long as it
+--- takes.
+function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | boolean | nil, string
+  local made, made_trouble = Fs.mkdirs(root .. "/o")
+  if not made then
+    return nil, root .. "/o: " .. made_trouble
+  end
+  local path = root .. lock_name
+  -- SQLite opens a file it cannot write read-only, where a transaction
+  -- locks nothing: refused here instead. Closed before SQLite's lock is
+  -- taken, since a close drops this process's fcntl locks on the file.
+  local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
+  if fd == nil then
+    return nil, path .. ": " .. open_trouble
+  end
+  local _, _ = sys.close(fd)
+  local db, db_trouble = Sqlite.open(path, true)
+  if db == nil then
+    return nil, path .. ": " .. db_trouble
+  end
+  local taken, trouble = begin(db, path, 0)
+  if taken == "busy" then
+    -- The variable names the lock's file by the holder's own spelling
+    -- of its root, so it is told apart by the file it names.
+    local handed = environment[handed_variable]
+    if handed ~= nil and handed ~= "" then
+      local given, _ = sys.stat(handed)
+      local own, _ = sys.stat(path)
+      if given ~= nil and own ~= nil and given.dev == own.dev and given.ino == own.ino then
+        local _, _ = db:close()
+        return false, ""
+      end
+    end
+    log:complain(Zig.holder(root) .. "; waiting for it (one run at a time holds " ..
+      path .. ")")
+    local waited_ms = 0
+    while taken == "busy" do
+      taken, trouble = begin(db, path, reminder_ms)
+      if taken == "busy" then
+        waited_ms = waited_ms + reminder_ms
+        local minutes = waited_ms // 60000
+        log:complain("still waiting, " .. tostring(minutes) ..
+          (minutes == 1 and " minute" or " minutes") .. " on: " ..
+          Zig.holder(root) .. " (one run at a time holds " .. path .. ")")
+      end
+    end
+  end
+  if taken == nil then
+    local _, _ = db:close()
+    return nil, trouble
+  end
+  -- Written aside and moved into place, so a waiting run reads a whole
+  -- one or the one before.
+  local aside = root .. holder_name .. "." .. tostring(sys.getpid())
+  local written, _ = Fs.write(aside, tostring(sys.getpid()) .. "\nrebuild\n")
+  if written then
+    local _, _ = Fs.rename(aside, root .. holder_name)
+  end
+  return db, ""
+end
+
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: `argv[0]` is this script's own path.
 function Zig.main(argv: {integer:string}): integer
@@ -1009,9 +1174,23 @@ function Zig.main(argv: {integer:string}): integer
     at = at + 1
   end
   if given[1] == "build" then
+    local env: {string:string} | nil = nil
+    local lock: Sqlite.Handle | boolean = false
+    if Zig.boots(given) then
+      -- Held to the build's end; handed on to the boot's bridge, which
+      -- writes o/cosmic.db holding it (build/writer.tl).
+      local taken, lock_trouble = Zig.hold(root, Env.all())
+      if taken == nil then
+        log:complain(lock_trouble)
+        return 1
+      end
+      lock = taken
+      env = Env.all()
+      env[handed_variable] = root .. lock_name
+    end
     -- The vendored trees are patched once the snapshot is taken, so a
     -- vendored file edited while they are is caught as any source is.
-    return watched_build(root, function(): {string} | nil
+    local status = watched_build(root, env, function(): {string} | nil
       local manifest, patch_trouble = patch(root, Zig.project_cache(root))
       if manifest == nil then
         log:complain(patch_trouble)
@@ -1025,6 +1204,10 @@ function Zig.main(argv: {integer:string}): integer
       end
       return build_argv
     end)
+    if lock is Sqlite.Handle then
+      local _, _ = lock:close()
+    end
+    return status
   end
   local exec_argv: {string} = { zig }
   for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),

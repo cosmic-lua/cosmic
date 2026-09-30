@@ -437,8 +437,11 @@ end
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1",
-    COSMIC_TEST_KEY = "declared" })
+    COSMIC_TEST_KEY = "declared", COSMIC_REBUILD_LOCK_HANDED = "/tree/o/rebuild.lock" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+  -- Nor a rebuild lock handed to the run: what a test starts holds none
+  -- of the run's (build.rebuild_lock).
+  assert(kept.COSMIC_REBUILD_LOCK_HANDED == nil)
   -- Nor whether this run stands on shared verdicts: a `cosmic test` a
   -- test starts says that for itself. Nor the retired switch CI's driver
   -- still sets for the release it pins.

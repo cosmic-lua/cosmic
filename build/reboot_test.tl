@@ -1,6 +1,7 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local reboot = require("build.reboot")
+local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local work = require("build.work")
 
@@ -28,6 +29,25 @@ local function test_boot_into_reports_a_failed_boot(tmp: string)
   local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
   assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
   assert(Fs.read(root .. "/bin/ran") == "build boot\n")
+end
+
+--- The boot a run holding the rebuild lock starts is handed that lock
+--- (build/zig.tl takes it otherwise, and would wait on its parent for
+--- good); one started by a run that holds none is handed nothing.
+local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/o"))
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, root .. "/bin/zig",
+    "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
+  local _ = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  assert(Fs.read(root .. "/bin/handed") == "[]\n", Fs.read(root .. "/bin/handed"))
+  assert(rebuild_lock.take(root, 0, "test") == "held")
+  local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  rebuild_lock.release()
+  assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
+  assert(Fs.read(root .. "/bin/handed") == "[" .. root .. "/o/rebuild.lock]\n",
+    Fs.read(root .. "/bin/handed"))
 end
 
 --- After a boot, the tool it wrote is what runs the command again; one

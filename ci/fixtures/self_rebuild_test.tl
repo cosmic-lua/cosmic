@@ -429,10 +429,11 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
         tostring(result.code) .. ", want 0; it said:\n" .. err)
       Fixture.contains(child.out, "step8-docs-marker")
       -- Started together, before any rebuild could land, each run meets
-      -- the tool stale: it rebuilds, waits for the run that does, or
-      -- finds that run's rebuild already landed and enters it.
+      -- the tool stale: it rebuilds, waits for the run that does (or for
+      -- one writing o/cosmic.db, which holds the same lock), or finds
+      -- that run's rebuild already landed and enters it.
       assert(err:find("the tool is stale; rebuilding it from the tree", 1, true) or
-        err:find("is rebuilding the tool; waiting for it", 1, true) or
+        err:find("in this checkout is [^\n]*; waiting for it") or
         err:find("rebuilt the tool; entering it", 1, true),
         child.label .. ": neither rebuilt the tool, waited nor entered " ..
         "another's; it said:\n" .. err)
