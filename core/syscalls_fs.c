@@ -1006,8 +1006,8 @@ COSMIC_SYSCALL(fsync, 1) {
 #define TREE_DEPTH_MAX 128
 
 /* The devices whose every answer is the same or random, as
- * build/filesystem_observations.tl's `inert_device` counts them: a tree
- * holding one is no less keyed by its digest. */
+ * build/filesystem_observations.tl's `inert_device` counts them, so a
+ * tree holding one is not special. */
 static const char *const inert_devices[] = { "/dev/null", "/dev/zero", "/dev/full", "/dev/urandom" };
 
 /* A walk of a tree for `tree_digest`: the digest being built, whether
