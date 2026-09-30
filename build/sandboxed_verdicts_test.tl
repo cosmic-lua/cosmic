@@ -726,3 +726,21 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   local stores, _ = Fs.list(tmp .. "/second/o/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
 end
+
+--- A digest kept of a store's address that its bytes, written again,
+--- do not match is an error of the run, never a key a verdict is kept
+--- under: a test that runs is keyed again by the store it was given.
+local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_run(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", true))
+  assert(db:exec("UPDATE stores_v1 SET digest = 'not the digest of its bytes'"))
+  assert(db:close())
+  checkout(tmp .. "/second")
+  local second = run(tmp .. "/second", tmp .. "/second.out", env, { "--all" }, true)
+  assert(second:find("do not follow from its address alone", 1, true) and
+    second:find("test: FAIL", 1, true), second)
+end

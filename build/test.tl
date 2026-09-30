@@ -1846,9 +1846,9 @@ local function address_digest(rec: Recording, address: string, names: {string},
     digest = declared_key.store_digest(rec.digests, made)
     local kept = rec.store_digests[address]
     if kept ~= nil and kept ~= digest then
-      rec.errors[#rec.errors + 1] = "the closure store " .. made .. " digests to " .. digest ..
-        ", but a run that wrote it kept " .. kept .. " of its address: its bytes do not " ..
-        "follow from its address alone (build.closure_store's `address`)"
+      rec.errors[#rec.errors + 1] = "the closure store " .. made .. ": its bytes' digest is " ..
+        digest .. ", but a run that wrote it kept " .. kept .. " of its address: its bytes " ..
+        "do not follow from its address alone (build.closure_store's `address`)"
     end
   end
   rec.store_digests[address] = digest
