@@ -135,7 +135,7 @@ end
 local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
   local root = tree(tmp)
   for _, script in ipairs({ old_tool, new_tool }) do
-    local holder, said = start(script, root, 300)
+    local holder, said = start(script, root, 1000)
     assert(said == "held", said)
     local started_ns = Time.monotonic_ns()
     local taken, trouble = rebuild_lock.take(root, 30000)

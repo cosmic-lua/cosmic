@@ -50,12 +50,16 @@ local function test_a_holder_lets_go_of_the_flock_on_release(tmp: string)
   rebuild_lock.release()
 end
 
---- A negative wait, which a flock would take for no limit and SQLite
---- for none, is refused.
-local function test_a_negative_wait_raises(tmp: string)
+--- A wait `sys.flock` cannot take is refused by `take` itself: a
+--- negative one, which it would take for no limit and SQLite for none,
+--- and one past a C int.
+local function test_a_wait_out_of_range_raises(tmp: string)
   local root = tree(tmp)
-  local ok, err = pcall(rebuild_lock.take, root, -1)
-  assert(not ok and tostring(err):find("the wait is negative", 1, true), tostring(err))
+  for _, wait_ms in ipairs({ -1, 0x80000000 }) do
+    local ok, err = pcall(rebuild_lock.take, root, wait_ms)
+    assert(not ok and tostring(err):find("rebuild_lock.take: the wait is out of range", 1, true),
+      tostring(err))
+  end
 end
 
 --- A lock whose file cannot be opened is no busy lock: the caller is
