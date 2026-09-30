@@ -30,12 +30,12 @@ local record closure_store
   --- Each module is a line naming its path, kind, file, source hash and
   --- tests, then the digests of its bytecode, of its source as stored
   --- (deflated, by [`build.writer`]), and of the rows a store carries of
-  --- it: its imports, docs, uses, catalog and examples, each in the
-  --- order the store takes them within the module (or file). Each
-  --- declaration is a line naming its path and the digests of its source
-  --- as stored and of its docs, and it records the declarations it
-  --- requires. A digest covers what every store holds alike: the `meta`
-  --- rows it keeps (`closure_meta`).
+  --- it: its imports, docs, uses, catalog, examples and links (those it
+  --- makes), each in the order the store takes them within the module
+  --- (or file). Each declaration is a line naming its path and the
+  --- digests of its source as stored, of its docs and of its links, and
+  --- it records the declarations it requires. A digest covers what
+  --- every store holds alike: the `meta` rows it keeps (`closure_meta`).
   ---
   --- What the compiler made of a module is held by what it made, not by
   --- the compiler's identity ([`build.work`]'s `Identities`). That moves
@@ -148,18 +148,23 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     -- its path, or, for its examples, by its file.
     local carried: {{string:string}} = {}
     local by_file: {boolean} = {}
+    -- The links' digests, which a declaration's line takes too.
+    local linked: {string:string} = {}
     for _, group in ipairs({
       { "path", "requires", "imports", "requires" },
       { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
       { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
       { "module", "kind symbol message text file line", "catalog", "id" },
       { "file", "module name text line source", "examples", "id" },
+      { "from_module", "module symbol path anchor from_file line column kind form source text",
+        "links", "module, symbol, path, anchor, from_file, line, column" },
     }) do
       local columns: {string} = {}
       for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
       local digests, group_trouble = grouped(db, group[1], columns, group[3], group[4])
       if digests == nil then return nil, group_trouble end
       carried[#carried + 1] = digests
+      if group[3] == "links" then linked = digests end
       by_file[#carried] = group[1] == "file"
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
@@ -189,7 +194,8 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     end
     for i, row in ipairs(names) do basis.pairable[i] = row[1] end
     for _, row in ipairs(decl_rows) do
-      basis.decls[row[1]] = "decl " .. row[1] .. " " .. row[2] .. " " .. (declared[row[1]] or "")
+      basis.decls[row[1]] = "decl " .. row[1] .. " " .. row[2] .. " " .. (declared[row[1]] or "") ..
+        " " .. (linked[row[1]] or "")
       basis.decl_requires[row[1]] = closure_store.required_by(row[3])
     end
     basis.shared = Hash.hex_sha256("closure-store-5\n" .. shared[1][1])
@@ -311,10 +317,10 @@ end
 
 --- Fills a closure store's fresh schema from the projection attached
 --- as `whole`, for the modules `temp.wanted` names: their rows, the
---- edges among them, their docs, uses (those they make), catalog, and
---- the examples of the example files among them; the declarations
---- `temp.declared` names (`declared`) and their docs; and the `meta`
---- rows `closure_meta` keeps. The zones, CA
+--- edges among them, their docs, uses and links (those they make),
+--- catalog, and the examples of the example files among them; the
+--- declarations `temp.declared` names (`declared`), their docs and
+--- links; and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -341,9 +347,12 @@ local closed: {string} = {
     "OR module IN temp.declared ORDER BY module, id",
   "INSERT INTO main.uses SELECT * FROM whole.uses WHERE from_module IN temp.wanted " ..
     "ORDER BY module, symbol, from_module, line",
-  -- TODO: carry the closure's links too, once [`Basis`] digests each
-  -- module's rows of them: a worker's `cosmic uses` in-process finds
-  -- no link until then.
+  -- The links its modules and declarations make, as the uses: one from
+  -- a Markdown, C or Zig file (from_module "") is no module's, so no
+  -- closure's.
+  "INSERT INTO main.links SELECT * FROM whole.links WHERE from_module IN temp.wanted " ..
+    "OR from_module IN temp.declared " ..
+    "ORDER BY module, symbol, path, anchor, from_file, line, column",
   "INSERT INTO main.examples (module, name, text, file, line, source) " ..
     "SELECT module, name, text, file, line, source FROM whole.examples " ..
     "WHERE file IN (SELECT file FROM whole.modules WHERE path IN temp.wanted) " ..
