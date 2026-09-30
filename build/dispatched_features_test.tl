@@ -111,11 +111,10 @@ end
 --- The lines of `text` that hold a needle or match a pattern (`asks`),
 --- and the `AFTER` lines after each, in order, each once. The text is
 --- searched whole and only the lines around each find are cut out of
---- it. A test runs under the coverage line hook, and taking every file
---- a line at a time (SQLite's amalgamation alone is 260,000 lines)
---- took 3 s on the release core and 24 s on the checked core idle, 38 s
---- on a loaded 4-core host, past the runner's 30; this takes about 1 s
---- on either.
+--- it. A test runs under the coverage line hook, under which taking
+--- every file a line at a time (SQLite's amalgamation alone is 260,000
+--- lines) takes about 24 s on the checked core, past the runner's 30 on
+--- a loaded host; this takes about 1 s.
 local function asking(text: string): {string}
   local body = text .. "\n"
   -- Where each find starts: a line that holds one holds it there. A

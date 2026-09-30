@@ -1,5 +1,5 @@
---- The error-slot discipline [`build.contracts`] holds a checked module
---- to: a flagged and an allowed case for each thing it tells apart.
+--- The rules [`build.contracts`] holds a checked module to: a flagged
+--- and an allowed case for each thing it tells apart.
 local ast = require("build.ast")
 local contracts = require("build.contracts")
 local receivers = require("build.receivers")

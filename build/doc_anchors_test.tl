@@ -22,7 +22,6 @@ local function anchor(name: string, field: string): string
     "return value")
 end
 
---- Two anchors sharing a bare name are flagged.
 local function test_two_anchors_sharing_a_name_are_flagged(dir: string)
   local db = fixture.database(dir, {
     ["cosmic/verbs.tl"] = anchor("Verbs", "test"),

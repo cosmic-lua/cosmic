@@ -6,10 +6,8 @@ local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- The whole projection: `help` reads every module's docs through
---- [`Store.databases()`], and the run's own count of the databases it
---- searches is [`Store.databases()`]'s, which a handle on every module's
---- rows answers.
+--- `help` reads every module's docs through [`Store.databases()`], and a
+--- test here counts the databases it returns. Without `store`, it raises.
 Test.needs{ store = true }
 
 --- A verb's output and exit come back as a started binary's would.

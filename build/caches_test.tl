@@ -9,7 +9,9 @@ local caches = require("build.caches")
 --- `zig` is zig's installs, global and project caches, and `bootstrap`
 --- the bootstrap cosmic and the launcher's cores, each under the cache
 --- directory XDG_CACHE_HOME or HOME names, as build/zig.tl and
---- [`Fs.cache_path`] put them; an override moves each.
+--- [`Fs.cache_path`] put them. COSMIC_ZIG_GLOBAL_CACHE and
+--- COSMIC_PORTABLE_CACHE move theirs, and ZIG_LOCAL_CACHE_DIR adds the
+--- directory a zig command other than `build` uses.
 local function test_a_cache_is_where_its_tool_puts_it()
   local env = { XDG_CACHE_HOME = "/c" }
   local zig = caches.all({ "zig" }, "/repo", env)

@@ -1,14 +1,12 @@
---- End-to-end proof that a `doc/guides/*.md` file becomes an ordinary,
---- runnable `kind = "test"` module through the public pipeline alone:
---- [`build.importer.compile`] over a fixture tree, never [`build.doctest`]
---- itself (private to `build/doctest/`; [`build/doctest/markdown_test.tl`]
---- and [`build/doctest/generate_test.tl`] cover its own two halves).
---- These fixtures stick to plain Teal -- no `cosmic.*` call -- because a
---- throwaway root has no `cosmic/` tree of its own for the checker's
---- `require` path to resolve a real module's types against; `doc/guides/
---- quickstart.md` in the real tree is what proves a `cosmic.*`-using
---- example, file= blocks included, since it compiles inside the one
---- root that already has cosmic/'s declarations.
+--- A `doc/guides/*.md` file becomes an ordinary, runnable `kind = "test"`
+--- module through [`build.importer.compile`] over a fixture tree, never
+--- through [`build.doctest`] itself, which is private to `build/doctest/`
+--- ([`build/doctest/markdown_test.tl`] and
+--- [`build/doctest/generate_test.tl`] test its two halves).
+--- The fixtures call no `cosmic.*` module: the checker types a fixture's
+--- `require` of one from the store, which answers a worker only the
+--- modules of its closure. The tree's own guides, built with it, hold
+--- `cosmic.*` examples, file= blocks included.
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
 local teal = require("build.teal")
@@ -78,9 +76,8 @@ local skip_doc = doc({
   "```",
 })
 
---- Writes one `doc/guides/fixture.md` into a fresh one-off project
---- root, named after `case` so two fixtures in the same run never
---- collide.
+--- Writes one `doc/guides/fixture.md` into a fresh project root of its
+--- own, named after `case`.
 local function write_fixture(case: string, content: string): string | nil, string
   local root = assert(Fs.mkdtemp("cosmic-doctest-test-" .. case .. "-"))
   local made, trouble = Fs.mkdirs(root .. "/doc/guides")

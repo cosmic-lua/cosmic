@@ -60,7 +60,7 @@ local function test_decoding_takes_back_what_encoding_writes(tmp: string)
           return false, ("%q decoded to %q: %s"):format(mixed, tostring(back), why)
         end
         if lenient then
-          -- Padding dropped or added to the other spelling still reads.
+          -- Without its padding, the text still reads.
           local bare = strewn(text:gsub("[=\n]", ""), fields[4])
           local again = codec.decode(name, bare, true)
           if again ~= bytes then return false, ("%q decoded to %q"):format(bare, tostring(again)) end
@@ -123,8 +123,8 @@ local function gen_cuts(src: Fuzz.Source): string
   return table.concat(sizes)
 end
 
---- What decoding `text` in chunks of the sizes `cuts` bytes give, then
---- a byte at a time, answers: the bytes, or nil and the reason.
+--- What decoding `text` answers in chunks whose sizes are the bytes of
+--- `cuts`, then a byte at a time: the bytes, or nil and the reason.
 local function decode_cut(name: Codec.Name, text: string, lenient: boolean, cuts: string): string | nil, string
   local coder = codec.decoding(name, lenient)
   local out: {string} = {}

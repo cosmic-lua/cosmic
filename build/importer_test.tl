@@ -1,5 +1,7 @@
---- Verify that dependency scanning ignores `require("cosmic.<m>")` text in
---- strings and comments while retaining genuine top-level requires.
+--- [`build.importer`] over fixture trees: what a module requires, what a
+--- warm compile compiles again, the tool's hashes, the compiler's,
+--- analyzer's and writer's identities, the uses a projection keeps, and
+--- what a compile refuses.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -23,8 +25,7 @@ if built == nil then
 end
 
 --- Writes every entry of `files` (filename -> source) into a fresh
---- one-off project directory under `/tmp`, named after `case` and a random
---- suffix so a quickly reused process ID cannot pick up a prior run's cache.
+--- project directory of its own, named after `case`.
 local function write_fixture(case: string, files: {string:string}): string | nil, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
@@ -269,8 +270,8 @@ local function test_finds_a_real_top_level_require()
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
 end
 
---- A copied infrastructure project's testdata is inert input even when a
---- fixture uses a Teal-looking name. Ordinary sources beside it still compile.
+--- A file under `testdata/` is inert input, even one named as a Teal
+--- test. Ordinary sources beside it still compile.
 local function test_testdata_is_not_a_module_or_test_source()
   local root, write_trouble = write_fixture("testdata-classification", {
     ["suite/pass_test.tl"] = "local function test_pass() assert(true) end\n",
@@ -349,11 +350,11 @@ end
 --- The compiler identity is what turns source into bytecode: the Teal
 --- compiler's and Lua's pins and patches, and the build's own modules a
 --- compile or a parse runs ([`work.compiler_modules`]). The standard
---- library the importer runs on
---- is not in it, so an edit there does not recompile the world -- but
---- for [`cosmic.removed`], the names [`build.teal`] strips from the checker,
---- which decide what a compile accepts: an edit to it moves the
---- compiler's identity, though not the runtime basis.
+--- library the importer runs on is not in it, so an edit there does not
+--- recompile the world. [`cosmic.removed`] is the exception: the names
+--- [`build.teal`] strips from the checker decide what a compile accepts,
+--- so an edit to it moves the compiler's identity, though not the
+--- runtime basis.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -399,10 +400,10 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime basis")
 end
 
---- Embedded library code and examples must invalidate the self-tree
---- guard, just as native code and the compiler's patched sources do. A
---- vendored tree counts through its pin and the records that patch it:
---- it is never edited in place, so its contents are not walked.
+--- An edit to anything the tool is built from moves its boot hash: its
+--- Teal, examples and C, build.zig, bin/zig and their pins. A vendored
+--- tree counts through its pin and the records that patch it: it is
+--- never edited in place, so its contents are not walked.
 local function test_boot_hash_tracks_embedded_inputs()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-hash-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl", "vendor/tl", "bin" }) do
@@ -1055,7 +1056,8 @@ end
 local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
     ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
-    -- A syscall declaration source is part of what makes a tree cosmic's own.
+    -- A core/ beside build/importer.tl makes the tree cosmic's own
+    -- ([`build.tree.is_own`]), whose modules the contracts hold.
     ["core/syscalls.h"] = table.concat({
       "/**",
       " * --- Reads bytes.",
@@ -1618,7 +1620,7 @@ local function test_a_passing_unjudged_compile_is_cached()
 end
 
 --- A declaration of what a test reads holds for its own module's tests,
---- so a module no test is refused one, naming its line.
+--- so a module that is no test is refused one, naming its line.
 local function test_only_a_test_module_declares_its_inputs()
   local root = assert(write_fixture("inputs-kind", {
     ["lib/helper.tl"] = "local Test = require(\"cosmic.test\")\n" ..

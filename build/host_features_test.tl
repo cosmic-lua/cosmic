@@ -126,10 +126,10 @@ local function test_the_script_and_the_key_take_the_same_machine_by_default(tmp:
 end
 
 --- On macOS, where there is no /proc, the script and the key both read
---- the system volume's SystemVersion.plist, and no version, where
---- [`declared_key.system_sources`] says: SYSNAME Darwin chooses them in
---- the script as `sysname` does in the key, and an update of the system
---- moves the name and the host's identity alike.
+--- the system volume's SystemVersion.plist for the kernel's release, and
+--- no kernel version, as [`declared_key.system_sources`] says. SYSNAME
+--- Darwin chooses these in the script as `sysname` does in the key, and
+--- an update of the system moves the name and the host's identity alike.
 local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   local darwin = declared_key.system_sources("Darwin")
   local text = assert(Fs.read(SCRIPT))
