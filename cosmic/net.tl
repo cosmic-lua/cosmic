@@ -756,10 +756,6 @@ local function checked_spec(spec: any)
   if not listeners is {any} or #listeners == 0 then
     spec_error("listeners", "a list of one address or more")
   end
-  -- TODO: take an already-open Listener in `listeners` beside an
-  -- address, for a relaunched worker handed its parent's sockets, whose
-  -- stop closes it without removing a socket file it does not own, once
-  -- cosmic.net can make a Listener of an inherited descriptor.
   if listeners is {any} then
     for i, address in ipairs(listeners) do
       local trouble = address_trouble(address)
@@ -805,8 +801,9 @@ local record Accepting
 end
 
 --- A server's state for the length of its run. Closing it closes every
---- listener, so a run that raises -- [`on_ready`] or [`on_error`] did --
---- leaves no socket file behind.
+--- listener and connection, so a run that raises -- [`on_ready`] or
+--- [`on_error`] did -- leaves no socket file behind, and no connection
+--- to a task that never started open.
 local record Serving
   spec: Net.ServeSpec
   --- The most connections open at once.
@@ -824,6 +821,7 @@ end
 local serving_mt: metatable<Serving> = {
   __close = function(self: Serving)
     for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
+    for _, conn in pairs(self.conns) do local _, _ = conn:close() end
   end,
 }
 
@@ -880,6 +878,8 @@ local function accept_loop(s: Serving, a: Accepting)
       -- `stop` cancels this wait, as it does the pause below.
       local _, _ = Poll.readable(a.fd)
     else
+      -- raw.accept has retried EINTR and passed over a pending
+      -- connection that failed, so this failure is the listener's.
       if errno ~= a.failing then
         a.failing = errno
         report(s, "accepting at " .. named(a.listener.address) .. ": " .. why)
@@ -983,7 +983,9 @@ end
 --- stop is cancelled and closed: its waits fail, "cancelled" and then
 --- "connection is closed", and what its protocol raises then is
 --- reported the same way. A protocol that keeps waiting after its
---- reads and writes fail holds Net.serve from returning.
+--- reads and writes fail holds Net.serve from returning; one that goes
+--- on calling them after "connection is closed", which fails without
+--- waiting, stalls every task of the run.
 function Net.serve(spec: Net.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then

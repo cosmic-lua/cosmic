@@ -259,7 +259,9 @@ local function test_a_protocol_ignoring_failures_ends_once_its_connection_is_clo
         local data, why = conn:read()
         if data == nil then
           failures[#failures + 1] = why
-          if why == "connection is closed" then return end
+          -- A bound, so a regression fails the assertion below rather
+          -- than looping until the test times out.
+          if why == "connection is closed" or #failures == 4 then return end
         end
       end
     end,

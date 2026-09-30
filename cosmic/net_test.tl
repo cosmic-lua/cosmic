@@ -265,7 +265,9 @@ local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
   assert(Fs.stat(tmp .. "/a") == nil, "a shorter name was bound")
   assert(not pcall(Net.listen, Net.unix("")))
   assert(not pcall(Net.connect, Net.unix("")))
-  assert(not pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { backlog = 0 }))
+  local listened, backlog_why = pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { backlog = 0 })
+  assert(not listened and tostring(backlog_why):find("backlog must be at least 1", 1, true),
+    tostring(backlog_why))
 end
 
 --- A path past the platform's bound on a socket address is reached
