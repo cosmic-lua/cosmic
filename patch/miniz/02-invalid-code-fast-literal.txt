@@ -1,5 +1,5 @@
 file: miniz.c
-note: the fast literal/length path's first lookup fails on an unused slot, as TINFL_HUFF_DECODE does (see 01-invalid-code-decode.txt), in a state of its own (54), clear of every index tinfl uses.
+note: the fast literal/length path's first lookup fails on an empty slot, as TINFL_HUFF_DECODE does (see 01-invalid-code-decode.txt), in a state of its own (54), clear of every index tinfl uses. 01 alone ends the hang: without this, the fast path writes literal 0 for an empty slot until the window's end, and the slow path's lookup, which 01 checks, then fails. This only makes the failure prompt, skipping up to 32 KB of wasted writes; no test can tell it apart from 01 alone, since the output is dropped with the failure.
 --- find
                             if ((sym2 = r->m_look_up[0][bit_buf & (TINFL_FAST_LOOKUP_SIZE - 1)]) >= 0)
                                 code_len = sym2 >> 9;

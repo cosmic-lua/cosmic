@@ -5,6 +5,7 @@
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
+local testing = require("cosmic.internal.testing")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -164,13 +165,88 @@ local function test_bits_that_name_no_code_are_refused()
   local dec = assert(Compress.inflater("raw"))
   local out, trouble = drive(dec, EOB_ONLY .. "\31")
   assert(out == "" and trouble == "", trouble)
-  -- The bits no code has: read on the fast path, with input to spare
-  -- after them, and on the slow one, at the input's end.
-  for _, tail in ipairs({ string.rep("\0", 8), "" }) do
+  -- The bits no code has, followed by 8 bytes (read on the fast
+  -- path), 2 or 3 (the slow path, which has enough to decode with), or
+  -- none: then the decoder waits for more, and `finish` finds the stream
+  -- cut short. One update each, so a decoder answering zeros for them
+  -- fails here rather than looping.
+  local cases: {{string, string}} = {
+    { string.rep("\0", 8), "corrupt compressed data" },
+    { string.rep("\0", 2), "corrupt compressed data" },
+    { string.rep("\0", 3), "corrupt compressed data" },
+    { "", "truncated" },
+  }
+  for _, case in ipairs(cases) do
+    local tail, want = case[1], case[2]
     dec = assert(Compress.inflater("raw"))
-    out, trouble = drive(dec, EOB_ONLY .. "\95" .. tail)
-    assert(out == "" and trouble ~= "", #tail .. ": " .. trouble)
+    out, trouble = dec:update(EOB_ONLY .. "\95" .. tail)
+    if out ~= nil then
+      assert(out == "" and not dec:pending(), #tail .. ": " .. #out .. " bytes out")
+      out, trouble = dec:finish()
+    end
+    -- The patch's own words, not the ratio check's, which would also
+    -- stop a decoder answering zeros, but only after a window of them.
+    assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil),
+      #tail .. ": " .. trouble)
   end
+end
+
+--- Every piece of `packed` fed through `dec`, `size` bytes at a time,
+--- counting what comes out rather than keeping it: the bytes out, or
+--- nil and why not.
+local function count_out(dec: Compress.Stream, packed: string, size: integer): integer | nil, string
+  local total = 0
+  for pos = 1, #packed, size do
+    local piece = packed:sub(pos, pos + size - 1)
+    repeat
+      local out, trouble = dec:update(piece)
+      if out == nil then return nil, trouble end
+      total = total + #out
+      piece = ""
+    until not dec:pending()
+  end
+  local last, trouble = dec:finish()
+  if last == nil then return nil, trouble end
+  return total + #last, ""
+end
+
+local function test_the_ratio_check_passes_deflates_most_compressible_stream()
+  -- Zeros at level 9 come near deflate's largest ratio (1032 to 1),
+  -- which inflate_step refuses to pass; whole and a byte at a time, so
+  -- tinfl's read-ahead meets the check at every split.
+  local size = 100 << 20
+  for _, format in ipairs({ "raw", "gzip" } as {Compress.Format}) do
+    local enc = assert(Compress.deflater(format, 9))
+    local parts: {string} = {}
+    local zeros = string.rep("\0", 1 << 20)
+    for _ = 1, size >> 20 do parts[#parts + 1] = assert(enc:update(zeros)) end
+    parts[#parts + 1] = assert(enc:finish())
+    local packed = table.concat(parts)
+    assert(#packed * 1000 < size, format .. " packed to " .. #packed)
+    for _, piece in ipairs({ #packed, 1 }) do
+      local total, trouble = count_out(assert(Compress.inflater(format)), packed, piece)
+      assert(total == size, format .. " in pieces of " .. piece .. ": " .. tostring(total) .. " " .. trouble)
+    end
+  end
+end
+
+--- The ratio check, reached through the checked core's fault point: a
+--- tinfl that stops consuming, as upstream's did on a block with no
+--- codes, gives out a full window per call for nothing, and the stream
+--- fails once that passes deflate's largest ratio rather than spinning.
+local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
+  if testing.configuration ~= "sanitized" then return end
+  local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
+  testing.fail_at("tinfl_decompress")
+  local dec = assert(Compress.inflater("raw"))
+  local out, trouble: string, string
+  for _ = 1, 64 do
+    out, trouble = dec:update(packed)
+    if out == nil or not dec:pending() then break end
+    packed = ""
+  end
+  assert(not testing.fail_at(), "the fault fired")
+  assert(out == nil and trouble:find("more output than deflate codes", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_crc32_matches_the_known_value_and_continues()
@@ -488,7 +564,6 @@ end
 local function test_a_raise_inside_update_leaves_the_stream_finished()
   -- Only the checked core can refuse an allocation, which is what makes
   -- a luaL_Buffer raise in the middle of a decode.
-  local testing = require("cosmic.internal.testing")
   if testing.configuration ~= "sanitized" then return end
   local input = string.rep("the quick brown fox ", 5000)
   local enc = assert(Compress.deflater("gzip"))
