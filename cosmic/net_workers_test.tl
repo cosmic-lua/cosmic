@@ -383,3 +383,41 @@ end
   assert(said:find("^true \nworker %d+ was still running 1000 ms past grace_ms after the stop, " ..
     "and was killed$") ~= nil, said)
 end
+
+--- A worker whose protocol waits on through the run after the stop,
+--- ignoring every failure, has its task killed at grace_ms and exits
+--- on its own, before the supervisor would send it SIGKILL.
+local function test_a_worker_waiting_past_the_stop_exits_at_grace_ms(tmp: string)
+  local h <close> = started(tmp, "waits.tl", [[
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
+local Stream = require("cosmic.stream")
+return function(argv: {string}): integer
+  local troubles: {string} = {}
+  local ok, why = Net.serve{
+    listeners = { Net.unix(argv[1] .. "/s.sock") },
+    workers = 1,
+    grace_ms = 0,
+    serve = function(conn: Net.Conn)
+      assert(Stream.lines(conn):read())
+      assert(conn:write("held\n"))
+      while true do local _, _ = Poll.delay(10) end
+    end,
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 30000 }))
+      assert(conn:write("hold\n"))
+      assert(Stream.lines(conn):read() == "held")
+      server:stop()
+    end,
+  }
+  assert(Fs.put(Fs.stdout, tostring(ok) .. " " .. why .. "\n" .. table.concat(troubles, "\n")))
+  return 0
+end
+]], { tmp }, { stdout = "capture", stderr = "capture" })
+  local r = assert(h:wait(60000))
+  assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
+  -- The worker's line and the supervisor's, neither reporting trouble.
+  assert(r.stdout == "true \ntrue \n", string.format("%q", r.stdout))
+end

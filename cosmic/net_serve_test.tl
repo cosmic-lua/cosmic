@@ -328,6 +328,45 @@ local function test_a_killed_protocols_close_error_is_reported(tmp: string)
   assert(#errors == 1 and errors[1] == "broken close", table.concat(errors, "\n"))
 end
 
+--- A killed protocol's `<close>` handler meets its connection closed:
+--- a write there fails at once, where it would otherwise wait on a peer
+--- that reads nothing, and another wait raises, reported; Net.serve
+--- returns soon after grace_ms.
+local function test_a_killed_protocols_close_cannot_wait(tmp: string)
+  local errors: {string} = {}
+  local wrote = ""
+  local started = false
+  local stopped_at, returned_at = 0, 0
+  local held: Client
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    grace_ms = 50,
+    serve = function(conn: Net.Conn)
+      local farewell_mt: metatable<Closer> = { __close = function()
+        local _, why = conn:write(string.rep("x", 8 * 1024 * 1024))
+        wrote = why
+        assert(Poll.delay(0))
+      end }
+      local _ <close> = setmetatable({} as Closer, farewell_mt)
+      started = true
+      while true do local _, _ = Poll.delay(60000) end
+    end,
+    on_error = function(trouble: string) errors[#errors + 1] = trouble end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      held = client(addresses[1])
+      while not started do assert(Poll.delay(1)) end
+      stopped_at = now_ms()
+      server:stop()
+    end,
+  })
+  returned_at = now_ms()
+  local _, _ = held.conn:close()
+  assert(wrote == "connection is closed", wrote)
+  assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true),
+    table.concat(errors, "\n"))
+  assert(returned_at - stopped_at < 5000, tostring(returned_at - stopped_at))
+end
+
 --- The limit counts connections across listeners: while one listener's
 --- connection holds the only place, another listener accepts nothing.
 local function test_the_connection_limit_is_shared_by_every_listener(tmp: string)

@@ -110,9 +110,9 @@ function Example.cancel()
   assert(answer == Poll.CANCELLED)
 end
 
---- A task that waits on whatever its waits answer is ended by `kill`
---- where it waits: its `<close>` variables are closed, and a join
---- answers [`Poll.CANCELLED`].
+--- A task that waits on whatever its waits answer outlasts `cancel`,
+--- and is ended by `kill` where it waits: its `<close>` variables are
+--- closed, and a join answers [`Poll.CANCELLED`].
 function Example.kill()
   local released = false
   local record Lease
@@ -126,6 +126,8 @@ function Example.kill()
     end)
     assert(Poll.delay(0))
     stubborn:cancel()
+    local _, still = stubborn:join(10)
+    assert(still == Poll.TIMEOUT)
     stubborn:kill()
     local ended, why = stubborn:join()
     print(released, ended, why)

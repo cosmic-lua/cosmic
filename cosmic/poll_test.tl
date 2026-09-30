@@ -483,11 +483,13 @@ end
 
 --- What a `<close>` handler raises as its task is killed, `kill` raises,
 --- the task ended and its other `<close>` variables closed all the same;
---- uncaught, it ends the run. A handler there cannot wait.
+--- uncaught, it ends the run. A handler there cannot wait, though it
+--- is in a task, so a module that waits raises rather than hold the
+--- thread.
 local function test_kill_raises_what_a_close_handler_raises()
   local closed = false
   local wait_trouble = ""
-  local in_task = true
+  local in_task = false
   local closer_mt: metatable<Closer> = { __close = function() closed = true end }
   local raiser_mt: metatable<Closer> = { __close = function()
     local _, err: boolean, any = pcall(Poll.delay, 0)
@@ -509,7 +511,7 @@ local function test_kill_raises_what_a_close_handler_raises()
   end)
   assert(closed, "a <close> variable after the raising one was not closed")
   assert(wait_trouble:find("while its task is killed", 1, true), wait_trouble)
-  assert(not in_task, "in_task answered true for a task being killed")
+  assert(in_task, "in_task answered false for a task being killed")
   raises(function()
     Poll.run(function()
       local task = Poll.spawn(function()

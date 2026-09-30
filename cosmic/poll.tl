@@ -41,15 +41,20 @@ local record Poll
     --- task that has ended is left alone.
     cancel: function(Task)
     --- Ends the task now, where it waits or before it starts, without
-    --- resuming it: its pending `<close>` variables are closed, none of
-    --- its waits answers it again, and each task joining it answers
-    --- false and [`Poll.CANCELLED`]. A task that has ended is left
-    --- alone. A task cannot kill itself; nor can a `<close>` handler of
-    --- a task being killed wait, spawn or kill. What such a handler
-    --- raises, `kill` raises, the task ended all the same -- an error in
-    --- the killing task, which ends the run unless that task catches it.
-    --- Only a task that waits can be killed: one that computes without
-    --- waiting holds the run, and every other task, until it waits.
+    --- resuming it: the pending `<close>` variables of its own coroutine
+    --- are closed (not those of a coroutine it made and left
+    --- suspended), none of its waits answers it again, and each task
+    --- joining it answers false and [`Poll.CANCELLED`]. A task that has
+    --- ended is left alone. Unlike `cancel`, it is called from a task's
+    --- own coroutine, and raises elsewhere in the run, and in the task
+    --- it would kill. A `<close>` handler of a task being killed cannot
+    --- wait, spawn or kill: each raises at once, and [`Poll.in_task`]
+    --- still answers true there, so a module that waits raises rather
+    --- than hold the thread. What such a handler raises, `kill` raises,
+    --- the task ended all the same -- an error in the killing task,
+    --- which ends the run unless that task catches it. Only a task that
+    --- waits can be killed: one that computes without waiting holds the
+    --- run, and every other task, until it waits.
     kill: function(Task)
   end
 
@@ -440,10 +445,11 @@ end
 --- Whether the caller is a task of a running [`Poll.run`], whose waits
 --- let the other tasks run: what a module that waits asks, to wait
 --- through `readable` and `writable` there and on its own elsewhere.
+--- It answers true, too, in a `<close>` handler of a task being killed,
+--- where those raise: a wait there fails at once rather than hold the
+--- thread.
 function Poll.in_task(): boolean
-  if loop == nil or loop.closing then return false end
-  local task = loop.tasks[coroutine.running()]
-  return task ~= nil and not task.killed
+  return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
 end
 
 --- Starts `main` as the first task and runs the loop until every task
