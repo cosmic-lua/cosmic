@@ -391,6 +391,13 @@ local function turn()
   end
 end
 
+--- Whether the caller is a task of a running `Poll.run`, whose waits
+--- let the other tasks run: what a module that waits asks, to wait
+--- through `readable` and `writable` there and on its own elsewhere.
+function Poll.in_task(): boolean
+  return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
+end
+
 --- Runs `main` as the first task and every task it spawns, returning
 --- once all have ended. It raises what a task raised, having closed the
 --- rest; and raises when every task left waits on another, which none

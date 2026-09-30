@@ -23,9 +23,15 @@
 --- most the object's `timeout_ms` (no limit by default), failing with
 --- "timed out", and ends with "interrupted", within a tenth of a second,
 --- when an open `Child.guard` catches SIGINT or SIGTERM, as
---- `cosmic.http`'s do. One connection is served at a time: nothing here
---- waits on several at once.
+--- `cosmic.http`'s do.
+---
+--- In a task of `Poll.run` (`cosmic.poll`), a wait to accept, to read
+--- or to write waits through the run, so its other tasks go on
+--- meanwhile: a server serves each connection in a task of its own. A
+--- cancelled task's wait there fails "cancelled", and a signal does not
+--- end one. Anywhere else a wait holds the thread until it ends.
 
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
@@ -203,7 +209,18 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
 end
 
 local function waited(fd: integer, writable: boolean, timeout_ms: integer | nil): boolean, string
-  local ok, trouble, errno = raw.wait(fd, writable, milliseconds(timeout_ms))
+  local ms = milliseconds(timeout_ms)
+  if Poll.in_task() then
+    local ready, why: boolean, string
+    if writable then
+      ready, why = Poll.writable(fd, timeout_ms)
+    else
+      ready, why = Poll.readable(fd, timeout_ms)
+    end
+    if ready then return true, "" end
+    return false, why
+  end
+  local ok, trouble, errno = raw.wait(fd, writable, ms)
   if ok then return true, "" end
   return false, said(trouble, errno)
 end
@@ -480,6 +497,10 @@ end
 --- nothing listens at the port.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
   local timeout_ms = opts ~= nil and opts.timeout_ms or nil
+  -- TODO: wait out a TCP connection being made through the run in a
+  -- task of Poll.run, as reads and writes do, once core/socket.h can
+  -- start a connection and answer it in progress: raw.connect waits for
+  -- it in C, holding every task meanwhile. A unix one is made at once.
   local socket, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ms))
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
   return new_conn(socket, timeout_ms), ""
