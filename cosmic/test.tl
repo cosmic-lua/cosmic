@@ -106,16 +106,15 @@ local record Test
     --- and nothing else -- not the store beyond their closure (`store`),
     --- nor a root of their own for what they start (`nests`).
     tool: boolean
-    --- Whether the tests start this program only to run Lua in it: `-e`
-    --- chunks, past its launcher as [`build.this_program`]'s `program`
-    --- starts it, or by [`Proc.relaunch`]. Like `tool`, it lets them run
-    --- the program -- but not read it by its name -- and every process
-    --- they start, and each one those start, is held as their worker is,
-    --- whatever environment it is given (core/store.c's
-    --- `hold_children`): it loads nothing of the program but the tests'
-    --- import closure and what `cosmic -e` loads before its chunk runs
-    --- (build/test_inputs.tl's `lua_loads`), and reads no rows but
-    --- theirs. So their key holds those, not every module the program
+    --- Whether the tests start this program only to run Lua in it: a
+    --- `-e` chunk or a file `--standalone`, past its launcher or by
+    --- [`Proc.relaunch`]. Like `tool`, it lets them run the program --
+    --- but not read it by its name -- and every process they start, and
+    --- each one those start, is held as their worker is, whatever
+    --- environment it is given: it loads nothing of the program but the
+    --- tests' import closure and what `cosmic -e` and `cosmic
+    --- --standalone` load before the chunk or file runs, and reads no
+    --- rows but theirs. So their key holds those, not every module the program
     --- carries, and an edit to another module the program carries runs
     --- them no more than one to a module of the tree outside their
     --- closure. A chunk that requires a module outside them, or a verb
