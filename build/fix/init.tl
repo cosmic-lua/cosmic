@@ -910,10 +910,9 @@ local function fix_verb(argv: {integer:string}): integer
   -- tree checks just wrote them.
   -- A file of a tree inside cosmic's own (`ci/`) names what that
   -- tree's own databases hold, so its links are that tree's run's.
-  -- TODO: resolve against the project's root found from a
-  -- subdirectory, as `cosmic test` finds its tree (build.tree), rather
-  -- than the working directory; build.rebuild's `here` and
-  -- build.docs's `databases` take the working directory too.
+  -- `root`, [`rebuild.here`] and [`docs.databases`] are the working
+  -- directory, which a run started below the tree's root has already
+  -- moved to that root ([`build.tree_root`]).
   local own, _ = tree.is_own(root)
   local linked: {string} = {}
   for _, group in ipairs({ files, c_files, picked.checked }) do
