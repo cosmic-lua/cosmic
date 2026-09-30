@@ -258,28 +258,31 @@ struct owned {
   char name[];
 };
 
-/* Closes the descriptor `owned` holds, then removes the file it made
- * while its name is still that file, each once: 0, or the first
- * failure. A file gone already is no failure. */
+/* Removes the file `owned` made while its name is still that file,
+ * then closes the descriptor it holds, each once: 0, or the first
+ * failure. A file gone already is no failure. The file is read back
+ * before the descriptor closes, since the bound socket keeps its inode
+ * allocated until then: once it is closed, a file made at the name
+ * could be given the removed file's inode number. */
 static int released (struct owned *owned) {
   int failure = 0;
-  if (owned->fd >= 0) {
-    if (close(owned->fd) != 0) failure = errno;
-    owned->fd = -1;
-  }
   if (owned->directory >= 0) {
     struct stat now;
     if (!owned->made) {
       /* Nothing of the listener's to remove. */
     } else if (fstatat(owned->directory, owned->name, &now, AT_SYMLINK_NOFOLLOW) != 0) {
-      if (errno != ENOENT && failure == 0) failure = errno;
+      if (errno != ENOENT) failure = errno;
     } else if (now.st_dev == owned->device && now.st_ino == owned->inode &&
-               unlinkat(owned->directory, owned->name, 0) != 0 && failure == 0) {
+               unlinkat(owned->directory, owned->name, 0) != 0) {
       failure = errno;
     }
     owned->made = false;
     close(owned->directory);
     owned->directory = -1;
+  }
+  if (owned->fd >= 0) {
+    if (close(owned->fd) != 0 && failure == 0) failure = errno;
+    owned->fd = -1;
   }
   return failure;
 }

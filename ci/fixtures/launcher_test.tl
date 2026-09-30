@@ -10,15 +10,17 @@ local Test = require("cosmic.test")
 -- The launcher contract (COSMIC_FIXTURE_LAUNCHER,
 -- cosmic_ci/launcher_setup.tl): the launcher and the target's socket
 -- payload, one of each target's there and the others keyed as missing;
--- and the product (COSMIC_FIXTURE_PRODUCT), whose launcher this is, in
--- every verdict's key, so no verdict stands for a product it was not
--- reached on (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
+-- and the product's prefix (COSMIC_FIXTURE_PRODUCT's `prefix`: its
+-- launcher, manifest and cores, what these tests exercise), in every
+-- verdict's key, so no verdict stands for a launcher it was not reached
+-- on; the database the product carries moves no verdict here
+-- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
 -- `system`: the launcher is a /bin/sh script, and the tests start
 -- /bin/sh themselves. The noexec case, which needs the host's own
 -- noexec mount, is launcher_noexec_test.tl's, run unsandboxed.
 Test.needs{
   host = {
-    "$COSMIC_FIXTURE_PRODUCT/cosmic",
+    "$COSMIC_FIXTURE_PRODUCT/prefix",
     "$COSMIC_FIXTURE_LAUNCHER/launcher.test",
     "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-x86_64-linux-musl",
     "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-aarch64-linux-musl",

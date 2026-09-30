@@ -7,6 +7,12 @@ local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
 local State = require("cosmic_ci.state")
+local Test = require("cosmic.test")
+
+-- The fixture modules, whose sources [`code_of`] reads (their declarations
+-- are what [`test_every_sandboxed_fixture_is_keyed_by_the_product`]
+-- checks), so an edit to one moves this module's key.
+Test.needs{ reads = { "fixtures/" } }
 
 -- TODO: declare what these tests read of the checkout around ci/
 -- (.github/workflows/ci.yml above all, and the git history a clone
@@ -516,9 +522,13 @@ local function declared_host(source: string): {string:boolean}
 end
 
 --- A sandboxed fixture's verdict is shared across runs and commits, so
---- its key must hold the product it checks: each declares the product's
---- `cosmic` by the variable the driver gives it, which keys the verdict
---- by those bytes, and no other product's verdict stands for it. Each
+--- its key must hold the parts of the product it exercises: each
+--- declares the product's `prefix` -- its launcher, manifest and cores --
+--- by the variable the driver gives it, which keys the verdict by those
+--- bytes, and no other launcher's or core's verdict stands for it; and
+--- `product`, which checks the whole product, declares each of its
+--- files, while no other declares the product's `cosmic` or `cosmic.db`,
+--- which it does not run. Each
 --- unsandboxed one declares the whole environment and nothing else:
 --- nothing holds it to a declaration, and it shares no verdict for one
 --- to key, but a release that keys every unsandboxed run by declaration
@@ -536,14 +546,28 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   for _, name in ipairs(names) do
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
-      assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/cosmic"],
-        name .. ": a sandboxed fixture's key does not hold the product")
+      local host = declared_host(name)
+      assert(host["$COSMIC_FIXTURE_PRODUCT/prefix"],
+        name .. ": a sandboxed fixture's key does not hold the product's prefix")
+      if name ~= "product" then
+        for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
+          assert(not host["$COSMIC_FIXTURE_PRODUCT/" .. whole],
+            name .. ": a sandboxed fixture that does not check the whole product declares its " ..
+            whole .. ", which moves with every edit to the tool's code")
+        end
+      end
     else
       local needs = code_of(name):match("\nTest%.needs%s*%(?%s*(%b{})")
       assert(needs ~= nil and needs:gsub("%s", "") == '{env={"*"}}',
         name .. ": an unsandboxed fixture declares other than the whole environment: " ..
         tostring(needs))
     end
+  end
+  local whole = declared_host("product")
+  for _, part in ipairs({ "cosmic", "hashes.sha256", "prefix", "manifest", "apps/hello",
+                          "apps/second", "cosmic.db", "targets.tsv" }) do
+    assert(whole["$COSMIC_FIXTURE_PRODUCT/" .. part],
+      "product: the fixture that checks the whole product does not declare " .. part)
   end
   local listed = 0
   for _ in pairs(Orchestration.sandboxed_fixtures) do listed = listed + 1 end
@@ -813,6 +837,27 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
   end
 end
 
+--- ci.yml's platform legs on a full run, by name: each of the `name`
+--- list a full run takes, with the values of every `include` entry
+--- that names it or names no leg, a later one's over an earlier one's
+--- (build/workflows_test.tl expands the matrix as GitHub does, for a
+--- light run too).
+local function full_run_legs(platform: {string: any}): {string: {string: string}}
+  local matrix = (platform.strategy as {string: any}).matrix as {string: any}
+  local full = assert((matrix.name as string):match("&& '(%[.-%])' ||"), "the legs' names are no scope's choice")
+  local legs: {string: {string: string}} = {}
+  for _, name in ipairs(assert(Json.decode(full)) as {string}) do
+    local leg: {string: string} = { name = name }
+    for _, entry in ipairs(matrix.include as {{string: string}}) do
+      if entry.name == nil or entry.name == name then
+        for key, value in pairs(entry) do leg[key] = value end
+      end
+    end
+    legs[name] = leg
+  end
+  return legs
+end
+
 --- The checked core's suite runs on no leg of ci.yml's platform job
 --- (COSMIC_CI_CHECKED_SUITE=skip) but in its `checked` job, which runs
 --- the phases that build what it reads and then the suite, beside the
@@ -825,11 +870,7 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local jobs = ci.jobs as {string: {string: any}}
   local platform = jobs.platform
-  local legs: {string: boolean} = {}
-  local strategy = platform.strategy as {string: {string: any}}
-  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
-    legs[leg.name] = true
-  end
+  local legs = full_run_legs(platform)
   local env = platform.env as {string: string}
   assert(env.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " ..
     tostring(env.COSMIC_CI_CHECKED_SUITE))
@@ -854,12 +895,7 @@ local function platform_legs_and_env(): {string: {string: string}}, {string: str
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local platform = (ci.jobs as {string: {string: any}}).platform
-  local legs: {string: {string: string}} = {}
-  local strategy = platform.strategy as {string: {string: any}}
-  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
-    legs[leg.name] = leg
-  end
-  return legs, platform.env as {string: string}
+  return full_run_legs(platform), platform.env as {string: string}
 end
 
 --- The fixed-point regression, the slowest fixture on every leg, runs
