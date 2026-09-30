@@ -603,15 +603,16 @@ local function expand(template: string, leg: string, steps: {{string: any}}): st
   end))
 end
 
---- Runs the `seed` job's key read for leg `leg` over `keys` (a
---- seed.keys), and answers what it wrote to $GITHUB_OUTPUT.
-local function read_keys(tmp: string, leg: string, keys: string): string
+--- Runs the `seed` job (of `ci`, ci.yml's jobs)'s key read for leg `leg`
+--- over `keys` (a seed.keys), and answers what it wrote to
+--- $GITHUB_OUTPUT.
+local function read_keys(tmp: string, ci: {string: {string: any}}, leg: string, keys: string): string
   runs = runs + 1
   local dir = tmp .. "/read-" .. runs
   assert(Fs.mkdirs(dir))
   assert(Fs.write(dir .. "/seed.keys", keys))
   assert(Fs.write(dir .. "/output", ""))
-  local seed = (workflow().jobs as {string: {string: any}}).seed
+  local seed = ci.seed
   local script = step_of(seed.steps as {{string: any}}, "keys").run as string
   script = script:gsub("%${{ matrix%.name }}", leg):gsub("%${{ github%.sha }}", SHA)
   assert(not script:find("${{", 1, true), "the key read holds an expression the test gives no value: " .. script)
@@ -652,16 +653,16 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
     -- the leg is a platform one its compiles, zig outputs and marker.
     local _, count = keys:gsub("\n", "")
     assert(count == (leg.checked and 2 or 6), name .. ": " .. keys)
-    assert(read_keys(tmp, name, keys) == keys, name .. " reads back only some of its keys:\n" .. keys ..
-      "read:\n" .. read_keys(tmp, name, keys))
+    local read = read_keys(tmp, ci, name, keys)
+    assert(read == keys, name .. " reads back only some of its keys:\n" .. keys .. "read:\n" .. read)
     staged[name] = keys
   end
   -- A leg reads none of another's, nor of one whose name begins its own.
   for name, keys in pairs(staged) do
     for other in pairs(staged) do
       if other ~= name then
-        local read = read_keys(tmp, name, keys)
-        assert(read_keys(tmp, other, keys) == "", other .. " reads " .. name .. "'s keys: " .. read)
+        local read = read_keys(tmp, ci, other, keys)
+        assert(read == "", other .. " reads " .. name .. "'s keys: " .. read)
       end
     end
   end
