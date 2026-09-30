@@ -53,6 +53,13 @@ bool cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size);
 int cosmic_store_count (lua_State *L);
 sqlite3 *cosmic_store_database (lua_State *L, int index);
 
+/* Whether a lookup of the module `name` may answer it: false where a hold
+ * (core/store.c's `store_hold`) holds it, so what reads a module's rows past the
+ * searcher -- the source line an uncaught error names (core/main.c) --
+ * reads none of a held one, and false where there is no memory to ask.
+ * It never raises. */
+bool cosmic_store_lets (lua_State *L, const char *name);
+
 /* Takes the hold a test's worker handed the processes its test starts
  * (COSMIC_TEST_CHILD_HOLD) out of this process's environment, before any
  * Lua runs, keeping it to put up ([`cosmic_store_hold_inherited`]) and to

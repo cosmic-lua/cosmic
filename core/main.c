@@ -121,6 +121,12 @@ static bool source_position (lua_State *L, const char *message) {
   }
   memcpy(name, message, name_len);
   name[name_len] = '\0';
+  /* A module a hold holds prints nothing, as if no database held it: a
+   * process a `lua` test started reads no row its key does not hold, a
+   * message that names one (`error("cosmic.zip:1: ...")`) included. */
+  if (!cosmic_store_lets(L, name)) {
+    return false;
+  }
 
   int count = cosmic_store_count(L);
   for (int index = 1; index <= count; index++) {

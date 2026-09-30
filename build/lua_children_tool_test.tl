@@ -76,3 +76,15 @@ print(tostring(result.ok) .. ' ' .. (result.stderr or ''))
   ok, _, out, err = run("", "require('cosmic.zip')")
   assert(ok, err)
 end
+
+--- An uncaught error whose message names a held module and a line
+--- prints no line of it: the source the core prints beneath such an
+--- error (core/main.c's `source_position`) is read past the searcher,
+--- and a held process reads no row its key does not hold, the one a
+--- message names included. A module opens with its doc comment, so
+--- line 1 of cosmic.zip is one it would print.
+local function test_an_error_naming_a_held_module_prints_none_of_it()
+  local ok, _, _, err = run(hold_of("hand.module"), "error('cosmic.zip:1: boom', 0)")
+  assert(not ok and err:find("cosmic.zip:1: boom", 1, true), err)
+  assert(not err:find("cosmic: at ", 1, true), err)
+end

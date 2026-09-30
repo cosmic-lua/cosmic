@@ -1298,6 +1298,23 @@ static int open_store_module (lua_State *L,
   return 1;
 }
 
+/* Answers whether the hold lets the module named by the light userdata
+ * at 1 through ([`held`]), under [`cosmic_store_lets`]'s protected call:
+ * `held` raises on memory. */
+static int ask_lets (lua_State *L) {
+  lua_pushboolean(L, !held(L, lua_touserdata(L, 1)));
+  return 1;
+}
+
+bool cosmic_store_lets (lua_State *L, const char *name) {
+  if (!lua_checkstack(L, 2)) return false;
+  lua_pushcfunction(L, ask_lets);
+  lua_pushlightuserdata(L, (void *)name);
+  bool lets = lua_pcall(L, 1, 1, 0) == LUA_OK && lua_toboolean(L, -1);
+  lua_pop(L, 1);
+  return lets;
+}
+
 int cosmic_store_count (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   int count = (int)lua_rawlen(L, -1);
