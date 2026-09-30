@@ -62,7 +62,7 @@ end
 --- group, which it leads, when `group` -- for the stand-in to wait for
 --- and signal, as a shell's `$PPID` or `0` would name it.
 -- TODO: have the stand-in signal its parent, or its own process group,
--- itself, as the shell's `kill $PPID` and `kill 0` did, rather than wait
+-- itself, as a shell's `kill $PPID` and `kill 0` would, rather than wait
 -- for the pid in a file, once cosmic.sys carries getppid and a kill of
 -- pid 0 (its binding refuses 0 as out of range): today a program has
 -- neither, and /proc/self/stat, which names both, is Linux's alone.

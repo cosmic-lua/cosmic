@@ -221,7 +221,8 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   listed = assert(todos.list(handle.db, root)).todos
   assert(listed[1].text == "from the index", listed[1].text)
 
-  -- A file that moved is read again, and bytes no file holds are dropped.
+  -- A file whose bytes changed is read again, and bytes no file holds
+  -- are dropped.
   assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2", "  -- TODO: second" })))
   assert(Fs.write(root .. "/src/a.tl", text({ "local x = 1" })))
   assert(work.stage(handle, false))

@@ -86,22 +86,22 @@ local function test_a_refused_name_is_shown_the_nearest_names_first()
   assert(#near == 10 and near[1] == "test_12" and near[2] == "test_10", near[2])
 end
 
---- The harness's digest, which build/harness_epoch.tl acknowledges,
---- is what a worker runs and the code that makes and reads a key, each
---- by its source and bytecode; a closure store's address is salted by what writes
---- it and what that requires, by source and bytecode. So an edit to the
---- runner, to how a key is computed or to how a verdict is looked up
---- under one moves the digest, a comment's too, and fails
+--- The harness's digest, which build/harness_epoch.tl acknowledges, is
+--- what a worker runs and the code that makes and reads a key, each by
+--- its source and bytecode; a closure store's address is salted by what
+--- writes it and what that requires, by source and bytecode. So an edit
+--- to the runner, to how a key is computed or to how a verdict is looked
+--- up under one moves the digest, a comment's too, and fails
 --- build/harness_epoch_test.tl until it is acknowledged or the epoch
 --- bumped; so does one to the worker, to the plan of its sandbox, to
 --- cosmic's main or to the diagnostic the core loads, and one to the
---- store's writer, its schema or a module they require moves the
---- address. One to a module of none of them moves neither: not one to
+--- store's writer, its schema or a module they require moves the address.
+--- One to a module of none of them moves neither: not one to
 --- build.dispatch, or to what only it requires, since cosmic's main
 --- starts a worker ahead of it (cmd/cosmic/main.tl), nor one to the
---- projection's writer, whose edits reach a store only through the
---- rows and orderings its address digests (build/closure_store_test.tl
---- holds that), nor build.harness_epoch, which records the digest.
+--- projection's writer, whose edits reach a store only through the rows
+--- and orderings its address digests (build/closure_store_test.tl holds
+--- that), nor build.harness_epoch, which records the digest.
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
@@ -207,7 +207,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local runs: {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
   assert(runs["build.test_sandbox"] and runs["build.test_worker"] and not runs["build.test"])
-  -- A module that makes a key is none the binary carries fails, by name.
+  -- A module that makes a key and that the binary does not carry fails
+  -- the harness, naming it.
   assert(db:exec("DELETE FROM modules WHERE path = 'build.artifact'"))
   local none, why = test.harness(db)
   assert(none == nil and why:find("build.artifact", 1, true), why)

@@ -18,7 +18,8 @@ local Test = require("cosmic.test")
 --- A worker a test starts, to hang or exit, and /proc, where what a
 --- hung one left running would be found; the program itself, which the
 --- tests start, and roots of their own for its sandboxed workers
---- (`nests`); and what holds a run to sandboxing (`unsandboxed`).
+--- (`nests`); and the variables `unsandboxed` reads, which hold a run
+--- to sandboxing.
 Test.needs{
   host = { "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
@@ -36,16 +37,14 @@ local function environment(): {string:string}
   return env
 end
 
---- Whether the run that said `text` sandboxed none of its workers, where
---- that is allowed. The workers nest in this test's own sandbox, which a
---- host may refuse (the kernel lets root nest one only two deep,
---- core/syscalls.c's `map_ids`, where a root runner cannot run its
---- workers as a user of their own: build.test_sandbox's `runs_as`);
---- the sandboxed case then checks only what
---- the unsandboxed one does. It says it is skipped ([`Test.skip`]),
---- which a run held to sandboxing fails
---- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
---- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
+--- Whether the run that said `text` sandboxed none of its workers; if
+--- so, the running test is skipped ([`Test.skip`]), its sandboxed case
+--- checking only what the unsandboxed one does. The workers nest in
+--- this test's own sandbox, which a host may refuse: the kernel lets
+--- root nest one only two deep (core/syscalls.c's `map_ids`) where a
+--- root runner cannot run its workers as a user of their own
+--- (build.test_sandbox's `runs_as`). A run held to sandboxing fails the
+--- skip; CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return false end
   sandbox_skip.nested(text)
@@ -443,8 +442,9 @@ end
   -- of the run's (build.rebuild_lock).
   assert(kept.COSMIC_REBUILD_LOCK_HANDED == nil)
   -- Nor whether this run stands on shared verdicts: a `cosmic test` a
-  -- test starts says that for itself. Nor the retired switch CI's driver
-  -- still sets for the release it pins.
+  -- test starts says that for itself. Nor COSMIC_TEST_KEY, which CI's
+  -- driver sets for the release ci/cosmic-driver.pin names, and which
+  -- this tree reads nowhere.
   assert(kept.COSMIC_TEST_NO_SHARED == nil and kept.COSMIC_TEST_KEY == nil)
   -- Neither cache every checkout shares is a worker's, unless its test
   -- names one for what it starts.

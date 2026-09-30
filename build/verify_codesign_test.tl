@@ -12,7 +12,7 @@ local function stand_in_under(dir: string): string
 end
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
---- arguments to `log` and exits `status`.
+--- arguments to the log it answers and exits `status`.
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
   assert(stand_in.place(probe, dir .. "/codesign",
@@ -48,8 +48,8 @@ local function test_a_codesign_ended_by_a_signal_is_128_past_it(dir: string)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 143)
 end
 
---- codesign is found on the PATH given, as the shell script found it:
---- none there, or one without execute permission, is 127.
+--- codesign is found on the PATH given: none there, or one without
+--- execute permission, is 127.
 local function test_a_codesign_not_on_path_is_127(dir: string)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 127)
   unstartable_codesign(dir, 0x1ed)

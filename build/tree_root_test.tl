@@ -14,7 +14,8 @@ local function moved_by(argv: {integer:string}, options: {string:boolean | Flags
   return tree_root.move(argv, options, home, named).move
 end
 
---- A project at `tmp` with a build's database, and `tmp/a/b` below it.
+--- A project in `dir` with a build's database, and a/b below it: its
+--- path, resolved.
 local function project(dir: string): string
   local tmp = assert(sys.realpath(dir))
   assert(Fs.mkdirs(tmp .. "/proj/o"))

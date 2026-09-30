@@ -1,8 +1,6 @@
 --- `cosmic json` (build/json.tl), run in this process with its input and
---- output stood in for: found, missing, `--exists`, `--keys`, `--shape`,
---- `-r`, standard input, a text that is not JSON, and a path that is not
---- one. build/json_tool_test.tl starts the program for what a process
---- alone shows: real standard input, and no verdict line.
+--- output stood in for. build/json_tool_test.tl starts the program for
+--- what a process alone shows: real standard input, and no verdict line.
 
 local Fs = require("cosmic.fs")
 local json = require("build.json")
@@ -383,9 +381,9 @@ local function test_a_plain_path_is_unchanged_by_patterns(tmp: string)
   assert(ran.out == '"ann"\n', ran.out)
 end
 
---- The doc every path of which `--flat` prints must give back: keys that
---- need quoting, a `=` in a key and in a string, the empty key, an empty
---- container, a null, and numbers at the edges.
+--- A doc each of whose `--flat` paths must read back to its leaf: keys
+--- that need quoting, a `=` in a key and in a string, the empty key, an
+--- empty container, a null, and numbers at the edges.
 local ROUND_DOC <const> = [=[
 {"a b": [1, {"c\"d": [true, null, {}, []], "e": "x = y"}],
  "": {"": 0, "q.r": -1.5}, "$": 1e2, "k = v": "s = t", "\u00e9": "\u00e9\n", "[0]": [[]], "*": {"*": 3},
@@ -405,14 +403,14 @@ local function test_every_path_flat_prints_reads_back_to_its_leaf(tmp: string)
     -- The path ends at the first ` = ` outside a quoted key.
     local path: string | nil
     local value: string | nil
-    local depth_quote = false
+    local in_quote = false
     local i = 1
     while i <= #line do
       local c = line:sub(i, i)
-      if depth_quote then
-        if c == "\\" then i = i + 1 elseif c == '"' then depth_quote = false end
+      if in_quote then
+        if c == "\\" then i = i + 1 elseif c == '"' then in_quote = false end
       elseif c == '"' then
-        depth_quote = true
+        in_quote = true
       elseif line:sub(i, i + 2) == " = " then
         path, value = line:sub(1, i - 1), line:sub(i + 3)
         break

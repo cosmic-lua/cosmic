@@ -81,13 +81,13 @@ end
 --- A verdict is kept by its declared key alone (build/declared_key.tl),
 --- with no reads to check it by: found under that key, freshened by a
 --- run that relies on it, and taken out by one that fails under it. A
---- cache from before the map has the map made, and the tables
---- observation-keyed runs shared left as they were.
+--- cache of an earlier format gains the declared_v1 table, and its own
+--- tables are left as they were.
 local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   local path = tmp .. "/cache/verdicts.db"
   local cache = assert(shared_verdicts.open(path))
   shared_verdicts.close(cache)
-  -- As a cache from before the map: an earlier table, and none of its.
+  -- As a cache of an earlier format: its table, and no declared_v1.
   local db = assert(Sqlite.open(path, true))
   assert(db:exec("DROP TABLE declared_v1"))
   assert(db:exec("CREATE TABLE verdicts_v4 (key TEXT PRIMARY KEY)"))

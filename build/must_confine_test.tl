@@ -15,7 +15,8 @@ local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
 --- tool's own modules besides the closure's, in a root of its own
---- (`nests`); and what holds a run to sandboxing (`unsandboxed`).
+--- (`nests`); and the variables `unsandboxed` reads, which hold a run
+--- to sandboxing.
 Test.needs{
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
@@ -53,16 +54,15 @@ local function run(root: string, output: string, env: {string:string},
   return text, result.ok
 end
 
---- Whether the run that printed `text` sandboxed none of its workers,
---- where that is allowed. The workers, and what they confine, nest in
---- this test's own sandbox, which a host may refuse (the kernel lets
---- root nest one only two deep, core/syscalls.c's `map_ids`, where a
---- root runner cannot run its workers as a user of their own:
---- build.test_sandbox's `runs_as`); a case of a
---- confined process then has only the refusal to check, and says it is
---- skipped ([`Test.skip`]), which a run held to sandboxing fails
---- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
---- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
+--- Whether the run that printed `text` sandboxed none of its workers;
+--- if so, the running test is skipped ([`Test.skip`]) for the reason
+--- that run gave, since a case of a confined process then has only the
+--- refusal to check. The workers, and what they confine, nest in this
+--- test's own sandbox, which a host may refuse: the kernel lets root
+--- nest one only two deep (core/syscalls.c's `map_ids`) where a root
+--- runner cannot run its workers as a user of their own
+--- (build.test_sandbox's `runs_as`). A run held to sandboxing fails the
+--- skip; CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
   sandbox_skip.nested(text)
@@ -143,14 +143,13 @@ local function failure(text: string, name: string): string | nil
 end
 
 --- A spawn `must_confine` refuses does not start, and fails the test
---- that made it -- one that passed over the spawn's failure, made in a
---- stand-in of its own (every running stand-in hears it), and one that
---- raised besides, whose own failure is kept after it --
---- naming the program, the part of the sandbox, why, and the errno's
---- name. So too a process given more paths than a sandbox unveils; one
---- started with a sandbox of its own that does not unveil and take the
---- network; and one started through a spawn taken during a stand-in that
---- has since ended.
+--- that made it, naming the program, the part of the sandbox, why, and
+--- the errno's name. It fails a test that passed over the spawn's
+--- failure in a stand-in of its own (every running stand-in hears it),
+--- and one that raised besides, whose own failure follows. So too a
+--- process given more paths than a sandbox unveils; one started with a
+--- sandbox of its own that does not unveil and take the network; and one
+--- started through a spawn taken during a stand-in that has since ended.
 local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)

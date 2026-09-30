@@ -35,9 +35,9 @@ end
 --- it -- a host file by its contents, a variable by its value -- and
 --- stands until one of those changes; `--all` and COSMIC_TEST_ALL=1 run
 --- it whatever stands, while naming it runs nothing more.
---- COSMIC_SANDBOX=must, which every key holds, keys it apart. A read it does not
---- declare is trusted, not keyed: a file it reads undeclared changes,
---- and it stands.
+--- COSMIC_SANDBOX=must, which every key holds, keys it apart. A read it
+--- does not declare is trusted, not keyed: a file it reads undeclared
+--- changes, and it stands.
 local function test_an_unsandboxed_test_stands_on_what_it_declares(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))

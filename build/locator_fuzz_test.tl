@@ -61,8 +61,9 @@ local function set_field(s: string, at: integer, width: integer, value: integer)
 end
 
 --- Fields worth aiming at, as {offset in its block, width}: the
---- trailer's version, length and four ranges, and the manifest header's
---- and first two entries' fields.
+--- trailer's version, its length, and the manifest's and database's
+--- offsets and lengths; and the manifest header's and first two
+--- entries' fields.
 local TRAILER_FIELDS <const> = { { 9, 4 }, { 13, 4 }, { 17, 8 }, { 25, 8 }, { 33, 8 }, { 41, 8 } }
 local MANIFEST_FIELDS <const> = { { 9, 4 }, { 13, 4 }, { 17, 8 }, { 25, 4 }, { 29, 4 },
   { 33, 4 }, { 37, 4 }, { 41, 8 }, { 49, 8 }, { 89, 4 }, { 93, 4 }, { 97, 8 }, { 105, 8 } }
