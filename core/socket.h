@@ -27,6 +27,16 @@
 /* Opens the table as the raw [`cosmic.internal.socket`] module. */
 int cosmic_open_socket (lua_State *L);
 
+/* The variable a [`Net.serve`] supervisor starts each of its workers
+ * with: "<supervisor pid>:<descriptors>", read by `handed`. */
+#define COSMIC_NET_WORKER "COSMIC_NET_WORKER"
+
+/* Takes COSMIC_NET_WORKER out of the environment as the runtime
+ * starts, before anything runs that could start a child, so no
+ * process this one starts inherits it, and keeps it for `handed`, with
+ * this process's parent then, which the supervisor it names must be. */
+void cosmic_socket_entered (void);
+
 #endif
 
 /* Entries, as core/syscalls.h's are: X-macros core/socket.c expands
@@ -129,13 +139,36 @@ COSMIC_SYSCALL(pair, 0);
 COSMIC_SYSCALL(send, 3);
 
 /*
- * --- Where a TCP socket is bound: its host and port, the port the kernel chose for one listening at port 0.
+ * --- Where a socket is bound: a TCP one's host and port, the port the kernel chose for one listening at port 0, or a unix one's path as it was bound -- its file's own name alone, for a path too long to bind whole -- "" for one bound nowhere.
  * ---@param fd integer the descriptor
- * ---@return Address|nil address its address, or nil on failure: EAFNOSUPPORT for a unix one
+ * ---@return Address|nil address its address, or nil on failure
  * ---@return string error what went wrong, when address is nil
  * ---@return integer errno the error number, when address is nil
  */
 COSMIC_SYSCALL(bound, 1);
+
+/*
+ * --- A listening stream socket another process handed this one as `fd`, as a `Socket` of its own: a new descriptor on it, closed on exec, which owns no socket file, so closing it leaves the file to the process that made it. The socket is made nonblocking, which the process that handed it sees too, as it shares it. `fd` itself is left open, the caller's to close. It fails ENOTSOCK for a descriptor that is no socket, EPROTOTYPE for a socket that is not a stream, EAFNOSUPPORT for one that is not of `kind`, and EINVAL for one that is connected, or not listening where the platform answers SO_ACCEPTCONN.
+ * ---@param fd integer the descriptor handed
+ * ---@param kind string "unix" or "tcp", the kind of `Address` the socket must be at
+ * ---@return Socket|nil socket the socket, or nil on failure
+ * ---@return string error what went wrong, when socket is nil
+ * ---@return integer errno the error number, when socket is nil
+ */
+COSMIC_SYSCALL(adopt, 2);
+
+/*
+ * --- What COSMIC_NET_WORKER said when the runtime started, which a [`Net.serve`] supervisor starts each worker with, and the process's parent then.
+ * ---@class Handed
+ * ---@field value string the variable's value, "<supervisor pid>:<lifeline>:<listener>,...", or "" for one longer than any supervisor writes
+ * ---@field parent integer this process's parent when the runtime started, which a worker's supervisor is
+ */
+
+/*
+ * --- What COSMIC_NET_WORKER said as the runtime started, the first time it is asked, and nil after, or where it was not set. The variable is gone from the environment from the start, so no child inherits it.
+ * ---@return Handed|nil handed the variable and the parent then, or nil
+ */
+COSMIC_SYSCALL(handed, 0);
 
 /*
  * --- Where a connected socket's peer is: a TCP one's host and port, or a unix one's path as its socket was bound, "" for one bound nowhere (as every socket `connect`, `start` and `pair` make is) or in Linux's abstract namespace.

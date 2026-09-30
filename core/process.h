@@ -36,6 +36,12 @@
 /* Opens the table as the raw [`cosmic.internal.process`] module. */
 int cosmic_open_process (lua_State *L);
 
+/* Records the command line the runtime was entered with, its first
+ * word the program's own name, for `arguments` to answer, and the
+ * working directory, for `relaunch`'s `cwd`: `argv` is held, not
+ * copied, so it must outlive every Lua state. */
+void cosmic_process_entered (int argc, char **argv);
+
 /* Whether the innermost open [`Child.guard`] has yet to read a SIGINT
  * or SIGTERM caught since it opened or last read (`child_signal_read`):
  * a wait of core/http.c's asks it each round, so a signal ends a read
@@ -179,6 +185,7 @@ COSMIC_SYSCALL(waitpid, 2);
  * ---@field artifact_fd integer|nil this process's retained artifact descriptor, for the child's artifact descriptor
  * ---@field core_fd integer|nil a new descriptor on the running core, closed on exec, for the child's core descriptor
  * ---@field environment {string:string}|nil the private startup contract, naming the two child descriptors
+ * ---@field cwd string|nil the working directory this process started in, to start the child in; nil where it could not be read then
  */
 
 /*
@@ -190,6 +197,12 @@ COSMIC_SYSCALL(waitpid, 2);
  * ---@return integer errno the error number, ENOSYS for a start without an artifact
  */
 COSMIC_SYSCALL(relaunch, 2);
+
+/*
+ * --- The arguments this program was started with, after its own name: the words its main module is handed from 1 on, with no `--artifact` pair a launcher or `relaunch` put before them, so that `relaunch`'s argv and these, in `relaunch`'s `cwd`, start this program again on the same command line.
+ * ---@return {string} arguments the arguments, in order; empty for none
+ */
+COSMIC_SYSCALL(arguments, 0);
 
 /*
  * --- The two ends of a new pipe, each closed on exec.
