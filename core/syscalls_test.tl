@@ -1100,6 +1100,19 @@ local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
   assert(missing == nil and errno == sys.ENOENT)
 end
 
+--- /dev/full answers every read with zeros and every write with ENOSPC,
+--- so a tree holding it is not special. Every Linux worker is given it
+--- (build.confine's `runtime_paths`): one without it is skipped, and
+--- elsewhere there is nothing to check.
+local function test_a_tree_digest_of_dev_full_is_not_special()
+  if sys.stat("/dev/full") == nil then
+    sandbox_skip.refused("this worker has no /dev/full")
+    return
+  end
+  local walked = assert(sys.tree_digest("/dev/full", false))
+  assert(not walked.special, "/dev/full answers from nothing past the tree")
+end
+
 --- An entry the walk is refused -- a file it may not read, a directory
 --- it may not list -- is digested by its permissions and owner, and the
 --- tree is not special for it: no process with no more privilege than
