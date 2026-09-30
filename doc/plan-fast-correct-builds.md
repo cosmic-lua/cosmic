@@ -94,6 +94,27 @@ What the runs since show:
 
 ### Milestone M1 (to measure)
 
+**After the PR-push work (2026-09-30, measured about 17:23 UTC).**
+Landed: #2452 (queue legs seed zig outputs; main saves them per core),
+#2455 (a branch push checks the driver and format in the checked job,
+beside the legs, and waits on no `reuse`), #2459 (fixtures stand on a
+test-only edit), #2461 (no alpine leg on a branch push), #2465 (`fix`
+resolves a project's links against its own build), #2466 (seed reads
+linux-aarch64's driver marker).
+
+- **Branch pushes:** median wall 192 s (145 to 266, 8 runs), against
+  416 s (189 to 502, 21 runs) before.
+  - 7 of 8 restored the exact per-core zig entry; boot is 13 to 27 s
+    with an exact hit, 51 to 66 s after a core change.
+  - The long pole is now the x86_64 suite when its verdicts don't
+    stand: 100 to 165 s. Two runs stood nothing because the
+    `compiler` key part moved (a tool edit).
+- **Queue:** gate 594 to 782 s on runs that moved carried code.
+  #2466, test-only, stood every sandboxed fixture on all three Linux
+  legs and gated in 444 s. The launcher stood alone on two more runs.
+  Runs behind a core change rerun everything, as expected.
+- **aarch64 marker:** main's seed saved it for the first time at 17:19.
+
 **Fourth measurement (2026-09-30, 24 gating runs, #2412 to #2444).**
 Read from each run's jobs and `operations.db`, qualifying as `report.tl`
 does. 12 went `--all`; 6 of the 12 ordinary runs qualify, so M1 is still
