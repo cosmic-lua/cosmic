@@ -103,7 +103,8 @@ local record Net
     --- another's lock held 10 seconds; "interrupted" for a signal a
     --- [`Child.guard`] caught; and a directory or a link at its name
     --- fails too. A path ending in "/" fails "Is a directory", and an
-    --- empty path raises, as it does without `reclaim`.
+    --- empty path raises, as it does without `reclaim`. A "tcp" address
+    --- raises: a port holds no file to take over.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
@@ -293,7 +294,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
       if write_failure ~= "" then return false, write_failure end
       local from = 1
       while from <= #data do
-        local sent, why, errno = raw.send(fd, from == 1 and data or data:sub(from))
+        local sent, why, errno = raw.send(fd, data, from)
         if sent ~= nil then
           from = from + sent
         elseif errno ~= raw.EAGAIN then
@@ -588,6 +589,7 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
   assert(backlog >= 1, "backlog must be at least 1")
   milliseconds(opts.timeout_ms)
   if address.kind == "tcp" then
+    assert(not opts.reclaim, "reclaim takes a unix address")
     local socket, trouble, errno = raw.listen(raw_address(address), backlog)
     if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
     local bound, why = raw.bound(socket:fd())

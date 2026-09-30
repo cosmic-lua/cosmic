@@ -259,6 +259,41 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "the tool carries the projection's CA roots")
 end
 
+--- An edit to a test moves the projection and its signature, but not
+--- the database the tool carries, which leaves the test out: it carries
+--- none of the projection's `projected` row, so a tool built from the
+--- tree before the edit and one built after are the same bytes, and so
+--- is what a verdict keyed by them (CI's fixtures) turns on.
+local function test_an_edit_to_a_test_moves_nothing_the_tool_carries(tmp: string)
+  local root = tmp .. "/a"
+  local function edit(body: string)
+    assert(Fs.mkdirs(root))
+    assert(Fs.write(root .. "/greet_test.tl", table.concat({
+      'local greet = require("greet")',
+      "-- " .. body,
+      "local function test_hello()",
+      '  assert(greet.hello() == "hello, world")',
+      "end",
+      "",
+    }, "\n")))
+  end
+  edit("before")
+  local handle = build_and_write(root, "world", tmp .. "/before.db")
+  assert(work.close(handle))
+  edit("after")
+  handle = build_and_write(root, "world", tmp .. "/after.db")
+  assert(work.close(handle))
+  local signed = projected(tmp .. "/before.db")
+  assert(signed ~= "" and projected(tmp .. "/after.db") ~= signed,
+    "the edit to the test must move the projection's signature")
+  assert(writer.carried(tmp .. "/before.db", tmp .. "/carried_before.db"))
+  assert(writer.carried(tmp .. "/after.db", tmp .. "/carried_after.db"))
+  assert(projected(tmp .. "/carried_before.db") == "",
+    "the tool carries the projection's signature")
+  assert(Fs.read(tmp .. "/carried_before.db") == Fs.read(tmp .. "/carried_after.db"),
+    "an edit to a test moved the database the tool carries")
+end
+
 --- A projection ships what a reader of it loads -- each module's
 --- bytecode and its Teal source, deflated -- and not the Lua tl
 --- generated on the way, which only the working database's `compiled`

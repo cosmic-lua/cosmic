@@ -260,6 +260,20 @@ local function product_extract(argv: {string}): integer
   return 0
 end
 
+--- Checks that DATABASE holds the bytes of the database PROGRAM carries
+--- ([`build.artifact`]'s `split`): the product's cosmic.db, which the
+--- runtime setup writes its artifacts from, is the one its cosmic runs
+--- on, so a fixture keyed by those artifacts is keyed by what it runs.
+local function product_database(argv: {string}): integer
+  local program, database = argv[1], argv[2]
+  assert(program ~= nil and database ~= nil,
+    "usage: tool.tl product-database PROGRAM DATABASE")
+  local parts = assert(artifact.split((assert(Fs.read(program)))))
+  assert(parts.database == assert(Fs.read(database)),
+    database .. ": not the database " .. program .. " carries")
+  return 0
+end
+
 --- Writes format fixtures from build.zig's generated target TSV and real
 --- raw cores. This is test support, not a product build path.
 local function write_format_fixture(argv: {string}): integer
@@ -408,6 +422,7 @@ local subcommands: {string:function({string}):integer} = {
   ["verify-verdicts"] = verify_verdicts,
   ["prepare-databases"] = prepare_databases,
   ["prepare-artifacts"] = prepare_artifacts,
+  ["product-database"] = product_database,
   ["product-extract"] = product_extract,
   ["write-format-fixture"] = write_format_fixture,
   ["write-launcher-fixture"] = write_launcher_fixture,
