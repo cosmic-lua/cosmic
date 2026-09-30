@@ -294,11 +294,12 @@ saves and still carries the products, both taken from the queue's run:
   product (the `TODO:` on `seed`'s relay).
 - Where it finds none (a direct push, or a lookup that failed), and on
   the scheduled and a manual run, which skip `reuse`, the legs run the
-  full scope and save as before. A branch push runs `reuse` with its
-  steps skipped, so it shows as a check run rather than skipped, at
-  the cost of its runner's start before the legs start: seconds, up
-  to about 100 s in a burst of runs. The queue skips it.
-  `seed`, though, shows as a skipped check on a branch push (a `TODO:`).
+  full scope and save as before. Only a push to main runs `reuse`: a
+  branch push shows it as a skipped check rather than hold its legs
+  for a runner's start with nothing to do (seconds, up to about 100 s
+  in a burst of runs); the legs' `!cancelled()` runs them past a
+  skipped `reuse` as past one that found nothing. `seed` too shows as
+  a skipped check on a branch push (a `TODO:`).
 
 What the push gives up is a second run of the same commit: a flake the
 queue's run missed is no longer caught on main, where the nightly run

@@ -53,21 +53,22 @@
     # first looks for that run (queue-seed.sh find): found, `seed` saves
     # the queue's caches and relays its products in place of `platform`
     # and `checked`.
-    # Every push runs it, a branch's with its steps skipped, so a branch
-    # push shows it run rather than skipped (its runner's start delays
-    # the legs, by up to about 100 s in a burst); the queue, the
-    # scheduled and a manual run skip it. A lookup that fails is none,
-    # and the legs run: its timeout is above the lookup's budget
+    # Only a push to main runs it: every other run skips it, a branch
+    # push too, which shows it as a skipped check rather than wait on a
+    # runner's start for a job with nothing to do (some 6 s, up to about
+    # 100 s in a burst). A skipped `reuse` has no `run`, so the legs and
+    # the checked job, whose `if` holds `!cancelled()`, run as they do
+    # where the lookup found nothing. A lookup that fails is none, and
+    # the legs run: its timeout is above the lookup's budget
     # (queue-seed.sh's TRIES * (WAIT_SECONDS + 2 * CALL_SECONDS)).
     reuse: {
-      if: "github.event_name == 'push'",
+      if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 8,
       permissions: {contents: "read", actions: "read"},
       outputs: {run: "${{ steps.find.outputs.run }}"},
       steps: [
         {
-          if: "github.ref == 'refs/heads/main'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
             "sparse-checkout": "/.github/scripts/queue-seed.sh\n",
@@ -78,7 +79,6 @@
         {
           name: "find the merge queue's passing run of this commit",
           id: "find",
-          if: "github.ref == 'refs/heads/main'",
           "continue-on-error": true,
           env: {
             GH_TOKEN: "${{ github.token }}",
@@ -1079,9 +1079,10 @@
     # job's (`checked: true`) has verdicts alone to save, and no product.
     # On the leg's own runner: an entry's version hashes its path, which
     # is the runner's. Seeds stand only on a run whose every leg passed.
-    # TODO: a branch push shows this job as a skipped check, the one
-    # exception build/workflows_test.tl's
-    # test_a_branch_push_starts_no_job_it_skips names. Moving it, with a
+    # TODO: a branch push shows this job as a skipped check, one of the
+    # two exceptions build/workflows_test.tl's
+    # test_a_branch_push_starts_no_job_it_skips names (`reuse`, whose
+    # runner a branch push's legs would wait on, is the other). Moving it, with a
     # lookup of its own, to a workflow on a push to main alone would end
     # that, at the cost of a second lookup that could disagree with
     # this one's and saves no longer in this run's concurrency group.
@@ -1177,8 +1178,8 @@
 
     # The one check a ruleset requires, whatever the scope: it fails when
     # any leg or the checked job failed or was cancelled (a seeded run's
-    # `seed` legs; a `reuse` that failed found nothing, and the platform
-    # legs and the checked job ran), and
+    # `seed` legs; a `reuse` that failed or was skipped found nothing,
+    # and the platform legs and the checked job ran), and
     # on a full run it is also the provenance join, proving every leg
     # attested identical bytes. Steps, not a job of its own, which a
     # branch push would show as skipped.
@@ -1245,8 +1246,9 @@
     # cache, and it runs no tree code but the script. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
-    # none of it. As `reuse`, every push runs it, a branch's with its
-    # steps skipped, so a branch push shows it run rather than skipped.
+    # none of it. Every push runs it, a branch's with its steps skipped,
+    # so a branch push shows it run rather than skipped: off the legs'
+    # path, it costs a branch push nothing but a runner.
     prune: {
       needs: ["platform", "checked", "seed"],
       if: "always() && github.event_name == 'push'",

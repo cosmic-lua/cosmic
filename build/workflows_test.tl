@@ -818,9 +818,9 @@ local function step_running(steps: {{string: any}}, text: string): {string: any}
 end
 
 --- A push to main tests the commit the merge queue just tested, so it
---- reuses that run where it finds it: `reuse` looks it up on a push
---- (its steps only on main's, so a branch push shows it run, not
---- skipped), the platform legs run exactly where it found none, and
+--- reuses that run where it finds it: `reuse` looks it up on a push to
+--- main alone (a branch push's legs wait on no runner of its), the
+--- platform legs run exactly where it found none, or was skipped, and
 --- `seed` exactly where it found one, on the platform legs' own
 --- runners and the checked job's, an entry's version hashing its path.
 --- What `seed` downloads is the queue run's, and what it saves it saves
@@ -831,10 +831,11 @@ local function test_a_main_push_reuses_the_queue_run()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
   local reuse, platform, seed = jobs.reuse, jobs.platform, jobs.seed
-  assert(reuse["if"] == "github.event_name == 'push'", tostring(reuse["if"]))
+  -- A push to main alone: a branch push's legs wait on no runner of its.
+  assert(reuse["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'", tostring(reuse["if"]))
   assert((reuse.permissions as {string: string}).actions == "read", "reuse cannot read the queue's run")
   for _, step in ipairs(reuse.steps as {{string: any}}) do
-    assert(step["if"] == "github.ref == 'refs/heads/main'", "reuse runs a step off main: " .. tostring(step["if"]))
+    assert(step["if"] == nil, "reuse skips a step of its own: " .. tostring(step["if"]))
   end
   local find = step_running(reuse.steps as {{string: any}}, "queue-seed.sh find")
   assert(find.id == "find" and find.run == "sh .github/scripts/queue-seed.sh find", tostring(find.run))
@@ -851,6 +852,9 @@ local function test_a_main_push_reuses_the_queue_run()
     budget .. " s: " .. tostring(reuse["timeout-minutes"]))
   assert((reuse.outputs as {string: string}).run == "${{ steps.find.outputs.run }}", "reuse's output")
 
+  -- `!cancelled()` runs the legs where `reuse` was skipped (every run but
+  -- a push to main) or failed, as where it found nothing: without a
+  -- status function, a job whose need was skipped is skipped too.
   assert(platform.needs == "reuse" and platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
     "the platform legs run other than where no queue run was found: " .. tostring(platform["if"]))
   assert(seed.needs == "reuse" and seed["if"] == "needs.reuse.outputs.run != ''",
@@ -1404,11 +1408,17 @@ end
 --- a push to main alone; or it is steps of a job that always runs, as
 --- ci.yml's provenance join is. A step may still skip on a branch. So
 --- does a job that runs only where a job it needs found something (an
---- output `!= ''`), which a branch push's never does: ci.yml's `seed`
---- alone, named in SKIPPED_ON_A_BRANCH. The TODO above that job in
---- ci.yml says what would end the exception.
+--- output `!= ''`), which a branch push's never does. Two jobs are
+--- skipped on a branch all the same, named in SKIPPED_ON_A_BRANCH:
+--- ci.yml's `seed`, whose TODO says what would end the exception, and
+--- its `reuse`, which runs on a push to main alone: run on a branch push
+--- with nothing to do, it held the legs, which need it, for a runner's
+--- start (some 6 s, up to about 100 s in a burst).
 local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
-local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = { [DIR .. "/ci.yml seed"] = true }
+local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
+  [DIR .. "/ci.yml seed"] = true,
+  [DIR .. "/ci.yml reuse"] = true,
+}
 
 local function test_a_branch_push_starts_no_job_it_skips()
   local count = 0
@@ -1421,12 +1431,13 @@ local function test_a_branch_push_starts_no_job_it_skips()
       for name, job in pairs(workflow.jobs as {string: {string: any}}) do
         count = count + 1
         local condition = job["if"]
+        local excepted = SKIPPED_ON_A_BRANCH[path .. " " .. name]
         for _, skip in ipairs(BRANCH_SKIPS) do
-          assert(not (condition is string and condition:find(skip, 1, true)),
+          assert(excepted or not (condition is string and condition:find(skip, 1, true)),
             path .. ": job " .. name .. "'s if names " .. skip .. ", so a branch push shows it skipped")
         end
-        assert(not (condition is string and condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''")) or
-          SKIPPED_ON_A_BRANCH[path .. " " .. name], path .. ": job " .. name ..
+        assert(excepted or not (condition is string and condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''")),
+          path .. ": job " .. name ..
           " runs only where a job it needs found something, so a branch push shows it skipped")
       end
     end
