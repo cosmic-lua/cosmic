@@ -63,6 +63,7 @@ local docs_checks = require("build.docs_checks")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local flow = require("build.flow")
+local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
 local near = require("build.fix.near")
@@ -183,18 +184,12 @@ local function check_only(path: string): boolean
 end
 
 --- Every file under `root` whose links are checked and that is not
---- laid out, as paths relative to it: each Markdown and Zig file past
---- what `skip` passes over but the core and `.claude/` (the skills'
---- Markdown), and the core's Teal, which a narrower run names as it
---- names any other. The core's C is checked apart.
+--- laid out, as paths relative to it: each Markdown and Zig file the
+--- walk for links finds ([`link_files.walk`]), and the core's Teal,
+--- which a narrower run names as it names any other. The core's C is
+--- checked apart.
 local function checked_sources(root: string): {string} | nil, string
-  local files, trouble = Fs.walk(root, function(entry: string): boolean
-    local first = entry:match("^([^/]+)") or entry
-    if first == "core" or first == ".claude" then
-      return entry ~= first and Fs.basename(entry):sub(1, 1) == "."
-    end
-    return skip(entry)
-  end)
+  local files, trouble = link_files.walk(root)
   if files == nil then
     return nil, trouble
   end
@@ -204,7 +199,6 @@ local function checked_sources(root: string): {string} | nil, string
       (String.ends_with(file, ".tl") or String.ends_with(file, ".lua"))
     if check_only(file) or core_teal then out[#out + 1] = file end
   end
-  table.sort(out)
   return out
 end
 
@@ -523,7 +517,7 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
   local redefined: {string} = {}
   local rewritten: {string} = {}
   for _, file in ipairs(files) do
-    local kind = links.kind_of(file)
+    local kind = link_files.kind_of(file)
     local source, read_trouble = Fs.read(file)
     local absolute, absolute_trouble = Fs.absolute(file)
     if source == nil then
