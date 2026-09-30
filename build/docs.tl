@@ -59,6 +59,9 @@ local record docs
     use_counts: {string: integer}
     --- How many links name a module/symbol pair, as `use_counts`.
     link_counts: {string: integer}
+    --- The record each module's value is typed as (`""` for none), by
+    --- module, as [`value_record`] reads it, cached as `use_counts` is.
+    value_records: {string: string}
   end
 
   --- One worked example, matched to a symbol by content rather than by
@@ -993,6 +996,48 @@ local function calling_module(use: docs.Use): string
   return use.from_module
 end
 
+--- The record `module`'s value is typed as when the module returns a
+--- name that is not that record (`local module: Module`), as its own
+--- row records it ([`alias_members.value_record`]); nil when it returns
+--- its record by name, or has no row of its own.
+local function value_record(db: Sqlite.Handle, module: string): string | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT signature FROM docs WHERE module = ?1 AND symbol = '' AND kind = 'module' " ..
+    "ORDER BY id LIMIT 1", { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil
+  end
+  return alias_members.value_record(rows[1][1])
+end
+
+--- The name `entry` is used by, as a use of it is recorded, when that
+--- differs from its symbol: `order` for cosmic.cli's `Module.order`,
+--- a member of the record the module's value is typed as. Nil when the
+--- two are one, or nil and why when the owning database cannot be read.
+local function used_as(view: docs.View, entry: docs.Entry): string | nil, string
+  local owner = view.owners[entry.module]
+  if owner == nil or entry.symbol == "" then
+    return nil
+  end
+  local cached = view.value_records[entry.module]
+  if cached == nil then
+    local record, trouble = value_record(view.databases[owner], entry.module)
+    if record == nil and trouble ~= nil then
+      return nil, trouble
+    end
+    cached = record or ""
+    view.value_records[entry.module] = cached
+  end
+  local prefix = cached .. "."
+  if cached ~= "" and entry.source_symbol:sub(1, #prefix) == prefix then
+    return (entry.source_symbol:sub(#prefix + 1):gsub(":", ".")), ""
+  end
+  return nil
+end
+
 local function use_key(module: string, symbol: string): string
   return module .. "\n" .. symbol
 end
@@ -1087,7 +1132,11 @@ end
 
 local function effective_counts(view: docs.View, entries: {docs.Entry}): boolean, string
   for _, entry in ipairs(entries) do
-    local uses, trouble = count_uses(view, entry.module, entry.symbol)
+    local used, used_trouble = used_as(view, entry)
+    if used == nil and used_trouble ~= nil then
+      return false, used_trouble
+    end
+    local uses, trouble = count_uses(view, entry.module, used or entry.symbol)
     if uses == nil then
       return false, trouble
     end
@@ -1129,7 +1178,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
     end
   end
   return { databases = databases, public = scope, owners = owners,
-           use_counts = {}, link_counts = {} }
+           use_counts = {}, link_counts = {}, value_records = {} }
 end
 
 --- `entries` as a lookup's answer.
@@ -1506,21 +1555,11 @@ function docs.exact(view: docs.View, query: string): {docs.Entry} | nil, string
   return in_full(view, query)
 end
 
---- The condition under which `d` (a row of `docs`) is an exported
---- member named `?2` of an exported record of module `?1` that is no
---- other record's: `Module.order` of a module that returns `local
---- module: Module`, whose members its record's name does not spell,
---- as [`symbols.used_where`] reads a use of one ([`Cli.order`]).
-local record_member_where =
-  "(d.module = ?1 AND d.exported = 1 AND EXISTS (SELECT 1 FROM docs r " ..
-  "WHERE r.module = d.module AND r.kind = 'record' AND r.exported = 1 AND " ..
-  "instr(r.source_symbol, '.') = 0 AND " ..
-  "replace(d.source_symbol, ':', '.') = r.source_symbol || '.' || ?2))"
-
 --- The rows of `module` whose symbol is `name`, as the symbol column
 --- reads (`read`, [`Writer.write`]) or as the source spells it
---- ([`Fs.read`]), a method's `:` read as `.`; else the member `name` of
---- a record the module declares (`record_member_where`); else, as
+--- ([`Fs.read`]), a method's `:` read as `.`; else the exported member
+--- `name` of the record the module's value is typed as (`Module.order`
+--- of cosmic.cli, whose value is `local module: Module`); else, as
 --- [`docs.exact`] does, the member of a type an alias of the module
 --- stands for (`Handle.close` of [`cosmic.sqlite`]). None when the view
 --- holds no such module. The database that owns the module answers.
@@ -1529,17 +1568,32 @@ local function member_of(view: docs.View, module: string, name: string): {docs.E
   if owner == nil then
     return {}, ""
   end
+  local db = view.databases[owner]
+  local shown = symbols.shown_docs("d", view.public[owner] == true)
   local dotted = name:gsub(":", ".")
-  local found: {docs.Entry} = {}
-  for _, where in ipairs({ symbols.member_where("d"), record_member_where }) do
-    local rows, trouble = Sqlite.text_rows(view.databases[owner],
-      "SELECT " .. columns .. " FROM docs d WHERE " .. where .. " AND " ..
-      symbols.shown_docs("d", view.public[owner] == true) .. " ORDER BY d.id",
-      { text(module), text(dotted) })
-    if rows == nil then
-      return nil, trouble
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.member_where("d") .. " AND " ..
+    shown .. " ORDER BY d.id", { text(module), text(dotted) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local found = entries_of(rows)
+  if #found > 0 then
+    return found, ""
+  end
+  local record, record_trouble = value_record(db, module)
+  if record == nil and record_trouble ~= nil then
+    return nil, record_trouble
+  end
+  if record ~= nil then
+    local typed, typed_trouble = Sqlite.text_rows(db,
+      "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.exported = 1 AND " ..
+      "replace(d.source_symbol, ':', '.') = ?2 AND " .. shown .. " ORDER BY d.id",
+      { text(module), text(record .. "." .. dotted) })
+    if typed == nil then
+      return nil, typed_trouble
     end
-    found = entries_of(rows)
+    found = entries_of(typed)
     if #found > 0 then
       return found, ""
     end
@@ -1606,8 +1660,49 @@ by_last_name = function(view: docs.View, query: string): {docs.Entry} | nil, str
   return out, ""
 end
 
+--- The uses of `module`'s member recorded as `used`, and the links to
+--- its row `symbol`, in `db`.
+local function member_uses(db: Sqlite.Handle, public: boolean, module: string, symbol: string,
+                           used: string): {docs.Use} | nil, string
+  local out: {docs.Use} = {}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT from_module, from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 AND " ..
+    symbols.public_only("module", public) .. " AND " ..
+    symbols.public_only("from_module", public), { text(module), text(used) })
+  if rows == nil then
+    return nil, trouble
+  end
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = module, symbol = used, from_module = row[1], from_file = row[2],
+      line = math.tointeger(tonumber(row[3])) or 0, link = false, path = "", anchor = "" }
+  end
+  local linked, linked_trouble = has_links(db)
+  if linked == nil then
+    return nil, linked_trouble
+  end
+  if not linked then
+    return out, ""
+  end
+  local links, links_trouble = Sqlite.text_rows(db,
+    "SELECT from_module, from_file, line FROM links WHERE kind = 'symbol' AND module = ?1 " ..
+    "AND symbol = ?2 AND " .. symbols.public_only("module", public) .. " AND " ..
+    symbols.public_only("from_module", public) .. " ORDER BY from_file, line, column",
+    { text(module), text(symbol) })
+  if links == nil then
+    return nil, links_trouble
+  end
+  for _, row in ipairs(links) do
+    out[#out + 1] = { module = module, symbol = symbol, from_module = row[1], from_file = row[2],
+      line = math.tointeger(tonumber(row[3])) or 0, link = true, path = "", anchor = "" }
+  end
+  return out, ""
+end
+
 --- Every place across `databases` that refers to what `query` names,
 --- in file and line order: one per line for each thing it names there.
+--- A module's member, written in full ([`cosmic.cli.order`]) or from the
+--- module's last name ([`Cli.order`]), is found as [`docs.lookup`] finds
+--- it, and its uses and links are those of that module's member alone.
 function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   local found, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Use} | nil, string
@@ -1615,6 +1710,28 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
     end, calling_module)
   if found == nil then
     return nil, trouble
+  end
+  local members: {docs.Entry} = {}
+  for _, look in ipairs({ in_full, by_last_name }) do
+    local answered, answered_trouble = look(view, query)
+    if answered == nil then
+      return nil, answered_trouble
+    end
+    for _, entry in ipairs(answered) do members[#members + 1] = entry end
+  end
+  for _, entry in ipairs(members) do
+    local used, used_trouble = used_as(view, entry)
+    if used == nil and used_trouble ~= nil then
+      return nil, used_trouble
+    end
+    local more, more_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {docs.Use} | nil, string
+        return member_uses(db, public, entry.module, entry.symbol, used or entry.symbol)
+      end, calling_module)
+    if more == nil then
+      return nil, more_trouble
+    end
+    for _, use in ipairs(more) do found[#found + 1] = use end
   end
   local out: {docs.Use} = {}
   local seen: {string: boolean} = {}
@@ -2042,8 +2159,14 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
         said[#said + 1] = (entry.uses > 0 and "linked from " .. entry.links or
           "linked from " .. plural.count(entry.links, "place"))
       end
+      -- A member of the record the module's value is typed as is asked
+      -- for by the module's name, which no other module's shares.
+      local used, used_trouble = used_as(view, entry)
+      if used == nil and used_trouble ~= nil then
+        return nil, used_trouble
+      end
       lines[#lines + 1] = "  " .. table.concat(said, " and ") .. "; cosmic uses " ..
-        entry.source_symbol
+        (used ~= nil and entry.module .. "." .. used or entry.source_symbol)
     end
     local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string

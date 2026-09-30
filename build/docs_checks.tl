@@ -78,20 +78,10 @@ local containers: {string: boolean} = {
 
 --- The records a module returns whose members are not named for it, so
 --- the page cannot tell them from a `local` type of the module's own,
---- by `<module>.<record>`, and why each is shown.
+--- by `<module>.<record>`, and why each is shown. None today: a module
+--- whose value is typed by such a record says so in its own row's
+--- signature (`local module: Module`), which names it.
 local surfaces: {string: string} = {}
-
--- TODO: once the analyzer canonicalizes a module typed by a record of
--- another name (`local module: Module = { ... }`), `Module` is the
--- surface of these two and is named like `Fs` is: drop the first two
--- entries of `surfaces`.
-surfaces["cosmic.cli.Module"] = "the table the module returns is typed Module, whose " ..
-  "members are not named for it"
-surfaces["cosmic.removed.Module"] = "the table the module returns is typed Module, whose " ..
-  "members are not named for it"
-surfaces["cosmic.entrypoint.Entrypoint"] = "the module returns an empty record: the module " ..
-  "is all prose"
-surfaces["cosmic.layout.Layout"] = "the module returns an empty record: the module is all prose"
 
 --- The backticked `cosmic docs <query>` and `Module.symbol` references
 --- that name nothing, by the text between the backticks, and why each

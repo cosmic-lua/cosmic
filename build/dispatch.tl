@@ -37,9 +37,10 @@ local log = verdict.log
 -- of a verb loads its spec, and `cosmic help exit` loads them all.
 
 --- The full text of each verb's `cosmic help <verb>`, generated from
---- [`cosmic.cli`]'s own fields ([`Cli.run`], [`Cli.test`], ...) so this
---- wording is never a second, hand-kept copy of what `cosmic docs
---- build` (or any verb [`Cli.order`] names) already answers.
+--- [`cosmic.cli`]'s own fields ([`cosmic.cli.Cli.run`],
+--- [`cosmic.cli.Cli.test`], ...) so this wording is never a second,
+--- hand-kept copy of what `cosmic docs build` (or any verb [`Cli.order`]
+--- names) already answers.
 --- Falls back to naming the lookup that failed, rather than silently
 --- dropping a verb from its own help, if [`cosmic.cli`]'s own database
 --- row is ever missing.

@@ -226,7 +226,8 @@ end
 --- A member of a type an alias stands for is a row under the alias's
 --- module, whether the link spells it from the alias, from its module
 --- or through a required module, as `cosmic docs` reads it; so is a
---- field of the record a module's value is typed as.
+--- field of the record a module's value is typed as, and not one of
+--- another record the module exports.
 local function test_a_member_through_an_alias_or_a_typed_value_is_a_row(dir: string)
   local db = fixture.database(dir, {
     ["cosmic/internal/raw.tl"] = source(
@@ -252,12 +253,20 @@ local function test_a_member_through_an_alias_or_a_typed_value_is_a_row(dir: str
       "return Thing"),
     ["cosmic/verbs.tl"] = source(
       "--- Verbs.",
+      "--- What a verb answers.",
+      "local record Result",
+      "  --- Whether it did.",
+      "  ok: boolean",
+      "end",
+      "",
       "local record Module",
       "  --- The order.",
       "  order: {string}",
+      "  --- Runs one.",
+      "  run: function(): Result",
       "end",
       "",
-      "local module: Module = { order = {} }",
+      "local module: Module = { order = {}, run = function(): Result return { ok = true } end }",
       "",
       "return module"),
     ["build/boot.tl"] = source(
@@ -265,7 +274,7 @@ local function test_a_member_through_an_alias_or_a_typed_value_is_a_row(dir: str
       "local Verbs = require(\"cosmic.verbs\")",
       "",
       "-- [`Thing.Box.grow`], [`cosmic.thing.Box.grow`]; not [`Thing.Box.shrink`].",
-      "-- [`Verbs.order`], [`cosmic.verbs.order`]; not [`Verbs.chaos`].",
+      "-- [`Verbs.order`], [`cosmic.verbs.order`]; not [`Verbs.chaos`], [`Verbs.ok`].",
       "return Thing"),
   })
   same(rows(db, "SELECT from_file, line, column, module, symbol FROM links " ..

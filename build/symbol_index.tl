@@ -35,8 +35,9 @@ local record symbol_index
   --- The rows, keyed by each way they are found: `exact` by symbol,
   --- source symbol and a module's own name; `named` by symbol and each
   --- of its last few names; `members` by module and dotted name; and
-  --- each module's first row (`first`), and the exported records each
-  --- declares at its top (`records`); these only of rows shown. Of
+  --- each module's first row (`first`), and the record each module's
+  --- value is typed as when its own row says so (`values`,
+  --- [`alias_members.value_record`]); these only of rows shown. Of
   --- every row, a record, interface or enum by module and source
   --- symbol (`types`), an exported `type X = Y` by source symbol
   --- (`aliases`), and a field or value by module and the source symbol
@@ -47,7 +48,7 @@ local record symbol_index
     named: {string: {Row}}
     members: {string: {Row}}
     first: {string: Row}
-    records: {string: {string}}
+    values: {string: string}
     types: {string: Row}
     aliases: {string: Row}
     under: {string: {Row}}
@@ -56,7 +57,7 @@ end
 
 --- An index of no rows.
 function symbol_index.new(): symbol_index.Index
-  return { modules = {}, exact = {}, named = {}, members = {}, first = {}, records = {},
+  return { modules = {}, exact = {}, named = {}, members = {}, first = {}, values = {},
     types = {}, aliases = {}, under = {} }
 end
 
@@ -107,10 +108,8 @@ function symbol_index.add(index: symbol_index.Index, row: symbol_index.Row)
   end
   index.modules[module] = true
   if index.first[module] == nil then index.first[module] = row end
-  if row.kind == "record" and row.exported and source:find(".", 1, true) == nil then
-    local records = index.records[module] or {}
-    records[#records + 1] = source
-    index.records[module] = records
+  if symbol == "" and row.kind == "module" and index.values[module] == nil then
+    index.values[module] = alias_members.value_record(row.signature)
   end
   put(index.exact, symbol, row)
   if source ~= symbol then put(index.exact, source, row) end
@@ -200,20 +199,19 @@ local function through(index: symbol_index.Index, owners: {symbol_index.Row},
 end
 
 --- The rows of `module` named `name`, a method's `:` read as `.`; else
---- the exported member `name` of an exported record the module declares
---- (`Module.order` of a module that returns `local module: Module`);
+--- the exported member `name` of the record the module's value is typed
+--- as (`Module.order` of a module that returns `local module: Module`);
 --- else the member of a type an alias of the module stands for
 --- (`Handle.close` of [`cosmic.sqlite`]): [`build.docs`]' `member_of`.
 local function members_of(index: symbol_index.Index, module: string,
                           name: string): {symbol_index.Row}
   local dotted = name:gsub(":", ".")
   local found = once_each({ index.members[module .. "\n" .. dotted] or {} })
-  if #found == 0 then
-    for _, record in ipairs(index.records[module] or {}) do
-      for _, row in ipairs(index.members[module .. "\n" .. record .. "." .. dotted] or {}) do
-        if row.exported and (row.source_symbol:gsub(":", ".")) == record .. "." .. dotted then
-          found[#found + 1] = row
-        end
+  local record = index.values[module]
+  if #found == 0 and record ~= nil then
+    for _, row in ipairs(index.members[module .. "\n" .. record .. "." .. dotted] or {}) do
+      if row.exported and (row.source_symbol:gsub(":", ".")) == record .. "." .. dotted then
+        found[#found + 1] = row
       end
     end
     found = once_each({ found })

@@ -53,6 +53,16 @@ function alias_members.references(declared: alias_members.Declared): {string}
   return out
 end
 
+--- The record a module's value is typed as, read off the signature of
+--- the module's own row, which [`build.analyzer`] writes as the value's
+--- declaration (`local module: Module`) when the module returns a name
+--- other than that record; nil for any other signature. The value's
+--- members are that record's: `order` of cosmic.cli is the row
+--- `Module.order`.
+function alias_members.value_record(signature: string): string | nil
+  return signature:match("^local [%a_][%w_]*: ([%a_][%w_]*)$")
+end
+
 --- How many aliases of aliases a reference is followed through.
 local DEPTH <const> = 4
 

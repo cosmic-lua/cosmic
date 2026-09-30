@@ -538,7 +538,7 @@ end
 
 local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...] [dataset...]"
 
---- `cosmic refresh`'s command line: see [`Cli.refresh`].
+--- `cosmic refresh`'s command line: see [`cosmic.cli.Cli.refresh`].
 local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer

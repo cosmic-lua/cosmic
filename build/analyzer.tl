@@ -1742,7 +1742,25 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   local lines = lines_of(source)
   local doc_entries = docs_of(lines, parsed)
   canonicalize_docs(doc_entries, parsed, export, returned)
-  mark_reachable_types(doc_entries, surface_of(parsed, export, doc_entries), export)
+  local surface = surface_of(parsed, export, doc_entries)
+  mark_reachable_types(doc_entries, surface, export)
+  -- The record the value is typed as, when the returned name is not
+  -- that record, is the module's row's signature, as its declaration
+  -- reads: a lookup finds the module's members under it
+  -- ([`alias_members.value_record`]), since their rows keep the
+  -- record's name.
+  -- TODO: record it for a module with no doc comment of its own too,
+  -- which has no row to hold it, so no lookup finds its members by the
+  -- module's name: that wants a row of kind `module` with no text, once
+  -- `cosmic docs`' index and build.docs_checks' rendered-docs checks take
+  -- one.
+  if surface ~= export then
+    for _, entry in ipairs(doc_entries) do
+      if entry.kind == "module" then
+        entry.signature = "local " .. export .. ": " .. surface
+      end
+    end
+  end
   return {
     tests = names, inputs = declared,
     has_top_level_return = has_return, export = export,
