@@ -13,7 +13,7 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which the fixture runs.
-Test.needs{ lua = true }
+Test.needs{ tool = true }
 
 local checked = testing.configuration == "sanitized"
 
