@@ -85,7 +85,7 @@ COSMIC_SYSCALL(accept, 1);
 COSMIC_SYSCALL(connect, 2);
 
 /*
- * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails as `connect` does where that fails at once, and EAGAIN, the socket closed, where a unix listener's backlog is full on Linux: ask again with a new socket, since waiting for writable does not wait for room there.
+ * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails, or raises, as `connect` does where that fails at once, and EAGAIN, the socket closed, where a unix listener's backlog is full on Linux: ask again with a new socket, since waiting for writable does not wait for room there.
  * ---@param address Address where to connect
  * ---@return Socket|nil socket the socket, connected or connecting, closed on exec and nonblocking, or nil on failure
  * ---@return string error what went wrong, when socket is nil

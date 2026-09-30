@@ -580,7 +580,12 @@ COSMIC_SYSCALL(start, 1) {
   struct owned *owned = owner_push(L, 0);
   owned->fd = stream_socket(target.address.ss_family);
   if (owned->fd < 0) return cosmic_fail(L, errno);
-  failure = reach(owned->fd, &target, false);
+  int stranded = 0;
+  failure = reach(owned->fd, &target, false, &stranded);
+  if (stranded != 0) {
+    released(owned);
+    return STRANDED_ERROR(L, stranded);
+  }
   if (failure != 0 && failure != EINPROGRESS) {
     released(owned);
     return cosmic_fail(L, failure);
