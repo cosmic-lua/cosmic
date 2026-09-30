@@ -39,11 +39,15 @@ end
 --- paths at their own names, and a process it starts is keyed by them.
 local function test_a_plan_for_a_module_that_declares_system_gives_the_system_s_paths(tmp: string)
   local root, scratch = tmp .. "/root", tmp .. "/scratch"
-  for _, dir in ipairs({ root .. "/o", scratch }) do assert(Fs.mkdirs(dir)) end
+  -- Laid out as build.test's `scratch` lays one out, which a plan run
+  -- as root hands to the worker's user.
+  for _, dir in ipairs({ root .. "/o", scratch .. "/real" }) do assert(Fs.mkdirs(dir)) end
+  assert(Fs.symlink("real", scratch .. "/tmp"))
   assert(Fs.write(root .. "/o/cosmic.db", "x"))
   local inputs: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {},
     network = {}, processes = false, tool = false, store = false, system = true }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
+  assert(plan.trouble == "", plan.trouble)
   assert(holds(plan.held, "/usr") and holds(plan.sandbox.unveil.reads, "/usr"))
   assert(plan.sandbox.unveil.at["/usr"] == nil)
 end
