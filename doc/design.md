@@ -358,6 +358,13 @@ input to the build, never to the runtime. one database holds:
   symbol through a top-level require alias (`Fs.read(...)` under
   `local Fs = require("cosmic.fs")`), resolved against the name the
   other module returns. `cosmic uses Fs.read` lists them.
+- **links**: one row per link in a module's comments that resolves
+  (`build/link_index.tl`), by what it names -- a symbol, a file, or a
+  heading of one -- and where it is. A parse keeps each link as
+  written; it is resolved as the database is written, when every
+  module is known, and what the files it names said signs the
+  database. `cosmic uses` lists them beside the uses, marked `link`,
+  and answers a file's path too; `cosmic docs` counts them on a page.
 - **examples**: one row per worked example, a `kind = "example"`
   module's own top-level `function Example.<name>()` -- found the same
   structural way `docs` finds `function Fs.read(...)`, shipped against

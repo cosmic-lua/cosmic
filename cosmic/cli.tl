@@ -376,8 +376,11 @@ local record Cli
   --- tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
-  --- symbol, as file:line -- only those under the paths, when given. The
-  --- tree is found as `test` finds it
+  --- symbol, as file:line -- only those under the paths, when given --
+  --- each link in a comment to it marked `link`. The symbol may be a
+  --- file's path instead (doc/meta.md, or doc/meta.md#heading for one
+  --- heading), which only links name. The tree is found as `test`
+  --- finds it
   uses: string
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its

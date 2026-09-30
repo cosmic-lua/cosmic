@@ -28,6 +28,7 @@ local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
+local link_text = require("build.link_text")
 local positions = require("build.positions")
 local receivers = require("build.receivers")
 local contracts = require("build.contracts")
@@ -169,7 +170,7 @@ importer.prune_references =
 --- source parses to is recorded in its columns.
 local analyzer_roots: {string} = {
   "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
-  "build.compiler", "build.doctest", "build.gen_syscalls",
+  "build.compiler", "build.doctest", "build.gen_syscalls", "build.link_text",
 }
 
 --- The modules whose code decides what the analysis tables record: the
@@ -466,6 +467,28 @@ local function parse_new(db: Sqlite.Handle, built: compiler, tally: importer.Par
         "VALUES (?1, ?2, ?3, ?4, ?5)",
         { text(source_hash), { integer = ordinal }, text(entry.module),
           text(entry.member), { integer = entry.line } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    -- A source from outside the tree (a doc guide's test module) is
+    -- read at lines of its own, not its file's, so its links are not
+    -- kept: they would name lines the file does not have.
+    -- TODO: index a doc guide's links from its Markdown, once the rest
+    -- of the tree's Markdown is (build.link_index's TODO).
+    local found_links: {link_text.Found} = {}
+    if row[4] ~= "1" then
+      found_links = link_text.found(built, parsed.node, source, file)
+    end
+    for ordinal, entry in ipairs(found_links) do
+      local link = entry.link
+      ok, why = Sqlite.run(db,
+        "INSERT INTO links (source_hash, ordinal, line, column, form, doc, text, " ..
+        "target, own, alias) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        { text(source_hash), { integer = ordinal }, { integer = link.line },
+          { integer = link.column }, text(link.form), { integer = entry.doc and 1 or 0 },
+          text(link.text), text(link.target), { integer = entry.own and 1 or 0 },
+          text(entry.alias) })
       if not ok then
         return false, file .. ": " .. why
       end

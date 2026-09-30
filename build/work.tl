@@ -143,6 +143,9 @@ local version <const> = "26"
 --- `needs` declaration (`cosmic.test`), one row per value a field
 --- lists (`true` for a flag, `*` for any network host, and the line
 --- the declaration starts on under `line`).
+--- `links` is each link its comments hold (`build.link_text`), as
+--- written: what it names is resolved only once every module is
+--- known, as a projection is written (`build.link_index`).
 ---
 --- `executable` is `build.coverage.lines.executable`'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
@@ -1244,7 +1247,7 @@ local compiler_roots: {string} = {
   -- generators and parser a parse runs, whose `tests` rows a compile
   -- appends a test module's tail from (`with_test_tail`).
   "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
-  "build.compiler", "build.doctest", "build.gen_syscalls",
+  "build.compiler", "build.doctest", "build.gen_syscalls", "build.link_text",
   -- The compile's own: the checker's environment, the rules a module is
   -- refused by and the tree they hold in, and the record-field uses
   -- the checker finds.

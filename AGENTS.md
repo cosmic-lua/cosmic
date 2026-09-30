@@ -165,11 +165,11 @@
    may read the store so: a check over the whole tree is no test, and
    goes in `build/tree_checks.tl`.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
-   /proc, /dev/null, /dev/zero and /dev/urandom, keyed only through the
-   host's identity, and the program, its core and its database, keyed
-   through the runtime's identity but for the database's modules, which
-   the hold above keeps a test from reading through the store unless it
-   declares `store`, nor through the descriptor a portable
+   /proc, /dev/null, /dev/zero, /dev/full and /dev/urandom, keyed only
+   through the host's identity, and the program, its core and its
+   database, keyed through the runtime's identity but for the database's
+   modules, which the hold above keeps a test from reading through the
+   store unless it declares `store`, nor through the descriptor a portable
    start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this

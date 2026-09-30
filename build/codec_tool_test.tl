@@ -6,6 +6,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
@@ -50,10 +51,14 @@ local function test_a_file_is_read_and_a_bad_text_exits_2(tmp: string)
 end
 
 local function test_a_failed_standard_output_write_exits_2(tmp: string)
-  -- /dev/full is where a write fails with ENOSPC, on Linux: a sandboxed
-  -- worker has none (build/confine.tl's TODO beside `runtime_paths`),
-  -- nor has macOS, so only an unsandboxed Linux run checks this.
-  if Fs.stat("/dev/full") == nil then return end
+  -- /dev/full, where a write fails with ENOSPC, is Linux's, and every
+  -- worker there is given it (build.confine's `runtime_paths`): one
+  -- without it is skipped, which a run held to sandboxing fails, and
+  -- elsewhere there is nothing to check.
+  if Fs.stat("/dev/full") == nil then
+    sandbox_skip.refused("this worker has no /dev/full")
+    return
+  end
   local full = assert(Fs.open_write("/dev/full"))
   local started = this_program.program({ "codec", "hex" }, {
     cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ms = 30000,

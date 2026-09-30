@@ -132,6 +132,28 @@ function symbols.named_where(alias: string): string
     "(" .. alias .. ".symbol = '' AND " .. alias .. ".module = ?1))"
 end
 
+--- The condition under which `alias` (a row of `docs`) is the own row
+--- of a module whose last dotted name is `?1` (`json` for `cosmic.json`),
+--- which a bare name means before any symbol: a module under
+--- `cosmic.internal`, a test module and an example module are never
+--- one, since a bare name means what a user of a library means by it.
+function symbols.module_ending_where(alias: string): string
+  local module = alias .. ".module"
+  return "(" .. alias .. ".symbol = '' AND substr(" .. module .. ", -length(?1) - 1) = '.' || ?1 AND " ..
+    module .. " NOT LIKE 'cosmic.internal.%' AND substr(" .. module .. ", -5) <> '_test' AND " ..
+    "substr(" .. module .. ", -8) <> '_example')"
+end
+
+--- The condition under which `alias` (a row of `docs`) is the member of
+--- module `?1` named `?2`, a method's `:` written `.`: as the symbol
+--- column reads (`read`, `Writer.write`) or as the source spells it
+--- (`Fs.read`).
+function symbols.member_where(alias: string): string
+  return "(" .. alias .. ".module = ?1 AND " .. alias .. ".symbol <> '' AND " ..
+    "(replace(" .. alias .. ".symbol, ':', '.') = ?2 OR replace(" .. alias ..
+    ".source_symbol, ':', '.') = ?2))"
+end
+
 --- The condition under which `alias` (a row of `uses`) is a use of what
 --- `?1` names, the same way `named_where` finds its declaration. A use
 --- is recorded under its canonical path, without the module's own

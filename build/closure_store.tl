@@ -341,6 +341,9 @@ local closed: {string} = {
     "OR module IN temp.declared ORDER BY module, id",
   "INSERT INTO main.uses SELECT * FROM whole.uses WHERE from_module IN temp.wanted " ..
     "ORDER BY module, symbol, from_module, line",
+  -- TODO: carry the closure's links too, once `Basis` digests each
+  -- module's rows of them: a worker's `cosmic uses` in-process finds
+  -- no link until then.
   "INSERT INTO main.examples (module, name, text, file, line, source) " ..
     "SELECT module, name, text, file, line, source FROM whole.examples " ..
     "WHERE file IN (SELECT file FROM whole.modules WHERE path IN temp.wanted) " ..

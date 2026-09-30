@@ -204,6 +204,45 @@ local function test_uses_takes_paths_to_narrow_it(tmp: string)
   assert(none:find("nothing under cmd refers to 'Fs.read'", 1, true), none)
 end
 
+--- `uses` marks each link, and names what it links to: a symbol by its
+--- module and name, a module by its name alone, a file by its path and
+--- anchor.
+local function test_uses_prints_each_link_it_finds(tmp: string)
+  local tree = write_programs(tmp)
+  assert(Fs.write(tree .. "/notes.md", "# Usage\n"))
+  assert(Fs.write(tree .. "/lib/waves.tl", table.concat({
+    "--- Waves at people.",
+    "local record waves",
+    "end",
+    "",
+    "--- Waves.",
+    "function waves.go(): string",
+    "  return \"\"",
+    "end",
+    "",
+    "return waves",
+    "",
+  }, "\n")))
+  assert(Fs.write(tree .. "/lib/links.tl", table.concat({
+    "local waves = require(\"lib.waves\")",
+    "-- [`waves.go`], [`lib.waves`] and [the notes](../notes.md#usage).",
+    "return waves.go",
+    "",
+  }, "\n")))
+  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  local function printed(query: string): string
+    return verbs_fixture.expect(tree, "uses", { "uses", query }, 0).stdout or ""
+  end
+  local go = printed("waves.go")
+  assert(go:find("lib/links.tl:2: link lib.waves go\n", 1, true), go)
+  assert(go:find("lib/links.tl:3: lib.waves go\n", 1, true), go)
+  local module = printed("lib.waves")
+  assert(module:find("lib/links.tl:2: link lib.waves\n", 1, true), module)
+  assert(printed("waves"):find("lib/links.tl:2: link lib.waves\n", 1, true))
+  local notes = printed("notes.md#usage")
+  assert(notes:find("lib/links.tl:2: link notes.md#usage\n", 1, true), notes)
+end
+
 --- The verdict counts one file as one file.
 local function test_fix_says_one_file_not_one_files(tmp: string)
   local tree = verbs_fixture.write_tree(tmp)

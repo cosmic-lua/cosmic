@@ -18,6 +18,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local type importer = require("build.importer")
 local bom = require("build.bom")
+local link_index = require("build.link_index")
 local roots = require("build.roots")
 local schema = require("build.schema")
 local symbols = require("build.symbols")
@@ -189,7 +190,9 @@ local insert_catalog_extracted =
 --- row changes only with the source it was parsed from, which moves that
 --- module's key. A record-field use rides on a compile instead, which a
 --- change to the code finding it redoes under the same key, so that
---- code's identity (`receivers` in `meta`) is signed too.
+--- code's identity (`receivers` in `meta`) is signed too. A link's row
+--- is also a function of the files of the tree it names, which no key
+--- holds, so what they said is signed (`?4`, `build.link_index`).
 local function signature_sql(): string
   local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'receivers')"
   return "SELECT lower(hex(sha256(" ..
@@ -202,28 +205,40 @@ local function signature_sql(): string
   "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
   "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
   "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || ?1 || " ..
-  "char(10) || ?2 || char(10) || ?3)))"
+  "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
+end
+
+--- The signature of the projection of `result`, whose links are
+--- `pending`, as the writer whose identity is `binary` would write it.
+local function signed(handle: work.Handle, result: importer.Result, pending: link_index.Pending,
+                      binary: string): string | nil, string
+  local rows, trouble = Sqlite.text_rows(handle.db, signature_sql(),
+    { text(result.main or ""), text("portable-v1"), text(binary), text(pending.digest) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return rows[1][1]
 end
 
 --- The signature of `result`'s projection as the writer whose identity
 --- is `binary` would write it -- see `signature_sql`.
 function writer.signature(handle: work.Handle, result: importer.Result,
                           binary: string): string | nil, string
-  local signed, trouble = Sqlite.text_rows(handle.db, signature_sql(),
-    { text(result.main or ""), text("portable-v1"), text(binary) })
-  if signed == nil then
+  local pending, trouble = link_index.pending(handle.db, handle.root)
+  if pending == nil then
     return nil, trouble
   end
-  return signed[1][1]
+  return signed(handle, result, pending, binary)
 end
 
 --- Fills the attached `out` schema and vacuums it into `path`, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
---- `compiled_by`.
+--- `compiled_by`. Its links are `pending`'s, resolved once its docs are
+--- in.
 local function project(handle: work.Handle, path: string,
-                       result: importer.Result, signature: string,
-                       by: string): boolean, string
+                       result: importer.Result, pending: link_index.Pending,
+                       signature: string, by: string): boolean, string
   local db = handle.db
   for _, statement in ipairs(schema.settings("out.")) do
     local ok, failure = db:exec(statement)
@@ -264,6 +279,10 @@ local function project(handle: work.Handle, path: string,
       if not ok then
         return false, failure
       end
+    end
+    local linked, link_trouble = link_index.fill(db, pending, "out.")
+    if not linked then
+      return false, link_trouble
     end
     for _, statement in ipairs(schema.rebuild("out.")) do
       local ok, failure = db:exec(statement)
@@ -356,7 +375,11 @@ function writer.write_result(handle: work.Handle, out: string,
   if by == nil then
     return false, by_trouble
   end
-  local signature, sign_trouble = writer.signature(handle, result, by)
+  local pending, pending_trouble = link_index.pending(db, handle.root)
+  if pending == nil then
+    return false, pending_trouble
+  end
+  local signature, sign_trouble = signed(handle, result, pending, by)
   if signature == nil then
     return false, sign_trouble
   end
@@ -373,7 +396,7 @@ function writer.write_result(handle: work.Handle, out: string,
   -- removes and vacuums into under this one (projecting the same edit
   -- after this one's commit, before this one's rename). The fix is a
   -- unique name, with a sweep of names no live run holds.
-  local projected, trouble = project(handle, out, result, signature, by)
+  local projected, trouble = project(handle, out, result, pending, signature, by)
   local _, _ = db:exec("DETACH out")
   if not projected then
     return false, trouble
@@ -460,6 +483,14 @@ local carry: {string} = {
     symbols.public_only("u.module", true) .. " AND " ..
     symbols.public_only("u.from_module", true) ..
     " ORDER BY module, symbol, from_module, line",
+  -- A link to a symbol, where both ends are the public standard
+  -- library's, as a use is; a link to a file names one of cosmic's own
+  -- tree, which a project does not have.
+  dropped_modules .. "INSERT INTO main.links SELECT * FROM whole.links l " ..
+    "WHERE kind = 'symbol' AND module NOT IN dropped AND from_module NOT IN dropped AND " ..
+    symbols.public_only("l.module", true) .. " AND " ..
+    symbols.public_only("l.from_module", true) ..
+    " ORDER BY module, symbol, path, anchor, from_file, line, column",
   dropped_modules .. "INSERT INTO main.examples (module, name, text, file, " ..
     "line, source) SELECT module, name, text, file, line, source " ..
     "FROM whole.examples e WHERE module NOT IN dropped AND " ..
@@ -474,7 +505,7 @@ local carry: {string} = {
 --- `whole` carries: the projection without the tree's own tests and
 --- examples, which `cosmic test` loads from the projection itself and a
 --- release has no use for, and with only the public standard library's
---- docs, uses and examples, the only ones a reader asks the tool for
+--- docs, uses, links and examples, the only ones a reader asks the tool for
 --- (see `carry`). Like the projection, it is a function of
 --- its input alone: a fresh schema, filled in one order, vacuumed.
 --- Its `meta` is the projection's, `projected` included: that signs the

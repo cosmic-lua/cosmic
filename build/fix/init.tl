@@ -61,6 +61,7 @@ local docs_checks = require("build.docs_checks")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local flow = require("build.flow")
+local link_resolve = require("build.link_resolve")
 local links = require("build.links")
 local near = require("build.fix.near")
 local analyzer = require("build.analyzer")
@@ -106,7 +107,7 @@ local record fix
 
   --- Where links' names are read, and how to close what that opened.
   record LinkSource
-    context: links.Context
+    context: link_resolve.Context
     close: function()
   end
 
@@ -471,8 +472,8 @@ end
 --- `context`, once for every file. A note says how many links were not
 --- checked against symbols the context did not have.
 --- @param built compiler The loaded compiler, which lexes Teal
-function fix.links(context: links.Context, built: compiler, files: {string}): fix.Linked
-  local resolver = links.resolver(context)
+function fix.links(context: link_resolve.Context, built: compiler, files: {string}): fix.Linked
+  local resolver = link_resolve.resolver(context)
   local out: {string} = {}
   for _, file in ipairs(files) do
     local kind = links.kind_of(file)
