@@ -638,7 +638,10 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
   `COSMIC_VERDICT_CACHE` names a file.
   - Waits on: PR 2, 4.1, M3, and 3.2's two worker changes.
   - Closes `build/test.tl:3385`.
-- PR 4: delete the observed key path, the `reads` column of `runs`,
+- PR 4 (in review): `--audit` goes too, sandboxed and unsandboxed, with
+  #2423's refusal recording (the user's decision, 2026-09-30): a sandboxed
+  test that reads what it does not declare fails with its own error, which
+  is the signal. Also: delete the observed key path, the `reads` column of `runs`,
   `Test.needs.processes`, and the worker's logging. About 2,500 lines
   of Teal.
   - Closes `build/test.tl:531`, `:837`, `:955`, `:1024` and `:1116`;
