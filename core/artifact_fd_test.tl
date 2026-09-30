@@ -84,6 +84,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   flock_kind = function(_: integer, fd: integer): {any} return { fd } end,
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
+  adopt = function(_: integer, fd: integer): {any} return { fd, "unix" } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,
   bound = function(_: integer, fd: integer): {any} return { fd } end,
   peer = function(_: integer, fd: integer): {any} return { fd } end,

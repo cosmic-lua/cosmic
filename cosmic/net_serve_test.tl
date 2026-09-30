@@ -237,6 +237,14 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   refused({ listeners = { address }, serve = echo, timeout_ms = 1.5 }, "spec.timeout_ms must be")
   refused({ listeners = { address }, serve = echo, on_ready = true }, "spec.on_ready must be")
   refused({ listeners = { address }, serve = echo, grace = 10 }, "spec has no field grace")
+  for _, workers in ipairs({ -1, 1.5, "2", true } as {any}) do
+    refused({ listeners = { address }, serve = echo, workers = workers },
+      "spec.workers must be nil or an integer from 0")
+  end
+  local many: {Net.Address} = {}
+  for i = 1, 251 do many[i] = Net.unix(tmp .. "/" .. i .. ".sock") end
+  refused({ listeners = many, serve = echo, workers = 1 },
+    "spec.listeners must be a list no longer than 250 with workers")
   Poll.run(function()
     refused({ listeners = { address }, serve = echo }, "cannot be called in a task")
   end)
@@ -421,4 +429,21 @@ local function test_a_second_signal_ends_the_grace(tmp: string)
   local _, _ = stuck.conn:close()
   assert(stuck_why == Poll.CANCELLED, stuck_why)
   assert(outer:release() == sys.SIGTERM)
+end
+
+--- Workers 0 serves in this process, as a spec without `workers` does.
+local function test_no_workers_serves_here(tmp: string)
+  local answer = ""
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    workers = 0,
+    serve = echo,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local c <close> = client(addresses[1])
+      assert(c.conn:write("here\n"))
+      answer = assert(c.lines:read())
+      server:stop()
+    end,
+  })
+  assert(answer == "here", answer)
 end

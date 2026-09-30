@@ -3,6 +3,7 @@
 --- dropped before [`cosmic.net`] has wrapped it leaks neither.
 
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local type _net = require("cosmic.net")
 local type raw_socket = require("cosmic.internal.socket")
@@ -21,6 +22,9 @@ local function socket_table(): raw_socket
 end
 
 local raw = socket_table()
+
+--- A TCP socket refused on the worker's own loopback.
+Test.needs{ network = { "127.0.0.1" } }
 
 --- The descriptor the next open is handed: the lowest free one, so one
 --- left open shows as a higher number.
@@ -198,4 +202,67 @@ local function test_a_send_from_a_byte_sends_the_rest(tmp: string)
     local ok, err = pcall(raw.send, client:fd(), "abcdef", from)
     assert(not ok and tostring(err):find("out of range", 1, true) ~= nil, tostring(err))
   end
+end
+
+--- A listener handed as a descriptor is adopted as a socket of its own
+--- on a new descriptor, which accepts there and, closed, leaves the
+--- socket file to the listener that made it; what is no listener of
+--- the kind asked for is refused, saying what it is, and the
+--- descriptor handed is left open either way.
+local function test_adopt_takes_a_listener_alone(tmp: string)
+  local path = tmp .. "/s.sock"
+  local listener <close> = assert(raw.listen(unix(path), 4))
+  local adopted = assert(raw.adopt(listener:fd(), "unix"))
+  assert(adopted:fd() ~= listener:fd())
+  local bound = assert(raw.bound(adopted:fd()))
+  assert(bound.kind == "unix" and bound.path == path, bound.path)
+  local client <close> = assert(raw.connect(unix(path), 5000))
+  assert(raw.wait(adopted:fd(), false, 5000))
+  local accepted <close> = assert(raw.accept(adopted:fd()))
+  assert(adopted:close())
+  assert(Fs.stat(path) ~= nil, "the adopted socket removed a file it did not make")
+  local _, wrong = raw.adopt(listener:fd(), "tcp")
+  assert(wrong == "Address family not supported by protocol", wrong)
+  local _, connected, number = raw.adopt(accepted:fd(), "unix")
+  assert(number == raw.EINVAL, connected)
+  local file = assert(sys.open(tmp .. "/plain", sys.O_CREAT | sys.O_RDWR, 420))
+  local _, plain = raw.adopt(file, "unix")
+  assert(plain == "Not a socket", plain)
+  assert(sys.close(file))
+  local ok, err = pcall(raw.adopt, listener:fd(), "udp")
+  assert(not ok and tostring(err):find("invalid option", 1, true) ~= nil, tostring(err))
+  -- Each descriptor handed is still open: the listener accepts on.
+  local _again <close> = assert(raw.connect(unix(path), 5000))
+  assert(raw.wait(listener:fd(), false, 5000))
+  local _taken <close> = assert(raw.accept(listener:fd()))
+  assert(sys.close((assert(sys.dup(client:fd())))))
+end
+
+--- A process no supervisor started is handed nothing.
+local function test_a_process_no_supervisor_started_is_handed_nothing()
+  assert(raw.handed() == nil)
+end
+
+--- A socket that is not listening -- here one whose connection was
+--- refused, neither connected nor listening -- is refused where the
+--- platform answers SO_ACCEPTCONN. Where it does not (macOS), adopt
+--- cannot tell, and takes it; every accept of it then fails.
+local function test_adopt_refuses_a_socket_not_listening()
+  local listener = assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
+  local port = assert(raw.bound(listener:fd())).port
+  assert(listener:close())
+  local started = raw.start({ kind = "tcp", host = "127.0.0.1", port = port })
+  -- A platform may refuse the connection at once, leaving no socket.
+  if started == nil then return end
+  local refused <close> = started
+  assert(raw.wait(refused:fd(), true, 5000))
+  assert(not raw.connected(refused:fd()))
+  local adopted, why, errno = raw.adopt(refused:fd(), "tcp")
+  if assert(sys.uname()).sysname == "Darwin" and adopted ~= nil then
+    local _, _, accept_errno = raw.accept(adopted:fd())
+    assert(accept_errno == raw.EINVAL, tostring(accept_errno))
+    assert(adopted:close())
+    return
+  end
+  assert(adopted == nil and errno == raw.EINVAL, why)
 end
