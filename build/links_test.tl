@@ -401,11 +401,27 @@ local function test_symbols_go_unchecked_in_a_project_not_built()
 end
 
 --- The Lua standard library this program carries resolves by its own
---- names; what cosmic leaves out (`io`) does not.
+--- names, `warn` and `_VERSION` among them; what cosmic leaves out
+--- (`io`, `dofile`) does not.
 local function test_the_standard_library_resolves()
   same(checked(world({}), "/p/a.md", "markdown",
-    "[`string.format`] [`table.concat`] [`print`] [`io.open`]\n"), {
+    "[`string.format`] [`table.concat`] [`print`] [`warn`] [`_VERSION`] [`io.open`] [`dofile`]\n"), {
     "/p/a.md:1: link: io.open does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: dofile does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+  })
+end
+
+--- A global resolves by what `_G` holds when the link is read: one set
+--- since resolves, members and all, and one never set does not.
+local function test_a_global_the_runtime_adds_resolves()
+  local globals = _G as {string: any}
+  rawset(globals, "links_test_added", { member = true })
+  local found = checked(world({}), "/p/a.md", "markdown",
+    "[`links_test_added.member`] [`links_test_added.other`] [`links_test_never`]\n")
+  rawset(globals, "links_test_added", nil)
+  same(found, {
+    "/p/a.md:1: link: links_test_added.other does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: links_test_never does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
   })
 end
 

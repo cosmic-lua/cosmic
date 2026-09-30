@@ -61,7 +61,7 @@ local record link_resolve
   --- What one target resolved to, by `kind`:
   ---
   --- - "url": a URL, which is not checked;
-  --- - "standard": a value of the Lua standard library (`name`);
+  --- - "standard": a value this program's globals hold (`name`);
   --- - "declared": a name the linking file declares (`name`, dotted);
   --- - "symbol": a symbol of `module` (`symbol` as `docs` holds it),
   ---   declared in `file` (`""` when the context does not say);
@@ -316,25 +316,15 @@ local function one_of(found: {string}, none: string): string | nil
     (#found > 5 and ", ..." or "") .. "; link the one meant in full"
 end
 
---- The Lua standard library's globals, as this program carries them:
---- not `io`, `os` or `debug`, which cosmic leaves out.
--- TODO: walk `_G` itself, so a global a runtime adds is found too, once
--- the checker takes a reference to `_G`: it fails an assertion in
--- vendor tl's `Err_at` (an error with no file).
-local STANDARD <const>: {string: any} = {
-  assert = assert, collectgarbage = collectgarbage, error = error,
-  getmetatable = getmetatable, ipairs = ipairs, load = load, next = next, pairs = pairs,
-  pcall = pcall, print = print, rawequal = rawequal, rawget = rawget, rawlen = rawlen,
-  rawset = rawset, require = require, select = select, setmetatable = setmetatable,
-  tonumber = tonumber, tostring = tostring, type = type, xpcall = xpcall,
-  coroutine = coroutine, math = math, package = package,
-  string = string, table = table, utf8 = utf8,
-}
-
---- Whether the dotted `name` is a value of the Lua standard library
---- this program carries (`string.format`, `print`).
+--- Whether the dotted `name` is a value this program's globals hold
+--- (`string.format`, `print`, `warn`), read from `_G` as it is now.
+--- Every run of this resolver is a cosmic program on the core the
+--- programs it checks run on, and no module of the tree but a test sets
+--- a global, so that `_G` is the core's: what every such program reads.
+--- Each step is a `rawget`, so a name the core refuses (`io`,
+--- `dofile`), which only its metatable answers, does not resolve.
 local function standard(name: string): boolean
-  local value: any = STANDARD
+  local value: any = _G
   for part in name:gmatch("[^.]+") do
     if value is {any: any} then
       value = rawget(value, part)
