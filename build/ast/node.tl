@@ -168,8 +168,12 @@ local record Node is {Node}
   --- carries no annotation at all.
   decltuple: TypeNode | nil
 
-  -- "local_function", "record_function", and a "function" literal.
+  -- "local_function", "record_function", a "function" literal, and a
+  -- "macroexp".
   args: Node | nil
+  --- "local_macroexp": its definition, a "macroexp" node, whose `args`
+  --- are its parameters and `exp` the one expression it returns.
+  macrodef: Node | nil
   rets: TypeNode | nil
   --- Comments tl's parser attached to a statement directly. The
   --- renderer reads comments off the token stream instead, uniformly,
