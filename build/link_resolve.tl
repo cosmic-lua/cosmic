@@ -16,6 +16,9 @@ local record link_resolve
   record Symbol
     module: string
     symbol: string
+    --- The file that declares it, from the root; nil or `""` when the
+    --- context does not say.
+    file: string | nil
   end
 
   --- What resolution reads beyond the file, so a test can hand it a
@@ -60,7 +63,8 @@ local record link_resolve
   --- - "url": a URL, which is not checked;
   --- - "standard": a value of the Lua standard library (`name`);
   --- - "declared": a name the linking file declares (`name`, dotted);
-  --- - "symbol": a symbol of `module` (`symbol` as `docs` holds it);
+  --- - "symbol": a symbol of `module` (`symbol` as `docs` holds it),
+  ---   declared in `file` (`""` when the context does not say);
   --- - "file": a file or directory, `path` from the root;
   --- - "anchor": a heading of the file at `path`, or a line of one
   ---   (`anchor`, as written).
@@ -71,6 +75,7 @@ local record link_resolve
     symbol: string
     path: string
     anchor: string
+    file: string
   end
 end
 
@@ -360,7 +365,8 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
                               path_first: boolean): link_resolve.Target | nil, string
   local function made(kind: string, fields: {string: string}): link_resolve.Target
     return { kind = kind, name = fields.name or "", module = fields.module or "",
-             symbol = fields.symbol or "", path = fields.path or "", anchor = fields.anchor or "" }
+             symbol = fields.symbol or "", path = fields.path or "", anchor = fields.anchor or "",
+             file = fields.file or "" }
   end
   if target:match("^https?://") ~= nil or target:match("^mailto:") ~= nil then
     return made("url", {})
@@ -397,6 +403,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   local found: {string} = {}
   local symbols: {string: link_resolve.Symbol} = {}
   local name = link_text.name_of(target)
+  local bare = name ~= nil and name:find("[.:]") == nil
   if name ~= nil then
     local dotted = name:gsub(":", ".")
     local own = declared()
@@ -416,19 +423,30 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
       if problem ~= nil then
         return nil, problem
       end
-      return made("symbol", { module = members[1].module, symbol = members[1].symbol })
+      return made("symbol", { module = members[1].module, symbol = members[1].symbol,
+                               file = members[1].file })
     end
-    for _, symbol in ipairs(symbols_named(resolver, name)) do
-      local full = link_resolve.spelled(symbol)
-      found[#found + 1] = full
-      symbols[full] = symbol
+    -- A name alone is its own file's: another module's symbol is
+    -- written in full, so a link does not start naming another thing
+    -- when some module comes to document a name of its own.
+    if bare then
+      if file == nil then
+        why = "a name alone links only to a declaration of its own file; " ..
+          "write another module's symbol in full (`module.member`)"
+      end
+    else
+      for _, symbol in ipairs(symbols_named(resolver, name)) do
+        local full = link_resolve.spelled(symbol)
+        found[#found + 1] = full
+        symbols[full] = symbol
+      end
     end
   end
   if file ~= nil then
     found[#found + 1] = "the file " .. shown(resolver, file)
   end
   -- A shortcut names a symbol; an inline link, a path first.
-  if #found == 0 and name ~= nil and not path_first and resolver.context.unbuilt() ~= nil then
+  if #found == 0 and name ~= nil and not bare and not path_first and resolver.context.unbuilt() ~= nil then
     resolver.unchecked = resolver.unchecked + 1
     return nil, ""
   end
@@ -445,7 +463,119 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     return in_file(file)
   end
   local symbol = symbols[found[1]]
-  return made("symbol", { module = symbol.module, symbol = symbol.symbol })
+  return made("symbol", { module = symbol.module, symbol = symbol.symbol, file = symbol.file })
+end
+
+--- What the name or path `content` names as a link's code span would,
+--- from the file at the absolute path `from`: a symbol, or a file of
+--- the tree; nil for anything else -- a name the file declares, the
+--- standard library, a directory, an anchor, what names nothing or more
+--- than one thing. With `in_tree`, a symbol only when the file that
+--- declares it is a file of the tree: what a Markdown file's definition
+--- of a code-span label must name (`build.links`). A name no symbol
+--- answers is not counted among those left unchecked
+--- (`Resolver.unchecked`): it is asked, not linked.
+function link_resolve.meant(resolver: link_resolve.Resolver, from: string, content: string,
+                            declared: function(): link_text.Declared,
+                            in_tree: boolean): link_resolve.Target | nil
+  local unchecked = resolver.unchecked
+  local target, _ = link_resolve.resolve(resolver, from, content, declared, false)
+  resolver.unchecked = unchecked
+  if target == nil then
+    return nil
+  end
+  local root = resolver.context.root
+  if target.kind == "symbol" then
+    if not in_tree or target.file ~= "" and target.file:sub(1, 2) ~= "o/" and
+        kind_at(resolver, root .. "/" .. target.file) == "file" then
+      return target
+    end
+    return nil
+  end
+  if target.kind == "file" and kind_at(resolver, root .. "/" .. target.path) == "file" then
+    return target
+  end
+  return nil
+end
+
+--- The extensions a file of the tree is named with: a span that ends
+--- in one reads as a file's name, whatever symbol it also spells.
+local FILE_EXTENSIONS <const>: {string: boolean} = {
+  tl = true, lua = true, c = true, h = true, zig = true, md = true, sh = true, yml = true,
+  yaml = true, json = true, txt = true, pin = true, tsv = true, py = true, toml = true,
+}
+
+--- Whether `content` is shaped as a path: the characters of one, and a
+--- `/` or an extension.
+local function path_shaped(content: string): boolean
+  return content:match("^[%w_%-%./]+$") ~= nil and
+    (content:find("/", 1, true) ~= nil or content:match("%.%a%w*$") ~= nil)
+end
+
+--- What a plain code span holding `content`, in the file at the
+--- absolute path `from`, is to become a link to, by the rule `cosmic
+--- fix` rewrites such a span by; nil to leave it as written.
+---
+--- A span is linked when its link would name exactly one thing and that
+--- thing is what the span means:
+---
+--- - a name alone (no `.`), only when the file declares it at its top
+---   level and nowhere else (`module_level`): a local, a parameter, a
+---   loop's variable or a field by its own name may be what the span
+---   means, and another module's symbol is written in full;
+--- - a name in full (`module.member`, `Type.member`, `alias.member`
+---   through a `require` of the file, a module's whole name) that names
+---   one symbol of the project (`docs.exact`'s rule), or one member the
+---   file declares;
+--- - a path of a file of the tree, one with a `/` in it.
+---
+--- Left as written: a span that is neither a name nor a path (a command,
+--- a flag, an assignment, a pattern); a name alone that is one plain
+--- lowercase word (`path`, `run`), which reads as prose or a variable
+--- as often as a declaration of its file; a file's name alone
+--- (`vendor.tl`), which as often means the module a file of that name
+--- holds, or another file of the name elsewhere; the standard library, a
+--- directory, and what names nothing or more than one thing. `in_tree`
+--- is `meant`'s.
+function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, content: string,
+                               declared: function(): link_text.Declared,
+                               module_level: function(): {string: boolean},
+                               in_tree: boolean): link_resolve.Target | nil
+  local name = link_text.name_of(content)
+  if name == nil and not path_shaped(content) then
+    return nil
+  end
+  if name ~= nil then
+    local dotted = name:gsub(":", ".")
+    local alone = dotted:find(".", 1, true) == nil
+    -- TODO: link a plain lowercase word the file declares where the span
+    -- says it is a name -- written as a call (`render()`) -- once
+    -- link_text.plain_spans reads the words around a span: `render`
+    -- in build/docs.tl stays as written with `docs`, which there means
+    -- the table as often as the module.
+    if alone and dotted:match("^[%l%d]+$") ~= nil then
+      return nil
+    end
+    if declared().names[dotted] then
+      if module_level()[dotted] then
+        return { kind = "declared", name = dotted, module = "", symbol = "", path = "",
+                 anchor = "", file = "" }
+      end
+      return nil
+    end
+    if alone then
+      return nil
+    end
+  end
+  local target = link_resolve.meant(resolver, from, content, declared, in_tree)
+  if target == nil or content:find("/", 1, true) ~= nil then
+    return target
+  end
+  -- A name in full may name a symbol; a file's name alone links nothing.
+  if target.kind == "file" or FILE_EXTENSIONS[content:match("%.(%w+)$") or ""] then
+    return nil
+  end
+  return target
 end
 
 --- A context over the project at `root` as it is on disk, its

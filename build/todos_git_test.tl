@@ -80,6 +80,40 @@ local function test_blame_carries_across_commits_that_leave_a_file_alone()
   assert(Fs.remove_tree(root))
 end
 
+--- A commit the tree's `.git-blame-ignore-revs` lists is passed over: a
+--- line it rewrote is blamed on the commit before it, once the file is
+--- there, even for a file blamed at an earlier `HEAD`. A link in the
+--- TODO is listed as its code span.
+local function test_blame_passes_over_the_commits_the_tree_ignores()
+  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  if not git_in(root, { "init", "-q" }) then
+    assert(Fs.remove_tree(root))
+    return
+  end
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: see `x`" })))
+  assert(git_in(root, { "add", "." }))
+  assert(git_in(root, { "commit", "-q", "-m", "one" }))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: see [`x`]" })))
+  assert(git_in(root, { "commit", "-q", "-am", "sweep" }))
+  local handle = assert(work.open(root))
+  local function listed(): {todos.Todo}
+    assert(work.stage(handle, false))
+    return assert(todos.list(handle.db, root)).todos
+  end
+  local all = listed()
+  assert(all[1].summary == "sweep", all[1].summary)
+  assert(todos.render(all[1]):find("see `x`$") ~= nil, todos.render(all[1]))
+  local head = assert(Child.run({ assert(Proc.find("git")), "-C", root, "rev-parse", "HEAD" },
+    { stdin = "null", stdout = "capture", stderr = "null" }))
+  assert(Fs.write(root .. "/.git-blame-ignore-revs", head.stdout))
+  assert(git_in(root, { "add", ".git-blame-ignore-revs" }))
+  assert(git_in(root, { "commit", "-q", "-m", "ignore the sweep" }))
+  all = listed()
+  assert(all[1].summary == "one", all[1].summary)
+  assert(work.close(handle))
+  assert(Fs.remove_tree(root))
+end
+
 --- Lists the tree at `dir` once, staged first, and closes it.
 local function list_once(dir: string): todos.Listing
   local handle = assert(work.open(dir))

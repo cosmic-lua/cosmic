@@ -17,6 +17,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
@@ -1366,7 +1367,7 @@ end
 --- up to the first `.`, `?` or `!` that a space or the end follows,
 --- outside backticks and not closing "e.g" or "i.e".
 local function first_sentence(documented: string): string
-  local trimmed = documented:match("^%s*(.-)%s*$")
+  local trimmed = link_text.unlinked(documented):match("^%s*(.-)%s*$")
   local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
   local quoted = false
   for at = 1, #paragraph do
@@ -1926,7 +1927,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- a colon, after the run of indented or fenced blocks it introduces
   -- (an example), or else the next block, so the two stay together.
   local text_lines: {string} = {}
-  for line in String.lines(entry.text) do text_lines[#text_lines + 1] = line end
+  for line in String.lines(link_text.unlinked(entry.text)) do text_lines[#text_lines + 1] = line end
   local function code_at(from: integer): boolean
     for j = from, #text_lines do
       if text_lines[j] ~= "" then

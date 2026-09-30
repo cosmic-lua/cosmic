@@ -389,8 +389,9 @@ end
 
 --- A public `---` doc that carries a TODO or cites the build, the C or an
 --- internal module is refused with the rule and the fix; a `--` comment
---- may hold both, a private symbol's doc is not shown, and an
---- exemption whose doc no longer breaks the rule is stale.
+--- may hold both, a private symbol's doc is not shown, nor is a code
+--- span's definition, and an exemption whose doc no longer breaks the
+--- rule is stale.
 local function test_a_public_doc_naming_internals_is_refused(dir: string)
   local db = fixture.database(dir, {
     ["cosmic/thing.tl"] = source(
@@ -441,8 +442,12 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
       "--- Things.",
       "local record thing",
       "end",
-      "--- Does it, and says what a caller needs.",
+      "--- Does it, and says what a caller needs, as [`thing.b`] does.",
+      "---",
+      "--- [`thing.b`]: ../core/thing.c",
       "function thing.a() end",
+      "--- Does it.",
+      "function thing.b() end",
       "return thing"),
     ["build/internal.tl"] = source(
       "--- Cites core/thing.c, TODO: freely.",

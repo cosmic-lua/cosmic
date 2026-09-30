@@ -631,6 +631,12 @@ local foreign_trees: {string:boolean} = {
   ["ci"] = true,
 }
 
+--- Whether `name`, a directory at the root of cosmic's own tree, is a
+--- tree of its own (`foreign_trees`).
+function work.is_foreign_tree(name: string): boolean
+  return foreign_trees[name] == true
+end
+
 --- The top-level directory an entry sits under, or the entry itself
 --- at the top. A plain find, since this runs for every entry walked.
 local function first_of(entry: string): string

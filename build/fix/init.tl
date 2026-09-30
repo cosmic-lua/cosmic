@@ -46,7 +46,9 @@
 ---
 --- In any project it also holds the links in comments and Markdown to
 --- resolving (`build.links`): each Teal and C file it covers, and each
---- Markdown and Zig file, which it checks and never rewrites.
+--- Markdown and Zig file, which it never lays out. A plain code span
+--- that would link to one thing is made a link (`build.links`'s
+--- `rewrite`), and `--check` fails on one it would link.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -79,6 +81,7 @@ local type Sqlite = require("cosmic.sqlite")
 
 local log = require("build.verdict").log
 local verb_spec = require("build.verb_spec")
+local work = require("build.work")
 local plural = require("build.plural")
 
 local record fix
@@ -91,6 +94,8 @@ local record fix
   record Fixed
     source: string
     changed: boolean
+    --- The parse of `source`.
+    parsed: ast.Parsed
   end
 
   --- The files one invocation covers, and the named paths it will not
@@ -98,11 +103,16 @@ local record fix
   --- handles. A refused path is carried here rather than ending the verb,
   --- so it is reported and counted like any other refused file and the
   --- run still ends in the verb's verdict line.
-  --- What `links` found: each link that does not resolve, and notes
-  --- on what it could not check.
+  --- What `links` found: each link that does not resolve, notes on
+  --- what it could not check, each plain span that would be linked
+  --- (`build.links`'s `rewrite`), and each file it linked spans in.
   record Linked
     broken: {string}
     notes: {string}
+    would: {string}
+    --- Each Markdown file whose block of definitions would change.
+    redefined: {string}
+    rewritten: {string}
   end
 
   --- Where links' names are read, and how to close what that opened.
@@ -172,20 +182,27 @@ local function check_only(path: string): boolean
   return String.ends_with(path, ".md") or String.ends_with(path, ".zig")
 end
 
---- Every Markdown and Zig file under `root`, as paths relative to it,
---- past what `skip` passes over but the core: its C is checked apart,
---- and its Zig is the tree's own.
+--- Every file under `root` whose links are checked and that is not
+--- laid out, as paths relative to it: each Markdown and Zig file past
+--- what `skip` passes over but the core and `.claude/` (the skills'
+--- Markdown), and the core's Teal, which a narrower run names as it
+--- names any other. The core's C is checked apart.
 local function checked_sources(root: string): {string} | nil, string
   local files, trouble = Fs.walk(root, function(entry: string): boolean
-    return (entry:match("^([^/]+)") or entry) ~= "core" and skip(entry) or
-      Fs.basename(entry):sub(1, 1) == "."
+    local first = entry:match("^([^/]+)") or entry
+    if first == "core" or first == ".claude" then
+      return entry ~= first and Fs.basename(entry):sub(1, 1) == "."
+    end
+    return skip(entry)
   end)
   if files == nil then
     return nil, trouble
   end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    if check_only(file) then out[#out + 1] = file end
+    local core_teal = file:sub(1, 5) == "core/" and
+      (String.ends_with(file, ".tl") or String.ends_with(file, ".lua"))
+    if check_only(file) or core_teal then out[#out + 1] = file end
   end
   table.sort(out)
   return out
@@ -323,7 +340,7 @@ function fix.source(built: compiler, source: string,
   if again ~= out then
     return nil, "rendering is not a fixed point: a second pass changed it"
   end
-  return { source = out, changed = out ~= source }
+  return { source = out, changed = out ~= source, parsed = parsed_out }
 end
 
 --- The files one invocation covers: whatever paths were named, or the
@@ -466,15 +483,45 @@ function fix.lay_out(files: {string}, checking: boolean, changed: {string}, fail
   end
 end
 
+--- The new text of `file`, a file of `kind` whose spans were linked,
+--- as it is written: what the verb makes of it with its links in, or
+--- nil and why when linking moved what the rest of the verb writes.
+local function relaid(built: compiler, kind: string, file: string, linked: string): string | nil, string
+  if kind == "teal" then
+    local result, trouble = fix.source(built, linked, file)
+    if result == nil then return nil, trouble end
+    if result.changed then return nil, "linking its spans changes its rendering" end
+  elseif kind == "c" then
+    local out, trouble = c_check.laid_out(linked)
+    if out == nil then return nil, trouble end
+    if out ~= linked then return nil, "linking its spans changes its layout" end
+  end
+  return linked, ""
+end
+
 --- What is wrong with the links of `files` (`build.links`), each line
 --- `file:line: link: ...`, the file as named; a file that cannot be
 --- read is one line of its own. What each link names is looked up in
 --- `context`, once for every file. A note says how many links were not
 --- checked against symbols the context did not have.
+---
+--- A Teal file not in `laid_out`, when it is given, is written with
+--- its spans linked and not rendered: the verb lays out no other.
+---
+--- `mode` "write" links each plain span `build.links`'s `rewrite`
+--- would, writes the file, and checks its links as written; "check"
+--- lists each such span in `would` and writes nothing. With no mode,
+--- no span is looked at.
 --- @param built compiler The loaded compiler, which lexes Teal
-function fix.links(context: link_resolve.Context, built: compiler, files: {string}): fix.Linked
+function fix.links(context: link_resolve.Context, built: compiler, files: {string},
+                   mode?: string, facts?: {string: links.Facts},
+                   laid_out?: {string: boolean}): fix.Linked
+  local known: {string: links.Facts} = facts or {}
   local resolver = link_resolve.resolver(context)
   local out: {string} = {}
+  local would: {string} = {}
+  local redefined: {string} = {}
+  local rewritten: {string} = {}
   for _, file in ipairs(files) do
     local kind = links.kind_of(file)
     local source, read_trouble = Fs.read(file)
@@ -484,7 +531,32 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
     elseif absolute == nil then
       out[#out + 1] = file .. ": " .. absolute_trouble
     elseif kind ~= nil then
-      for _, line in ipairs(links.check(resolver, file, absolute, kind, source, built)) do
+      if mode ~= nil then
+        local linked = links.rewrite(resolver, file, absolute, kind, source, built, known[file])
+        if linked.source ~= source and mode == "check" then
+          for _, line in ipairs(linked.linked) do would[#would + 1] = line end
+          if linked.redefined then
+            redefined[#redefined + 1] = file .. ": link: its definitions would be rewritten"
+          end
+        elseif linked.source ~= source then
+          local text, trouble: string, string = linked.source, ""
+          if laid_out == nil or laid_out[file] or kind ~= "teal" then
+            text, trouble = relaid(built, kind, file, linked.source)
+          end
+          if text == nil then
+            out[#out + 1] = file .. ": link: " .. trouble
+          else
+            local written, write_trouble = Fs.write(file, text)
+            if written then
+              source = text
+              rewritten[#rewritten + 1] = file
+            else
+              out[#out + 1] = file .. ": " .. write_trouble
+            end
+          end
+        end
+      end
+      for _, line in ipairs(links.check(resolver, file, absolute, kind, source, built, known[file])) do
         out[#out + 1] = line
       end
     end
@@ -497,7 +569,7 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
     notes[1] = "links: " .. plural.count(resolver.unchecked, "link") ..
       " to a symbol not checked: " .. tostring(context.unbuilt())
   end
-  return { broken = out, notes = notes }
+  return { broken = out, notes = notes, would = would, redefined = redefined, rewritten = rewritten }
 end
 
 --- Where `fix` reads what links name, over the project at `root`: its
@@ -598,10 +670,20 @@ function fix.notes(built: compiler, root: string, files: {string},
   return out
 end
 
+--- Whether `file` is in a tree of its own inside cosmic's own tree at
+--- `root` (`work.is_foreign_tree`).
+local function in_foreign_tree(root: string, file: string): boolean
+  local absolute, _ = Fs.absolute(file)
+  if absolute == nil then return false end
+  local relative, _ = Fs.relative(absolute, root)
+  local first = relative ~= nil and relative:match("^([^/]+)/") or nil
+  return first ~= nil and work.is_foreign_tree(first)
+end
+
 --- `cosmic fix [--check] [path...]`.
 --- @param argv {integer:string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
-local function run(argv: {integer:string}): integer
+local function fix_verb(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.fix)
   if parsed == nil then
@@ -695,6 +777,9 @@ local function run(argv: {integer:string}): integer
     end
   end
   fix.lay_out(picked.flow_files, checking, changed, failures)
+  -- What the links read of each Teal file, from the parse its fix made,
+  -- while the file on disk is what was parsed.
+  local facts: {string: links.Facts} = {}
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
@@ -709,8 +794,12 @@ local function run(argv: {integer:string}): integer
           local written, write_trouble = Fs.write(file, result.source)
           if not written then
             failures[#failures + 1] = write_trouble
+          else
+            facts[file] = links.facts(result.parsed, result.source)
           end
         end
+      else
+        facts[file] = links.facts(result.parsed, result.source)
       end
     end
   end
@@ -749,6 +838,7 @@ local function run(argv: {integer:string}): integer
         if result == nil then
           failures[#failures + 1] = file .. ": " .. wrap_trouble
         elseif result.source ~= source then
+          facts[file] = nil
           local written, write_trouble = Fs.write(file, result.source)
           if not written then
             failures[#failures + 1] = write_trouble
@@ -818,20 +908,40 @@ local function run(argv: {integer:string}): integer
   -- names is read from the project's databases, rebuilt first so a
   -- narrowed run sees the tree as it stands; over the whole tree, the
   -- tree checks just wrote them.
-  local linked: {string} = {}
-  for _, file in ipairs(files) do linked[#linked + 1] = file end
-  for _, file in ipairs(c_files) do linked[#linked + 1] = file end
-  for _, file in ipairs(picked.checked) do linked[#linked + 1] = file end
+  -- A file of a tree inside cosmic's own (`ci/`) names what that
+  -- tree's own databases hold, so its links are that tree's run's.
   -- TODO: resolve against the project's root found from a
   -- subdirectory, as `cosmic test` finds its tree (build.tree), rather
   -- than the working directory; build.rebuild's `here` and
   -- build.docs's `databases` take the working directory too.
   local own, _ = tree.is_own(root)
-  local source = fix.link_context(root, picked.whole, own == true, rebuild.here,
-    function(): docs.Sources return docs.databases() end)
-  local linked_out = fix.links(source.context, built, linked)
-  source.close()
+  local linked: {string} = {}
+  for _, group in ipairs({ files, c_files, picked.checked }) do
+    for _, file in ipairs(group) do
+      if not (own and in_foreign_tree(root, file)) then linked[#linked + 1] = file end
+    end
+  end
+  local laid_out: {string: boolean} = {}
+  for _, file in ipairs(files) do laid_out[file] = true end
+  local linked_out: fix.Linked
+  do
+    local source = fix.link_context(root, picked.whole, own == true, rebuild.here,
+      function(): docs.Sources return docs.databases() end)
+    linked_out = fix.links(source.context, built, linked, checking and "check" or "write", facts,
+      laid_out)
+    source.close()
+  end
+  -- Held no longer than the links need them.
+  facts = {}
   local broken = linked_out.broken
+  local would = linked_out.would
+  local redefined = linked_out.redefined
+  for _, file in ipairs(linked_out.rewritten) do
+    if not listed[file] then
+      listed[file] = true
+      changed[#changed + 1] = file
+    end
+  end
   for _, line in ipairs(linked_out.notes) do
     log:say("fix: note  " .. line)
   end
@@ -866,10 +976,16 @@ local function run(argv: {integer:string}): integer
   for _, line in ipairs(broken) do
     log:say("fix: FAIL  " .. line)
   end
+  for _, line in ipairs(would) do
+    log:say("fix: FAIL  " .. line)
+  end
+  for _, line in ipairs(redefined) do
+    log:say("fix: FAIL  " .. line)
+  end
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
-  if #failures > 0 or #findings > 0 or #broken > 0 then
+  if #failures > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 then
     local said: {string} = {}
     if #failures > 0 then
       said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
@@ -879,6 +995,14 @@ local function run(argv: {integer:string}): integer
     end
     if #broken > 0 then
       said[#said + 1] = plural.count(#broken, "link") .. " not resolving"
+    end
+    if #would > 0 then
+      said[#said + 1] = plural.count(#would, "plain reference") ..
+        " to link (`cosmic fix` links them)"
+    end
+    if #redefined > 0 then
+      said[#said + 1] = plural.count(#redefined, "Markdown file") ..
+        " whose definitions to rewrite (`cosmic fix` rewrites them)"
     end
     log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(started))
     return 1
@@ -891,6 +1015,18 @@ local function run(argv: {integer:string}): integer
   log:verdict("fix", true, plural.count(counted, "file") .. ", " .. #changed ..
     (checking and " to fix, " or " fixed, ") .. clock.took(started))
   return 0
+end
+
+--- `fix_verb` under Lua's generational collector, and the incremental
+--- one, Lua's default, after it. A run holds what the links read of every file
+--- (`links.Facts`) from its parse to the end, and rebuilds its tree
+--- meanwhile: the incremental collector traverses all of it again at
+--- each cycle, which costs a whole run more than the rest of the links.
+local function run(argv: {integer:string}): integer
+  collectgarbage("generational")
+  local code = fix_verb(argv)
+  collectgarbage("incremental")
+  return code
 end
 
 --- The `fix` verb as `build/verb_list.tl` lists it.

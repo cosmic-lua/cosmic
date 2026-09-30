@@ -41,6 +41,7 @@ local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
 local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
+local symbol_index = require("build.symbol_index")
 
 local record link_index
   --- One link as a parse recorded it, with the module and file it is in.
@@ -145,6 +146,12 @@ local function remembering(root: string, memo: link_index.Memo,
   return context
 end
 
+--- Nothing, for a name whose declaration in its file the parse did not
+--- record: a reference's label.
+local function nothing_declared(): link_text.Declared
+  return { names = {}, aliases = {} }
+end
+
 --- What the file a link is in declares, as far as its target goes: the
 --- name, when the file declares it, and the alias its first part is.
 local function declared_for(raw: link_index.Raw): function(): link_text.Declared
@@ -163,6 +170,16 @@ local function declared_for(raw: link_index.Raw): function(): link_text.Declared
     end
     return out
   end
+end
+
+--- The name a reference's code-span label gives (`` [`x`] `` with a
+--- definition of `` `x` ``), which decides what it names as a
+--- shortcut's would; nil for any other link.
+local function label_of(raw: link_index.Raw): string | nil
+  if raw.form ~= "reference" or raw.target:match("^%a[%w+.-]*:") ~= nil then
+    return nil
+  end
+  return link_text.shortcut_target(raw.text)
 end
 
 --- `memo`'s answers as one hash, each path from `root`, so the same
@@ -219,92 +236,35 @@ function link_index.pending(db: Sqlite.Handle, root: string): link_index.Pending
   end
   local resolver = link_resolve.resolver(remembering(root, memo, none, no_member))
   for _, raw in ipairs(rows) do
-    local _, _ = link_resolve.resolve(resolver, root .. "/" .. raw.from_file, raw.target,
-      declared_for(raw), raw.form ~= "shortcut")
+    local from = root .. "/" .. raw.from_file
+    local _, _ = link_resolve.resolve(resolver, from, raw.target, declared_for(raw), raw.form ~= "shortcut")
+    local label = label_of(raw)
+    if label ~= nil then
+      local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
+    end
   end
   return { root = root, rows = rows, memo = memo, digest = digest_of(root, memo) }
 end
 
---- The `docs` of a projection, held as `build.symbols`' conditions
---- read them, so a link's symbol is looked up in a table rather than by
---- a scan of every row: what `named_where` finds a query by (`exact` by
---- symbol, source symbol and a module's own row; `named` by symbol and
---- by each of its last few names), what `module_ending_where` finds a
---- bare name by (`endings`), what `member_where` finds a module's
---- member by (`members`, by module and dotted name), and each module's
---- first row (`first`), for one with no row of its own.
-local record Index
-  modules: {string: boolean}
-  exact: {string: {link_resolve.Symbol}}
-  named: {string: {link_resolve.Symbol}}
-  endings: {string: {link_resolve.Symbol}}
-  members: {string: {link_resolve.Symbol}}
-  first: {string: link_resolve.Symbol}
-end
-
---- Adds `symbol` to the list `map` keeps under `key`.
-local function put(map: {string: {link_resolve.Symbol}}, key: string, symbol: link_resolve.Symbol)
-  local list = map[key]
-  if list == nil then
-    list = {}
-    map[key] = list
-  end
-  list[#list + 1] = symbol
-end
-
---- The `Index` of the projection's `docs` under `qualifier`.
-local function index_of(db: Sqlite.Handle, qualifier: string): Index | nil, string
-  local out: Index = { modules = {}, exact = {}, named = {}, endings = {}, members = {}, first = {} }
+--- The `docs` of the projection under `qualifier`, held in memory.
+local function index_of(db: Sqlite.Handle, qualifier: string): symbol_index.Index | nil, string
+  local out = symbol_index.new()
   local modules, modules_trouble = Sqlite.text_rows(db,
     "SELECT path FROM " .. qualifier .. "modules UNION SELECT path FROM " .. qualifier .. "decls")
   if modules == nil then
     return nil, modules_trouble
   end
-  for _, row in ipairs(modules) do out.modules[row[1]] = true end
+  for _, row in ipairs(modules) do symbol_index.module(out, row[1]) end
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT module, symbol, source_symbol FROM " .. qualifier .. "docs " ..
+    "SELECT module, symbol, source_symbol, file FROM " .. qualifier .. "docs " ..
     "ORDER BY module, exported DESC, id")
   if rows == nil then
     return nil, trouble
   end
   for _, row in ipairs(rows) do
-    local module, name, source = row[1], row[2], row[3]
-    local symbol: link_resolve.Symbol = { module = module, symbol = name }
-    if out.first[module] == nil then out.first[module] = symbol end
-    put(out.exact, name, symbol)
-    if source ~= name then put(out.exact, source, symbol) end
-    if name == "" then
-      put(out.exact, module, symbol)
-      local last = module:match("%.([^.]+)$")
-      local shown = module:sub(1, 16) ~= "cosmic.internal." and module:sub(-5) ~= "_test" and
-        module:sub(-8) ~= "_example"
-      if last ~= nil and shown then put(out.endings, last, symbol) end
-    else
-      put(out.named, name, symbol)
-      for at in name:gmatch("()[.:]") do put(out.named, name:sub(at + 1), symbol) end
-      local dotted_name = name:gsub(":", ".")
-      local dotted_source = source:gsub(":", ".")
-      put(out.members, module .. "\n" .. dotted_name, symbol)
-      if dotted_source ~= dotted_name then put(out.members, module .. "\n" .. dotted_source, symbol) end
-    end
+    symbol_index.add(out, row[1], row[2], row[3], row[4])
   end
   return out, ""
-end
-
---- The symbols of `lists`, in order, each spelled once.
-local function once_each(lists: {{link_resolve.Symbol}}): {link_resolve.Symbol}
-  local out: {link_resolve.Symbol} = {}
-  local seen: {string: boolean} = {}
-  for _, list in ipairs(lists) do
-    for _, symbol in ipairs(list) do
-      local full = link_resolve.spelled(symbol)
-      if not seen[full] then
-        seen[full] = true
-        out[#out + 1] = symbol
-      end
-    end
-  end
-  return out
 end
 
 --- Resolves `pending`'s links against the `docs` of the projection
@@ -316,48 +276,34 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
   if indexed == nil then
     return false, index_trouble
   end
-  local index: Index = indexed
+  local index: symbol_index.Index = indexed
   local function member_of(module: string, name: string): {link_resolve.Symbol} | nil, string
-    return once_each({ index.members[module .. "\n" .. (name:gsub(":", "."))] or {} }), ""
+    return symbol_index.member(index, module, name), ""
   end
-  -- The rule `docs.exact` answers an exact query by, over one
-  -- database: a module a bare lowercase name ends, else each row the
-  -- name names, else a module's symbol when it has no row of its own;
-  -- and a module's member written in full, as `build.links` adds.
   -- TODO: resolve a member of a type an alias stands for
   -- (`Sqlite.Handle.close`), as `docs.exact` does through
   -- `through_alias`, once that lookup is split from build.docs, which
   -- build.writer cannot require (build.docs requires build.rebuild,
   -- which requires build.writer).
   local function symbols_of(query: string): {link_resolve.Symbol} | nil, string
-    if query:match("^%l[%w_]*$") ~= nil and index.endings[query] ~= nil then
-      return once_each({ index.endings[query] }), ""
-    end
-    local dotted = query:gsub(":", ".")
-    local lists: {{link_resolve.Symbol}} = { index.exact[query] or {}, index.named[query] or {},
-      index.named[dotted] or {} }
-    local found = once_each(lists)
-    if #found == 0 and index.modules[query] and index.first[query] ~= nil then
-      lists[#lists + 1] = { index.first[query] }
-    end
-    local at = 1
-    while true do
-      local dot = query:find(".", at, true)
-      if dot == nil then break end
-      local module = query:sub(1, dot - 1)
-      if index.modules[module] then
-        lists[#lists + 1] = index.members[module .. "\n" .. (query:sub(dot + 1):gsub(":", "."))] or {}
-      end
-      at = dot + 1
-    end
-    return once_each(lists), ""
+    return symbol_index.named(index, query), ""
   end
   local root = pending.root
   local resolver = link_resolve.resolver(remembering(root, pending.memo, symbols_of, member_of))
   local rows: {link_index.Row} = {}
   for _, raw in ipairs(pending.rows) do
-    local target, _ = link_resolve.resolve(resolver, root .. "/" .. raw.from_file, raw.target,
-      declared_for(raw), raw.form ~= "shortcut")
+    local from = root .. "/" .. raw.from_file
+    local target, _ = link_resolve.resolve(resolver, from, raw.target, declared_for(raw),
+      raw.form ~= "shortcut")
+    -- A code-span label names its symbol when the definition names the
+    -- file that declares it, as `build.links` checks.
+    local label = label_of(raw)
+    if label ~= nil and target ~= nil and target.kind == "file" then
+      local named, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
+      if named ~= nil and named.kind == "symbol" and named.file == target.path then
+        target = named
+      end
+    end
     if target ~= nil then
       local kind, module, symbol = target.kind, target.module, target.symbol
       if kind == "declared" then

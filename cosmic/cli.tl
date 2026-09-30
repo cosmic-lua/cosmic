@@ -83,8 +83,12 @@ local record Cli
   --- take -- `(assert(...))` keeps only the first. It fails a link in a
   --- comment or a Markdown file -- `` [`x`] ``, `[text](target)` or
   --- `[text][label]` -- that names nothing, or more than one thing, and
-  --- reads Markdown and Zig files for their links alone, never
-  --- rewriting them. The tree is found as `test` finds it
+  --- makes a link of a plain `` `x` `` that names one top-level
+  --- declaration of its own file, one file, or, written in full
+  --- (`module.member`), one symbol; in Markdown it also
+  --- writes the definitions GitHub needs to show one, at the file's
+  --- end. It never lays out a Markdown or Zig file. The tree is found
+  --- as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable under o/bin/ for each

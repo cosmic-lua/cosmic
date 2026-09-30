@@ -824,6 +824,41 @@ local function test_renders_a_symbol(dir: string)
     read_lines[#read_lines])
 end
 
+--- A shortcut link shows as its code span alone, a module's first
+--- sentence included, and a definition's line not at all.
+local function test_a_link_renders_as_its_code_span(dir: string)
+  local db = built(dir, {
+    ["cosmic/box.tl"] = source(
+      "--- Boxes, which [`Box.grow`] grows.",
+      "local record Box",
+      "end",
+      "",
+      "--- Grows a box as [`Box.shrink`] shrinks one; see [the guide][g], and",
+      "--- `` [`x`] `` as written.",
+      "---",
+      "--- [g]: doc/guide.md",
+      "--- [`Box.shrink`]: cosmic/box.tl",
+      "function Box.grow(): boolean",
+      "  return true",
+      "end",
+      "",
+      "--- Shrinks.",
+      "function Box.shrink(): boolean",
+      "  return true",
+      "end",
+      "",
+      "return Box"),
+  })
+  local found = assert(docs.lookup(view({ db }), "Box.grow"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local shown = table.concat(lines, "\n", 3, 6)
+  local want = "  Grows a box as `Box.shrink` shrinks one; see [the guide][g], and\n" ..
+    "  `` [`x`] `` as written.\n\n  [g]: doc/guide.md"
+  assert(shown == want, shown)
+  local index = assert(docs.index(view({ db })))
+  assert(index[1].text == "Boxes, which `Box.grow` grows.", index[1].text)
+end
+
 --- A symbol with a worked example renders its own doc comment and its
 --- source, in that order, under `Fs.read`'s own doc comment; a
 --- module's own listing marks which of its symbols have one. The

@@ -47,6 +47,7 @@ local log = verdict.log
 --- @return each verb's text, by verb
 local function verb_help(verbs: {string}): {string: string}
   local docs = require("build.docs")
+  local link_text = require("build.link_text")
   local sources = docs.databases()
   local view, view_trouble = docs.view(sources.handles, sources.public)
   local out: {string: string} = {}
@@ -67,7 +68,7 @@ local function verb_help(verbs: {string}): {string: string}
     if found ~= nil then
       for _, entry in ipairs(found) do
         if entry.symbol == symbol then
-          text = entry.text
+          text = link_text.unlinked(entry.text)
           break
         end
       end

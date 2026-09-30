@@ -31,6 +31,7 @@ local declared_key = require("build.declared_key")
 local ast = require("build.ast")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
+local link_text = require("build.link_text")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local symbols = require("build.symbols")
@@ -47,8 +48,6 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
-allowed["build.link_text.parse"] = "tested directly: the parser's cases and its fuzz test " ..
-  "hold it to the forms a link takes"
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
@@ -986,7 +985,8 @@ local doc_rules: {DocRule} = {
 --- fix, and then each name in `excused` (by default `doc_exempt`) that
 --- nothing answers to any more.
 ---
---- A doc is what `cosmic docs` shows a caller, in a binary that carries
+--- A doc is what `cosmic docs` shows a caller (`link_text.unlinked`:
+--- no definition a code span's link reads), in a binary that carries
 --- neither the build nor the C. A TODO belongs in a `--` comment set
 --- off from the doc by a blank line (AGENTS.md); a path or a `build.`
 --- module is a fact about the implementation, which the doc says as
@@ -1011,7 +1011,7 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(rows) do
-    local text = " " .. row[3] .. " "
+    local text = " " .. link_text.unlinked(row[3]) .. " "
     local seen: {string: boolean} = {}
     for _, rule in ipairs(doc_rules) do
       local at = 1
