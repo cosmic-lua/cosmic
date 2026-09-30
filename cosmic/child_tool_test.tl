@@ -936,3 +936,121 @@ end
   local got = Fs.read(report)
   assert(got == table.concat({ term, term, term, "0", term, term }, "|"), tostring(got))
 end
+
+--- Only the last guard to close delivers: an inner guard's close, the
+--- outer open, leaves the signal it caught to the outer, whose close
+--- delivers it. The nested cosmic dies of it there, not before.
+local function test_only_the_last_guard_to_close_delivers(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/nested.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local answers: {string} = {}
+  local outer <close> = assert(Child.guard())
+  do
+    local inner <close> = assert(Child.guard())
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    answers[#answers + 1] = tostring(inner:cancelled())
+  end
+  answers[#answers + 1] = "alive"
+  answers[#answers + 1] = tostring(outer:cancelled())
+  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  return 0
+end
+]]))
+  local started = this_program.program({ fixture, report },
+    { stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
+  local term = tostring(sys.SIGTERM)
+  local got = Fs.read(report)
+  assert(got == table.concat({ term, "alive", term }, "|"), tostring(got) .. " " .. tostring(r.stderr))
+  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
+end
+
+--- A guard closed while a later one is still open leaves its signal
+--- to that one, which never saw it, since it opened after: closing it,
+--- the last, delivers the signal all the same.
+local function test_the_last_guard_delivers_one_closed_before_it(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/crossed.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local first = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  local second = assert(Child.guard())
+  assert(first:close())
+  assert(Fs.write(argv[1], tostring(first:cancelled()) .. "|" .. tostring(second:cancelled())))
+  assert(second:close())
+  return 0
+end
+]]))
+  local started = this_program.program({ fixture, report },
+    { stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
+  local got = Fs.read(report)
+  assert(got == tostring(sys.SIGTERM) .. "|0", tostring(got) .. " " .. tostring(r.stderr))
+  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
+end
+
+--- A run inside a guard holds a guard of its own: its child runs, and
+--- a signal ends it as it would anywhere, which the caller's guard
+--- then sees rather than the process dying of it; a run begun after
+--- that signal runs to its end. The nested cosmic releases its guard,
+--- and outlives the signal its child sent it.
+local function test_a_run_inside_a_guard_is_cancelled_and_leaves_the_signal_to_it(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/run_inside.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
+local relaunch = assert(Proc.relaunch())
+local function this(chunk: string): {string}
+  local words = { table.unpack(relaunch.argv) }
+  words[#words + 1] = "-e"
+  words[#words + 1] = chunk
+  return words
+end
+return function(argv: {string}): integer
+  local answers: {string} = {}
+  local guard = assert(Child.guard())
+  local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ms = 30000 }
+  local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
+    "assert(sys.kill(" .. tostring(sys.getpid()) .. ", sys.SIGTERM)) " ..
+    "require('cosmic.time').sleep_ns(30000000000)"), options)
+  answers[#answers + 1] = tostring(r == nil) .. " " .. why
+  answers[#answers + 1] = tostring(guard:cancelled())
+  local after = assert(Child.run(this("return 4"), options))
+  answers[#answers + 1] = tostring(after.code)
+  answers[#answers + 1] = tostring((guard:release()))
+  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  return 0
+end
+]]))
+  local started = this_program.program({ fixture, report },
+    { stderr = "capture", timeout_ms = 60000 })
+  local r = assert(Child.run(started.argv, started.options))
+  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
+    " " .. tostring(r.stderr))
+  local term = tostring(sys.SIGTERM)
+  local got = Fs.read(report)
+  assert(got == table.concat({ "true cancelled by signal " .. term, term, "4", term }, "|"),
+    tostring(got))
+end
+
+--- A run made while the caller holds a guard, and nothing is sent,
+--- runs as it would alone, and the caller's guard catches nothing.
+local function test_a_run_inside_a_guard_runs()
+  local guard = assert(Child.guard())
+  local r = assert(Child.run(lua("return 5")))
+  assert(r.code == 5, tostring(r.code))
+  assert(guard:cancelled() == 0)
+  assert(guard:release() == 0)
+end

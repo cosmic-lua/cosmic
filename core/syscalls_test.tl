@@ -1227,7 +1227,7 @@ local function test_the_process_calls_are_off_the_public_table()
       "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
       "ignore_sigpipe", "landlock_ruleset",
       "landlock_restrict_execute",
-      "guard_child_signals", "unguard_child_signals", "cancelled_child_signal" }) do
+      "guard_child_signals", "unguard_child_signals", "child_signal_read", "child_signal_fd" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type(raw[name]) == "function", name .. " is not in the raw process table")
   end
@@ -1572,15 +1572,66 @@ local function test_flock_kind_reads_an_nfs_mounts_local_lock()
     "a last line with no newline")
 end
 
---- One signal guard is open at a time: a second is refused with EBUSY,
---- the number cosmic.sys carries, until the first is closed.
-local function test_a_second_signal_guard_is_busy()
-  assert(process.guard_child_signals())
-  local ok, why, errno = process.guard_child_signals()
-  assert(process.unguard_child_signals())
-  assert(not ok and errno == sys.EBUSY, why)
-  assert(process.guard_child_signals())
-  assert(process.unguard_child_signals())
+--- Whether the wake pipe of the open guards has a byte to read.
+local function woken(fd: integer): boolean
+  local revents = assert(sys.poll({ fd }, { sys.POLLIN }, 0))
+  return revents[1] & sys.POLLIN ~= 0
+end
+
+--- Guards nest. A signal moves the stamp every guard reads and wakes
+--- the pipe; the handler stays until the last guard closes, which
+--- closes the pipe. Closing the inner guard hands the waits to the
+--- outer, which has not read the signal the inner did: a lock's wait
+--- ends at it then, though it did not under the inner guard.
+local function test_signal_guards_nest_and_the_outer_sees_what_the_inner_read(tmp: string)
+  local unit = process.SIGNAL_STAMP_UNIT
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  local outer = assert(process.guard_child_signals())
+  local fd = process.child_signal_fd()
+  assert(fd >= 0 and not woken(fd))
+  local inner = assert(process.guard_child_signals())
+  assert(inner == outer and process.child_signal_fd() == fd)
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  assert(woken(fd), "a caught signal left the pipe unreadable")
+  local seen = process.child_signal_read(true)
+  assert(seen > outer and seen % unit == sys.SIGTERM, tostring(seen))
+  local ok, why, errno = sys.flock(second, "exclusive", 50)
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(process.unguard_child_signals(outer) == seen)
+  assert(process.child_signal_fd() == fd, "an inner close closed the pipe")
+  ok, why, errno = sys.flock(second, "exclusive", -1)
+  assert(not ok and errno == sys.EINTR, why)
+  -- Still caught, not acted on: the process outlives it.
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local later = process.child_signal_read(true)
+  assert(later // unit == seen // unit + 1 and later % unit == sys.SIGINT, tostring(later))
+  assert(process.unguard_child_signals(0) == later)
+  assert(process.child_signal_fd() == -1)
+  assert(process.unguard_child_signals(0) == later, "a close with none open closes nothing")
+  assert(sys.close(first))
+  assert(sys.close(second))
+end
+
+--- An inner guard sees nothing of a signal caught before it opened: a
+--- lock's wait under it runs to its timeout.
+local function test_an_inner_signal_guard_sees_no_earlier_signal(tmp: string)
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  local outer = assert(process.guard_child_signals())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  local inner = assert(process.guard_child_signals())
+  assert(inner > outer)
+  local ok, why, errno = sys.flock(second, "exclusive", 50)
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(process.unguard_child_signals(outer))
+  assert(process.unguard_child_signals(0))
+  assert(sys.close(first))
+  assert(sys.close(second))
 end
 
 --- A wait for a lock ends when a guard catches a signal, as every
@@ -1593,8 +1644,8 @@ local function test_flock_waiting_ends_on_a_caught_signal(tmp: string)
   assert(process.guard_child_signals())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local ok, why, errno = sys.flock(second, "exclusive", -1)
-  local caught = assert(process.unguard_child_signals())
-  assert(caught == sys.SIGINT, tostring(caught))
+  local caught = assert(process.unguard_child_signals(0))
+  assert(caught % process.SIGNAL_STAMP_UNIT == sys.SIGINT, tostring(caught))
   assert(not ok and errno == sys.EINTR, why)
   assert(sys.close(first))
   assert(sys.close(second))

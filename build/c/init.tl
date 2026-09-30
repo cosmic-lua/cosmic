@@ -40,6 +40,7 @@ local gen_syscalls = require("build.gen_syscalls")
 local caches = require("build.caches")
 local confine = require("build.confine")
 local layout = require("build.c.layout")
+local link_files = require("build.link_files")
 local rules = require("build.c.rules")
 local tree = require("build.c.tree")
 local Zig = require("build.zig")
@@ -185,25 +186,15 @@ local function toolchain(root: string, variables: {string:string}):
   return install.path, runs_from
 end
 
---- What is never C of this tree's own to check: the build's output, the
---- upstream sources and the records that patch them, and anything hidden.
-local function skip(entry: string): boolean
-  local first = entry:match("^([^/]+)") or entry
-  if first == "o" or first == "vendor" or first == "patch" or first == "bin" then
-    return true
-  end
-  return Fs.basename(entry):sub(1, 1) == "."
-end
-
---- Every C file under `dir`, `.c` and `.h`, relative to it and sorted.
+--- Every C file under `dir`, `.c` and `.h`, relative to it and sorted:
+--- what a walk for links finds of cosmic's own C ([`link_files.checked`]).
 function c.sources(dir: string): {string} | nil, string
-  local files, trouble = Fs.walk(dir, skip)
+  local files, trouble = link_files.walk(dir)
   if files == nil then return nil, trouble end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    if String.ends_with(file, ".c") or String.ends_with(file, ".h") then out[#out + 1] = file end
+    if link_files.checked(file, true) == "c" then out[#out + 1] = file end
   end
-  table.sort(out)
   return out
 end
 
@@ -412,12 +403,6 @@ end
 --- why, when laying it out would change more than whitespace.
 function c.laid_out(source: string): string | nil, string
   return layout.rendered(source)
-end
-
---- Every comment of `source`, a C file, markers and all, with the line
---- it starts on.
-function c.comments(source: string): {layout.Comment}
-  return layout.comments(source)
 end
 
 return c

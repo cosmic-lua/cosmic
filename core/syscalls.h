@@ -620,7 +620,7 @@ COSMIC_SYSCALL(ftruncate, 2);
  * --- every other lock, "shared" only with an exclusive one, and
  * --- "unlock" releases what this open holds. A conflicting lock is
  * --- waited for until `timeout_ms` has passed, "Operation timed out",
- * --- or a `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
+ * --- or the innermost open `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
  * --- call", each seen within a tenth of a second. Over NFS or SMB, an
  * --- exclusive lock needs a descriptor open for writing.
  * ---@param fd integer the descriptor, open on the file to lock

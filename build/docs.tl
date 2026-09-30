@@ -960,6 +960,21 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   return { handles = out, public = public, opened = opened }
 end
 
+--- Whether the database at `index` of `view` answers for `module`: the
+--- first that holds it, or, for "" -- a Markdown, C or Zig file's link,
+--- which names no module ([`build.link_index`]) -- the first that is not
+--- a public source, the tree's own projection, as only a tree's own
+--- build indexes its files.
+local function answers_for(view: docs.View, index: integer, module: string): boolean
+  if module == "" then
+    for at = 1, #view.databases do
+      if not view.public[at] then return at == index end
+    end
+    return false
+  end
+  return view.owners[module] == index
+end
+
 --- One lookup over `databases`, in order, with a module answered by an
 --- earlier database hiding it in every later one.
 --- @param look what to read from each database
@@ -978,8 +993,7 @@ local function across<T>(view: docs.View,
         return nil, trouble
       end
       for _, item in ipairs(found) do
-        local module = module_of(item)
-        if view.owners[module] == index then
+        if answers_for(view, index, module_of(item)) then
           out[#out + 1] = item
         end
       end
@@ -1119,7 +1133,7 @@ local function count_links(view: docs.View, module: string,
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
         -- One place per line, as [`docs.uses`] lists them.
         local position = row[2] .. "\n" .. row[3]
-        if counted and view.owners[from_module] == index and not seen[position] then
+        if counted and answers_for(view, index, from_module) and not seen[position] then
           seen[position] = true
           total = total + 1
         end
