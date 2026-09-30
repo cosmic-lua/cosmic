@@ -12,7 +12,7 @@
 --- SQLite prepares exactly one statement, so the pragma cannot be
 --- undone ahead of a write in the same call. What the database holds is
 --- never changed, though SQLite may leave files beside it (see
---- `sql.open`). Nothing is built, staged or scanned: the only directory
+--- [`sql.open`]). Nothing is built, staged or scanned: the only directory
 --- looked in is `o/` under the working directory, never one above it.
 ---
 --- A cell, and a column's name, is written as text. NULL is `\N` and a
@@ -26,7 +26,7 @@
 ---
 --- `--from <file|->` asks the same of a data file instead of a database.
 --- Each `--from` is loaded as a table of an in-memory database
---- (`cosmic.dataset` says how: the columns, how a value is stored, the
+--- ([`cosmic.dataset`] says how: the columns, how a value is stored, the
 --- `_json` column), and the statement runs on that, under the same
 --- read-only guard, with the same rows and verdict. `--as <format>`,
 --- `--at '<path>'` and `--raw` belong to the `--from` they follow. With
@@ -50,7 +50,7 @@ local verb_spec = require("build.verb_spec")
 
 local log = verdicts.log
 
---- The `cosmic sql` verb: `run` is what `build/dispatch.tl` calls;
+--- The `cosmic sql` verb: `run` is what [`build/dispatch.tl`] calls;
 --- `source`, `open` and `query` are its steps, each testable on its
 --- own.
 local record sql
@@ -84,7 +84,7 @@ local record sql
     label: string
     --- The table's name.
     table: string
-    --- The format's name, as `Dataset.read` takes it.
+    --- The format's name, as [`Dataset.read`] takes it.
     format: string
     --- Where in the document the rows are; nil for all of it.
     at: {string | integer}
@@ -258,7 +258,7 @@ local function real(x: number): string
 end
 
 --- A backslash or control byte inside a cell or a column name, as
---- `bare.escape` writes it with `named`.
+--- [`bare.escape`] writes it with `named`.
 local function escape(text: string): string
   return bare.escape(text, { named = true })
 end
@@ -358,8 +358,8 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
   "but data_version: `SELECT * FROM <table> LIMIT 0` names a table's columns, " ..
   "and sqlite_schema holds each table's SQL"
 
---- Rows to stdout, then the verdict line through `build.verdict`'s
---- logger, which tells `build/dispatch.tl` one was given; complaints
+--- Rows to stdout, then the verdict line through [`build.verdict`]'s
+--- logger, which tells [`build/dispatch.tl`] one was given; complaints
 --- to stderr.
 local standard: sql.Output = {
   out = function(line: string): boolean, string
@@ -686,7 +686,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
 end
 
 --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs the
---- statement read-only against the database `sql.source` names, prints
+--- statement read-only against the database [`sql.source`] names, prints
 --- its rows, and returns the exit code: 0 when it ran (no rows is not a
 --- failure), 1 when the database or the statement failed, 2 for a
 --- command line it cannot read.
@@ -694,7 +694,7 @@ end
 --- @param root the directory whose o/ holds the databases; the working
 ---   directory when nil
 --- @param output where rows, complaints and the verdict go; stdout,
----   stderr and `build.verdict`'s logger when nil
+---   stderr and [`build.verdict`]'s logger when nil
 --- @param stdin the whole of standard input for `--from -`, or nil and
 ---   why; the process's own when nil
 function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
@@ -759,7 +759,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   return 0
 end
 
---- The `sql` verb as `build/verb_list.tl` lists it. Never stale-checked,
+--- The `sql` verb as [`build/verb_list.tl`] lists it. Never stale-checked,
 --- unlike `db`: a staleness check stages the tree, and this verb reads o/
 --- and nothing else under it. It gives its own verdict on every exit, a
 --- usage error included, so the check main runs after a verdictless exit

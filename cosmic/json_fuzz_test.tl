@@ -72,7 +72,7 @@ local function leaf(src: Fuzz.Source, lists: {{string}}, json5: boolean): string
 end
 
 --- A value drawn from the grammar, nested at most `depth` deep, each
---- container's elements drawn with `Fuzz.more` so shrinking can cut
+--- container's elements drawn with [`Fuzz.more`] so shrinking can cut
 --- any of them. Strict JSON unless `json5`, which adds its forms and
 --- trailing commas.
 local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): string
@@ -320,7 +320,7 @@ local CHARS <const> = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\r", "\
 -- TODO: a recipe's strings and tables read their count from one byte
 -- first, unlike the generators here, so cutting a recipe's bytes drops
 -- a middle element only by reshaping everything after it; a byte before
--- each element whose low values stop, as `Fuzz.more` draws, would let
+-- each element whose low values stop, as [`Fuzz.more`] draws, would let
 -- shrinking drop any (measure "encoded" and "refused" again).
 local function recipe_value(r: Recipe, depth: integer, parent: {any: any}): any
   local op = next_byte(r) % 13

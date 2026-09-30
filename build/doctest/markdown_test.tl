@@ -1,4 +1,4 @@
---- `build.doctest.markdown` needs no compiler capsule: it reads only
+--- [`build.doctest.markdown`] needs no compiler capsule: it reads only
 --- fence lines and an info string. These tests build a markdown fixture
 --- as a plain string and call `parse_blocks` directly.
 local markdown = require("build.doctest.markdown")

@@ -1,14 +1,14 @@
 --- Runs cosmic's command line in this process, for a test that would
 --- otherwise start the binary only to see what a verb prints and exits
---- with. A test that starts a process never stands (see `build.test`),
+--- with. A test that starts a process never stands (see [`build.test`]),
 --- while one that runs the verb here is keyed by what the verb read, like
 --- any other.
 ---
---- The run is the binary's own: `build.dispatch`'s `main`, given the
+--- The run is the binary's own: [`build.dispatch`]'s `main`, given the
 --- command line, in the directory asked for, with descriptors 1 and 2
 --- pointed at files for the length of it -- so what C writes, `print`
 --- included, is captured too -- and only the binary's own database
---- searched (`Store.alone`), as a started binary searches it: not the
+--- searched ([`Store.alone`]), as a started binary searches it: not the
 --- test's tree, which its worker attached. An uncaught error is written
 --- as the binary writes one's first line, `cosmic: <message>`, and exits
 --- 1; a main that returns no exit status from 0 to 255 exits 2, as the
@@ -17,16 +17,16 @@
 --- Where it cannot be the same, the caller gets an error rather than a
 --- run that differs: a file run and `--standalone` load a file's modules
 --- into the process and are refused before anything runs, and a call
---- that would end this process (`sys.exit`), replace it (`sys.execve`, as
+--- that would end this process ([`sys.exit`]), replace it ([`sys.execve`], as
 --- a stale tool rebuilding itself does) or attach a database raises
 --- through to the caller once everything is put back, however the verb
 --- handled it. A test that needs one of those starts the binary.
 ---
 --- What stays shared: a module the verb requires stays loaded after it,
 --- and a global `-e` sets stays set, as in any process that runs two
---- chunks; `build.verdict`'s record of a verdict line is set back for
+--- chunks; [`build.verdict`]'s record of a verdict line is set back for
 --- each run. The environment given is what a verb reads through
---- `cosmic.env`; C that reads its own (the core's startup, coverage)
+--- [`cosmic.env`]; C that reads its own (the core's startup, coverage)
 --- sees this process's. Nothing times the run out but the test's own
 --- limit.
 
@@ -57,7 +57,7 @@ local record invoke
   end
 end
 
---- Whether the first word runs a file, as `build.dispatch` decides it.
+--- Whether the first word runs a file, as [`build.dispatch`] decides it.
 local function runs_a_file(first: string | nil): boolean
   if first == nil then return false end
   if first == "--standalone" then return true end

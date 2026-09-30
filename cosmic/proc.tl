@@ -19,13 +19,13 @@ local record Proc
   --- How to start this same program again: the executable and the
   --- arguments that must lead its command line, the environment entries
   --- to add, and the descriptors to hand the child (see
-  --- `Child.Options.fds`).
+  --- [`Child.Options.fds`]).
   record Relaunch
     --- The executable and the arguments that lead the command line.
     argv: {string}
     --- Entries to add to the child's environment.
     env: {string:string}
-    --- Descriptors to hand the child, as `Child.Options.fds` takes them.
+    --- Descriptors to hand the child, as [`Child.Options.fds`] takes them.
     fds: {integer:integer}
   end
 end
@@ -72,7 +72,7 @@ end
 --- relaunches as a checked build. A host program is executed again as it
 --- is: `argv` is just its path, and `env` and `fds` are empty. Append the
 --- child's own arguments to `argv`, add `env` to its environment, and pass
---- `fds` to `Child.start`. Returns nil and why when this process has no
+--- `fds` to [`Child.start`]. Returns nil and why when this process has no
 --- artifact to start again, or its executable or core cannot be reopened.
 function Proc.relaunch(): Proc.Relaunch | nil, string
   if relaunch ~= nil then return relaunch, "" end

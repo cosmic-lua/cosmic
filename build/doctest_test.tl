@@ -1,8 +1,8 @@
 --- End-to-end proof that a `doc/guides/*.md` file becomes an ordinary,
 --- runnable `kind = "test"` module through the public pipeline alone:
---- `build.importer.compile` over a fixture tree, never `build.doctest`
---- itself (private to `build/doctest/`; `build/doctest/markdown_test.tl`
---- and `build/doctest/generate_test.tl` cover its own two halves).
+--- [`build.importer.compile`] over a fixture tree, never [`build.doctest`]
+--- itself (private to `build/doctest/`; [`build/doctest/markdown_test.tl`]
+--- and [`build/doctest/generate_test.tl`] cover its own two halves).
 --- These fixtures stick to plain Teal -- no `cosmic.*` call -- because a
 --- throwaway root has no `cosmic/` tree of its own for the checker's
 --- `require` path to resolve a real module's types against; `doc/guides/
@@ -122,7 +122,7 @@ local function find_module(result: importer.Result, path: string): Module | nil
 end
 
 --- Loads one compiled module's Lua (the test tail already appended,
---- exactly the shape `build.test` itself loads) and returns the table
+--- exactly the shape [`build.test`] itself loads) and returns the table
 --- `require` would hand the runner.
 local function load_module(m: Module): {string:any}
   local chunk, load_err = load(m.lua, "@" .. m.path, "t")

@@ -1,5 +1,5 @@
 --- To write a test, put top-level `local function test_*` functions in a
---- `<name>_test.tl` file (`cosmic.layout`). This module is what such a
+--- `<name>_test.tl` file ([`cosmic.layout`]). This module is what such a
 --- module tells `cosmic test` about itself: what its tests
 --- read beyond their default inputs, with `needs`:
 ---
@@ -57,9 +57,9 @@
 local errors = require("cosmic.internal.errors")
 
 local record Test
-  --- What each field of `Needs` takes; see below.
+  --- What each field of [`Needs`] takes; see below.
   fields: {string:string}
-  --- What `network_trouble` says of `network = true`.
+  --- What [`network_trouble`] says of `network = true`.
   any_host_refusal: string
 
   --- What the tests of one module read beyond their default inputs.
@@ -99,7 +99,7 @@ local record Test
     --- -- `::1` and `localhost` among them, whose answer turns on how
     --- the host sets up IPv6 -- and a spelling no request's host is
     --- (a port, brackets, a leading zero) are refused, naming this
-    --- rule (`network_trouble`).
+    --- rule ([`network_trouble`]).
     network: {string}
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
@@ -107,7 +107,7 @@ local record Test
     --- nor a root of their own for what they start (`nests`).
     tool: boolean
     --- Whether the tests confine a process in a root of its own: a
-    --- `sandbox` that unveils (`cosmic.child`), or a `cosmic test` they
+    --- `sandbox` that unveils ([`cosmic.child`]), or a `cosmic test` they
     --- start whose workers are sandboxed. A sandboxed worker whose
     --- module does not declare it is held by a Landlock ruleset, under
     --- which the kernel refuses every mount, and a root of its own is
@@ -126,9 +126,9 @@ local record Test
     --- attaches that store in the projection's place, though what it
     --- starts reads o/cosmic.db. Every other lookup in the
     --- store is held to the closure too, from the module's load until
-    --- the worker ends: `Store.bytecode`, `Store.source` or
-    --- `Store.requires` of a module outside it, or the store's searcher
-    --- called by hand, answers none, and `Store.databases()` raises,
+    --- the worker ends: [`Store.bytecode`], [`Store.source`] or
+    --- [`Store.requires`] of a module outside it, or the store's searcher
+    --- called by hand, answers none, and [`Store.databases()`] raises,
     --- sandboxed or not, since such a read would reach rows no key of
     --- the test holds. A test that type-checks a snippet reads
     --- `cosmic.*` sources and declarations this way: a module the
@@ -138,7 +138,7 @@ local record Test
     --- through the descriptor a portable start keeps on it: that read is
     --- refused, whatever the test declares.
     store: boolean
-    -- `Store.meta` is not held (the TODO on `hold_store` in
+    -- [`Store.meta`] is not held (the TODO on `hold_store` in
     -- build/test_worker.tl). The descriptor is refused by core/check.h's
     -- `cosmic_checkfd`, and a sandboxed worker that does not declare
     -- `tool` has no name to open the program by.
@@ -172,7 +172,7 @@ local record Test
   end
 end
 
---- What each field of `Needs` takes: a list of strings ("list") or a
+--- What each field of [`Needs`] takes: a list of strings ("list") or a
 --- boolean ("flag").
 -- The build holds a declaration read from the source to the same table
 -- (build/analyzer.tl).
@@ -225,7 +225,7 @@ end
 --- Where the one `needs` call came from, once it has come.
 local called_at: string = nil
 
---- Why `value`, handed to `needs`, is no `Needs`, or "" when it is one.
+--- Why `value`, handed to `needs`, is no [`Needs`], or "" when it is one.
 local function trouble_of(value: any): string
   if not value is {any:any} then
     return "takes a table, got " .. type(value)
@@ -267,7 +267,7 @@ end
 
 --- Declares what this module's tests read beyond their default inputs
 --- (see the module's own doc for the shape the call must have). Raises
---- for a value no `Needs` could be; for a second call in the process,
+--- for a value no [`Needs`] could be; for a second call in the process,
 --- naming where the first was -- so a test module never requires
 --- another that calls `needs`; and, under a runner, for a call once the
 --- module has loaded, as from inside a test.

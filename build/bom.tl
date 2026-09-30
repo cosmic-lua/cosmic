@@ -3,7 +3,7 @@
 --- notices that license asks a copy to travel with.
 ---
 --- The facts live beside the pin they describe. A vendored tree's
---- `vendor/<name>/PIN` adds three keys to the ones `bin/vendor` reads:
+--- `vendor/<name>/PIN` adds three keys to the ones [`bin/vendor`] reads:
 ---
 ---     kind data                        "library" when absent
 ---     license MIT AND APSL-2.0         an SPDX expression, the rest of the line
@@ -11,8 +11,8 @@
 ---     notice src/lua.h:524-543         or those lines of it, 1-based
 ---
 --- `notice` repeats, and every key but `notice` is read once, the first
---- line naming it winning, as `bin/vendor` reads its own. A PIN is part
---- of what the core is built from (`work.record_fingerprint`'s image
+--- line naming it winning, as [`bin/vendor`] reads its own. A PIN is part
+--- of what the core is built from ([`work.record_fingerprint`]'s image
 --- hash), so correcting one of these lines reboots the core as a
 --- version bump does. What cosmic's build links in without vendoring it
 --- -- zig's own runtime, and the musl libc the Linux cores are static
@@ -22,15 +22,15 @@
 --- published.
 ---
 --- The tool's database carries two tables built from these (see
---- `build.schema`): `components`, a row each, and `notices`, each
---- notice's text under the component that names it. `bom.fill` writes
---- them when the tool is built (`build.writer`'s `carried`), and refuses
+--- [`build.schema`]): `components`, a row each, and `notices`, each
+--- notice's text under the component that names it. [`bom.fill`] writes
+--- them when the tool is built ([`build.writer`]'s `carried`), and refuses
 --- a pin that names no license, so a newly vendored tree cannot ship
 --- without one. `cosmic bom` prints them.
 ---
 --- TODO: check each `license` as an SPDX expression of known ids rather
 --- than taking the line as written, once the tree vendors SPDX's license
---- list to check against; `build/bom_test.tl` only holds it to the
+--- list to check against; [`build/bom_test.tl`] only holds it to the
 --- `SPDX-License-Identifier` tags its tree's own files carry.
 
 local Cli = require("cosmic.cli")
@@ -61,7 +61,7 @@ local record bom
     last: integer | nil
   end
 
-  --- One record, as `bom.parse` reads it.
+  --- One record, as [`bom.parse`] reads it.
   record Component
     name: string
     kind: string
@@ -110,7 +110,7 @@ end
 --- A record's text as a component named `name`: `version`, `url` and
 --- `license` must be present; `sha256` and `kind` may be absent. Keys
 --- this grammar does not know -- `strip`, `keep` and the rest
---- `bin/vendor` reads -- are skipped.
+--- [`bin/vendor`] reads -- are skipped.
 function bom.parse(name: string, source: string): bom.Component | nil, string
   local component: bom.Component = { name = name, kind = "library", version = "",
     url = "", sha256 = "", license = "", notices = {} }
@@ -133,7 +133,7 @@ function bom.parse(name: string, source: string): bom.Component | nil, string
     elseif key == "license" then
       component.license = value
     elseif key == "version" or key == "url" or key == "sha256" then
-      -- The first word, as `bin/vendor` reads these.
+      -- The first word, as [`bin/vendor`] reads these.
       local word = value:match("^%S+")
       if key == "version" then
         component.version = word
@@ -202,7 +202,7 @@ local function patches_of(root: string, name: string): string | nil, string
   end
   local lines: {string} = {}
   for _, file in ipairs(names) do
-    -- Only what `build/patch.tl` applies: a patch record is a `.txt`.
+    -- Only what [`build/patch.tl`] applies: a patch record is a `.txt`.
     if String.ends_with(file, ".txt") and #file > 4 then
       local data, read_trouble = Fs.read(directory .. "/" .. file)
       if data == nil then
@@ -422,9 +422,9 @@ end
 
 --- `cosmic bom [--licenses | --json <path>]`: what the running binary's
 --- own database says it is made of. Nothing is built or staged here:
---- `build/dispatch.tl` has a tool older than cosmic's own tree rebuild
---- itself first, since `build.reboot` requires this module through
---- `build.writer`.
+--- [`build/dispatch.tl`] has a tool older than cosmic's own tree rebuild
+--- itself first, since [`build.reboot`] requires this module through
+--- [`build.writer`].
 local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer
@@ -481,7 +481,7 @@ local function run(argv: {integer:string}): integer
   return finish(0, plural.count(#rows, "component"))
 end
 
---- The `bom` verb as `build/verb_list.tl` lists it. The rows are the
+--- The `bom` verb as [`build/verb_list.tl`] lists it. The rows are the
 --- running binary's, so in cosmic's own tree a tool older than the tree
 --- rebuilds first, as `docs` does.
 bom.spec = {

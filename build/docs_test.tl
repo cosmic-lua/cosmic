@@ -8,7 +8,7 @@ local schema = require("build.schema")
 local symbols = require("build.symbols")
 
 --- Whether the tree is cosmic's own. No test here reads the binary's
---- own databases, or the tree's o/cosmic.db, whole: `docs.databases`
+--- own databases, or the tree's o/cosmic.db, whole: [`docs.databases`]
 --- is handed databases of the test's own in the store's place.
 Test.needs{ reads = { "core" } }
 
@@ -18,7 +18,7 @@ local function source(...: string): string
 end
 
 --- The shipped database the tree `files` builds to, rows and all, as
---- `build.docs_fixture` makes it with the build's own code.
+--- [`build.docs_fixture`] makes it with the build's own code.
 local function built(dir: string, files: {string: string}): Sqlite.Handle
   return fixture.database(dir, files)
 end
@@ -73,8 +73,8 @@ local function view(databases: {Sqlite.Handle}): docs.View
   return (assert(docs.view(databases)))
 end
 
---- `cosmic.fs`, documented, and two modules that each read a file
---- through it: `build/boot.tl` on its line 3, `build/test.tl` on its 4.
+--- [`cosmic.fs`], documented, and two modules that each read a file
+--- through it: [`build/boot.tl`] on its line 3, [`build/test.tl`] on its 4.
 local function fs_tree(extra?: {string: string}): {string: string}
   local files: {string: string} = {
     ["cosmic/fs.tl"] = source(
@@ -113,7 +113,7 @@ local function fs_tree(extra?: {string: string}): {string: string}
   return files
 end
 
---- A worked example for `cosmic.fs`: `Example.<name>`, its doc comment
+--- A worked example for [`cosmic.fs`]: `Example.<name>`, its doc comment
 --- `text`, its body `body`, declared on line 7 of its file.
 local function fs_example(name: string, text: string, body: string): string
   return source(
@@ -201,7 +201,7 @@ local function test_a_module_listing_shows_signatures(dir: string)
 end
 
 --- A module whose own record declares its calls as function-typed
---- fields (as `cosmic.sys` does) lists each with its signature, as a
+--- fields (as [`cosmic.sys`] does) lists each with its signature, as a
 --- function, ahead of the prose.
 local function test_a_module_listing_shows_function_typed_fields(dir: string)
   local db = built(dir, { ["cosmic/calls.tl"] = source(
@@ -353,7 +353,7 @@ local function test_a_short_module_name_finds_the_public_module(dir: string)
 end
 
 --- A verb the bare name names answers first, then the module: `docs
---- test` shows `Cli.test`, then `cosmic.test`.
+--- test` shows [`Cli.test`], then [`cosmic.test`].
 local function test_a_short_module_name_keeps_its_verb(dir: string)
   local db = built(dir, {
     ["cosmic/test.tl"] = source(
@@ -673,7 +673,7 @@ end
 
 --- A name counts as documented by an example only when the example
 --- spells it whole: the index stems words, so `Fs.reads` reaches an
---- example of `Fs.read`, which the compiler's hint must not follow.
+--- example of [`Fs.read`], which the compiler's hint must not follow.
 local function test_a_misspelt_name_is_not_a_known_example(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/fs_example.tl"] = fs_example("load", "Loads a file.", "  local _ = Fs.read(\"x\")"),
@@ -824,10 +824,45 @@ local function test_renders_a_symbol(dir: string)
     read_lines[#read_lines])
 end
 
+--- A shortcut link shows as its code span alone, a module's first
+--- sentence included, and a definition's line not at all.
+local function test_a_link_renders_as_its_code_span(dir: string)
+  local db = built(dir, {
+    ["cosmic/box.tl"] = source(
+      "--- Boxes, which [`Box.grow`] grows.",
+      "local record Box",
+      "end",
+      "",
+      "--- Grows a box as [`Box.shrink`] shrinks one; see [the guide][g], and",
+      "--- `` [`x`] `` as written.",
+      "---",
+      "--- [g]: doc/guide.md",
+      "--- [`Box.shrink`]: cosmic/box.tl",
+      "function Box.grow(): boolean",
+      "  return true",
+      "end",
+      "",
+      "--- Shrinks.",
+      "function Box.shrink(): boolean",
+      "  return true",
+      "end",
+      "",
+      "return Box"),
+  })
+  local found = assert(docs.lookup(view({ db }), "Box.grow"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local shown = table.concat(lines, "\n", 3, 6)
+  local want = "  Grows a box as `Box.shrink` shrinks one; see [the guide][g], and\n" ..
+    "  `` [`x`] `` as written.\n\n  [g]: doc/guide.md"
+  assert(shown == want, shown)
+  local index = assert(docs.index(view({ db })))
+  assert(index[1].text == "Boxes, which `Box.grow` grows.", index[1].text)
+end
+
 --- A symbol with a worked example renders its own doc comment and its
---- source, in that order, under `Fs.read`'s own doc comment; a
+--- source, in that order, under [`Fs.read`]'s own doc comment; a
 --- module's own listing marks which of its symbols have one. The
---- example is matched to `Fs.read` by its own code calling it, not by
+--- example is matched to [`Fs.read`] by its own code calling it, not by
 --- its function name (`read`, here, could have been anything). An
 --- example's own call is a use, as any module's is.
 local function test_renders_a_symbols_example(dir: string)
@@ -894,7 +929,7 @@ local function test_many_examples_for_one_symbol(dir: string)
 end
 
 --- A module's examples can be split by topic: `cosmic/fs_config_example.tl`
---- pairs with `cosmic.fs` as `cosmic/fs_example.tl` does, and each file's
+--- pairs with [`cosmic.fs`] as [`cosmic/fs_example.tl`] does, and each file's
 --- `Example.read` is kept, the name being free in each.
 local function test_a_topic_example_pairs_with_its_module(dir: string)
   local db = built(dir, fs_tree({
@@ -933,7 +968,7 @@ end
 
 --- A topic example pairs with the longest module or declaration its
 --- name starts with, on a `_` boundary: `cosmic.json_yaml` over
---- `cosmic.json`, a test (`cosmic.json_test`) never, and
+--- `cosmic.json`, a test ([`cosmic.json_test`]) never, and
 --- `cosmic/jsonx_example.tl` and `cosmic/js_example.tl` with neither.
 local function test_a_topic_example_pairs_with_the_longest_module(dir: string)
   local found = paired(dir, {
@@ -995,9 +1030,9 @@ local function test_examples_list_by_file_then_line()
   assert(searched[2].file == "cosmic/fs_tls_example.tl", searched[2].file)
 end
 
---- FTS5 tokenizes on `_`, so `Hash.hex` and `Hash.hex_sha256` share
+--- FTS5 tokenizes on `_`, so `Hash.hex` and [`Hash.hex_sha256`] share
 --- their first two tokens; an example that only ever calls
---- `Hash.hex_sha256` must not also match `Hash.hex`.
+--- [`Hash.hex_sha256`] must not also match `Hash.hex`.
 local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix(dir: string)
   local db = built(dir, {
     ["cosmic/hash.tl"] = source(
@@ -1039,8 +1074,8 @@ local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix(dir:
 end
 
 --- A word only a worked example's own code or its own doc comment
---- mentions -- never in `Fs.read`'s own doc comment -- still finds
---- `cosmic.fs`, and renders the matching comment and checked source.
+--- mentions -- never in [`Fs.read`]'s own doc comment -- still finds
+--- [`cosmic.fs`], and renders the matching comment and checked source.
 local function test_searches_finds_a_word_only_in_an_example(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/fs_example.tl"] = fs_example("read", "Reads a digest.",
@@ -1112,9 +1147,9 @@ end
 
 --- A name spelled from a module's record down is a use of the member
 --- it ends in, and of nothing else with the same last name: a use is
---- recorded without the module's own record (`write`, `Writer.write`).
+--- recorded without the module's own record (`write`, [`Writer.write`]).
 --- Written by hand: `Writer.add_file` is a use through a typed
---- value, which only a compile finds (see `build.docs_fixture`).
+--- value, which only a compile finds (see [`build.docs_fixture`]).
 local function test_a_qualified_name_lists_only_its_own_uses()
   local db = database({}, {
     { "cosmic.fs", "write", "build.boot", "build/boot.tl", "10" },
@@ -1129,14 +1164,14 @@ local function test_a_qualified_name_lists_only_its_own_uses()
   assert(#method == 1 and method[1].module == "cosmic.fs", tostring(#method))
   assert(#assert(docs.uses(view({ db }), "write")) == 2, "a last name finds both")
   -- `Writer` is no module's own record here, so it is a use of the
-  -- `Writer.write` recorded as such and of no bare `write`.
+  -- [`Writer.write`] recorded as such and of no bare `write`.
   assert(#assert(docs.uses(view({ db }), "Writer.write")) == 1)
   assert(#assert(docs.uses(view({ db }), "Zip.Writer.add_file")) == 1)
   assert(#assert(docs.uses(view({ db }), "cosmic.Zip.Writer.add_file")) == 0,
     "one name past the record, and no more")
 end
 
---- A qualifier is the record of the module the use is of: `Fs.read` is
+--- A qualifier is the record of the module the use is of: [`Fs.read`] is
 --- not a use of another module's `read`, though both are recorded as
 --- `read`; the module's last name answers too, in either case, and a
 --- bare `read` still finds every one.
@@ -1401,7 +1436,7 @@ local function test_public_use_count_matches_list_across_project_collision(dir: 
   assert(#assert(docs.uses(layered, "Helper.run")) == 0)
 end
 
---- A module that is only a declaration -- `cosmic.sys`, generated from
+--- A module that is only a declaration -- [`cosmic.sys`], generated from
 --- a C header -- is owned through `decls`, and its rows, which carry
 --- no line of their own, render without one. Written by hand: which
 --- rows carry no line is the header generator's own line map's to say,
@@ -1423,7 +1458,7 @@ end
 --- A database that copied a declaration without its documentation --
 --- an executable's own, which carries every declaration it was built
 --- against -- does not hide the database that documents it. Written by
---- hand: that copy is `build.embed`'s shape, not the build's.
+--- hand: that copy is [`build.embed`]'s shape, not the build's.
 local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
   local copy = database({}, {}, {})
   assert(copy:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
@@ -1630,7 +1665,7 @@ local function test_an_example_shows_the_requires_it_uses(dir: string)
   assert(not page:find("cosmic.hash", 1, true), page)
 end
 
---- An example is attached to every symbol it calls, so `Fs.read` is
+--- An example is attached to every symbol it calls, so [`Fs.read`] is
 --- called by a `truncate` example too: the one named `read` comes first
 --- however the file orders them, and a page shows two, naming the rest.
 local function test_examples_rank_by_name_and_are_capped(dir: string)
@@ -1666,8 +1701,8 @@ local function test_examples_rank_by_name_and_are_capped(dir: string)
   assert(more:find("truncate", 1, true) and more:find("copy_tree", 1, true), more)
 end
 
---- A test module's top-level `Test.needs` call sits outside every
---- example, so the file's first example carries it: `Test.needs` has
+--- A test module's top-level [`Test.needs`] call sits outside every
+--- example, so the file's first example carries it: [`Test.needs`] has
 --- an example, and it shows the call it is about.
 local function test_a_top_level_call_is_carried_by_the_first_example(dir: string)
   local db = built(dir, {
@@ -1723,8 +1758,8 @@ local function test_a_top_level_call_is_carried_by_the_first_example(dir: string
 end
 
 --- A name that only ends in the symbol's is no call of it, and a method
---- is a call through any value: `MyFs.read` does not lead `Fs.read`'s
---- page, and `db:exec` counts for `Handle.exec`.
+--- is a call through any value: `MyFs.read` does not lead [`Fs.read`]'s
+--- page, and `db:exec` counts for [`Handle.exec`].
 local function test_example_ranking_reads_whole_names_and_method_calls(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/fs_example.tl"] = source(

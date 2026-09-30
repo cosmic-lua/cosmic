@@ -966,7 +966,7 @@ local function test_repeat_condition_uses_the_body_scope()
 end
 
 --- A member read straight off a literal `require` is a use of that
---- module's member, as `build/dispatch.tl` reaches each verb's `run`;
+--- module's member, as [`build/dispatch.tl`] reaches each verb's `run`;
 --- a `require` of a computed name is not, since its target is unknown,
 --- nor a call of a local or parameter that shadows `require`.
 local function test_a_member_of_an_inline_require_is_a_reference()
@@ -1309,7 +1309,7 @@ local function test_a_needs_call_is_read_as_data()
   assert(other == nil and other_trouble == "", other_trouble)
 end
 
---- A cache is declared by a name the build knows (`build.caches`), and
+--- A cache is declared by a name the build knows ([`build.caches`]), and
 --- another name is refused, naming the line and the names there are.
 local function test_a_cache_is_declared_by_a_known_name()
   local got, trouble = declared(lines({

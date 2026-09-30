@@ -6,13 +6,13 @@
 --- column against the code around it. That can go wrong in two ways,
 --- and this file is about both.
 ---
---- A comment can be lost. `build.fix.equiv` reparses what was written
+--- A comment can be lost. [`build.fix.equiv`] reparses what was written
 --- and compares the comments of both sides, which catches a renderer
 --- that drops one, unless the comment reached neither side. A comment
 --- ending at the end of the file with no newline after it would not:
 --- tl's lexer records a short comment when it reads the newline that
 --- ends it, so input running out inside one carries it nowhere.
---- `patch/tl/05-comment-at-end-of-input.txt` ends it at the end of the
+--- [`patch/tl/05-comment-at-end-of-input.txt`] ends it at the end of the
 --- input instead, which puts it on both sides of the comparison. The
 --- first tests here hold that.
 ---
@@ -25,7 +25,7 @@
 --- ordinary comment would. And removing the pragma token discards the
 --- comments it had already taken, so a comment in front of such a run
 --- is lost even with a newline after it.
---- `patch/tl/06-comment-before-a-pragma-run.txt` covers the second.
+--- [`patch/tl/06-comment-before-a-pragma-run.txt`] covers the second.
 ---
 --- And a comment can move. `--[[ q ]] print(1)` is a comment the code
 --- was written behind, and writing it after the code says something

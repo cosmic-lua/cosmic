@@ -1,4 +1,4 @@
-local _ = require("cosmic.child") -- in the closure: `raw_behind` searches for it by hand
+local _ = require("cosmic.child") -- in the closure: [`raw_behind`] searches for it by hand
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")

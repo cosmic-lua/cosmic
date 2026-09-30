@@ -1,5 +1,5 @@
 --- Which lines of a module's own source could ever be hit: the
---- denominator of a coverage percentage. It reads `build.ast`'s parse
+--- denominator of a coverage percentage. It reads [`build.ast`]'s parse
 --- rather than scanning text, which cannot tell a blank line, a comment
 --- or a bare `end` from a statement.
 
@@ -38,16 +38,16 @@ local not_executable: {string: boolean} = {
 --- only the chunk's top level), except the kinds `not_executable` names.
 --- `ast.walk` visits those elements as nodes in their own right, so this
 --- only notices the "statements" node itself and reads its array part:
---- `Node` is declared `is {Node}`, so every node is its own array view,
+--- [`Node`] is declared `is {Node}`, so every node is its own array view,
 --- empty for a node that is not a "statements" node.
 ---
 --- The line is `ast.span_start`'s, not the statement's own `y`: a
 --- compound node's `y` sits where the parser finished building it
---- (`build/ast/walk.tl`), which for a statement that begins with a nested
+--- ([`build/ast/walk.tl`]), which for a statement that begins with a nested
 --- call or expression can be well past its first line. `span_start` is
 --- the minimum position over the subtree, so it lands on the statement's
 --- leftmost token.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source string The module's own Teal source
 --- @param name string Filename for parse diagnostics
 --- @return {integer: boolean} | nil Every executable line, or nil on a parse failure
@@ -82,14 +82,14 @@ end
 
 local text = bind.text
 
---- `lines.executable`'s answer for `source`: read from `db`'s
---- `executable` table (the cache `build.work`'s schema documents next to
+--- [`lines.executable`]'s answer for `source`: read from `db`'s
+--- `executable` table (the cache [`build.work`]'s schema documents next to
 --- `parsed`) when it has a row for `source_hash`, else computed and
---- stored. A parse failure is returned as `lines.executable` returns it
+--- stored. A parse failure is returned as [`lines.executable`] returns it
 --- and nothing is written: only a successful parse is a function of the
 --- hash alone.
---- @param db Sqlite.Handle The working database (`work.open`'s `.db`)
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param db Sqlite.Handle The working database ([`work.open`]'s `.db`)
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source_hash string The module source's content hash, `executable`'s key
 --- @param source string The module's own Teal source
 --- @param name string Filename for parse diagnostics

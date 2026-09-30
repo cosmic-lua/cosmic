@@ -1,7 +1,7 @@
 --- `cosmic docs` and `cosmic uses` in a project: they build it first, as
 --- `cosmic test` does, so what they answer is the tree as it stands, and
 --- every module they list answers its own name. Run in this process
---- (`build.invoke`), which reads every module's rows; kept apart so the
+--- ([`build.invoke`]), which reads every module's rows; kept apart so the
 --- tests of the verbs' contract (build/verbs_store_test.tl) stand while
 --- the build's cache is out of their keys.
 

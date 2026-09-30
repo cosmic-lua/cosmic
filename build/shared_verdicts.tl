@@ -3,7 +3,7 @@
 --- checkout keeps in `o/build.db`. The file is `verdicts/verdicts.db` by
 --- default, or the absolute path `COSMIC_VERDICT_CACHE` names; `0` turns
 --- the cache off. A sandboxed run's verdicts are shared. Its key is the
---- digest of everything its test was given (`build.declared_key`) and
+--- digest of everything its test was given ([`build.declared_key`]) and
 --- names nothing of where the tree is, so a verdict one checkout reached
 --- stands in another of the same content, and a fresh worktree runs
 --- only what no sibling has run already. An unsandboxed run's verdicts,
@@ -130,7 +130,7 @@ end
 
 --- Whether `COSMIC_VERDICT_CACHE` names a file, in `environment` or
 --- this process's own: set, and neither empty nor `0`. An unsandboxed
---- run shares only then (`build.test`), never through the file every
+--- run shares only then ([`build.test`]), never through the file every
 --- checkout shares by default, since nothing held its workers to what
 --- its keys trust.
 function shared_verdicts.chosen(environment?: {string:string}): boolean
@@ -160,7 +160,7 @@ local schema <const> = {
   "CREATE INDEX IF NOT EXISTS " .. declared .. "_by_use ON " .. declared .. " (used_ns)",
 }
 
---- Hits as `build.test` encodes them -- a line per module, its path, a
+--- Hits as [`build.test`] encodes them -- a line per module, its path, a
 --- tab, then the lines it hit, ascending and comma-separated -- with
 --- each line after a module's first as its distance from the one
 --- before: runs of adjacent lines, which most hits are, deflate to
@@ -239,7 +239,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
 end
 
 --- Opens the cache at `path`, making it and its directory when missing,
---- in write-ahead mode (`shared_sqlite.open`).
+--- in write-ahead mode ([`shared_sqlite.open`]).
 function shared_verdicts.open(path: string): shared_verdicts.Cache | nil, string
   local made, made_trouble = Fs.mkdirs(Fs.dirname(path))
   if not made then return nil, made_trouble end
@@ -253,20 +253,20 @@ function shared_verdicts.close(cache: shared_verdicts.Cache)
 end
 
 --- Whether `trouble`, from a query of the cache, says the file itself
---- is broken (`shared_sqlite.corrupt`).
+--- is broken ([`shared_sqlite.corrupt`]).
 function shared_verdicts.corrupt(trouble: string): boolean
   return shared_sqlite.corrupt(trouble)
 end
 
 --- Moves a broken cache aside, write-ahead log and all, to
---- `<path>.corrupt-<now_ns>` (`shared_sqlite.set_aside`). Answers where
+--- `<path>.corrupt-<now_ns>` ([`shared_sqlite.set_aside`]). Answers where
 --- it went, or nil and why.
 function shared_verdicts.set_aside(path: string, now_ns: integer): string | nil, string
   return shared_sqlite.set_aside(path, now_ns)
 end
 
 --- The coverage and duration of the passing verdict under the declared
---- `key` (`build.declared_key`), or nil: the key is the whole check.
+--- `key` ([`build.declared_key`]), or nil: the key is the whole check.
 function shared_verdicts.declared(cache: shared_verdicts.Cache,
                                   key: string): shared_verdicts.Found | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,

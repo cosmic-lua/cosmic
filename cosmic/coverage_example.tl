@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.coverage`, shown by `cosmic docs` under
+--- Worked examples for [`cosmic.coverage`], shown by `cosmic docs` under
 --- the symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -18,7 +18,7 @@ function Example.snapshot()
 end
 
 --- The core's own C functions a run entered: a function's first line,
---- among `native_entries`, is hit when it was entered. Both are empty
+--- among [`native_entries`], is hit when it was entered. Both are empty
 --- in a core built without native coverage.
 function Example.native_entries()
   local entries = Coverage.native_entries()

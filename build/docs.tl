@@ -3,7 +3,7 @@
 --- database the store searches, and of a project's own `o/cosmic.db`
 --- when the working directory holds one.
 ---
---- A query is a symbol first -- `Fs.read`, `read`, `cosmic.fs` -- and
+--- A query is a symbol first -- [`Fs.read`], `read`, [`cosmic.fs`] -- and
 --- words to search the documentation for when no symbol is called that.
 --- A qualified name that names nothing (Proc.which) answers from what
 --- its qualifier offers, and a search ranks first the functions whose
@@ -17,6 +17,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
@@ -51,8 +52,8 @@ local record docs
     public: {integer: boolean}
     owners: {string: integer}
     --- How many places refer to a module/symbol pair, keyed by
-    --- `use_key` -- computed on demand, once per command, by
-    --- `effective_counts`, and cached here so several entries or
+    --- [`use_key`] -- computed on demand, once per command, by
+    --- [`effective_counts`], and cached here so several entries or
     --- renders naming the same symbol query `uses` only once.
     use_counts: {string: integer}
     --- How many links name a module/symbol pair, as `use_counts`.
@@ -60,7 +61,7 @@ local record docs
   end
 
   --- One worked example, matched to a symbol by content rather than by
-  --- name -- see `examples_for`.
+  --- name -- see [`examples_for`].
   record Example
     name: string
     text: string
@@ -84,7 +85,7 @@ local record docs
     uses: integer
     --- How many links in their comments name it (`links`).
     links: integer
-    --- How many worked examples match it -- see `examples_for`. A
+    --- How many worked examples match it -- see [`examples_for`]. A
     --- listing count, not the examples themselves: `render` fetches
     --- those separately, only for the one entry it is showing.
     examples: integer
@@ -96,7 +97,7 @@ local record docs
   record Lookup is {Entry}
     exact: boolean
     --- How many entries, from the first, are named by the query; any
-    --- after them stand in for a raw binding it named (see `stand_ins`).
+    --- after them stand in for a raw binding it named (see [`stand_ins`]).
     named: integer
     --- Whether no entry carries every word of the query, and these carry
     --- some of them (see `closest`).
@@ -127,16 +128,16 @@ end
 
 local text = bind.text
 
---- A symbol as an `examples_fts` phrase: `Fs.read` and `Fs:read` alike
+--- A symbol as an `examples_fts` phrase: [`Fs.read`] and [`Fs:read`] alike
 --- become `"Fs read"`, which matches those adjacent tokens in that order
 --- in an example's text or source. Looser than an exact join on purpose:
 --- one example answers for every symbol its code mentions, not only the
 --- one whose name it shares.
 ---
 --- On its own this over-matches: FTS5's tokenizer splits on `_`, so
---- `Hash.hex` and `Hash.hex_sha256` share the same first two tokens, and
+--- `Hash.hex` and [`Hash.hex_sha256`] share the same first two tokens, and
 --- `"Hash hex"` matches an example that only ever calls the second one.
---- `example_boundary` is the other half of every query this builds --
+--- [`example_boundary`] is the other half of every query this builds --
 --- a phrase match narrows to candidates cheaply, the boundary check
 --- on those few rows says whether the symbol is really there, whole.
 local function example_phrase(symbol: string): string
@@ -145,7 +146,7 @@ end
 
 --- A GLOB pattern matching `symbol` followed by a character that could
 --- not continue the same identifier -- so `Hash.hex` matches `Hash.hex(`
---- but not `Hash.hex_sha256`. Checked against an example's own text and
+--- but not [`Hash.hex_sha256`]. Checked against an example's own text and
 --- source, space-joined so a match flush against the end of either
 --- still has a boundary to land on.
 local function example_boundary(symbol: string): string
@@ -156,9 +157,9 @@ local EXAMPLE_BOUNDARY_SQL =
   "(e.text || ' ' || e.source || ' ') GLOB " ..
   "('*' || d.source_symbol || '[^A-Za-z0-9_]*')"
 
--- The row's use count is never read as queried: `effective_counts`
+-- The row's use count is never read as queried: [`effective_counts`]
 -- overwrites it on every path that renders `entry.uses` -- see
--- `entries_of` -- so this column is a placeholder, not a correlated
+-- [`entries_of`] -- so this column is a placeholder, not a correlated
 -- `uses` subquery run for every row of every listing or search.
 local columns =
   "d.module, d.symbol, d.source_symbol, d.exported, d.kind, d.signature, " ..
@@ -187,7 +188,7 @@ end
 
 --- Every worked example whose own text or source matches `symbol`, in
 --- `module`, in the order its file declares them -- see
---- `example_phrase`. Several can match one symbol, and each is as
+--- [`example_phrase`]. Several can match one symbol, and each is as
 --- relevant as any other, so source order serves better than a
 --- ranking. `""` finds nothing, since a module's own row has no code of
 --- its own to match.
@@ -220,14 +221,14 @@ end
 local EXAMPLES_SHOWN <const> = 2
 
 --- Whether `at` in `code` starts a name: nothing before it continues an
---- identifier, so `MyFs.read` is no `Fs.read`.
+--- identifier, so `MyFs.read` is no [`Fs.read`].
 local function starts_name(code: string, at: integer): boolean
   return at == 1 or code:sub(at - 1, at - 1):match("[%w_]") == nil
 end
 
 --- How many times `code` calls `symbol`, and where the first call is.
 --- A call is spelled with `.` or `:` before the last name; a method
---- (a symbol two records deep, `Sqlite.Handle.exec`, or one written
+--- (a symbol two records deep, [`Sqlite.Handle.exec`], or one written
 --- with `:`) is also called through any value, `db:exec(`.
 local function calls_of(code: string, symbol: string): integer, integer
   local spellings = { symbol }
@@ -346,10 +347,10 @@ local function shown_source(source: string, symbol: string): string
 end
 
 --- `found` in the order a reader wants them: an example named for the
---- symbol (`Example.read` for `Fs.read`) first, then the one that
+--- symbol (`Example.read` for [`Fs.read`]) first, then the one that
 --- calls it most, then the one that calls it soonest, then the shorter,
 --- then by file and line. An example is attached to a symbol by what
---- it calls, so one built around `truncate` also matches `Fs.read` and
+--- it calls, so one built around `truncate` also matches [`Fs.read`] and
 --- must not lead its page.
 local function ranked_examples(found: {docs.Example}, symbol: string): {docs.Example}
   local last = symbol:match("([%w_]+)$") or symbol
@@ -377,7 +378,7 @@ end
 --- `myproj.util`), as their own rows, a project's own ahead of the
 --- standard library's. A module
 --- under `cosmic.internal`, a test module and an example module are
---- never one, whatever database is read, as in `docs.index`, so a bare
+--- never one, whatever database is read, as in [`docs.index`], so a bare
 --- name means what a user of a library means by it.
 local function modules_ending(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
@@ -406,9 +407,9 @@ local function module_symbol(db: Sqlite.Handle, public: boolean,
   return entries_of(rows)
 end
 
---- The rows named `query` exactly: a symbol as declared (`Fs.read`), a
+--- The rows named `query` exactly: a symbol as declared ([`Fs.read`]), a
 --- symbol's last name alone (`read`, matching every `X.read` and
---- `X:read`), or a module's own row (`cosmic.fs`).
+--- `X:read`), or a module's own row ([`cosmic.fs`]).
 local function named(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
@@ -453,7 +454,7 @@ end
 --- is not the module's surface, though `cosmic docs <name>` finds it in
 --- a source that answers for the module's internals.
 --- A call the module's own record declares as a field of function type
---- (`lstat: function(...)` in `cosmic.sys`'s syscall table) is listed
+--- (`lstat: function(...)` in [`cosmic.sys`]'s syscall table) is listed
 --- too, as a function; a record's plain data field, and any field of a
 --- nested record (its symbol is dotted), is not. Nor is a field typed
 --- `function` without parentheses, a generic one (`function<T>(...)`),
@@ -559,7 +560,7 @@ local function query_words(query: string): {string}
   return #short > 0 and short or stop
 end
 
---- The first word of `query` a search keeps (see `query_words`).
+--- The first word of `query` a search keeps (see [`query_words`]).
 local function lead_word(query: string): string
   return query_words(query)[1] or ""
 end
@@ -574,7 +575,7 @@ local function fts_query(query: string): string
   return table.concat(quoted, " ")
 end
 
---- The functions outside `cosmic.sys` whose documentation spells
+--- The functions outside [`cosmic.sys`] whose documentation spells
 --- `name` as code: what a reader who looked up a raw binding
 --- ("unlink", "getpid") most likely wanted instead.
 local function stand_ins(db: Sqlite.Handle, public: boolean,
@@ -599,7 +600,7 @@ end
 local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
                       name: string): {docs.Entry} | nil, string
   -- The build keeps a member's own name in `symbol` (`find`) and the
-  -- name it was written as in `source_symbol` (`Proc.find`).
+  -- name it was written as in `source_symbol` ([`Proc.find`]).
   local member = qualifier .. "[.:]*"
   local fts = fts_query(name)
   if fts ~= "" then
@@ -730,7 +731,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
     binds[3] = text(lead:lower())
   end
   -- A member named for one of the words comes before any that only
-  -- carries it: `Fs.read` before `Unveil.reads` for "read a file".
+  -- carries it: [`Fs.read`] before `Unveil.reads` for "read a file".
   local hits: {string} = {}
   for _, word in ipairs(words) do
     for _, form in ipairs({ word:lower(), plain(word) }) do
@@ -830,7 +831,7 @@ local function has_links(db: Sqlite.Handle): boolean | nil, string
   return #rows > 0, ""
 end
 
---- `searched_docs` and `searched_examples` together. Each example is kept once
+--- [`searched_docs`] and [`searched_examples`] together. Each example is kept once
 --- as itself; documentation rows retain their real symbol identity.
 local function searched(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry} | nil, string
   local fts = fts_query(query)
@@ -852,12 +853,12 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
 end
 
 --- The places that refer to what `query` names, by the rule
---- `symbols.used_where` keeps: the uses, then the links, which also
+--- [`symbols.used_where`] keeps: the uses, then the links, which also
 --- answer a query that is a file's path from the root, alone or with
 --- `#` and a heading's anchor (`doc/meta.md#every-example-runs`). A
 --- path alone finds the links to its headings too, and a bare lowercase
 --- name the links to each module it is the last name of, as
---- `docs.exact` reads one (`plural` for `build.plural`). A public source
+--- [`docs.exact`] reads one (`plural` for [`build.plural`]). A public source
 --- has no link to a file of its own tree.
 local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs.Use} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
@@ -915,7 +916,7 @@ end
 --- searches. A module found in an earlier one hides the same module in
 --- a later one, so a project's build answers for its own modules and
 --- the binary answers for the standard library.
---- @param store the store's databases, `Store.databases()` unless the
+--- @param store the store's databases, [`Store.databases()`] unless the
 --- caller hands it others, as a test of databases of its own does
 function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   local out: {Sqlite.Handle} = {}
@@ -1042,7 +1043,7 @@ local function count_uses(view: docs.View, module: string,
 end
 
 --- How many links name `module`/`symbol`, across `view.databases`,
---- counted as `count_uses` counts uses, and cached on `view` the same
+--- counted as [`count_uses`] counts uses, and cached on `view` the same
 --- way.
 local function count_links(view: docs.View, module: string,
                            symbol: string): integer | nil, string
@@ -1070,7 +1071,7 @@ local function count_links(view: docs.View, module: string,
         local from_module = row[1]
         local counted = not view.public[index] or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
-        -- One place per line, as `docs.uses` lists them.
+        -- One place per line, as [`docs.uses`] lists them.
         local position = row[2] .. "\n" .. row[3]
         if counted and view.owners[from_module] == index and not seen[position] then
           seen[position] = true
@@ -1101,7 +1102,7 @@ end
 
 --- Resolves module ownership once for a docs command or direct caller.
 --- Membership comes from `modules`, even when the owning database has
---- no documentation for that module, and from `decls` -- `cosmic.sys`
+--- no documentation for that module, and from `decls` -- [`cosmic.sys`]
 --- is only a declaration -- where it does: a database that copied a
 --- declaration without its documentation must not hide the one that
 --- documents it.
@@ -1151,7 +1152,7 @@ end
 --- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
 --- and a verb's options are data (`Cli.options`), so what one does is
 --- matched here instead, against the options of the binary answering,
---- as `render` shows them. Each word is a phrase, as `fts_query` quotes
+--- as `render` shows them. Each word is a phrase, as [`fts_query`] quotes
 --- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
 --- come after what the index found, as the lesser match: most of what a
 --- verb's options say is said again, closer, by the code they drive. A
@@ -1195,8 +1196,8 @@ local function by_options(view: docs.View, query: string,
 end
 
 --- What a dotted query names through a type alias or an inherited
---- record: `Child.Options.fds`, `Sqlite.Handle.exec`. Defined with the
---- other member helpers, below `first_sentence`.
+--- record: [`Child.Options.fds`], [`Sqlite.Handle.exec`]. Defined with the
+--- other member helpers, below [`first_sentence`].
 local through_alias: function(view: docs.View, query: string): {docs.Entry} | nil, string
 local aliased_members: function(view: docs.View, owners: {docs.Entry},
                                 name: string): {docs.Entry} | nil, string
@@ -1209,12 +1210,12 @@ local aliased_members: function(view: docs.View, owners: {docs.Entry},
 --- - for a qualified name that names nothing, what its qualifier offers
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
----   options do (see `by_options`).
+---   options do (see [`by_options`]).
 function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
   -- the symbols it names exactly follow the module (`string` is
-  -- `cosmic.string`, then `Shape.string`).
+  -- [`cosmic.string`], then [`Shape.string`]).
   local modules: {docs.Entry} = {}
   if query:match("^%l[%w_]*$") ~= nil then
     local found_modules, modules_trouble = across(view,
@@ -1366,7 +1367,7 @@ end
 --- up to the first `.`, `?` or `!` that a space or the end follows,
 --- outside backticks and not closing "e.g" or "i.e".
 local function first_sentence(documented: string): string
-  local trimmed = documented:match("^%s*(.-)%s*$")
+  local trimmed = link_text.unlinked(documented):match("^%s*(.-)%s*$")
   local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
   local quoted = false
   for at = 1, #paragraph do
@@ -1438,12 +1439,12 @@ function docs.named_all(view: docs.View, names: {string}): {docs.Entry} | nil, s
   return found, ""
 end
 
---- What `query` names exactly, by the rule `docs.lookup` answers an
+--- What `query` names exactly, by the rule [`docs.lookup`] answers an
 --- exact query with: the public modules a bare lowercase name ends
 --- (only those, when there are any), else every row `named` finds,
 --- else the module the index lists under that whole name, else the
---- member of a type an alias stands for (`Sqlite.Handle.close`, whose
---- row is `cosmic.internal.sqlite`'s). It neither searches nor counts
+--- member of a type an alias stands for ([`Sqlite.Handle.close`], whose
+--- row is [`cosmic.internal.sqlite`]'s). It neither searches nor counts
 --- uses, so it is cheap to ask once per name.
 function docs.exact(view: docs.View, query: string): {docs.Entry} | nil, string
   if query:match("^%l[%w_]*$") ~= nil then
@@ -1482,10 +1483,10 @@ function docs.exact(view: docs.View, query: string): {docs.Entry} | nil, string
 end
 
 --- The rows of `module` whose symbol is `name`, as the symbol column
---- reads (`read`, `Writer.write`) or as the source spells it
---- (`Fs.read`), a method's `:` read as `.`; else, as `docs.exact` does,
+--- reads (`read`, [`Writer.write`]) or as the source spells it
+--- ([`Fs.read`]), a method's `:` read as `.`; else, as [`docs.exact`] does,
 --- the member of a type an alias of the module stands for
---- (`Handle.close` of `cosmic.sqlite`). None when the view holds no
+--- (`Handle.close` of [`cosmic.sqlite`]). None when the view holds no
 --- such module. The database that owns the module answers.
 function docs.member(view: docs.View, module: string, name: string): {docs.Entry} | nil, string
   local owner = view.owners[module]
@@ -1547,7 +1548,7 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
 end
 
 --- The declaring record or enum of a member's source symbol:
---- `Child.Options.fds` is under `Child.Options`.
+--- [`Child.Options.fds`] is under [`Child.Options`].
 local function parent_of(symbol: string): string
   return symbol:match("^(.*)%.[^.]*$") or ""
 end
@@ -1642,8 +1643,8 @@ end
 
 --- The record, interface or enum that `reference`, written in `module`,
 --- names: one the module declares, one of `cosmic.internal.<module>`
---- (`raw_sqlite.Handle` is `sqlite.Handle` there), or one that another
---- module's own alias (`Compress.Stream`) points on to. Nil when it
+--- (`raw_sqlite.Handle` is [`sqlite.Handle`] there), or one that another
+--- module's own alias ([`Compress.Stream`]) points on to. Nil when it
 --- names none, or nil and why on a database that cannot be read.
 local function resolved_type(view: docs.View, module: string, reference: string,
                              depth: integer): docs.Entry | nil, string
@@ -1725,8 +1726,8 @@ end
 
 --- What a declaration that stands for another type adds to its page:
 --- the target's fields (or values), and its methods, each with its
---- documentation. `Sqlite.Handle` and `Child.Options` are aliases, so
---- they list what their target does; `Http.Options` extends one, so it
+--- documentation. [`Sqlite.Handle`] and [`Child.Options`] are aliases, so
+--- they list what their target does; [`Http.Options`] extends one, so it
 --- lists what it inherits after its own. Empty for a declaration that
 --- stands for nothing.
 local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | nil, string
@@ -1790,7 +1791,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | n
 end
 
 --- The members named `name` of the types `owners` stand for, each as
---- the owner's own member (`Handle.close` of `cosmic.sqlite` for the
+--- the owner's own member (`Handle.close` of [`cosmic.sqlite`] for the
 --- `close` of the record its `Handle` aliases).
 aliased_members = function(view: docs.View, owners: {docs.Entry},
                            name: string): {docs.Entry} | nil, string
@@ -1926,7 +1927,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- a colon, after the run of indented or fenced blocks it introduces
   -- (an example), or else the next block, so the two stay together.
   local text_lines: {string} = {}
-  for line in String.lines(entry.text) do text_lines[#text_lines + 1] = line end
+  for line in String.lines(link_text.unlinked(entry.text)) do text_lines[#text_lines + 1] = line end
   local function code_at(from: integer): boolean
     for j = from, #text_lines do
       if text_lines[j] ~= "" then
@@ -1988,7 +1989,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
   -- A verb's options are data, `Cli.options`, not prose: shown under
   -- its field as `cosmic help <verb>` shows them, and searched by
-  -- `by_options`.
+  -- [`by_options`].
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
   if verb ~= nil and Cli.options[verb] ~= nil then
     lines[#lines + 1] = "  options:"
@@ -2045,7 +2046,7 @@ end
 
 --- `cosmic docs <query>`: prints what the query names and ends in a
 --- verdict line; fails when nothing matches. With no query, lists
---- every module (`docs.index`).
+--- every module ([`docs.index`]).
 local function run(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -2136,7 +2137,7 @@ end
 --- symbol, one `file:line` per line -- only those in a file under one
 --- of the paths, when there are any -- and a verdict line. A link is
 --- marked `link`; the symbol may be a file instead, which only links
---- name (`doc/meta.md`, `doc/meta.md#every-example-runs`).
+--- name ([`doc/meta.md`], `doc/meta.md#every-example-runs`).
 local function run_uses(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -2198,7 +2199,7 @@ local function run_uses(argv: {integer:string}): integer
   return 0
 end
 
---- The `docs` verb as `build/verb_list.tl` lists it.
+--- The `docs` verb as [`build/verb_list.tl`] lists it.
 docs.spec = {
   name = "docs",
   guide = "looking up a symbol and where it is used",
@@ -2208,7 +2209,7 @@ docs.spec = {
   takes = "words to search for",
 }
 
---- The `uses` verb as `build/verb_list.tl` lists it.
+--- The `uses` verb as [`build/verb_list.tl`] lists it.
 docs.uses_spec = {
   name = "uses",
   guide = "looking up a symbol and where it is used",

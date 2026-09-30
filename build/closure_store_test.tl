@@ -1,7 +1,7 @@
---- Tests for `build.closure_store`: the store of a test module's import
+--- Tests for [`build.closure_store`]: the store of a test module's import
 --- closure holds that closure's rows alone, and its address moves with
 --- what its bytes follow from and nothing else. Each writes a small
---- project's projection with `build.writer` and derives the store from
+--- project's projection with [`build.writer`] and derives the store from
 --- it.
 
 local Fs = require("cosmic.fs")
@@ -166,7 +166,7 @@ end
 --- not the compiler's identity: compiled again by a compiler of
 --- another identity that makes the same bytecode and rows, it keeps
 --- its address and its bytes, and a test given it keeps its key
---- (`build.declared_key`); a module's bytecode, or a row the store
+--- ([`build.declared_key`]); a module's bytecode, or a row the store
 --- carries of it, moves its address though its source stays.
 local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   local root = tmp .. "/a"
@@ -286,7 +286,7 @@ end
 --- An edit to a declaration of one of the core's raw modules --
 --- here `raw`, as cosmic.internal.store is to cosmic.store -- moves the
 --- store, and so the key, of each test whose import closure holds the
---- wrapper that requires it (`test_inputs.modules`), and of no other.
+--- wrapper that requires it ([`test_inputs.modules`]), and of no other.
 local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string)
   local root = tmp .. "/a"
   assert(Fs.mkdirs(root))

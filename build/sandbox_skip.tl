@@ -1,4 +1,4 @@
---- How a test says (`Test.skip`) the host refused it what only Linux
+--- How a test says ([`Test.skip`]) the host refused it what only Linux
 --- gives -- the sandbox it is about, or a device every Linux worker is
 --- given (build.confine's `runtime_paths`: /dev/full) -- and when it
 --- says nothing: where the platform has no such thing at all -- anything

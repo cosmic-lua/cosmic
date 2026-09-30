@@ -56,8 +56,8 @@ local record sqlite
     --- Runs every statement in `sql`, discarding any rows, with no
     --- parameter binding: schema DDL, PRAGMAs, or several
     --- `;`-separated statements in one call -- the one thing
-    --- `Sqlite.run`, `rows` and `text_rows` cannot do, since each of
-    --- those prepares exactly one statement. Reach for `Sqlite.run`
+    --- [`Sqlite.run`], `rows` and `text_rows` cannot do, since each of
+    --- those prepares exactly one statement. Reach for [`Sqlite.run`]
     --- once a value needs binding.
     exec: function(Handle, sql: string): boolean, string
     --- Compiles `sql`, which must hold exactly one statement.
@@ -101,7 +101,7 @@ local record sqlite
   --- while it is on, through a connection `open` made -- the database,
   --- its journal and WAL, an attached one; never a temporary file it
   --- deletes on close. Turning it on also records every such file a
-  --- connection holds open now, but those `exclude_held` named, as though it
+  --- connection holds open now, but those [`exclude_held`] named, as though it
   --- were opened now: a connection opened before reads it from here on.
   --- `false`, and a message, when one of them could not be kept, as
   --- when memory runs out; recording is on regardless. What is recorded

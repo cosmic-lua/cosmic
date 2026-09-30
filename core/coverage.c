@@ -46,7 +46,7 @@ typedef struct Collector {
   int from_startup;
   /* VM instructions `budget` allows before it raises, or 0 when unarmed.
    * It shares the one hook slot with collection, so both are always
-   * installed together (`install_hook`). */
+   * installed together ([`install_hook`]). */
   int budget;
 } Collector;
 
@@ -95,7 +95,7 @@ static int collector_gc (lua_State *L) {
   return 0;
 }
 
-/* Which blocks' lines `native_collect` adds: every one, those hit since the
+/* Which blocks' lines [`native_collect`] adds: every one, those hit since the
  * window opened, or those that begin a function. */
 enum native_want { NATIVE_ALL, NATIVE_HIT, NATIVE_ENTRY };
 

@@ -3,7 +3,7 @@
 --- at compile time (`unknown variable: os`), and a chunk handed to
 --- `load` that reaches for one fails at run time; both errors say
 --- what to use instead, naming the replacement for the very field used
---- (`os.getenv` is `Env.get`). `cosmic docs os` (or any field below)
+--- (`os.getenv` is [`Env.get`]). `cosmic docs os` (or any field below)
 --- answers the same thing directly. `members` does the same at compile
 --- time for a member a `cosmic.*` module no longer has. Help on the
 --- language's other libraries is in the checked examples that ordinary
@@ -46,12 +46,12 @@ local record Module
   -- literal (cosmic.archive's ExtractOptions.strip, replaced by
   -- strip_prefix and strip_components) has no entry: the checker says only `unknown
   -- field strip`, without the record it was checked against, so
-  -- `build.teal`'s `replacement` cannot look one up. Key entries by
+  -- [`build.teal`]'s `replacement` cannot look one up. Key entries by
   -- record (`cosmic.archive.ExtractOptions.strip`) once that message
   -- names its record.
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
-  -- call a nil value". Say it there too, as `core/surface.c` does for a
+  -- call a nil value". Say it there too, as [`core/surface.c`] does for a
   -- removed global, once a module's record can answer a missing field.
 
   --- What to write instead of a member a `cosmic.*` module no longer

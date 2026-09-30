@@ -6,7 +6,7 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 
---- A plain-table stand-in for a `cosmic.compress` codec, cast to one
+--- A plain-table stand-in for a [`cosmic.compress`] codec, cast to one
 --- where `transform` takes it.
 local record Fake
   update: function(Fake, string): string | nil, string
@@ -491,7 +491,7 @@ local function test_transform_drains_a_pending_codec_before_feeding_it_more()
   assert(drain(transformed) == string.rep("a", 10) .. string.rep("b", 10) .. string.rep("c", 10))
 end
 
---- Every line `Stream.lines` gives `reader`, through `read`, and why it
+--- Every line [`Stream.lines`] gives `reader`, through `read`, and why it
 --- stopped.
 local function all_lines(reader: Stream.Reader, max?: integer): {string}, string
   local lines = Stream.lines(reader, max)

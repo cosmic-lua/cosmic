@@ -1,6 +1,6 @@
 /*
  * Named fault points. `COSMIC_FAULT("curl_easy_init")` is true when a
- * test has armed that point with `testing.fail_at` and its turn has
+ * test has armed that point with [`testing.fail_at`] and its turn has
  * come, and the call it guards then reports a failure of its own shape
  * instead of being made -- which is how a test reaches a library call's
  * failure paths when nothing it can arrange makes the library fail.

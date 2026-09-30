@@ -1,4 +1,4 @@
---- Fuzz properties for `build.link_text`'s parser: `parse` is total over any
+--- Fuzz properties for [`build.link_text`]'s parser: `parse` is total over any
 --- text, and each link it finds lies inside that text -- on one of its
 --- lines, its `[` at the column it names -- with a target unless it is
 --- a reference nothing defines.

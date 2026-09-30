@@ -1,4 +1,4 @@
---- Time zones in `cosmic.time`: IANA's zones by name, from the copy the
+--- Time zones in [`cosmic.time`]: IANA's zones by name, from the copy the
 --- binary carries and never the host's files; POSIX TZ strings; `TZ`,
 --- /etc/localtime and /etc/timezone; and what a zone does to the
 --- calendar, RFC 3339 text and local times its clocks skip or repeat.

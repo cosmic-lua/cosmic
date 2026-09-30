@@ -1,14 +1,14 @@
 --- Fenced code blocks out of a markdown doc, in document order. This
---- is the whole of what `build.doctest` reads from the markdown itself;
+--- is the whole of what [`build.doctest`] reads from the markdown itself;
 --- everything the grammar in doc/meta.md means by a block's tag
 --- (`teal`, `lua`, `output`, `text`, and the `continue`/`file=`/
 --- `skip=` modifiers on `teal`/`lua`) is decided here, once, so
---- `build.doctest.generate` never re-parses a tag string.
+--- [`build.doctest.generate`] never re-parses a tag string.
 ---
 --- Prose outside a fence is not read at all: a line only matters here
 --- once it opens or closes a fence, or is a whole line
 --- `<!-- needs: <fields> -->`, what the doc's examples read beyond
---- their default inputs (`cosmic.test`'s `needs`), which renders as
+--- their default inputs ([`cosmic.test`]'s `needs`), which renders as
 --- nothing and comes back as a block of its own, `needs`, holding
 --- `<fields>`. A `<!-- inputs: ... -->` line is refused.
 ---

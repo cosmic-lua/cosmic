@@ -64,7 +64,7 @@ local record work
   ---
   --- `compiler` is what turns source into bytecode: the build's own
   --- modules a compile or a parse runs to decide what it stores
-  --- (`work.compiler_identity`), `cosmic.removed` (the names the checker
+  --- ([`work.compiler_identity`]), [`cosmic.removed`] (the names the checker
   --- is stripped of), and the Teal compiler's and Lua's pins and patches.
   --- The rest of the standard library the importer runs on is plumbing,
   --- not transformation (a bug there breaks the build loudly rather than
@@ -76,11 +76,11 @@ local record work
   --- configuration and exact raw-core digest.
   ---
   --- `writer` is what turns compiled rows into a projection: build.writer,
-  --- this module and what they require (`work.writer_modules`, less
+  --- this module and what they require ([`work.writer_modules`], less
   --- `writer_left_out`, the standard library's included), and the core
   --- image, down to the SQLite that vacuums it and the codec that decodes
   --- the CA roots into it. A projection is signed with the identity of the
-  --- writer that wrote it (`build.writer`), so a tool whose writer has not
+  --- writer that wrote it ([`build.writer`]), so a tool whose writer has not
   --- moved writes the same bytes as the tree's own, and one whose writer
   --- has is told apart.
   record Identities
@@ -140,14 +140,14 @@ local version <const> = "27"
 --- can never be wrong. A row whose source no longer hashes among the
 --- inputs is pruned, and every row goes when the analyzer changes.
 --- `test_inputs` is the same parse's reading of a test module's
---- `needs` declaration (`cosmic.test`), one row per value a field
+--- `needs` declaration ([`cosmic.test`]), one row per value a field
 --- lists (`true` for a flag, `*` for any network host, and the line
 --- the declaration starts on under `line`).
---- `links` is each link its comments hold (`build.link_text`), as
+--- `links` is each link its comments hold ([`build.link_text`]), as
 --- written: what it names is resolved only once every module is
---- known, as a projection is written (`build.link_index`).
+--- known, as a projection is written ([`build.link_index`]).
 ---
---- `executable` is `build.coverage.lines.executable`'s answer for one
+--- `executable` is [`build.coverage.lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
 --- could ever be hit is a function of the bytes and of that module's rule
 --- for what counts as executable. A change to the rule bumps `version`,
@@ -157,7 +157,7 @@ local version <const> = "27"
 --- rather than one row per line, since a caller always wants the whole
 --- set back at once.
 ---
---- `todos` is every `TODO:` comment `build.todo_scan` finds in one
+--- `todos` is every `TODO:` comment [`build.todo_scan`] finds in one
 --- staged file, keyed by the file's content hash like `parsed`: staging
 --- scans a file in the same moment it reads it, so an unchanged file
 --- costs nothing, and a row is a function of the bytes and the scan's
@@ -179,7 +179,7 @@ local version <const> = "27"
 --- there with no file behind it.
 ---
 --- `zoneinfo` is the IANA time zone database the binary carries, one
---- TZif file per zone name (`vendor/tzdata`), for `cosmic.time` to fall
+--- TZif file per zone name (`vendor/tzdata`), for [`cosmic.time`] to fall
 --- back on where the host has no zone files. Like the compiler, it has
 --- no staged file behind it: a boot reads the vendored tree, and a
 --- Teal-only rebuild copies the running binary's rows back in. It
@@ -199,7 +199,7 @@ local version <const> = "27"
 --- cache stays bounded.
 ---
 --- `typed_refs` is what one compile's checker found a record's field
---- used through (`build.receivers`): keyed by the compile's own key,
+--- used through ([`build.receivers`]): keyed by the compile's own key,
 --- since a value's type depends on everything its module imports, and
 --- dropped with the compile it rode on.
 ---
@@ -210,11 +210,11 @@ local version <const> = "27"
 --- name inside it, so a later run of the same test replaces its row
 --- rather than piling up a history the runner has no use for yet.
 --- `key` is what the verdict is a function of, the digest of the
---- test's declared inputs (`build.declared_key`), and, after a space,
+--- test's declared inputs ([`build.declared_key`]), and, after a space,
 --- the key it is shared under; `run_at_ns` the `cosmic test`
 --- invocation whose coverage rows credit the verdict.
 --- `elapsed_ns` is how long the test function itself took to run, by
---- `cosmic.time`'s monotonic clock: wall time, not CPU time. For a test
+--- [`cosmic.time`]'s monotonic clock: wall time, not CPU time. For a test
 --- answered from a standing verdict it is the elapsed time of the run
 --- that produced that verdict, so `runs` always answers "how long does
 --- this test take", even when most tests are cached.
@@ -223,13 +223,13 @@ local version <const> = "27"
 --- invocation that produced it, and `seen` the last run that relied on
 --- it: while a key stands and its verdict passed, the test is not run
 --- again, and an edit undone finds its old key again. One no run has
---- relied on in the last ten (`build.test`'s `kept_runs`) is dropped,
+--- relied on in the last ten ([`build.test`]'s `kept_runs`) is dropped,
 --- and with it the `coverage_by_test` rows no verdict credits any
 --- more. `elapsed_ns` carries the duration of the run that reached this
 --- verdict, which `runs` reports for a test answered from it.
 ---
 --- `digests` is the hash of each file a sandboxed run's keys looked
---- at (`build.declared_key`) -- declared inputs beyond what the stage
+--- at ([`build.declared_key`]) -- declared inputs beyond what the stage
 --- hashes, o/bin/cosmic and vendor/ among them -- by absolute path,
 --- with what `lstat` said of it then: a later run whose `lstat` says
 --- the same reads none of them again. A sandboxed run that read one
@@ -240,7 +240,7 @@ local version <const> = "27"
 --- one snapshot per `cosmic test` invocation, each run identified by
 --- its own start time in nanoseconds (`ran_at_ns`), the convention
 --- `runs.ran_at_ns` uses. This database never ships, but its growth is
---- still bounded: `build.test`'s `prune_history`
+--- still bounded: [`build.test`]'s `prune_history`
 --- runs in the same transaction as every write here and keeps
 --- `coverage` to the newest `kept_snapshots` runs, `coverage_by_test`
 --- to what a standing verdict still credits, and `test_runs` to what
@@ -260,16 +260,16 @@ local version <const> = "27"
 ---
 --- `coverage_by_test` answers a narrower question `coverage` cannot:
 --- which lines a given test hit in a given run. It is one row per test
---- per run, its `hits` every line the test hit, as `build.test`'s
+--- per run, its `hits` every line the test hit, as [`build.test`]'s
 --- `encode_hits` writes them: one row per line hit would be millions a
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
 ---
 --- The statements of `derived`, `inputs` and the tables a parse fills
---- are `build.analysis_schema`'s, which this places between the
+--- are [`build.analysis_schema`]'s, which this places between the
 --- stage's and the records': what a parse's rows are shaped by is kept
 --- apart from the rest of this module, which the compiler's identity
---- does not hold (`work.compiler_identity`).
+--- does not hold ([`work.compiler_identity`]).
 work.schema = {
   [[CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,
                                      value BLOB NOT NULL) WITHOUT ROWID]],
@@ -432,7 +432,7 @@ end
 --- Begins the run's transaction on `db`, the working database at `path`,
 --- waiting up to `wait_ms` for another run that holds it and saying so
 --- after `notice_ms`. The handle keeps the long wait for every statement
---- after (`work.begin`'s transactions among them).
+--- after ([`work.begin`]'s transactions among them).
 local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   local noticed, notice_trouble = db:exec("PRAGMA busy_timeout = " ..
     tostring(notice_ms))
@@ -507,7 +507,7 @@ function work.open(root: string): work.Handle | nil, string
   end
 
   -- IMMEDIATE takes the write lock before reading, so a second build of
-  -- the same tree waits for the first (`begin_waiting`) instead of both
+  -- the same tree waits for the first ([`begin_waiting`]) instead of both
   -- reading and then one failing to upgrade.
   local begun, begin_trouble = begin_waiting(db, path)
   if not begun then
@@ -589,7 +589,7 @@ end
 --- hidden. `doc` is handled on its own: almost all of it is prose with
 --- no examples, but `doc/guides/*.md` is the one place doc/meta.md's
 --- grammar applies, and the build has to see those files to run
---- `build.doctest` over them. In cosmic's own tree the patches, the
+--- [`build.doctest`] over them. In cosmic's own tree the patches, the
 --- vendor pins and the zig wrapper are walked after all, as inputs to
 --- the tool rather than to the build, and `.github/` for the TODOs
 --- alone, never as an input even where it holds Teal.
@@ -603,7 +603,7 @@ local not_input: {string:boolean} = {
 
 --- The trees and files the tool is made of, in cosmic's own tree,
 --- beside the Teal it carries from anywhere else in the tree
---- (`carried_teal`).
+--- ([`carried_teal`]).
 local tool_trees: {string:boolean} = {
   ["build"] = true,
   ["core"] = true,
@@ -631,6 +631,12 @@ local foreign_trees: {string:boolean} = {
   ["ci"] = true,
 }
 
+--- Whether `name`, a directory at the root of cosmic's own tree, is a
+--- tree of its own (`foreign_trees`).
+function work.is_foreign_tree(name: string): boolean
+  return foreign_trees[name] == true
+end
+
 --- The top-level directory an entry sits under, or the entry itself
 --- at the top. A plain find, since this runs for every entry walked.
 local function first_of(entry: string): string
@@ -653,7 +659,7 @@ end
 
 --- Whether `file` is a doc this tree extracts runnable examples from --
 --- exactly `doc/guides/*.md`, never a markdown file anywhere else in
---- the tree (`doc/design.md`, `doc/roadmap.md`, and `doc/meta.md` are
+--- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/meta.md`] are
 --- prose with no examples, and stay out of scope on purpose).
 local function is_doc_guide(file: string): boolean
   return file:match("^doc/guides/[^/]+%.md$") ~= nil
@@ -706,8 +712,8 @@ end
 
 --- Whether a file the walk found is one the build consumes: Teal
 --- source and declarations, a doc guide, and, in cosmic's own tree,
---- the headers the declarations of `cosmic.sys` and the raw process
---- table are generated from (`build.gen_syscalls`' targets). Never
+--- the headers the declarations of [`cosmic.sys`] and the raw process
+--- table are generated from ([`build.gen_syscalls`]' targets). Never
 --- anything under the trees the tool alone is made of.
 local function is_input(file: string, own_tree: boolean): boolean
   local first = first_of(file)
@@ -732,10 +738,10 @@ local function is_input(file: string, own_tree: boolean): boolean
 end
 
 --- Whether a Teal file is one the tool carries wherever it sits in the
---- tree: every module the `inputs` view reads (`build.analysis_schema`:
---- Teal outside a `testdata/` directory) except a test, which `is_tool`
+--- tree: every module the `inputs` view reads ([`build.analysis_schema`]:
+--- Teal outside a `testdata/` directory) except a test, which [`is_tool`]
 --- has already left out. The tool carries every module of the tree but
---- its tests and examples (`build.writer`'s `dropped_modules`), so
+--- its tests and examples ([`build.writer`]'s `dropped_modules`), so
 --- eval/'s and test/portable's are carried as much as build/'s, and a
 --- tree that holds none of the tool's C still moves `boot_hash` when one
 --- of its modules does. An example outside the tool trees is taken too,
@@ -750,12 +756,12 @@ end
 
 --- Whether a file is one the tool is made of, in cosmic's own tree: a
 --- file under one of its trees, one of its named files, a module it
---- carries from elsewhere (`carried_teal`), or a vendored tree's pin. A
+--- carries from elsewhere ([`carried_teal`]), or a vendored tree's pin. A
 --- Teal test (`*_test.tl`, the `inputs` view's `test` kind) never is: no
---- binary carries a test (`build.writer`'s `carried`), and in cosmic's
---- own tree only a test may require one (`build.positions`), so none is
+--- binary carries a test ([`build.writer`]'s `carried`), and in cosmic's
+--- own tree only a test may require one ([`build.positions`]), so none is
 --- carried for being required either. So an edit to a test moves neither
---- fingerprint (`work.record_fingerprint`) and never rebuilds the tool,
+--- fingerprint ([`work.record_fingerprint`]) and never rebuilds the tool,
 --- though the test is staged as an input all the same.
 local function is_tool(file: string, own_tree: boolean): boolean
   if not own_tree then
@@ -847,15 +853,15 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
---- Whether any row `work.stage` last recorded under `tool` no longer
+--- Whether any row [`work.stage`] last recorded under `tool` no longer
 --- matches a stat of its own file, without walking the tree: only the
 --- paths a previous stage knows about are stat'd. A file new to the tree
 --- does not register until something already known requires it, which
 --- edits that known file's bytes and so its stat. A row whose file is
 --- gone fails its stat, which counts as moved. This lets a caller that
---- never edits the tree itself (`build.reboot.stale_exit`, for a
+--- never edits the tree itself ([`build.reboot.stale_exit`], for a
 --- read-only verb) ask whether the tool's inputs changed since the last
---- stage for a handful of stats instead of `work.stage`'s directory walk
+--- stage for a handful of stats instead of [`work.stage`]'s directory walk
 --- over everything.
 function work.tool_moved(handle: work.Handle): boolean | nil, string
   local known, trouble = known_in(handle.db, "tool")
@@ -1125,22 +1131,22 @@ local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
 end
 
 --- The tool's fingerprints, over `tool` (which holds no test: see
---- `is_tool`): `boot` over every row, and `image` over what the C core
+--- [`is_tool`]): `boot` over every row, and `image` over what the C core
 --- is built from. That is `core/` but the Teal beside its C (no core is
 --- built from it), the zig build and wrapper, every vendored tree's pin
---- and patches (the Teal compiler's included), and `build/patch.tl`,
+--- and patches (the Teal compiler's included), and [`build/patch.tl`],
 --- which applies them: only `bin/zig build boot` applies a patch record
---- to a pin, so a change under `vendor/tl/PIN`, `patch/tl/*` or to the
+--- to a pin, so a change under [`vendor/tl/PIN`], `patch/tl/*` or to the
 --- applier needs it too, as with every other vendored tree.
---- `build/launcher.tl` also belongs to the retained portable prefix: a
+--- [`build/launcher.tl`] also belongs to the retained portable prefix: a
 --- database-only rebuild reuses its existing shell bytes. So does
---- `build/artifact.tl`, which lays the artifact out: a rebuild lays it
+--- [`build/artifact.tl`], which lays the artifact out: a rebuild lays it
 --- out with the running tool's own copy, so an edit to it boots too.
 ---
 --- Both fingerprints are written into `meta` for the projection to carry
 --- into the binary, which is how a binary knows what it was built from,
 --- so a project reads them rather than computing any. Returns the
---- fingerprint written; `work.recorded_boot_hash` reads it back.
+--- fingerprint written; [`work.recorded_boot_hash`] reads it back.
 function work.record_fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   local db = handle.db
   local boot, boot_trouble = hash_over(db, "1")
@@ -1168,10 +1174,10 @@ function work.record_fingerprint(handle: work.Handle): work.Fingerprint | nil, s
   return { boot = boot, image = image }
 end
 
---- The `boot` fingerprint `work.record_fingerprint` wrote into `meta` at
+--- The `boot` fingerprint [`work.record_fingerprint`] wrote into `meta` at
 --- the last stage, read back rather than recomputed. It is for a caller
 --- that only wants to know whether the tool it is running still matches
---- the tree (paired with `work.tool_moved` to know the `tool` table is
+--- the tree (paired with [`work.tool_moved`] to know the `tool` table is
 --- accurate), not to restage anything itself. `nil, ""` when the
 --- database holds no such row yet: a fresh `o/`, or one nothing has
 --- staged for.
@@ -1195,8 +1201,8 @@ local pins <const> =
   "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
 
 --- What a module of the tree in the working database requires, as
---- `requires` holds of its source: the walk `work.compiler_modules` and
---- `work.writer_modules` take over it.
+--- `requires` holds of its source: the walk [`work.compiler_modules`] and
+--- [`work.writer_modules`] take over it.
 local function requires_in(db: Sqlite.Handle): function(string): {string} | nil, string
   return function(name: string): {string} | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
@@ -1229,10 +1235,10 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   return rows[1][1]
 end
 
---- Where the compiler's identity starts (`work.compiler_modules`):
+--- Where the compiler's identity starts ([`work.compiler_modules`]):
 --- build.importer, for its own source alone, and each module whose code
 --- a compile or a parse runs to decide what it stores. See
---- `work.compiler_identity`.
+--- [`work.compiler_identity`].
 local compiler_roots: {string} = {
   -- TODO: hold only build.importer's compile and parse -- `generate`,
   -- `with_test_tail`, `dependency_keys`, `parse_new` and the shared
@@ -1242,7 +1248,7 @@ local compiler_roots: {string} = {
   -- identity, and about half of them change nothing a compile or a
   -- parse stores.
   "build.importer",
-  -- The analyzer (`build.importer`'s `analyzer_roots`): the extractors,
+  -- The analyzer ([`build.importer`]'s `analyzer_roots`): the extractors,
   -- generators and parser a parse runs, whose `tests` rows a compile
   -- appends a test module's tail from (`with_test_tail`).
   "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
@@ -1256,7 +1262,7 @@ local compiler_roots: {string} = {
 --- The modules the compiler's identity holds, sorted, as `requires`
 --- answers what a module of the tree requires: every one `require`
 --- reaches from `compiler_roots` that is the build's own
---- (`build.*`), and `cosmic.removed`. build.importer's own requires are
+--- (`build.*`), and [`cosmic.removed`]. build.importer's own requires are
 --- not followed: it is here for its compile and parse, not for the
 --- rest of the build it runs.
 function work.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
@@ -1282,14 +1288,14 @@ function work.compiler_modules(requires: function(string): {string} | nil, strin
   return names, ""
 end
 
---- The compiler's identity (`Identities.compiler`) over what the
+--- The compiler's identity ([`Identities.compiler`]) over what the
 --- working database holds now, recorded nowhere: the source hash of each
---- of `work.compiler_modules` the tree holds, and the Teal compiler's and
+--- of [`work.compiler_modules`] the tree holds, and the Teal compiler's and
 --- Lua's pins and patches. A boot names its analyzer by it before it
---- parses (`build.importer.tree_code`).
+--- parses ([`build.importer.tree_code`]).
 ---
 --- What a module requires is what `requires` holds of its source, which
---- only a parse fills. So before `build.importer.derive` the walk
+--- only a parse fills. So before [`build.importer.derive`] the walk
 --- reaches only what earlier parses found: the same modules, and so the
 --- same identity, while none of them has changed, and another whenever
 --- one it reaches has, since each one's source hash is in it.
@@ -1300,17 +1306,17 @@ end
 ---
 --- - the pinned compiler and Lua;
 --- - build.importer's own compile and parse;
---- - the checker's environment (`build.teal`) and the names it is
----   stripped of (`cosmic.removed`, the one module of the standard
+--- - the checker's environment ([`build.teal`]) and the names it is
+---   stripped of ([`cosmic.removed`], the one module of the standard
 ---   library that is data deciding a compile rather than what one runs
 ---   on);
 --- - the rules a module is refused by and the tree they hold in
----   (`build.contracts`, `build.tree`);
---- - the uses the checker finds (`build.receivers`);
+---   ([`build.contracts`], [`build.tree`]);
+--- - the uses the checker finds ([`build.receivers`]);
 --- - the analyzer, whose `tests` rows a test module's compile is
 ---   appended from;
 --- - the schema of the rows a parse stores and of the `inputs` view a
----   compile reads a source through (`build.analysis_schema`).
+---   compile reads a source through ([`build.analysis_schema`]).
 ---
 --- The rule: a module build.importer calls that can change a row a
 --- compile or a parse stores is one of `compiler_roots`, or is reached
@@ -1329,18 +1335,18 @@ function work.compiler_identity(handle: work.Handle): string | nil, string
   return hash_of(handle.db, names, pins)
 end
 
---- Where the writer's identity starts (`work.writer_modules`): what
+--- Where the writer's identity starts ([`work.writer_modules`]): what
 --- decides a projection's bytes beside the rows it is filled from, each
---- of which its signature holds by value or by a key (`build.writer`'s
+--- of which its signature holds by value or by a key ([`build.writer`]'s
 --- `signature_sql`). Those are build.writer, which fills and vacuums it,
 --- and this module, which computes the fingerprint and the identities it
 --- carries in `meta`. A tool rebuilt by a stale tool carries them as
 --- that tool's code took them, and is told apart from one the tree's
 --- code wrote only by this module's being in the identity
---- (`build.reboot`'s `unsettled`).
--- TODO: hold only this module's fingerprint (`is_tool`, `tool_files`,
--- `record_fingerprint`) and identities (`compiler_identity`,
--- `writer_identity`) once they are split from the staging, the scans and
+--- ([`build.reboot`]'s `unsettled`).
+-- TODO: hold only this module's fingerprint ([`is_tool`], `tool_files`,
+-- [`record_fingerprint`]) and identities ([`compiler_identity`],
+-- [`writer_identity`]) once they are split from the staging, the scans and
 -- the records into a module of their own: today every edit to
 -- build/work.tl moves the writer's identity and settles a rebuilt tool
 -- again.
@@ -1403,11 +1409,11 @@ function work.writer_left_out(): {string:string}
   return copy
 end
 
---- The writer's identity (`Identities.writer`) over what the working
+--- The writer's identity ([`Identities.writer`]) over what the working
 --- database holds now, recorded nowhere: the source hash of each of
---- `work.writer_modules` the tree holds, and the core image's hash
+--- [`work.writer_modules`] the tree holds, and the core image's hash
 --- (`image_hash`), whose SQLite writes the bytes. What a module requires
---- is what `requires` holds of its source, as for `compiler_identity`.
+--- is what `requires` holds of its source, as for [`compiler_identity`].
 --- An edit to a module outside it -- build.positions, build.todo_scan,
 --- the analyzer -- writes the same projection from the same rows, so
 --- it moves no signature and settles no rebuilt tool.
@@ -1421,10 +1427,10 @@ local function writer_identity(handle: work.Handle): string | nil, string
 end
 
 --- The identities, computed over the tree and written into `meta` for
---- the projections to carry, and returns them. See `Identities` for what
+--- the projections to carry, and returns them. See [`Identities`] for what
 --- each is over. The compiler's closes over `requires`, so the tree must be parsed
---- (`build.importer.derive`) first: on a fresh working database the
---- closure would otherwise stop at `build.importer` itself, and keys
+--- ([`build.importer.derive`]) first: on a fresh working database the
+--- closure would otherwise stop at [`build.importer`] itself, and keys
 --- made under that identity would match no later build's.
 function work.record_identities(handle: work.Handle): work.Identities | nil, string
   local db = handle.db

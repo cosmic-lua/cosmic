@@ -262,7 +262,7 @@ end
 --- cache in DIR (the verdicts of the merge queue's run ahead of this
 --- one, which ci.yml's `verdicts-ahead` downloads) into the cache of the
 --- same name in the directory of the file `env.COSMIC_VERDICT_CACHE`
---- names (`merge_file`), made where it is not there. The run ahead
+--- names ([`merge_file`]), made where it is not there. The run ahead
 --- tested the tree this one's change is made on, and every row is keyed
 --- by all its test was given, so a verdict it reached under a key this
 --- run reaches again stands here too. Nothing to do where the variable

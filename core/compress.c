@@ -110,7 +110,7 @@ struct inflate_state {
   uint32_t crc;   /* the current gzip member's output CRC-32 */
   uint32_t isize; /* ... and its length, mod 2^32 */
   /* What the current deflate body has taken in and given out, whole,
-   * for `inflate_step`'s ratio check. */
+   * for [`inflate_step`]'s ratio check. */
   uint64_t in_total;
   uint64_t out_total;
   /* The checked core's "tinfl_decompress" fault fired: every call after

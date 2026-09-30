@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.tar`: the reader is total -- whatever
+--- Fuzz properties for [`cosmic.tar`]: the reader is total -- whatever
 --- bytes it is handed, it returns entries or a failure and never raises
 --- or runs away -- and what the writer writes, the reader reads back.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -26,7 +26,7 @@ local function gen_path(src: Fuzz.Source): string
   return path
 end
 
---- Entries as `Fuzz.pack` fields: a kind, a path, and a body (a file's
+--- Entries as [`Fuzz.pack`] fields: a kind, a path, and a body (a file's
 --- bytes, a link's target, nothing for a directory), repeated.
 local function gen_entries(src: Fuzz.Source): {string}
   local fields: {string} = {}
@@ -145,7 +145,7 @@ end
 
 -- Nearly every input here is refused at its first header, whose
 -- checksum random bytes never match: this checks that refusal and a
--- short read's, and `test_the_reader_is_total_on_drawn_headers` reaches
+-- short read's, and [`test_the_reader_is_total_on_drawn_headers`] reaches
 -- what lies behind them.
 local function test_the_reader_is_total_on_arbitrary_bytes(tmp: string)
   Fuzz.run({

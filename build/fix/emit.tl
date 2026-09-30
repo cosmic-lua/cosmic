@@ -1,4 +1,4 @@
---- The output buffer `build.fix` renders into, and the one place
+--- The output buffer [`build.fix`] renders into, and the one place
 --- comments and blank lines are placed.
 ---
 --- The renderer never adds or removes a line break. Each construct is
@@ -51,7 +51,7 @@
 --- token too far when an operator the renderer writes itself stands
 --- between the two (see `ahead`).
 ---
---- Because a comment can open a statement's line, `opening_column`
+--- Because a comment can open a statement's line, [`opening_column`]
 --- gives where that line began, not where the statement's first keyword
 --- sits. A statement the renderer indents elsewhere moves by the
 --- distance its line moves, and every continuation line moves with it.
@@ -309,9 +309,9 @@ end
 -- TODO: give every token the renderer writes itself a source position,
 -- so comments standing before it are flushed by that write. The tree
 -- has none (tl records no position for an assignment's `=`), so it
--- would come from the token stream `build.fix.typescan` already
+-- would come from the token stream [`build.fix.typescan`] already
 -- indexes: a cursor over it, advanced by every write site in
--- `build.fix.stmt`, `.expr` and `.sig`. Comment placement would then
+-- [`build.fix.stmt`], `.expr` and `.sig`. Comment placement would then
 -- belong to every token write, not to node leads alone, which is the
 -- model this module would be rebuilt on.
 local function ahead(e: Emitter, y: integer, x: integer)

@@ -14,7 +14,7 @@ comment, and nothing from it should be wrong.
 This holds for every comment in the tree: Teal and Lua (`--`, and `---`
 doc comments), C and Zig (`//`, `/* */`, `///`), shell and YAML (`#`).
 `vendor/` is not ours and is never edited. Prose documents (`doc/`,
-`AGENTS.md`, READMEs) follow `doc/meta.md` instead.
+`AGENTS.md`, READMEs) follow [`doc/meta.md`] instead.
 
 ## The standard
 
@@ -27,7 +27,7 @@ doc comments), C and Zig (`//`, `/* */`, `///`), shell and YAML (`#`).
    platform quirk, a reference to the rule it enforces. A comment that
    restates the code goes.
 3. **Clear.** One reading is enough. One idea per sentence, a verb in
-   each, the plain word (`doc/meta.md`'s language rules). Name the
+   each, the plain word ([`doc/meta.md`]'s language rules). Name the
    thing, not a pronoun three clauses back. Break a chain of dashes,
    colons and semicolons into sentences.
 4. **Concise.** As long as the idea, no longer. Cut a clause that
@@ -68,7 +68,7 @@ must name a Markdown heading. A shortcut that matches two symbols, or
 a symbol and a file, fails too: spell it in full (`build.links.parse`,
 or `./path`). In `[text](target)` the target is a path first. Brackets
 in any other shape, and a reference with no definition, are prose.
-`build/links.tl` has the rules.
+[`build/links.tl`] has the rules.
 
 ```lua
 --- Reads the file whole with [`Fs.read`]; the store is described in
@@ -182,10 +182,15 @@ Kept as is -- it says why, which the code cannot:
    report, not a comment fix: leave the comment, add a `TODO:` naming
    the defect, and list it in the PR.
 5. `o/bin/cosmic fix <changed-paths>`, then `timeout 30 o/bin/cosmic
-   test`. A comment edit in a harness module (`build/harness_epoch.tl`)
-   moves its digest: set the lines `build/harness_epoch_test.tl` prints,
+   test`. A comment edit in a harness module ([`build/harness_epoch.tl`])
+   moves its digest: set the lines [`build/harness_epoch_test.tl`] prints,
    and do not bump `epoch`, since no pass or fail moves. Before pushing,
    `o/bin/cosmic fix --check .`.
 6. One PR per coherent part of the tree, titled `<area>: audit comments`.
    Its description gives the kinds of change made, with a few examples,
    any refactor, and any defect found.
+
+[`build/harness_epoch.tl`]: ../../../build/harness_epoch.tl
+[`build/harness_epoch_test.tl`]: ../../../build/harness_epoch_test.tl
+[`build/links.tl`]: ../../../build/links.tl
+[`doc/meta.md`]: ../../../doc/meta.md

@@ -1,4 +1,4 @@
---- That `build.fix.equiv` actually reports a difference, which is the
+--- That [`build.fix.equiv`] actually reports a difference, which is the
 --- half of it nothing else would notice going wrong.
 ---
 --- `cosmic fix` refuses to write a file whose rendered text does not
@@ -77,7 +77,7 @@ local function test_spacing_alone_is_not_a_difference()
 end
 
 --- tl's parser output is not a tree: one table can sit at two places,
---- as `local record Node is {Node}` in `build/ast/node.tl` produces. A
+--- as `local record Node is {Node}` in [`build/ast/node.tl`] produces. A
 --- comparison that stopped at a before-side table it had already
 --- visited would look at only the first of the two things the after
 --- tree holds opposite it and pass the second whatever it held.

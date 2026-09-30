@@ -1,5 +1,5 @@
 --- Fuzz properties for what `cosmic refresh` reads from upstream: a PEM
---- bundle (`roots.parse`), the date curl names it by, and PyPI's
+--- bundle ([`roots.parse`]), the date curl names it by, and PyPI's
 --- description of tzdata. Each is total -- a refusal by
 --- name, never a raise -- and reads well-formed input back as written.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).

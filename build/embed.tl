@@ -109,7 +109,7 @@ local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
                           "file", "line" }
 
---- A catalog row's guidance, as an uncaught error prints it (`Errors.guidance`):
+--- A catalog row's guidance, as an uncaught error prints it ([`Errors.guidance`]):
 --- its own text, or else its symbol's doc comment.
 local guidance_text <const> = "coalesce(catalog.text, (SELECT d.text FROM docs d " ..
   "WHERE d.module = catalog.module AND d.source_symbol = catalog.symbol))"
@@ -181,7 +181,7 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
-    -- The time zones `cosmic.time` falls back on where the host has
+    -- The time zones [`cosmic.time`] falls back on where the host has
     -- none of its own.
     copied, copy_trouble = copy_rows(binary, out, "zoneinfo",
       { "name", "data" }, "SELECT name, data FROM zoneinfo ORDER BY name")
@@ -199,14 +199,14 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
-    -- The bill of materials (`build.bom`): the program runs on the same
+    -- The bill of materials ([`build.bom`]): the program runs on the same
     -- cores, so it carries the same components and the notices their
     -- licenses ask to travel with a copy.
     -- TODO: name the project itself in it, as `cosmic bom` names cosmic,
     -- once a project declares a name and version a build can read.
     -- TODO: let `cosmic bom <executable>` print these rows: nothing a
     -- program carries prints them, so its notices travel only inside the
-    -- database bytes. `artifact.split` finds a file's database from its
+    -- database bytes. [`artifact.split`] finds a file's database from its
     -- trailer, as `cosmic refresh --binary` does: open that.
     copied, copy_trouble = copy_rows(binary, out, "components",
       { "name", "kind", "version", "license", "url", "sha256", "patches" },
@@ -222,7 +222,7 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
-    -- The CA roots (`build.roots`): core/http.c reads them out of the
+    -- The CA roots ([`build.roots`]): core/http.c reads them out of the
     -- program's own database, so without them it trusts no server.
     copied, copy_trouble = copy_rows(binary, out, "ca_roots",
       { "sha256", "label", "der" }, "SELECT sha256, label, der FROM ca_roots ORDER BY sha256")
@@ -241,7 +241,7 @@ function embed.database(project: string, main: string): string | nil, string
     -- only its file name. An import edge and a catalog row go with the
     -- module they are about.
     -- TODO: an edge exists only for a `require` of a literal name
-    -- (`build.ast.requires`), so a test or example file loaded by a
+    -- ([`build.ast.requires`]), so a test or example file loaded by a
     -- computed name or through `pcall(require, "<name>")` is left out
     -- and the program fails to load it at run time; teach
     -- `all_requires` the `pcall(require, ...)` form, and refuse a
@@ -450,7 +450,7 @@ local function run(argv: {integer:string}): integer
   return 0
 end
 
---- The `build` verb as `build/verb_list.tl` lists it.
+--- The `build` verb as [`build/verb_list.tl`] lists it.
 embed.spec = {
   name = "build",
   guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",

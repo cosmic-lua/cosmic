@@ -4,18 +4,18 @@
  * both and the sandbox has one door.
  *
  * Every entry is a LuaCATS annotation block followed by COSMIC_SYSCALL
- * naming it. The block is the source of truth: `build/gen_syscalls.tl`
+ * naming it. The block is the source of truth: [`build/gen_syscalls.tl`]
  * turns it into the Teal declaration and the documentation row, and
  * refuses a function whose annotation is missing a slot. A binding
  * cannot exist without its type, and the C surface cannot grow without
  * a diff in this file -- or in core/process.h, which declares, in the
- * same grammar, the calls only `cosmic.child`, `cosmic.proc` and
- * `build.confine` are handed, as the raw `cosmic.internal.process`.
+ * same grammar, the calls only [`cosmic.child`], [`cosmic.proc`] and
+ * [`build.confine`] are handed, as the raw [`cosmic.internal.process`].
  *
  * Two shapes, and no third. An argument-shape error -- a degenerate
  * input no correct program passes -- raises. A failure a correct caller
  * meets at runtime returns `nil, error, errno` from a call that answers
- * a value and `false, error, errno` from an effect (`core/fail.h`): the
+ * a value and `false, error, errno` from an effect ([`core/fail.h`]): the
  * error in slot two, the errno in slot three, nothing else sharing a
  * slot. This table is the one place a third slot is allowed; a Teal
  * function over it answers in two.
@@ -48,11 +48,11 @@
  * takes one refuses such a path as a runtime failure, EINVAL, rather
  * than raising. A non-string still raises, as any argument-shape error
  * does. `spawn` (core/process.h) raises on a NUL in its path or cwd
- * instead, which `cosmic.child` depends on; neither way truncates.
+ * instead, which [`cosmic.child`] depends on; neither way truncates.
  * `execve` and `landlock_ruleset` raise on one too. */
 const char *cosmic_path (lua_State *L, int index);
 
-/* Opens the table as the `cosmic.sys` module. */
+/* Opens the table as the [`cosmic.sys`] module. */
 int cosmic_open_syscalls (lua_State *L);
 
 #endif

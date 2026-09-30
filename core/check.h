@@ -25,7 +25,7 @@ static inline int cosmic_optint (lua_State *L, int arg, int otherwise) {
   return lua_isnoneornil(L, arg) ? otherwise : cosmic_checkint(L, arg);
 }
 
-/* A descriptor argument: `cosmic_checkint`'s, but refused -- raised,
+/* A descriptor argument: [`cosmic_checkint`]'s, but refused -- raised,
  * naming the argument -- when it is the descriptor a portable start
  * retains on the artifact (core/store.h's `cosmic_store_artifact`),
  * through which core/vfs.c reads the embedded database. No binding
@@ -36,8 +36,8 @@ static inline int cosmic_optint (lua_State *L, int arg, int otherwise) {
  * past every key.
  *
  * Every binding that takes a descriptor takes it through one of these
- * (build/c/rules.tl's "descriptor-argument"): `cosmic_checkfd` for an
- * argument, `cosmic_argfd` for one read out of argument `arg`'s table
+ * (build/c/rules.tl's "descriptor-argument"): [`cosmic_checkfd`] for an
+ * argument, [`cosmic_argfd`] for one read out of argument `arg`'s table
  * or checked otherwise. Defined in core/store.c, which holds the
  * artifact. */
 int cosmic_checkfd (lua_State *L, int arg);

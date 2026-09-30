@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.csv`, which reads untrusted bytes: what
+--- Fuzz properties for [`cosmic.csv`], which reads untrusted bytes: what
 --- `encode` writes `parse` reads back, in any of the delimiters; `parse`
 --- and `rows` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
@@ -22,7 +22,7 @@ end
 
 --- A delimiter and records as packed strings: the delimiter first, then
 --- `r` to start a record and `f<text>` to add a field to it. Drawn with
---- `Fuzz.more`, so shrinking can cut any record or field.
+--- [`Fuzz.more`], so shrinking can cut any record or field.
 local function gen_records(src: Fuzz.Source): string
   local parts: {string} = { Fuzz.pick(src, DELIMITERS) }
   local records = 0
@@ -38,7 +38,7 @@ local function gen_records(src: Fuzz.Source): string
   return Fuzz.pack(parts)
 end
 
---- The delimiter and the records `gen_records` packed; a record with no
+--- The delimiter and the records [`gen_records`] packed; a record with no
 --- field is dropped, as text cannot hold it.
 local function records_from(input: string): string, {{string}}
   local parts = Fuzz.unpack(input)

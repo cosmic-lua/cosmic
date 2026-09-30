@@ -10,16 +10,16 @@
 ---       assert(worker:join())
 ---     end)
 ---
---- `Poll.run` runs its function as the first task, and returns once every
+--- [`Poll.run`] runs its function as the first task, and returns once every
 --- task has ended. A task waits by calling `readable`, `writable`,
 --- `delay` or a Task's `join`, each of which answers true and "" once
---- what it waits for happens, or false and `Poll.TIMEOUT` once its
---- `timeout_ms` passes first, or false and `Poll.CANCELLED` once the task
+--- what it waits for happens, or false and [`Poll.TIMEOUT`] once its
+--- `timeout_ms` passes first, or false and [`Poll.CANCELLED`] once the task
 --- is cancelled. Nothing else here waits: a call that blocks the thread
---- (a blocking read, `Http.get`, a SQLite query) holds every task until
+--- (a blocking read, [`Http.get`], a SQLite query) holds every task until
 --- it returns.
 ---
---- An error a task raises ends `Poll.run` at once: every other task is
+--- An error a task raises ends [`Poll.run`] at once: every other task is
 --- closed where it waits, its `<close>` variables closed, and `run`
 --- raises the error. A task that must go on after a failure catches it
 --- itself.
@@ -27,16 +27,16 @@
 local sys = require("cosmic.sys")
 
 local record Poll
-  --- A function running under `Poll.run` beside the others, answered by
-  --- `Poll.spawn`.
+  --- A function running under [`Poll.run`] beside the others, answered by
+  --- [`Poll.spawn`].
   record Task
     --- Waits for the task to end, at most `timeout_ms` milliseconds (no
     --- limit when nil): true and "" once it has returned, false and
-    --- `Poll.TIMEOUT` or `Poll.CANCELLED` otherwise -- CANCELLED, too, for
+    --- [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] otherwise -- CANCELLED, too, for
     --- a task a failed run closed where it waited.
     join: function(Task, timeout_ms?: integer): boolean, string
     --- Ends the task at its next wait: the wait it is in, if any, and
-    --- every one after, answers false and `Poll.CANCELLED` at once. A
+    --- every one after, answers false and [`Poll.CANCELLED`] at once. A
     --- task that has ended is left alone.
     cancel: function(Task)
   end
@@ -50,7 +50,7 @@ end
 Poll.TIMEOUT = "timed out"
 Poll.CANCELLED = "cancelled"
 
---- The longest wait `sys.poll` takes, and so the longest timeout here.
+--- The longest wait [`sys.poll`] takes, and so the longest timeout here.
 local MOST_MS <const> = 0x7fffffff
 
 --- Readiness `poll` reports whatever was asked: each ends a wait on the
@@ -97,7 +97,7 @@ local record Wake
   why: string
 end
 
---- A run's state while `Poll.run` runs; nil otherwise.
+--- A run's state while [`Poll.run`] runs; nil otherwise.
 local record Loop
   tasks: {thread: State}
   live: integer
@@ -162,7 +162,7 @@ local function wake(w: Wait, ok: boolean, why: string)
 end
 
 --- The task the calling coroutine is, raising at `level` where there is
---- none: a wait outside `Poll.run`, in a coroutine a task made of its
+--- none: a wait outside [`Poll.run`], in a coroutine a task made of its
 --- own, or while the run closes its tasks.
 local function current(what: string, level: integer): State
   if loop == nil then error(what .. " outside Poll.run", level + 1) end
@@ -228,7 +228,7 @@ function Poll.writable(fd: integer, timeout_ms?: integer): boolean, string
 end
 
 --- Waits `ms` milliseconds while the other tasks run: true and "" once
---- they have passed, false and `Poll.CANCELLED` once the task is
+--- they have passed, false and [`Poll.CANCELLED`] once the task is
 --- cancelled first.
 function Poll.delay(ms: integer): boolean, string
   local task = current("Poll.delay", 2)
@@ -402,7 +402,7 @@ function Poll.closing(fd: integer)
   end
 end
 
---- Whether the caller is a task of a running `Poll.run`, whose waits
+--- Whether the caller is a task of a running [`Poll.run`], whose waits
 --- let the other tasks run: what a module that waits asks, to wait
 --- through `readable` and `writable` there and on its own elsewhere.
 function Poll.in_task(): boolean

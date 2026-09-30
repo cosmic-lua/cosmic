@@ -1,4 +1,4 @@
---- `cosmic fetch`: one GET, a small curl over `cosmic.http`, for the
+--- `cosmic fetch`: one GET, a small curl over [`cosmic.http`], for the
 --- ten-second question ("what does this URL send?") and for a download
 --- checked against a digest. With no `-o` the body goes to standard
 --- output, so `cosmic fetch <url> | cosmic json '.items'` reads it; with
@@ -34,7 +34,7 @@
 --- stays:
 ---
 --- * GET only. It fetches; it does not post, put or send headers. A
----   caller that needs more writes the script with `cosmic.http`.
+---   caller that needs more writes the script with [`cosmic.http`].
 --- * A status outside 2xx fails by default, as `curl -f` does, and there
 ---   is no flag to turn that off: an error page piped into `cosmic json`
 ---   or saved as a download is the trap this verb exists to avoid. To
@@ -46,8 +46,8 @@
 ---   `cosmic fetch --sha256 <hex> <url> | cosmic json` is the useful
 ---   line. The cost is the body's size in memory; `-o` streams.
 ---
---- Redirects are followed as `cosmic.http` follows them: up to 10 hops
---- (`Http.Options.max_redirects`), a longer chain failing the fetch. A
+--- Redirects are followed as [`cosmic.http`] follows them: up to 10 hops
+--- ([`Http.Options.max_redirects`]), a longer chain failing the fetch. A
 --- fetch that starts at an https URL refuses a redirect to http by
 --- default (exit 1, saying so), and `--allow-downgrade` follows it. That
 --- is the safe default, like the verb's others (a failing status, every
@@ -63,7 +63,7 @@
 ---
 --- An interrupt (SIGINT or SIGTERM) during an `-o` download removes the
 --- temporary file, never creates the target, and exits by that signal:
---- the verb holds a `Child.guard` for the download, `Http.download`
+--- the verb holds a [`Child.guard`] for the download, [`Http.download`]
 --- asks it between chunks and a wait for data ends when it catches one,
 --- and closing the guard delivers the signal again. A kill nothing can
 --- catch (SIGKILL) or that the verb does not hold (SIGHUP) leaves the
@@ -85,7 +85,7 @@ local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 local verb_spec = require("build.verb_spec")
 
---- The `cosmic fetch` verb: `run` is what `build/dispatch.tl` calls.
+--- The `cosmic fetch` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
@@ -96,11 +96,11 @@ local record verb
     out: function(text: string): boolean, string
     --- Writes one complaint line, without its newline.
     err: function(line: string)
-    --- `Http.Options.script`, for a test: canned replies in place of a
+    --- [`Http.Options.script`], for a test: canned replies in place of a
     --- connection.
     script: {string}
     --- What `-o` asks between chunks, for a test: true ends the download
-    --- as an interrupt does. The verb's own is its `Child.guard`'s.
+    --- as an interrupt does. The verb's own is its [`Child.guard`]'s.
     cancelled: function(): boolean
   end
   --- The schemes a redirect of `url` may lead to, for
@@ -176,7 +176,7 @@ local function digest_of(name: string, body: string): string
 end
 
 --- Whether `url` names an http or https host, the only schemes there
---- are. `Http.open` would refuse others too, but as a failed fetch and
+--- are. [`Http.open`] would refuse others too, but as a failed fetch and
 --- not a usage error.
 local function is_url(url: string): boolean
   local authority = url:match("^%a+://([^/?#]*)")
@@ -405,7 +405,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 end
 
---- The `fetch` verb as `build/verb_list.tl` lists it. Reads a URL it is
+--- The `fetch` verb as [`build/verb_list.tl`] lists it. Reads a URL it is
 --- given, never the tree: never stale-checked (`bare` in
 --- build/verb_spec.tl).
 verb.spec = {

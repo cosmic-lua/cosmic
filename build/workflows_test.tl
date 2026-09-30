@@ -6,7 +6,7 @@
 --- what GitHub runs without a YAML parser. A step's script longer than a
 --- line or two lives under .github/scripts/, where it reads as a script
 --- rather than as one string of `\n`-joined lines; an action's is one
---- line. Each is also in `build.flow`'s layout, which `cosmic fix`
+--- line. Each is also in [`build.flow`]'s layout, which `cosmic fix`
 --- writes.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -25,7 +25,7 @@ local READ <const>: Json.DecodeOptions = { json5 = true, hash_comments = true }
 
 --- Of `paths`, the ones in flow style, each with its text: a file whose
 --- first line that is neither blank nor a comment opens with `{` or
---- `[` (`flow.is_flow`).
+--- `[` ([`flow.is_flow`]).
 local function flow_files(paths: {string}): {string: string}
   local out: {string: string} = {}
   for _, path in ipairs(paths) do
@@ -400,7 +400,7 @@ local function test_the_workflows_run_the_scripts_there_are()
   end
 end
 
---- What `scripts_run` refuses in a workflow of one job with `steps`,
+--- What [`scripts_run`] refuses in a workflow of one job with `steps`,
 --- or "" when it takes it.
 local function refusal(steps: {{string: any}}): string
   local ok, err = pcall(scripts_run, "w.yml", { jobs = { j = { steps = steps } } } as {string: any})
@@ -493,7 +493,7 @@ local function test_a_local_action_is_one_there_is()
   assert(got:find("uses .github/actions/nowhere, which holds no action.yml", 1, true), got)
 end
 
---- Every workflow and action is already in `build.flow`'s layout, so a
+--- Every workflow and action is already in [`build.flow`]'s layout, so a
 --- program that reads one and writes it back -- its tree, or its value
 --- over its tree -- changes no byte it did not mean to: `cosmic fix
 --- <path>` lays one out.

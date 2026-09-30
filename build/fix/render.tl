@@ -84,7 +84,7 @@ local function rendered(parsed: ast.Parsed, source: string): string | nil, strin
 end
 
 --- Parse `source` and write it back out.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source string
 --- @param name string Filename used in diagnostics
 --- @return string|nil The rendered source, or nil on a parse or refusal

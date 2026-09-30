@@ -1,8 +1,8 @@
 --- The test harness's epoch, which every sandboxed verdict key holds
---- (`build.declared_key`'s `epoch` part) in place of the harness's own
---- code: what every worker loads (`build.test_worker`'s `loads`), the
---- sandbox's maker (`build.test`'s `harness_own`), and the code that
---- makes a key and looks a verdict up under one (`build.test` and its
+--- ([`build.declared_key`]'s `epoch` part) in place of the harness's own
+--- code: what every worker loads ([`build.test_worker`]'s `loads`), the
+--- sandbox's maker ([`build.test`]'s `harness_own`), and the code that
+--- makes a key and looks a verdict up under one ([`build.test`] and its
 --- `key_code`). An edit to that code moves no key by itself, so a
 --- comment in build/test.tl runs no test again but those that import
 --- it. `epoch` moves every key, and is bumped by hand for a change that
@@ -27,7 +27,7 @@
 --- edits of a bump when the harness moves.
 ---
 --- `acknowledged` holds a digest per module of that code as it was when
---- the choice was last made (`build.test`'s `harness`, over each
+--- the choice was last made ([`build.test`]'s `harness`, over each
 --- module's source and bytecode). It is one module to a line, sorted,
 --- with a blank line between each two, so two changes to different
 --- modules merge cleanly, even two that sort next to each other, and two
@@ -46,13 +46,13 @@
 --- The rule the harness keeps, which `library` and its test hold it to.
 --- Its modules are:
 ---
---- * what every worker loads (`worker.loads`, which `worker.judge` holds
+--- * what every worker loads ([`worker.loads`], which [`worker.judge`] holds
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
 --- * build.test itself and cosmic.child, which applies a worker's
 ---   sandbox (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
----   makes by value, as its bytecode names them (`test.value_imports`).
+---   makes by value, as its bytecode names them ([`test.value_imports`]).
 ---   A `local type` require is not followed, since Teal erases it and
 ---   what the imported type does at run time is compiled into the
 ---   importer's bytecode, which the digests hold.
@@ -62,7 +62,7 @@
 --- standard-library modules `library` names, each with its reason, and no
 --- other `cosmic.*` module. What else of the tree the runner calls is its
 --- plumbing -- the probe of whether to sandbox
---- (`build.test_sandbox_probe`), and what cosmic.child requires to start
+--- ([`build.test_sandbox_probe`]), and what cosmic.child requires to start
 --- a worker -- which must fail loudly, as a failure or a refusal, never
 --- as a pass. What a module of the harness calls through a library table
 --- a test can replace, it takes as a local when it loads.
@@ -79,63 +79,63 @@ end
 harness_epoch.epoch = "9-757b1277" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
+  ["build.artifact"] = "55c6260541c8f3be6caf3f77121aadb47636a8f26308e3b0b089e7b193522176",
 
   ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
 
-  ["build.cache_names"] = "965d44064c9a853518b47596b22ba7a159d50d101ab80ddbb42fbc7700daa338",
+  ["build.cache_names"] = "935f423ffc3fa01e6dc82028a841458319195762357707325f71fcd1e2385afd",
 
-  ["build.caches"] = "ef81e066c41456a8974f66f8abdec627dc793e161bbaa5648c2386b1a17275de",
+  ["build.caches"] = "598a907beb9763ee08569df514f2437ddfeb6734b8a9f5d1a00c2e77ce510ae3",
 
-  ["build.confine"] = "5c6f0de70fb1b8a12b3802a7dcd605633295bbac90cdffd021db7563511174e7",
+  ["build.confine"] = "f78512ad797cdc6ea475e9049d3ea6fc74f040d194d159b3f5d006f433eb3ccc",
 
-  ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
+  ["build.core_image"] = "4942e488c251af85703efc977c9e33260b199134d39316c3b9a5579dcaff7830",
 
-  ["build.declared_key"] = "8c0d1fa360c8e226a5a1db41478c32e3193f15dbc409bedea3832f4ae8aa65c2",
+  ["build.declared_key"] = "5fb8cf0ef2167d3bf942b85e1a140ca5233e6a14a3b4cd4f012ebbedc764bcde",
 
-  ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
+  ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
-  ["build.key_parts"] = "cbf1decec2537d9421eb687c4297817e33fd864de7fc88686f39cd9eb48b2a49",
+  ["build.key_parts"] = "0ecbb6678844f33bd47ae936cf86522fe1f742471ae0c7ce743a2e1dc1612d6a",
 
-  ["build.launcher"] = "9dff6e6443e223fa5a99bb960d8046b47ea47bb506ffd08798771153715a2305",
+  ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
   ["build.plural"] = "52aa9695f4dffc58d017a83027ef65807b8d22b794b6d286a82ab70009250e69",
 
-  ["build.shared_sqlite"] = "d1a6f3376ebfb4eaa5b96a0bfd283e34e07a250f984f2f2e3b7f1fe978d18047",
+  ["build.shared_sqlite"] = "9750c85b5db5419e925d8a8af9552c60054872486a5e37ea762ee3c4862536d2",
 
-  ["build.shared_verdicts"] = "69d2bd4140444c56d0040672ec4ea881ded013b09fc0bd1541e1bbcd98ef4701",
+  ["build.shared_verdicts"] = "626c2548daafcf35cc61d22ce0137b8ef2c8103c2ccc9a209d15ae0c6bc26310",
 
-  ["build.test"] = "8367f0c2856089aec16b13e591866a310cfdba84fd7c8ab23bda2d14044f7f3c",
+  ["build.test"] = "143a73066e48f8cc718e4acce3003f3589e69e51ee22230aa60858c635855ee6",
 
-  ["build.test_inputs"] = "57e5e99f50047f4bd5f1b5d6bd7d915e31eadac4d44fb58a27eda4a3fd97fe7a",
+  ["build.test_inputs"] = "0f6e07437a119237864ce57bf8d1c52a5babe8b4af76983f1448dd3aee57e639",
 
-  ["build.test_sandbox"] = "e6372d377cca85e5b92dca94caba74f9976e364848ef249f3264214e6ba6f877",
+  ["build.test_sandbox"] = "58a35a23c477c71f4618cbba3ec2633aa6bbd0a3309d146cf0dd66159a768319",
 
-  ["build.test_worker"] = "f3275b7632432a73490dfafbe3e914d0ad68b8cd55cd56dd270f6a3418047f45",
+  ["build.test_worker"] = "689ef1857d07ed2ec704563ae360b8e2ed71318f8df601e982e7ac1d6e712252",
 
-  ["build.this_program"] = "543c40bf6abd96f03c599f91a873433d13a533ef19a6d6fca30085dc8b7c2265",
+  ["build.this_program"] = "8de7976beaec4a4367f0a4af8cd2162df5f587891cbad1b94ecc51a28de203eb",
 
-  ["build.zig_caches"] = "6fb33bb6dddd3bc15b50c6fe3435d1789240041e2401a0436f19cc5b9c878015",
+  ["build.zig_caches"] = "d35906e02830ba49939d7d8c8ec2ac9ffdd1782285c1577751b318dc98d17eac",
 
-  ["cmd.cosmic.main"] = "7e1aeb6507bc43ed66bff90de92beb0dcc983087452924d87f08be72ddc9e7a8",
+  ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "54759432d2a2c82119366d4762cb2b82437c5837faa451070d853bd8ea699a7e",
+  ["cosmic.child"] = "0a8e837fa417635ae664e36c93e4339e651ee348e26ceda6b01424bc4076042b",
 
-  ["cosmic.coverage"] = "c35155708d621fa76ddcaf1799f79d16ccc28cdfba385c8d5501ce33f3da9c79",
+  ["cosmic.coverage"] = "0fd55d11c4562209364c73b81a1c02b7808d3022aae2895423385753ed6c7d59",
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
-  ["cosmic.fs"] = "1ee5f2f6dd55f32fda7082aad1533aaf6d2b2e64b823d88058ffbf98fdda630f",
+  ["cosmic.fs"] = "477f7f033d30e55806303c15e4fd09428272c5facd93d1649b4dd63529156e7c",
 
-  ["cosmic.proc"] = "e585019ac0ef1bfe423607fbef900ad74239a59b6879e93d3e0de46280ab70ad",
+  ["cosmic.proc"] = "073ba240c6c36ea37014723e0689ddd732d2e798079efadf8350fb085636ef9a",
 
-  ["cosmic.removed"] = "d311dcef9ccc75943900e0c2aaf9f6582f061cc6b702f31c6a921b7fb947cd9e",
+  ["cosmic.removed"] = "71d9778d9bef5c931798942d75d92b28b1e86d76a992fea7020107c2521ec443",
 
-  ["cosmic.sqlite"] = "5a2e8e7f07e0f271b1fd18c02d3ee87711f0beecf81ca2c974e7dabf248a777f",
+  ["cosmic.sqlite"] = "82d676b467d4922f82441c9e753116850dbfafb2ebc20fa5b1a6b7029b0a97c0",
 
   ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
 
-  ["cosmic.test"] = "ab7690d8700f312ee8e8bf169ddd2f733931638ab4b45ebfdfdfdbced2f7a7f0",
+  ["cosmic.test"] = "51c8e3f7c8f538cc73498e10a6ae188665ab99fe0ddb1acf4667d2b8a07a1e6c",
 
 }
 

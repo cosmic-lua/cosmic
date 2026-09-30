@@ -1,6 +1,6 @@
 /*
  * A VFS that wraps another: the one registered over SQLite's default
- * for every connection `cosmic.sqlite` opens (core/sqlite.c) and the
+ * for every connection [`cosmic.sqlite`] opens (core/sqlite.c) and the
  * one that reads the binary's own database (core/vfs.c). Each keeps the
  * VFS it wraps in `pAppData` and hands it every call it does not
  * handle itself.

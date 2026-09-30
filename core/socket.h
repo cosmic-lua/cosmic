@@ -1,9 +1,9 @@
 /*
- * The socket table: the calls `cosmic.net` listens, accepts, connects
- * and sends with, registered as the raw `cosmic.internal.socket`
+ * The socket table: the calls [`cosmic.net`] listens, accepts, connects
+ * and sends with, registered as the raw [`cosmic.internal.socket`]
  * module, which only that wrapper is handed. Every socket it makes is
  * closed on exec and nonblocking, so a wait is always `wait`'s, which
- * a deadline and a `Child.guard` end; reading is `cosmic.sys`'s `read`.
+ * a deadline and a [`Child.guard`] end; reading is [`cosmic.sys`]'s `read`.
  * Each is answered as a `Socket` that owns its descriptor from the
  * moment it is made, so a raise before the caller has wrapped it --
  * memory running out -- leaks nothing: the collector closes it.
@@ -14,8 +14,8 @@
  *
  * The grammar and the two shapes are core/syscalls.h's: each entry is a
  * LuaCATS annotation block followed by COSMIC_SYSCALL naming it, which
- * `build/gen_syscalls.tl` turns into the declaration of
- * `cosmic.internal.socket`.
+ * [`build/gen_syscalls.tl`] turns into the declaration of
+ * [`cosmic.internal.socket`].
  */
 
 #ifndef COSMIC_SOCKET_H
@@ -24,7 +24,7 @@
 #include "lua.h"
 #include "syscalls.h"
 
-/* Opens the table as the raw `cosmic.internal.socket` module. */
+/* Opens the table as the raw [`cosmic.internal.socket`] module. */
 int cosmic_open_socket (lua_State *L);
 
 #endif

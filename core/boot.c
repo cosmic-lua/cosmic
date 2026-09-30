@@ -110,7 +110,7 @@ static int slurp (lua_State *L, const char *path) {
 }
 
 /* The declarations derived from a header -- the syscall table's and
- * the raw process table's, each of `build.gen_syscalls`' targets -- have
+ * the raw process table's, each of [`build.gen_syscalls`]' targets -- have
  * to exist before any module that requires one is compiled, so the
  * generator runs first and on its own. It imports nothing, which is
  * what makes that possible. Each result is handed to the bridge, which

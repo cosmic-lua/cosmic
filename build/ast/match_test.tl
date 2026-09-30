@@ -1,4 +1,4 @@
---- Correctness probes for `build.ast.match`.
+--- Correctness probes for [`build.ast.match`].
 local teal = require("build.teal")
 local match = require("build.ast.match")
 local node_mod = require("build.ast.node")
@@ -79,7 +79,7 @@ local function test_record_typeid_field_still_compares_its_declared_type()
 end
 
 --- Every node in `root`'s tree that `pattern` matches. `match()` tests
---- one node at a time; `build.ast.rewrite`'s `find_all` searches a whole
+--- one node at a time; [`build.ast.rewrite`]'s `find_all` searches a whole
 --- tree, but is not a dependency of this test, so it descends itself.
 --- @param root Node The tree to search
 --- @param pattern Node A compiled pattern

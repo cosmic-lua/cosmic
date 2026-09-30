@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.dataset`, whose readers take a data file's
+--- Fuzz properties for [`cosmic.dataset`], whose readers take a data file's
 --- bytes and whose loader takes any keys: reading is total on any text,
 --- and a row loaded is a row read back through `_json`, whatever its keys
 --- (dots, quotes, case twins, the empty key, `_json` itself).
@@ -21,7 +21,7 @@ local function value_at(index: integer): any
 end
 
 --- Rows as packed triples: `r` starts a row; `p`, a key and a value index
---- add a pair to the row before it. Each is drawn with `Fuzz.more`, so
+--- add a pair to the row before it. Each is drawn with [`Fuzz.more`], so
 --- shrinking can cut any row or pair.
 local function gen_rows(src: Fuzz.Source): string
   local fields: {string} = {}
@@ -165,7 +165,7 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
   })
 end
 
---- What `Dataset.load` stores for `value`, as the cell a query reads.
+--- What [`Dataset.load`] stores for `value`, as the cell a query reads.
 local function expected_cell(value: any): Sqlite.Cell
   if value == nil or value == Json.null then return { kind = "null" } end
   if value is boolean then return { kind = "integer", integer = value and 1 or 0 } end

@@ -5,7 +5,7 @@ local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 
 -- Copies a whole directory tree to `to`, which must not exist yet,
--- matching identity_test.tl's own `copy_tree`.
+-- matching identity_test.tl's own [`copy_tree`].
 local function copy_tree(label: string, from: string, to: string)
   local copied, trouble = Fs.copy_tree(from, to)
   assert(copied, label .. ": " .. trouble)
@@ -105,7 +105,7 @@ end
 --- relative to it, in order, each with its mode and time: the writer is
 --- `deterministic`, so every time is written as 0 and the same files make
 --- the same bytes wherever and whenever the checkout was made, and a
---- fixture that declares the tar (`Test.needs`'s `host`) is keyed by what
+--- fixture that declares the tar ([`Test.needs`]'s `host`) is keyed by what
 --- it holds alone.
 function RuntimeSetup.pack(root: string, files: {string}, out: string)
   local collected = Stream.collect()
@@ -236,7 +236,7 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
 
   -- What the fixtures would otherwise read of the candidate's tree, which
   -- a sandboxed fixture is given none of (ci/fixtures/*_test.tl's
-  -- `Test.needs`): test/portable/tool.tl with the modules of the tree it
+  -- [`Test.needs`]): test/portable/tool.tl with the modules of the tree it
   -- requires, and build/ with no test but embed_test.tl, the focused
   -- build identity_test.tl runs under the runtime. Each is one file, a
   -- tar a fixture unpacks where it writes (`Fixture.unpack`), so its

@@ -8,9 +8,9 @@
 --- A nested directory with no `init.tl` has no path in at all. The root
 --- and a top-level directory with no `init.tl` are namespaces instead:
 --- each file directly in one is a flat module of its own, public by
---- construction, as `cosmic/fs.tl` is. See `positions.check`.
+--- construction, as [`cosmic/fs.tl`] is. See [`positions.check`].
 ---
---- The `Module` shape lives here, not in `build.importer`, so this
+--- The [`Module`] shape lives here, not in [`build.importer`], so this
 --- check can be a plain function of a module list without the two
 --- files requiring one another.
 
@@ -30,13 +30,13 @@ local record positions
     --- `Example.<name>` names -- empty for any other kind. The two
     --- never mix in one module, since a file is only ever one kind.
     tests: {string}
-    --- A test or example module's `needs` declaration (`cosmic.test`),
-    --- or nil for none (see `build.test_inputs`).
+    --- A test or example module's `needs` declaration ([`cosmic.test`]),
+    --- or nil for none (see [`build.test_inputs`]).
     inputs: analyzer.Declared | nil
     has_top_level_return: boolean
-    --- True only for a module `build.doctest` produced from a
+    --- True only for a module [`build.doctest`] produced from a
     --- `doc/guides/*.md` file rather than read off disk as `.tl`
-    --- source: `build.importer.compile` widens its warning discount for
+    --- source: [`build.importer.compile`] widens its warning discount for
     --- exactly this module, and only this one, to cover the one
     --- `print`-shadowing warning that generated shape always carries --
     --- see `discount_doctest_shadow_warnings`.
@@ -44,10 +44,10 @@ local record positions
     key: string
     --- `key` less the compiler: the digest of the kinds and sources of
     --- the module's import graph alone, which a sandboxed test's key
-    --- holds in `key`'s place (`build.declared_key`), since what the
+    --- holds in `key`'s place ([`build.declared_key`]), since what the
     --- compiler made of that graph it holds by the bytes it made.
     graph_key: string
-    --- The compiled Lua, once `build.importer.compile` has it: made
+    --- The compiled Lua, once [`build.importer.compile`] has it: made
     --- this run or read back from the cache under the same key.
     lua: string
   end
@@ -82,7 +82,7 @@ local function may_import_build(m: positions.Module): boolean
 end
 
 --- Whether every require in `modules` respects position, and if not,
---- which one and why. A module's home directory (`home_of`) is open to
+--- which one and why. A module's home directory ([`home_of`]) is open to
 --- every importer when it is the root, or a top-level directory with no
 --- `init.tl` of its own: a namespace of flat modules, as `cosmic/` and
 --- `build/` are. Any other directory is closed, and only a file inside
@@ -92,9 +92,9 @@ end
 --- in at all.
 ---
 --- In cosmic's own tree, two more rules hold. `build/` is private:
---- only `may_import_build`'s files may import from it. A test is
+--- only [`may_import_build`]'s files may import from it. A test is
 --- private to tests, since the tool's identity leaves every test out
---- (`build.work`'s `is_tool`), and a test the tool carried for a
+--- ([`build.work`]'s `is_tool`), and a test the tool carried for a
 --- module requiring it could change under that module unseen.
 ---
 --- Declarations (`.d.tl`) never reach this check: `collect` leaves

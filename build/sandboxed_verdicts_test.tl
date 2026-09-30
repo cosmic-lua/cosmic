@@ -75,7 +75,7 @@ end
 end
 
 --- Whether a run that said `text` sandboxed no worker, which skips the
---- test (`Test.skip`): false where it did sandbox them. A host that
+--- test ([`Test.skip`]): false where it did sandbox them. A host that
 --- refuses a worker's workers a sandbox of their own -- one running the
 --- tests as root, this test's run confined in a sandbox already --
 --- checks nothing here, and a run held to sandboxing --
@@ -282,9 +282,9 @@ local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/o/bin"))
   assert(Fs.write(root .. "/o/bin/stand-in", "one\n"))
   -- Each starts this program past its launcher by hand, as
-  -- `this_program.program` would: another project cannot reach build/.
-  -- TODO: start it through `this_program.program` once that moves to
-  -- `cosmic.test` (the TODO above it in build/this_program.tl).
+  -- [`this_program.program`] would: another project cannot reach build/.
+  -- TODO: start it through [`this_program.program`] once that moves to
+  -- [`cosmic.test`] (the TODO above it in build/this_program.tl).
   local started = [[
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -363,9 +363,9 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
 end
 
 --- This program, rebuilt at `path` with `statements` run on the
---- database it carries (`artifact.split`), as a rebuild of the tool
+--- database it carries ([`artifact.split`]), as a rebuild of the tool
 --- moves it: a host program of this program's core
---- (`artifact.host_program`), which the kernel runs itself, with no
+--- ([`artifact.host_program`]), which the kernel runs itself, with no
 --- launcher and no shell of the system's to find.
 local function rebuilt(tmp: string, path: string, statements: string)
   local executable = assert(Proc.executable())
@@ -580,7 +580,7 @@ end
 --- stood in for by COSMIC_TEST_COMPILER_SALT, under which the tree is
 --- compiled again -- moves no key but that of a test whose closure
 --- reads the compiler's identity (build/declared_key.tl's
---- `compiler_readers`, which the fixture's `core.allocation_test`
+--- `compiler_readers`, which the fixture's [`core.allocation_test`]
 --- stands in for by its name): the module's key the key holds is the
 --- compiler's graph key, the store's address holds what the compiler
 --- made, and the compiler itself only where it is read.

@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.codec`: every decoder takes back what its
+--- Fuzz properties for [`cosmic.codec`]: every decoder takes back what its
 --- encoder writes, and every decoder is total -- whatever text it is
 --- handed, it answers bytes or a failure and never raises. What a
 --- decoder accepts it accepts exactly: the bytes encode back to the

@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.flags`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.flags`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -37,7 +37,7 @@ function Example.dispatch()
 end
 
 --- Help written from the spec: each option described by a
---- `Flags.Option`, and the program's usage line and what it does.
+--- [`Flags.Option`], and the program's usage line and what it does.
 function Example.help()
   local spec: {string:boolean | Flags.Option} = {
     ["--jobs"] = { value = "n", about = "run n at once" },

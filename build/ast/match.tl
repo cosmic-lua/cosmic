@@ -1,6 +1,6 @@
 --- Structural pattern matching over real Teal ASTs, ast-grep-style:
 --- `$NAME`/`$$$NAME` metavariables in pattern source, matched against
---- `build.ast.node.Node` trees produced by real parses.
+--- [`build.ast.node.Node`] trees produced by real parses.
 ---
 --- The pattern is parsed with the same parser as the target, so it is
 --- a real (partial) Teal AST rather than a regex. Matching is a generic
@@ -15,16 +15,16 @@
 --- `tk` matches `^test_`. The predicate cannot stay inside the
 --- identifier tl parses (`_F:^test_` would lex as a method call), so
 --- `desugar` strips it before parsing and records it in
---- `last_predicates`, keyed by the desugared name. `compile_pattern`
+--- `last_predicates`, keyed by the desugared name. [`compile_pattern`]
 --- reads that table right after parsing and attaches each predicate to
 --- the capture node it belongs to, in `capture_predicates`, keyed by
 --- node identity because two occurrences of one name may carry
 --- different predicates, or none. Both tables live in this module
---- because `Node` is a closed record and `compile_pattern`'s two-slot
+--- because [`Node`] is a closed record and [`compile_pattern`]'s two-slot
 --- return (doc/design.md) has no room for a third value.
 ---
 --- A capture may also stand in a cast's type position (`$X as $T`,
---- `$X as $T:^{`); `build.ast.match_cast` holds that half.
+--- `$X as $T:^{`); [`build.ast.match_cast`] holds that half.
 --- `capture_predicates` is keyed by `any` so the same table serves a
 --- `cast` node's identity.
 local type compiler = require("build.compiler")
@@ -76,7 +76,7 @@ local function is_rest_capture(tk: any): boolean
 end
 
 --- Lua pattern predicates from the most recent `desugar` call, by
---- desugared capture name (`_F`). `compile_pattern` consumes it into
+--- desugared capture name (`_F`). [`compile_pattern`] consumes it into
 --- `capture_predicates` right after `desugar` returns, so a later
 --- `desugar` of unrelated text (`rewrite.tl` desugaring a replacement
 --- template) overwrites it harmlessly.
@@ -84,9 +84,9 @@ local last_predicates: {string: string} = {}
 
 --- The predicate of each capture node in a compiled pattern, keyed by
 --- node identity rather than name, since two occurrences of one name
---- may carry different predicates. `compile_pattern` fills it;
+--- may carry different predicates. [`compile_pattern`] fills it;
 --- `match_value` reads it for every capture it binds. Keyed by `any`
---- because a cast-position capture (`build.ast.match_cast`) is keyed
+--- because a cast-position capture ([`build.ast.match_cast`]) is keyed
 --- by its `cast` node, which `match_value` holds as `{any: any}`.
 local capture_predicates: {any: string} = {}
 
@@ -177,12 +177,12 @@ local function rest_capture_name(node: any): string | nil
   return nil
 end
 
---- The synthetic `Node` bound to a rest-capture: a bare list of the
+--- The synthetic [`Node`] bound to a rest-capture: a bare list of the
 --- matched elements, shaped like tl's "expression_list" and
---- "statements" nodes. It has no span; `build.ast.walk` computes spans.
+--- "statements" nodes. It has no span; [`build.ast.walk`] computes spans.
 --- Its position is its first element's, so the span walk starts where
 --- the matched source does. An empty rest keeps the pattern marker's
---- position and has no span to take (see `build.ast.rewrite`).
+--- position and has no span to take (see [`build.ast.rewrite`]).
 --- @param marker any The pattern's rest-capture marker node
 --- @param elements {any} The matched trailing elements, in order
 --- @return Node A bare-list node wrapping `elements`
@@ -295,7 +295,7 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
   end
   -- An if_block's `if_parent` points back at its "if" statement, so
   -- unguarded field recursion would loop. A revisit matches trivially.
-  -- This guard is separate from `build.ast.walk`'s.
+  -- This guard is separate from [`build.ast.walk`]'s.
   if seen[nv] then
     return true
   end
@@ -337,7 +337,7 @@ end
 --- `return x as integer` parses). When the direct parse fails, the
 --- source is parsed again as `return <source>` and the returned
 --- expression is the top node.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
 --- @return Node|nil The pattern's own top node, or nil on a parse failure
 --- @return string Error message on failure, "" on success
@@ -365,7 +365,7 @@ end
 --- partial pattern matches without spelling out every field of the
 --- kind it names. Capture keys carry the desugared `_` prefix (`$CMD`
 --- binds as `_CMD`).
---- @param pattern Node A compiled pattern (see `compile_pattern`)
+--- @param pattern Node A compiled pattern (see [`compile_pattern`])
 --- @param node Node A candidate node to test
 --- @return {string: Node}|nil Capture bindings by name, or nil when it does not match
 local function match(pattern: Node, node: Node): {string: Node} | nil

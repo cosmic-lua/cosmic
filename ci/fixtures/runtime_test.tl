@@ -232,7 +232,7 @@ local function test_runtime_logical_paths(tmp: string)
   Fixture.run("help-cwd-relative", { "./cosmic-runtime", "help" },
     work .. "/bin", diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
-  -- `Child.start`/`Child.run` never do a PATH search of their own ("argv[1]
+  -- [`Child.start`]/[`Child.run`] never do a PATH search of their own ("argv[1]
   -- is used exactly as given: there is no PATH search" -- cosmic.child), so
   -- PATH-based execution uses `/usr/bin/env`, with the runtime's directory
   -- prepended to PATH.

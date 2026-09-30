@@ -1,4 +1,4 @@
---- The processor features a key holds (`declared_key.dispatched`) are
+--- The processor features a key holds ([`declared_key.dispatched`]) are
 --- those the compiled C chooses code by. Every file that asks what the
 --- processor can do, in the core, the vendored libraries as fetched or
 --- the patch records applied to them, is named here with the features
@@ -78,7 +78,7 @@ local SITES <const>: {string:Site} = {
   -- pmull, which the kernel lists with aes.
   [AESCE] = { lines = "bb97ae0e43fe952e", reads = { aarch64 = { "asimd", "aes", "pmull" } } },
   -- mbedtls's SHA-2 instructions, compiled out: no
-  -- MBEDTLS_SHA*_USE_* is set (`test_the_sha_instructions_are_compiled_out`).
+  -- MBEDTLS_SHA*_USE_* is set ([`test_the_sha_instructions_are_compiled_out`]).
   [SHA256] = { lines = "348fc7a6aafc5db0", reads = {} },
   [SHA512] = { lines = "08b640331951aadd", reads = {} },
   -- xz's CRC32 and CRC64 by carry-less multiply: cpuid leaf 1, ECX

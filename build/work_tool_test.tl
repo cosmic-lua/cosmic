@@ -1,4 +1,4 @@
---- `build.work`'s tests that start the program beside this process: a
+--- [`build.work`]'s tests that start the program beside this process: a
 --- second build of a tree one holds, and `cosmic test` in a project
 --- reached through links. Apart from build/work_test.tl's so those
 --- stand while the tree moves.
@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, roots of their own for the
 --- sandboxed workers of a run they start (`nests`), and what holds a run
---- to sandboxing, which fails a skipped test (`Test.skip`).
+--- to sandboxing, which fails a skipped test ([`Test.skip`]).
 Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true, nests = true }
 
 --- A project whose module directory and one test are links into a
@@ -58,7 +58,7 @@ end
 --- sandbox gives each file of a closure at the linked path it is staged
 --- under (build/test_sandbox.tl). Its workers are nested in this test's
 --- own sandbox, which the kernel lets root nest only two deep: where
---- they had none, it is skipped (`Test.skip`), which only a run held to
+--- they had none, it is skipped ([`Test.skip`]), which only a run held to
 --- sandboxing fails.
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)

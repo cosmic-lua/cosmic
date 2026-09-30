@@ -3,7 +3,7 @@
 --- verdict into the working database, `o/build.db`, which never ships
 --- and is never carried in `o/cosmic.db`.
 ---
---- A test runs in a worker, `build.test_worker`: this binary again,
+--- A test runs in a worker, [`build.test_worker`]: this binary again,
 --- started with the test's module, name, and temporary directory, in a
 --- process group of its own, with its standard streams captured and a
 --- deadline -- `--timeout SECONDS`, or `COSMIC_TEST_TIMEOUT`, 30 by
@@ -16,7 +16,7 @@
 ---
 --- A verdict is keyed by what its test was given rather than by what
 --- it read: the digest of its declared inputs (below), computed before
---- it runs (`build.declared_key`). While that key stands, a passing
+--- it runs ([`build.declared_key`]). While that key stands, a passing
 --- verdict stands, and the test is not run again: the lines it hit in
 --- the run that produced the verdict, loading its module included, are
 --- credited to this one. Verdicts are kept by key, so an edit undone
@@ -25,14 +25,14 @@
 ---
 --- A sandboxed run's key names nothing of where the tree is, so every
 --- checkout whose workers run sandboxed shares its passing verdicts too
---- (`build.shared_verdicts`): a test no verdict of this checkout answers
+--- ([`build.shared_verdicts`]): a test no verdict of this checkout answers
 --- for stands on one another checkout of the same content reached, on
 --- the terms it would on its own, and that verdict is then recorded here
 --- as this run's.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
---- `build.importer` appends a generated `return { test_foo = test_foo,
+--- [`build.importer`] appends a generated `return { test_foo = test_foo,
 --- ... }` to the module's COMPILED Lua, using the same names discovery
 --- already found, so `require`ing the module hands this runner every
 --- test as a table entry. The Teal source a test's author wrote is
@@ -41,8 +41,8 @@
 --- A test function receives one argument: the path of a fresh,
 --- writable directory made just for it, reached through a symbolic
 --- link -- `<scratch>/tmp`, a link to `<scratch>/real`, in a scratch
---- directory `Fs.mkdtemp` made -- so that code resolving one path with
---- `Fs.absolute` and not another compares them wrongly on every
+--- directory [`Fs.mkdtemp`] made -- so that code resolving one path with
+--- [`Fs.absolute`] and not another compares them wrongly on every
 --- platform, as it would under macOS's `/var`, a link to `/private/var`.
 --- The runner removes the scratch directory once the test passes, and
 --- leaves a failing test's behind, so its own files stay around to look
@@ -53,13 +53,13 @@
 --- A test's inputs are its default ones -- its module's import closure,
 --- as source files, the corpora of the fuzz properties it names, and a
 --- pinned environment -- and what its module declares in a top-level
---- `Test.needs { ... }` (`cosmic.test`): paths of the tree and the host,
+--- `Test.needs { ... }` ([`cosmic.test`]): paths of the tree and the host,
 --- variables, the network, the tool, the projection. A sandboxed test
 --- that reads what its module does not declare finds nothing there, and
 --- fails with its own error.
---- Each worker runs sandboxed to them (`build.test_sandbox`), with the
+--- Each worker runs sandboxed to them ([`build.test_sandbox`]), with the
 --- tree at /tree and its scratch directory beneath /tmp
---- (`test_sandbox.scratch`), and so does every
+--- ([`test_sandbox.scratch`]), and so does every
 --- process it starts: a read of anything else finds nothing.
 ---
 --- Where the kernel cannot sandbox a worker (macOS, a host refusing user
@@ -79,10 +79,10 @@
 --- asked to (CI's macOS leg).
 ---
 --- A test whose key holds a passing verdict, of this checkout or, by
---- that key alone, of another (`build.shared_verdicts`), stands; any
+--- that key alone, of another ([`build.shared_verdicts`]), stands; any
 --- other runs, and its verdict is kept only when its inputs still digest
 --- to the same key once it has run. A test that declares loopback
---- addresses, the only network it may (`cosmic.test`), runs offline, as
+--- addresses, the only network it may ([`cosmic.test`]), runs offline, as
 --- every sandboxed test does, and is keyed. None is assumed, and `--all`
 --- (or `COSMIC_TEST_ALL=1`) runs every test the run
 --- chooses, whatever stands.
@@ -159,14 +159,14 @@ local record test
     ran: integer
     cached: integer
     --- Of those that stood, how many on a verdict another checkout
-    --- reached (`build.shared_verdicts`).
+    --- reached ([`build.shared_verdicts`]).
     shared: integer
     --- Of those that ran, how many no key holds, which run every time:
     --- one whose module reaches a network beyond loopback, or reads a
     --- link out of the tree.
     every: integer
     --- Of those that ran, how many passed having said, with
-    --- `Test.skip`, that this host could not check them: no verdict is
+    --- [`Test.skip`], that this host could not check them: no verdict is
     --- kept of one, so each runs every time.
     skipped: integer
   end
@@ -192,7 +192,7 @@ local default_timeout_s = 30
 --- verdicts: by what each test was seen to read, or, set to "declared",
 --- by what it declares.
 --- Every run keys by declaration now, so it is read nowhere; a worker is
---- still not given it (`test.worker_environment`), since CI's driver
+--- still not given it ([`test.worker_environment`]), since CI's driver
 --- sets it on the macOS leg for the pinned release it runs, which does.
 -- TODO: drop `retired_switch` once ci/cosmic-driver.pin names a release
 -- that keys every unsandboxed run by declaration (plan 4.2's PR 3), and
@@ -375,7 +375,7 @@ local function prune_history(handle: Sqlite.Handle, run: integer): boolean, stri
 end
 
 --- The environment every worker this process starts has
---- (`test.worker_environment`), which is what a test's read of a
+--- ([`test.worker_environment`]), which is what a test's read of a
 --- variable answers and so what its key holds: defined beside it.
 local worker_view: function(): {string:string}
 
@@ -400,7 +400,7 @@ local function encode_hits(test_hits: Coverage.Hits): string
   return table.concat(out)
 end
 
---- Folds every line `encoded` (as `encode_hits` writes it) names into
+--- Folds every line `encoded` (as [`encode_hits`] writes it) names into
 --- `hits`.
 local function decode_hits(encoded: string, hits: Coverage.Hits)
   for path, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
@@ -417,7 +417,7 @@ end
 
 --- Resolves every run `credited` names against `coverage_by_test`,
 --- folding the lines its named tests hit into `hits`: only the run-wide
---- union of hit lines per module matters to `write_coverage`, never
+--- union of hit lines per module matters to [`write_coverage`], never
 --- which test hit which line. One query per run credited, each naming
 --- only the tests this run actually still owes it, rather than one per
 --- standing verdict.
@@ -582,20 +582,20 @@ local function sorted_lines(set: {integer: any}): {integer}
   return out
 end
 
---- Every line `build.coverage` found for every non-vendor module
+--- Every line [`build.coverage`] found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`. Rows are
---- never replaced, only later pruned by `prune_history`, so a file's
+--- never replaced, only later pruned by [`prune_history`], so a file's
 --- coverage trend over the kept window of runs is a plain query away
 --- rather than only the latest run's numbers.
 ---
 --- Also writes, for every test that ran, which of the lines it hit into
 --- `coverage_by_test`, one row a test, tagged with the test's identity
---- ("path name", as `by_test` is keyed) and its hits as `encode_hits`
+--- ("path name", as `by_test` is keyed) and its hits as [`encode_hits`]
 --- wrote them when it finished. A test whose verdict stood is not in
 --- `by_test`, since its row from the run that produced the verdict
 --- still stands for it.
 ---
---- `native_lines` are the core's own C lines (`Coverage.native_lines`),
+--- `native_lines` are the core's own C lines ([`Coverage.native_lines`]),
 --- or none when the tree is not the one that C belongs to. Returns the
 --- overall hit and executable-line counts, over every module written
 --- for this run, for the run's own verdict line, and a trouble message.
@@ -633,7 +633,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   end
   -- The core's own C sits among the modules by path: a core that
   -- observes it answers every line a block begins on, and a line is hit
-  -- when some window's hits name it (see `Coverage.native_lines`).
+  -- when some window's hits name it (see [`Coverage.native_lines`]).
   local by_source: {string: importer.Module} = {}
   local sorted_paths: {string} = {}
   for _, m in ipairs(modules) do
@@ -752,11 +752,11 @@ local record Job
   --- `tmp`, a link to it; removed once the test passes.
   scratch: string
   tmp: string
-  --- How its worker is sandboxed, when it is (`build.test_sandbox`).
+  --- How its worker is sandboxed, when it is ([`build.test_sandbox`]).
   plan: test_sandbox.Plan
   --- Sandboxed, the key its verdict is reached under, over its
   --- declared inputs as they were before it started
-  --- (`build.declared_key`); nil for one that reaches a network beyond
+  --- ([`build.declared_key`]); nil for one that reaches a network beyond
   --- loopback, or an unsandboxed run's.
   declared: string
   passed: boolean
@@ -766,7 +766,7 @@ local record Job
 end
 
 --- The digest of the zones and CA roots the running binary's own
---- database carries (`schema.tables_digest`), searched alone so no
+--- database carries ([`schema.tables_digest`]), searched alone so no
 --- attached database stands in for it.
 local function binary_tables(): string | nil, string
   local rows: {{string}} = nil
@@ -783,10 +783,10 @@ local function binary_tables(): string | nil, string
 end
 
 --- What of the running binary a run holds of the code a worker runs,
---- or that writes what it is given (`binary_harness`).
+--- or that writes what it is given ([`binary_harness`]).
 local record Harness
   --- A digest of each module of the test harness by its name, source
-  --- and bytecode (`test.harness`): what a worker runs, and the code
+  --- and bytecode ([`test.harness`]): what a worker runs, and the code
   --- that makes and reads its key. build/harness_epoch.tl's
   --- `acknowledged` records them, one to a line between blank ones, so
   --- two changes to different modules of the harness merge cleanly. No
@@ -798,15 +798,15 @@ local record Harness
   names: {string}
   runs: {string}
   --- The digest of the code that writes a closure store, which salts
-  --- each store's address (`build.closure_store`'s `address`).
+  --- each store's address ([`build.closure_store`]'s `address`).
   store_salt: string
   --- The set of the names of the modules the binary carries, which
-  --- `worker.judge` holds what a worker loaded to.
+  --- [`worker.judge`] holds what a worker loaded to.
   carried: {string:boolean}
 end
 
 --- The modules of the harness beside what every worker loads
---- (`build.test_worker`'s `worker.loads`): build.test_sandbox and the
+--- ([`build.test_worker`]'s [`worker.loads`]): build.test_sandbox and the
 --- tree modules it requires, build.caches and build.zig_caches.
 --- build.test_sandbox makes the plan of a worker's sandbox (`plan`):
 --- what it binds, unveils and holds, and the environment it gives.
@@ -814,12 +814,12 @@ end
 --- makes it; build.zig_caches does so for zig's.
 ---
 --- What else of the runner shapes a worker is the worker's own module's,
---- which `worker.loads` names: its command line and start options, and
---- how its report is read into a verdict (`worker.invocation`,
---- `worker.judge`). The rest of build.test passes it only what a key
+--- which [`worker.loads`] names: its command line and start options, and
+--- how its report is read into a verdict ([`worker.invocation`],
+--- [`worker.judge`]). The rest of build.test passes it only what a key
 --- holds by itself (the test's declaration, its closure's names, which
 --- the store's address holds, whether it may run this program
---- (`Spec.runs_tool`), and its timeout) or what `key_code` holds (the
+--- ([`Spec.runs_tool`]), and its timeout) or what [`key_code`] holds (the
 --- names of the tree's modules and declarations, which decide what a
 --- worker's holds refuse).
 ---
@@ -827,7 +827,7 @@ end
 --- (build/harness_epoch.tl), and an edit to it fails
 --- build/harness_epoch_test.tl until the epoch is bumped or the edit
 --- acknowledged. That test also fails where a module here or in
---- `worker.loads` requires one of the tree the harness does not name.
+--- [`worker.loads`] requires one of the tree the harness does not name.
 -- TODO: key the sandbox's plan as data -- its unveils and binds, with
 -- the tree, the scratch directory and the host caches named relative to
 -- what they stand for, and its environment -- rather than leaving it to
@@ -840,7 +840,7 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
 
 --- The modules of the harness held alone, by their own source and
 --- bytecode, their requires not walked: cosmic.child, whose `start`
---- turns a worker's plan (`test_sandbox.Plan`'s `sandbox`) into what
+--- turns a worker's plan ([`test_sandbox.Plan`]'s `sandbox`) into what
 --- spawn holds it to -- the unveils, the binds, offline -- so an edit
 --- that weakened it would pass a test that reads what it does not
 --- declare, and keep and share the pass. What it requires (cosmic.time,
@@ -855,8 +855,8 @@ local harness_alone <const>: {string} = { "cosmic.child" }
 
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of
---- the key's computation (`build.declared_key`) and of the shared
---- verdicts' (`build.shared_verdicts`), as the `imports` table has it.
+--- the key's computation ([`build.declared_key`]) and of the shared
+--- verdicts' ([`build.shared_verdicts`]), as the `imports` table has it.
 --- What build.test decides of a worker's holds is part of it: which
 --- names of the tree and its declarations a `require` or a lookup in the
 --- store refuses (`tree_names`, `declared_names`).
@@ -875,7 +875,7 @@ local harness_alone <const>: {string} = { "cosmic.child" }
 -- worker its holds and looks a verdict up, walked as `key_roots` are,
 -- once it is a module of its own (plan 2.7b): today build.test is held whole and unwalked, so an
 -- edit to its census or report output acknowledges the harness, and
--- what it requires beyond `key_code` (cosmic.time, cosmic.cli and the
+-- what it requires beyond [`key_code`] (cosmic.time, cosmic.cli and the
 -- like) is outside build/harness_epoch.tl's `library` rule.
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
 local key_own <const>: {string} = { "build.test" }
@@ -885,12 +885,12 @@ local key_own <const>: {string} = { "build.test" }
 local epoch_module <const> = "build.harness_epoch"
 
 --- The code that writes a closure store: build.closure_store's and the
---- schema it writes it by (`build.schema`).
+--- schema it writes it by ([`build.schema`]).
 ---
 --- The store's address holds the rows it carries by their digests
---- (`closure_store.basis`), but not which of them, nor which tables,
+--- ([`closure_store.basis`]), but not which of them, nor which tables,
 --- that code copies: a table added to what it copies would move no
---- address. The projection's writer (`build.writer`) is none of this
+--- address. The projection's writer ([`build.writer`]) is none of this
 --- code. What it writes reaches a store only through rows and orderings
 --- the basis digests: each module's columns, its source's stored bytes
 --- among them, and its own docs, catalog and examples in their order,
@@ -900,7 +900,7 @@ local epoch_module <const> = "build.harness_epoch"
 --- carry them.
 ---
 --- The salt holds the code that writes a closure store with all it
---- requires (`store_code`), each module by its source and bytecode. It
+--- requires ([`store_code`]), each module by its source and bytecode. It
 --- salts data, the store's bytes, which the epoch does not stand for:
 --- what build.closure_store writes passes through cosmic.sqlite,
 --- cosmic.fs and cosmic.hash, and an edit to one of them (how a blob is
@@ -958,30 +958,30 @@ function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
   return out, ""
 end
 
---- The names `key_roots` and `key_own` hold (`closure_of`), over the
---- requires each module makes by value (`test.value_imports`).
+--- The names `key_roots` and `key_own` hold ([`closure_of`]), over the
+--- requires each module makes by value ([`test.value_imports`]).
 local function key_code(by_value: {string:{string}}): {string}
   return closure_of(key_roots, key_own, by_value)
 end
 
---- The names `store_writer` holds, with what they require (`closure_of`).
+--- The names `store_writer` holds, with what they require ([`closure_of`]).
 local function store_code(imports: {string:{string}}): {string}
   return closure_of(store_writer, {}, imports)
 end
 
 --- The digests of the test harness's modules and that of the code that
---- writes a closure store (`Harness`), over the modules `db` holds, by
+--- writes a closure store ([`Harness`]), over the modules `db` holds, by
 --- their `modules` and `imports` rows. `db` is the running binary's
---- database (`binary_harness`, which fills in `carried`), or the
+--- database ([`binary_harness`], which fills in `carried`), or the
 --- projection, o/cosmic.db, which build/harness_epoch_test.tl reads.
 ---
 --- Each module of the harness is held by its name, its source's hash and
 --- its bytecode's, a digest to each (`modules`). That covers what a
---- worker loads, `harness_own`, `harness_alone` and `key_code`, but not
+--- worker loads, `harness_own`, `harness_alone` and [`key_code`], but not
 --- build.harness_epoch, which records the digests. Each digest is the
 --- same wherever the tree is, and a compiler that makes other bytecode
 --- of the same source moves it as an edit does. The salt holds each
---- module of the store's writer the same way (`store_code`), as the
+--- module of the store's writer the same way ([`store_code`]), as the
 --- store's bytes follow from both. Nil and why where a module either
 --- names is none `db` carries, which the digests or the salt would
 --- otherwise leave out unnoticed.
@@ -1035,9 +1035,9 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
 end
 
 --- What of the running binary a run holds of the code a worker runs
---- (`Harness`), searched alone so no attached database stands in for
---- it. What a worker runs is what every worker loads (`worker.loads`),
---- which `worker.judge` holds each worker to, and `harness_own`; no
+--- ([`Harness`]), searched alone so no attached database stands in for
+--- it. What a worker runs is what every worker loads ([`worker.loads`]),
+--- which [`worker.judge`] holds each worker to, and `harness_own`; no
 --- `imports` closure of it is walked, which would follow the requires
 --- a worker never runs: Teal erases a `local type` one, and what an
 --- imported type does at run time (an `is` against a record's `where`,
@@ -1091,9 +1091,9 @@ local record Recording
   run: integer
   failures: {string}
   errors: {string}
-  --- Each skipped test's id and why (`Test.skip`), as "<id>: <reason>".
+  --- Each skipped test's id and why ([`Test.skip`]), as "<id>: <reason>".
   skips: {string}
-  --- Whether the run is held to sandboxing (`confine.held_to_sandbox`),
+  --- Whether the run is held to sandboxing ([`confine.held_to_sandbox`]),
   --- which fails a skipped test.
   held: boolean
   --- What each failing test printed, by its id.
@@ -1111,7 +1111,7 @@ local record Recording
   --- megabytes.
   by_test: {string: string}
   --- The core's C when the tree is not cosmic's own: its hits are kept
-  --- out of every record of the run (see `write_coverage`).
+  --- out of every record of the run (see [`write_coverage`]).
   unowned: Coverage.Hits
   tally: test.Tally
   --- The verdicts every checkout shares, or nil, and what the run owes
@@ -1121,84 +1121,84 @@ local record Recording
   --- Each key a verdict of this run stands under, its
   --- shared key, for `owed.used`.
   shared_keys: {string:string}
-  --- What names this checkout among the rows it shares (`checkout_id`).
+  --- What names this checkout among the rows it shares ([`checkout_id`]).
   origin: string
   --- Each selected module's effective inputs, by path, and the program
   --- running the tests, which `tool` declares.
   effective: {string:test_inputs.Effective}
   tool: {string}
-  --- Whether each worker runs sandboxed (`build.test_sandbox`): the
+  --- Whether each worker runs sandboxed ([`build.test_sandbox`]): the
   --- switch does not turn it off and the kernel can. `effective` then
   --- holds every selected module's inputs, and `views` the environment
   --- its workers are given, by module path.
   sandbox: boolean
   --- What reruns one test as this run ran it: the switch as the run was
-  --- given it (`test_sandbox.mode`), or "" when unset.
+  --- given it ([`test_sandbox.mode`]), or "" when unset.
   rerun_prefix: string
   views: {string:{string:string}}
-  --- What keys each verdict (`build.declared_key`): the
+  --- What keys each verdict ([`build.declared_key`]): the
   --- digests of the tree's files the run has taken, and the compiler's
-  --- identity (`build.work`'s `Identities`) as the running tool's `meta`
+  --- identity ([`build.work`]'s `Identities`) as the running tool's `meta`
   --- names it, `compiler` and then `compiled_by`, which a key holds
-  --- only where its closure reads it (`declared_key.reads_compiler`).
+  --- only where its closure reads it ([`declared_key.reads_compiler`]).
   digests: declared_key.Digests
   compiler: string
   --- The host's identity every key holds
-  --- (`declared_key.host_identity`), what it has installed, which only
+  --- ([`declared_key.host_identity`]), what it has installed, which only
   --- the key of a module given the system's paths holds
-  --- (`declared_key.system_identity`), and why each module whose tests
+  --- ([`declared_key.system_identity`]), and why each module whose tests
   --- have no key has none, but for the network, by module path.
   host: string
   --- The host's identity with a worker run as a user of its own in
-  --- place of the runner's (`test_sandbox.worker_user`), else `host`.
+  --- place of the runner's ([`test_sandbox.worker_user`]), else `host`.
   worker_host: string
   system: string
   --- The harness's epoch (build/harness_epoch.tl), which every key
   --- holds in place of the harness's code, and the timeout each worker
-  --- runs under (`Limits.timeout_ms`), which every key holds too: a
+  --- runs under ([`Limits.timeout_ms`]), which every key holds too: a
   --- pass reached under a longer one need not come under a shorter.
   epoch: string
   timeout_ms: integer
   --- The program a test that runs this program runs
-  --- (`declared_key.program_identity`).
+  --- ([`declared_key.program_identity`]).
   program: string
-  --- The digest of the code that writes a closure store (`Harness`),
+  --- The digest of the code that writes a closure store ([`Harness`]),
   --- and the set of the modules of the tree the binary carries, which
-  --- a worker's loads are held to (`worker.judge`).
+  --- a worker's loads are held to ([`worker.judge`]).
   store_salt: string
   carried: {string:boolean}
   --- Where an artifact runs the tests (o/bin/cosmic, or a
   --- portable cosmic), what runs its core
-  --- (`declared_key.launcher_identity`), which every key holds; nil
+  --- ([`declared_key.launcher_identity`]), which every key holds; nil
   --- where a host program does.
   launcher: string
   unkeyed: {string:string}
   --- Whether each module's workers can be kept from running this
-  --- program (`can_forbid`), by module path.
+  --- program ([`can_forbid`]), by module path.
   forbiddable: {string:boolean}
-  --- Where the host caches each module declares are (`build.caches`),
-  --- by module path, as `caches_of` resolves them.
+  --- Where the host caches each module declares are ([`build.caches`]),
+  --- by module path, as [`caches_of`] resolves them.
   caches: {string:{string}}
   --- Each selected module's import closure, by path: the names of its
   --- modules, which its worker holds its `require`s to
-  --- (`test_inputs.modules`, `build.test_worker`).
+  --- ([`test_inputs.modules`], [`build.test_worker`]).
   closures: {string:{string}}
   --- The same, each a set of names, made as a verdict needs one
-  --- (`closure_set`).
+  --- ([`closure_set`]).
   closure_sets: {string:{string:boolean}}
   --- Every module of the tree, by path, sorted: what a worker refuses a
-  --- `require` of outside its closure (`build.test_worker`).
+  --- `require` of outside its closure ([`build.test_worker`]).
   tree_names: {string}
   --- Every name only a declaration of the tree answers for, sorted:
   --- what a worker's store holds a lookup of outside its closure beside
-  --- `tree_names` (`build.test_worker`).
+  --- `tree_names` ([`build.test_worker`]).
   declared_names: {string}
   --- The address of the store of each module's import closure its
   --- workers are given at o/cosmic.db, or attach unsandboxed
-  --- (`build.closure_store`'s `write`), by path, for every test and
+  --- ([`build.closure_store`]'s `write`), by path, for every test and
   --- example module of the tree that does not declare `store`; the
   --- projection that store is derived from, its basis, and each store
-  --- built or found this run, by address (`given_store`).
+  --- built or found this run, by address ([`given_store`]).
   stores: {string:string}
   projection: string
   basis: closure_store.Basis
@@ -1211,9 +1211,9 @@ end
 
 --- The environment the workers of `m`'s tests are given, which a
 --- variable they read is keyed by: what a sandbox gives one
---- (`test_sandbox.environment`), TMPDIR its scratch directory; one
+--- ([`test_sandbox.environment`]), TMPDIR its scratch directory; one
 --- unsandboxed has the host's cores cache in place of the sandbox's own
---- (`test_sandbox.unenforced_view`), as it is given.
+--- ([`test_sandbox.unenforced_view`]), as it is given.
 local function view_of(rec: Recording, m: importer.Module): {string:string}
   local view = rec.views[m.path]
   if view == nil then
@@ -1226,7 +1226,7 @@ local function view_of(rec: Recording, m: importer.Module): {string:string}
 end
 
 --- Where the tree is, for a `host` path that must not be it, beneath
---- it or above it (`test_inputs.resolved`): its path and where that
+--- it or above it ([`test_inputs.resolved`]): its path and where that
 --- resolves.
 local function tree_roots(rec: Recording): {string}
   return { rec.root, confine.resolution(rec.root) }
@@ -1234,7 +1234,7 @@ end
 
 --- Why `m`'s `host` paths cannot all be given to its workers, from
 --- where a variable one names says, as a worker's environment has it
---- (`test_inputs.resolved`): "" where they can. Every test of such a
+--- ([`test_inputs.resolved`]): "" where they can. Every test of such a
 --- module fails before its worker starts, sandboxed or not.
 local function unresolved(rec: Recording, m: importer.Module): string
   local effective = rec.effective ~= nil and rec.effective[m.path] or nil
@@ -1246,7 +1246,7 @@ local function unresolved(rec: Recording, m: importer.Module): string
   return ""
 end
 
---- Where the host caches `m` declares are (`build.caches`), as every
+--- Where the host caches `m` declares are ([`build.caches`]), as every
 --- worker's environment locates them: what its test may read and write
 --- that no key holds.
 local function caches_of(rec: Recording, m: importer.Module): {string}
@@ -1292,12 +1292,12 @@ end
 
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
 --- this program where its module does not declare `tool`
---- (`confine.forbid_running`): not where it may write a directory
---- the program is in (`test_sandbox.forbiddable`), since a core another
+--- ([`confine.forbid_running`]): not where it may write a directory
+--- the program is in ([`test_sandbox.forbiddable`]), since a core another
 --- cosmic extracts there after the worker holds itself could not be
 --- run. The cores a portable cosmic extracts, where the program's own
 --- core is, are none of them: a worker that declares the `bootstrap`
---- cache has cores of its own (`test_sandbox.cache_writes`). Such a
+--- cache has cores of its own ([`test_sandbox.cache_writes`]). Such a
 --- worker is keyed as if it declared `tool` instead.
 local function can_forbid(rec: Recording, m: importer.Module): boolean
   local found = rec.forbiddable[m.path]
@@ -1311,11 +1311,11 @@ end
 
 --- How a sandboxed worker of `m`'s tests stands to running this
 --- program: "declared" where its module declares `tool`, "forbidden"
---- where it is kept from running it (`can_forbid`), and "allowed" where
+--- where it is kept from running it ([`can_forbid`]), and "allowed" where
 --- it is not -- its module declares `nests`, whose worker no Landlock
 --- ruleset holds, or it cannot be -- which its key holds as if its
---- module declared `tool` (`Spec.runs_tool`). Its key and its command
---- line (`hold_of`) both take it from here.
+--- module declared `tool` ([`Spec.runs_tool`]). Its key and its command
+--- line ([`hold_of`]) both take it from here.
 local enum ToolUse
   "declared"
   "forbidden"
@@ -1330,10 +1330,10 @@ local function tool_use(rec: Recording, m: importer.Module): ToolUse
 end
 
 --- How a worker of `m`'s tests is held by a Landlock ruleset
---- (`worker.Hold`): not at all unsandboxed, nor where its module declares
+--- ([`worker.Hold`]): not at all unsandboxed, nor where its module declares
 --- `nests`, which lets its tests confine a process in a root of its own;
 --- to running anything but this program where it may not run it
---- (`tool_use`); and otherwise to running anything, which holds it to
+--- ([`tool_use`]); and otherwise to running anything, which holds it to
 --- making no root of its own, since the kernel refuses every mount under
 --- a ruleset.
 local function hold_of(rec: Recording, m: importer.Module): worker.Hold
@@ -1342,7 +1342,7 @@ local function hold_of(rec: Recording, m: importer.Module): worker.Hold
 end
 
 --- Whether a worker of `m`'s tests can read the compiler's identity,
---- which it reads from the running tool (`declared_key.reads_compiler`):
+--- which it reads from the running tool ([`declared_key.reads_compiler`]):
 --- not one given the whole projection, which carries its own and is
 --- keyed by its contents.
 local function reads_compiler(rec: Recording, m: importer.Module): boolean
@@ -1351,7 +1351,7 @@ local function reads_compiler(rec: Recording, m: importer.Module): boolean
 end
 
 --- A sandboxed test's key, over its declared inputs as they are now
---- (`build.declared_key`): nil for one that reads a link out of the
+--- ([`build.declared_key`]): nil for one that reads a link out of the
 --- tree, which no key holds, said once in `rec.unkeyed`.
 ---
 --- A key holds a file of the tree by its contents, and none of what a
@@ -1455,8 +1455,8 @@ end
 
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
---- (`build.test_worker`'s `judge`). A key holds what a worker
---- runs by `worker.loads` and the test's closure, so a worker that ran a
+--- ([`build.test_worker`]'s `judge`). A key holds what a worker
+--- runs by [`worker.loads`] and the test's closure, so a worker that ran a
 --- module of the tree the tool carries beyond both fails its test.
 local function finish(rec: Recording, job: Job, result: Child.Result,
                       trouble: string, limits: test.Limits, refused?: boolean)
@@ -1470,7 +1470,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     closure = closure_set(rec, job.m),
   })
   local reported, passed, message = judged.report, judged.passed, judged.message
-  -- A pass the test said it could not check (`Test.skip`) is kept as no
+  -- A pass the test said it could not check ([`Test.skip`]) is kept as no
   -- verdict, pass or fail, so it runs again on the next run -- and on a
   -- host that can check it, whose key differs, as its own; and a run
   -- held to sandboxing, which exists to prove the host checked it all,
@@ -1507,7 +1507,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   -- One with no key -- it reaches a network beyond loopback -- is
   -- kept under none, and runs every time. What a process it starts
   -- reads, its sandbox holds to what its key holds
-  -- (`test_sandbox.Plan`'s `held`); unsandboxed, nothing does, and the
+  -- ([`test_sandbox.Plan`]'s `held`); unsandboxed, nothing does, and the
   -- key trusts its declaration as it trusts the test's own.
   if key == nil then rec.tally.every = rec.tally.every + 1 end
   local held = key ~= nil and declared_of(rec, job.m, id) == key
@@ -1556,7 +1556,7 @@ end
 
 --- What of this process's environment says how it was started and
 --- nothing a test is given: the marker a tool that rebuilt itself sets
---- for the process it re-enters (`build.reboot`), which a run started
+--- for the process it re-enters ([`build.reboot`]), which a run started
 --- after a rebuild holds and one started fresh does not, and the
 --- directory the invoking shell was in before its last `cd`, and the
 --- command it last ran (`_`, which a shell sets to the program it
@@ -1621,9 +1621,9 @@ end
 --- by the relative name `real`: the test is handed `<scratch>/tmp`.
 --- The worker makes `children` there for the coverage its test's
 --- processes report.
---- Removing the scratch directory with `Fs.remove_tree` removes the
+--- Removing the scratch directory with [`Fs.remove_tree`] removes the
 --- link without following it, and the real directory beside it.
--- TODO: keep the link, which a sandboxed worker sees in `test_sandbox.scratch` as an
+-- TODO: keep the link, which a sandboxed worker sees in [`test_sandbox.scratch`] as an
 -- unsandboxed one sees it under the host's temporary directory: it
 -- stands in for macOS's /var on every host, and does not depend on
 -- where the checkout is. Drop it only once a case of its own on the
@@ -1631,7 +1631,7 @@ end
 -- the other, which the link catches on every leg today.
 function test.scratch(): string | nil, string
   -- Padded so the scratch directory's path is as long on this host as
-  -- a sandbox's is, and as macOS's is (`test_sandbox.scratch_length`),
+  -- a sandbox's is, and as macOS's is ([`test_sandbox.scratch_length`]),
   -- past the temporary directory's resolved path and mkdtemp's six.
   local base, base_trouble = Fs.absolute(Env.get_or("TMPDIR", "/tmp"))
   if base == nil then return nil, base_trouble end
@@ -1659,7 +1659,7 @@ end
 --- is a worker a cancelled run ended before its result was collected,
 --- so nothing reports on it, pass or fail. A directory that cannot be
 --- removed (a test left something in it it may not delete) is an error
---- of the run, naming the directory; `Fs.remove_tree` stops at the
+--- of the run, naming the directory; [`Fs.remove_tree`] stops at the
 --- first entry it cannot remove, so the rest of that directory stays
 --- too.
 local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
@@ -1676,7 +1676,7 @@ local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
 end
 
 --- Where the tree at `root` keeps the stores of its test modules'
---- import closures, each named by its address (`build.closure_store`'s
+--- import closures, each named by its address ([`build.closure_store`]'s
 --- `address`).
 local function stores_directory(root: string): string
   return root .. "/o/stores"
@@ -1684,9 +1684,9 @@ end
 
 --- The address of the closure store of each test and example module of
 --- `modules` that does not declare `store`, by path, over the
---- projection `rec.projection` (`closure_store.basis`): every one the tree
+--- projection `rec.projection` ([`closure_store.basis`]): every one the tree
 --- has, selected or not, so a run that selects some leaves the others'
---- stores, and `sweep_stores` takes out only what no module names.
+--- stores, and [`sweep_stores`] takes out only what no module names.
 local function address_stores(rec: Recording, modules: {importer.Module},
                               by_path: {string:importer.Module},
                               declarations: {string:string}): boolean, string
@@ -1707,7 +1707,7 @@ local function address_stores(rec: Recording, modules: {importer.Module},
 end
 
 --- Takes out of the stores directory every entry no module of this run
---- names (`address_stores`): a closure edited since, or a module gone,
+--- names ([`address_stores`]): a closure edited since, or a module gone,
 --- leaves a store nothing will ask for again, and one cut short (a
 --- `.building` file) is written again from the start. A failure to
 --- take one out costs only room, and is said once.
@@ -1771,7 +1771,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local tmp = scratch .. "/tmp"
   job.tmp = tmp
   -- Sandboxed, the worker has the tree at /tree, where it runs, and
-  -- its scratch directory at `test_sandbox.scratch`.
+  -- its scratch directory at [`test_sandbox.scratch`].
   local env: {string:string} = worker_view()
   local root, inside, cwd: string, string, string = rec.root, scratch, nil
   local sandbox: Child.Sandbox = nil
@@ -1781,7 +1781,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     return false
   end
   -- The store of its closure an unsandboxed worker attaches in place
-  -- of the projection (`worker.Invocation`'s `store`): nil for none.
+  -- of the projection ([`worker.Invocation`]'s `store`): nil for none.
   local attached: string = nil
   if rec.sandbox then
     local store, store_trouble = given_store(rec, job.m)
@@ -1806,12 +1806,12 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   else
     -- Unsandboxed, the worker is given the environment its key holds
     -- (the pinned variables, its declared ones and the host's cores
-    -- cache: `view_of`) with TMPDIR its scratch directory, as a sandbox gives it at
-    -- `test_sandbox.scratch`. The key names that, not this path, which
+    -- cache: [`view_of`]) with TMPDIR its scratch directory, as a sandbox gives it at
+    -- [`test_sandbox.scratch`]. The key names that, not this path, which
     -- is new every run. Nothing holds it to the rest of what it declares.
     --
     -- It sees the tree where it is, not at /tree, so its key holds that
-    -- path (`declared_of`, `declared_key.Spec`'s `tree`): a verdict
+    -- path ([`declared_of`], [`declared_key.Spec`]'s `tree`): a verdict
     -- that turns on it stands only in a checkout at the same path. No
     -- host this runs on can give it the tree at a fixed path instead:
     -- a bind mount needs the user namespace a sandbox would have had,
@@ -1824,7 +1824,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- leg's sandbox, which runs it offline, is what fails it.
     --
     -- It attaches the store of its closure, as a sandbox gives it at
-    -- o/cosmic.db (`given_store`), held as a sandboxed worker's is
+    -- o/cosmic.db ([`given_store`]), held as a sandboxed worker's is
     -- (build.test_worker's `hold_store`).
     -- TODO: hand that store on to what the test starts, once a cosmic
     -- run can be told which store to read in place of its tree's
@@ -1844,12 +1844,12 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   -- Sandboxed, a worker whose module does not declare `tool` may not
-  -- run this program (`confine.forbid_running`): what it would run
+  -- run this program ([`confine.forbid_running`]): what it would run
   -- is no input of its test's key; and one whose module does not
-  -- declare `nests` may not make a root of its own (`hold_of`), which
+  -- declare `nests` may not make a root of its own ([`hold_of`]), which
   -- every process it starts learns from its environment
-  -- (`confine.held_variable`). Only a module whose key holds the whole
-  -- projection has no hold on the store (`build.test_worker`): one
+  -- ([`confine.held_variable`]). Only a module whose key holds the whole
+  -- projection has no hold on the store ([`build.test_worker`]): one
   -- that declares `tool` is keyed by the program's modules, not by
   -- the rest of the tree's.
   local declared = job.m.inputs
@@ -1950,7 +1950,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- still be waiting on: those in the group it leads are spared,
       -- until its end ends them with its group. An orphan in a group
       -- the worker itself started is its own to adopt: starting one made
-      -- it a subreaper (`Child.start`).
+      -- it a subreaper ([`Child.start`]).
       -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
       -- of its own, whose init ends when it does, ending everything
       -- left there, before `wait` answers for it. Nothing adopts them
@@ -1962,10 +1962,10 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
       -- TODO: spare an orphan of a running worker that is outside its
-      -- group too -- in a group a descendant started, a `Child.start`
+      -- group too -- in a group a descendant started, a [`Child.start`]
       -- in a process that ended first, or a session it began (setsid)
       -- -- by the worker's session, once a worker can be started in a
-      -- session of its own (`Child.Options` taking one); setsid's
+      -- session of its own ([`Child.Options`] taking one); setsid's
       -- orphan would still escape.
       if not rec.sandbox then
         local groups: {integer} = {}
@@ -2041,7 +2041,7 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
 end
 
 --- Whether this host can run a worker sandboxed
---- (`test_sandbox_probe.available`), and why not where it cannot.
+--- ([`test_sandbox_probe.available`]), and why not where it cannot.
 local function sandbox_here(): boolean, string
   local start, start_trouble = worker.program()
   if start == nil then return false, "the test runner cannot find itself: " .. start_trouble end
@@ -2060,7 +2060,7 @@ end
 --- Says each of `failures`, sorted, with the selector that reruns its
 --- test and what the test printed; a failed test's message names the
 --- directory it kept (`finish`).
---- Says each skipped test, with why (`Test.skip`), sorted.
+--- Says each skipped test, with why ([`Test.skip`]), sorted.
 local function say_skips(rec: Recording)
   table.sort(rec.skips)
   for _, skip in ipairs(rec.skips) do log:say("test: SKIP  " .. skip) end
@@ -2091,7 +2091,7 @@ local function say_failures(rec: Recording, failures: {string})
 end
 
 --- Builds the tree in the working directory and runs every test it
---- discovered that its selectors choose (`test.selects`), printing a
+--- discovered that its selectors choose ([`test.selects`]), printing a
 --- verdict line and returning the exit code: 0
 --- when every test passed.
 --- @param argv the command line, which a stale tool re-enters after
@@ -2177,7 +2177,7 @@ local function run(argv: {integer:string}): integer
   local built = teal.lazy()
 
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
-  -- and re-enters this command line (`reboot.guard`).
+  -- and re-enters this command line ([`reboot.guard`]).
   if own_tree then
     local code = reboot.guard(handle, root, argv)
     if code ~= nil then
@@ -2207,7 +2207,7 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   -- Every verdict is keyed on the data tables the binary carries too
-  -- (`schema.tables_digest`): `cosmic refresh` replaces its zones and
+  -- ([`schema.tables_digest`]): `cosmic refresh` replaces its zones and
   -- roots without moving its runtime identity, and a test that read one
   -- could fail on the refreshed binary. Every test, not only one that
   -- read a table: that read goes through `Store`'s own connection, which
@@ -2236,7 +2236,7 @@ local function run(argv: {integer:string}): integer
   -- elsewhere enforces it. A verdict reached sandboxed is kept apart
   -- from one reached without, by a runtime of its own, so neither
   -- stands for the other. An unsandboxed run shares its verdicts only
-  -- through a file COSMIC_VERDICT_CACHE names (`shared_verdicts.chosen`):
+  -- through a file COSMIC_VERDICT_CACHE names ([`shared_verdicts.chosen`]):
   -- no sandbox held what its tests read, so what it reached is another
   -- checkout's to stand on only where both were asked to.
   local must = Env.get("COSMIC_SANDBOX") == "must"
@@ -2260,7 +2260,7 @@ local function run(argv: {integer:string}): integer
     sandboxed, why = sandbox_here()
     if sandboxed then
       -- And whether it is held to confining what it starts
-      -- (`confine.must_confine`), which a test's verdict turns on.
+      -- ([`confine.must_confine`]), which a test's verdict turns on.
       runtime = runtime .. " sandboxed" .. (must and " must" or "")
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
@@ -2499,7 +2499,7 @@ local function run(argv: {integer:string}): integer
     rec.effective[m.path] = effective
   end
   -- What an earlier run hashed, so a key reads none of it again
-  -- (`build.declared_key`).
+  -- ([`build.declared_key`]).
   local remembered, remembered_trouble = Sqlite.text_rows(records,
     "SELECT path, signature, sha256 FROM digests")
   if remembered == nil then
@@ -2597,7 +2597,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   -- The digests the run's keys hold, which each row it keeps in the
-  -- shared cache is stamped with (`shared_verdicts.settle`): made only
+  -- shared cache is stamped with ([`shared_verdicts.settle`]): made only
   -- where there is a cache to stamp or a census to say, since
   -- `host_features` reads the processor's whole description.
   local census_asked = parsed.set["--census"] == true
@@ -2775,7 +2775,7 @@ local function run(argv: {integer:string}): integer
     end
   end
 
-  -- A module `importer.compile` refused ran no tests at all; every
+  -- A module [`importer.compile`] refused ran no tests at all; every
   -- other module still compiled and ran above, so this only turns the
   -- overall verdict to FAIL, one line per refusal, rather than aborting
   -- the whole run the way an unrelated compile error still does.
@@ -2823,7 +2823,7 @@ local function run(argv: {integer:string}): integer
   return 1
 end
 
---- The `test` verb as `build/verb_list.tl` lists it.
+--- The `test` verb as [`build/verb_list.tl`] lists it.
 test.spec = {
   name = "test",
   guide = "none: the verb is for the tree's own checks and is described by `cosmic help test`; the quickstart is about reading data and writing programs, not running a tree's suite",

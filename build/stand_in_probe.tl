@@ -1,6 +1,6 @@
 --- The stand-in's whole program (build/stand_in.tl, whose doc comment
 --- says what its script runs): the main module of the host program
---- `stand_in.build` makes, which carries it and the modules it requires,
+--- [`stand_in.build`] makes, which carries it and the modules it requires,
 --- and nothing else of this tree.
 
 local Child = require("cosmic.child")
@@ -28,7 +28,7 @@ local trapped = 0
 local ignoring = false
 
 --- What `start` started, kept from the collector, whose end of a handle
---- would end its process: the script then ends by `sys.exit`.
+--- would end its process: the script then ends by [`sys.exit`].
 local started: {Child.Handle} = {}
 
 --- What the commands of the chain running have said of their failures,

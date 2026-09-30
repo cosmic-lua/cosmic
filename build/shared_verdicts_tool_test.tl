@@ -48,7 +48,7 @@ end
 --- whose workers are sandboxed shares any. The workers nest in this
 --- test's own sandbox, which a host may refuse (the kernel lets root nest
 --- one only two deep: core/syscalls.c's `map_ids`); the case then says
---- it is skipped (`Test.skip`) and returns, which a run held to
+--- it is skipped ([`Test.skip`]) and returns, which a run held to
 --- sandboxing fails (COSMIC_TEST_SANDBOX=1, as CI's suites set it,
 --- COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
 --- unprivileged runners nest them.
@@ -266,8 +266,8 @@ local function test_without_the_cache_a_checkout_runs_everything(tmp: string)
   said("alone", tmp .. "/alone", "5 ran, 0 stood")
 end
 
---- A database a test reads through `cosmic.sqlite` is read by SQLite
---- in C, not through `cosmic.sys`: a checkout whose database holds
+--- A database a test reads through [`cosmic.sqlite`] is read by SQLite
+--- in C, not through [`cosmic.sys`]: a checkout whose database holds
 --- something else runs the test again, and fails it, while one whose
 --- database is the same stands on the first one's verdict.
 local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string)
@@ -373,7 +373,7 @@ local function test_a_link_made_a_file_runs_what_read_it_again(tmp: string)
   assert(file:find("FAIL (2 of 2 failed", 1, true), file)
 end
 
---- A database a test attaches through the store (`cosmic.store`'s
+--- A database a test attaches through the store ([`cosmic.store`]'s
 --- `attach`) is read by SQLite in C too: a checkout whose database
 --- holds something else runs the test again, and fails it, while one
 --- whose database is the same stands on the first one's verdict. A

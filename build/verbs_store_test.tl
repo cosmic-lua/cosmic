@@ -1,7 +1,7 @@
 --- The cases of the verbs' command-line contract (build/verbs_tool_test.tl)
 --- that read this program's store beyond their module's closure: help
 --- and docs, which read every module's docs, and the verbs run in this
---- process (`build.invoke`), which read every module's rows.
+--- process ([`build.invoke`]), which read every module's rows.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -14,7 +14,7 @@ local verbs_fixture = require("build.verbs_fixture")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
---- `store`: the verbs it runs in this process (`build.invoke`) read
+--- `store`: the verbs it runs in this process ([`build.invoke`]) read
 --- every module's rows.
 Test.needs{
   reads = { "vendor/cacert/cacert.pem" },
@@ -286,7 +286,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
   assert(Fs.write(tmp .. "/o/build.db", garbage))
   local staged = verbs_fixture.expect(tmp, "db", { "db" }, 1)
   assert((staged.stderr or ""):find("file is not a database", 1, true), staged.stderr)
-  -- Every listing `sql` makes, through `cosmic.sys`'s shared table,
+  -- Every listing `sql` makes, through [`cosmic.sys`]'s shared table,
   -- which `Fs` lists through: it runs in-process.
   local listed: {string} = {}
   local calls = sys as {string:any}

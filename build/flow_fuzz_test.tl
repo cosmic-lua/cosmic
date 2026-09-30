@@ -1,4 +1,4 @@
---- Fuzz properties for `build.flow`: `format` is total -- it refuses or
+--- Fuzz properties for [`build.flow`]: `format` is total -- it refuses or
 --- returns a text in the subset, of the same value, that it takes back
 --- unchanged -- on flow-style texts with comments and blank lines drawn
 --- between their tokens and on those texts mutated; and what `write`
@@ -23,7 +23,7 @@ local function gap(src: Fuzz.Source): string
   return src:int(0, 1) == 0 and " " or "\n"
 end
 
---- A flow-style value, its members drawn with `Fuzz.more`.
+--- A flow-style value, its members drawn with [`Fuzz.more`].
 local function gen_value(src: Fuzz.Source, depth: integer): string
   local kind = depth <= 0 and 0 or src:int(0, 2)
   if kind == 0 then return Fuzz.pick(src, SCALARS) end

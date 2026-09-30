@@ -1,4 +1,4 @@
---- Fuzz properties for the text `cosmic time` reads (`cosmic.time`'s
+--- Fuzz properties for the text `cosmic time` reads ([`cosmic.time`]'s
 --- `parse_duration` and `parse_input`): a duration that `format_duration`
 --- writes parses back to itself; `parse_duration` is total -- any bytes,
 --- and any mutation of a well-formed duration, answer a duration or a

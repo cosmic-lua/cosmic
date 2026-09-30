@@ -1,4 +1,4 @@
---- Fetches, verifies and runs the one pinned zig: what `bin/zig` hands
+--- Fetches, verifies and runs the one pinned zig: what [`bin/zig`] hands
 --- off to once it has a bootstrap cosmic.
 ---
 ---     cosmic --standalone build/zig.tl [args...]
@@ -6,13 +6,13 @@
 --- This file runs standalone, against the bootstrap binary's own
 --- embedded standard library and never the tree it sits in, so it
 --- requires `cosmic.*` modules only. Before a build it runs one more
---- file the same way, `build/patch.tl`, which patches the vendored trees
+--- file the same way, [`build/patch.tl`], which patches the vendored trees
 --- (`patch`); nothing else of the tree is loaded. So a bootstrap older or
 --- newer than the tree, a core edit nobody has booted yet, or a syntax
 --- error elsewhere in the tree cannot stop zig from running, which is
 --- what rebuilds all of those. A syntax error in either file can.
 ---
---- The pin is `bin/zig.pin`: a `version` line, then one line per host
+--- The pin is [`bin/zig.pin`]: a `version` line, then one line per host
 --- naming that host's release tarball's sha256. `COSMIC_ZIG` names an
 --- already-installed zig and skips all of this; a name without a slash
 --- is looked up on `PATH`, as a shell would.
@@ -20,15 +20,15 @@
 --- Otherwise the release is cached at
 --- `$XDG_CACHE_HOME/cosmic/zig/<version>-<host>-<sha>` (default
 --- `$HOME/.cache/cosmic/zig/...`, and no fallback when neither is set;
---- see `Fs.cache_dir`, which also refuses a cache directory someone else
+--- see [`Fs.cache_dir`], which also refuses a cache directory someone else
 --- could write to). `<sha>` is the first 16 hex digits of the host's
---- sha256 (`Zig.install_name`). If `<install>/zig` is already there it
+--- sha256 ([`Zig.install_name`]). If `<install>/zig` is already there it
 --- is used as is. Otherwise the tarball `zig-<host>-<version>.tar.xz` is
---- downloaded, checked by `Http.download`'s `sha256` option, from a few
+--- downloaded, checked by [`Http.download`]'s `sha256` option, from a few
 --- of zig's community mirrors and then
 --- `https://ziglang.org/download/<version>/`, retried in rounds
---- (`Zig.sources`, `Zig.fetch`). It goes into a scratch `.work.<pid>`
---- directory under the cache, is extracted with `cosmic.archive`, and is
+--- ([`Zig.sources`], [`Zig.fetch`]). It goes into a scratch `.work.<pid>`
+--- directory under the cache, is extracted with [`cosmic.archive`], and is
 --- renamed into place, tolerating a concurrent winner, whose copy is the
 --- same bytes. The scratch directory is removed on every path out, and
 --- one a dead process left behind is removed by the next install.
@@ -48,9 +48,9 @@
 --- own working directory.
 ---
 --- Every other subcommand replaces this process with zig, its two caches
---- set in the environment (`Zig.passthrough_environment`). `build` runs
+--- set in the environment ([`Zig.passthrough_environment`]). `build` runs
 --- zig as a child instead, between two snapshots of what the build reads
---- (`Zig.snapshot`): a source edited while zig compiles can land in one
+--- ([`Zig.snapshot`]): a source edited while zig compiles can land in one
 --- of a step's inputs and not another's (two links of one core, say),
 --- and the failure that follows names neither. When the snapshots differ
 --- this says which files moved and exits 1, even when zig succeeded,
@@ -58,7 +58,7 @@
 --- terminal's process group, so a Ctrl-C reaches zig itself. This
 --- process catches SIGINT and SIGTERM while zig runs, passes on one zig
 --- has not answered, and waits for zig to exit before it answers as zig
---- did (`Zig.run`): dying of the signal that ended zig, or of a SIGTERM
+--- did ([`Zig.run`]): dying of the signal that ended zig, or of a SIGTERM
 --- zig never got, and otherwise exiting with zig's status.
 ---
 --- Exit codes follow the shell's: 127 when zig cannot be found, 126 when
@@ -83,16 +83,16 @@ local record Zig
     shas: {string:string}
   end
 
-  --- What `Zig.fetch` downloads with, pauses with (for milliseconds)
-  --- and reads the time from (in milliseconds): `Http.download`,
-  --- `sys.nanosleep` and `Time.monotonic_ns` unless a test says otherwise.
+  --- What [`Zig.fetch`] downloads with, pauses with (for milliseconds)
+  --- and reads the time from (in milliseconds): [`Http.download`],
+  --- [`sys.nanosleep`] and [`Time.monotonic_ns`] unless a test says otherwise.
   record Fetcher
     download: function(url: string, path: string, opts: Http.Options): boolean, string
     sleep: function(ms: integer)
     now: function(): integer
   end
 
-  --- Where `bin/zig.pin`'s release for a host is installed: `path`,
+  --- Where [`bin/zig.pin`]'s release for a host is installed: `path`,
   --- whether it is there yet or not, with the pin and host that name it.
   record Install
     path: string
@@ -103,7 +103,7 @@ end
 
 local log = Log.new("bin/zig")
 
---- `bin/zig.pin`'s text: a `version <v>` line, then `<host> <sha256>`
+--- [`bin/zig.pin`]'s text: a `version <v>` line, then `<host> <sha256>`
 --- lines. Each line is read as its first two words, so trailing blanks
 --- or a `\r` never become part of a value, and the first line naming a
 --- key wins over any later one.
@@ -128,7 +128,7 @@ function Zig.read_pin(text: string): Zig.Pin | nil, string
 end
 
 --- `<arch>-<os>` from `uname(2)`'s raw `sysname` and `machine`,
---- normalized to the names `bin/zig.pin` and zig's releases use.
+--- normalized to the names [`bin/zig.pin`] and zig's releases use.
 function Zig.host(sysname: string, machine: string): string | nil, string
   local os: string
   if sysname == "Linux" then
@@ -178,7 +178,7 @@ end
 
 --- `argv` as zig gets it: `build` gains its flags ahead of the caller's
 --- own arguments, installing under `root/o`, with zig's project cache at
---- `project` and its global cache at `shared`, and running `build_jobs`
+--- `project` and its global cache at `shared`, and running [`build_jobs`]
 --- steps at once for `cpus` processors unless the caller passes `-j`;
 --- anything else passes through unchanged.
 function Zig.build_args(root: string, project: string, shared: string,
@@ -246,7 +246,7 @@ end
 --- mirror may be down or lack a release, which costs an attempt each
 --- when drawn, ziglang.org still ending every round. A mirror serves a
 --- release's files flat, at `<mirror>/<name>`. No mirror is trusted:
---- each download is held to `bin/zig.pin`'s sha256, so a stale, broken
+--- each download is held to [`bin/zig.pin`]'s sha256, so a stale, broken
 --- or hostile one costs an attempt and nothing more, and the minisign
 --- signature zig publishes beside each file is not needed.
 -- TODO: check this list against community-mirrors.txt from ci/ (a
@@ -349,7 +349,7 @@ end
 --- `CONNECT_TIMEOUT_MS`). Once the budget is spent the mirrors are
 --- skipped and the fallback is tried one last time.
 ---
---- Each attempt starts from no file at `path` (`Http.download` writes a
+--- Each attempt starts from no file at `path` ([`Http.download`] writes a
 --- fresh temporary file and renames it into place only once the digest
 --- matches). A mirror that served the wrong bytes is not asked again;
 --- one that failed any other way is, in the next round. The fallback is
@@ -520,7 +520,7 @@ end
 --- Where `name` runs from: itself when it holds a slash, else the
 --- first executable file of that name on `path` (an empty entry is the
 --- working directory). Nothing runnable is nil and why, as Proc.find
---- says it; `status_of` gives a shell's status for it: 126 for one
+--- says it; [`status_of`] gives a shell's status for it: 126 for one
 --- that is there but not executable, 127 for none at all.
 function Zig.resolve(name: string, path: string): string | nil, string
   return Proc.find(name, path)
@@ -539,7 +539,7 @@ end
 --- re-released tarball under an unchanged version, a pin edited by
 --- hand), since what gets installed is still held to the whole sha256
 --- as it downloads, and the cache is this user's alone
---- (`Fs.cache_dir`). 64 bits of a sha256 never collide by chance among
+--- ([`Fs.cache_dir`]). 64 bits of a sha256 never collide by chance among
 --- those, and a pin chosen to collide gains its author nothing: they
 --- write the whole sha256 anyway. The whole digest would work as well;
 --- 16 keeps a path short enough to read and type.
@@ -568,11 +568,11 @@ function Zig.install_name(pin: Zig.Pin, host: string): string | nil, string
   return pin.version .. "-" .. host .. "-" .. sha256:sub(1, INSTALL_SHA_DIGITS):lower(), ""
 end
 
---- Where the release `bin/zig.pin` names for this host is installed
+--- Where the release [`bin/zig.pin`] names for this host is installed
 --- under `cache`, whether it is there yet or not: what was extracted
 --- from a download the pin's sha256 was checked against when it was
 --- installed. Nil and why when the pin or the host cannot be read, or
---- the pin names no well-formed sha256 for the host (`install_name`).
+--- the pin names no well-formed sha256 for the host ([`install_name`]).
 function Zig.pinned_install(root: string, cache: string): Zig.Install | nil, string
   local text, ptrouble = Fs.read(root .. "/bin/zig.pin")
   if text == nil then
@@ -617,7 +617,7 @@ end
 
 --- Where one of zig's caches is: `variable` from `environment` (the
 --- process's own when nil) when set, else `tool` in this user's cosmic
---- cache directory, made as `Fs.cache_dir` makes it, else `fallback`.
+--- cache directory, made as [`Fs.cache_dir`] makes it, else `fallback`.
 --- build/zig_caches.tl spells the same rule, with nothing made, for
 --- the test harness, which cannot load this file
 --- (build/zig_caches_test.tl holds the two together).
@@ -657,7 +657,7 @@ end
 --- ZIG_LOCAL_CACHE_DIR the project cache, unless the caller names
 --- either itself. Without them `zig cc` would keep a global cache of its
 --- own under the user's cache directory, `zig` there, which neither CI
---- restores nor a sandboxed test is given (`build.caches`).
+--- restores nor a sandboxed test is given ([`build.caches`]).
 function Zig.passthrough_environment(root: string,
                                      environment: {string:string}): {string:string}
   local out: {string:string} = {}
@@ -706,8 +706,8 @@ local function unwatched(entry: string, name: string): boolean
 end
 
 --- Whether a build reads the file at `path`, relative to the root:
---- CI's cache key (`bin/zig.pin`, `build.zig`, `build.zig.zon`,
---- `core/`, `test/portable/*.c`, `vendor/`, `patch/`, `build/patch.tl`), plus what the
+--- CI's cache key ([`bin/zig.pin`], `build.zig`, `build.zig.zon`,
+--- `core/`, `test/portable/*.c`, `vendor/`, `patch/`, [`build/patch.tl`]), plus what the
 --- boot stages -- the tool's own trees whole, Teal anywhere else, and
 --- the doc guides whose examples it runs.
 local function watches(path: string): boolean
@@ -798,7 +798,7 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
 ---
---- SIGINT and SIGTERM are held by a `Child.guard` meanwhile, so this
+--- SIGINT and SIGTERM are held by a [`Child.guard`] meanwhile, so this
 --- process outlives the child whatever it is sent. A terminal's Ctrl-C
 --- reaches the child directly, since it shares this group. A signal sent
 --- to this process alone does not, so one the child has not answered by
@@ -935,16 +935,16 @@ local function watched_build(root: string, env: {string:string} | nil,
 end
 
 --- Writes every vendored tree with its patch records applied, as
---- `build/patch.tl` does, into `project`'s `cosmic-vendor` directory, by
+--- [`build/patch.tl`] does, into `project`'s `cosmic-vendor` directory, by
 --- running that script on this same binary standalone; and the manifest
 --- it prints, naming each tree's directory, to `root/o/patched.tsv`,
 --- which build.zig reads (`-Dpatched=`). Answers the manifest's path.
 --- build.zig compiles every vendored file from these directories, each
 --- named by its contents, so its path is the same from every checkout.
---- The binary is started past its launcher (`Proc.relaunch`), as a test
+--- The binary is started past its launcher ([`Proc.relaunch`]), as a test
 --- worker is, so running the script takes no shell and lands on this
 --- same core; one with no artifact to relaunch is started as
---- `Proc.executable` names it.
+--- [`Proc.executable`] names it.
 local function patch(root: string, project: string): string | nil, string
   local argv: {string} = {}
   local env: {string:string} = Env.all()

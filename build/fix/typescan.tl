@@ -5,7 +5,7 @@
 --- with a bracket, no memory of how the source spelled it, and, for a
 --- record or enum body, no trace of the comments between its fields.
 --- Rendering one from that object would mean reinventing the type
---- grammar and losing those comments, so `build.fix` writes type syntax
+--- grammar and losing those comments, so [`build.fix`] writes type syntax
 --- as the original bytes. This module says where those bytes stop.
 ---
 --- There are two ways to find the end, and the renderer prefers the

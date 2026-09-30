@@ -1,6 +1,6 @@
 --- The raw socket table's `Socket`: it owns its descriptor, and a unix
 --- listener's socket file, from the moment the call makes them, so one
---- dropped before `cosmic.net` has wrapped it leaks neither.
+--- dropped before [`cosmic.net`] has wrapped it leaks neither.
 
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
@@ -9,7 +9,7 @@ local type raw_socket = require("cosmic.internal.socket")
 
 local type Searcher = function(string): any, any
 
---- The raw table the store's searcher hands `cosmic.net`'s loader.
+--- The raw table the store's searcher hands [`cosmic.net`]'s loader.
 local function socket_table(): raw_socket
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.net")
@@ -140,7 +140,7 @@ local function enter_deep(tmp: string)
   end
 end
 
---- Removes what `enter_deep` made, deepest first, which the harness
+--- Removes what [`enter_deep`] made, deepest first, which the harness
 --- could not: its own removal names each path whole.
 local function remove_deep(tmp: string)
   enter_deep(tmp)

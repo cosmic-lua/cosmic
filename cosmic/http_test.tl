@@ -1,7 +1,7 @@
 --- Coverage for cosmic.http without the network: option and URL
 --- validation, a connection refused on a closed local port, and every
 --- response-handling case through the scripted transport
---- (`Options.script`), where each connection curl opens reads a canned
+--- ([`Options.script`]), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
 local Child = require("cosmic.child")
@@ -464,7 +464,7 @@ local function test_a_method_with_a_nul_is_refused()
   assert(trouble:find("method", 1, true) ~= nil, trouble)
 end
 
---- The message `Http.open` raises with for `opts`.
+--- The message [`Http.open`] raises with for `opts`.
 local function raised(opts: Http.Options): string
   opts.script = opts.script or {}
   local ok, err = pcall(Http.open, url, opts)
@@ -565,7 +565,7 @@ local function test_a_close_variable_closes_the_response()
   assert(again and again_trouble == "")
 end
 
---- A response is a `cosmic.stream` Reader: what takes a file's Reader
+--- A response is a [`cosmic.stream`] Reader: what takes a file's Reader
 --- takes a body the same way.
 local function test_a_response_is_a_stream_reader()
   local body = string.rep("0123456789", 10000)
@@ -672,7 +672,7 @@ local function test_an_upload_of_a_given_size_sends_a_content_length()
   assert(sent:sub(-18) == "\r\n\r\nhello, cosmic!", sent)
 end
 
---- An upload is a `cosmic.stream` Writer: `Stream.copy` fills it from a
+--- An upload is a [`cosmic.stream`] Writer: [`Stream.copy`] fills it from a
 --- Reader, far more than one buffer's worth.
 local function test_an_upload_is_a_stream_writer()
   local data = string.rep("0123456789abcdef", 256 * 1024)

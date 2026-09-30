@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.poll`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.poll`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -50,7 +50,7 @@ function Example.spawn()
   assert(Fs.remove_tree(dir))
 end
 
---- A wait bounded by its timeout answers false and `Poll.TIMEOUT` when
+--- A wait bounded by its timeout answers false and [`Poll.TIMEOUT`] when
 --- nothing comes in time.
 function Example.readable()
   local dir = assert(Fs.mkdtemp("cosmic-poll-example-"))
@@ -93,7 +93,7 @@ function Example.delay()
   assert(woke[1] == 5 and woke[2] == 20)
 end
 
---- A cancelled task's wait answers `Poll.CANCELLED`, and it unwinds on
+--- A cancelled task's wait answers [`Poll.CANCELLED`], and it unwinds on
 --- its own terms.
 function Example.cancel()
   local answer = ""

@@ -25,7 +25,7 @@ Test.needs{
 local type raw_process = require("cosmic.internal.process")
 local type Searcher = function(string): any, any
 
---- The raw process table `require` hands `cosmic.child`'s loader.
+--- The raw process table `require` hands [`cosmic.child`]'s loader.
 local function raw_behind_child(): any
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")
@@ -42,9 +42,9 @@ local function create(path: string): integer
   return fd
 end
 
---- The descriptors `this_program.program` hands its child, as
---- `process.spawn` takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only `cosmic.child`
+--- The descriptors [`this_program.program`] hands its child, as
+--- [`process.spawn`] takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
   local fds: {integer:integer} = {}
@@ -87,7 +87,7 @@ local function in_own_session(tmp: string, chunk: string, ...: string): string |
   return said
 end
 
---- What a chunk run by `in_own_session` starts a confined child with:
+--- What a chunk run by [`in_own_session`] starts a confined child with:
 --- the raw process table, and the paths it reads, from `...`,
 --- colon-joined, the program first.
 local session_preamble <const> = [==[

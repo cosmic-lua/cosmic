@@ -19,7 +19,7 @@ local function counted(n: integer, singular: string, several?: string): string
 end
 
 local record Archive
-  --- Shared with `cosmic.tar`'s own Entry.kind; zip only ever produces
+  --- Shared with [`cosmic.tar`]'s own Entry.kind; zip only ever produces
   --- "file", "dir" or "symlink".
   type Kind = Tar.Kind
 
@@ -39,7 +39,7 @@ local record Archive
     linkpath: string
     --- The entry's body. Read it before asking for the next entry: a
     --- tar body cannot be read after that, and no body can be read once
-    --- the Reader is closed. An entry from `Archive.list` cannot be opened
+    --- the Reader is closed. An entry from [`Archive.list`] cannot be opened
     --- at all.
     open: function(Entry): Stream.Reader | nil, string
   end
@@ -186,7 +186,7 @@ local function wrap_zip(zr: Zip.Reader): Archive.Reader
 end
 
 --- The tar `source` holds, of format `kind` ("tar", "gzip", "xz" or
---- "bzip2"): the reader `Archive.open` and `Archive.open_stream` share.
+--- "bzip2"): the reader [`Archive.open`] and [`Archive.open_stream`] share.
 --- `label` names the input in a complaint.
 local function open_tar(kind: string, source: Stream.Reader, label: string):
     Archive.Reader | nil, string
@@ -271,7 +271,7 @@ local function listed_open(_e: Archive.Entry): Stream.Reader | nil, string
 end
 
 --- Every entry of the archive at `path`. The reader is closed before
---- this returns, so the entries' `open` fails; walk `Archive.open` to
+--- this returns, so the entries' `open` fails; walk [`Archive.open`] to
 --- read bodies.
 function Archive.list(path: string): {Archive.Entry} | nil, string
   local reader, trouble = Archive.open(path)
@@ -338,7 +338,7 @@ local function apply_strip(path: string, prefix: string | nil, count: integer | 
       rest = rest:gsub("^/+", "")
     end
   end
-  -- A float that is a whole number (2.0) counts as one; `extract_from`
+  -- A float that is a whole number (2.0) counts as one; [`extract_from`]
   -- has already refused any other.
   for _ = 1, math.tointeger(count) or 0 do
     local slash = rest:find("/", 1, true)
@@ -388,7 +388,7 @@ local record PendingLink
   mtime: integer
 end
 
---- The extraction `Archive.extract` and `Archive.extract_reader` share:
+--- The extraction [`Archive.extract`] and [`Archive.extract_reader`] share:
 --- `from` is a path to open or a Reader to walk to its end.
 local function extract_from(from: string | Archive.Reader, dest: string,
     given: Archive.ExtractOptions | nil): {string} | nil, string
@@ -506,7 +506,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   --- through anything but a real directory already in `dest` before
   --- its last component: a symlink this archive makes or `dest`
   --- already holds, or a name that is missing. The lexical
-  --- `stays_inside` check is only sound when it does not. A missing
+  --- [`stays_inside`] check is only sound when it does not. A missing
   --- name counts because it may be another link's name under a
   --- different spelling: on a case-insensitive filesystem `x -> b/..`
   --- then `B -> .` makes `x` dest's parent, though no `b` exists.
@@ -669,12 +669,12 @@ end
 --- (a CRC32, a size) is never put in place.
 function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
-  -- A tail call: `extract_from`'s argument errors, raised at level 2,
+  -- A tail call: [`extract_from`]'s argument errors, raised at level 2,
   -- blame this function's caller.
   return extract_from(path, dest, opts)
 end
 
---- Like `extract`, for the entries `reader` yields (from `open_stream`,
+--- Like `extract`, for the entries `reader` yields (from [`open_stream`],
 --- say) rather than a path: read once, to the end, as they arrive, so a
 --- stream is unpacked in one pass and bounded memory. Closes `reader`,
 --- on every path but a raised argument error, which leaves it open. The

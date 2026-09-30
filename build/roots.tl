@@ -1,17 +1,17 @@
 --- The CA roots a cosmic binary trusts: Mozilla's bundle
---- (`vendor/cacert/cacert.pem`), one row per certificate in the shipped
+--- ([`vendor/cacert/cacert.pem`]), one row per certificate in the shipped
 --- `ca_roots` table, each the certificate's DER bytes under its SHA-256
 --- and the label the bundle gives it.
 ---
 --- The database carries the bundle once, as DER, for every core the
---- artifact holds, rather than as PEM text in each core. `core/http.c`
+--- artifact holds, rather than as PEM text in each core. [`core/http.c`]
 --- reads the rows out of the binary's own database the first time a
 --- request needs them and hands mbedtls the chain it parsed, for every
 --- TLS connection and every proxy's alike. A project's database, though
 --- searched ahead of the binary's, never adds a root.
 ---
 --- The writer fills the table in cosmic's own projection alone, as it
---- does the bill of materials (`build.bom`); `carried` copies it into
+--- does the bill of materials ([`build.bom`]); `carried` copies it into
 --- the tool and `cosmic build` into every executable.
 
 local Codec = require("cosmic.codec")
@@ -107,9 +107,9 @@ end
 --- database `db` holds as `qualifier` (`"out."`, say). A tree with no
 --- bundle writes none; one whose bundle holds no certificate fails, so
 --- a binary never ships trusting nothing by accident.
---- TODO: hold the tree's bundle to `Http.check_certificate` as
+--- TODO: hold the tree's bundle to [`Http.check_certificate`] as
 --- `cosmic refresh` holds a fetched one, refusing a root the TLS stack
---- cannot read rather than shipping one `core/http.c` drops; the
+--- cannot read rather than shipping one [`core/http.c`] drops; the
 --- fixtures build/roots_test.tl fills from are bytes that are no
 --- certificate, and would need real ones first.
 function roots.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, string

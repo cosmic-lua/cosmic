@@ -1,5 +1,5 @@
 --- The parts of a verdict key a worker spells too: how one contribution
---- is framed (`key_part`), how a path names the tree (`tree_name`), and
+--- is framed ([`key_part`]), how a path names the tree ([`tree_name`]), and
 --- which modules read the compiler's identity (`compiler_readers`).
 --- build.declared_key computes a key from them and answers each as its
 --- own, so its callers need not know they live here; a worker
@@ -7,7 +7,7 @@
 --- the artifact, the core image, the launcher, SQLite.
 ---
 --- Nothing here is taken through a table a test can replace once this
---- module has loaded, ahead of any test's: `Fs.relative` is taken as a
+--- module has loaded, ahead of any test's: [`Fs.relative`] is taken as a
 --- local at load, and the hexadecimal is its own.
 
 local Fs = require("cosmic.fs")
@@ -39,7 +39,7 @@ do
 end
 
 --- Bytes as lowercase hexadecimal, two digits a byte: what
---- `cosmic.codec`'s `hex` answers.
+--- [`cosmic.codec`]'s `hex` answers.
 local function hex(data: string): string
   return (data:gsub(".", hex_of))
 end
@@ -64,7 +64,7 @@ function key_parts.key_part(kind: string, path: string, answer: string): string
   return kind .. " " .. hex(path) .. " " .. hex(answer)
 end
 
---- What names the tree's own root in `tree_name`: a NUL, which no
+--- What names the tree's own root in [`tree_name`]: a NUL, which no
 --- path holds, so no path outside the tree is ever named as one inside.
 local tree_marker <const> = "\0tree"
 
@@ -78,12 +78,12 @@ local tree_marker <const> = "\0tree"
 --- where the tree is -- a path length limit, a name it prints and
 --- compares. The answers a capture observes that name the tree (the
 --- working directory, a realpath, a readlink, a path under the tree read
---- or given) are keyed by `tree_name` in the shared key and whole only in
---- a checkout's own. The artifact path (`Proc.relaunch` and the process
+--- or given) are keyed by [`tree_name`] in the shared key and whole only in
+--- a checkout's own. The artifact path ([`Proc.relaunch`] and the process
 --- table's `relaunch` answer) is keyed nowhere.
 ---
 --- The same rule holds of where the running program is: what
---- `Proc.executable` answered is keyed nowhere, only that it answered
+--- [`Proc.executable`] answered is keyed nowhere, only that it answered
 --- (build.declared_key's `program_answer`).
 ---
 --- Nothing here can see a test break either rule. CI enforces both by
@@ -91,7 +91,7 @@ local tree_marker <const> = "\0tree"
 --- a path the commit and the leg choose, new for each commit
 --- (.github/scripts/place-tree.sh) -- but on the gating runs of a leg
 --- whose unsandboxed workers' keys hold the tree's path (build.declared_key's
---- `Spec.tree`), where the leg alone chooses it and the scheduled run
+--- [`Spec.tree`]), where the leg alone chooses it and the scheduled run
 --- moves it. That catches a test that breaks one
 --- only on a run that runs the test: every run while CI stands only on
 --- what it runs itself, and once it stands on shared verdicts, only a
@@ -105,11 +105,11 @@ function key_parts.tree_name(path: string, tree: string): string
 end
 
 --- The modules of the tree that read the compiler's identity
---- (`Store.meta`'s `compiler` or `compiled_by`), which a closure store
+--- ([`Store.meta`]'s `compiler` or `compiled_by`), which a closure store
 --- does not carry: a worker's reads of it are answered from the running
 --- tool's own `meta`, so a test whose closure holds one of them is keyed
---- by the tool's (build.declared_key's `Spec.compiler`).
---- `build.tree_checks` refuses the tree when a module of it reads it and
+--- by the tool's (build.declared_key's [`Spec.compiler`]).
+--- [`build.tree_checks`] refuses the tree when a module of it reads it and
 --- is not named here.
 local compiler_readers <const>: {string} = {
   "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",

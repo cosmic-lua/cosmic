@@ -144,7 +144,7 @@ local function test_a_map_refuses_a_key_that_is_not_a_string()
   fails({ a = 1, [2] = 2 }, Shape.map(Shape.integer), "$: expected map, got the integer key 2")
 end
 
--- `Json.null` is a missing value: optional admits it and answers nil,
+-- [`Json.null`] is a missing value: optional admits it and answers nil,
 -- and a required field refuses it by name.
 local function test_json_null_is_a_missing_value()
   local text = '{"host": "h", "port": 1, "tls": null}'

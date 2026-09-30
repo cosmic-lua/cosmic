@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.net`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.net`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -62,7 +62,7 @@ function Example.tcp()
 end
 
 --- A server that serves each connection in a task of its own, in a
---- task of `Poll.run`: while one connection waits to be read, the
+--- task of [`Poll.run`]: while one connection waits to be read, the
 --- others are served.
 function Example.accept()
   local dir = assert(Fs.mkdtemp("cosmic-net-example-"))

@@ -16,15 +16,15 @@
 ---
 --- - one column per key any row has, with no declared type, so SQLite
 ---   keeps each value as it was stored. A row without a key holds NULL
----   there. The order is `LoadOptions.columns` when given, else the
----   order the rows carry (`Rows.columns`, a CSV's header), and any other
+---   there. The order is [`LoadOptions.columns`] when given, else the
+---   order the rows carry ([`Rows.columns`], a CSV's header), and any other
 ---   key follows in byte order: rows with no order are in byte order
 ---   throughout.
 --- - a `_json` column last: the whole row as compact JSON text, keys
 ---   sorted, so `json_extract(_json, '$.a.b')` reaches anything.
 --- - scalars stored as SQLite values: a JSON integer as INTEGER, a
 ---   number with a fraction or exponent as REAL, a string as TEXT,
----   `Json.null` as NULL, and a boolean as the integer 0 or 1 (SQLite has
+---   [`Json.null`] as NULL, and a boolean as the integer 0 or 1 (SQLite has
 ---   no boolean; `WHERE flag` and `WHERE flag = 1` both read a `true`).
 ---   A number outside 64 bits is REAL.
 --- - a nested object or array stored as its JSON text, which
@@ -33,7 +33,7 @@
 ---   and `json_type` can.
 ---
 --- A key that cannot be a column name as it is gets another, and
---- `Table.renamed` says which: SQLite folds ASCII case in names, so a key
+--- [`Table.renamed`] says which: SQLite folds ASCII case in names, so a key
 --- whose lower case an earlier column has (`A` after `a`) gets `_2` after
 --- it (`A_2`), or `_3` and on; the empty key is `_`; a NUL byte in a key,
 --- which SQL text cannot hold, is `_`; a key `_json` is renamed the same
@@ -43,7 +43,7 @@
 --- Names are quoted (`"` doubled), so a space, a dot or a keyword in a key
 --- is no trouble in the statement either, written in double quotes.
 ---
---- The `csv` and `tsv` formats (`cosmic.csv` reads them) make a row of each
+--- The `csv` and `tsv` formats ([`cosmic.csv`] reads them) make a row of each
 --- record after the header, its columns the header's names. A cell that is
 --- plainly a number is INTEGER or REAL: an optional `-`, digits and an
 --- optional fraction or exponent, with no `+`, no leading zeros (`0` and
@@ -79,7 +79,7 @@ end
 
 local record Dataset
   --- One row: a column name's key to its value. A value is a string, a
-  --- number, a boolean, `Json.null`, or a table (a nested object or
+  --- number, a boolean, [`Json.null`], or a table (a nested object or
   --- array, stored as JSON text).
   type Row = {string:any}
 
@@ -93,7 +93,7 @@ local record Dataset
 
   --- What a reader may be told.
   record ReadOptions
-    --- Where in the document the rows are, as `Json.parse_path` gives
+    --- Where in the document the rows are, as [`Json.parse_path`] gives
     --- it: the whole document when nil. Only a format that reads a
     --- document takes one (`json`); the others refuse it.
     at: {string | integer}
@@ -109,7 +109,7 @@ local record Dataset
     json_column: boolean
     --- The keys whose columns come first, in this order, even for a key
     --- no row has; any other key follows, in byte order. Nil is the
-    --- rows' own order (`Rows.columns`), byte order if they have none.
+    --- rows' own order ([`Rows.columns`]), byte order if they have none.
     --- A key listed twice counts once.
     columns: {string}
   end
@@ -151,7 +151,7 @@ local function row_of(element: any): Dataset.Row
 end
 
 --- The rows of a JSON value: each element of an array is a row as
---- `row_of` makes it; a value that is not an array is one row.
+--- [`row_of`] makes it; a value that is not an array is one row.
 local function rows_of(value: any): Dataset.Rows
   local rows: Dataset.Rows = {}
   local items, _ = Json.items(value)
@@ -166,7 +166,7 @@ local function rows_of(value: any): Dataset.Rows
 end
 
 --- The value of one CSV cell: an integer or a real when it is plainly a
---- number (see the module comment), `Json.null` when empty, and the text
+--- number (see the module comment), [`Json.null`] when empty, and the text
 --- otherwise.
 local function cell_of(text: string): any
   if text == "" then

@@ -1,6 +1,6 @@
 --- What `cosmic fix` notes of a fixed file beside fixing it
 --- (build/fix/fix_test.tl holds the fixing), against a standard library
---- of the test's own, built by `build.docs_fixture`.
+--- of the test's own, built by [`build.docs_fixture`].
 
 local Fs = require("cosmic.fs")
 local fix = require("build.fix")
@@ -9,7 +9,7 @@ local teal = require("build.teal")
 
 local built = assert(teal.load())
 
---- `fix.notes` reads each fixed file's exported functions and notes the
+--- [`fix.notes`] reads each fixed file's exported functions and notes the
 --- one the standard library already has, prefixed with its file and
 --- line; a test file, and a file outside the tree, earn nothing.
 local function test_notes_name_what_the_library_already_has(tmp: string)

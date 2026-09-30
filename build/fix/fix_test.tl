@@ -10,7 +10,7 @@
 ---
 --- Self-hosting is not checked here: that every Teal source in the tree
 --- renders, is canonical, and stays at the fixed point on a second
---- pass. `fix.source` runs the second pass itself (`build.fix.init`)
+--- pass. [`fix.source`] runs the second pass itself (`build.fix.init`)
 --- and refuses a file that is not a fixed point, so `cosmic fix
 --- --check .`, which CI runs over the whole tree as its format-check
 --- step, holds the tree to it. A copy of that walk here would cost
@@ -256,7 +256,7 @@ local function test_changed_rendering_is_checked_before_it_is_accepted()
 end
 
 --- A renderer whose output is not a fixed point is refused, even when
---- its first pass looks fine on its own: `fix.source` renders what it
+--- its first pass looks fine on its own: [`fix.source`] renders what it
 --- produced a second time and requires the same bytes back.
 local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   local original = render_mod.rendered
@@ -278,7 +278,7 @@ local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   assert(ok, tostring(trouble))
 end
 
---- A YAML file named is laid out by `build.flow`, in any tree; one
+--- A YAML file named is laid out by [`build.flow`], in any tree; one
 --- under `.github/` is found only in cosmic's own tree, and only when it
 --- is in flow style.
 local function test_yaml_in_flow_style_is_taken(tmp: string)
@@ -351,6 +351,22 @@ end
 --- Markdown and Zig are taken to have their links checked, named or
 --- under a directory named, past the build's output; they are not Teal
 --- to render.
+--- A whole run's links cover what a narrower one names: the core's
+--- Teal and the skills' Markdown under `.claude/`, which nothing lays
+--- out, and no other hidden directory.
+local function test_the_core_and_the_skills_have_their_links_checked(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/.claude/skills/a"))
+  assert(Fs.mkdirs(tmp .. "/.other"))
+  assert(Fs.write(tmp .. "/core/a_test.tl", "local x = 1\n"))
+  assert(Fs.write(tmp .. "/.claude/skills/a/SKILL.md", "# A\n"))
+  assert(Fs.write(tmp .. "/.other/b.md", "# B\n"))
+  local all = assert(fix.chosen(tmp, {}))
+  assert(table.concat(all.checked, " ") == ".claude/skills/a/SKILL.md core/a_test.tl",
+    table.concat(all.checked, " "))
+  assert(#all.files == 0, table.concat(all.files, " "))
+end
+
 local function test_markdown_and_zig_are_taken_to_be_checked(tmp: string)
   assert(Fs.mkdirs(tmp .. "/doc"))
   assert(Fs.mkdirs(tmp .. "/o"))
@@ -419,9 +435,9 @@ local function test_a_broken_link_fails_in_each_kind_of_file(tmp: string)
   local want = table.concat({
     root .. "/doc/guide.md:4: link: #nowhere does not resolve (no heading of guide.md has the anchor #nowhere)",
     root .. "/doc/guide.md:4: link: missing.md does not resolve (no declaration, symbol or file by that name)",
-    root .. "/a.tl:5: link: nothing does not resolve (no declaration, symbol or file by that name)",
-    root .. "/b.c:1: link: uncounted does not resolve (no declaration, symbol or file by that name)",
-    root .. "/build.zig:4: link: no_step does not resolve (no declaration, symbol or file by that name)",
+    root .. "/a.tl:5: link: nothing does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+    root .. "/b.c:1: link: uncounted does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+    root .. "/build.zig:4: link: no_step does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
   }, "\n")
   assert(found == want, "got:\n" .. found .. "\nwant:\n" .. want)
 end
@@ -431,7 +447,7 @@ end
 --- just wrote; a run that meets no symbol link opens nothing.
 local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string)
   local root = assert(Fs.absolute(tmp))
-  assert(Fs.write(root .. "/a.md", "[`one`] [`two`]\n"))
+  assert(Fs.write(root .. "/a.md", "[`m.one`] [`m.two`]\n"))
   assert(Fs.write(root .. "/b.md", "[b](b.md)\n"))
   for _, whole in ipairs({ false, true }) do
     local rebuilt, opened = 0, 0
@@ -458,7 +474,7 @@ end
 --- and says so once as a note rather than failing each.
 local function test_links_to_symbols_wait_for_a_build(tmp: string)
   local root = assert(Fs.absolute(tmp))
-  assert(Fs.write(root .. "/a.md", "[`one`] [`two`] [gone](gone.md)\n"))
+  assert(Fs.write(root .. "/a.md", "[`m.one`] [`m.two`] [gone](gone.md)\n"))
   local source = fix.link_context(root, false, false,
     function(_: string): boolean, string return true, "" end,
     function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
@@ -481,4 +497,31 @@ local function test_markdown_and_zig_are_never_rewritten(tmp: string)
     assert(rewritten == "", rewritten)
     assert(#picked.checked == 2, table.concat(picked.checked, " "))
   end
+end
+
+--- `--check` names each plain span that would link and writes
+--- nothing; a fix links them, writes the file, and checks it as
+--- written, and a second fix finds nothing more.
+local function test_a_plain_span_would_link_and_a_fix_links_it(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  local text = "Use `Known.thing` here.\n"
+  assert(Fs.write(root .. "/known.tl", ""))
+  assert(Fs.write(root .. "/a.md", text))
+  local context = on_disk(root, { ["Known.thing"] = { { module = "known", symbol = "Known.thing",
+    file = "known.tl" } } })
+  local checking = fix.links(context, built, { root .. "/a.md" }, "check")
+  local said = table.concat(checking.would, "\n")
+  assert(said == root .. "/a.md:1: link: `Known.thing` would link to known.Known.thing", said)
+  assert(#checking.redefined == 1 and
+    checking.redefined[1] == root .. "/a.md: link: its definitions would be rewritten",
+    table.concat(checking.redefined, "\n"))
+  assert(#checking.broken == 0 and #checking.rewritten == 0, table.concat(checking.broken, "\n"))
+  assert(assert(Fs.read(root .. "/a.md")) == text, "a check wrote the file")
+  local fixing = fix.links(context, built, { root .. "/a.md" }, "write")
+  assert(#fixing.broken == 0 and #fixing.would == 0, table.concat(fixing.broken, "\n"))
+  assert(#fixing.rewritten == 1, tostring(#fixing.rewritten))
+  local written = assert(Fs.read(root .. "/a.md"))
+  assert(written == "Use [`Known.thing`] here.\n\n[`Known.thing`]: known.tl\n", written)
+  local again = fix.links(context, built, { root .. "/a.md" }, "check")
+  assert(#again.would == 0 and #again.broken == 0, table.concat(again.would, "\n"))
 end

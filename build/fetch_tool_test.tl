@@ -41,8 +41,8 @@ local function test_help_names_the_verb_and_its_options(tmp: string)
   assert(out:find("cosmic fetch", 1, true) and out:find("--sha256", 1, true), out)
 end
 
---- The verb's own interrupt wiring, run as a process: a `Child.guard`,
---- `Http.download` asking it between chunks, the guard closed after. The
+--- The verb's own interrupt wiring, run as a process: a [`Child.guard`],
+--- [`Http.download`] asking it between chunks, the guard closed after. The
 --- interrupt is sent from inside the download (its second ask, so a
 --- chunk is already written); the next test sends it from outside.
 local function test_an_interrupted_download_leaves_no_file_and_dies_of_the_signal(tmp: string)

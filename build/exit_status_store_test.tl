@@ -10,7 +10,7 @@ local embed = require("build.embed")
 local Test = require("cosmic.test")
 
 --- The program itself, whose core the programs it builds run on.
---- `store`: `embed.tree` joins every `cosmic.*` module's rows.
+--- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
 Test.needs{ tool = true, store = true }
 
 local function run_program(path: string): Child.Result

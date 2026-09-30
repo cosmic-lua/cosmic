@@ -21,7 +21,7 @@ Test.needs{ env = { "*" } }
 -- launcher_test.tl's, unsandboxed and sharing nothing
 -- (cosmic_ci/orchestration.tl's `phase_fixtures`).
 -- TODO: run this case sandboxed with launcher_test.tl's once
--- ci/cosmic-driver.pin names a release whose `Test.needs` can give a
+-- ci/cosmic-driver.pin names a release whose [`Test.needs`] can give a
 -- sandboxed worker a noexec directory of its own to write (a field for
 -- one, mounted noexec in its root by build/test_sandbox.tl), which no
 -- release, nor main, has yet: today its scratch directory is the only

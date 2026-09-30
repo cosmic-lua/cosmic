@@ -97,11 +97,11 @@ end
 --- @param message what the refusal says, in the verb's own words
 function bare.stdin_reader(message: string): Stream.Reader | nil, string
   if Proc.is_tty(Fs.stdin) then return nil, message end
-  -- `Stream.from_fd` borrows the descriptor, which stays open.
+  -- [`Stream.from_fd`] borrows the descriptor, which stays open.
   return Stream.from_fd(Fs.stdin), ""
 end
 
---- The bytes of standard input, refusing a terminal as `stdin_reader`
+--- The bytes of standard input, refusing a terminal as [`stdin_reader`]
 --- does; nil and why when there is none or it cannot be read.
 --- @param message what the refusal says, in the verb's own words
 function bare.stdin_text(message: string): string | nil, string

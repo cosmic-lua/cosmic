@@ -3,11 +3,11 @@
 --- failure a correct caller meets at runtime comes back as `nil` (for a
 --- value) or `false` (for an effect), then the error, then the errno.
 ---
---- Each test calls the C through `cosmic.sys` directly rather than
+--- Each test calls the C through [`cosmic.sys`] directly rather than
 --- through the typed modules above it, so a binding is held to its own
 --- promise and not to whatever a wrapper makes of it; so too core/process.h's
 --- calls and `digest` and `hmac`, through the raw tables the store hands
---- `cosmic.child` and `cosmic.hash`. `sys.exit` is the one binding with
+--- [`cosmic.child`] and [`cosmic.hash`]. [`sys.exit`] is the one binding with
 --- no test here: it ends the process the test runs in.
 
 local sys = require("cosmic.sys")
@@ -48,7 +48,7 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
---- Says a sandbox test is skipped (`Test.skip`) where this Linux host
+--- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
 --- refuses the sandbox it is about -- no Landlock, no pledge -- as it
 --- returns early: the run counts it skipped rather than passed, and a
 --- run held to sandboxing (COSMIC_SANDBOX=must among them) fails it.
@@ -338,7 +338,7 @@ local function linked_directory(tmp: string): string
   return d
 end
 
---- Checks readdir's answer for `linked_directory`.
+--- Checks readdir's answer for [`linked_directory`].
 local function names_links_as_links(entries: {string:string}, what: string)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
   assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
@@ -839,7 +839,7 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   raises(sys.execve, program, { "program", "-c\0x" }, {})
   raises(sys.execve, program, { "program" }, { A = "b\0c" })
   -- spawn refused a NUL before this rule existed, by raising, and
-  -- `cosmic.child` relies on that; it never truncates either way.
+  -- [`cosmic.child`] relies on that; it never truncates either way.
   raises(process.spawn, tmp .. "\0/program", { "program" }, nil, nil, nil, nil, nil, false)
   raises(process.spawn, program, { "program" }, nil, tmp .. "\0x", nil, nil, nil, false)
   -- The file the truncated paths name is exactly as it was.
@@ -992,9 +992,9 @@ end
 
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
---- public `cosmic.sys`'s: a public `waitpid(-1)` would take the status
+--- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
 --- of a child a `Child` handle owns from under it, and a public signal
---- guard would be a second one beside `Child.guard`'s. `poll` and
+--- guard would be a second one beside [`Child.guard`]'s. `poll` and
 --- `set_nonblocking`, which wait on any descriptor, are the public
 --- table's alone.
 local function test_the_process_calls_are_off_the_public_table()

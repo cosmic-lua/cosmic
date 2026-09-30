@@ -1,11 +1,11 @@
 --- What no key holds by its code, which build/declared_key.tl's
---- `version` stands for: a module's graph key (`build.importer`),
+--- `version` stands for: a module's graph key ([`build.importer`]),
 --- pinned over a small fixed tree. An edit that moves how it is
 --- computed, and so what a key names, must bump `version` there, or
 --- verdicts kept under the old keys stand for what the new ones name;
 --- this fails until it is bumped and the digests here are taken again.
 --- The store of a test's closure is not pinned: its address is salted
---- by the code that writes it (`build.test`'s `store_salt`), so an edit
+--- by the code that writes it ([`build.test`]'s `store_salt`), so an edit
 --- there moves every address already.
 
 local Fs = require("cosmic.fs")

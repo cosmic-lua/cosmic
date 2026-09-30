@@ -1,4 +1,4 @@
---- Fuzz property for `artifact.split`: `cosmic refresh` reads the
+--- Fuzz property for [`artifact.split`]: `cosmic refresh` reads the
 --- trailer of whatever file `--binary` names, so a corrupt one must be
 --- refused by name -- never a raise, nor a head and database that are
 --- not the file's own bytes. Each input edits a small program's

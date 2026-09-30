@@ -1,7 +1,7 @@
 --- Checks a decoded value against a declared shape, and hands it back as
 --- a typed record. What `cosmic.json` decodes, or a loaded chunk returns,
 --- is `any`, and reading a field from it costs a cast that nothing checks.
---- `into` walks the value against a `Spec` built from the functions
+--- `into` walks the value against a [`Spec`] built from the functions
 --- below, once, and answers a new value holding what the spec names and
 --- nothing else, so every read after it is an ordinary typed read.
 ---
@@ -15,7 +15,7 @@
 ---     })
 ---     local server, err: Server | nil, string = Shape.into(decoded, SERVER)
 ---
---- `decode_into` is `Json.decode` and `into` in one call, for text that
+--- [`decode_into`] is [`Json.decode`] and `into` in one call, for text that
 --- is not used as anything but the record:
 ---
 ---     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
@@ -32,12 +32,12 @@
 ---
 --- - The answer is a copy. A record keeps only the fields its spec
 ---   names, so a key the payload grew is dropped rather than refused
----   (`strict_record` refuses it instead), and the value handed in is
+---   ([`strict_record`] refuses it instead), and the value handed in is
 ---   never written to.
---- - JSON is the decoder in mind. A missing key and `Json.null`, which
+--- - JSON is the decoder in mind. A missing key and [`Json.null`], which
 ---   `Json.decode(text, { null_value = Json.null })` puts where the text
 ---   says `null`, are the same thing: `optional` admits either and
----   answers nil. A list answers a JSON array (`Json.is_array`), so an
+---   answers nil. A list answers a JSON array ([`Json.is_array`]), so an
 ---   empty one encodes as `[]`, and a map or record refuses one.
 --- - Nothing is converted, with one exception: `integer` takes a float
 ---   with no fraction, like the `8080.0` another language's encoder
@@ -163,7 +163,7 @@ local function record_of(fields: {string: Spec}, strict: boolean, what: string):
 end
 
 --- A table with the named fields, each of its own shape. Keys it does
---- not name are ignored, and left out of the answer; `strict_record`
+--- not name are ignored, and left out of the answer; [`strict_record`]
 --- refuses them.
 --- @param fields {string: Spec} Each field's shape, by its name
 --- @return Spec The record's shape
@@ -177,18 +177,18 @@ end
 --- fails with `$.prot: unknown key`. The keys are checked before the
 --- fields, so the misspelling is named rather than the field it was
 --- meant to be, and the first unknown one in byte order is the one
---- reported. A key is unknown whatever its value, `Json.null` included:
+--- reported. A key is unknown whatever its value, [`Json.null`] included:
 --- `"prot": null` is still a misspelling. A key that is not a string is
 --- refused as a map refuses one, `$: expected record, got the integer
 --- key 1`. Otherwise it is `record`: a named field that is `optional`
---- may be missing or `Json.null`, and the answer is a copy.
+--- may be missing or [`Json.null`], and the answer is a copy.
 --- @param fields {string: Spec} Each field's shape, by its name
 --- @return Spec The record's shape
 function Shape.strict_record(fields: {string: Spec}): Spec
   return record_of(fields, true, "strict_record")
 end
 
---- The shape `of`, which a missing value, or `Json.null`, also
+--- The shape `of`, which a missing value, or [`Json.null`], also
 --- satisfies; either reads back as nil.
 --- @param of Spec The shape a present value must have
 --- @return Spec The optional shape
@@ -268,7 +268,7 @@ local function wanted(spec: Spec): string
 end
 
 --- What did not fit, and where: the path of the value that did not is
---- kept apart from the message so that `walk_either` can tell a
+--- kept apart from the message so that [`walk_either`] can tell a
 --- failure at a value from one inside it.
 local type Miss = Shape.Failure
 
@@ -314,7 +314,7 @@ local function key_before(a: any, b: any): boolean
 end
 
 --- `t`'s keys, split by `good`: those it admits in ascending order, and
---- those it does not in `key_before`'s.
+--- those it does not in [`key_before`]'s.
 local function split_keys(t: {any: any}, good: function(any): boolean): {any}, {any}
   local keep, bad: {any}, {any} = {}, {}
   for k in next, t do
@@ -334,7 +334,7 @@ local function is_name(k: any): boolean
 end
 
 --- 1 through `#t` when those are `t`'s keys, which a decoded JSON array's
---- are, or nil: what `split_keys` would keep, without sorting anything.
+--- are, or nil: what [`split_keys`] would keep, without sorting anything.
 local function dense_keys(t: {any: any}): {any}
   local n = rawlen(t)
   local count = 0
@@ -367,7 +367,7 @@ end
 --- is (`$.prot: unknown key`). A key that is not a string takes
 --- precedence, so a strict record fails where it stands or at its keys,
 --- never at a field as well. Answers the first such miss, or nil; `all`,
---- when collecting, gets every miss of that sort, in `key_before`'s
+--- when collecting, gets every miss of that sort, in [`key_before`]'s
 --- order for keys that are not strings and byte order for unknown ones.
 local function unknown_keys(t: {any: any}, spec: Spec, path: string, all?: {Miss}): Miss
   local unknown: {string} = {}
@@ -396,7 +396,7 @@ end
 --- `v` checked against `spec` at `path`. `all` is nil to stop at the
 --- first miss, or the list collecting every one. Either way a value
 --- fails where it stands (its misses are all at `path`) or inside
---- (none is), never both, so `walk_either` keeps the same choice in
+--- (none is), never both, so [`walk_either`] keeps the same choice in
 --- both.
 local walk: function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
 
@@ -559,10 +559,10 @@ function Shape.into<T>(value: any, spec: Spec): T | nil, string
 end
 
 --- The JSON `text` holds, checked against `spec` as `into` does, and
---- "". nil and a message when it does not: `Json.decode`'s own, naming
+--- "". nil and a message when it does not: [`Json.decode`]'s own, naming
 --- the line and column, when the text is not JSON, or `into`'s, naming
 --- the `$.path` of the first value that does not fit, when it is JSON of
---- another shape. `opts` are `Json.decode`'s, forwarded as they are
+--- another shape. `opts` are [`Json.decode`]'s, forwarded as they are
 --- (`json5`, `null_value`, `max_depth`). The answer's type is the
 --- caller's annotation, as `into`'s is. Text that is `null` decodes to
 --- nothing (unless `opts.null_value` says otherwise), so a required
@@ -575,7 +575,7 @@ end
 ---     -- "$.port: expected integer, got string"
 --- @param text string The JSON text
 --- @param spec Spec The shape it must have
---- @param opts Json.DecodeOptions What `Json.decode` takes
+--- @param opts Json.DecodeOptions What [`Json.decode`] takes
 --- @return T The value, typed
 --- @return string "" or what was wrong with the text
 function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T | nil, string
@@ -595,7 +595,7 @@ end
 --- a list's elements by index, a map's keys in byte order -- so the
 --- same value always answers the same list. A value that fails where it
 --- stands is not looked inside: a record that is a string is one
---- failure, not one per field, and a list, map or `strict_record` with
+--- failure, not one per field, and a list, map or [`strict_record`] with
 --- a key it refuses lists each such key and none of its values. A run
 --- of missing list elements is one failure, at its first index, and an
 --- `either` answers the failures of the first choice that got inside

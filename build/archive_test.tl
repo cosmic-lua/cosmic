@@ -509,7 +509,7 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   assert(r:close())
 end
 
---- Runs `create` of `out` from `src` with every `Stream.open` of a
+--- Runs `create` of `out` from `src` with every [`Stream.open`] of a
 --- ".txt" file counted, and each read past the end given `extra` more
 --- bytes when it is not "" (a file that grows as it is read). Returns
 --- the run, the opens and the closes the archive made.
@@ -655,7 +655,7 @@ local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
 end
 
 --- A ustar header, alone, for an entry of `flag` (`"1"` a hard link)
---- that `Tar.Writer` cannot write, followed by the end of the archive.
+--- that [`Tar.Writer`] cannot write, followed by the end of the archive.
 local function raw_entry(path: string, flag: string, linkname: string): string
   local function field(text: string, width: integer): string
     return text .. string.rep("\0", width - #text)
@@ -762,7 +762,7 @@ local function tree_of(dir: string): {string}
   return out
 end
 
---- Runs `body` with `Fs.mkdtemp` counted: how many temporary
+--- Runs `body` with [`Fs.mkdtemp`] counted: how many temporary
 --- directories it made, which is how many copies of standard input.
 local function counting_mkdtemp(body: function()): integer
   local made = 0

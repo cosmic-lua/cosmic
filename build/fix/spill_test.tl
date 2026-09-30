@@ -1,4 +1,4 @@
---- `build.fix.spill` in this process: the sites it reads off the
+--- [`build.fix.spill`] in this process: the sites it reads off the
 --- checker's message, the one assert it wraps, and the checker naming
 --- it. build/fix/spill_tool_test.tl holds `cosmic fix` wrapping it.
 

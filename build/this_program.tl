@@ -15,7 +15,7 @@ local record this_program
   runtime_environment: {string}
 
   --- How to start this very program (`program`): the command line and
-  --- the options to hand `Child.run` or `Child.start`.
+  --- the options to hand [`Child.run`] or [`Child.start`].
   record Program
     argv: {string}
     options: Child.Options
@@ -59,9 +59,9 @@ local handshake: {string} = {
 --- How to start this very program with `args` after it, skipping its
 --- launcher as `cosmic test` starts a worker: the core it runs on,
 --- handed its artifact, database and startup contract directly
---- (`Proc.relaunch`), so starting it takes no shell and lands on no
+--- ([`Proc.relaunch`]), so starting it takes no shell and lands on no
 --- other core. With no artifact to relaunch, the program is as
---- `Proc.executable` names it.
+--- [`Proc.executable`] names it.
 ---
 --- The options are a copy of `opts`, its tables left as they were except
 --- `env` and `fds`. `env` is the caller's variables or, where it gives
@@ -76,8 +76,8 @@ local handshake: {string} = {
 --- makes no core cache under XDG_CACHE_HOME or HOME, nor checks the one
 --- COSMIC_PORTABLE_CACHE names, stamps no core `.verified-`, and needs
 --- no PATH, HOME or TMPDIR to start. A test of any of that starts the
---- program itself, by `Proc.executable`.
--- TODO: move this to `cosmic.test`, with `environment` (the TODO atop
+--- program itself, by [`Proc.executable`].
+-- TODO: move this to [`cosmic.test`], with `environment` (the TODO atop
 -- cosmic/test.tl), so another project's tests start their program this
 -- way: today it lives in build/, which they cannot reach.
 function this_program.program(args: {string}, opts?: Child.Options): this_program.Program
@@ -106,7 +106,7 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
   end
   for _, name in ipairs(handshake) do env[name] = nil end
   -- Field by field: a record has no copy that keeps its type. A field
-  -- `Child.Options` gains is copied here too.
+  -- [`Child.Options`] gains is copied here too.
   return { argv = argv, options = {
     env = env, fds = fds, cwd = given.cwd, stdin = given.stdin, input = given.input,
     stdout = given.stdout, stderr = given.stderr, capture_limit = given.capture_limit,

@@ -1,7 +1,7 @@
 --- `cosmic hash` (build/hash.tl), run in this process with its standard
 --- input and output stood in for: each algorithm's digest, standard input,
 --- several files, names that need escaping, `--check` and `--quiet`,
---- HMAC (RFC 4231 for SHA-256, and every algorithm against `Hash.hmac`),
+--- HMAC (RFC 4231 for SHA-256, and every algorithm against [`Hash.hmac`]),
 --- `--json`, a lost write, and a large input in bounded memory.
 --- build/hash_tool_test.tl starts the program for what a process alone
 --- shows. The sums-file parser's fuzz properties are in

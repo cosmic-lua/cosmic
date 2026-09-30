@@ -1,28 +1,28 @@
 --- A test worker run sandboxed: `cosmic test` starts each worker
---- through `cosmic.child`'s `sandbox`, held to its test's effective
---- inputs (`build.test_inputs`) and what the runtime needs to run it at
+--- through [`cosmic.child`]'s `sandbox`, held to its test's effective
+--- inputs ([`build.test_inputs`]) and what the runtime needs to run it at
 --- all, with every process it starts, wherever this host can sandbox
---- one (`build.test_sandbox_probe`). `COSMIC_TEST_SANDBOX` chooses (`mode`): unset,
+--- one ([`build.test_sandbox_probe`]). `COSMIC_TEST_SANDBOX` chooses (`mode`): unset,
 --- each worker is sandboxed where one can be and runs unsandboxed where
 --- none can (macOS, a host that refuses user namespaces); "1" requires
 --- it, and the run fails where none can be; "0" turns it off.
 ---
---- What a sandboxed worker has (`test_sandbox.plan`):
+--- What a sandboxed worker has ([`test_sandbox.plan`]):
 ---
---- - the tree at `test_sandbox.tree`, /tree, wherever the host keeps
+--- - the tree at [`test_sandbox.tree`], /tree, wherever the host keeps
 ---   it, and its working directory there. Each read-only, it holds only
 ---   the store at o/cosmic.db (the store of its module's import closure,
----   `build.closure_store`'s `write`, or the whole projection for a
+---   [`build.closure_store`]'s `write`, or the whole projection for a
 ---   module that declares `store`), its module's import closure as
 ---   source files, the fuzz corpora for a module that uses
----   `build.fuzz`, what the module declares it `reads`, and o/bin for
+---   [`build.fuzz`], what the module declares it `reads`, and o/bin for
 ---   one that declares `tool`;
---- - its scratch directory at `test_sandbox.scratch`, beneath /tmp at
+--- - its scratch directory at [`test_sandbox.scratch`], beneath /tmp at
 ---   a name padded to `scratch_length`, writable: the test's own
 ---   directory (`tmp` there, a link to `real` beside it), where
 ---   the processes it starts write their coverage (`children` there), and
 ---   its TMPDIR;
---- - the host caches the module declares (`build.caches`), writable,
+--- - the host caches the module declares ([`build.caches`]), writable,
 ---   each at its own name, made first where missing, and the variables
 ---   that locate them -- but for the cores a portable cosmic extracts,
 ---   where the program's own core is: for the `bootstrap` cache, the
@@ -31,18 +31,18 @@
 --- - /proc and the devices every program takes for granted, the
 ---   program's core and the stamp that says the core was verified, and
 ---   the program itself only for a module that declares `tool`
----   (`confine.worker_unveil`), the system's own paths (/usr, /bin,
+---   ([`confine.worker_unveil`]), the system's own paths (/usr, /bin,
 ---   /lib, /etc and the like) only where the module declares `system`,
 ---   and the `host` paths the module declares, each at its own name --
 ---   one a variable names (`$NAME/path`) where the variable says, as
----   `test_inputs.resolve` put it, refused where that is the tree's,
+---   [`test_inputs.resolve`] put it, refused where that is the tree's,
 ---   the scratch directory's, or above either;
 --- - no network but a loopback of its own, which answers the loopback
----   addresses a module may declare (`cosmic.test`'s `network`), as the
+---   addresses a module may declare ([`cosmic.test`]'s `network`), as the
 ---   host's would;
 --- - the pinned environment and the variables it declares, `"*"` for
 ---   all of the runner's (`environment`);
---- - where the runner is root, a user of its own to run as (`runs_as`),
+--- - where the runner is root, a user of its own to run as ([`runs_as`]),
 ---   unprivileged, which owns its scratch directory and the copy of the
 ---   core it runs, so it confines what its test starts at any depth.
 ---
@@ -53,7 +53,7 @@
 --- The worker is pid 2 of a pid namespace of its own, whose init ends
 --- when it does, ending whatever it left running there: no descendant of
 --- a sandboxed worker outlives it. Its verdict is keyed by what it was
---- given (`build.declared_key`), not by what it read.
+--- given ([`build.declared_key`]), not by what it read.
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -72,7 +72,7 @@ local record test_sandbox
   scratch: string
   --- How long, at least, the path of every test's scratch directory is,
   --- on every host. macOS's own is 75 bytes, its temporary directory
-  --- resolved (/private/var/folders/<2>/<30>/T/) and `build.test`'s
+  --- resolved (/private/var/folders/<2>/<30>/T/) and [`build.test`]'s
   --- `scratch` beneath it, and a path a test builds there runs past a
   --- bound (a socket file's 104 bytes, a tar name's 100) that a shorter
   --- one elsewhere never meets. Padded to this on every host -- a
@@ -83,7 +83,7 @@ local record test_sandbox
   switch: string
 
   --- The user and group a sandboxed worker runs as in place of the
-  --- runner's (`runs_as`).
+  --- runner's ([`runs_as`]).
   record User
     uid: integer
     gid: integer
@@ -103,15 +103,15 @@ local record test_sandbox
     --- "".
     trouble: string
     --- The name the worker has the program by -- the artifact path its
-    --- relaunch names (`--artifact`), which `Proc.executable()` answers
+    --- relaunch names (`--artifact`), which [`Proc.executable()`] answers
     --- -- where the program is the tree's own o/bin/cosmic:
     --- /tree/o/bin/cosmic, as the rest of the tree is; where it is the
-    --- runner's own beneath /tree, /program/<its name> (`program_name`);
+    --- runner's own beneath /tree, /program/<its name> ([`program_name`]);
     --- nil where it keeps the runner's, as a worker whose module does
     --- not declare `tool` does.
     program: string | nil
-    --- What starts it (`Proc.relaunch`) where it runs as a user of its
-    --- own with a copy of the runner's core (`runs_as`), which the
+    --- What starts it ([`Proc.relaunch`]) where it runs as a user of its
+    --- own with a copy of the runner's core ([`runs_as`]), which the
     --- core it is handed must be: the runner's relaunch, with that
     --- copy's descriptor in the core's place. Nil for the runner's own.
     start: Proc.Relaunch | nil
@@ -134,7 +134,7 @@ test_sandbox.switch = "COSMIC_TEST_SANDBOX"
 
 --- Where a sandboxed worker has the program that runs it, when that is
 --- neither the tree's own nor to be had at its own name
---- (`Plan.program`).
+--- ([`Plan.program`]).
 local program_place <const> = "/program"
 
 --- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).
@@ -159,7 +159,7 @@ end
 local own_cores <const> = test_sandbox.scratch .. "/cores"
 
 --- The user and group a sandboxed worker runs as where the runner is
---- root (`runs_as`). Not `nobody` (65534): in the worker's own user
+--- root ([`runs_as`]). Not `nobody` (65534): in the worker's own user
 --- namespace, which maps it alone, root's files are the kernel's
 --- overflow id, 65534, and a worker that were 65534 too would seem to
 --- own them. 65532 is the unprivileged user distroless images run as,
@@ -203,7 +203,7 @@ local function root_here(): boolean
 end
 
 --- What a worker run as `worker_id` has this program's core in place
---- of the cache it is in, by that cache's name (`Plan`'s `sandbox`),
+--- of the cache it is in, by that cache's name ([`Plan`]'s `sandbox`),
 --- where it runs a core the launcher extracted (build/launcher.tl),
 --- which the launcher keeps as root's alone, 0500 in a 0700
 --- directory: a copy of it, and of the stamp that spares hashing it, in
@@ -227,8 +227,8 @@ local record Cores
   copy: string
   --- The cache it is given at, "" for none.
   cache: string
-  --- The runner's relaunch (`Proc.relaunch`) with the core it hands on
-  --- that copy's (`Plan.start`), nil for none.
+  --- The runner's relaunch ([`Proc.relaunch`]) with the core it hands on
+  --- that copy's ([`Plan.start`]), nil for none.
   start: Proc.Relaunch
 end
 local function worker_cores(): Cores | nil, string
@@ -327,7 +327,7 @@ local function worker_cores(): Cores | nil, string
 end
 
 --- Whether this program starts, sandboxed, as `user`, with `cores` its
---- core (`worker_cores`): given /proc, /dev/null and that core alone,
+--- core ([`worker_cores`]): given /proc, /dev/null and that core alone,
 --- it runs nothing and ends. Where the host refuses what a worker run as
 --- that user takes -- a user namespace of that user's own (AppArmor's
 --- kernel.apparmor_restrict_unprivileged_userns, a kernel that allows
@@ -381,17 +381,17 @@ end
 
 --- Whether, and as whom, a sandboxed worker runs in place of this
 --- process's own user: `worker_id`, as user and group, where this
---- process is root (`root_here`), its user namespace maps root and that
+--- process is root ([`root_here`]), its user namespace maps root and that
 --- id -- the host's does, and a container's usual 65536 ids -- the
---- worker has a core it may run (`worker_cores`), and a start as that
---- user succeeds (`starts_as`). Such a worker gives root up for them
+--- worker has a core it may run ([`worker_cores`]), and a start as that
+--- user succeeds ([`starts_as`]). Such a worker gives root up for them
 --- once its root is built, as core/process.h's `Sandbox.user` says, and
 --- so confines what its test starts at any depth, as an unprivileged
 --- runner's worker does -- where a worker left root would not, the
 --- kernel refusing a user namespace to a child of its that is unmapped
 --- -- and meets the permissions of the files it reads as such a worker
 --- does. Its key holds it as that user
---- (`declared_key.HostSources`' `worker_uid`). Nil, and why, elsewhere,
+--- ([`declared_key.HostSources`]' `worker_uid`). Nil, and why, elsewhere,
 --- the worker running as this process's user, as ever. Worked out
 --- once.
 local worker_user: test_sandbox.User = nil
@@ -423,11 +423,11 @@ function test_sandbox.runs_as(): test_sandbox.User | nil, string
 end
 
 --- The user and group a sandboxed worker of `effective` runs as
---- (`runs_as`), or nil for this process's own: that of a module that
+--- ([`runs_as`]), or nil for this process's own: that of a module that
 --- declares a host cache too, which it writes as whoever keeps it.
 -- TODO: run a worker that declares a host cache as `worker_id` too,
 -- once each cache it writes is one that user may write -- a cache of
--- its own beside root's, as its cores are (`worker_cores`), or one
+-- its own beside root's, as its cores are ([`worker_cores`]), or one
 -- root keeps writable by a group of its own: today it runs as root,
 -- and confines what its test starts only two deep.
 function test_sandbox.worker_user(effective: test_inputs.Effective): test_sandbox.User | nil
@@ -437,7 +437,7 @@ function test_sandbox.worker_user(effective: test_inputs.Effective): test_sandbo
 end
 
 --- A sandboxed worker's environment: of `environment`, the runner's
---- view of a worker's (`build.test`'s `worker_environment`), the pinned
+--- view of a worker's ([`build.test`]'s `worker_environment`), the pinned
 --- variables and those `effective` declares (all of them for `"*"`),
 --- and TMPDIR, set to its scratch directory, the one it can write to.
 function test_sandbox.environment(environment: {string:string},
@@ -476,7 +476,7 @@ function test_sandbox.unenforced_view(environment: {string:string},
 end
 
 --- The environment such a worker is given: its key's
---- (`unenforced_view`), but with TMPDIR `scratch`, its own scratch
+--- ([`unenforced_view`]), but with TMPDIR `scratch`, its own scratch
 --- directory on the host, where the key names a sandbox's.
 function test_sandbox.unenforced_environment(environment: {string:string},
                                              effective: test_inputs.Effective,
@@ -489,7 +489,7 @@ end
 --- The host caches a sandboxed worker of `effective` writes, with
 --- `environment` the runner's view of a worker's: each it declares
 --- (`effective.cache_paths`) but the cores a portable cosmic extracts
---- (`caches.cores`), where this program's own core is. A core another
+--- ([`caches.cores`]), where this program's own core is. A core another
 --- cosmic extracted there after the worker was held would be one it
 --- could run however it was held, and one it could write over this
 --- program's; so it has cores of its own instead (`own_cores`), and is
@@ -535,7 +535,7 @@ local function shown_by(path: string, reads: {string}, at: {string:string}): boo
 end
 
 --- The name a sandboxed worker of the tree at `root` has this program
---- by, where the program is a portable artifact (`Proc.relaunch` names
+--- by, where the program is a portable artifact ([`Proc.relaunch`] names
 --- its artifact's path, which the worker's startup takes as it is
 --- given: core/startup.c's `cosmic_startup_adopt`), and whether that is
 --- the tree's own, by where each resolves. The tree's own o/bin/cosmic
@@ -571,9 +571,9 @@ end
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
 --- with the runner's view of a worker's environment `environment`, and
 --- at o/cosmic.db the closure store at `closure_store`
---- (`build.closure_store`'s `write`) where the module does not declare
+--- ([`build.closure_store`]'s `write`) where the module does not declare
 --- `store`, else the whole projection. A caller keys the store as it gives it
---- (`build.declared_key`): the whole projection by its contents only
+--- ([`build.declared_key`]): the whole projection by its contents only
 --- where the module declares `store`, so it gives one that does not the
 --- store of its closure, keyed by its address.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
@@ -599,7 +599,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if inside ~= nil then at[path] = inside end
   end
   -- A worker run as a user of its own (`worker_user`) has the core it
-  -- runs from a copy that user may run (`worker_cores`), given in
+  -- runs from a copy that user may run ([`worker_cores`]), given in
   -- place of the cache it is in, where that is a launcher's: the core
   -- and its stamp in the cache are given no more.
   local user = test_sandbox.worker_user(effective)
@@ -610,7 +610,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   end
   local store = root .. "/o/cosmic.db"
   -- The store at o/cosmic.db is the one its worker attaches to load
-  -- every module of the closure (`build.test_worker`): `closure_store`
+  -- every module of the closure ([`build.test_worker`]): `closure_store`
   -- where the module does not declare `store`, and the whole projection
   -- where it does.
   -- A worker can still learn where the host keeps what it is given:
@@ -647,15 +647,15 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   for _, file in ipairs(files) do of_tree(file) end
   for _, relative in ipairs(effective.reads) do of_tree(relative) end
   -- The tool is o/bin/cosmic, given as the directory it is in: where
-  -- it is the program, the worker has it there alone (`program_name`),
-  -- and a test that starts `Proc.executable()` starts it there; another
+  -- it is the program, the worker has it there alone ([`program_name`]),
+  -- and a test that starts [`Proc.executable()`] starts it there; another
   -- program is given at its own name too (`worker_unveil`'s
   -- `with_program`).
   if effective.tool then of_tree("o/bin") end
   -- Why a `host` path cannot be given: where a variable names it, one
-  -- `test_inputs.resolve` could not put anywhere, or one that is where
+  -- [`test_inputs.resolve`] could not put anywhere, or one that is where
   -- the sandbox has its own -- its scratch directory, which it gives
-  -- at `test_sandbox.scratch`, or /tree or that, over which a bind at its
+  -- at [`test_sandbox.scratch`], or /tree or that, over which a bind at its
   -- own name would go -- or above it: a variable's value, such as the
   -- host's temporary directory, above every test's scratch directory.
   local refused = effective.unresolved or ""
@@ -711,7 +711,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- start writes the stamp until one holds. The cache gives it.
   -- So too a path given to read inside another given to read, where
   -- the other's bind shows it already, at the same place and the same
-  -- file (`shown_by`): a closure's source beneath a declared directory
+  -- file ([`shown_by`]): a closure's source beneath a declared directory
   -- of the tree, a `host` path beneath the system's.
   -- TODO: bind a path given to write inside one given to read at a
   -- mount point of the sandbox's own (core/syscalls.c's build_root: the
@@ -778,7 +778,7 @@ end
 
 --- Whether a worker given `writes` to write -- the host caches its
 --- module declares, as `cache_writes` gives them -- can be kept from
---- running `programs`, this very program (`confine.forbid_running`):
+--- running `programs`, this very program ([`confine.forbid_running`]):
 --- not where one of them is beneath a path it may write, by its name or
 --- where it resolves -- where COSMIC_PORTABLE_CACHE names a directory
 --- beneath another cache, say -- since a core another cosmic extracts
@@ -804,7 +804,7 @@ end
 --- seccomp profile, AppArmor's
 --- kernel.apparmor_restrict_unprivileged_userns), or, for EPERM, where this process is held by a Landlock ruleset, whose
 --- domain refuses every mount. That is a run started in a test worker's
---- process whose environment dropped `confine.held_variable`, which
+--- process whose environment dropped [`confine.held_variable`], which
 --- would have named it.
 function test_sandbox.refusal(trouble: string): string
   local why: string = nil

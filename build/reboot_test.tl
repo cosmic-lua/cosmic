@@ -104,7 +104,7 @@ local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
 end
 
 --- A tool carries a tree's code when every module and main of the tree
---- is one it carries with the same source (`reboot.carries_tree_code`),
+--- is one it carries with the same source ([`reboot.carries_tree_code`]),
 --- whatever its fingerprint says: a tree of this binary's own
 --- build.bind does, and not once that source is edited, nor once the
 --- tree holds a module the binary does not carry. A tree with no module

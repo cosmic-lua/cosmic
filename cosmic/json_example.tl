@@ -6,7 +6,7 @@ local Stream = require("cosmic.stream")
 
 local Example = {}
 
---- Read an object from outside: `decode_object` checks the outermost
+--- Read an object from outside: [`decode_object`] checks the outermost
 --- shape, and `is` narrows each field before it is trusted.
 function Example.decode_object()
   local config, err = Json.decode_object('{"name": "cosmic", "retries": 3}')
@@ -104,7 +104,7 @@ function Example.encode_failure()
   assert(why == "cannot encode a function at $.users[2].name")
 end
 
---- Read a list from outside: `decode_array` checks the outermost shape.
+--- Read a list from outside: [`decode_array`] checks the outermost shape.
 function Example.decode_array()
   local tags, err = Json.decode_array('["lua", "teal"]')
   assert(tags ~= nil, err)
@@ -115,8 +115,8 @@ function Example.decode_array()
   assert(why == "expected a JSON array, got object", why)
 end
 
---- Nesting is bounded: `max_depth` is `Json.default_depth` unless
---- given, and may be raised as far as `Json.depth_limit`.
+--- Nesting is bounded: [`max_depth`] is [`Json.default_depth`] unless
+--- given, and may be raised as far as [`Json.depth_limit`].
 function Example.max_depth()
   local deep = string.rep("[", 100) .. string.rep("]", 100)
   local refused, why = Json.decode(deep)

@@ -1,4 +1,4 @@
---- `cosmic.log`'s loggers, in this process: a name is required, and a
+--- [`cosmic.log`]'s loggers, in this process: a name is required, and a
 --- write says whether it landed. cosmic/log_tool_test.tl holds where
 --- each line goes, which a script run by this program shows.
 

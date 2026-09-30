@@ -1,4 +1,4 @@
---- Where each host cache a test may declare is (`build.caches`): where
+--- Where each host cache a test may declare is ([`build.caches`]): where
 --- the code that uses it puts it, overrides included, never under the
 --- tree.
 
@@ -9,7 +9,7 @@ local caches = require("build.caches")
 --- `zig` is zig's installs, global and project caches, and `bootstrap`
 --- the bootstrap cosmic and the launcher's cores, each under the cache
 --- directory XDG_CACHE_HOME or HOME names, as build/zig.tl and
---- `Fs.cache_path` put them; an override moves each.
+--- [`Fs.cache_path`] put them; an override moves each.
 local function test_a_cache_is_where_its_tool_puts_it()
   local env = { XDG_CACHE_HOME = "/c" }
   local zig = caches.all({ "zig" }, "/repo", env)

@@ -1,5 +1,5 @@
 --- A test worker lets its tests `require` of the tree only the modules
---- their module's import closure holds (`build.test_inputs`'
+--- their module's import closure holds ([`build.test_inputs`]'
 --- `modules`): the build follows a `require` of a literal name alone,
 --- so a module reached another way is one a change to would not run
 --- the test again. The core's own modules, which no file of the tree
@@ -31,7 +31,7 @@ local function test_a_module_of_the_tree_outside_the_closure_is_refused()
 end
 
 --- A module the worker loaded for itself is no way around it:
---- `build.dispatch`, the program's entry, which starts the worker and
+--- [`build.dispatch`], the program's entry, which starts the worker and
 --- which no test's closure holds.
 local function test_a_module_the_worker_loaded_is_refused_too()
   local ok, why = pcall(require, computed("build", "dispatch"))

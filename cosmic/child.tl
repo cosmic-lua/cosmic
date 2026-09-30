@@ -22,13 +22,13 @@
 --- `input` feeds bytes to stdin. Every captured stream and the input
 --- are serviced by one `poll` loop while waiting, so neither side can
 --- stall the other on a full pipe, and several handles can be waited on
---- together with `Child.wait_any`. Completion is the child's exit, never
+--- together with [`Child.wait_any`]. Completion is the child's exit, never
 --- end of file: a descendant that escaped the group and still holds a
 --- captured pipe cannot hold up a wait.
 ---
 --- A stream redirected to "stream" is the caller's to read or write
 --- while the child runs, through the handle's `stdout_stream`,
---- `stderr_stream` (each a `cosmic.stream` Reader) or `stdin_stream` (a
+--- `stderr_stream` (each a [`cosmic.stream`] Reader) or `stdin_stream` (a
 --- Writer). While one of them waits, it services the child's other
 --- streams too, so reading stdout cannot stall on a child blocked
 --- writing a full stderr, nor writing stdin on one blocked writing a
@@ -66,8 +66,8 @@ local record Result
   --- Whether the child exited with status 0 and was not ended for
   --- running past its timeout.
   ok: boolean
-  --- Whether the child ran past the timeout (`Child.run`'s
-  --- `timeout_ms`, or `Handle.wait`'s) and was ended for it.
+  --- Whether the child ran past the timeout ([`Child.run`]'s
+  --- `timeout_ms`, or [`Handle.wait`]'s) and was ended for it.
   timed_out: boolean
   --- Captured stdout, when stdout was "capture".
   stdout: string | nil
@@ -80,7 +80,7 @@ local record Result
   truncated: boolean
 end
 
---- The paths a sandbox gives a child (`Sandbox.unveil`), each
+--- The paths a sandbox gives a child ([`Sandbox.unveil`]), each
 --- absolute; at most 256 in all.
 local record Unveil
   --- The files and directories the child has, read-only.
@@ -156,15 +156,15 @@ local record Options
   --- and ends with it; true by default. False for a child meant to
   --- outlive the call that started it.
   process_group: boolean
-  --- How long `Child.run` lets the child run before ending it, as
-  --- `Handle.wait` does with its own timeout. `Child.start` refuses it:
+  --- How long [`Child.run`] lets the child run before ending it, as
+  --- [`Handle.wait`] does with its own timeout. [`Child.start`] refuses it:
   --- a started child's time is the caller's to bound, by `h:wait(ms)`.
   timeout_ms: integer
-  --- What the child is held to (see `Sandbox`); nil for nothing.
+  --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
 end
 
---- What `Handle.try_wait` answers.
+--- What [`Handle.try_wait`] answers.
 local record TryWait
   --- Whether the child has exited.
   finished: boolean
@@ -192,7 +192,7 @@ local record Handle
   --- The child's process id.
   pid: integer
   --- Whether the child leads a process group of its own that this
-  --- handle owns (`Options.process_group`).
+  --- handle owns ([`Options.process_group`]).
   process_group: boolean
   --- The writable end of the child's stdin when `stdin` was "pipe", until
   --- `close_stdin`.
@@ -227,8 +227,8 @@ local record Handle
   --- Waits for the child to exit and answers its Result. With
   --- `timeout_ms`, a child still running when it passes is ended --
   --- SIGTERM, a grace period, then SIGKILL, its group included -- and
-  --- the Result says `timed_out`; `Child.wait_any`'s timeout instead
-  --- leaves every child running. While a `Child.guard` is open, a
+  --- the Result says `timed_out`; [`Child.wait_any`]'s timeout instead
+  --- leaves every child running. While a [`Child.guard`] is open, a
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
   --- way: a child that has not exited is ended and the wait answers nil
   --- and "cancelled by signal N"; the guard keeps the signal, and a
@@ -244,7 +244,7 @@ local record Handle
   --- group when `process_group` is true. It does not wait. False and why when the child
   --- has been reaped already or the signal cannot be sent.
   stop: function(Handle, signal?: integer): boolean, string
-  --- Closes the writable end of the child's stdin, `Handle.stdin`, so the
+  --- Closes the writable end of the child's stdin, [`Handle.stdin`], so the
   --- child reads end of file. False and why when `stdin` was not "pipe"
   --- or is closed already.
   close_stdin: function(Handle): boolean, string
@@ -257,7 +257,7 @@ local record Handle
 end
 
 -- TODO: a child's exit is seen only at the next poll, up to POLL_MS after
--- it happens: `Child.run` of /bin/true takes about 10 ms in all though its
+-- it happens: [`Child.run`] of /bin/true takes about 10 ms in all though its
 -- spawn takes 0.2 ms. Wait on the exit itself -- a pidfd in the poll set
 -- on Linux, kqueue's EVFILT_PROC on Darwin -- once core/process.h carries
 -- pidfd_open and a kqueue binding.
@@ -270,7 +270,7 @@ local CHUNK <const> = 65536
 local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
 
 --- SIGINT and SIGTERM held for this process while children are
---- supervised; see `Child.guard`.
+--- supervised; see [`Child.guard`].
 local record Guard
   metamethod __close: function(Guard)
   --- The signal delivered last, 0 until one is.
@@ -562,7 +562,7 @@ local function settle(self: Handle, timed_out: boolean, killed?: boolean): Resul
     -- a writer that escaped the group can keep it open, so stop at the
     -- first round that finds nothing rather than wait for end of file.
     -- A streamed output is left open, and no fuller than its limit: its
-    -- reader reads on from the pipe, and ends it (see `pipe_reader`).
+    -- reader reads on from the pipe, and ends it (see [`pipe_reader`]).
     while pump({ self }, 0) do end
     for index, stream in ipairs(self._streams) do
       if not stream.streamed then
@@ -818,7 +818,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
       return settled(self, false)
     end
     -- TODO: raise on a negative timeout, as `validate` does for Child.run's
-    -- `timeout_ms` and as `Child.wait_any` should too: a wrong shape is a
+    -- `timeout_ms` and as [`Child.wait_any`] should too: a wrong shape is a
     -- mistake, not a failure to report.
     if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end
     local deadline: integer
@@ -948,7 +948,7 @@ end
 --- Only `h:wait` reads the guard -- it ends its child and answers
 --- "cancelled by signal N" once a signal is caught -- and a stream's
 --- read or write, which fails with the same message and leaves the
---- child running; `Child.wait_any` and `h:try_wait` do not, so a loop
+--- child running; [`Child.wait_any`] and `h:try_wait` do not, so a loop
 --- over them asks `g:cancelled()` each round. `g:take()` answers the
 --- last signal delivered since the previous take, or 0, and clears it,
 --- so a caller that passes signals on to its child passes each one on,
@@ -960,7 +960,7 @@ end
 --- dispositions the process had and delivers the last signal caught
 --- again, so a process that would have died of it dies of it then,
 --- its children already ended. One guard is open at a time,
---- `Child.run`'s included: another answers nil and why, naming the
+--- [`Child.run`]'s included: another answers nil and why, naming the
 --- open guard ("a guard ... is already open"). `close`
 --- answers false and why when the dispositions could not be restored,
 --- and again on every later close; the signal is not delivered then.
@@ -980,8 +980,8 @@ function Child.guard(): Guard | nil, string
   return make_guard(), ""
 end
 
---- Raises at level 4, the caller of `Child.start` or `Child.run`: it and
---- `without_nul` run under `validate`, which runs under either one.
+--- Raises at level 4, the caller of [`Child.start`] or [`Child.run`]: it and
+--- [`without_nul`] run under `validate`, which runs under either one.
 local function descriptor(value: integer | string, name: string, words: {string:boolean}):
     integer | string
   if value == nil then return "inherit" end
@@ -1189,7 +1189,7 @@ local function unfound_name(name: string, cwd?: string): boolean
   return found == nil
 end
 
---- `Child.start` on options already validated.
+--- [`Child.start`] on options already validated.
 local function start(argv: {string}, opts: Options): Handle | nil, string
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
@@ -1255,7 +1255,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
 end
 
 --- Starts one executable and returns an owning handle. argv[1] is an exact
---- path, without PATH lookup: `Proc.find` finds a program by
+--- path, without PATH lookup: [`Proc.find`] finds a program by
 --- name. Dropping or closing a handle whose child is unfinished ends the
 --- child and its group; `wait(timeout)` does the same on expiry.
 --- `timeout_ms` is refused: bound the child with `h:wait(timeout_ms)`.
@@ -1372,9 +1372,9 @@ function Child.end_strays(spared?: {integer}): integer
 end
 
 --- Runs a program -- one executable path -- to completion and answers its
---- `Result`. A child that exits nonzero, or is ended by a signal or its
---- timeout, is still a `Result`, with `ok` false. `argv[1]` is used exactly as given:
---- there is no PATH search, and `Proc.find` finds a program by name. A nil
+--- [`Result`]. A child that exits nonzero, or is ended by a signal or its
+--- timeout, is still a [`Result`], with `ok` false. `argv[1]` is used exactly as given:
+--- there is no PATH search, and [`Proc.find`] finds a program by name. A nil
 --- environment inherits this process's environment; a table replaces it
 --- exactly. Standard streams inherit by default, or accept caller-owned
 --- descriptors (which remain open here), "null", or "capture"; "stream"
@@ -1382,13 +1382,13 @@ end
 --- The child owns a new process group by default, so timeout cleanup
 --- includes descendants.
 ---
---- While the child runs, SIGINT and SIGTERM are held in a `Child.guard`:
+--- While the child runs, SIGINT and SIGTERM are held in a [`Child.guard`]:
 --- either one ends the child and its group, then the caller's
 --- dispositions are restored and the signal delivered again. The run
 --- then answers nil and "cancelled by signal N". Because one guard is
---- open at a time, a run made while the caller holds a `Child.guard`
+--- open at a time, a run made while the caller holds a [`Child.guard`]
 --- answers nil and "signal guard: a guard ... is already open ...";
---- close the caller's guard first, or supervise with `Child.start`. It
+--- close the caller's guard first, or supervise with [`Child.start`]. It
 --- also answers nil and why when the child cannot be started.
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}

@@ -1,5 +1,5 @@
 --- `cosmic --version`'s command line, run in this process
---- (`build.invoke`): it takes nothing after it. build/version_tool_test.tl
+--- ([`build.invoke`]): it takes nothing after it. build/version_tool_test.tl
 --- holds what it prints, the digest of this program's own file.
 
 local invoke = require("build.invoke")

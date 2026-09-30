@@ -5,7 +5,7 @@
  * cross-compiles for -- x86_64/aarch64 Linux (musl) and aarch64 macOS
  * -- all POSIX.1-2008-ish and all without c-ares's own threading
  * (CARES_THREADS is off: the core drives one poll loop itself, as
- * `cosmic.child` already does).
+ * [`cosmic.child`] already does).
  *
  * Only what the pruned src/lib tree in vendor/cares actually reads is
  * defined, and nothing is ever defined to 0: c-ares tests these with

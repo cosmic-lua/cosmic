@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.child`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.child`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table.
 
@@ -11,7 +11,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- What the examples start, as a program would: this program
---- itself, past its launcher (`Proc.relaunch`), so no start takes a
+--- itself, past its launcher ([`Proc.relaunch`]), so no start takes a
 --- shell.
 Test.needs{ tool = true }
 

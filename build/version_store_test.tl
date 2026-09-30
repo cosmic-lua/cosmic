@@ -6,7 +6,7 @@ local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 
 --- `store`: `help version`, run in this process, reads every module's
---- docs through `Store.databases()`.
+--- docs through [`Store.databases()`].
 Test.needs{ store = true }
 
 local function test_help_describes_version_by_either_spelling(tmp: string)

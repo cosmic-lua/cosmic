@@ -1,4 +1,4 @@
---- `build.docs_checks` on small databases: each rule trips on a page with
+--- [`build.docs_checks`] on small databases: each rule trips on a page with
 --- the defect planted in it and passes the page without it.
 
 local Sqlite = require("cosmic.sqlite")

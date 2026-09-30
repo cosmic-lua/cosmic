@@ -9,8 +9,8 @@
 
 #include "lua.h"
 
-/* Opens the table that backs the `cosmic.compress` wrapper's streaming
- * codecs, registered under the raw `cosmic.internal.compress` name. */
+/* Opens the table that backs the [`cosmic.compress`] wrapper's streaming
+ * codecs, registered under the raw [`cosmic.internal.compress`] name. */
 int cosmic_open_compress (lua_State *L);
 
 /* The raw deflate (RFC 1951) of the `len` bytes at `data`, at the level

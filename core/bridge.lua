@@ -186,7 +186,7 @@ local function bootstrap(stage0, tl_dir)
   } }))
   -- TODO: take this compile from the compiles every checkout shares
   -- (build/shared_compiles.tl), keyed by the patched tl.tl's source and
-  -- stage0's, as `searcher_for`'s TODO says of the modules it compiles.
+  -- stage0's, as [`searcher_for`]'s TODO says of the modules it compiles.
   local code, result = stage0.gen(source, env, nil, 'tl')
   local trouble = complain(file, result and {
     syntax_errors = result.syntax_errors, type_errors = result.type_errors,

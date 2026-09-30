@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 local sql = require("build.sql")
 
 --- The program's own database is read through a handle
---- (`Store.databases()`), which reads every module's rows too.
+--- ([`Store.databases()`]), which reads every module's rows too.
 Test.needs{ store = true }
 
 --- A temporary root whose o/cosmic.db holds one small table.
@@ -32,7 +32,7 @@ local function argv_of(words: {string}): {integer:string}
   return argv
 end
 
---- The database `sql.source` picks for a command line, or nil and why.
+--- The database [`sql.source`] picks for a command line, or nil and why.
 local function source(root: string, words: {string}): sql.Source | nil, string
   local parsed = assert(Flags.parse(argv_of(words), 2, { ["--db"] = true, ["--build"] = false,
     ["--store"] = false }))

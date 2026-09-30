@@ -1,13 +1,13 @@
 --- Line coverage for test tooling: which source lines ran between
 --- `start` and `stop`. A core built with native coverage also reports
 --- the lines of its own C, by repository path (see
---- `Coverage.native_lines`).
+--- [`Coverage.native_lines`]).
 ---
 --- Only one collection window may be open. `start` refuses, changing
 --- nothing, while another is active, and `stop` accepts only the
 --- session that `start` returned. All callers share this state.
 
--- The collector is exposed as `cosmic.internal.debug` only while this
+-- The collector is exposed as [`cosmic.internal.debug`] only while this
 -- trusted wrapper loads from the binary's own tree. The wrapper keeps
 -- the raw table private and exposes collection windows guarded by an
 -- opaque session token. Lua's `debug` library is never opened.
@@ -105,14 +105,14 @@ end
 
 --- The line each of the core's own C functions begins on, among
 --- `native_lines`: a function was entered when a hit names its line.
---- Empty in a core without native coverage, like `native_lines`.
+--- Empty in a core without native coverage, like [`native_lines`].
 --- @return Hits Every C function's first line, each true
 function Coverage.native_entries(): Coverage.Hits
   return native.entries()
 end
 
 --- Every one of the core's own C functions, by the line it begins on
---- (`native_entries`) and its name. Empty in a core without native
+--- ([`native_entries`]) and its name. Empty in a core without native
 --- coverage.
 --- @return {Function} Every C function of the core
 function Coverage.native_functions(): {Coverage.Function}

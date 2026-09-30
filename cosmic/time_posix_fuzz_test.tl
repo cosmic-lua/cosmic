@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.time`'s POSIX TZ string reader, which
+--- Fuzz properties for [`cosmic.time`]'s POSIX TZ string reader, which
 --- reads `TZ` and every TZif file's footer: `zone_from_posix` is total
 --- -- whatever text it is handed, it answers a zone or a failure and
 --- never raises, and a zone it answers names every moment without

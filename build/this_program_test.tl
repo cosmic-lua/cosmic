@@ -16,7 +16,7 @@ Test.needs{
   tool = true,
 }
 
---- Swaps `Proc.relaunch` for one answering `relaunch` while `fn` runs.
+--- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.
 local function relaunching(relaunch: Proc.Relaunch | nil, fn: function())
   local real = Proc.relaunch
   Proc.relaunch = function(): Proc.Relaunch | nil, string
@@ -75,7 +75,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
       COSMIC_PORTABLE_STARTUP_TEST_READY = "r", COSMIC_PORTABLE_STARTUP_TEST_GO = "g" }
     local fds: {integer:integer | string} = { [3] = 1, [4] = "capture" }
     local sandbox: Child.Sandbox = { offline = true }
-    -- Every field of `Child.Options`, so one the copy drops fails.
+    -- Every field of [`Child.Options`], so one the copy drops fails.
     local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "pipe", input = "bytes",
       stdout = "capture", stderr = "stdout", fds = fds, capture_limit = 9,
       process_group = true, timeout_ms = 5, sandbox = sandbox }

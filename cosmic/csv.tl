@@ -49,7 +49,7 @@
 --- - Renaming applies to the result too: the empty name twice becomes
 ---   `_`, `__2`.
 ---
---- `cosmic.dataset` names its columns by the same rule.
+--- [`cosmic.dataset`] names its columns by the same rule.
 
 --- What `read` found: the records, and the line each began on.
 local record Scan

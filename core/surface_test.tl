@@ -40,7 +40,7 @@ end
 
 --- A removed library's field says what replaced that very field, at the
 --- line that reached for it, in the words a refused compile uses too
---- (`cosmic.removed`'s `message`).
+--- ([`cosmic.removed`]'s `message`).
 local function test_a_removed_field_says_what_replaced_it()
   local trouble = raised('return os.getenv("HOME")')
   assert(trouble == "plain.lua:1: " .. Removed.message("os", "getenv"), trouble)

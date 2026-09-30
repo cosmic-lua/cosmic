@@ -1,6 +1,6 @@
---- `build.fix.near` on fixture databases. That the standard library as
+--- [`build.fix.near`] on fixture databases. That the standard library as
 --- it stands earns no note against itself is held by `cosmic fix
---- --check .`, which fails on a note on it (`build.tree_checks`'
+--- --check .`, which fails on a note on it ([`build.tree_checks`]'
 --- `standard`), not here.
 
 local near = require("build.fix.near")
@@ -12,8 +12,8 @@ local function joined(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
 end
 
---- What `near.known` offers from the database the tree `files` builds
---- to, as `build.docs_fixture` makes it with the build's own code, and
+--- What [`near.known`] offers from the database the tree `files` builds
+--- to, as [`build.docs_fixture`] makes it with the build's own code, and
 --- each entry by the name it was written as, which must all be there.
 local function known_of(dir: string, files: {string: string},
                         wanted: {string}): {near.Known}, {string: near.Known}

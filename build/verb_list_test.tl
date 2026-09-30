@@ -1,5 +1,5 @@
 --- The verb registry (build/verb_list.tl): each listed module carries a
---- `spec` that says what it is, and the list, `cosmic.cli`'s `order` (the
+--- `spec` that says what it is, and the list, [`cosmic.cli`]'s `order` (the
 --- prose of every verb is held in build/verbs_store_test.tl, which reads
 --- each one's help) and the verbs dispatch reaches agree. A module's `spec`
 --- missing from the list, and a verb's guide and tests, are held over the

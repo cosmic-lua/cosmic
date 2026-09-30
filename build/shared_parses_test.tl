@@ -1,8 +1,8 @@
 --- A boot's parses and the cache that keeps them, in this process: a
 --- boot, whose analyzer is named by the tree it has yet to parse, takes
 --- the parses of the analyzer the tree names and of no other
---- (`build.importer`'s `derive`), and a parse kept comes back whole
---- (`build.shared_compiles`). build/shared_parses_tool_test.tl holds
+--- ([`build.importer`]'s `derive`), and a parse kept comes back whole
+--- ([`build.shared_compiles`]). build/shared_parses_tool_test.tl holds
 --- the builds of checkouts that share their parses end to end.
 
 local Fs = require("cosmic.fs")
@@ -24,8 +24,8 @@ end
 local dump = parses_fixture.dump
 local parse_rows = parses_fixture.rows
 
---- The tree a boot case derives: `build.importer` and the analyzer
---- modules it names (`build.analyzer`, `build.ast`), what they reach
+--- The tree a boot case derives: [`build.importer`] and the analyzer
+--- modules it names ([`build.analyzer`], [`build.ast`]), what they reach
 --- (`build.thing`, `build.helper`, the declaration `build.raw`), and a
 --- module no analyzer module reaches.
 local analyzer_tree: {string:string} = {
@@ -46,7 +46,7 @@ local analyzer_tree: {string:string} = {
 --- What a boot of the tree at `root` derives, sharing through the cache
 --- at `path` ("0" for none): what it parsed, the analyzer it recorded,
 --- and every row of every parse table. Run as a boot runs, with no
---- `boot_hash`, which the suite's binary carries, so `Store.meta` is
+--- `boot_hash`, which the suite's binary carries, so [`Store.meta`] is
 --- stood in for across the derive.
 local function boot(root: string, path: string): importer.Parses, string, string
   local handle = assert(work.open(root))

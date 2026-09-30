@@ -9,13 +9,13 @@
 --- rebuild lands on the bytes a boot writes. When a core input differs,
 --- only zig can rebuild it: the tool runs `bin/zig build boot` and
 --- re-enters the original argv on the tool that boot wrote, unless
---- `COSMIC_AUTO_BOOT=0` says to refuse instead (`reboot.auto_boot`).
+--- `COSMIC_AUTO_BOOT=0` says to refuse instead ([`reboot.auto_boot`]).
 ---
 --- One rule for the working database's handle: a function here that is
 --- handed it and stops the command -- `into` on every path,
---- `reboot.guard` whenever it answers an exit code -- closes it first;
---- only `reboot.guard`'s nil, "go on", hands it back open. A function
---- handed none, `reboot.boot_into`, needs it closed already.
+--- [`reboot.guard`] whenever it answers an exit code -- closes it first;
+--- only [`reboot.guard`]'s nil, "go on", hands it back open. A function
+--- handed none, [`reboot.boot_into`], needs it closed already.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -52,7 +52,7 @@ local marker = "COSMIC_REBOOTED"
 
 --- Whether the running binary's database was compiled or written by
 --- code other than the compiler and writer it carries
---- (`work.Identities`). A rebuild uses the stale tool's compiler and
+--- ([`work.Identities`]). A rebuild uses the stale tool's compiler and
 --- writer, so the rebuilt tool compiles and writes its database once
 --- more itself; then it matches what a boot writes. A database that
 --- records neither identity is unsettled too.
@@ -252,8 +252,8 @@ local function into(handle: work.Handle, built: compiler,
     if shared ~= nil then shared.finish() end
     return closing(handle, identity_trouble)
   end
-  -- A tool settling that carries the tree's code (`carries_tree_code`)
-  -- keys by the compiler identity its own `work.compiler_identity`
+  -- A tool settling that carries the tree's code ([`carries_tree_code`])
+  -- keys by the compiler identity its own [`work.compiler_identity`]
   -- computes, which is what the tool it writes carries. The identity it
   -- carries was taken by the tool that wrote it, by that tool's code;
   -- where the two define the identity apart, keying by the carried one
@@ -287,7 +287,7 @@ local function into(handle: work.Handle, built: compiler,
   if not written then
     return closing(handle, write_trouble)
   end
-  -- The running tool's own `writer.carried`, which may not be the
+  -- The running tool's own [`writer.carried`], which may not be the
   -- tree's: the projection it carries is signed by that writer, and a
   -- tool it wrote whose writer differs writes itself again on re-entry
   -- (`unsettled`).
@@ -319,12 +319,12 @@ local function into(handle: work.Handle, built: compiler,
   return exec_trouble
 end
 
--- The rebuild lock (`build.rebuild_lock`) is held by a run from the
+-- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
 -- moment it finds it must rebuild or boot the tool until it re-enters
 -- the command on the tool it wrote, or exits. A `cosmic test` run holds
 -- it already, from its start, and a sandboxed test worker never takes
--- it, since only the tree's own tool (`reboot.own_tool`) rebuilds. A run
--- waits for its holder as long as it takes, as `rebuild_lock.hold`
+-- it, since only the tree's own tool ([`reboot.own_tool`]) rebuilds. A run
+-- waits for its holder as long as it takes, as [`rebuild_lock.hold`]
 -- does: that may be a whole `cosmic test` run, and a holder that dies
 -- lets it go.
 
@@ -372,7 +372,7 @@ local function replaced(root: string, out: string): boolean
     carried[row[1]] = row[2]
   end
   -- The running tool's own, not a database a verb attached before
-  -- `stale_exit` ran (o/cosmic.db, whose meta Store.meta finds first).
+  -- [`stale_exit`] ran (o/cosmic.db, whose meta Store.meta finds first).
   local own: {string:string} = {}
   Store.alone(function()
     for _, key in ipairs(identity_keys) do
@@ -469,7 +469,7 @@ end
 --- stderr so a verb's own stdout stays its own, then replaces this process
 --- with the tool the boot wrote, `root/o/bin/cosmic`, running `argv` again.
 --- It is handed no handle: the caller closes its working database
---- first, since the boot writes it (`reboot.guard` does).
+--- first, since the boot writes it ([`reboot.guard`] does).
 --- `environment` is what both run in, this process's by default.
 --- Returns only when it cannot, saying why.
 function reboot.boot_into(root: string, argv: {integer:string},
@@ -501,13 +501,13 @@ end
 
 --- The staleness guard every verb that builds the tree applies once
 --- it has staged it, before it compiles anything: `cosmic <file.tl>`,
---- `cosmic test`, and through `reboot.stale_exit` the read-only verbs.
+--- `cosmic test`, and through [`reboot.stale_exit`] the read-only verbs.
 --- A stale tool would check and compile the tree with a checker the
 --- tree no longer agrees with, and run embedded `cosmic.*` and `build.*`
 --- code from an old tree. When only Teal moved, the tool rebuilds itself
 --- and re-enters `argv`; when the C core moved, it has zig boot it,
 --- unless `COSMIC_AUTO_BOOT=0` says to refuse. Only the tree's own tool
---- (`reboot.own_tool`) does either; another refuses with
+--- ([`reboot.own_tool`]) does either; another refuses with
 --- `foreign_refusal`, rebuilding nothing. A fresh tool of the tree's
 --- own whose database another writer wrote (`unsettled`) writes itself
 --- again, as a rebuild does, and re-enters `argv`; so does one a
@@ -517,7 +517,7 @@ end
 --- waits for it and re-enters `argv` on the tool it wrote.
 ---
 --- `handle` is the working database of `root`, which must be cosmic's
---- own tree (`tree.is_own`), open and staged. Answers nil when the tool
+--- own tree ([`tree.is_own`]), open and staged. Answers nil when the tool
 --- is fresh, handing `handle` back open for the caller to go on with.
 --- Otherwise it has said why on stderr and closed `handle`, and answers
 --- the exit code the caller returns at once: 3 for a refusal, or a
@@ -587,7 +587,7 @@ function reboot.guard(handle: work.Handle, root: string,
   -- own code. build.work is in the writer's identity (`writer_roots`),
   -- so that tool is `unsettled` too: it builds itself again, once, as a
   -- fresh unsettled tool does, keyed and signed by what its own code,
-  -- which is the tree's (`carries_tree_code`), takes of the tree, rather
+  -- which is the tree's ([`carries_tree_code`]), takes of the tree, rather
   -- than refusing; `into` sets the marker to "2", so a tool stale after
   -- that refuses.
   local settle = sys.getenv(marker) == "1" and unsettled()
@@ -619,20 +619,20 @@ end
 ---
 --- The fresh case -- overwhelmingly the common one for a read-only
 --- verb run again and again while nothing changed -- never walks the
---- tree: `work.tool_moved` stats only the paths the last stage
+--- tree: [`work.tool_moved`] stats only the paths the last stage
 --- already recorded under `tool`, and a file new to the tree does not
 --- register there until something already known requires it, which
 --- edits that known file and so moves its own stat; a row whose file
 --- is gone fails its stat, counted as moved rather than told apart
 --- from an edit. When nothing moved, the `boot_hash` that same last
---- stage recorded into `meta` (`work.recorded_boot_hash`) still
+--- stage recorded into `meta` ([`work.recorded_boot_hash`]) still
 --- describes `tool` exactly, so it is read back rather than
 --- recomputed. Only when something did move, or the database has no
 --- recorded `boot_hash` yet (a fresh `o/`, or one nothing has staged
---- for), does this fall back to `work.stage`'s directory walk and
---- `reboot.guard` -- the same path `cosmic test` always takes.
+--- for), does this fall back to [`work.stage`]'s directory walk and
+--- [`reboot.guard`] -- the same path `cosmic test` always takes.
 ---
---- Answers as `reboot.guard` does for the tree in the working
+--- Answers as [`reboot.guard`] does for the tree in the working
 --- directory: nil to go on, when the tree is not cosmic's own or the
 --- tool is fresh, or an exit code to return at once, having said why.
 --- @param argv the command line, re-entered after a rebuild
@@ -669,7 +669,7 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
       return 1
     end
     fresh = recorded ~= nil and recorded == (Store.meta("boot_hash") or "")
-    -- A tool that is not the tree's own never settles (`reboot.guard`),
+    -- A tool that is not the tree's own never settles ([`reboot.guard`]),
     -- so only the tree's own is sent there to.
     if fresh and unsettled() then
       local own, _ = reboot.own_tool(root)

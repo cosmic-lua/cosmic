@@ -1,5 +1,5 @@
---- `build.tree_checks` on fixture trees, each built to a projection by
---- the build's own code (`build.docs_fixture`): every check refuses a
+--- [`build.tree_checks`] on fixture trees, each built to a projection by
+--- the build's own code ([`build.docs_fixture`]): every check refuses a
 --- tree with the defect it is for planted in it, and passes the same
 --- tree without it.
 
@@ -389,8 +389,9 @@ end
 
 --- A public `---` doc that carries a TODO or cites the build, the C or an
 --- internal module is refused with the rule and the fix; a `--` comment
---- may hold both, a private symbol's doc is not shown, and an
---- exemption whose doc no longer breaks the rule is stale.
+--- may hold both, a private symbol's doc is not shown, nor is a code
+--- span's definition, and an exemption whose doc no longer breaks the
+--- rule is stale.
 local function test_a_public_doc_naming_internals_is_refused(dir: string)
   local db = fixture.database(dir, {
     ["cosmic/thing.tl"] = source(
@@ -441,8 +442,12 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
       "--- Things.",
       "local record thing",
       "end",
-      "--- Does it, and says what a caller needs.",
+      "--- Does it, and says what a caller needs, as [`thing.b`] does.",
+      "---",
+      "--- [`thing.b`]: ../core/thing.c",
       "function thing.a() end",
+      "--- Does it.",
+      "function thing.b() end",
       "return thing"),
     ["build/internal.tl"] = source(
       "--- Cites core/thing.c, TODO: freely.",
@@ -456,7 +461,7 @@ end
 
 --- A literal plural after a number is refused -- joined by `..` to a
 --- length, `tostring(...)` or a literal, or after a `%d` -- with the fix;
---- `plural.count`, a verb after a number, a label (`at byte %d`), a
+--- [`plural.count`], a verb after a number, a label (`at byte %d`), a
 --- comment and a test source pass, and an exemption nothing needs is stale.
 local function test_a_literal_plural_after_a_number_is_refused(dir: string)
   local db = fixture.database(dir, {

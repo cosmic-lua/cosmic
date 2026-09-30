@@ -7,7 +7,7 @@
 --- 0 done, 2 a command line, an input or a write it cannot honor.
 --- Complaints go to standard error as `cosmic: codec: ...`.
 ---
---- The encodings are `cosmic.codec`'s: hex, base64 and base64url, and no
+--- The encodings are [`cosmic.codec`]'s: hex, base64 and base64url, and no
 --- others. One spelling of decode everywhere, `-d`: `base64 -d` and
 --- `base64 -D` differ between platforms.
 ---
@@ -19,7 +19,7 @@
 --- Decoding ignores ASCII whitespace anywhere in the text (space, tab,
 --- newline, return, form feed, vertical tab), so wrapped output and a
 --- trailing newline read back. Everything else is strict, as
---- `cosmic.codec` is: an invalid character, misplaced padding, a bad
+--- [`cosmic.codec`] is: an invalid character, misplaced padding, a bad
 --- length or nonzero trailing bits exits 2 and names the byte offset
 --- (from 0, counted in the input as given, whitespace included) of the
 --- first fault, or for a length or trailing-bits fault of the last
@@ -31,7 +31,7 @@
 ---
 --- The input is streamed, 64 KiB at a time (a read that comes up short,
 --- as a pipe's does, is read on until the chunk is full or the input
---- ends), through `cosmic.codec`'s incremental coders. Encoding writes
+--- ends), through [`cosmic.codec`]'s incremental coders. Encoding writes
 --- each chunk's text as soon as it is made. Decoding holds one chunk's
 --- bytes back until the next chunk has decoded, so an input of at most
 --- 64 KiB writes nothing when it is refused. A padding, length or
@@ -49,7 +49,7 @@ local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
---- The `cosmic codec` verb: `run` is what `build/dispatch.tl` calls.
+--- The `cosmic codec` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
@@ -178,7 +178,7 @@ function verb.decoding(name: Codec.Name, lenient: boolean): Codec.Coder
     failed = why
     return nil, why
   end
-  --- `why`, a `cosmic.codec` reason, with the offset of the text's end.
+  --- `why`, a [`cosmic.codec`] reason, with the offset of the text's end.
   local function at_end(why: string): nil, string
     return fail(("%s (at offset %d)"):format(why:gsub("^codec: ", ""), last or math.max(fed - 1, 0)))
   end
@@ -212,7 +212,7 @@ function verb.decoding(name: Codec.Name, lenient: boolean): Codec.Coder
       end
     end
     fed = fed + #chunk
-    -- A `cosmic.codec` decoder refuses only at `finish`.
+    -- A [`cosmic.codec`] decoder refuses only at `finish`.
     return assert(inner:update(body)), ""
   end
   coder.finish = function(_self: Codec.Coder): string | nil, string
@@ -425,7 +425,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   return bare.ok
 end
 
---- The `codec` verb as `build/verb_list.tl` lists it. Reads what it is
+--- The `codec` verb as [`build/verb_list.tl`] lists it. Reads what it is
 --- given, never the tree.
 verb.spec = {
   name = "codec",

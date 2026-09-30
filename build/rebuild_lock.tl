@@ -2,18 +2,18 @@
 --- time rebuild or boot the tool, run the tree's tests, or write its
 --- projection, `o/cosmic.db`.
 ---
---- `cosmic test` holds it for its whole run (`build.test`), so a second
+--- `cosmic test` holds it for its whole run ([`build.test`]), so a second
 --- run in the checkout waits for the first: one run's closure stores,
---- its sweep of them (`build.test`'s `sweep_stores`) and its projection
+--- its sweep of them ([`build.test`]'s `sweep_stores`) and its projection
 --- are never another's to remove or write under it. A run that finds
 --- the tool stale holds it from then until it re-enters the command on
 --- the tool it wrote (build/reboot.tl's `serialize`), a `bin/zig build
 --- boot` from before its build to its end (build/zig.tl), and a write
---- of the projection while it writes (`build.writer`'s `write_result`).
+--- of the projection while it writes ([`build.writer`]'s `write_result`).
 --- Without it, two runs in one checkout that both find the tool stale
 --- (an editor, a watcher and a terminal, say) would rebuild it at once:
 --- each writes o/cosmic.db and o/carried.db aside through the same
---- fixed `.building` name (`writer.write_result`, `writer.carried`),
+--- fixed `.building` name ([`writer.write_result`], [`writer.carried`]),
 --- which the other removes and writes into under it.
 ---
 --- It is a `flock` of `o/rebuild.lock` and, on Linux, an SQLite write
@@ -30,14 +30,14 @@
 --- handle included: there the flock alone excludes both kinds of tool,
 --- and taking SQLite's as well would find it always busy. So does a
 --- checkout Linux reaches over NFS or SMB, which make a flock a
---- whole-file fcntl lock (`kept_apart`).
+--- whole-file fcntl lock ([`kept_apart`]).
 ---
 --- The system drops the lock with its descriptors, so a holder that dies
 --- or execs (each is opened close-on-exec) never leaves it held. Closing
 --- any descriptor of the file drops every fcntl lock the process holds
 --- on it, so a holder opens and closes no other while it holds the lock.
 --- A sandboxed test worker never takes it, since only the tree's own
---- tool (`reboot.own_tool`) rebuilds.
+--- tool ([`reboot.own_tool`]) rebuilds.
 -- The SQLite half stays: any checkout can build a commit from before
 -- the flock (a bisect, an older branch), and that tool takes only
 -- SQLite's.
@@ -75,7 +75,7 @@ end
 
 local lock_name = "/o/rebuild.lock"
 
---- The longest wait `take` takes: `sys.flock` takes its timeout as a C
+--- The longest wait `take` takes: [`sys.flock`] takes its timeout as a C
 --- int.
 local most_wait_ms <const> = 0x7fffffff
 
@@ -98,7 +98,7 @@ local doing: {string:string} = {
 --- One that finds the lock free takes it, so a variable left in an
 --- environment it no longer describes holds nothing up; a `cosmic test`
 --- run never goes on under it, and gives none to its workers
---- (`build.test`'s `worker_environment`).
+--- ([`build.test`]'s `worker_environment`).
 local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 
 --- How long a waiting run waits in one go before it says it still is.
@@ -208,7 +208,7 @@ end
 --- holds it -- at once when it already does -- "busy" when another run
 --- held it past the wait, or nil and why when the lock could not be
 --- asked for at all (its file cannot be opened for writing, a
---- `Child.guard` caught a signal during the wait, this process holds
+--- [`Child.guard`] caught a signal during the wait, this process holds
 --- another checkout's). A half taken is let go again whenever the
 --- other is not.
 function rebuild_lock.take(root: string, wait_ms: integer,
@@ -377,7 +377,7 @@ end
 --- Holds the rebuild lock of `root` as `role` before this run goes on,
 --- for `what` (a verb, which names itself in what it says). Answers
 --- true when this call took it -- the caller releases it
---- (`rebuild_lock.release`) when done, or leaves it to its exit -- and
+--- ([`rebuild_lock.release`]) when done, or leaves it to its exit -- and
 --- false when this process held it already, or, for a write, a parent
 --- that holds it handed it on (`handed_variable`). A run that finds
 --- another holding it says so, naming that run and what it is doing,
@@ -385,7 +385,7 @@ end
 --- run. Answers nil and why when it cannot take the lock.
 ---
 --- It must be called holding nothing that run may wait for: the working
---- database's transaction above all (`build.work`).
+--- database's transaction above all ([`build.work`]).
 function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
                            what: string): boolean | nil, string
   if rebuild_lock.holds(root) then

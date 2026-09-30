@@ -1,13 +1,13 @@
 --- The trust gate around the raw native collector cosmic.coverage
 --- wraps: the collector cannot be required by name, and a load that is
 --- not handed the trusted `extra` table falls through to that same
---- failing name, as `cosmic.store` and `cosmic.sqlite` do.
+--- failing name, as [`cosmic.store`] and [`cosmic.sqlite`] do.
 ---
 --- The load-time check does not cover this file's own
---- `require("cosmic.coverage")`. That resolves trusted, as `build.test`'s
+--- `require("cosmic.coverage")`. That resolves trusted, as [`build.test`]'s
 --- does, and returns the same cached module table. Only the session
 --- token that `start` and `stop` check stands between this file and the
---- collection window `build.test` has open.
+--- collection window [`build.test`] has open.
 
 local Store = require("cosmic.store")
 local Coverage = require("cosmic.coverage")
@@ -32,7 +32,7 @@ local function test_untrusted_load_cannot_reach_raw_debug()
   assert(not ok, "an untrusted load must not obtain a working native collector")
 end
 
---- `build.test` has a collection window open around every test body,
+--- [`build.test`] has a collection window open around every test body,
 --- this one included. A `start` from inside it must be refused, not
 --- reset the window: a reset would drop the whole run's reported
 --- coverage to 0.0%.
@@ -59,7 +59,7 @@ end
 --- run once has the lines it executed marked hit, and a line in a branch
 --- it never took not.
 ---
---- It runs under the window `build.test` has open. `Coverage.snapshot`
+--- It runs under the window [`build.test`] has open. [`Coverage.snapshot`]
 --- only copies the lines hit so far, so reading it here leaves the
 --- window as it was.
 local function test_native_collector_hits_executed_lines_only()

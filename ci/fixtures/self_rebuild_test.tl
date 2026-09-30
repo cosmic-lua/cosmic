@@ -322,7 +322,7 @@ local function run_refusal_case(fixture_dir: string,
     "artifact")
 end
 
--- A pure unit test of `compare_prefix` itself, with three synthetic cases: an
+-- A pure unit test of [`compare_prefix`] itself, with three synthetic cases: an
 -- exact match, a program too short to hold the expected prefix, and a mutated
 -- byte within the compared range.
 local function test_self_rebuild_prefix_comparison(_tmp: string)

@@ -69,7 +69,7 @@ of the solver's project. The prompt varies only in arena paths.
   guide doctests), checks formatting, builds exactly `o/bin/notes`, then
   exercises it without supporting files or environment. The grader runs
   on the pinned bootstrap cosmic, which is no solver dependency either;
-  run `bin/cosmic-bootstrap` once beforehand, so its first download is
+  run [`bin/cosmic-bootstrap`] once beforehand, so its first download is
   not counted against the grader's 30 seconds.
 - **Evidence.** Preserve the project and journal. Any path a tool call
   named outside the arena is a boundary breach to record. Preserve a full transcript
@@ -157,8 +157,8 @@ that fix is the PR; cite the run's evidence and limitations.
 
 ## writing a task
 
-A task file is Markdown under `eval/task/`, and `eval/arena` appends
-`eval/journal.md` to it. Whatever the task itself asks the agent to
+A task file is Markdown under `eval/task/`, and [`eval/arena`] appends
+[`eval/journal.md`] to it. Whatever the task itself asks the agent to
 build, hold it to the same bar, and grade every part of it for real:
 
 1. **Tests.** The project must ship tests `cosmic test` discovers and
@@ -201,14 +201,14 @@ something the agent was never told. Beyond that bar, what has worked:
 - **Say what the binary's environment will be.** The grader runs it with
   an empty environment; the task says so in the same words.
 - **Keep the journal contract out of the task.** It is the same for
-  every task and lives in `eval/journal.md`.
+  every task and lives in [`eval/journal.md`].
 
 ## reading a journal
 
 The summary at the end ranks what slowed the agent, with the log
 entries it refers to; read those entries, not the ranking alone. A
 journal written once at the end (`journal_writes` of one or two) is a
-retelling: weigh the transcript and `eval/summarize`'s counts over its
+retelling: weigh the transcript and [`eval/summarize`]'s counts over its
 ranking. Then:
 
 - **Check every claim about the tool against the transcript and the
@@ -219,3 +219,8 @@ ranking. Then:
   where the next help line or error message comes from.
 - **"The one change that would have helped most"** has been right every
   time so far, and cheap. Start there.
+
+[`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
+[`eval/arena`]: arena
+[`eval/journal.md`]: journal.md
+[`eval/summarize`]: summarize
