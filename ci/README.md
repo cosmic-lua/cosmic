@@ -389,24 +389,28 @@ It runs wherever the legs do. On a branch push (`light`), which runs
 no checked suite, it boots all the same and runs what would otherwise
 hold up a leg: the pinned CI driver's check (`cosmic-driver test
 cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
-skip, and the format check (`platform format`, `fix --check .`, 42 to
-62 s), which ran after linux-aarch64's suite and runs on a full run in
-that leg's assemble. With no suite it mostly finishes before the legs
-(2026-09-30), but not always: its setup, the driver's check, the boot
-and the format check take some 190 s, so on a branch where most
-verdicts stand it can be the run's gate (the `TODO:` on its driver
-check says what would shorten it). Its `operations.db` is kept on
-either scope, as `ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build outputs and compiles, which that leg
-saves, and saves neither. Its verdicts it keeps under a name of its
-own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
-restored, trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's
-are. The `ci` join requires it, and `report` counts it with the legs.
-Its tree moves to a path of the commit's own, as a leg's does: the
-checked core runs the harness, the boot's staging and `tool.tl entry`
-unsandboxed at that path, so a path of another length each commit
-varies what the sanitizers see. The tree moves back before the seed
-and the verdicts' save, whose path actions/cache names relative to the
-workspace (below).
+skip, and which it skips too where main's linux-x86_64 leg left its
+marker for the same key (that leg's host, named again under the leg's
+name, and what the key hashes), and the format check (`platform
+format`, `fix --check .`, 42 to 62 s), which ran after linux-aarch64's
+suite and runs on a full run in that leg's assemble. With no suite it
+mostly finishes before the legs (2026-09-30), but not always: its
+setup, the driver's check where it runs, the boot and the format check
+take some 190 s, so on a branch where most verdicts stand it can be
+the run's gate (the `TODO:` above its driver check says what would
+shorten it). Its `operations.db` is kept on either scope, as
+`ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build
+outputs and compiles, which that leg saves, and saves neither. Its
+verdicts it keeps under a name of its own,
+`verdicts-linux-x86_64-checked-<host>-<features>-<digest>`, restored,
+trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are. The
+`ci` join requires it, and `report` counts it with the legs. Its tree
+moves to a path of the commit's own, as a leg's does: the checked core
+runs the harness, the boot's staging and `tool.tl entry` unsandboxed
+at that path, so a path of another length each commit varies what the
+sanitizers see. The tree moves back before the seed and the verdicts'
+save, whose path actions/cache names relative to the workspace
+(below).
 
 ### the Linux legs' container
 

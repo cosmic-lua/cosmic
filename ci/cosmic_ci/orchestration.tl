@@ -10,6 +10,7 @@ local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
+local RunNames = require("cosmic_ci.run_names")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
@@ -255,23 +256,19 @@ local function environment(extra?: {string:string}): {string:string}
   return all
 end
 
---- Variables that name this run, its runner or its container rather than
---- anything a test is given: systemd's per-unit ones where a runner is a
---- service, CI, and the container's HOSTNAME (its ID, new every job).
-local run_only: {string:boolean} = {
-  CI = true, INVOCATION_ID = true, JOURNAL_STREAM = true, HOSTNAME = true,
-}
-
 --- Whether `name` says which run, runner or job this is, or is a switch
---- the driver alone reads: GitHub's (GITHUB_*, RUNNER_*, ACTIONS_*),
---- `run_only`'s, and the driver's COSMIC_CI_* but
---- COSMIC_CI_REQUIRE_SANDBOX, which a test reads
---- (build/sandboxed_verdicts_test.tl).
+--- the driver alone reads ([`cosmic_ci.run_names`]).
 local function names_the_run(name: string): boolean
-  if name == "COSMIC_CI_REQUIRE_SANDBOX" then return false end
-  return run_only[name] or name:sub(1, 7) == "GITHUB_" or
-    name:sub(1, 7) == "RUNNER_" or name:sub(1, 8) == "ACTIONS_" or
-    name:sub(1, 10) == "COSMIC_CI_"
+  for _, kept in ipairs(RunNames.kept) do
+    if name == kept then return false end
+  end
+  for _, exact in ipairs(RunNames.exact) do
+    if name == exact then return true end
+  end
+  for _, prefix in ipairs(RunNames.prefixes) do
+    if name:sub(1, #prefix) == prefix then return true end
+  end
+  return false
 end
 
 --- Removes from `env`, a gating suite's, every variable that names the

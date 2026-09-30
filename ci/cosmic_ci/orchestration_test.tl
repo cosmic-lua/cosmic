@@ -1172,25 +1172,11 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
   assert(fixture.COSMIC_TEST_NO_SHARED == "1" and fixture.COSMIC_VERDICT_CACHE == "0")
 end
 
---- ci/darwin-tests.txt names test modules of the tree, each once: a
---- module renamed or removed fails here rather than dropping out of the
---- macOS leg's darwin suite, whose `cosmic test` would refuse to run a
---- selector that chooses nothing only on macOS.
-local function test_the_darwin_list_names_test_modules_of_the_tree()
+--- A darwin list names one path a line; a comment, on a line of its
+--- own or after a path, names nothing. That the list names test modules
+--- of the tree, each once, the tree's own build/ci_tree_test.tl holds.
+local function test_a_darwin_list_names_a_path_a_line()
   local Orchestration = require("cosmic_ci.orchestration")
-  local root = checkout_root()
-  local text = assert(Fs.read(root .. "/ci/darwin-tests.txt"))
-  local modules = Orchestration.darwin_modules(text)
-  assert(#modules > 0, "the darwin list names no module")
-  local seen: {string:boolean} = {}
-  for _, module in ipairs(modules) do
-    assert(not seen[module], module .. ": listed twice")
-    seen[module] = true
-    assert(module:match("^[%w_/]+_test%.tl$"), module .. ": not a test module's path")
-    local st = Fs.stat(root .. "/" .. module)
-    assert(st ~= nil and st.kind == "file", module .. ": no such test module")
-  end
-  -- A comment, on a line of its own or after a path, names nothing.
   local parsed = Orchestration.darwin_modules("# why\n\n  a_test.tl  # because\n#b_test.tl\n")
   assert(#parsed == 1 and parsed[1] == "a_test.tl", table.concat(parsed, ","))
 end
@@ -1302,56 +1288,4 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
     assert(db:close())
     assert(table.concat(names, " ") == case.suites, case.name .. ": " .. table.concat(names, " "))
   end
-end
-
---- The files that name a variable a suite forgets, each with the ones
---- it may name, and why: it sets the variable itself, in its own
---- child's environment, or names it only as ci.yml's text, which it
---- reads. Any other such name in them is found as in any other file.
-local sets_what_it_reads: {string:{string:boolean}} = {
-  ["build/commit_verdicts_test.tl"] = { GITHUB_OUTPUT = true },
-  ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
-  ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true,
-    GITHUB_EVENT_NAME = true, COSMIC_CI_DECLARED_KEYS = true },
-  ["build/queue_seed_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_STEP_SUMMARY = true,
-    RUNNER_TEMP = true },
-  -- As the platform and checked jobs' env set it, and the workflow's;
-  -- RUNNER_TEMP and GITHUB_OUTPUT as a step's `run` names them.
-  ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
-    COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
-    COSMIC_CI_BASE_SHA = true, GITHUB_OUTPUT = true, RUNNER_TEMP = true },
-}
-
---- No tree source names a variable a gating suite's workers are not
---- given ([`cosmic_ci.orchestration.forget_run`]) but one that sets it itself
---- (`sets_what_it_reads`): a test that read one would find it unset in
---- CI. A new one is kept out of `forget_run` or set by the test.
-local function test_no_tree_source_reads_what_a_suite_forgets()
-  local Orchestration = require("cosmic_ci.orchestration")
-  local root = checkout_root()
-  local found: {string} = {}
-  for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
-    for _, path in ipairs((assert(Fs.walk(root .. "/" .. dir)))) do
-      local relative = dir .. "/" .. path
-      local allowed = sets_what_it_reads[relative] or {}
-      if relative:match("%.tl$") or relative:match("%.lua$") or
-          relative:match("%.[ch]$") then
-        local names: {string:string} = {}
-        for name in (assert(Fs.read(root .. "/" .. relative))):gmatch("[%u%d_]+") do
-          -- CI is a word of prose too often to tell a read of it.
-          if name ~= "CI" then names[name] = name end
-        end
-        local kept: {string:string} = {}
-        for name, value in pairs(names) do kept[name] = value end
-        Orchestration.forget_run(kept)
-        for name in pairs(names) do
-          if kept[name] == nil and not allowed[name] then
-            found[#found + 1] = relative .. ": " .. name
-          end
-        end
-      end
-    end
-  end
-  assert(#found == 0, "a tree source names a variable a suite forgets: " ..
-    table.concat(found, ", "))
 end

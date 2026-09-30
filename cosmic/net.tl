@@ -1237,9 +1237,6 @@ local function serving(spec: Net.ServeSpec, handed: Handed | nil): boolean, stri
   return true, ""
 end
 
---- How often a supervisor asks whether a worker has exited.
-local WORKER_POLL_MS <const> = 50
-
 --- A supervisor's state for the length of its run. Closing it closes
 --- every listener and ends every worker still running, so a run that
 --- raises -- [`on_ready`] or [`on_error`] did -- leaves neither behind.
@@ -1315,10 +1312,17 @@ end
 --- Reaps every worker that has exited, reporting one that exited before
 --- the stop or was killed for outlasting it.
 local function reap(s: Supervising)
-  for pid, handle in pairs(s.workers) do
+  -- A settle can wait through the run, in which another task may reap
+  -- the same worker: each is taken from a list made first, and counted
+  -- off by the task that finds it still there.
+  local listed: {integer: Child.Handle} = {}
+  for pid, handle in pairs(s.workers) do listed[pid] = handle end
+  for pid, handle in pairs(listed) do
     local answer, why = handle:try_wait()
     local trouble = ""
-    if answer == nil then
+    if s.workers[pid] ~= handle then
+      answer = { finished = false }
+    elseif answer == nil then
       trouble = "worker " .. pid .. ": " .. why
       local _, _ = handle:close()
     elseif answer.finished and s.killing and answer.result.signal == sys.SIGKILL then
@@ -1335,11 +1339,23 @@ local function reap(s: Supervising)
   end
 end
 
+--- Waits through the run for the first of the workers still running to
+--- exit, at most `timeout_ms` milliseconds (no limit when nil), or for
+--- the task to be cancelled. A worker whose settling failed -- its group
+--- would not empty -- is reported and passed over, as [`reap`] does.
+local function await_worker(s: Supervising, timeout_ms?: integer)
+  local handles: {Child.Handle} = {}
+  for _, handle in pairs(s.workers) do handles[#handles + 1] = handle end
+  local done, trouble = Child.wait_any(handles, timeout_ms)
+  if done ~= nil and trouble ~= "" and s.workers[done.pid] == done then
+    s.workers[done.pid] = nil
+    s.running = s.running - 1
+    reported(s.spec, "worker " .. done.pid .. ": " .. trouble)
+  end
+end
+
 --- Reaps the workers until the stop, and stops the server once none is
 --- left.
--- TODO: wait on the workers' exits through the run rather than asking
--- every WORKER_POLL_MS, once cosmic.child waits through cosmic.poll in a
--- task of Poll.run (doc/roadmap.md's wait on Child handles).
 local function monitor(s: Supervising)
   while not s.stopping do
     reap(s)
@@ -1348,7 +1364,7 @@ local function monitor(s: Supervising)
       stop_supervising(s)
       return
     end
-    local _, _ = Poll.delay(WORKER_POLL_MS)
+    await_worker(s)
   end
 end
 
@@ -1379,7 +1395,9 @@ local function wind_down(s: Supervising)
       s.killing = true
       signal_workers(s, sys.SIGKILL)
     end
-    local _, _ = Poll.delay(WORKER_POLL_MS)
+    local left: integer
+    if deadline ~= nil and not s.killing then left = math.max(deadline - now_ms(), 0) end
+    await_worker(s, left)
   end
 end
 

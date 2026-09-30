@@ -43,6 +43,7 @@ extern long syscall (long, ...);
 extern int clone (int (*)(void *), void *, int, void *, ...);
 #endif
 #if defined(__APPLE__)
+#include <sys/event.h>
 #include <sys/sysctl.h>
 #endif
 #if defined(__x86_64__)
@@ -2511,6 +2512,37 @@ COSMIC_SYSCALL(waitpid, 2) {
   lua_rawset(L, -4);
   lua_pushinteger(L, answer > 0 && WIFSIGNALED(status) ? WTERMSIG(status) : -1);
   lua_rawset(L, -3);
+  return 1;
+}
+
+COSMIC_SYSCALL(exit_watch, 1) {
+  lua_Integer value = luaL_checkinteger(L, 1);
+  if (value <= 0 || value > INT_MAX) return luaL_argerror(L, 1, "pid is out of range");
+#if defined(__linux__)
+  /* pidfd_open sets close-on-exec itself. */
+  int watch = (int)syscall(SYS_pidfd_open, (pid_t)value, 0);
+  if (watch < 0) return cosmic_fail(L, errno);
+#elif defined(__APPLE__)
+  int watch = kqueue();
+  if (watch < 0) return cosmic_fail(L, errno);
+  /* A kqueue is not inherited across fork, but may be across a spawn's
+   * exec: it is closed there. One thread and no fork before the flag is
+   * set, so no child can take it meanwhile. The exit, once it comes,
+   * stays queued, as nothing reads the queue, and so the queue stays
+   * readable. */
+  struct kevent change;
+  EV_SET(&change, (uintptr_t)value, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, NULL);
+  if (fcntl(watch, F_SETFD, FD_CLOEXEC) != 0 || kevent(watch, &change, 1, NULL, 0, NULL) != 0) {
+    int number = errno;
+    close(watch);
+    return cosmic_fail(L, number);
+  }
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
+  /* Nothing between the open and its push can raise: pushing an integer
+   * allocates nothing. */
+  lua_pushinteger(L, watch);
   return 1;
 }
 

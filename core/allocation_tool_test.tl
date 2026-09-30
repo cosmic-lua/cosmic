@@ -7,6 +7,7 @@
 
 local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
 local Test = require("cosmic.test")
@@ -60,19 +61,24 @@ local function under_every_failure(work: function(), settle?: function()): integ
   error("the work never ran with every allocation granted")
 end
 
+--- This program again, past its launcher, as build.this_program's
+--- `program` starts it, handed the chunk `chunk`. A test's worker
+--- always runs from a portable artifact.
+local function spawn_again(chunk: string): integer
+  local relaunch = assert(Proc.relaunch())
+  local argv: {string} = { table.unpack(relaunch.argv) }
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = chunk
+  return (assert(process.spawn(argv[1], argv, relaunch.env, nil, nil, nil, nil, false,
+    relaunch.fds)))
+end
+
 --- A child is reaped only once its answer can be made: a refusal before
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   if not checked then return end
-  -- This program again, past its launcher, as build.this_program's `program`
-  -- starts it, handed a chunk that exits 7: a real status to reap. A
-  -- test's worker always runs from a portable artifact.
-  local relaunch = assert(Proc.relaunch())
-  local argv: {string} = { table.unpack(relaunch.argv) }
-  argv[#argv + 1] = "-e"
-  argv[#argv + 1] = "return 7"
-  local pid = assert(process.spawn(argv[1], argv, relaunch.env, nil, nil, nil, nil, false,
-    relaunch.fds))
+  -- A chunk that exits 7: a real status to reap.
+  local pid = spawn_again("return 7")
   local received: raw_process.ChildStatus
   local reaped: raw_process.ChildStatus
   under_every_failure(function()
@@ -85,4 +91,41 @@ local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   end)
   assert(reaped ~= nil, "the child's status was lost to a refused allocation")
   assert(reaped.pid == pid and reaped.code == 7 and reaped.signal == -1)
+end
+
+--- An exit watch owns its descriptor from the call that opens it: a
+--- refusal anywhere, its failure's message among them, leaves none to
+--- the process.
+local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  -- A child still running, as one a watch is opened for is.
+  local pid = spawn_again('require("cosmic.time").sleep_ns(60 * 1000000000)')
+  local probe = tmp .. "/probe"
+  local function next_descriptor(): integer
+    local fd = assert(sys.open(probe, sys.O_CREAT | sys.O_RDWR, 420))
+    sys.close(fd)
+    return fd
+  end
+  local before = next_descriptor()
+  local received: integer
+  local opened = 0
+  under_every_failure(function()
+    received = process.exit_watch(pid)
+  end, function()
+    if received ~= nil then
+      sys.close(received)
+      received = nil
+      opened = opened + 1
+    end
+  end)
+  assert(opened >= 1, "the run with nothing refused opens a watch")
+  assert(sys.kill(pid, sys.SIGKILL))
+  assert(process.waitpid(pid, false))
+  -- Reaped, the child has no watch to give, and its failure is made
+  -- under every refusal too.
+  under_every_failure(function()
+    local none, _, errno = process.exit_watch(pid)
+    assert(none == nil and errno == sys.ESRCH)
+  end)
+  assert(next_descriptor() == before, "a refused allocation left descriptor " .. before .. " open")
 end
