@@ -10,6 +10,7 @@
 --- [`cosmic.child`] and [`cosmic.hash`]. [`sys.exit`] is the one binding with
 --- no test here: it ends the process the test runs in.
 
+local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
@@ -31,6 +32,7 @@ local sandbox_skip = require("build.sandbox_skip")
 Test.needs{
   host = { "/proc" },
   env = { "*" },
+  network = { "127.0.0.1" },
 }
 
 local type Searcher = function(string): any, any
@@ -582,6 +584,34 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   sys.close(fd)
   local bad, bad_trouble = process.landlock_ruleset({ tmp .. "/nowhere" }, {})
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
+end
+
+--- A ruleset holds files and not the network, on every kernel: a child
+--- held to one reaches a listener of this process's over TCP on
+--- loopback and over a unix socket file, as one held to none does.
+local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
+  local probe = probe_in(tmp)
+  local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ms = 5000 }))
+  local socket = tmp .. "/s"
+  local unix = assert(Net.listen(Net.unix(socket), { timeout_ms = 5000 }))
+  local ruleset, trouble = process.landlock_ruleset({ probe }, {})
+  if ruleset == nil then
+    assert(tcp:close() and unix:close())
+    unsandboxable("Landlock ruleset", trouble)
+    return
+  end
+  local output = create(tmp .. "/said")
+  local pid = assert(process.spawn(probe, { probe,
+    "connect-tcp 127.0.0.1 " .. tostring(tcp.address.port) .. "; connect " .. socket },
+    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
+  sys.close(ruleset)
+  local status = assert(process.waitpid(pid, false))
+  local said = assert(sys.pread(output, 4096, 0))
+  sys.close(output)
+  assert(status.code == 0 and said == "connected\nconnected\n", said)
+  assert(assert(tcp:accept()):close())
+  assert(assert(unix:accept()):close())
+  assert(tcp:close() and unix:close())
 end
 
 --- A process held to running what is beneath some paths runs a program
