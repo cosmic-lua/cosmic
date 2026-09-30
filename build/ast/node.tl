@@ -1,4 +1,4 @@
---- A real [`Node`] record for tl's parser output, and `parse()` to
+--- A real [`Node`] record for tl's parser output, and [`parse()`] to
 --- produce one.
 ---
 --- `tl.parse_program` returns its AST erased to `any`; this module is
