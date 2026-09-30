@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
@@ -497,4 +498,123 @@ local function test_a_listener_past_path_max_serves_and_removes_its_file(tmp: st
   assert(sys.chdir(was))
   assert(ok, tostring(failure))
   assert(removed, tostring(trouble))
+end
+
+--- In a task of Poll.run, a server serves each connection in a task of
+--- its own: three clients hold their connections open at once, and the
+--- server answers the last to connect first, which a server whose reads
+--- held the thread could never do.
+local function test_in_a_run_a_server_serves_connections_at_once(tmp: string)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ms = 5000 }))
+  local answered: {string} = {}
+  Poll.run(function()
+    Poll.spawn(function()
+      for _ = 1, 3 do
+        local conn = assert(server:accept())
+        Poll.spawn(function()
+          local line = assert(Stream.lines(conn):read())
+          assert(conn:write("re " .. line .. "\n"))
+          assert(conn:close())
+        end)
+      end
+    end)
+    local clients: {Net.Conn} = {}
+    for i = 1, 3 do clients[i] = assert(Net.connect(server.address, { timeout_ms = 5000 })) end
+    for i = 3, 1, -1 do
+      assert(clients[i]:write("c" .. i .. "\n"))
+      answered[#answered + 1] = assert(Stream.lines(clients[i]):read())
+      assert(clients[i]:close())
+    end
+  end)
+  assert(table.concat(answered, ",") == "re c3,re c2,re c1", table.concat(answered, ","))
+end
+
+--- In a run, a read that waits lets the other tasks run, and ends
+--- "cancelled" once its task is cancelled; out of one, it waits alone.
+local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled(tmp: string)
+  local p <close> = pair(tmp)
+  local answer = ""
+  local others = 0
+  Poll.run(function()
+    local reader = Poll.spawn(function()
+      local data, why = p.accepted:read()
+      assert(data == nil)
+      answer = why
+    end)
+    for _ = 1, 3 do
+      assert(Poll.delay(1))
+      others = others + 1
+    end
+    reader:cancel()
+    assert(reader:join())
+  end)
+  assert(others == 3 and answer == Poll.CANCELLED, answer)
+  assert(p.client:write("after"))
+  assert(p.accepted:read() == "after", "the connection is usable after the run")
+end
+
+--- A read waiting in a task whose connection another task closes ends
+--- "connection is closed", even where a new connection has taken the
+--- same descriptor number with data waiting, which it leaves alone.
+local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends(tmp: string)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ms = 5000 }))
+  local _first_client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+  local first = assert(server:accept())
+  local answer = ""
+  local later = ""
+  Poll.run(function()
+    local reader = Poll.spawn(function()
+      local data, why = first:read()
+      assert(data == nil, "the closed connection answered " .. tostring(data))
+      answer = why
+    end)
+    assert(Poll.delay(0))
+    assert(first:close())
+    local second_client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    local second = assert(server:accept())
+    assert(second_client:write("second's"))
+    assert(reader:join(5000))
+    later = assert(second:read())
+    assert(second:close())
+  end)
+  assert(answer == "connection is closed", answer)
+  assert(later == "second's", later)
+end
+
+--- A write in a task that fills the peer's buffer waits for it to be
+--- drained by another task, and every byte arrives.
+local function test_in_a_run_a_write_waits_while_another_task_drains(tmp: string)
+  local p <close> = pair(tmp)
+  local size = 4 * 1024 * 1024
+  local got = 0
+  Poll.run(function()
+    Poll.spawn(function()
+      assert(p.client:write(string.rep("x", size)))
+      assert(p.client:shutdown("write"))
+    end)
+    Poll.spawn(function()
+      while true do
+        local data, why = p.accepted:read()
+        if data == nil then
+          assert(why == "", why)
+          break
+        end
+        got = got + #data
+      end
+    end)
+  end)
+  assert(got == size, "got " .. got .. " of " .. size .. " bytes")
+end
+
+--- In a task, a wait past its timeout fails "timed out", as it does out
+--- of one.
+local function test_in_a_run_waits_time_out_as_they_do_out_of_one(tmp: string)
+  local p <close> = pair(tmp)
+  Poll.run(function()
+    local conn, why = p.server:accept(10)
+    assert(conn == nil and why == "timed out", why)
+    p.accepted.timeout_ms = 10
+    local data, read_why = p.accepted:read()
+    assert(data == nil and read_why == "timed out", read_why)
+  end)
 end

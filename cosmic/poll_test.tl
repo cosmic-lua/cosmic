@@ -379,3 +379,32 @@ local function test_timeouts_are_bounded_and_timed_joins_are_no_deadlock()
     a = Poll.spawn(function() local _, _ = b:join(20) end)
   end)
 end
+
+--- `in_task` answers whether the caller is a task of a running run.
+local function test_in_task_answers_only_in_a_task()
+  assert(not Poll.in_task(), "outside a run")
+  local inside, nested = false, true
+  Poll.run(function()
+    inside = Poll.in_task()
+    nested = coroutine.wrap(function(): boolean return Poll.in_task() end)()
+  end)
+  assert(inside and not nested, tostring(inside) .. " " .. tostring(nested))
+end
+
+--- `closing` answers the waits on a descriptor about to be closed.
+local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  local answered = false
+  Poll.run(function()
+    local waiter = Poll.spawn(function()
+      answered = Poll.readable(reader, 5000)
+    end)
+    assert(Poll.delay(0))
+    Poll.closing(reader)
+    assert(waiter:join(1000))
+  end)
+  assert(answered, "the wait was not answered")
+  Poll.closing(reader)
+  sys.close(reader)
+  sys.close(writer)
+end
