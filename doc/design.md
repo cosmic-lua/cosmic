@@ -135,10 +135,13 @@ zig's bundled musl is the libc on Linux and its libSystem stubs are
 the link target on macOS. the zig pin is therefore the libc pin. a
 file names the zig version and the sha256 of each host's tarball;
 [`bin/zig`] hands off to [`build/zig.tl`], which the pinned bootstrap
-cosmic runs standalone to fetch into a cache, verify, and exec. it
-fetches from a few of zig's community mirrors, as zig asks automated
-downloaders to, then ziglang.org, retrying in rounds; the sha256 is
-what is trusted, so any mirror will do.
+cosmic runs standalone to fetch into a cache, verify, and exec; the
+fetch is [`build/zig_fetch.tl`]'s, run standalone in turn on a cache
+miss, so what downloads and unpacks stays out of the import closure of
+build/zig.tl, which the C checks require. it fetches from a few of
+zig's community mirrors, as zig asks automated downloaders to, then
+ziglang.org, retrying in rounds; the sha256 is what is trusted, so any
+mirror will do.
 `build.zig` compares `builtin.zig_version` against the pin at
 comptime and refuses any other version by name; the `.zon` manifest's
 minimum-version field is not enforced for a root package and is not
@@ -1063,6 +1066,7 @@ in [roadmap.md](roadmap.md).
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
 [`build/zig.tl`]: ../build/zig.tl
+[`build/zig_fetch.tl`]: ../build/zig_fetch.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
 [`core/bridge.lua`]: ../core/bridge.lua

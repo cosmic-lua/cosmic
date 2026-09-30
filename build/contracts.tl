@@ -160,7 +160,7 @@ local exempt: {string: string} = {
 }
 
 local parsing: {string: string} = {
-  ["build/zig.tl:Zig.fetch.attempt"] =
+  ["build/zig_fetch.tl:ZigFetch.fetch.attempt"] =
     "bin/zig runs on the release ci/cosmic-driver.pin names, whose " ..
     "Http.download names the URL in one failure's reason and no other",
 }
