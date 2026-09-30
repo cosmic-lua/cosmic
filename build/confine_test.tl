@@ -8,7 +8,6 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
-local observations = require("build.filesystem_observations")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
@@ -189,13 +188,34 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   end
 end
 
---- `resolution`, in Teal, resolves a path as the observation log's C
---- `resolve` does: through links, a missing name and all after it as
---- written, "." and ".." included, and each run of slashes as one.
--- TODO: compare against a Teal oracle of its own (the one
--- build/filesystem_observations_test.tl keeps, `resolved_before`) once
--- the log's C `resolve` goes (removing the observation log, step 5).
-local function test_a_resolution_is_the_one_the_log_makes(tmp: string)
+--- What a path resolves to, by names: `realpath` of the path or else
+--- of its nearest ancestor that resolves, with every name past that
+--- ancestor after it as written. It asks the same [`sys.realpath`] that
+--- `resolution` does, so what it checks is how `resolution` splits a
+--- path into names and joins them again, not how a link resolves.
+local function resolved_by_names(path: string): string
+  if path:sub(1, 1) ~= "/" then return "" end
+  local missing: {string} = {}
+  local at = path
+  while true do
+    local real, _ = sys.realpath(at)
+    if real ~= nil then
+      for i = #missing, 1, -1 do
+        real = (real == "/" and "" or real) .. "/" .. missing[i]
+      end
+      return real
+    end
+    local parent = Fs.dirname(at)
+    if parent == at then return "" end
+    missing[#missing + 1] = Fs.basename(at)
+    at = parent
+  end
+end
+
+--- `resolution` resolves a path as [`resolved_by_names`] does: through
+--- links, a missing name and all after it as written, "." and ".."
+--- included, and each run of slashes as one.
+local function test_a_resolution_is_the_one_its_names_tell(tmp: string)
   local real = assert(sys.realpath(tmp))
   assert(Fs.mkdirs(real .. "/d/e"))
   assert(Fs.write(real .. "/d/f", "x"))
@@ -212,10 +232,10 @@ local function test_a_resolution_is_the_one_the_log_makes(tmp: string)
     real .. "/d/f/g", real .. "/dangling", real .. "/dangling/x", real .. "/./d/./e",
     real .. "/link//", real .. "/relative/../f", real .. "/relative/missing/..", long,
     real .. "/loop-a", real .. "/loop-a/x", real .. "/d/f/x/..", real .. "/link/f/y",
-    long .. "/../f" }
+    long .. "/../f", real .. "/missing//x", real .. "/d/f//g///h", "/nowhere//at" }
   for _, path in ipairs(paths) do
-    local told, logged = confine.resolution(path), observations.resolution(path)
-    assert(told == logged, path:sub(1, 80) .. ": " .. told:sub(1, 80) .. " ~= " ..
-      logged:sub(1, 80))
+    local told, want = confine.resolution(path), resolved_by_names(path)
+    assert(told == want, path:sub(1, 80) .. ": " .. told:sub(1, 80) .. " ~= " ..
+      want:sub(1, 80))
   end
 end

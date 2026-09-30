@@ -33,6 +33,7 @@ local record c_functions
 end
 
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
+local forwarded <const> = "passes to the base VFS a call SQLite never makes on the store's read-only database"
 local sandbox_only <const> =
   "runs only in a sandboxed child that made a user namespace and mapped its ids, which a host refusing unprivileged ones never starts"
 local sandbox_started <const> =
@@ -73,12 +74,11 @@ local exempt: {string: string} = {
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
-  ["core/vfs_wrap.c:forward_access"] =
-    "the observed VFS answers xAccess itself, and SQLite never asks the store's read-only one",
-  ["core/vfs_wrap.c:forward_randomness"] =
-    "SQLite seeds its randomness through the default VFS, never a wrapping one",
-  ["core/sqlite.c:observed_sector_size"] =
-    "the default VFS's files overwrite safely on power loss, so SQLite never asks their sector size; only a URI's psow=0 would, and the only URI a connection takes is the immutable one, which sets no psow",
+  ["core/vfs.c:vfs_delete"] = forwarded,
+  ["core/vfs.c:vfs_access"] = forwarded,
+  ["core/vfs.c:vfs_randomness"] = "SQLite seeds its randomness through the default VFS, never a wrapping one",
+  ["core/vfs.c:vfs_sleep"] = forwarded,
+  ["core/vfs.c:vfs_last_error"] = forwarded,
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
 }
