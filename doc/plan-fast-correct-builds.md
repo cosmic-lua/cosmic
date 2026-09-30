@@ -631,9 +631,9 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
 
 ### 4.2 Observation removal, PRs 2 to 5
 
-- PR 2: `--audit` from the sandbox's refusals (#2423, in the queue)
+- PR 2: `--audit` from the sandbox's refusals: landed (#2423).
   (`build/test.tl:3385`'s precondition).
-- PR 3: declared keys become the default for every unsandboxed run,
+- PR 3: landed (#2432). Declared keys became the default for every unsandboxed run,
   retiring `COSMIC_TEST_KEY` (8 files). Such a run shares only when
   `COSMIC_VERDICT_CACHE` names a file.
   - Waits on: PR 2, 4.1, M3, and 3.2's two worker changes.
