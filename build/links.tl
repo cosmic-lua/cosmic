@@ -88,11 +88,12 @@ local symbols = require("build.symbols")
 local type compiler = require("build.compiler")
 
 local record links
-  --- What a file declares, for resolution (`declared`) and for linking
-  --- a plain span (`module_level`, [`link_resolve.linkable`]); `parsed`
-  --- false for Teal that does not parse.
+  --- What a file declares, for resolution where a comment on a line
+  --- stands (`at`) and for linking a plain span (`module_level`,
+  --- [`link_resolve.linkable`]); `parsed` false for Teal that does not
+  --- parse.
   record Known
-    declared: link_text.Declared
+    at: function(line: integer): link_text.Declared
     module_level: {string: boolean}
     parsed: boolean
   end
@@ -125,13 +126,15 @@ local function declarations(kind: string, source: string, built: compiler, name:
   if kind == "teal" then
     local parsed, _ = ast.parse(built, source, name)
     if parsed == nil then
-      return { declared = { names = {}, aliases = {} }, module_level = {}, parsed = false }
+      local nothing: link_text.Declared = { names = {}, aliases = {} }
+      return { at = function(_: integer): link_text.Declared return nothing end, module_level = {},
+               parsed = false }
     end
     local found = link_text.declarations(parsed)
-    return { declared = found.declared, module_level = found.module_level, parsed = true }
+    return { at = found.at, module_level = found.module_level, parsed = true }
   end
   local found = link_files.declarations(kind, source)
-  return { declared = found.declared, module_level = found.module_level, parsed = true }
+  return { at = found.at, module_level = found.module_level, parsed = true }
 end
 
 --- The path from the directory `from` to `to`, both from the root.
@@ -190,7 +193,7 @@ function links.facts(parsed: ast.Parsed, source: string): links.Facts
   return {
     source = source,
     blocks = link_text.blocks_of(link_text.comments_of(parsed.tokens, source)),
-    known = { declared = found.declared, module_level = found.module_level, parsed = true },
+    known = { at = found.at, module_level = found.module_level, parsed = true },
   }
 end
 
@@ -210,15 +213,14 @@ function links.check(resolver: link_resolve.Resolver, file: string, absolute: st
   if kind == "markdown" then
     link_resolve.holds(resolver, absolute, source)
   end
-  local own: link_text.Declared | nil = nil
-  local function declared(): link_text.Declared
-    if own == nil then
-      own = facts ~= nil and facts.known.declared or declarations(kind, source, built, file).declared
-    end
-    return own
-  end
+  local own: Known | nil = facts ~= nil and facts.known or nil
   local blocks = facts ~= nil and facts.blocks or comment_blocks(kind, source, built, file)
   for _, link in ipairs(link_text.in_blocks(blocks)) do
+    local function declared(): link_text.Declared
+      local found: Known = own or declarations(kind, source, built, file)
+      own = found
+      return found.at(link.line)
+    end
     local wrong = link.form == "definition" and misdefined(resolver, absolute, link, declared) or nil
     if wrong ~= nil then
       out[#out + 1] = file .. ":" .. link.line .. ": link: " .. wrong
@@ -301,7 +303,6 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
     end
     return found
   end
-  local function declared(): link_text.Declared return known().declared end
   local function module_level(): {string: boolean} return known().module_level end
   local markdown = kind == "markdown"
   local body, managed = source, ""
@@ -336,6 +337,7 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
       local teal_in_c = kind == "c" and (block_lines[span.line] or ""):match("^%s*%-%-") ~= nil
       if not defined[key] and not teal_in_c and at > 0 and
           body:sub(at, at + #span.written - 1) == span.written then
+        local function declared(): link_text.Declared return known().at(block.line + span.line - 1) end
         local target = link_resolve.linkable(resolver, absolute, span.content, declared, module_level,
           markdown)
         if target ~= nil then
@@ -414,6 +416,7 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
   for _, link in ipairs(shortcuts) do
     local key = link_text.label_key(link.text)
     if not human[key] and labels[key] == nil then
+      local function declared(): link_text.Declared return known().at(link.line) end
       local meant = link_resolve.meant(resolver, absolute, link.target, declared, true)
       if meant ~= nil then
         labels[key] = link.text

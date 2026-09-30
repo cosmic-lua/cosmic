@@ -400,6 +400,115 @@ local function test_reclaim_refuses_to_look_while_another_holds_the_lock(tmp: st
   assert(assert(Fs.stat(path .. ".lock")).kind == "file", "the lock file was removed")
 end
 
+--- A task that counts its turns every few milliseconds until `done`
+--- holds true: how a test sees the run go on while another task waits.
+local record Ticker
+  ticks: integer
+  done: boolean
+end
+
+local function ticking(ticker: Ticker): Poll.Task
+  return Poll.spawn(function()
+    while not ticker.done do
+      ticker.ticks = ticker.ticks + 1
+      assert(Poll.delay(5))
+    end
+  end)
+end
+
+--- Reclaims of one socket file left behind, in tasks of one run, wait
+--- through the run for a lock another task holds, and then take turns:
+--- one takes the file over and the other finds it listening. The run
+--- goes on meanwhile, the holder among it, which a wait holding the
+--- thread would keep from ever releasing the lock.
+local function test_reclaims_in_tasks_wait_for_the_lock_through_the_run(tmp: string)
+  local path = tmp .. "/s.sock"
+  left_behind(tmp, path)
+  local ticker: Ticker = { ticks = 0, done = false }
+  local taken: {Net.Listener} = {}
+  local refused: {string} = {}
+  local released_at = 0
+  Poll.run(function()
+    local ticks = ticking(ticker)
+    local held = assert(sys.open(path .. ".lock", sys.O_RDWR | sys.O_CREAT, 0x180))
+    assert(sys.flock(held, "exclusive"))
+    local reclaims: {Poll.Task} = {}
+    for i = 1, 2 do
+      reclaims[i] = Poll.spawn(function()
+        local server, why = Net.listen(Net.unix(path), { reclaim = true })
+        if server ~= nil then taken[#taken + 1] = server else refused[#refused + 1] = why end
+      end)
+    end
+    assert(Poll.delay(200))
+    released_at = ticker.ticks
+    assert(sys.close(held))
+    for _, reclaim in ipairs(reclaims) do assert(reclaim:join(5000)) end
+    ticker.done = true
+    assert(ticks:join())
+  end)
+  assert(#taken == 1 and #refused == 1, #refused == 1 and refused[1] or "both answered alike")
+  local _server <close> = taken[1]
+  assert(refused[1] == path .. ": Address in use", refused[1])
+  assert(released_at > 1, "the run did not go on while the reclaims waited")
+  local _client <close> = assert(Net.connect(Net.unix(path), { timeout_ms = 5000 }))
+end
+
+--- A reclaim in a task cancelled while it waits for another's lock
+--- fails "cancelled" and takes nothing.
+local function test_a_reclaim_cancelled_waiting_for_the_lock_takes_nothing(tmp: string)
+  local path = tmp .. "/s.sock"
+  local ino = left_behind(tmp, path)
+  local held = assert(sys.open(path .. ".lock", sys.O_RDWR | sys.O_CREAT, 0x180))
+  assert(sys.flock(held, "exclusive"))
+  local server: Net.Listener
+  local why: string
+  Poll.run(function()
+    local reclaim = Poll.spawn(function()
+      server, why = Net.listen(Net.unix(path), { reclaim = true })
+    end)
+    assert(Poll.delay(20))
+    reclaim:cancel()
+    assert(reclaim:join(5000))
+  end)
+  assert(sys.close(held))
+  assert(server == nil and why == path .. ".lock: cancelled", why)
+  assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken under another's lock")
+end
+
+--- How many descriptors this process holds open on the file at `path`.
+local function opens_of(path: string): integer
+  local st = assert(sys.lstat(path))
+  local count = 0
+  for fd = 0, 1023 do
+    -- The descriptor a portable start keeps on the program raises.
+    local ok, open = pcall(sys.fstat, fd)
+    if ok and open ~= nil and open.dev == st.dev and open.ino == st.ino then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+--- A run torn down while a reclaim in it waits for the lock closes the
+--- lock file the reclaim opened, rather than leave it to the collector.
+local function test_a_run_torn_down_while_a_reclaim_waits_closes_its_lock_file(tmp: string)
+  local path = tmp .. "/s.sock"
+  left_behind(tmp, path)
+  local held = assert(sys.open(path .. ".lock", sys.O_RDWR | sys.O_CREAT, 0x180))
+  assert(sys.flock(held, "exclusive"))
+  local ok, err: boolean, any = pcall(Poll.run, function()
+    Poll.spawn(function()
+      local _, _ = Net.listen(Net.unix(path), { reclaim = true })
+    end)
+    assert(Poll.delay(20))
+    error("torn down")
+  end)
+  assert(not ok and tostring(err):find("torn down", 1, true) ~= nil, tostring(err))
+  local opens = opens_of(path .. ".lock")
+  assert(sys.close(held))
+  assert(opens == 1, opens .. " descriptors left open on the lock file")
+end
+
 --- Where the lock file cannot be made, a reclaim fails naming it and
 --- leaves the socket file alone rather than reclaim without the lock.
 local function test_reclaim_without_its_lock_file_fails_and_takes_nothing(tmp: string)
