@@ -554,7 +554,7 @@ local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   assert(Fs.mkdirs(root .. "/o"))
   local contents: {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
     tostring(sys.getpid()) .. "\ntest\n" }
-  for role in pairs(rebuild_lock.doing) do
+  for _, role in ipairs({ "test", "rebuild", "write" }) do
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do

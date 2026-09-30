@@ -54,10 +54,9 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local mountinfo = require("build.mountinfo")
 local log = require("build.verdict").log
+local plural = require("build.plural")
 
 local record rebuild_lock
-  handed_variable: string
-  doing: {string:string}
 
   --- What the run holding the lock is doing, as a waiting run names it.
   enum Role
@@ -86,7 +85,7 @@ local holder_name = "/o/rebuild.lock.pid"
 
 --- What a role's holder is doing, as a waiting run says it. build/zig.tl
 --- keeps a copy (build/zig_test.tl holds the two alike).
-rebuild_lock.doing = {
+local doing: {string:string} = {
   test = "is running its tests",
   rebuild = "is rebuilding the tool",
   write = "is writing o/cosmic.db",
@@ -100,7 +99,7 @@ rebuild_lock.doing = {
 --- environment it no longer describes holds nothing up; a `cosmic test`
 --- run never goes on under it, and gives none to its workers
 --- (`build.test`'s `worker_environment`).
-rebuild_lock.handed_variable = "COSMIC_REBUILD_LOCK_HANDED"
+local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 
 --- How long a waiting run waits in one go before it says it still is.
 local reminder_ms <const> = 5 * 60 * 1000
@@ -301,7 +300,7 @@ function rebuild_lock.holder(root: string): string
   if text ~= nil then
     local number, named = text:match("^(%d+)\n(%l*)\n?$")
     pid = math.tointeger(tonumber(number))
-    if named ~= nil and rebuild_lock.doing[named] ~= nil then
+    if named ~= nil and doing[named] ~= nil then
       role = named
     end
   end
@@ -312,7 +311,7 @@ function rebuild_lock.holder(root: string): string
       who = "another cosmic run (pid " .. tostring(pid) .. ")"
     end
   end
-  return who .. " in this checkout " .. rebuild_lock.doing[role]
+  return who .. " in this checkout " .. doing[role]
 end
 
 --- What a waiting run's line ends with: the lock it waits for.
@@ -325,7 +324,16 @@ end
 function rebuild_lock.hand(environment: {string:string}, root: string): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
-  out[rebuild_lock.handed_variable] = root .. lock_name
+  out[handed_variable] = root .. lock_name
+  return out
+end
+
+--- `environment` with no lock handed on in it (`handed_variable`), for
+--- what a `cosmic test` run starts: none of it holds this run's lock.
+function rebuild_lock.unhanded(environment: {string:string}): {string:string}
+  local out: {string:string} = {}
+  for name, value in pairs(environment) do out[name] = value end
+  out[handed_variable] = nil
   return out
 end
 
@@ -335,7 +343,7 @@ end
 --- boot's bridge is given its root as `<root>/.`), so it is told by the
 --- file it names.
 local function handed(root: string): boolean
-  local named = Env.get(rebuild_lock.handed_variable)
+  local named = Env.get(handed_variable)
   if named == nil or named == "" then
     return false
   end
@@ -361,8 +369,8 @@ function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
       return true, ""
     end
     waited_ms = waited_ms + reminder_ms
-    log:complain("still waiting, " .. tostring(waited_ms // 60000) ..
-      " minutes on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
+    log:complain("still waiting, " .. plural.count(waited_ms // 60000, "minute") ..
+      " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
   end
 end
 

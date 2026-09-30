@@ -1126,7 +1126,9 @@ function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | b
       taken, trouble = begin(db, path, reminder_ms)
       if taken == "busy" then
         waited_ms = waited_ms + reminder_ms
-        log:complain("still waiting, " .. tostring(waited_ms // 60000) .. " minutes on: " ..
+        local minutes = waited_ms // 60000
+        log:complain("still waiting, " .. tostring(minutes) ..
+          (minutes == 1 and " minute" or " minutes") .. " on: " ..
           Zig.holder(root) .. " (one run at a time holds " .. path .. ")")
       end
     end

@@ -2507,8 +2507,7 @@ function test.worker_environment(environment: {string:string}): {string:string}
   out[retired_switch] = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
   -- test starts holds none of this run's.
-  out[rebuild_lock.handed_variable] = nil
-  return out
+  return rebuild_lock.unhanded(out)
 end
 
 -- Read once, since this process never changes its own environment.
