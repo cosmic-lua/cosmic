@@ -629,7 +629,7 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
   moves neither the product nor the fixtures, taking 25 to 40 s a leg
   (about 2 min before).
 
-### 4.2 Observation removal, PRs 2 to 5
+### 4.2 Observation removal, PRs 2 to 5: landed
 
 - PR 2: `--audit` from the sandbox's refusals: landed (#2423).
   (`build/test.tl:3385`'s precondition).
@@ -657,11 +657,18 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
   gzip whose deflate block has no codes, since miniz's tinfl decoded
   empty Huffman slots as zero-bit symbols. Fixed by `patch/miniz/`
   records and an output-to-input bound in `inflate_step` (#2439).
-- PR 5 (in progress): delete `core/observed.c` and its hooks, the observed SQLite
+- PR 5: landed (#2444). Deleted `core/observed.c` and its hooks, the observed SQLite
   VFS, and `core/store.c`'s observe knobs. About 1,900 lines of C.
   - Closes `core/observed.c:81` and `:325`, `build/confine_test.tl:193`,
     `build/filesystem_observations.tl:146` and `core/store.c:79`.
-- Measure before PR 4 and after PR 5, with the local recipe.
+- Measured before and after PR 5 (verdict rows cleared,
+  `COSMIC_VERDICT_CACHE=0`, one sample each): 2730 tests in 143.1 s on
+  main after PR 4, 2718 in 117.5 s after PR 5. C functions went from 406
+  to 350, and the core shrank by 42-52 KB per platform. PR 4's own run
+  had main at 2789 tests in 231 s against 2704 in 200 s.
+  - PR 5 also moved `core/vfs_wrap.c`'s forwarders back into `core/vfs.c`.
+  - Left: `sys.tree_digest` has no caller but its tests; it is kept for
+    the TODO above `build/declared_key.tl`'s `walk_system`.
 
 ### 4.3 One SQLite module for the shared caches: landed (#2402)
 
