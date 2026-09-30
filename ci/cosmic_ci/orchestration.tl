@@ -1084,15 +1084,20 @@ local function phase_sandbox(p: PlatformContext): integer
 end
 
 --- The tree's format check (`fix --check .`, which also builds and
---- type-checks the tree). It is the first thing assemble does, and all a
---- branch push's light run does after the native suite (see ci.yml's
---- COSMIC_CI_SCOPE). A tree formats and type-checks the same on every
---- platform, so the workflow runs it on one leg, and the others set
---- COSMIC_CI_FORMAT=skip, as COSMIC_CI_CHECKED_SUITE does the checked
---- suite.
+--- type-checks the tree). It is the first thing assemble does, where a
+--- tree formats and type-checks the same on every platform, so the
+--- workflow runs it on one leg, and the others set COSMIC_CI_FORMAT=skip,
+--- as COSMIC_CI_CHECKED_SUITE does the checked suite. On a branch push's
+--- light run it is a phase of its own in ci.yml's `checked` job, which
+--- runs no native suite, off the legs' path.
+--- Where a native suite ran, `fix` writes the working database only
+--- after its boundary was checked (`local-boundary`); a job that ran
+--- none has no boundary to keep.
 local function format_check(p: PlatformContext): integer
-  assert(exists(p.local_diagnostics .. "/local-boundary/hashes.sha256"),
-    "no local-boundary snapshot; run the local-boundary phase first")
+  if exists(p.local_diagnostics .. "/local-immediate/hashes.sha256") then
+    assert(exists(p.local_diagnostics .. "/local-boundary/hashes.sha256"),
+      "no local-boundary snapshot; run the local-boundary phase first")
+  end
   if Env.get("COSMIC_CI_FORMAT") == "skip" then
     Fs.put(Fs.stderr, "format check: skipped on this leg " ..
       "(COSMIC_CI_FORMAT=skip)\n")
