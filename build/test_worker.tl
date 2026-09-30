@@ -88,6 +88,9 @@ local record worker
     --- store's hold is off (`--open`).
     hold: worker.Hold
     open: boolean
+    --- Whether its module declares `lua` (`--lua`), so it holds every
+    --- process its test starts to its closure ([`hold_children`]).
+    lua: boolean
     --- The store of its module's closure it attaches in place of the
     --- projection at `root`/o/cosmic.db (`--store`), for a worker no
     --- sandbox gives it there; nil for none, and where `open` is set.
@@ -525,6 +528,30 @@ local function hold_store(module_path: string, closure: {string:boolean},
     "tests again on every edit to the tree", module_path))
 end
 
+--- Holds every process the tests of `module_path`, a module that declares
+--- `lua` ([`cosmic.test`]), start from here on -- and every one those
+--- start -- as [`hold_store`] holds this one, whatever environment each
+--- is given (core/store.c's [`hold_children`]): on every module and
+--- declaration the program carries but those of `closure`, the set of
+--- the names its import closure holds, `lua_loads` among them
+--- ([`build.test_inputs`]), and [`cosmic.removed`]; with the `meta` rows
+--- of [`meta_keys`]. So what such a process runs and reads of the program
+--- is what the test's key holds of its closure -- its store's bytes --
+--- and of the runtime, as it is for this worker; the program's other
+--- modules, which a `tool` key holds by o/bin's contents, are none of
+--- it. Put up before the module loads, so nothing the test starts
+--- escapes it, and never taken down, as the store's hold is not.
+local function hold_children(module_path: string, closure: {string:boolean})
+  local names: {string} = {}
+  for name in pairs(closure) do names[#names + 1] = name end
+  table.sort(names)
+  local keys: {string} = {}
+  for key in pairs(meta_keys(closure)) do keys[#keys + 1] = key end
+  table.sort(keys)
+  store.hold_children(module_path .. " " .. table.concat(keys, ",") .. " " ..
+    table.concat(names, " "))
+end
+
 --- How a worker is started: this exact program again -- the same core,
 --- whose runtime identity every verdict of the run is keyed under. A
 --- process not started from a portable artifact starts its logical
@@ -550,7 +577,7 @@ local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = 
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
---- [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
+--- [--sandboxed] [--lua] [--open | --store <store>] <closure>... --tree <tree>...
 --- --declared <declared>...` (`run`), with the report captured at `report_fd`,
 --- and its environment `env` with `start`'s variables added and
 --- coverage collected from its first instruction (core/coverage.c,
@@ -576,6 +603,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[#argv + 1] = value
   end
   if given.sandbox ~= nil then argv[#argv + 1] = "--sandboxed" end
+  if given.lua then argv[#argv + 1] = "--lua" end
   if given.open then
     argv[#argv + 1] = "--open"
   elseif given.store ~= nil then
@@ -681,7 +709,7 @@ end
 --- else means there is no report to read.
 ---
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
+--- <needs> [--sandboxed] [--lua] [--open | --store <store>] <closure>... --tree <tree>...
 --- --declared <declared>...`:
 ---
 --- - `children` is a directory, not yet there, to collect the coverage
@@ -691,6 +719,8 @@ end
 ---   module whose `needs` call was handed anything else fails to load.
 --- - `--sandboxed` says the worker runs in a sandbox, which every
 ---   process its test starts inherits ([`confine.call`]'s `sandboxed`).
+--- - `--lua` says its module declares `lua` ([`cosmic.test`]): every
+---   process its test starts is held to the closure ([`hold_children`]).
 --- - `closure` is the names of the module's import closure
 ---   ([`test_inputs.modules`]), one argument each. Its load and its test
 ---   may `require` these of the tree and nothing else of it
@@ -741,6 +771,8 @@ function worker.run(argv: {integer:string}): integer
   local first = 9
   local sandboxed = argv[first] == "--sandboxed"
   if sandboxed then first = first + 1 end
+  local lua = argv[first] == "--lua"
+  if lua then first = first + 1 end
   local open = argv[first] == "--open"
   local db_path = root .. "/o/cosmic.db"
   if open then
@@ -783,6 +815,10 @@ function worker.run(argv: {integer:string}): integer
     if not open then
       hold = function() hold_store(module_path, closure, tree, declared) end
     end
+    if lua then hold_children(module_path, closure) end
+  elseif lua then
+    complain("test --worker --lua needs the module's closure")
+    return 2
   end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0, skipped = "",

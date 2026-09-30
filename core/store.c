@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L /* unsetenv */
+
 #include "store.h"
 
 #include <limits.h>
@@ -982,6 +984,181 @@ static int store_hold (lua_State *L) {
   return 0;
 }
 
+/* The hold a test's worker hands every process its test starts
+ * (build/test_worker.tl's `hold_children`), for a module that declares
+ * `lua` ([`cosmic.test`]): each such process is held as the worker is
+ * ([`store_hold`]), to the worker's closure, so what it runs of the
+ * program's own database is what the test's key holds. The value
+ * travels as COSMIC_TEST_CHILD_HOLD in every environment the core starts
+ * a process with, in place of any the program gave it
+ * ([`cosmic_store_environment`]); it is taken out of this process's own
+ * before any Lua runs ([`cosmic_store_prepare`]), passed on to what this
+ * one starts in turn, and put up before the main module loads
+ * ([`cosmic_store_hold_inherited`]). Nothing takes it off: what runs
+ * under it can neither read it nor start a process without it, but by
+ * a host program that starts this one with an environment of its own,
+ * which a module that declares `lua` may not run (build/analyzer.tl).
+ *
+ * Its value is the module's path, a space, the `meta` keys the hold lets
+ * through joined by commas, and each name of a module the process may
+ * load, each after a space. */
+#define CHILD_HOLD_NAME "COSMIC_TEST_CHILD_HOLD"
+static char *child_hold_entry; /* CHILD_HOLD_NAME "=" value, or NULL */
+static bool child_hold_inherited; /* this process was started under one */
+static bool child_hold_lost;      /* ... but could not keep it */
+
+/* Sets the entry the processes this one starts are given to `value`. */
+static bool set_child_hold (const char *value) {
+  size_t size = sizeof CHILD_HOLD_NAME + strlen(value) + 1;
+  char *entry = malloc(size);
+  if (!entry) return false;
+  snprintf(entry, size, "%s=%s", CHILD_HOLD_NAME, value);
+  free(child_hold_entry);
+  child_hold_entry = entry;
+  return true;
+}
+
+/* hold_children(value): every process this one starts from now on, and
+ * every one those start, is held so; raises when they are already. */
+static int store_hold_children (lua_State *L) {
+  const char *value = luaL_checkstring(L, 1);
+  if (child_hold_entry != NULL) {
+    return luaL_error(L, "the processes this one starts are held already");
+  }
+  if (!set_child_hold(value)) return luaL_error(L, "not enough memory");
+  return 0;
+}
+
+void cosmic_store_prepare (void) {
+  const char *value = getenv(CHILD_HOLD_NAME);
+  if (value == NULL) return;
+  if (value[0] != '\0') {
+    if (set_child_hold(value)) child_hold_inherited = true;
+    else child_hold_lost = true;
+  }
+  unsetenv(CHILD_HOLD_NAME);
+}
+
+char **cosmic_store_environment (char **envp) {
+  if (child_hold_entry == NULL) return envp;
+  size_t count = 0;
+  for (; envp[count]; count++) {}
+  char **given = malloc((count + 2) * sizeof *given);
+  if (!given) return NULL;
+  size_t name = sizeof CHILD_HOLD_NAME; /* with its '=' in place of the NUL */
+  size_t kept = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (strncmp(envp[i], child_hold_entry, name) != 0) given[kept++] = envp[i];
+  }
+  given[kept++] = child_hold_entry;
+  given[kept] = NULL;
+  return given;
+}
+
+/* Sets each name of the list from `from` to `end`, split at
+ * `separator`, true in the table at `into`. */
+static void name_each (lua_State *L, int into, const char *from, const char *end,
+                       char separator) {
+  while (from < end) {
+    const char *stop = memchr(from, separator, (size_t)(end - from));
+    if (stop == NULL) stop = end;
+    if (stop > from) {
+      lua_pushlstring(L, from, (size_t)(stop - from));
+      lua_pushboolean(L, 1);
+      lua_rawset(L, into);
+    }
+    from = stop + 1;
+  }
+}
+
+/* Puts up the hold this process inherited (`child_hold_entry`): on
+ * every module and declaration the binary's own database holds but
+ * those its value names and [`cosmic.removed`], the diagnostic the core
+ * loads for a removed global, which every worker loads too. */
+static int put_up_inherited (lua_State *L) {
+  const char *value = child_hold_entry + sizeof CHILD_HOLD_NAME;
+  const char *end = value + strlen(value);
+  const char *module_end = strchr(value, ' ');
+  if (module_end == NULL) return luaL_error(L, "%s names no module", CHILD_HOLD_NAME);
+  const char *meta_end = strchr(module_end + 1, ' ');
+  if (meta_end == NULL) meta_end = end;
+  lua_pushlstring(L, value, (size_t)(module_end - value));
+  int module = lua_gettop(L);
+  lua_newtable(L);
+  int meta = lua_gettop(L);
+  name_each(L, meta, module_end + 1, meta_end, ',');
+  lua_newtable(L);
+  int allowed = lua_gettop(L);
+  name_each(L, allowed, meta_end, end, ' ');
+  lua_pushboolean(L, 1);
+  lua_setfield(L, allowed, "cosmic.removed");
+  lua_newtable(L);
+  int names = lua_gettop(L);
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
+  sqlite3 *db = binary_database(L, lua_gettop(L));
+  lua_pop(L, 1);
+  if (db != NULL) {
+    struct cosmic_guard *guard = cosmic_guard_push(L, release_statement);
+    sqlite3_stmt *stmt = NULL;
+    int rc = sqlite3_prepare_v2(db,
+      "SELECT path FROM main.modules UNION SELECT path FROM main.decls", -1, &stmt, NULL);
+    guard->resource = stmt;
+    if (rc != SQLITE_OK) {
+      if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+      die_unreadable(db);
+    }
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+      const char *path = (const char *)sqlite3_column_text(stmt, 0);
+      if (path == NULL) return luaL_error(L, "not enough memory");
+      lua_pushstring(L, path);
+      if (lua_rawget(L, allowed) == LUA_TNIL) {
+        lua_pushstring(L, path);
+        lua_pushboolean(L, 1);
+        lua_rawset(L, names);
+      }
+      lua_pop(L, 1);
+    }
+    if (rc != SQLITE_DONE) {
+      if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+      die_unreadable(db);
+    }
+    cosmic_guard_release(guard);
+  }
+  const char *who = lua_tostring(L, module);
+  lua_pushcfunction(L, store_hold);
+  lua_pushvalue(L, names);
+  lua_pushfstring(L, "%s declares lua = true, so what a process its tests start runs of "
+    "this program is keyed by its import closure and by what `cosmic -e` loads "
+    "(build/test_inputs.tl's `lua_loads`) alone. Require the module at the top level of "
+    "%s, or declare tool = true in its Test.needs in place of lua", who, who);
+  lua_pushfstring(L, "a handle reads every module's rows, and %s declares lua = true, so "
+    "what a process its tests start reads of this program is keyed by its import "
+    "closure alone. Declare tool = true in its Test.needs in place of lua", who);
+  lua_pushvalue(L, meta);
+  lua_pushfstring(L, "%s declares lua = true, so what a process its tests start reads of "
+    "this program is keyed by its import closure alone, which does not hold that row. "
+    "Declare tool = true in its Test.needs in place of lua", who);
+  lua_call(L, 5, 0);
+  return 0;
+}
+
+bool cosmic_store_hold_inherited (lua_State *L) {
+  if (child_hold_lost) {
+    fprintf(stderr, "cosmic: no memory to keep the hold its test's worker handed it\n");
+    return false;
+  }
+  if (!child_hold_inherited) return true;
+  lua_pushcfunction(L, put_up_inherited);
+  if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+    const char *why = lua_tostring(L, -1);
+    fprintf(stderr, "cosmic: the hold its test's worker handed it: %s\n",
+            why == NULL ? "failed" : why);
+    lua_pop(L, 1);
+    return false;
+  }
+  return true;
+}
+
 /* Private capability handed only to the trusted build.artifact chunk. */
 static int store_trusted_prefix (lua_State *L) {
   const struct cosmic_artifact *artifact =
@@ -1109,6 +1286,8 @@ static int open_store_module (lua_State *L,
   lua_setfield(L, -2, "zone_names");
   lua_pushcfunction(L, store_hold);
   lua_setfield(L, -2, "hold");
+  lua_pushcfunction(L, store_hold_children);
+  lua_setfield(L, -2, "hold_children");
   lua_pushlightuserdata(L, (void *)artifact);
   lua_pushcclosure(L, store_trusted_prefix, 1);
   lua_setfield(L, -2, "trusted_prefix");

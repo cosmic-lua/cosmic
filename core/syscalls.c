@@ -332,13 +332,16 @@ COSMIC_SYSCALL(execve, 3) {
 
   /* The program this process becomes starts with SIGPIPE at its
    * default, as a spawned child does; ignored again if the exec fails. */
-  char **given = cosmic_coverage_environment(envp);
+  char **carried = cosmic_store_environment(envp);
+  if (carried == NULL) return cosmic_fail_effect(L, ENOMEM);
+  char **given = cosmic_coverage_environment(carried);
   cosmic_coverage_report(); /* nothing of this image remains to report later */
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
   execve(path, argv, given);
   int number = errno;
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_IGN);
-  if (given != envp) free(given);
+  if (given != carried) free(given);
+  if (carried != envp) free(carried);
   return cosmic_fail_effect(L, number);
 }
 
@@ -2377,7 +2380,17 @@ COSMIC_SYSCALL(spawn, 10) {
 #if defined(__linux__)
   unmap_root = (unveiling || offline) && inner_user_namespace() && geteuid() == 0;
 #endif
-  char **given = cosmic_coverage_environment(envp);
+  char **carried = cosmic_store_environment(envp);
+  if (carried == NULL) {
+    close(status_read);
+    close(status_write);
+    if (root_dir[0] != '\0') rmdir(root_dir);
+    if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+    free(argv);
+    free(resolved);
+    return cosmic_fail(L, ENOMEM);
+  }
+  char **given = cosmic_coverage_environment(carried);
   struct spawn_plan plan = {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
     .status_read = status_read, .status_write = status_write,
@@ -2414,7 +2427,8 @@ COSMIC_SYSCALL(spawn, 10) {
     prctl(PR_SET_DUMPABLE, dumpable, 0, 0, 0);
 #endif
   close(status_write);
-  if (given != envp) free(given);
+  if (given != carried) free(given);
+  if (carried != envp) free(carried);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
   free(argv);
   free(resolved);

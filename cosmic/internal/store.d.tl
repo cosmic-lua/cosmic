@@ -68,6 +68,16 @@ local record store
   hold: function(names: {string:boolean}, why: string, why_databases: string,
                  meta_keys: {string:boolean}, why_meta: string)
 
+  --- Private: holds every process this one starts from now on, and each
+  --- one those start, as `hold` holds this one, before its main module
+  --- loads: on every module and declaration its own database holds but
+  --- those `value` names -- the module's path, a space, the `meta` keys
+  --- it lets through joined by commas, then each module name, each after
+  --- a space -- and cosmic.removed. The hold travels in each environment
+  --- the core starts a process with, in place of any it is given; raises
+  --- when one is set already.
+  hold_children: function(value: string)
+
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.
   trusted_prefix: function(): string | nil, string

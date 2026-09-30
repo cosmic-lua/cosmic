@@ -105,13 +105,13 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "ea3d41711f22f34b782afb89ae40abb12729f01f76614951e9e65c6aa700f67f",
 
-  ["build.test"] = "f91c99ae7c962e29acd55c15efbd7a68d4d5a390da3f3c74586a6753db659bbb",
+  ["build.test"] = "057d991eaefb5fe03d1014b6d170c8a659262b464ad6a18ee952177381c1b1e9",
 
-  ["build.test_inputs"] = "130e9edd0797b30bbb8377ea2b5aa991eaa37deb20f1b118d67b22ffe8a189c2",
+  ["build.test_inputs"] = "df056d2d178dc9d31fd230dc41b91b672941f8a3f16260f34615d6c88ee305b1",
 
   ["build.test_sandbox"] = "453f3828508b60b2acf0e20351c5e10990a8ffea899aebdb94f5756451a07f54",
 
-  ["build.test_worker"] = "aa3eeb251f4ce8e807547b910e11f9a42f617c93ae1cee69f3c20f0e4aefb3da",
+  ["build.test_worker"] = "e16b13aa16a060c8563bbcd6bd4ac51a8bcc4b83311e719a5782e67f53c1639f",
 
   ["build.this_program"] = "8de7976beaec4a4367f0a4af8cd2162df5f587891cbad1b94ecc51a28de203eb",
 
@@ -135,7 +135,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
 
-  ["cosmic.test"] = "51c8e3f7c8f538cc73498e10a6ae188665ab99fe0ddb1acf4667d2b8a07a1e6c",
+  ["cosmic.test"] = "d12f9554e844e50756d4563715c9b870026e2e207f602b4d2a2239ca6c5f30bf",
 
 }
 

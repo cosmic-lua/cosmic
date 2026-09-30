@@ -55,6 +55,9 @@ local record test_inputs
     --- The loopback addresses the tests may reach, by address.
     network: {string:boolean}
     tool: boolean
+    --- Whether it starts this program only to run Lua in it
+    --- ([`cosmic.test`]'s `lua`): its closure holds `lua_loads` too.
+    lua: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
     nests: boolean
@@ -81,6 +84,8 @@ local record test_inputs
     located: {string:string}
     unresolved: string
   end
+
+  lua_loads: {string}
 end
 
 --- The variables every test may read undeclared, which a sandboxed
@@ -92,6 +97,30 @@ end
 local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
   "COSMIC_SANDBOX" }
 for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
+
+--- The modules of the tree a process of this program runs before the
+--- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`), and
+--- nothing else of the tree: cosmic's main and the lean way dispatch
+--- takes to `-e`, with what each requires at its top level. A module
+--- that declares `lua` ([`cosmic.test`]) holds them in its closure, as
+--- if it required each at its top level, though not what each requires
+--- only inside a function it does not call on that way -- dispatch
+--- requires every verb's modules so -- so its key holds each by what it
+--- is, and every process its tests start is held to that closure
+--- (core/store.c's `hold_children`). A module added to that way is
+--- refused to such a process, naming `lua`, until it is added here;
+--- build/lua_children_test.tl holds a `-e` child to loading no more.
+-- TODO: hold `--standalone`'s way too (build.standalone, build.teal and
+-- what each loads), or `-e` alone where a file run is a Lua file, so the
+-- modules whose tests run a file standalone and nothing else of the
+-- program -- cosmic/log_tool_test.tl, cosmic/store_tool_test.tl,
+-- cosmic/net_tool_test.tl, cosmic/http_tool_test.tl,
+-- cosmic/time_zone_tool_test.tl, cosmic/test_tool_test.tl -- can declare
+-- `lua` in place of `tool`: today such a run is refused a held child.
+test_inputs.lua_loads = {
+  "build.dispatch", "build.exit_status", "build.help_source", "build.verdict",
+  "cmd.cosmic.main", "cosmic.env", "cosmic.fs", "cosmic.log",
+}
 
 --- Where [`build.fuzz`] keeps the corpus of every property.
 local corpora <const> = "testdata/fuzz/"
@@ -144,6 +173,20 @@ local function closure(m: Module, by_path: {string:Module},
       end
     end
   end
+  -- Each of `lua_loads`, for a module that declares `lua`, as a module
+  -- it requires whose own requires it does not follow: each one's
+  -- top-level requires are among them.
+  local declared: analyzer.Declared = m.inputs
+  if declared ~= nil and declared.lua then
+    for _, name in ipairs(test_inputs.lua_loads) do
+      local other = by_path[name]
+      if other ~= nil and not seen[name] then
+        seen[name] = true
+        files[#files + 1] = other.file
+        names[#names + 1] = name
+      end
+    end
+  end
   table.sort(files)
   table.sort(names)
   return files, fuzzes, names
@@ -175,7 +218,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, nests = false, store = false, system = false, caches = {},
+    tool = false, lua = false, nests = false, store = false, system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations)
@@ -207,6 +250,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     table.sort(out.variables)
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.tool, out.store = declared.tool, declared.store
+    out.lua = declared.lua == true
     out.nests = declared.nests == true
     out.system = declared.system == true
     -- A cache is declared with the variables that locate it.
@@ -374,6 +418,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   list("env", declared.env)
   list("network", declared.network)
   if declared.tool then lines[#lines + 1] = "tool true" end
+  if declared.lua then lines[#lines + 1] = "lua true" end
   if declared.nests then lines[#lines + 1] = "nests true" end
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
@@ -387,7 +432,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
   if needs == nil then return nil end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = needs.network or {},
-    tool = needs.tool == true, nests = needs.nests == true, store = needs.store == true, system = needs.system == true,
+    tool = needs.tool == true, lua = needs.lua == true, nests = needs.nests == true, store = needs.store == true, system = needs.system == true,
     caches = needs.caches or {} }
 end
 

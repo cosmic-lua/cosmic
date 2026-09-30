@@ -24,6 +24,11 @@ local this_program = require("build.this_program")
 --- itself (`tool`), which every child is, started past its launcher so
 --- that no host program is read; and `nests`, for a child sandboxed in a
 --- root of its own.
+-- TODO: move the tests here that start this program only by `-e` or
+-- [`Proc.relaunch`] -- all but the few that run a file or a verb, or
+-- read the program by name, some 39 of 50 -- into a module of their own
+-- that declares `lua` in place of `tool` (cosmic.test), so an edit to a
+-- module the program carries outside their closure runs them no more.
 Test.needs{ host = { "/proc" }, env = { "*" }, tool = true, nests = true }
 
 local function path_exists(path: string): boolean

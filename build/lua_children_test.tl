@@ -1,0 +1,92 @@
+--- What a module that declares `lua` ([`cosmic.test`]) starts: this
+--- program running a chunk, held to the module's import closure and
+--- what `cosmic -e` loads (build/test_inputs.tl's `lua_loads`), whatever
+--- environment it is given, and each process it starts in turn -- so a
+--- child that reaches for any other module of the program, or runs a
+--- verb, fails, naming `lua`, rather than running what no key of its
+--- test holds.
+
+local Child = require("cosmic.child")
+local Test = require("cosmic.test")
+local test_inputs = require("build.test_inputs")
+local this_program = require("build.this_program")
+
+Test.needs{ lua = true }
+
+--- Runs `words` after this program, past its launcher, and answers
+--- whether it exited 0, and what it wrote to stdout and stderr.
+local function run(words: {string}): boolean, string, string
+  local started = this_program.program(words, { stdout = "capture", stderr = "capture",
+    timeout_ms = 30000 })
+  local result = assert(Child.run(started.argv, started.options))
+  return result.ok, result.stdout or "", result.stderr or ""
+end
+
+--- What refuses a module to a held process, as core/store.c's
+--- `put_up_inherited` says it.
+local REFUSED <const> = "build.lua_children_test declares lua = true"
+
+--- A chunk runs, and loads nothing of the tree beyond `lua_loads` and
+--- what it requires itself: the lean way dispatch takes to `-e`
+--- (build/dispatch_tool_test.tl holds its count), every one of which
+--- a held child may load. One added to that way fails here first.
+local function test_a_chunk_runs_on_what_e_loads()
+  local ok, out, err = run({ "-e", "local t = {} for name in pairs(package.loaded) do " ..
+    "t[#t + 1] = name end table.sort(t) print(table.concat(t, ' '))" })
+  assert(ok, err)
+  local allowed: {string:boolean} = { ["cosmic.sys"] = true }
+  for _, name in ipairs(test_inputs.lua_loads) do allowed[name] = true end
+  for name in out:gmatch("%S+") do
+    if name:find("^build%.") or name:find("^cosmic%.") or name:find("^cmd%.") then
+      assert(allowed[name], name .. " is loaded by -e but not in lua_loads: " .. out)
+    end
+  end
+end
+
+--- A module of the test's closure loads; one outside it is refused,
+--- naming `lua`, where a `tool` test's child would load it.
+local function test_a_module_outside_the_closure_is_refused()
+  local ok, _, err = run({ "-e", "require('cosmic.child') require('build.this_program')" })
+  assert(ok, err)
+  ok, _, err = run({ "-e", "require('cosmic.zip')" })
+  assert(not ok and err:find(REFUSED, 1, true), err)
+end
+
+--- A verb runs no module the key does not hold: it fails, naming `lua`.
+local function test_a_verb_is_refused()
+  local ok, _, err = run({ "test", "--help" })
+  assert(not ok and err:find(REFUSED, 1, true), err)
+  ok, _, err = run({ "help" })
+  assert(not ok and err:find(REFUSED, 1, true), err)
+end
+
+--- The hold reaches what a child starts in turn, given an environment
+--- of its own that names none, or another: it is the core's to hand on,
+--- not the environment's.
+local function test_the_hold_reaches_a_grandchild_whatever_its_environment()
+  local chunk = [[
+local Child = require('cosmic.child')
+local Proc = require('cosmic.proc')
+local relaunch = assert(Proc.relaunch())
+local failed = 0
+for _, extra in ipairs({ {}, { COSMIC_TEST_CHILD_HOLD = '' },
+                         { COSMIC_TEST_CHILD_HOLD = 'x , cosmic.zip' } }) do
+  local env = {}
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  for name, value in pairs(extra) do env[name] = value end
+  local argv = { table.unpack(relaunch.argv) }
+  argv[#argv + 1] = '-e'
+  argv[#argv + 1] = "require('cosmic.zip')"
+  local result = assert(Child.run(argv, { env = env, fds = relaunch.fds,
+    stdout = 'capture', stderr = 'capture' }))
+  if not result.ok and (result.stderr or ''):find('declares lua = true', 1, true) then
+    failed = failed + 1
+  else
+    print(result.stderr)
+  end
+end
+return failed == 3 and 0 or 1
+]]
+  local ok, out, err = run({ "-e", chunk })
+  assert(ok, out .. err)
+end

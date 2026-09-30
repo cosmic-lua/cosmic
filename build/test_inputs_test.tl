@@ -19,7 +19,7 @@ end
 local function declaring(fields: analyzer.Declared): analyzer.Declared
   return { line = 1, reads = fields.reads or {}, host = fields.host or {},
     env = fields.env or {}, network = fields.network or {},
-    tool = fields.tool == true, store = fields.store == true }
+    tool = fields.tool == true, lua = fields.lua == true, store = fields.store == true }
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
@@ -221,4 +221,35 @@ local function test_canonical_text_names_one_declaration()
   assert(of({ reads = { "x" }, tool = true, store = true }) ==
     'reads "x"\ntool true\nstore true', of({ reads = { "x" }, tool = true, store = true }))
   assert(of({ tool = true }) == test_inputs.canonical(declaring({ tool = true })))
+  assert(of({ lua = true }) == "lua true" and
+    of({ lua = true }) == test_inputs.canonical(declaring({ lua = true })))
+end
+
+--- A module that declares `lua` holds in its closure each module of the
+--- tree `cosmic -e` loads (`lua_loads`), as its files and by name, so
+--- its key holds them and every process it starts may load them -- but
+--- not what one of them requires only inside a function, as dispatch
+--- requires each verb's modules: an edit to those runs its tests no more
+--- than an edit to any module outside its closure does.
+local function test_a_lua_closure_holds_what_e_loads_and_no_more()
+  local m, by_path = tree(declaring({ lua = true }))
+  for _, name in ipairs(test_inputs.lua_loads) do
+    by_path[name] = module(name, name:gsub("%.", "/") .. ".tl",
+      name == "build.dispatch" and { "build.importer", "build.exit_status" } or {})
+  end
+  by_path["build.importer"] = module("build.importer", "build/importer.tl", {})
+  local names = test_inputs.modules(m, by_path, staged)
+  local held: {string:boolean} = {}
+  for _, name in ipairs(names) do held[name] = true end
+  for _, name in ipairs(test_inputs.lua_loads) do assert(held[name], name) end
+  assert(not held["build.importer"], "what dispatch requires lazily is out")
+  assert(held["lib.helper"] and held["lib.deep"], "the module's own closure is in")
+  local effective = test_inputs.effective(m, by_path, staged)
+  assert(effective.lua and effective.files["build/dispatch.tl"])
+  assert(not effective.files["build/importer.tl"])
+  -- Without it, none of them.
+  local plain, plain_by_path = tree()
+  for name, one in pairs(by_path) do plain_by_path[name] = plain_by_path[name] or one end
+  local without = table.concat(test_inputs.modules(plain, plain_by_path, staged), " ")
+  assert(not without:find("build.dispatch", 1, true), without)
 end
