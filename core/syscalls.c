@@ -2513,6 +2513,26 @@ COSMIC_SYSCALL(kill, 2) {
   return cosmic_ok(L);
 }
 
+/* What [`cosmic_process_entered`] recorded: the command line, and the
+ * working directory, "" where it could not be read. */
+static int entered_count;
+static char **entered;
+static char entered_directory[PATH_MAX];
+
+void cosmic_process_entered (int argc, char **argv) {
+  entered_count = argc;
+  entered = argv;
+  if (getcwd(entered_directory, sizeof entered_directory) == NULL) entered_directory[0] = '\0';
+}
+
+/* Sets field `cwd` of the table on top to the directory this process
+ * started in, where it was read. */
+static void set_cwd (lua_State *L) {
+  if (entered_directory[0] == '\0') return;
+  lua_pushstring(L, entered_directory);
+  lua_setfield(L, -2, "cwd");
+}
+
 static void set_decimal (lua_State *L, const char *name, uint64_t value) {
   char text[32];
   snprintf(text, sizeof text, "%llu", (unsigned long long)value);
@@ -2536,17 +2556,19 @@ COSMIC_SYSCALL(relaunch, 2) {
   }
   if (artifact->host) {
     /* A host program is its own launcher: executing it again is enough. */
-    lua_createtable(L, 0, 2);
+    lua_createtable(L, 0, 3);
     lua_pushstring(L, physical);
     lua_setfield(L, -2, "path");
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "host");
+    set_cwd(L);
     return 1;
   }
   const struct cosmic_portable_entry *selected = &artifact->portable.selected;
-  lua_createtable(L, 0, 5);
+  lua_createtable(L, 0, 6);
   lua_pushstring(L, physical);
   lua_setfield(L, -2, "path");
+  set_cwd(L);
   lua_pushstring(L, artifact->logical_path);
   lua_setfield(L, -2, "artifact");
   lua_pushinteger(L, artifact->fd);
@@ -2571,15 +2593,6 @@ COSMIC_SYSCALL(relaunch, 2) {
   lua_pushinteger(L, core_fd);
   lua_rawset(L, -3);
   return 1;
-}
-
-/* The command line [`cosmic_process_arguments`] recorded. */
-static int entered_count;
-static char **entered;
-
-void cosmic_process_arguments (int argc, char **argv) {
-  entered_count = argc;
-  entered = argv;
 }
 
 COSMIC_SYSCALL(arguments, 0) {

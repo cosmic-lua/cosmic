@@ -242,9 +242,9 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
       "spec.workers must be nil or an integer from 0")
   end
   local many: {Net.Address} = {}
-  for i = 1, 252 do many[i] = Net.unix(tmp .. "/" .. i .. ".sock") end
+  for i = 1, 251 do many[i] = Net.unix(tmp .. "/" .. i .. ".sock") end
   refused({ listeners = many, serve = echo, workers = 1 },
-    "spec.listeners must be a list no longer than 251 with workers")
+    "spec.listeners must be a list no longer than 250 with workers")
   Poll.run(function()
     refused({ listeners = { address }, serve = echo }, "cannot be called in a task")
   end)

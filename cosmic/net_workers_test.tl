@@ -15,8 +15,11 @@ local this_program = require("build.this_program")
 Test.needs{ tool = true, network = { "127.0.0.1" } }
 
 --- Answers each line with itself, the pid of the worker answering, and
---- what a child that worker starts says of COSMIC_NET_WORKER; closes
---- its connection at "bye".
+--- what the worker and a child it starts find of COSMIC_NET_WORKER;
+--- closes its connection at "bye". Its arguments: the directory to
+--- listen in, grace_ms, and "chdir" to move to / before serving, as a
+--- program may that was started with a path relative to where it
+--- started.
 local SERVER <const> = [[
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -40,11 +43,12 @@ local function child_sees(): string
 end
 
 return function(argv: {string}): integer
+  if argv[3] == "chdir" then assert(sys.chdir("/")) end
   local ok, why = Net.serve{
     listeners = { Net.unix(argv[1] .. "/s.sock"), Net.tcp("127.0.0.1", 0) },
     workers = 2,
     limits = { connections = 1 },
-    grace_ms = 20000,
+    grace_ms = math.tointeger(tonumber(argv[2])),
     serve = function(conn: Net.Conn)
       local lines = Stream.lines(conn)
       for line in lines:each() do
@@ -62,25 +66,50 @@ return function(argv: {string}): integer
 end
 ]]
 
---- `script`, written to `tmp`, started in a process of this program's
---- own, taking `tmp`, with `opts`.
-local function started(tmp: string, name: string, script: string,
+--- `script`, written to `tmp` as `name`, started in a process of this
+--- program's own with `args` after it, and `opts`.
+local function started(tmp: string, name: string, script: string, args: {string},
     opts: Child.Options): Child.Handle
-  local path = tmp .. "/" .. name
-  assert(Fs.write(path, script))
-  local program = this_program.program({ "--standalone", path, tmp }, opts)
+  assert(Fs.write(tmp .. "/" .. name, script))
+  local words: {string} = { "--standalone", opts.cwd ~= nil and name or tmp .. "/" .. name }
+  for _, word in ipairs(args) do words[#words + 1] = word end
+  local program = this_program.program(words, opts)
   return (assert(Child.start(program.argv, program.options)))
+end
+
+--- Workers the test has met, each sent SIGKILL, with its group, as the
+--- test ends, however it ends, so none outlives a failed assertion.
+local record Workers
+  pids: {integer}
+  metamethod __close: function(Workers)
+end
+
+local workers_mt: metatable<Workers> = {
+  __close = function(self: Workers)
+    for _, pid in ipairs(self.pids) do local _, _ = sys.kill(-pid, sys.SIGKILL) end
+  end,
+}
+
+local function workers(): Workers
+  return setmetatable({ pids = {} }, workers_mt)
 end
 
 --- A connection to `address`, and the lines it reads.
 local record Client
   conn: Net.Conn
   lines: Stream.Lines
+  metamethod __close: function(Client)
 end
+
+local client_mt: metatable<Client> = {
+  __close = function(self: Client)
+    local _, _ = self.conn:close()
+  end,
+}
 
 local function client(address: Net.Address): Client
   local conn = assert(Net.connect(address, { timeout_ms = 30000 }))
-  return { conn = conn, lines = Stream.lines(conn) }
+  return setmetatable({ conn = conn, lines = Stream.lines(conn) }, client_mt)
 end
 
 --- What `c` is answered for `line`, as its words.
@@ -96,13 +125,22 @@ local function now_ms(): integer
   return assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) // 1000000
 end
 
---- Two workers answer, one at each listener -- a worker at its limit of
---- one connection leaves the next to the other -- and neither they nor
---- a child one starts sees COSMIC_NET_WORKER. SIGTERM to the supervisor
---- removes its socket file at once, while the connections open are
---- served to their end; it then returns true, having reaped both.
-local function test_workers_serve_and_drain_at_sigterm(tmp: string)
-  local h <close> = started(tmp, "server.tl", SERVER, { stdout = "stream" })
+--- A running server of SERVER's: its supervisor, what it prints, its
+--- TCP port, and a client at each listener, each served by a worker of
+--- its own -- one at its limit of one connection leaves the next to the
+--- other -- whose pids `met` holds.
+local record Running
+  supervisor: Child.Handle
+  out: Stream.Lines
+  port: integer
+  first: Client
+  second: Client
+end
+
+local function running(tmp: string, met: Workers, args: {string},
+    opts: Child.Options): Running
+  opts.stdout = "stream"
+  local h = started(tmp, "server.tl", SERVER, args, opts)
   local out = Stream.lines(assert(h.stdout_stream))
   local ready = assert(out:read())
   local port = math.tointeger(tonumber(ready:match("^ready (%d+)$")))
@@ -111,59 +149,127 @@ local function test_workers_serve_and_drain_at_sigterm(tmp: string)
   local second = client(Net.tcp("127.0.0.1", port))
   local one = asked(first, "one")
   local two = asked(second, "two")
-  assert(one[1] == "one" and one[3] == "nil" and one[4] == "unset", table.concat(one, " "))
-  assert(two[1] == "two" and two[3] == "nil" and two[4] == "unset", table.concat(two, " "))
-  local pids = { assert(math.tointeger(tonumber(one[2]))), assert(math.tointeger(tonumber(two[2]))) }
-  assert(pids[1] ~= pids[2], "one worker answered both: " .. pids[1])
-  assert(pids[1] ~= h.pid and pids[2] ~= h.pid, "the supervisor answered")
+  for i, words in ipairs({ one, two }) do
+    local pid = assert(math.tointeger(tonumber(words[2])), table.concat(words, " "))
+    met.pids[i] = pid
+    assert(pid ~= h.pid, "the supervisor answered")
+    assert(words[3] == "nil" and words[4] == "unset", table.concat(words, " "))
+  end
+  assert(met.pids[1] ~= met.pids[2], "one worker answered both: " .. met.pids[1])
+  return { supervisor = h, out = out, port = port, first = first, second = second }
+end
 
+--- Waits until nothing listens at `address` any longer.
+local function refused_at(address: Net.Address)
+  local deadline = now_ms() + 30000
+  while true do
+    local conn, why = Net.connect(address, { timeout_ms = 1000 })
+    if conn == nil and why:find("Connection refused", 1, true) ~= nil then return end
+    if conn ~= nil then local _, _ = conn:close() end
+    assert(now_ms() < deadline, "something still listens: " .. tostring(why))
+    assert(sys.nanosleep(20 * 1000000))
+  end
+end
+
+--- Two workers answer, one at each listener, and neither they nor a
+--- child one starts sees COSMIC_NET_WORKER. SIGTERM to the supervisor
+--- removes its socket file at once, while the connections open are
+--- served to their end; it then returns true, having reaped both.
+local function test_workers_serve_and_drain_at_sigterm(tmp: string)
+  local met <close> = workers()
+  local r = running(tmp, met, { tmp, "20000" }, {})
+  local h <close> = r.supervisor
+  local _first <close> = r.first
+  local _second <close> = r.second
   assert(h:stop(sys.SIGTERM))
   local deadline = now_ms() + 30000
   while Fs.stat(tmp .. "/s.sock") ~= nil do
     assert(now_ms() < deadline, "the socket file outlived the stop")
     assert(sys.nanosleep(10 * 1000000))
   end
-  assert(asked(first, "after")[1] == "after")
-  assert(asked(second, "later")[1] == "later")
-  assert(first.conn:write("bye\n"))
-  assert(second.conn:write("bye\n"))
-  local r = assert(h:wait(60000))
+  assert(asked(r.first, "after")[1] == "after")
+  assert(asked(r.second, "later")[1] == "later")
+  assert(r.first.conn:write("bye\n"))
+  assert(r.second.conn:write("bye\n"))
+  local result = assert(h:wait(60000))
   local seen: {string} = {}
-  for line in out:each() do seen[#seen + 1] = line end
+  for line in r.out:each() do seen[#seen + 1] = line end
   local rest = table.concat(seen, "\n")
-  assert(r.code == 0, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) .. " " .. rest)
+  assert(result.code == 0,
+    "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) .. " " .. rest)
   -- Each worker's own Net.serve returns true too, and says so.
   local _, served = rest:gsub("served true", "")
   assert(served == 3, rest)
-  for _, pid in ipairs(pids) do
+  for _, pid in ipairs(met.pids) do
     local alive, _, errno = sys.kill(pid, 0)
     assert(not alive and errno == sys.ESRCH, "worker " .. pid .. " outlived the supervisor")
   end
-  local _, _ = first.conn:close()
-  local _, _ = second.conn:close()
+end
+
+--- A supervisor that moved from where it started before serving starts
+--- its workers where it started, so the script it names by a relative
+--- path is there for them.
+local function test_workers_start_where_the_supervisor_started(tmp: string)
+  local met <close> = workers()
+  local r = running(tmp, met, { tmp, "20000", "chdir" }, { cwd = tmp })
+  local h <close> = r.supervisor
+  local _first <close> = r.first
+  local _second <close> = r.second
+  assert(r.first.conn:write("bye\n"))
+  assert(r.second.conn:write("bye\n"))
+  assert(h:stop(sys.SIGTERM))
+  local result = assert(h:wait(60000))
+  assert(result.code == 0, "code=" .. tostring(result.code))
+end
+
+--- Workers whose supervisor is killed outright -- SIGKILL, which it
+--- cannot act on -- find their lifeline closed, and stop as at SIGTERM:
+--- a connection open is drained at grace_ms and closed, and nothing
+--- listens at either listener once they have exited.
+local function test_workers_stop_once_their_supervisor_is_killed(tmp: string)
+  local met <close> = workers()
+  local r = running(tmp, met, { tmp, "200" }, {})
+  local h <close> = r.supervisor
+  local _first <close> = r.first
+  local _second <close> = r.second
+  assert(h:stop(sys.SIGKILL))
+  local result = assert(h:wait(60000))
+  assert(result.signal == sys.SIGKILL, tostring(result.signal))
+  local data, why = r.first.lines:read()
+  assert(data == nil, data)
+  assert(why == "" or why:find("reset", 1, true) ~= nil, why)
+  refused_at(Net.tcp("127.0.0.1", r.port))
+  refused_at(Net.unix(tmp .. "/s.sock"))
 end
 
 --- A worker that exits before the stop is reported, with how it ended,
---- and once every one has, the supervisor stops and says why.
+--- and once every one has, the supervisor stops and says why. Each
+--- worker here finds the marker the supervisor left, and so a spec
+--- whose listener is not the one it is handed.
 local function test_the_server_stops_once_every_worker_has_exited(tmp: string)
   local h <close> = started(tmp, "quits.tl", [[
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  if Env.get("COSMIC_NET_WORKER") ~= nil then return 3 end
+  local marker = argv[1] .. "/supervised"
+  local name = Fs.stat(marker) == nil and "/s.sock" or "/other.sock"
+  assert(Fs.write(marker, ""))
   local troubles: {string} = {}
   local ok, why = Net.serve{
-    listeners = { Net.unix(argv[1] .. "/s.sock") },
+    listeners = { Net.unix(argv[1] .. name) },
     workers = 2,
     serve = function(_conn: Net.Conn) end,
     on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
   }
+  if name ~= "/s.sock" then
+    assert(Fs.write(argv[1] .. "/worker-" .. require("cosmic.sys").getpid(), why))
+    return 3
+  end
   table.sort(troubles)
   assert(Fs.put(Fs.stdout, tostring(ok) .. " " .. why .. "\n" .. table.concat(troubles, "\n")))
   return 0
 end
-]], { stdout = "capture", stderr = "capture" })
+]], { tmp }, { stdout = "capture", stderr = "capture" })
   local r = assert(h:wait(60000))
   assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
   local said = r.stdout or ""
@@ -171,44 +277,66 @@ end
   local _, exits = said:gsub("\nworker %d+ exited with status 3", "")
   assert(exits == 2, said)
   assert(Fs.stat(tmp .. "/s.sock") == nil, "the socket file outlived the server")
+  local reports = 0
+  for entry in pairs((assert(sys.readdir(tmp)))) do
+    if entry:find("^worker%-") then
+      local why = assert(Fs.read(tmp .. "/" .. entry))
+      assert(why:find("^descriptor 4, handed for listeners%[1%] %(.*/other%.sock%): it listens at ")
+        ~= nil, why)
+      reports = reports + 1
+    end
+  end
+  assert(reports == 2, tostring(reports))
 end
 
---- A worker handed a descriptor that is no listening socket fails,
---- naming it, and so does one handed a list it cannot read.
-local function test_a_worker_handed_what_is_no_listener_fails(tmp: string)
-  local script = [[
+--- What a process started with COSMIC_NET_WORKER set to `variable`,
+--- and `fds`, says of its Net.serve: whether it served, why not, whether
+--- descriptor 4 is still open, and whether it sees the variable.
+local function handed(tmp: string, variable: string, fds: {integer: integer | string}): string
+  local env = this_program.environment()
+  env.COSMIC_NET_WORKER = variable
+  local h <close> = started(tmp, "worker.tl", [[
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   local ok, why = Net.serve{
     listeners = { Net.unix(argv[1] .. "/s.sock") },
     serve = function(_conn: Net.Conn) end,
-    on_ready = function() error("on_ready is not called in a worker") end,
+    on_ready = function(_addresses: {Net.Address}, server: Net.Server) server:stop() end,
   }
-  assert(Fs.put(Fs.stdout, tostring(ok) .. " " .. why))
+  assert(Fs.put(Fs.stdout, tostring(ok) .. " " .. why .. "|" .. tostring(sys.fstat(4) ~= nil) ..
+    "|" .. tostring(Env.get("COSMIC_NET_WORKER"))))
   return 0
 end
-]]
+]], { tmp }, { env = env, fds = fds, stdout = "capture", stderr = "capture" })
+  local r = assert(h:wait(60000))
+  assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
+  return r.stdout or ""
+end
+
+--- A worker handed a descriptor that is no listening socket fails,
+--- naming it, and leaves it open; so does one handed a list it cannot
+--- read. A variable naming a supervisor that is not the process's
+--- parent -- left over, or set by hand -- is dropped: the process
+--- listens itself, and its own descriptors are left be. None sees the
+--- variable.
+local function test_a_worker_handed_what_is_no_listener_fails(tmp: string)
   local file = assert(sys.open(tmp .. "/plain", sys.O_CREAT | sys.O_RDWR, 420))
-  local function run(variable: string, fds: {integer: integer | string}): string
-    local env = this_program.environment()
-    env.COSMIC_NET_WORKER = variable
-    local h <close> = started(tmp, "worker.tl", script, {
-      env = env, fds = fds, stdout = "capture", stderr = "capture",
-    })
-    local r = assert(h:wait(60000))
-    assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
-    return r.stdout or ""
-  end
-  local plain = run("3", { [3] = file })
-  assert(plain == "false descriptor 3, handed for listeners[1] (" .. tmp ..
-    "/s.sock): Not a socket", plain)
-  local two = run("3,4", { [3] = file, [4] = file })
+  local me = tostring(sys.getpid())
+  local both: {integer: integer | string} = { [3] = file, [4] = file }
+  local plain = handed(tmp, me .. ":3:4", both)
+  assert(plain == "false descriptor 4, handed for listeners[1] (" .. tmp ..
+    "/s.sock): Not a socket|true|nil", plain)
+  local two = handed(tmp, me .. ":3:4,5", both)
   assert(two == "false COSMIC_NET_WORKER must name a descriptor for each listener: " ..
-    "it names 2, and the spec has 1", two)
-  local bad = run("3,x", {})
-  assert(bad:find("^false COSMIC_NET_WORKER must name descriptors from 3 to 253") ~= nil, bad)
-  sys.close(file)
+    "it names 2, and the spec has 1|true|nil", two)
+  local bad = handed(tmp, me .. ":3:x", both)
+  assert(bad:find("^false COSMIC_NET_WORKER must name, past the supervisor's pid") ~= nil, bad)
+  local stray = handed(tmp, "1:3:4", both)
+  assert(stray == "true |true|nil", stray)
+  assert(sys.close(file))
 end
 
 --- A worker whose protocol never ends -- it waits on after its waits
@@ -243,7 +371,7 @@ return function(argv: {string}): integer
   assert(Fs.put(Fs.stdout, tostring(ok) .. " " .. why .. "\n" .. table.concat(troubles, "\n")))
   return 0
 end
-]], { stdout = "capture", stderr = "capture" })
+]], { tmp }, { stdout = "capture", stderr = "capture" })
   local r = assert(h:wait(60000))
   assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
   local said = r.stdout or ""

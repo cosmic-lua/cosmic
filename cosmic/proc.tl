@@ -27,6 +27,9 @@ local record Proc
     env: {string:string}
     --- Descriptors to hand the child, as [`Child.Options.fds`] takes them.
     fds: {integer:integer}
+    --- The working directory this process started in, for the child's
+    --- [`Child.Options.cwd`]; nil where it could not be read then.
+    cwd: string
   end
 end
 
@@ -79,7 +82,7 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
   if found.host then
-    relaunch = { argv = { found.path }, env = {}, fds = {} }
+    relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
     return relaunch, ""
   end
   -- One core descriptor serves every relaunch; it is closed on exec, so
@@ -88,14 +91,17 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
     argv = { found.path, "--artifact", assert(found.artifact) },
     env = assert(found.environment),
     fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
+    cwd = found.cwd,
   }
   return relaunch, ""
 end
 
---- The arguments this program was started with, after its own name:
---- with [`relaunch`]'s `argv` before them, the command line that starts
---- this program again as it was started. They are the program's whole
---- command line, not a script's: `cosmic app.tl serve` answers
+--- The arguments this program was started with, after its own name,
+--- without the `--artifact` pair a launcher puts before them. With
+--- [`relaunch`]'s `argv` before them, started in its `cwd`, they start
+--- this program again on the same command line in the same directory;
+--- the environment is the caller's to give. They are the program's
+--- whole command line, not a script's: `cosmic app.tl serve` answers
 --- `{ "app.tl", "serve" }`, where app.tl's main is handed `{ "serve" }`.
 function Proc.arguments(): {string}
   return raw.arguments()

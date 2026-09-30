@@ -314,7 +314,7 @@ local function test_adopting_a_listener_leaves_no_descriptor_whenever_an_allocat
     local adopted <close> = assert(socket.adopt(listener:fd(), "unix"))
     assert(socket.bound(adopted:fd()))
     assert(#process.arguments() >= 1)
-    assert(socket.take_variable("COSMIC_ALLOCATION_TEST_NEVER_SET") == nil)
+    assert(socket.handed() == nil)
   end)
   assert(ended > 0, "adopting and reading the address and arguments allocate")
   local after = next_descriptor(tmp)

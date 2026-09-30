@@ -68,13 +68,3 @@ end
 local function test_find_refuses_an_empty_name()
   assert(not pcall(Proc.find, ""))
 end
-
---- The arguments this program was started with are a list of strings,
---- its own name not among them: a test worker is started with some.
-local function test_arguments_are_the_command_line_past_the_program()
-  local arguments = Proc.arguments()
-  assert(#arguments >= 1)
-  for _, word in ipairs(arguments) do assert(type(word) == "string") end
-  local path = Proc.executable()
-  assert(arguments[1] ~= path, "the program's own name is among its arguments")
-end

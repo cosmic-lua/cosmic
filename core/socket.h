@@ -27,6 +27,18 @@
 /* Opens the table as the raw [`cosmic.internal.socket`] module. */
 int cosmic_open_socket (lua_State *L);
 
+/* The variable a [`Net.serve`] supervisor starts each of its workers
+ * with: "<supervisor pid>:<descriptors>", read by `handed`. */
+#define COSMIC_NET_WORKER "COSMIC_NET_WORKER"
+
+/* Takes COSMIC_NET_WORKER out of the environment as the runtime
+ * starts, before anything runs that could start a child, so no
+ * process this one starts inherits it; and keeps its descriptors for
+ * `handed` where it names this process's parent as the supervisor --
+ * a variable left over from another start, or set by hand, names
+ * another, and is dropped. */
+void cosmic_socket_entered (void);
+
 #endif
 
 /* Entries, as core/syscalls.h's are: X-macros core/socket.c expands
@@ -148,11 +160,10 @@ COSMIC_SYSCALL(bound, 1);
 COSMIC_SYSCALL(adopt, 2);
 
 /*
- * --- Reads an environment variable and removes it from this process's environment, so no process started from here on inherits it: how a process handed listeners by the one that started it reads their descriptors once.
- * ---@param name string the variable, a name holding no "=" and no NUL
- * ---@return string|nil value its value, or nil where it is not set
+ * --- The descriptors a [`Net.serve`] supervisor handed this process, as COSMIC_NET_WORKER named them when the runtime started -- the part past the supervisor's pid, which must be this process's parent -- the first time it is asked, and nil after, or where there were none. The variable is gone from the environment from the start, so no child inherits it.
+ * ---@return string|nil descriptors what the variable named past the supervisor's pid, or nil
  */
-COSMIC_SYSCALL(take_variable, 1);
+COSMIC_SYSCALL(handed, 0);
 
 /*
  * --- Where a connected socket's peer is: a TCP one's host and port, or a unix one's path as its socket was bound, "" for one bound nowhere (as every socket `connect`, `start` and `pair` make is) or in Linux's abstract namespace.

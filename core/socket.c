@@ -746,22 +746,34 @@ COSMIC_SYSCALL(adopt, 2) {
   return 1;
 }
 
-COSMIC_SYSCALL(take_variable, 1) {
-  const char *name = luaL_checkstring(L, 1);
-  luaL_argcheck(L, name[0] != '\0' && strchr(name, '=') == NULL &&
-                   strlen(name) == lua_rawlen(L, 1),
-                1, "name must be non-empty and hold no \"=\" or NUL");
-  const char *value = getenv(name);
-  if (value == NULL) {
+/* What [`cosmic_socket_entered`] took of COSMIC_NET_WORKER: the part
+ * past its supervisor's pid, "" for none. The longest a supervisor
+ * writes, 251 listeners' descriptors and the one it watches, fits. */
+static char handed[2048];
+
+void cosmic_socket_entered (void) {
+  const char *value = getenv(COSMIC_NET_WORKER);
+  if (value == NULL) return;
+  char *rest = NULL;
+  errno = 0;
+  long long supervisor = strtoll(value, &rest, 10);
+  if (errno == 0 && rest != value && *rest == ':' && supervisor == (long long)getppid() &&
+      strlen(rest + 1) < sizeof handed) {
+    memcpy(handed, rest + 1, strlen(rest + 1) + 1);
+  }
+  /* The name is well formed, so this fails only where the libc cannot
+   * change the environment at all, and then nothing starts a child
+   * that would inherit it any differently. */
+  (void)unsetenv(COSMIC_NET_WORKER);
+}
+
+COSMIC_SYSCALL(handed, 0) {
+  if (handed[0] == '\0') {
     lua_pushnil(L);
     return 1;
   }
-  /* Copied before it is removed: the copy can raise on memory, leaving
-   * the variable set, while unsetenv may free what `value` points to. */
-  lua_pushstring(L, value);
-  if (unsetenv(name) != 0) {
-    return luaL_error(L, "unsetenv %s: %s", name, cosmic_errno_describe(errno, NULL));
-  }
+  lua_pushstring(L, handed);
+  handed[0] = '\0';
   return 1;
 }
 
