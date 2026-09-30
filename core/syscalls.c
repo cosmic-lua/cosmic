@@ -2873,14 +2873,25 @@ COSMIC_SYSCALL(may_map_ids, 0) {
 }
 
 #if defined(__linux__)
-/* `own_proc`'s child, pid 1 of namespaces of its own -- user, mount and
- * pid -- on the parent's memory: whether it may mount a procfs of its
- * pid namespace as [`place_proc`] does, on the /proc of a mount
- * namespace it made private first, so neither mount reaches the
- * parent's. It exits 0, or with the errno that refused it. It runs with
- * every signal blocked, as [`start_child`]'s child does, so no handler
- * of the parent's runs on the parent's memory. */
-static _Noreturn int try_own_proc (void *unused) {
+/* The stack each of `own_proc`'s two children runs on, above a guard
+ * page of its own. */
+#define OWN_PROC_STACK_SIZE (64 * 1024)
+
+/* What `own_proc`'s first child is handed: the ids it maps, whether it
+ * may be left unmapped, as `spawn` decides for an unveiled child, and
+ * the stack its own child runs on. */
+struct own_proc_probe {
+  const char *uid_map;
+  const char *gid_map;
+  int unmap_root;
+  char *mounter_stack;
+};
+
+/* `own_proc`'s second child, pid 1 of the first's pid namespace: mounts
+ * a procfs of it as [`place_proc`] does, on the /proc of a mount
+ * namespace made private first, so neither mount reaches the parent's.
+ * It exits 0, or with the errno that refused it. */
+static _Noreturn int mount_own_proc (void *unused) {
   (void)unused;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) _exit(errno & 0xff);
   if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") != 0)
@@ -2888,27 +2899,55 @@ static _Noreturn int try_own_proc (void *unused) {
   _exit(0);
 }
 
-/* The stack `own_proc`'s child runs on, above a guard page. */
-#define OWN_PROC_STACK_SIZE (64 * 1024)
+/* `own_proc`'s first child, on the parent's memory with every signal
+ * blocked, as [`start_child`]'s is: makes its namespaces as
+ * [`start_unveiled`] does -- through unshare, which a container's
+ * seccomp profile lets through where it refuses clone's namespace
+ * flags -- maps its ids as [`map_ids`] does for such a child, and starts
+ * [`mount_own_proc`] in them. It exits with what that one exited with,
+ * or the errno that refused a step before it. */
+static _Noreturn int try_own_proc (void *argument) {
+  const struct own_proc_probe *probe = argument;
+  if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS) != 0) _exit(errno & 0xff);
+  int mapped;
+  int failure = map_ids(probe->unmap_root, probe->uid_map, probe->gid_map, &mapped);
+  if (failure) _exit(failure & 0xff);
+  pid_t mounter = clone(mount_own_proc, probe->mounter_stack, CLONE_VM | CLONE_VFORK | SIGCHLD,
+                        NULL);
+  if (mounter < 0) _exit(errno & 0xff);
+  int status = 0;
+  pid_t reaped;
+  while ((reaped = waitpid(mounter, &status, 0)) < 0 && errno == EINTR) {}
+  if (reaped < 0) _exit(errno & 0xff);
+  _exit(WIFEXITED(status) ? WEXITSTATUS(status) : ECHILD);
+}
 #endif
 
 COSMIC_SYSCALL(own_proc, 0) {
 #if defined(__linux__)
+  char uid_map[64], gid_map[64];
+  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
+           (unsigned long)geteuid());
+  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", (unsigned long)getegid(),
+           (unsigned long)getegid());
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) page = 4096;
-  size_t size = OWN_PROC_STACK_SIZE + (size_t)page;
+  size_t each = OWN_PROC_STACK_SIZE + (size_t)page, size = 2 * each;
   char *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (stack == MAP_FAILED) return cosmic_fail_effect(L, errno);
   int failure = 0;
-  if (mprotect(stack, (size_t)page, PROT_NONE) != 0) failure = errno;
+  for (int s = 0; !failure && s < 2; s++) {
+    if (mprotect(stack + each * (size_t)s, (size_t)page, PROT_NONE) != 0) failure = errno;
+  }
+  struct own_proc_probe probe = {
+    uid_map, gid_map, inner_user_namespace() && geteuid() == 0, stack + 2 * each,
+  };
   sigset_t every, before;
   sigfillset(&every);
   if (!failure && sigprocmask(SIG_SETMASK, &every, &before) != 0) failure = errno;
   pid_t child = -1;
   if (!failure) {
-    child = clone(try_own_proc, stack + size,
-                  CLONE_VM | CLONE_VFORK | CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWPID | SIGCHLD,
-                  NULL);
+    child = clone(try_own_proc, stack + each, CLONE_VM | CLONE_VFORK | SIGCHLD, &probe);
     if (child < 0) failure = errno;
     sigprocmask(SIG_SETMASK, &before, NULL);
   }
