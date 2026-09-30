@@ -122,6 +122,17 @@ linux-aarch64's driver marker).
   Runs behind a core change rerun everything, as expected.
 - **aarch64 marker:** main's seed saved it for the first time at 17:19.
 
+**The tool/store floor (researched 2026-09-30).** A comment edit to a
+carried module reruns about 330 tests beyond its closure (about 207
+CPU-s, 60 s wall on 4 cores), nearly all `tool` tests whose `program`
+part digests every carried row, source included. Landed: #2482 (zig's
+fetch path in a script of its own, so build.zig's closure holds no
+archive or http: a comment in cosmic/zip.tl reran 719, now 400), #2480
+(dispatch requires each verb's modules where it runs: `-e` loads 8
+modules, not 75), #2483 (two ci/ links #2478's scoped resolution broke).
+Next: a lean `-e` child mode keyed without `program`, for the about 100
+tests that start only such children.
+
 **Queue gate (2026-09-30, 12 runs, 16:17 to 19:22 UTC).** linux-x86_64
 gates 10 of 12: it alone runs both the portable suite (about 190 s after
 a core change) and self-rebuild (about 120 s). Landed since: #2473 (a
