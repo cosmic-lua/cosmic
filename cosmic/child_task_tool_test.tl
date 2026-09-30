@@ -38,7 +38,10 @@ local function without_exit_watch(): ChildModule
   error("cosmic.child is handed no raw table")
 end
 
---- The module with an exit watch, and one without.
+--- The module with an exit watch, and one without. Each is used after
+--- the other, never at once: each copy's `collect` reaps every child
+--- this process adopts, and would take a status the other's handle
+--- waits for from under it.
 local function both(): {ChildModule}
   return { Child, without_exit_watch() }
 end
@@ -94,39 +97,45 @@ end
 
 --- A wait in a task ends at the child's exit, as it happens. Each child
 --- here says when it exits, 3 ms into the wait, a slice of 10 ms not
---- yet up: a wait that looked for the exit every slice would see it some
---- 7 ms late, where one woken by the exit sees it in well under 4, at
---- least once in a few tries. A wait with a timeout ends the child at
---- it, the other task ticking meanwhile.
+--- yet up: a wait that looks for the exit every slice, as the copy with
+--- no exit watch does, sees it some 7 ms late, where one woken by the
+--- exit sees it at once. The soonest of a few tries of each is taken,
+--- and the watched one must be under 4 ms, or at least 2 ms sooner than
+--- the other where a slow host makes both late. A wait with a timeout
+--- ends the child at it, the other task ticking meanwhile.
 local function test_a_wait_in_a_task_ends_at_the_exit_or_the_timeout(tmp: string)
   local said = tmp .. "/exited"
-  local soonest = math.maxinteger
+  local soonest: {integer} = {}
+  for m, module in ipairs(both()) do
+    soonest[m] = math.maxinteger
+    ticking(function()
+      for _ = 1, 5 do
+        local h <close> = assert(module.start(lua(
+          'local Fs = require("cosmic.fs") local sys = require("cosmic.sys") ' ..
+          'while assert(Fs.take(0, 4096)) ~= "" do end ' ..
+          'assert(Fs.write(' .. string.format("%q", said) .. ', ' ..
+          'tostring(require("cosmic.time").monotonic_ns()))) sys.exit(0)', { stdin = "pipe" })))
+        assert(Poll.delay(50))
+        local closer = Poll.spawn(function()
+          assert(Poll.delay(3))
+          assert(h:close_stdin())
+        end)
+        assert(assert(h:wait(60000)).ok)
+        local seen = Time.monotonic_ns()
+        assert(closer:join())
+        local late = seen - assert(math.tointeger(tonumber((assert(Fs.read(said))))))
+        if late < soonest[m] then soonest[m] = late end
+      end
+    end)
+  end
   local timed: Child.Result
-  local ticks: integer
-  ticking(function()
-    for _ = 1, 3 do
-      local h <close> = assert(Child.start(lua(
-        'local Fs = require("cosmic.fs") local sys = require("cosmic.sys") ' ..
-        'while assert(Fs.take(0, 4096)) ~= "" do end ' ..
-        'assert(Fs.write(' .. string.format("%q", said) .. ', ' ..
-        'tostring(require("cosmic.time").monotonic_ns()))) sys.exit(0)', { stdin = "pipe" })))
-      assert(Poll.delay(50))
-      local closer = Poll.spawn(function()
-        assert(Poll.delay(3))
-        assert(h:close_stdin())
-      end)
-      assert(assert(h:wait(60000)).ok)
-      local seen = Time.monotonic_ns()
-      assert(closer:join())
-      local late = seen - assert(math.tointeger(tonumber((assert(Fs.read(said))))))
-      if late < soonest then soonest = late end
-    end
-  end)
-  ticks = ticking(function()
+  local ticks = ticking(function()
     local h <close> = assert(Child.start(lua(sleep(100000))))
     timed = assert(h:wait(200))
   end)
-  assert(soonest < 4 * 1000000, "a wait saw a child's exit " .. soonest // 1000 .. " us late")
+  assert(soonest[1] < 4 * 1000000 or soonest[1] + 2 * 1000000 < soonest[2],
+    "a wait saw a child's exit " .. soonest[1] // 1000 .. " us late, and " ..
+    soonest[2] // 1000 .. " us looking for it every slice")
   assert(timed.timed_out and timed.signal == sys.SIGTERM, tostring(timed.signal))
   assert(ticks >= 20, "the other task ticked " .. ticks .. " times")
 end
@@ -276,4 +285,57 @@ assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == "nil cancelled by signal " .. term .. "|" .. term .. "|true|true", tostring(got))
+end
+
+--- A stdin stream's write waiting in a task for room fails once another
+--- task closes the stream, and writes nothing to the descriptor that
+--- takes its number next.
+local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tmp: string)
+  local victim = tmp .. "/victim"
+  local wrote, why: boolean, string
+  Poll.run(function()
+    local h <close> = assert(Child.start(lua(sleep(300), { stdin = "stream" })))
+    local stream = assert(h.stdin_stream)
+    local writer = Poll.spawn(function()
+      wrote, why = stream:write(string.rep("x", 1 << 20))
+    end)
+    assert(Poll.delay(50))
+    assert(stream:close())
+    local fd = assert(Fs.open_write(victim))
+    assert(writer:join(5000))
+    assert(Fs.close(fd))
+  end)
+  assert(not wrote and why == "stream: already closed", tostring(why))
+  assert(assert(Fs.read(victim)) == "", "the write went on into another file")
+end
+
+--- Two tasks settling one child at once answer the same Result: whether
+--- both ask `try_wait`, or one waits while the other closes.
+local function test_two_tasks_settle_one_child_once()
+  local answers: {Child.Result} = {}
+  local closed: boolean
+  Poll.run(function()
+    local h <close> = assert(Child.start(lua("return 3")))
+    assert(assert(h:wait(30000)).code == 3)
+    local again <close> = assert(Child.start(lua("return 4")))
+    assert(Poll.delay(300))
+    local tasks: {Poll.Task} = {}
+    for i = 1, 2 do
+      tasks[i] = Poll.spawn(function()
+        local t = assert(again:try_wait())
+        assert(t.finished)
+        answers[i] = t.result
+      end)
+    end
+    for _, task in ipairs(tasks) do assert(task:join()) end
+    local third <close> = assert(Child.start(lua(sleep(100))))
+    local waiter = Poll.spawn(function() answers[3] = assert(third:wait()) end)
+    local closer = Poll.spawn(function() closed = third:close() end)
+    assert(waiter:join())
+    assert(closer:join())
+    answers[4] = assert(third:wait())
+  end)
+  assert(rawequal(answers[1], answers[2]) and answers[1].code == 4, "try_wait settled twice")
+  assert(closed, "the close failed")
+  assert(rawequal(answers[3], answers[4]), "a wait and a close settled twice")
 end

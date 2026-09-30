@@ -1312,10 +1312,17 @@ end
 --- Reaps every worker that has exited, reporting one that exited before
 --- the stop or was killed for outlasting it.
 local function reap(s: Supervising)
-  for pid, handle in pairs(s.workers) do
+  -- A settle can wait through the run, in which another task may reap
+  -- the same worker: each is taken from a list made first, and counted
+  -- off by the task that finds it still there.
+  local listed: {integer: Child.Handle} = {}
+  for pid, handle in pairs(s.workers) do listed[pid] = handle end
+  for pid, handle in pairs(listed) do
     local answer, why = handle:try_wait()
     local trouble = ""
-    if answer == nil then
+    if s.workers[pid] ~= handle then
+      answer = { finished = false }
+    elseif answer == nil then
       trouble = "worker " .. pid .. ": " .. why
       local _, _ = handle:close()
     elseif answer.finished and s.killing and answer.result.signal == sys.SIGKILL then
@@ -1340,7 +1347,7 @@ local function await_worker(s: Supervising, timeout_ms?: integer)
   local handles: {Child.Handle} = {}
   for _, handle in pairs(s.workers) do handles[#handles + 1] = handle end
   local done, trouble = Child.wait_any(handles, timeout_ms)
-  if done ~= nil and trouble ~= "" then
+  if done ~= nil and trouble ~= "" and s.workers[done.pid] == done then
     s.workers[done.pid] = nil
     s.running = s.running - 1
     reported(s.spec, "worker " .. done.pid .. ": " .. trouble)

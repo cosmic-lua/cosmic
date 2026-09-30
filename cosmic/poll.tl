@@ -71,6 +71,8 @@ Poll.CANCELLED = "cancelled"
 
 --- The longest wait [`sys.poll`] takes, and so the longest timeout here.
 local MOST_MS <const> = 0x7fffffff
+--- The highest descriptor [`sys.poll`] takes: a C `int`.
+local MOST_FD <const> = 0x7fffffff
 
 --- One wait a task is parked in, and what ends it: a descriptor ready, a
 --- time reached, a task joined. `done` is set once one of them has
@@ -231,7 +233,7 @@ end
 local function wait_fd(fd: integer, events: integer, timeout_ms: integer | nil, what: string): boolean, string
   local task = current(what, 3)
   checked_ms(timeout_ms, "timeout_ms", 3)
-  if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_MS then
+  if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_FD then
     error("fd must be a descriptor", 3)
   end
   return park(task, { task = task, fd = fd, events = events }, timeout_ms)
@@ -267,7 +269,7 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ms?: integer): {i
   local watched, masks, answers: {integer}, {integer}, {integer} = {}, {}, {}
   for i, fd in ipairs(fds) do
     local mask = events[i]
-    if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_MS then
+    if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_FD then
       error("fds[" .. i .. "] must be a descriptor", 2)
     end
     if math.type(mask) ~= "integer" or mask < 0 or mask > 0x7fff then
