@@ -333,9 +333,11 @@ end
 local probe_name = "/o/rebuild.lock.probe"
 
 --- The meta a tool's database carries that tells one written apart
---- from another.
-local identity_keys <const> = { "projected", "written_by", "compiled_by",
-  "boot_hash" }
+--- from another: a rebuild moves `boot_hash` (the tree's, which is why it
+--- rebuilt), and settling it moves `written_by` or `compiled_by`. The
+--- projection's `projected` is no part of it, since a tool does not carry
+--- it ([`build.writer`]'s `carried`).
+local identity_keys <const> = { "written_by", "compiled_by", "boot_hash" }
 
 --- Whether the program at `out` is no longer the one this process runs:
 --- another run rebuilt the tool, and exec'd, between this run's start

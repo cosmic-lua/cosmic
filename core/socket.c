@@ -258,28 +258,31 @@ struct owned {
   char name[];
 };
 
-/* Closes the descriptor `owned` holds, then removes the file it made
- * while its name is still that file, each once: 0, or the first
- * failure. A file gone already is no failure. */
+/* Removes the file `owned` made while its name is still that file,
+ * then closes the descriptor it holds, each once: 0, or the first
+ * failure. A file gone already is no failure. The file is read back
+ * before the descriptor closes, since the bound socket keeps its inode
+ * allocated until then: once it is closed, a file made at the name
+ * could be given the removed file's inode number. */
 static int released (struct owned *owned) {
   int failure = 0;
-  if (owned->fd >= 0) {
-    if (close(owned->fd) != 0) failure = errno;
-    owned->fd = -1;
-  }
   if (owned->directory >= 0) {
     struct stat now;
     if (!owned->made) {
       /* Nothing of the listener's to remove. */
     } else if (fstatat(owned->directory, owned->name, &now, AT_SYMLINK_NOFOLLOW) != 0) {
-      if (errno != ENOENT && failure == 0) failure = errno;
+      if (errno != ENOENT) failure = errno;
     } else if (now.st_dev == owned->device && now.st_ino == owned->inode &&
-               unlinkat(owned->directory, owned->name, 0) != 0 && failure == 0) {
+               unlinkat(owned->directory, owned->name, 0) != 0) {
       failure = errno;
     }
     owned->made = false;
     close(owned->directory);
     owned->directory = -1;
+  }
+  if (owned->fd >= 0) {
+    if (close(owned->fd) != 0 && failure == 0) failure = errno;
+    owned->fd = -1;
   }
   return failure;
 }
@@ -689,10 +692,14 @@ COSMIC_SYSCALL(peer, 1) {
   return 1;
 }
 
-COSMIC_SYSCALL(send, 2) {
+COSMIC_SYSCALL(send, 3) {
   int fd = cosmic_checkfd(L, 1);
   size_t size;
   const char *data = luaL_checklstring(L, 2, &size);
+  lua_Integer from = luaL_optinteger(L, 3, 1);
+  luaL_argcheck(L, from >= 1 && (lua_Unsigned)from - 1 <= size, 3, "out of range");
+  data += from - 1;
+  size -= (size_t)(from - 1);
 #if defined(MSG_NOSIGNAL)
   const int flags = MSG_NOSIGNAL;
 #else
