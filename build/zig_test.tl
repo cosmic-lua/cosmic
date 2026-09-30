@@ -1,9 +1,9 @@
---- `build/zig.tl`'s parts that need no network: pin parsing, the host
+--- [`build/zig.tl`]'s parts that need no network: pin parsing, the host
 --- triple, argument rewriting, root detection, `PATH` lookup, the exit
 --- statuses a failed exec means, the cache hit, the sweep of a dead
 --- install's scratch directory, and the snapshots that catch a source
 --- edited while a build runs, the rebuild lock a boot holds, and what
---- `Zig.run` answers of a stand-in zig (`build.stand_in`). The tests that start bin/zig are
+--- [`Zig.run`] answers of a stand-in zig ([`build.stand_in`]). The tests that start bin/zig are
 --- build/zig_tool_test.tl's.
 
 local Fs = require("cosmic.fs")
@@ -173,7 +173,7 @@ local function test_install_name_holds_the_version_host_and_a_sha_prefix()
   assert(Zig.install_name(pin, "aarch64-linux") == "0.16.0-aarch64-linux-70e49664a74374b4")
 end
 
---- A root holding only a `bin/zig.pin` naming `sha256` for this host.
+--- A root holding only a [`bin/zig.pin`] naming `sha256` for this host.
 local function pinned_root(dir: string, version: string, sha256: string): string
   local names = assert(sys.uname())
   local host = assert(Zig.host(names.sysname, names.machine))

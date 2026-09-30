@@ -1,5 +1,5 @@
---- A test worker holds `Store.meta` to the rows its test's key holds
---- (`build.test_worker`'s `held_meta`, core/store.c's `meta_reach`):
+--- A test worker holds [`Store.meta`] to the rows its test's key holds
+--- ([`build.test_worker`]'s `held_meta`, core/store.c's `meta_reach`):
 --- the runtime's and those a closure store keeps answer, while a row of
 --- the running tool's own or of the whole projection -- `projected`,
 --- which moves with every edit to a module -- raises, naming `store`,
@@ -62,7 +62,7 @@ end
 
 local type Searcher = function(string): any, any
 
---- Reached past `cosmic.store`, the raw table's lookup is held as the
+--- Reached past [`cosmic.store`], the raw table's lookup is held as the
 --- wrapper's is.
 local function test_the_raw_table_is_held_too()
   for _, searcher in ipairs(package.searchers as {Searcher}) do

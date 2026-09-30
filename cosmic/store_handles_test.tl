@@ -1,13 +1,13 @@
 --- The cases of cosmic/store_test.tl that read the store beyond their
---- module's closure, through `Store.databases()`: the handles it hands
+--- module's closure, through [`Store.databases()`]: the handles it hands
 --- out, the binary's own database among them, and the binary's alone
---- inside `Store.alone` (cosmic/store_tool_test.tl starts this program).
+--- inside [`Store.alone`] (cosmic/store_tool_test.tl starts this program).
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
---- `store`: `Store.databases()` hands handles to every module's rows.
+--- `store`: [`Store.databases()`] hands handles to every module's rows.
 Test.needs{ store = true }
 
 --- A path is a filename, never a URI: one whose `vfs=` would pick a
@@ -28,7 +28,7 @@ end
 
 --- The binary's own connection knows the functions every handle does,
 --- so a query reads a module's deflated source back the way
---- `Store.source` does.
+--- [`Store.source`] does.
 local function test_the_binary_s_database_inflates_its_source()
   local databases = Store.databases()
   local binary = databases[#databases]
@@ -48,7 +48,7 @@ end
 --- A borrowed handle on a store database reads, and nothing else: a
 --- read-only open still leaves a connection a writable temp schema and
 --- ATTACH, and a temp `modules` stands in front of the rows `require`
---- loads: a planted row would replace `cosmic.compress` for every later
+--- loads: a planted row would replace [`cosmic.compress`] for every later
 --- require, and a temp view of that name would end the process at the
 --- next one. Each is refused, and require is unaffected.
 local function test_a_store_database_handle_only_reads()

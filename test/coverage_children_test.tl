@@ -1,5 +1,5 @@
 --- Processes a test starts report the core's C they ran (see
---- `Coverage.children`): the core carries the directory to each process
+--- [`Coverage.children`]): the core carries the directory to each process
 --- it starts, whatever environment the program gives it, and the
 --- process never sees it. Run a level down, in a process of its own, so
 --- the directory is this test's rather than its worker's.
@@ -31,9 +31,9 @@ return function(): integer
   return 0
 end
 ]]))
-  -- TODO: start this program through `this_program.program`, in this
+  -- TODO: start this program through [`this_program.program`], in this
   -- parent and in test_processes_confined_apart_report_apart's, once it
-  -- moves to `cosmic.test` (the TODO above it in
+  -- moves to [`cosmic.test`] (the TODO above it in
   -- build/this_program.tl): a file run cannot reach build/,
   -- so each relaunches by hand.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[

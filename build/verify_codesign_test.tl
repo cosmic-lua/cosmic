@@ -1,4 +1,4 @@
---- `build/verify_codesign.tl` on any host: the skip everywhere but
+--- [`build/verify_codesign.tl`] on any host: the skip everywhere but
 --- macOS, and on macOS, over a stand-in for codesign, both of its calls
 --- and a failing one's status.
 local Fs = require("cosmic.fs")

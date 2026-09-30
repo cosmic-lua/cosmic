@@ -184,7 +184,7 @@ end
 
 --- Trims the cache at `path` (`trim`) to what was used since `since`,
 --- in Unix seconds, after removing what was set aside beside it
---- (`remove_set_aside`), for the driver command `verb`. Answers what to
+--- ([`remove_set_aside`]), for the driver command `verb`. Answers what to
 --- say on standard output and on standard error. A cache it cannot trim
 --- is reported on standard error and left, or removed where it is no
 --- database. A table kept whole for want of a `used_ns` column is
@@ -284,7 +284,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string): boolean, string
 end
 
 --- The digest of what `paths` hold, as ci.yml's save of them names it,
---- in hexadecimal: each file by its name and its rows (`feed_rows`), so
+--- in hexadecimal: each file by its name and its rows ([`feed_rows`]), so
 --- a run whose trimmed cache holds the rows of one saved already names
 --- that save's key again, and saves nothing new. A file not there is
 --- fed as absent; one whose rows cannot be read, by its bytes, which

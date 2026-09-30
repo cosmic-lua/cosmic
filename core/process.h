@@ -1,16 +1,16 @@
 /*
- * The process table: the calls `cosmic.child` starts, feeds and reaps a
- * child with, and the one `cosmic.proc` relaunches this program with.
- * Registered as the raw `cosmic.internal.process` module, which only
- * those wrappers (and `build.confine`, which starts a test's sandboxed
+ * The process table: the calls [`cosmic.child`] starts, feeds and reaps a
+ * child with, and the one [`cosmic.proc`] relaunches this program with.
+ * Registered as the raw [`cosmic.internal.process`] module, which only
+ * those wrappers (and [`build.confine`], which starts a test's sandboxed
  * children through it) are handed: none of it is public. A
  * public `waitpid(-1)` would reap a child a `Child` handle owns in an
  * adopting process, and a public spawn would start one no handle owns.
  *
  * The grammar and the two shapes are core/syscalls.h's: each entry is a
  * LuaCATS annotation block followed by COSMIC_SYSCALL naming it, which
- * `build/gen_syscalls.tl` turns into the declaration of
- * `cosmic.internal.process`. The functions themselves live in
+ * [`build/gen_syscalls.tl`] turns into the declaration of
+ * [`cosmic.internal.process`]. The functions themselves live in
  * core/syscalls.c, with the signal state and descriptor handling they
  * share with `execve`.
  */
@@ -29,10 +29,10 @@
  * closure by name. */
 #define UNVEIL_MAX 256
 
-/* Opens the table as the raw `cosmic.internal.process` module. */
+/* Opens the table as the raw [`cosmic.internal.process`] module. */
 int cosmic_open_process (lua_State *L);
 
-/* Whether an open `Child.guard` has caught SIGINT or SIGTERM that
+/* Whether an open [`Child.guard`] has caught SIGINT or SIGTERM that
  * nothing has read yet (`cancelled_child_signal`): a wait of core/http.c's
  * asks it each round, so a signal ends a read or an open that no data
  * would. It reads the signal without taking it, so the guard's holder
@@ -49,7 +49,7 @@ bool cosmic_signal_caught (void);
 /* Milliseconds on the monotonic clock. */
 int64_t cosmic_now_ms (void);
 
-/* How long a wait for `deadline` (on `cosmic_now_ms`'s clock, -1 for
+/* How long a wait for `deadline` (on [`cosmic_now_ms`]'s clock, -1 for
  * no limit) may sleep now: a slice at most, 0 once it has passed. */
 int cosmic_wait_slice (int64_t deadline);
 

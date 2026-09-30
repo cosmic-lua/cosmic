@@ -144,7 +144,7 @@ local function test_accept_with_no_one_connecting_times_out(tmp: string)
 end
 
 --- A signal a guard catches ends a wait at once, as it ends
---- `cosmic.http`'s.
+--- [`cosmic.http`]'s.
 local function test_a_caught_signal_ends_a_wait(tmp: string)
   local p <close> = pair(tmp)
   local server, client, accepted = p.server, p.client, p.accepted
@@ -396,7 +396,7 @@ local function test_reclaim_without_its_lock_file_fails_and_takes_nothing(tmp: s
   assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken without the lock")
 end
 
---- `cosmic.net` loaded over `raw`, as the store's searcher would hand
+--- [`cosmic.net`] loaded over `raw`, as the store's searcher would hand
 --- it the raw socket module.
 local function net_over(raw: {string: any}): Net
   for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
@@ -459,7 +459,7 @@ local function enter_deep(tmp: string)
   end
 end
 
---- Removes what `enter_deep` made, deepest first, which the harness
+--- Removes what [`enter_deep`] made, deepest first, which the harness
 --- could not: its own removal names each path whole.
 local function remove_deep(tmp: string)
   enter_deep(tmp)

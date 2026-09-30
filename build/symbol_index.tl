@@ -1,13 +1,13 @@
 --- The `docs` rows a link's name is looked up in, held in memory: what
---- `cosmic fix` (`build.links`) and the build's index of links
---- (`build.link_index`) answer a name in full with, one table lookup a
---- name rather than a scan of every row. The rule is `docs.exact`'s
+--- `cosmic fix` ([`build.links`]) and the build's index of links
+--- ([`build.link_index`]) answer a name in full with, one table lookup a
+--- name rather than a scan of every row. The rule is [`docs.exact`]'s
 --- for a name with a `.` -- a symbol as declared or by its last few
 --- names, a module's own row, or a module with no row of its own by its
---- first -- and a module's member written in full (`cosmic.fs.read`).
+--- first -- and a module's member written in full ([`cosmic.fs.read`]).
 --- A name alone never comes here: it names a declaration of its own
---- file (`build.link_resolve`). Neither does a member of a type an alias
---- stands for (`Sqlite.Handle.exec`), which `build.docs` resolves.
+--- file ([`build.link_resolve`]). Neither does a member of a type an alias
+--- stands for ([`Sqlite.Handle.exec`]), which [`build.docs`] resolves.
 
 local type link_resolve = require("build.link_resolve")
 

@@ -1,4 +1,4 @@
---- `cosmic.net` in a process of this program's own, started with
+--- [`cosmic.net`] in a process of this program's own, started with
 --- SIGPIPE at its default, which ends a process it is sent to: a write
 --- to a peer that has gone fails there rather than ending it. The
 --- worker running cosmic/net_test.tl may itself have SIGPIPE ignored

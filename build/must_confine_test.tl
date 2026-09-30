@@ -1,4 +1,4 @@
---- End to end: `confine.must_confine`, and COSMIC_SANDBOX=must,
+--- End to end: [`confine.must_confine`], and COSMIC_SANDBOX=must,
 --- which makes every `confine` one, as `cosmic test` holds a suite to
 --- them. Each suite runs in a `cosmic test` of its own: a spawn
 --- `must_confine` refuses fails every stand-in running, the one that
@@ -60,7 +60,7 @@ end
 --- root runner cannot run its workers as a user of their own:
 --- build.test_sandbox's `runs_as`); a case of a
 --- confined process then has only the refusal to check, and says it is
---- skipped (`Test.skip`), which a run held to sandboxing fails
+--- skipped ([`Test.skip`]), which a run held to sandboxing fails
 --- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
@@ -333,7 +333,7 @@ end
 --- a run of `cosmic test` that such a worker's process starts, asked to
 --- sandbox its workers. Every process of
 --- the worker's learns of the hold from its environment
---- (`confine.held_variable`), which an unsandboxed run is given here to
+--- ([`confine.held_variable`]), which an unsandboxed run is given here to
 --- stand for it, the same on every host; sandboxed, the worker is held
 --- by a ruleset in fact.
 local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: string)

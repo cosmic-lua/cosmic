@@ -27,7 +27,7 @@ dropped from what to change.
 
 - Before writing new API, look for it: a booted checkout's
   `o/bin/cosmic docs <words>` searches every doc comment and example by
-  what it does (`cosmic docs find program path` answers `Proc.find`),
+  what it does (`cosmic docs find program path` answers [`Proc.find`]),
   and open PRs may already carry it.
 - One branch per PR, named for the change and cut fresh from
   `origin/main`: never reuse a branch whose PR has merged or closed, even
@@ -42,7 +42,7 @@ dropped from what to change.
   that fails without it; each `TODO:` written the moment it is due;
   `o/bin/cosmic fix <changed-paths>`; `timeout 30 o/bin/cosmic test`; and
   its extra checks for C, `ci/`, and the launcher or fixtures
-  (`ci/run-local`).
+  ([`ci/run-local`]).
 - Commit.
 
 ## 3. Adversarial review
@@ -98,8 +98,8 @@ this branch. The ones it resolved are the removed lines in
 
 ## 7. Bump the driver pin, when it pays
 
-`bin/zig`, `bin/vendor`, `ci/` and the standalone scripts run on the
-release `ci/cosmic-driver.pin` names, not on the tree, so what a change
+[`bin/zig`], [`bin/vendor`], `ci/` and the standalone scripts run on the
+release [`ci/cosmic-driver.pin`] names, not on the tree, so what a change
 adds reaches them only once the pin moves -- and it can only move after
 the change merges and main publishes its `next-<commit>` prerelease.
 When the change adds what a `TODO:` waiting on the pin needs
@@ -109,3 +109,9 @@ a follow-up once that prerelease exists: move the pin to it (its commit,
 URL and SHA-256, checked against the digest the release records) and
 drop the workarounds, as #2061 did. Otherwise say in the summary that
 the pin was left alone.
+
+[`bin/vendor`]: ../../../bin/vendor
+[`bin/zig`]: ../../../bin/zig
+[`ci/cosmic-driver.pin`]: ../../../ci/cosmic-driver.pin
+[`ci/run-local`]: ../../../ci/run-local
+[`Proc.find`]: ../../../cosmic/proc.tl

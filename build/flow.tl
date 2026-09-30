@@ -157,7 +157,7 @@ end
 ---   space after each `:`, and the `:` on its key's line; no `//` or
 ---   `/*` comment and no single-quoted string, which YAML lacks or reads
 ---   otherwise.
---- - A bare key one `flow.bare` takes: an identifier YAML reads as its
+--- - A bare key one [`flow.bare`] takes: an identifier YAML reads as its
 ---   text; a bare value true, false, null or a decimal integer of at most
 ---   15 digits, which both read as the same number.
 --- - In a double-quoted string, only ESCAPES, and no `\u` escape of
@@ -305,7 +305,7 @@ local function key_text(key: string): string
 end
 
 --- A scalar node for a string, a boolean, an integer the subset writes
---- (at most 15 digits), or `Json.null`. Raises for any other value.
+--- (at most 15 digits), or [`Json.null`]. Raises for any other value.
 function flow.scalar(value: any): flow.Node
   if value is string then
     return { kind = "scalar", text = quote(value) }
@@ -549,7 +549,7 @@ end
 
 --- Whether a node is written on one line: a scalar, an empty container
 --- with no comments, or one written that way that holds only such --
---- and, for one that `width` holds (see `Node.width`), whose text fits
+--- and, for one that `width` holds (see [`Node.width`]), whose text fits
 --- in it from `column` with `after` more bytes after it.
 local function one_line(node: flow.Node, column: integer, after: integer): boolean
   if node.kind == "scalar" then return true end
@@ -740,7 +740,7 @@ function flow.write(value: any, opts?: flow.Options): string
   return flow.render({ head = {}, root = flow.from(value, opts), foot = {} })
 end
 
---- A node's value, as `cosmic.json` reads it (`Json.null` for null), or
+--- A node's value, as `cosmic.json` reads it ([`Json.null`] for null), or
 --- nil and why it reads as none.
 function flow.value(node: flow.Node): any | nil, string
   return Json.decode(inline_text(node), { json5 = true, null_value = Json.null })

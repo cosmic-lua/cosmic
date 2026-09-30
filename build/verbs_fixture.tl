@@ -2,7 +2,7 @@
 --- a tree to run verbs in, a verb's run -- in this process where it
 --- can be, else started from this program -- and the assertion that it
 --- exits as asked and ends in its verdict line. Test support; the
---- tables of each verb's cases are `build.verb_cases`', which the
+--- tables of each verb's cases are [`build.verb_cases`]', which the
 --- tests read themselves.
 
 local Child = require("cosmic.child")
@@ -31,7 +31,7 @@ function verbs_fixture.write_tree(tmp: string): string
 end
 
 --- The command lines only a process of their own can run, and why:
---- every other runs here (`build.invoke`), so a test of it can stand.
+--- every other runs here ([`build.invoke`]), so a test of it can stand.
 local function needs_a_process(args: {string}): string | nil
   local asks_help = false
   for _, word in ipairs(args) do
@@ -46,7 +46,7 @@ local function needs_a_process(args: {string}): string | nil
   return nil
 end
 
---- `cosmic <args>` in `dir`: run in this process (`build.invoke`)
+--- `cosmic <args>` in `dir`: run in this process ([`build.invoke`])
 --- where it can be, else started from this program.
 function verbs_fixture.run(dir: string, args: {string}): invoke.Result
   if needs_a_process(args) == nil then

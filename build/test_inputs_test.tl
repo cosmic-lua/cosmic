@@ -83,13 +83,13 @@ local function test_a_declaration_adds_to_the_defaults()
 end
 
 --- Every fuzz corpus is a default input of a test whose closure runs
---- properties, where `build.fuzz` looks for one -- a property's name
+--- properties, where [`build.fuzz`] looks for one -- a property's name
 --- may be computed -- and of no other test.
 local function test_a_fuzz_tests_corpora_are_default_inputs(tmp: string)
   local m, by_path = tree(nil, true)
   local effective = test_inputs.effective(m, by_path, staged)
   local name = "Keep " .. string.rep("me", 1) .. "!"
-  -- `build.fuzz` names the directory it looks in, in its report of a
+  -- [`build.fuzz`] names the directory it looks in, in its report of a
   -- failure.
   local ok, report = pcall(Fuzz.run, {
     name = name, dir = tmp, iters = 1,

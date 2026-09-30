@@ -6,7 +6,7 @@
 --- Only macOS itself can judge that -- codesign is not something a
 --- Linux host can run -- so every other host takes this as a no-op: the
 --- same CI step runs unchanged on every target's own worker, and only
---- the macOS one does real work. `bin/verify-codesign` runs this on the
+--- the macOS one does real work. [`bin/verify-codesign`] runs this on the
 --- bootstrap cosmic, as bin/zig runs build/zig.tl: it requires
 --- `cosmic.*` modules only.
 local Child = require("cosmic.child")

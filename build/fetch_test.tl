@@ -1,5 +1,5 @@
---- `cosmic fetch` in process, over `cosmic.http`'s scripted transport
---- (`Io.script`: a canned reply per connection, so no test reaches the
+--- `cosmic fetch` in process, over [`cosmic.http`]'s scripted transport
+--- ([`Io.script`]: a canned reply per connection, so no test reaches the
 --- network), and refusals on a local port closed for them. Like
 --- cosmic/http_test.tl it declares only loopback, so it is keyed and
 --- runs offline. The program run as a process is build/fetch_tool_test.tl's.
@@ -223,9 +223,9 @@ local function test_sha256_on_standard_output_with_a_bad_status_sends_nothing()
 end
 
 -- TODO: drive a real https start that redirects to http (refused) and
--- to https (followed) through `fetch.run`, once the tree has a loopback
+-- to https (followed) through [`fetch.run`], once the tree has a loopback
 -- TLS server (a certificate the test trusts, and TLS over a
--- `cosmic.net` connection); a canned reply cannot finish a handshake,
+-- [`cosmic.net`] connection); a canned reply cannot finish a handshake,
 -- so only the decision (`redirect_protocols`, `refusal`) and
 -- cosmic/http_test.tl's scripted http cases are covered.
 local function test_an_https_start_limits_redirects_to_https_unless_allowed()
@@ -276,7 +276,7 @@ end
 
 --- The guard `-o` holds is closed on every way out, a complaint that
 --- raises included: left open, it would hold SIGINT and SIGTERM for the
---- rest of the process, and a later `Child.guard` would be refused.
+--- rest of the process, and a later [`Child.guard`] would be refused.
 local function test_the_guard_is_closed_when_a_complaint_raises(tmp: string)
   local ok, trouble = pcall(fetch.run, { "fetch", url, "-o", tmp .. "/got" } as {integer:string}, {
     script = { reply("404 Not Found", "", "no") },

@@ -5,21 +5,21 @@
 --- (core/testing.h), and CI runs this suite on it; on any other the
 --- walk returns at once.
 
-local _ = require("cosmic.child") -- in the closure: `process_table` searches for it by hand
+local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Proc = require("cosmic.proc")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
 local Test = require("cosmic.test")
 
 --- The program itself, which the checked core starts again in
---- `test_waitpid_never_loses_a_status_to_a_failed_allocation` (the
+--- [`test_waitpid_never_loses_a_status_to_a_failed_allocation`] (the
 --- spawn refusal names it, and never starts it).
 Test.needs{ tool = true }
 
 local type Searcher = function(string): any, any
 
 --- The raw process table, as the store's searcher hands it to
---- `cosmic.child`'s loader.
+--- [`cosmic.child`]'s loader.
 local function process_table(): raw_process
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")

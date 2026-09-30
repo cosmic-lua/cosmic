@@ -1,6 +1,6 @@
 --- What the binary's main does with its command line, as a module
 --- rather than the main itself, so a test can run a verb in-process
---- (`build.invoke`): `cmd/cosmic/main.tl` hands `dispatch.main` every
+--- ([`build.invoke`]): [`cmd/cosmic/main.tl`] hands [`dispatch.main`] every
 --- command line but a test's worker's (`cosmic test --worker`), which it
 --- runs itself, so a worker loads nothing of this module's. So
 --- `cosmic test --worker` here is `test` refusing an option it does
@@ -33,15 +33,15 @@ local plural = require("build.plural")
 local log = verdict.log
 
 -- Require build modules lazily inside what needs them, so a verb's command
--- line loads that verb's module alone (`verb_list.find`). Only `cosmic help`
+-- line loads that verb's module alone ([`verb_list.find`]). Only `cosmic help`
 -- of a verb loads its spec, and `cosmic help exit` loads them all.
 
 --- The full text of each verb's `cosmic help <verb>`, generated from
---- `cosmic.cli`'s own fields (`Cli.run`, `Cli.test`, ...) so this
+--- [`cosmic.cli`]'s own fields (`Cli.run`, `Cli.test`, ...) so this
 --- wording is never a second, hand-kept copy of what `cosmic docs
 --- build` (or any verb `Cli.order` names) already answers.
 --- Falls back to naming the lookup that failed, rather than silently
---- dropping a verb from its own help, if `cosmic.cli`'s own database
+--- dropping a verb from its own help, if [`cosmic.cli`]'s own database
 --- row is ever missing.
 --- @param verbs the verbs to print
 --- @return each verb's text, by verb
@@ -195,7 +195,7 @@ end
 --- The text of `cosmic help <verb>`: the verb's docs, its options, then
 --- what its spec says of its command line.
 --- @param specs every verb's spec, the `help` verb's included
---- @param docs the verb's own text if already read (`verb_help`)
+--- @param docs the verb's own text if already read ([`verb_help`])
 local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): string
   local spec: verb_spec.Spec | nil = nil
   for _, candidate in ipairs(specs) do
@@ -346,7 +346,7 @@ local function run(file: string, argv: {integer:string}): integer
   local built = teal.lazy()
 
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
-  -- and re-enters this command line (`reboot.guard`).
+  -- and re-enters this command line ([`reboot.guard`]).
   if own_tree then
     local code = reboot.guard(handle, root, argv)
     if code ~= nil then
@@ -379,7 +379,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  -- A file `importer.compile` refused (one whose top-level `return`
+  -- A file [`importer.compile`] refused (one whose top-level `return`
   -- collides with the tail generated for its tests) is left out of the
   -- database. The file asked for compiled, so this only warns.
   for _, line in ipairs(result.refused) do
@@ -570,7 +570,7 @@ help_spec = {
 
 --- The spec of the verb a command line's first word names, loading the
 --- module of that verb alone, or nil for a word that names none. Every
---- verb but the bare ones (`Spec.bare`) ends in a verdict line: their
+--- verb but the bare ones ([`Spec.bare`]) ends in a verdict line: their
 --- exit status is the verdict, and a usage error is complained about and
 --- nothing more. build/json.tl says why.
 local function spec_of(word: string): verb_spec.Spec | nil
@@ -580,7 +580,7 @@ local function spec_of(word: string): verb_spec.Spec | nil
   local found = verb_list.find(word)
   if found ~= nil and found.fresh then
     local inner = found.run
-    -- A tool older than the tree rebuilds first (`build.reboot`).
+    -- A tool older than the tree rebuilds first ([`build.reboot`]).
     found = {
       name = found.name,
       run = function(argv: {integer:string}): integer
@@ -608,7 +608,7 @@ end
 
 --- Whether a verb's command line asks for its help: "--help" or "-h"
 --- anywhere after the verb, before a "--", that its options do not
---- name -- as `Flags.dispatch` reads a command's.
+--- name -- as [`Flags.dispatch`] reads a command's.
 local function asks_help(argv: {integer:string},
     options: {string:boolean | Flags.Option}): boolean
   local slot = 2
@@ -680,7 +680,7 @@ function dispatch.main(argv: {integer:string}): integer
   end
   if chosen ~= nil and verb ~= "help" then
     -- A tree verb started below an established tree's root runs at the
-    -- root (`build.tree_root`), its paths still read from here.
+    -- root ([`build.tree_root`]), its paths still read from here.
     local tree_root = require("build.tree_root")
     local answer = tree_root.move(argv, Cli.options[verb] or {},
       Env.get("HOME"), Env.get("COSMIC_TREE"))

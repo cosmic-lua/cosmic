@@ -59,10 +59,10 @@ local function output(dir: string, name: string): integer, string
   return assert(Fs.open_write(path)), path
 end
 
---- This program again, past its launcher (`this_program.program`),
+--- This program again, past its launcher ([`this_program.program`]),
 --- running the Lua chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. The argv
---- and options, for `Child.run` or `Child.start`.
+--- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
   local words: {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
@@ -85,7 +85,7 @@ local CAT <const> = FS .. 'while true do local s = assert(Fs.take(0, 65536)) ' .
 
 --- A prefix for a chunk that starts a descendant: `again(chunk, opts)`
 --- starts this program once more, as `lua` does, running `chunk`.
---- A chunk that leaves one running ends by `sys.exit`, past the
+--- A chunk that leaves one running ends by [`sys.exit`], past the
 --- collector, whose end of the handle would end it, as a shell's `&`
 --- leaves it.
 local AGAIN <const> = [[

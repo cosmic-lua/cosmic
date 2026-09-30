@@ -1,10 +1,10 @@
 --- The compiles and parses every checkout shares: a SQLite database
 --- under the cosmic cache directory, beside the `compiled` table and the
 --- parse tables each checkout keeps in `o/build.db`. The file is
---- `build/cache.db` in `Fs.cache_dir`'s `$XDG_CACHE_HOME/cosmic`
+--- `build/cache.db` in [`Fs.cache_dir`]'s `$XDG_CACHE_HOME/cosmic`
 --- (`~/.cache/cosmic`) by default, or the absolute path
 --- `COSMIC_BUILD_CACHE` names; `0` turns the cache off. A module's key
---- (`build.importer`'s) names no path: it covers the module's import
+--- ([`build.importer`]'s) names no path: it covers the module's import
 --- graph by name and content, and the compiler's identity. So a compile
 --- one checkout made stands in another of the same content, and a fresh
 --- worktree compiles only what no sibling has compiled already.
@@ -12,7 +12,7 @@
 --- A row is keyed by more than the local key (`key`): also by what else
 --- decides whether a compile is accepted, which a checkout's own cache
 --- leaves out. That is whether the tree is cosmic's own
---- (`build.contracts` runs only there) and whether the module was
+--- ([`build.contracts`] runs only there) and whether the module was
 --- extracted from a doc, so a row never stands where a compile of the
 --- module here would refuse it. The file the module is read from is in
 --- the local key already. A compile refused and kept only for the run
@@ -25,17 +25,17 @@
 --- to what its digest says is a miss, and is deleted.
 ---
 --- A parse is shared the same way, a row per source: what one parse of
---- it wrote in every table `build.importer` fills from a parse, keyed
---- by the analyzer that parsed it (`importer.analyzer_identity`), the
+--- it wrote in every table [`build.importer`] fills from a parse, keyed
+--- by the analyzer that parsed it ([`importer.analyzer_identity`]), the
 --- source's hash, and whether its docs' lines are mapped to a file it
 --- was generated from (`importer`'s `origin_lines`), with a digest of
---- the lot. `build.importer`'s `derive` says when a row stands in for a
+--- the lot. [`build.importer`]'s `derive` says when a row stands in for a
 --- parse.
 ---
 --- A row's bytecode runs (a build of cosmic's own tree carries the
 --- `build.*` modules' in `o/bin/cosmic`), so whoever can write the file
 --- can run code as every user of it. The file and its directory are held
---- to what `Fs.cache_dir` holds its directories to, wherever the file
+--- to what [`Fs.cache_dir`] holds its directories to, wherever the file
 --- is: owned by this user, and writable by no one else.
 ---
 --- Many builds share the file at once. It is in WAL mode, so a reader
@@ -189,7 +189,7 @@ local schema <const> = {
                                                   size INTEGER NOT NULL,
                                                   used_ns INTEGER NOT NULL)]],
   "CREATE INDEX IF NOT EXISTS " .. compiled .. "_by_use ON " .. compiled .. " (used_ns)",
-  -- `requires` apart from `rows`, and not deflated: `build.importer`'s
+  -- `requires` apart from `rows`, and not deflated: [`build.importer`]'s
   -- fixed point reads it of every source, where it takes `rows` only
   -- of the analyzer it settles on.
   "CREATE TABLE IF NOT EXISTS " .. parsed .. [[ (analyzer TEXT NOT NULL,
@@ -241,7 +241,7 @@ local function packed_requires(names: {string}): string
   return table.concat(out)
 end
 
---- `packed_requires` undone: nil for what it never writes.
+--- [`packed_requires`] undone: nil for what it never writes.
 local function unpacked_requires(requires: string): {string} | nil
   local out: {string} = {}
   local rest = requires:gsub("([^\n]+)\n", function(name: string): string
@@ -261,7 +261,7 @@ local function parse_digest(key: shared_compiles.ParseKey, requires: string,
 end
 
 --- Whether `path` is `kind` (a "dir" or a "file"), this user's and
---- writable by no one else, as `Fs.cache_dir` holds its directories.
+--- writable by no one else, as [`Fs.cache_dir`] holds its directories.
 --- A file is taken as it is, never through a link: SQLite writes its
 --- log beside where a link leads, which the directory checked is not.
 local function private(path: string, kind: string): boolean, string
@@ -316,7 +316,7 @@ end
 --- The directory is made 0700 and the file 0600, the file before SQLite
 --- opens it, so no build ever meets either wider. Both must be private
 --- (`private`), one that already exists included. It is opened in
---- write-ahead mode (`shared_sqlite.open`).
+--- write-ahead mode ([`shared_sqlite.open`]).
 function shared_compiles.open(path: string): shared_compiles.Cache | nil, string
   local dir = Fs.dirname(path)
   local made, made_trouble = Fs.mkdirs(Fs.dirname(dir))
@@ -402,8 +402,8 @@ end
 
 --- What `analyzer` found each of `hashes` requires, by hash, of those
 --- the cache holds a parse of. Unchecked against a digest -- only a
---- whole row read by `look_parse` is -- so it is a guess, for
---- `build.importer`'s fixed point, and nothing it guesses is kept: a
+--- whole row read by [`look_parse`] is -- so it is a guess, for
+--- [`build.importer`]'s fixed point, and nothing it guesses is kept: a
 --- source's requires are the same whether its lines are mapped or not.
 function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string,
                                   hashes: {string}): {string:{string}} | nil, string
@@ -489,7 +489,7 @@ end
 --- anything was written, what is no longer kept dropped (`evict`),
 --- bounded by `bound_bytes` (by default 256 MB). A parse replaces its
 --- key's row because it is right by construction, where that row may
---- not be: a `requires` guess `build.importer`'s fixed point reads
+--- not be: a `requires` guess [`build.importer`]'s fixed point reads
 --- without a digest could have led it to parse here what the row
 --- holds, and would lead every later build there again.
 function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compiles.Owed,
@@ -555,11 +555,11 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   return db:exec("COMMIT")
 end
 
---- The shared cache for one build, as `importer.derive` and
---- `importer.compile` take it, or nil where there is none: turned off,
+--- The shared cache for one build, as [`importer.derive`] and
+--- [`importer.compile`] take it, or nil where there is none: turned off,
 --- or not to be opened. That is reported once, as is any later failure
 --- to read or write it, and the build goes on without the cache. A
---- corrupt file is moved aside (`shared_sqlite.set_aside`), so the next build starts a
+--- corrupt file is moved aside ([`shared_sqlite.set_aside`]), so the next build starts a
 --- fresh one.
 function shared_compiles.for_build(environment?: {string:string}): importer.Shared | nil
   local path, trouble = location(environment)

@@ -1,5 +1,5 @@
 --- How the runner starts a worker and reads what it reports into a
---- verdict (`worker.invocation`, `worker.judge`), and the hold of what a
+--- verdict ([`worker.invocation`], [`worker.judge`]), and the hold of what a
 --- worker ran to what its test's key holds.
 
 local type Child = require("cosmic.child")
@@ -115,7 +115,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
 end
 
 --- A test that said it could not check what it exists to check
---- (`Test.skip`) reports why, and is judged skipped where it passed:
+--- ([`Test.skip`]) reports why, and is judged skipped where it passed:
 --- only a pass is, since a failure is one whether it skipped or not.
 local function test_a_skip_is_reported_and_judged_only_of_a_pass()
   local report = passing({})

@@ -5,7 +5,7 @@
 --- it into `o/`, compiles every module it holds, and refuses to go on
 --- when the running binary is stale against that tree. That is right
 --- for a project, and wrong for a script whose job is to repair the
---- tree: `bin/zig`, which rebuilds a stale core, cannot itself need a
+--- tree: [`bin/zig`], which rebuilds a stale core, cannot itself need a
 --- fresh one. A standalone run reads the one file, checks and compiles
 --- it in memory with the embedded compiler, and calls it. Nothing is
 --- staged, nothing under `o/` is written, the tree around the file is
@@ -19,7 +19,7 @@
 --- or a single changed byte compiles afresh. That cache is the one
 --- thing a run writes; one that cannot be written is skipped. Cached
 --- Lua is run without another check, so the cache lives only where
---- `Fs.cache_dir` vouches no other user can write -- a directory of
+--- [`Fs.cache_dir`] vouches no other user can write -- a directory of
 --- this user's own, 0700 when made, never a shared fallback such as
 --- `/tmp` -- and each file is written 0600; with no such directory
 --- (neither variable set, say) every run compiles afresh.
@@ -69,7 +69,7 @@ function standalone.environment(built: compiler): compiler.Env | nil, string
 end
 
 --- Where a clean compile of `source` by this binary is kept: nil when
---- there is no cache directory `Fs.cache_dir` will vouch for, and so
+--- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
 --- no cache.
 local function cached_path(source: string, variables?: {string:string}): string | nil
   local dir, _ = Fs.cache_dir("standalone", variables)
@@ -124,7 +124,7 @@ end
 --- `file`'s Teal, checked and compiled to a loaded chunk -- from the
 --- cache when this binary compiled these exact bytes cleanly before.
 --- The cache is found through `variables` when given (as
---- `Fs.cache_dir` finds it), and this process's own otherwise.
+--- [`Fs.cache_dir`] finds it), and this process's own otherwise.
 function standalone.compile(file: string, source: string,
                             variables?: {string:string}): standalone.Main | nil, string
   local cached = cached_path(source, variables)

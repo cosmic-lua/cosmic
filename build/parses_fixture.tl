@@ -1,5 +1,5 @@
 --- A parse's rows as a test compares them: every row of every table a
---- parse fills (`build.analysis_schema`'s `tables`), and the rows a
+--- parse fills ([`build.analysis_schema`]'s `tables`), and the rows a
 --- query answers of a database on disk, a line each. Test support for
 --- build/shared_parses_test.tl and build/shared_parses_tool_test.tl,
 --- which compare what one build or boot parsed with another's.

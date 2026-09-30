@@ -1,10 +1,10 @@
 --- core/boot.c, the `--boot` bridge a bare core runs a tree's
---- `build.boot` through. `bin/zig build boot` runs it over this whole
+--- [`build.boot`] through. `bin/zig build boot` runs it over this whole
 --- tree with the vendored compiler; here a tree of three stand-in modules
 --- and a compiler that passes its source through unchanged drive the same
 --- C in a fraction of a second: the tree's own bridge, the compiler's load, the
 --- syscall declaration, the raw modules preloaded for the tree, and the
---- exit status or failure `build.boot` ends with.
+--- exit status or failure [`build.boot`] ends with.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -45,7 +45,7 @@ end
 ]]
 
 --- Boots the stand-in tree under `tmp` with a bare core, asking
---- `build.boot` to end as `mode` says. The tree holds this tree's own
+--- [`build.boot`] to end as `mode` says. The tree holds this tree's own
 --- bridge unless `bridge` is false.
 local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Result
   local core = assert(artifact.trusted_core())

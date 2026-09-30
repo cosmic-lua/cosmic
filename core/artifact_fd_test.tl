@@ -43,7 +43,7 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
 
 --- The descriptor this process retains on its artifact, or nil for a
---- start from none: the one `Proc.relaunch` hands a child as its own.
+--- start from none: the one [`Proc.relaunch`] hands a child as its own.
 local function artifact_fd(): integer | nil
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
@@ -148,15 +148,15 @@ local function test_a_ruleset_that_is_the_artifact_descriptor_is_refused()
     nil, nil, nil, false, nil, { ruleset = fd })
 end
 
---- The artifact's descriptor is handed on only as `Proc.relaunch` hands
+--- The artifact's descriptor is handed on only as [`Proc.relaunch`] hands
 --- it: as the descriptor the child's environment names its artifact's
 --- -- elsewhere in the map, or with no such environment, it is refused
 --- -- and only by a process that may still run this program: a
 --- sandboxed worker whose module does not declare `tool`, as this one
 --- does not, is held from running it (build/confine.tl's
 --- `forbid_running`), and refused it even so. That a relaunch's own map
---- is taken, every start of this program through `build.this_program`
---- shows -- core/syscalls_test.tl hands one to `process.spawn` itself,
+--- is taken, every start of this program through [`build.this_program`]
+--- shows -- core/syscalls_test.tl hands one to [`process.spawn`] itself,
 --- a `#!` line and `setsid` among them -- and every worker `cosmic test`
 --- starts.
 local function test_spawn_hands_the_artifact_descriptor_on_only_to_a_relaunch()

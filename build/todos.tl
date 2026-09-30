@@ -1,8 +1,8 @@
 --- `cosmic todos`: every `TODO:` comment in the tree, each with the
 --- commit that last touched its line and when, as `git blame` says.
 ---
---- The index is built by the build itself: `build.work.stage` scans each
---- file it stages (`build.todo_scan`) as it reads it, into `todos` in
+--- The index is built by the build itself: [`build.work.stage`] scans each
+--- file it stages ([`build.todo_scan`]) as it reads it, into `todos` in
 --- `o/build.db`. That covers what the build consumes (Teal and, in
 --- cosmic's own tree, the C core, build.zig and bin/zig) and, through
 --- `scanned`, everything else the walk passes: scripts and, in cosmic's
@@ -71,7 +71,7 @@ local record todos
 
   --- A command line split by `arguments`.
   record Arguments
-    --- As `build.narrow.paths` answers them; none for the whole tree.
+    --- As [`build.narrow.paths`] answers them; none for the whole tree.
     paths: {string}
     --- What to search the TODOs' text for.
     words: {string}
@@ -174,7 +174,7 @@ end
 local IGNORED_REVS <const> = ".git-blame-ignore-revs"
 
 --- Blame for the first line of each TODO in several files, by file,
---- running the calls `blame_jobs` at a time, past the commits
+--- running the calls [`blame_jobs`] at a time, past the commits
 --- `IGNORED_REVS` lists; a file git has nothing to
 --- say about maps to an empty table. Once `guard` has caught a signal,
 --- it ends every git and stops.
@@ -249,9 +249,9 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
   return out
 end
 
---- `blame_all` under a `Child.guard`: SIGINT or SIGTERM ends every git
+--- [`blame_all`] under a [`Child.guard`]: SIGINT or SIGTERM ends every git
 --- still running, then this process when the guard closes, as
---- `build.test` does for its workers. Unguarded when this process
+--- [`build.test`] does for its workers. Unguarded when this process
 --- already holds a guard (todos's `run` called in-process under one),
 --- where a signal acts as it would.
 local function blame_files(root: string,
@@ -465,7 +465,7 @@ function todos.date(seconds: integer): string
 end
 
 --- One TODO as `todos` lists it: where, when, which commit, and what,
---- a link shown as its code span (`link_text.unlinked`).
+--- a link shown as its code span ([`link_text.unlinked`]).
 function todos.render(todo: todos.Todo): string
   local when = "----------"
   local commit = "-------"
@@ -491,7 +491,7 @@ end
 --- The TODOs whose text matches `query`, as the rank of each by `id`,
 --- best first from 1. The query is FTS5's own syntax -- a "phrase",
 --- OR, a prefix* -- when it parses as that, and its words, each quoted
---- and every one required, when it does not (as `cosmic.sys` does not).
+--- and every one required, when it does not (as [`cosmic.sys`] does not).
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
   local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
@@ -520,7 +520,7 @@ end
 --- The command line's words split into paths and words to search the
 --- TODOs for. A word is a path when it names one that can be looked at,
 --- absolutely or relative to `root` (the working directory `run`
---- resolves). Paths narrow the listing as `build.narrow` reads them for
+--- resolves). Paths narrow the listing as [`build.narrow`] reads them for
 --- every verb; `.` names the whole tree, so it narrows nothing.
 function todos.arguments(root: string, argv: {string}): todos.Arguments
   local named: {string} = {}
@@ -544,7 +544,7 @@ end
 --- lists them one per line, in file order or, with `--oldest`, oldest
 --- commit first, then a verdict line.
 --- @param argv the command line, re-entered if this binary embeds a
----   stale copy of `build.todos` itself -- see `build.reboot.stale_exit`
+---   stale copy of [`build.todos`] itself -- see [`build.reboot.stale_exit`]
 local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
@@ -661,7 +661,7 @@ local function run(argv: {integer:string}): integer
   return 0
 end
 
---- The `todos` verb as `build/verb_list.tl` lists it.
+--- The `todos` verb as [`build/verb_list.tl`] lists it.
 todos.spec = {
   name = "todos",
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",

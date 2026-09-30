@@ -4,23 +4,23 @@
 ---     cosmic --standalone build/vendor.tl [name...]
 ---     cosmic --standalone build/vendor.tl vendor/<name> <archive>
 ---
---- Like `build/zig.tl`, this runs standalone -- against the running
+--- Like [`build/zig.tl`], this runs standalone -- against the running
 --- binary's own standard library, never the tree it sits in -- so it
 --- requires `cosmic.*` modules only and holds everything it needs.
 ---
 --- With no archive argument it fetches for itself. Every `name` (every
 --- `vendor/*/PIN` by default) is downloaded from its PIN's `url` into
 --- `$XDG_CACHE_HOME/cosmic/vendor` (default `$HOME/.cache/cosmic/vendor`;
---- see `Fs.cache_dir`), checked against the PIN's sha256 by
---- `Http.download`, and then rewritten exactly as the two-argument form
+--- see [`Fs.cache_dir`]), checked against the PIN's sha256 by
+--- [`Http.download`], and then rewritten exactly as the two-argument form
 --- does. A cached file is reused only when its sha256 still matches the
---- PIN's. This is what `bin/vendor` runs; the repository is found from
+--- PIN's. This is what [`bin/vendor`] runs; the repository is found from
 --- this script's own path, so it works from any working directory.
 ---
 --- The two-argument form rewrites one tree directly from an archive
 --- already on disk, without fetching or verifying it. The archive is
---- read with `cosmic.archive`, whatever its format, and unpacked with
---- `Archive.extract` (which refuses absolute and `..` entry paths and
+--- read with [`cosmic.archive`], whatever its format, and unpacked with
+--- [`Archive.extract`] (which refuses absolute and `..` entry paths and
 --- keeps permission bits) into a scratch directory beside the tree, so a
 --- refused or broken archive never leaves the tree half rewritten. Paths
 --- lose a leading `./` and then PIN's `strip` prefix. A file is kept
@@ -31,7 +31,7 @@
 --- A PIN with a `file <name>` line vendors a single file that is not an
 --- archive at all (a `.pem`, say): its bytes become `<name>`, and every
 --- `keep` must match that name. Without a `file` line, an archive
---- `cosmic.archive` cannot read is an error, never a single file.
+--- [`cosmic.archive`] cannot read is an error, never a single file.
 ---
 --- Everything else in the tree but PIN is removed.
 local Archive = require("cosmic.archive")
@@ -392,7 +392,7 @@ local spec: {string:boolean | Flags.Option} = {
   ["-h"] = { about = "show this help" },
 }
 
---- Runs `bin/vendor`'s command line: `argv[0]` is this script's own
+--- Runs [`bin/vendor`]'s command line: `argv[0]` is this script's own
 --- path, and the words after it are names, or a tree and an archive. It
 --- takes no options but `--help`, so a word that begins with "-" is
 --- refused (exit 2) rather than read as a name; one that must begin

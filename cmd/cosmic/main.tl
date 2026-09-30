@@ -1,10 +1,10 @@
---- The binary's main: `build.dispatch` runs the command line, but for
+--- The binary's main: [`build.dispatch`] runs the command line, but for
 --- one test's worker (`cosmic test --worker`, `--worker-no-tool` or
 --- `--worker-held`),
---- which `build.test` starts and `build.test_worker` runs. A worker
+--- which [`build.test`] starts and [`build.test_worker`] runs. A worker
 --- comes here first, ahead of dispatch, since what a worker loads is
 --- in every sandboxed test's key (build/test_worker.tl's
---- `worker.loads`): dispatch, and what only it requires, would run
+--- [`worker.loads`]): dispatch, and what only it requires, would run
 --- every test again on every edit to it. So each is required only on
 --- the way that runs it.
 

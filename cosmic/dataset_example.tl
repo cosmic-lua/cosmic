@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.dataset`, shown by `cosmic docs` and run by
+--- Worked examples for [`cosmic.dataset`], shown by `cosmic docs` and run by
 --- `cosmic test`.
 
 local Dataset = require("cosmic.dataset")

@@ -4,7 +4,7 @@
 --- table, the set of verbs that print no verdict, the help prose that says
 --- what a verb takes and how it exits, and the cases in build/verb_cases.tl.
 --- What a person reads about a verb -- its description and options -- stays
---- in `cosmic.cli`.
+--- in [`cosmic.cli`].
 
 local record verb_spec
   --- What a verb's module says about itself.
@@ -19,7 +19,7 @@ local record verb_spec
     --- after it.
     bare: boolean
     --- True when a tool older than the tree rebuilds itself before the verb
-    --- runs, for a verb that does not check as it goes (`build.reboot`'s
+    --- runs, for a verb that does not check as it goes ([`build.reboot`]'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
     --- What the verb takes after its name, as `cosmic help <verb>` phrases it
@@ -36,7 +36,7 @@ local record verb_spec
     passthrough: string | nil
     --- The verb's section of doc/guides/quickstart.md: the text of its `## `
     --- heading, without the marks, or a string beginning "none: " that says
-    --- why the quickstart has none. `build.tree_checks`' `verbs` holds it to
+    --- why the quickstart has none. [`build.tree_checks`]' `verbs` holds it to
     --- a heading the guide has.
     guide: string
     --- The test modules of the verb ("build.json_test"), at least one, each a

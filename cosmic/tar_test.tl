@@ -288,7 +288,7 @@ local function octal(n: integer, width: integer): string
   return string.format("%0" .. tostring(width - 1) .. "o", n) .. "\0"
 end
 
---- A bare ustar header block, for the entries `Tar.writer` would never
+--- A bare ustar header block, for the entries [`Tar.writer`] would never
 --- produce.
 local function header(name: string, typeflag: string, size: integer): string
   local block = field(name, 100) .. octal(420, 8) .. octal(0, 8) .. octal(0, 8) ..

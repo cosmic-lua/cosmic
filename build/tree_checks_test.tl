@@ -1,5 +1,5 @@
---- `build.tree_checks` on fixture trees, each built to a projection by
---- the build's own code (`build.docs_fixture`): every check refuses a
+--- [`build.tree_checks`] on fixture trees, each built to a projection by
+--- the build's own code ([`build.docs_fixture`]): every check refuses a
 --- tree with the defect it is for planted in it, and passes the same
 --- tree without it.
 
@@ -461,7 +461,7 @@ end
 
 --- A literal plural after a number is refused -- joined by `..` to a
 --- length, `tostring(...)` or a literal, or after a `%d` -- with the fix;
---- `plural.count`, a verb after a number, a label (`at byte %d`), a
+--- [`plural.count`], a verb after a number, a label (`at byte %d`), a
 --- comment and a test source pass, and an exemption nothing needs is stale.
 local function test_a_literal_plural_after_a_number_is_refused(dir: string)
   local db = fixture.database(dir, {

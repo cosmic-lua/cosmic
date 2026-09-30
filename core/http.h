@@ -3,7 +3,7 @@
 
 #include "lauxlib.h"
 
-/* Opens the raw `cosmic.internal.http` module: `open` and `start`, each
+/* Opens the raw [`cosmic.internal.http`] module: `open` and `start`, each
  * returning a userdata `Handle` with `status`, `url`, `headers`, `read`,
  * `write`, `finish`, `sent` and `close` methods, and `check_certificate`.
  * It is a raw module registered under cosmic.internal.*, as core/sqlite.c
@@ -14,7 +14,7 @@ int cosmic_open_http (lua_State *L);
 #ifdef COSMIC_CHECKED
 /* The checked core's count of transfers holding curl state: made by
  * `open`, and not yet released by a close, a failure or the collector.
- * `testing.live_transfers` reads it. */
+ * [`testing.live_transfers`] reads it. */
 extern lua_Integer cosmic_http_live_transfers;
 #endif
 

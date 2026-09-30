@@ -1,5 +1,5 @@
 --- Stream sockets: listen at an address, accept a connection there, or
---- connect to one, and read and write it as a `cosmic.stream` Reader
+--- connect to one, and read and write it as a [`cosmic.stream`] Reader
 --- and Writer.
 ---
 ---     local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock")))
@@ -22,8 +22,8 @@
 --- Every wait -- to connect, to accept, to read, to write -- lasts at
 --- most the object's `timeout_ms` (no limit by default), failing with
 --- "timed out", and ends with "interrupted", within a tenth of a second,
---- when an open `Child.guard` catches SIGINT or SIGTERM, as
---- `cosmic.http`'s do. One connection is served at a time: nothing here
+--- when an open [`Child.guard`] catches SIGINT or SIGTERM, as
+--- [`cosmic.http`]'s do. One connection is served at a time: nothing here
 --- waits on several at once.
 
 local Stream = require("cosmic.stream")
@@ -43,7 +43,7 @@ else
 end
 
 local record Net
-  --- How an `Address` is read: "unix", a socket file named by `path`,
+  --- How an [`Address`] is read: "unix", a socket file named by `path`,
   --- or "tcp", a `port` of a `host`.
   enum Kind
     "unix"
@@ -93,7 +93,7 @@ local record Net
     --- directory not writable here; "File name too long" for a path
     --- within 5 bytes of the longest a path may be; "timed out" for
     --- another's lock held 10 seconds; "interrupted" for a signal a
-    --- `Child.guard` caught; and a directory or a link at its name
+    --- [`Child.guard`] caught; and a directory or a link at its name
     --- fails too. A path ending in "/" fails "Is a directory", and an
     --- empty path raises, as it does without `reclaim`.
     reclaim: boolean
@@ -114,7 +114,7 @@ local record Net
     timeout_ms: integer
   end
 
-  --- A socket listening at an address, answered by `Net.listen`.
+  --- A socket listening at an address, answered by [`Net.listen`].
   record Listener
     --- Where it listens.
     address: Address
@@ -131,8 +131,8 @@ local record Net
     metamethod __close: function(Listener)
   end
 
-  --- A connection, answered by `accept` and `Net.connect`: a
-  --- `Stream.Reader` of what the peer sends and a `Stream.Writer` to
+  --- A connection, answered by `accept` and [`Net.connect`]: a
+  --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it.
   record Conn is Stream.Reader, Stream.Writer
     --- How long a `read` or a `write` waits, from 0; nil for no limit.
@@ -152,7 +152,7 @@ local record Net
     shutdown: function(Conn, how: string): boolean, string
     --- A Writer to the peer whose `close` is `shutdown("write")`,
     --- leaving the answer to read here -- for a wrapper that closes
-    --- the Writer it wraps (`Stream.transform_writer`, `Stream.tee`)
+    --- the Writer it wraps ([`Stream.transform_writer`], [`Stream.tee`])
     --- -- and whose `abort` closes the connection.
     writer: function(Conn): Stream.Writer
     --- Closes the connection. Safe to call more than once.
@@ -357,12 +357,12 @@ local function raw_address(address: Net.Address): raw_socket.Address
   return { kind = address.kind, path = address.path, host = address.host, port = address.port }
 end
 
---- How long `left_behind` waits to connect: a live listener on Linux
+--- How long [`left_behind`] waits to connect: a live listener on Linux
 --- whose backlog is full keeps a connection waiting for room, which
 --- then times out rather than being refused.
 local PROBE_MS <const> = 1000
 
---- The type bits of a socket file (S_IFSOCK) in `Stat.mode`, the same
+--- The type bits of a socket file (S_IFSOCK) in [`Stat.mode`], the same
 --- on Linux and macOS.
 local SOCKET_TYPE <const> = 0xC000
 
@@ -475,7 +475,7 @@ end
 --- Connects to `address`. A unix one fails "No such file or directory"
 --- where there is no socket file and "Connection refused" where nothing
 --- listens at it, and waits for room at a listener whose backlog is
---- full (on Linux; see `ConnectOptions.timeout_ms`). A TCP one waits
+--- full (on Linux; see [`ConnectOptions.timeout_ms`]). A TCP one waits
 --- for the connection to be made, and fails "Connection refused" where
 --- nothing listens at the port.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string

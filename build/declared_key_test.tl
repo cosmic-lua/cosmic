@@ -16,7 +16,7 @@ local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 
---- What the host's identity reads (`declared_key.host_identity`), on
+--- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
 --- link leads out of the tree to. The package databases are a copy of
 --- build/declared_key.tl's `package_databases`.
@@ -176,7 +176,7 @@ end
 
 --- The fields of `record`, a record `module` declares (`Spec`,
 --- `Effective`), as the build's catalog of its docs lists them
---- (`build.analyzer`, which fills o/cosmic.db's `docs`), in the order
+--- ([`build.analyzer`], which fills o/cosmic.db's `docs`), in the order
 --- the source declares them: read off the module's source, so a field
 --- added to the record is listed here with no edit to this test. A
 --- field whose type is a record (or a map of them) the walk does not
@@ -277,8 +277,8 @@ local function full_spec(hostdir: string): declared_key.Spec
   }
 end
 
---- Every field of a spec (`declared_key.Spec`), and of its effective
---- inputs (`test_inputs.Effective`), moves the key, but those named
+--- Every field of a spec ([`declared_key.Spec`]), and of its effective
+--- inputs ([`test_inputs.Effective`]), moves the key, but those named
 --- with why no key needs them: the fields are the records' own, as the
 --- catalog lists them, so a field added to either and left out of the
 --- key fails here.
@@ -610,7 +610,7 @@ local function test_a_frozen_run_looks_once_and_a_thawed_one_again(tmp: string)
   assert(declared_key.compute(digests, spec()) ~= before)
 end
 
---- A digest of named modules (`declared_key.harness`: the harness's,
+--- A digest of named modules ([`declared_key.harness`]: the harness's,
 --- over each module's source, and the closure store's salt, over its
 --- source and bytecode) holds each module it names by what `sources`
 --- says it is, and nothing else: a change to either word moves it, and
@@ -721,7 +721,7 @@ end
 
 --- On macOS, which has no /proc, no /etc/os-release and no package
 --- database, the system volume's SystemVersion.plist names both the
---- kernel and the system (`declared_key.system_sources`): an update of
+--- kernel and the system ([`declared_key.system_sources`]): an update of
 --- it moves the host's identity and what it has installed alike. What
 --- the host names of what it has installed beyond that volume
 --- (COSMIC_SYSTEM_ID: Xcode, Homebrew) moves only what it has
@@ -928,7 +928,7 @@ local function test_the_program_is_keyed_by_its_contents(tmp: string)
     now, "the stamp moved it")
 end
 
---- A program as an artifact lays it out (`artifact.host_program`),
+--- A program as an artifact lays it out ([`artifact.host_program`]),
 --- written to `path`: `core` ahead of a database carrying `meta` and
 --- one module, `cosmic.thing`, whose bytecode is `bytecode`.
 local function program_at(path: string, core: string, meta: {string:string}, bytecode: string)

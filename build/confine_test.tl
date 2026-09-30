@@ -91,9 +91,9 @@ end
 print(table.concat(said, "\n"))
 ]==]
 
---- The descriptors `this_program.program` hands its child, as
---- `process.spawn` takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only `cosmic.child`
+--- The descriptors [`this_program.program`] hands its child, as
+--- [`process.spawn`] takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
   local fds: {integer:integer} = {}

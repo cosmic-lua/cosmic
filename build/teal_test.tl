@@ -1,4 +1,4 @@
---- Regression tests for `build.teal.lazy`: the capsule that loads the
+--- Regression tests for [`build.teal.lazy`]: the capsule that loads the
 --- compiler on first use has to behave as the compiler itself,
 --- including for writes. tl reaches `search_module` and `path` through
 --- its own module table, so an override `serve` writes has to land on
@@ -32,7 +32,7 @@ local function test_lazy_read_answers_from_the_compiler()
 end
 
 --- Two capsules load two compilers: a write through one is not seen
---- through the other, the same as two `teal.load` calls.
+--- through the other, the same as two [`teal.load`] calls.
 local function test_lazy_capsules_are_independent()
   local first = teal.lazy()
   local second = teal.lazy()
@@ -44,7 +44,7 @@ end
 
 local integer_msg = "in assignment: got number, expected integer"
 
---- What `teal.replacement` says for the first "got number, expected
+--- What [`teal.replacement`] says for the first "got number, expected
 --- integer" the checker reports for `source`, and where: nil when it
 --- reports none, or the hint is nil.
 local function hint_for(source: string): string | nil, string
@@ -135,7 +135,7 @@ local function test_an_integer_hint_reads_repeat_and_method_scopes()
   assert(hint_for("repeat\n  local x: integer = 0\n  x = x / 2\nuntil x < 1\nlocal x = 0\nprint(x)\n")
     == nil)
   -- The checker refuses a method's `self` for another reason, so ask
-  -- `teal.replacement` for the integer message at the literal's position.
+  -- [`teal.replacement`] for the integer message at the literal's position.
   assert(teal.replacement(integer_msg,
     "local self = 0\nfunction R:m()\n  self = 1.5\nend\n", 3, 10) == nil)
 end

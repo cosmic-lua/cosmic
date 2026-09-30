@@ -2,12 +2,12 @@
 --- out as canonical text.
 ---
 --- The pipeline runs in one order: parse, apply the structural rules
---- (`build.fix.rule`), render (`build.fix.render`), compare. A fix
+--- ([`build.fix.rule`]), render ([`build.fix.render`]), compare. A fix
 --- changes the parsed tree and never patches bytes, and whatever a
 --- rule produces is rendered rather than spliced, so a fixed file
 --- reads like one that was never fixed.
 ---
---- One fix only the type checker can place (`build.fix.spill`) follows:
+--- One fix only the type checker can place ([`build.fix.spill`]) follows:
 --- the tree is built, and every `assert(...)` the checker names as
 --- passing on values it should not is parenthesized, until it names
 --- none.
@@ -23,7 +23,7 @@
 --- CI's format-check step runs `cosmic fix --check .` over the whole
 --- tree.
 ---
---- It also lays out YAML in flow style (`build.flow`): a file it is
+--- It also lays out YAML in flow style ([`build.flow`]): a file it is
 --- named, and, in cosmic's own tree, the files under `.github/` (the
 --- workflows and actions) when a directory covering them is named. A
 --- file in block style is refused when named and passed over
@@ -38,16 +38,16 @@
 --- When it covers every Teal source of cosmic's own tree (`cosmic fix
 --- --check .`, as CI runs it), it also builds the tree's projection and
 --- holds it to the checks only the whole tree can answer
---- (`build.tree_checks`), and that every public example and user-guide
---- example compiles as shown, alone (`build.example_checks`). A tree that does not build fails, since the
+--- ([`build.tree_checks`]), and that every public example and user-guide
+--- example compiles as shown, alone ([`build.example_checks`]). A tree that does not build fails, since the
 --- checks need its projection, and a note on the standard library
 --- fails the run instead of being a note. A run over some paths does
 --- none of this.
 ---
 --- In any project it also holds the links in comments and Markdown to
---- resolving (`build.links`): each Teal and C file it covers, and each
+--- resolving ([`build.links`]): each Teal and C file it covers, and each
 --- Markdown and Zig file, which it never lays out. A plain code span
---- that would link to one thing is made a link (`build.links`'s
+--- that would link to one thing is made a link ([`build.links`]'s
 --- `rewrite`), and `--check` fails on one it would link.
 
 local Cli = require("cosmic.cli")
@@ -105,7 +105,7 @@ local record fix
   --- run still ends in the verb's verdict line.
   --- What `links` found: each link that does not resolve, notes on
   --- what it could not check, each plain span that would be linked
-  --- (`build.links`'s `rewrite`), and each file it linked spans in.
+  --- ([`build.links`]'s `rewrite`), and each file it linked spans in.
   record Linked
     broken: {string}
     notes: {string}
@@ -125,7 +125,7 @@ local record fix
     files: {string}
     --- The C files, which only cosmic's own tree has checked.
     c_files: {string}
-    --- The YAML files in flow style, laid out by `build.flow`.
+    --- The YAML files in flow style, laid out by [`build.flow`].
     flow_files: {string}
     --- The Markdown and Zig files, whose links are checked and which
     --- are never rewritten.
@@ -133,7 +133,7 @@ local record fix
     refused: {string}
     --- Whether `files` are every Teal source of cosmic's own tree, as
     --- `cosmic fix --check .` covers it: only then does the run hold
-    --- the tree to `build.tree_checks`.
+    --- the tree to [`build.tree_checks`].
     whole: boolean
   end
 end
@@ -298,7 +298,7 @@ end
 --- change is not done. When the first render left the text untouched,
 --- this reuses the tree already parsed, so the common case costs one
 --- extra render and no extra parse.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source string
 --- @param name string Filename used in diagnostics
 --- @return fix.Fixed|nil What to write, and whether it differs
@@ -452,10 +452,10 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
            refused = refused, whole = own and covers(root, out) }
 end
 
---- Lays out each YAML file of `files` (`build.flow`), writing it back
+--- Lays out each YAML file of `files` ([`build.flow`]), writing it back
 --- unless `checking`: each one that changes, or would, is appended to
 --- `changed`, and each one refused -- not in flow style, or not one
---- `flow.format` takes -- to `failures`, with why.
+--- [`flow.format`] takes -- to `failures`, with why.
 function fix.lay_out(files: {string}, checking: boolean, changed: {string}, failures: {string})
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
@@ -499,7 +499,7 @@ local function relaid(built: compiler, kind: string, file: string, linked: strin
   return linked, ""
 end
 
---- What is wrong with the links of `files` (`build.links`), each line
+--- What is wrong with the links of `files` ([`build.links`]), each line
 --- `file:line: link: ...`, the file as named; a file that cannot be
 --- read is one line of its own. What each link names is looked up in
 --- `context`, once for every file. A note says how many links were not
@@ -508,7 +508,7 @@ end
 --- A Teal file not in `laid_out`, when it is given, is written with
 --- its spans linked and not rendered: the verb lays out no other.
 ---
---- `mode` "write" links each plain span `build.links`'s `rewrite`
+--- `mode` "write" links each plain span [`build.links`]'s `rewrite`
 --- would, writes the file, and checks its links as written; "check"
 --- lists each such span in `would` and writes nothing. With no mode,
 --- no span is looked at.
@@ -573,7 +573,7 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
 end
 
 --- Where `fix` reads what links name, over the project at `root`: its
---- databases (`databases`, as `docs.databases` answers), opened when
+--- databases (`databases`, as [`docs.databases`] answers), opened when
 --- a link first names a symbol. A run over part of the tree builds the
 --- project first (`rebuild_here`), so an edit is seen; a `whole` run
 --- reads the projection its tree checks just wrote. Outside cosmic's
@@ -620,7 +620,7 @@ end
 --- @param root string The tree the files are in
 --- @param files {string} The files a fix covered
 --- @param databases {Sqlite.Handle} Where the standard library's docs are
---- read, in search order: fix's `run` hands it `Store.databases()`
+--- read, in search order: fix's `run` hands it [`Store.databases()`]
 --- @return {string} One line per note, `file:line: message`
 function fix.notes(built: compiler, root: string, files: {string},
                    databases: {Sqlite.Handle}): {string}
@@ -671,7 +671,7 @@ function fix.notes(built: compiler, root: string, files: {string},
 end
 
 --- Whether `file` is in a tree of its own inside cosmic's own tree at
---- `root` (`work.is_foreign_tree`).
+--- `root` ([`work.is_foreign_tree`]).
 local function in_foreign_tree(root: string, file: string): boolean
   local absolute, _ = Fs.absolute(file)
   if absolute == nil then return false end
@@ -861,7 +861,7 @@ local function fix_verb(argv: {integer:string}): integer
   end
 
   -- Over the whole of cosmic's own tree, what only the whole tree can
-  -- answer (`build.tree_checks`), asked of its projection built afresh:
+  -- answer ([`build.tree_checks`]), asked of its projection built afresh:
   -- a finding is the tree's, not a file's, so it is counted apart.
   local findings: {string} = {}
   if picked.whole then
@@ -949,7 +949,7 @@ local function fix_verb(argv: {integer:string}): integer
   -- A note is a heuristic's, and names what to look at; only one on the
   -- standard library, in a run over the whole tree, is a failure: the
   -- library as it stands earns no note against itself. The notes compare
-  -- with every database the binary sees (`Store.databases()`).
+  -- with every database the binary sees ([`Store.databases()`]).
   for _, line in ipairs(fix.notes(built, root, files, Store.databases())) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
@@ -1017,9 +1017,9 @@ local function fix_verb(argv: {integer:string}): integer
   return 0
 end
 
---- `fix_verb` under Lua's generational collector, and the incremental
+--- [`fix_verb`] under Lua's generational collector, and the incremental
 --- one, Lua's default, after it. A run holds what the links read of every file
---- (`links.Facts`) from its parse to the end, and rebuilds its tree
+--- ([`links.Facts`]) from its parse to the end, and rebuilds its tree
 --- meanwhile: the incremental collector traverses all of it again at
 --- each cycle, which costs a whole run more than the rest of the links.
 local function run(argv: {integer:string}): integer
@@ -1029,7 +1029,7 @@ local function run(argv: {integer:string}): integer
   return code
 end
 
---- The `fix` verb as `build/verb_list.tl` lists it.
+--- The `fix` verb as [`build/verb_list.tl`] lists it.
 fix.spec = {
   name = "fix",
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",

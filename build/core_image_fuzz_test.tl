@@ -1,4 +1,4 @@
---- Fuzz properties for `core_image.digest` and `artifact.keyed_head`: a
+--- Fuzz properties for [`core_image.digest`] and [`artifact.keyed_head`]: a
 --- key reads every program a test runs, and every artifact's head, so
 --- one whose headers or manifest lie must be keyed whole -- never a
 --- raise, nor a read past the file. Each input edits a small core's

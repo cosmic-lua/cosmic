@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.fs`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.fs`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table.
 
@@ -7,8 +7,8 @@ local Proc = require("cosmic.proc")
 
 local Example = {}
 
---- Standard input is a descriptor like any other: `Fs.take` reads it,
---- and `Proc.is_tty` says whether a person is typing into it.
+--- Standard input is a descriptor like any other: [`Fs.take`] reads it,
+--- and [`Proc.is_tty`] says whether a person is typing into it.
 function Example.stdin()
   if Proc.is_tty(Fs.stdin) then
     print("standard input is a terminal")
@@ -18,7 +18,7 @@ function Example.stdin()
 end
 
 --- A file is read whole, as bytes, in one call: the counterpart of
---- `Fs.write`, which puts a whole string in its place.
+--- [`Fs.write`], which puts a whole string in its place.
 function Example.read()
   local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
   local path = dir .. "/note"

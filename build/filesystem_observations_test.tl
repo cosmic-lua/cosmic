@@ -1,6 +1,6 @@
 --- What is left of the observation log (build.filesystem_observations):
 --- its C resolution of a path, held to a Teal oracle, and the observed
---- VFS every `cosmic.sqlite` connection opens through.
+--- VFS every [`cosmic.sqlite`] connection opens through.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -80,7 +80,7 @@ local function test_sqlite_s_record_keeps_what_it_opens_but_what_is_excluded(tmp
   for _, db in ipairs({ excluded, held, opened }) do assert(db:close()) end
 end
 
---- A connection `cosmic.sqlite` opens reads the clock through the VFS
+--- A connection [`cosmic.sqlite`] opens reads the clock through the VFS
 --- that records its files, which passes the question to the default
 --- one: `julianday('now')` answers rather than ending the process.
 local function test_a_connection_tells_the_time()
@@ -90,7 +90,7 @@ local function test_a_connection_tells_the_time()
   assert(rows[1][1] == "1")
 end
 
---- What a path resolves to, in Teal: the oracle `observations.resolution`
+--- What a path resolves to, in Teal: the oracle [`observations.resolution`]
 --- and the log's `resolve` of a link, which stops short of a link the
 --- path ends in, must agree with.
 local function resolved_before(path: string, link: boolean): string
@@ -122,7 +122,7 @@ local function resolved_before(path: string, link: boolean): string
   end
 end
 
---- The log resolves a path as `resolved_before` does: through
+--- The log resolves a path as [`resolved_before`] does: through
 --- links, a missing name and all after it as written, "." and ".."
 --- included, each run of slashes as one, and a link it ends in followed
 --- or not.

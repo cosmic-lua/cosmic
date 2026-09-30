@@ -1,6 +1,6 @@
 --- This tree's own C, checked against the review checklist's mechanical
---- items (`build.c.rules`) over the syntax tree clang prints of it
---- (`build.c.tree`). `cosmic fix` runs it over every C file it covers.
+--- items ([`build.c.rules`]) over the syntax tree clang prints of it
+--- ([`build.c.tree`]). `cosmic fix` runs it over every C file it covers.
 ---
 --- The tree comes from the pinned `bin/zig cc`, with the includes and
 --- defines a core is built with, so a header resolves and a macro expands
@@ -14,7 +14,7 @@
 --- Each compiler starts under build.confine's `declaring`, given what it
 --- runs from and what it compiles, plus the system's paths:
 ---
---- - the scripts and pins that name the one zig `bin/zig` runs;
+--- - the scripts and pins that name the one zig [`bin/zig`] runs;
 --- - the bootstrap cosmic that runs build/zig.tl, and the cores its
 ---   launcher runs it on;
 --- - that zig's own install;
@@ -22,7 +22,7 @@
 --- - a directory of the check's own for caches and dependency files.
 ---
 --- In a test's sandboxed worker, the sandbox every process it starts
---- inherits holds the compiler, as the test's `Test.needs` declares. In
+--- inherits holds the compiler, as the test's [`Test.needs`] declares. In
 --- an unsandboxed worker the compiler gets a root of its own holding
 --- those paths alone, where the kernel gives one. Where the kernel gives
 --- none, it runs unconfined. Either way its test's verdict stands on
@@ -70,7 +70,7 @@ local crypto_include_dirs: {string} = {
 
 --- Where the compiler looks for an included header, in its order. The
 --- paths are relative to the root when the compiler runs there, so the
---- tree's own headers are named as its own (`core/guard.h`).
+--- tree's own headers are named as its own ([`core/guard.h`]).
 local function include_dirs(root: string, cwd: string): {string}
   local prefix = cwd == root and "" or root .. "/"
   local out: {string} = {}
@@ -111,8 +111,8 @@ local function command(root: string, file: string, cwd: string): {string}
   return out
 end
 
---- The environment a compiler is given, and all of it: what `bin/zig`,
---- `bin/cosmic-bootstrap`, the bootstrap cosmic and `build/zig.tl` read --
+--- The environment a compiler is given, and all of it: what [`bin/zig`],
+--- [`bin/cosmic-bootstrap`], the bootstrap cosmic and [`build/zig.tl`] read --
 --- where the caches are, the overrides, and how to reach and trust a
 --- download, and nothing else of an environment that changes with
 --- every `cd`.
@@ -136,8 +136,8 @@ local function environment(): {string:string}
   return out
 end
 
---- What a compiler runs from, where `bin/zig` finds it by the pins: the
---- pinned zig's install, and the bootstrap cosmic `bin/cosmic-bootstrap` runs
+--- What a compiler runs from, where [`bin/zig`] finds it by the pins: the
+--- pinned zig's install, and the bootstrap cosmic [`bin/cosmic-bootstrap`] runs
 --- build/zig.tl on, with the cores its launcher extracts, each where
 --- `variables` locates it. Answers the directory that zig is installed
 --- in and what outside the tree the compiler runs from, or nil when an
@@ -148,7 +148,7 @@ end
 --- come only from the sandbox: the system's paths, the tree's and the
 --- test's own. A test's sandboxed worker is given the system's paths only
 --- where its module declares `system`, and its key holds what they hold,
---- walked (`declared_key.system_identity`). A compiler confined in an
+--- walked ([`declared_key.system_identity`]). A compiler confined in an
 --- unsandboxed worker is given them as every confined process is. A
 --- `PATH` directory outside those is not there for it.
 local function toolchain(root: string, variables: {string:string}):
@@ -408,7 +408,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   return outcomes
 end
 
---- `source`, a C file, in the layout `build.c.layout` holds; or nil and
+--- `source`, a C file, in the layout [`build.c.layout`] holds; or nil and
 --- why, when laying it out would change more than whitespace.
 function c.laid_out(source: string): string | nil, string
   return layout.rendered(source)

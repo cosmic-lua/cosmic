@@ -1,7 +1,7 @@
 --- `cosmic hash`: the digest of files or standard input, printed the way
 --- `sha256sum` prints it -- `<hex>  <name>` -- and the check of such a
 --- list, on every platform alike, where `sha256sum` and `shasum -a 256`
---- differ. Every byte streams through `Stream.hashing` a chunk at a
+--- differ. Every byte streams through [`Stream.hashing`] a chunk at a
 --- time, so a file of any size takes the same memory; only a sums file
 --- and an HMAC key are read whole.
 ---
@@ -21,10 +21,10 @@
 --- is not a regular file (a FIFO or /dev/zero would hang it), printing
 --- `FAILED open or read`. Names it prints are escaped as GNU's are.
 ---
---- An HMAC is made here rather than by `Hash.hmac`, which takes the whole
---- message: `Stream.hashing` given a key feeds `Hash.hmac_hasher` a chunk
+--- An HMAC is made here rather than by [`Hash.hmac`], which takes the whole
+--- message: [`Stream.hashing`] given a key feeds [`Hash.hmac_hasher`] a chunk
 --- at a time, so a file of any size is still one pass. build/hash_test.tl
---- holds it to `Hash.hmac`.
+--- holds it to [`Hash.hmac`].
 
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
@@ -36,7 +36,7 @@ local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
---- The `cosmic hash` verb: `run` is what `build/dispatch.tl` calls.
+--- The `cosmic hash` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
@@ -78,7 +78,7 @@ end
 
 local type Algorithm = Hash.Algorithm
 
---- The algorithms `cosmic.hash` has, in the order of their options.
+--- The algorithms [`cosmic.hash`] has, in the order of their options.
 local ALGORITHMS <const>: {Algorithm} = {
   "md5", "sha1", "sha224", "sha256", "sha384", "sha512",
   "sha3-224", "sha3-256", "sha3-384", "sha3-512",
@@ -116,7 +116,7 @@ function verb.format_line(digest: string, name: string): string
   return (changed and "\\" or "") .. digest .. "  " .. escaped
 end
 
---- `text` with the escapes of `format_line` undone, or nil for any other.
+--- `text` with the escapes of [`format_line`] undone, or nil for any other.
 local function unescape(text: string): string | nil
   local parts: {string} = {}
   local at = 1
@@ -422,7 +422,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   return (failed > 0 or unread > 0) and bare.failed or bare.ok
 end
 
---- The `hash` verb as `build/verb_list.tl` lists it. Reads the files it
+--- The `hash` verb as [`build/verb_list.tl`] lists it. Reads the files it
 --- is given, never the tree: never stale-checked.
 verb.spec = {
   name = "hash",

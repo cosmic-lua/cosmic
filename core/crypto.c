@@ -35,7 +35,7 @@ int cosmic_entropy (void *out, size_t len) {
 
 /* The library is built with an external random generator, which keeps
  * its entropy and DRBG modules out of the core; it draws from the same
- * source `sys.entropy` does. */
+ * source [`sys.entropy`] does. */
 psa_status_t mbedtls_psa_external_get_random (
     mbedtls_psa_external_random_context_t *context, uint8_t *output,
     size_t output_size, size_t *output_length) {
@@ -84,7 +84,7 @@ int cosmic_digest (const char *name, const void *data, size_t len,
 }
 
 /* Streaming digest of exactly `length` bytes from a positioned descriptor.
- * Same returns as `cosmic_digest`. */
+ * Same returns as [`cosmic_digest`]. */
 static int digest_fd (const char *name, int fd, uint64_t offset,
                       uint64_t length, unsigned char out[COSMIC_DIGEST_MAX],
                       size_t *out_len) {

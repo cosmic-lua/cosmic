@@ -1,8 +1,8 @@
 --- A test worker holds the store, not only `require`, to its module's
---- import closure (`build.test_worker`'s `hold_requires`): a module of
---- the tree outside it, read by `Store.bytecode`, `Store.source` or a
+--- import closure ([`build.test_worker`]'s `hold_requires`): a module of
+--- the tree outside it, read by [`Store.bytecode`], [`Store.source`] or a
 --- searcher called by hand, is none of the store's, and
---- `Store.databases()`, whose handles read every module's rows, raises
+--- [`Store.databases()`], whose handles read every module's rows, raises
 --- -- each naming `store`, which this module does not declare. Without
 --- the hold such a read reaches the program's own database, which no
 --- key of this module's tests holds, and a verdict could stand on it
@@ -10,7 +10,7 @@
 
 local Store = require("cosmic.store")
 
---- `build.dispatch`, the program's entry: carried by the program, and in
+--- [`build.dispatch`], the program's entry: carried by the program, and in
 --- no test's closure. Built at run time, so the build cannot follow it.
 local outside <const> = table.concat({ "build", "dispatch" }, ".")
 
@@ -30,7 +30,7 @@ local function test_bytecode_of_a_module_outside_the_closure_is_held()
 end
 
 --- The source of a module, and of a name only a declaration answers
---- for, `build.compiler`, which this module's closure holds neither of.
+--- for, [`build.compiler`], which this module's closure holds neither of.
 local function test_source_of_a_module_outside_the_closure_is_held()
   local compiler = table.concat({ "build", "compiler" }, ".")
   for _, name in ipairs({ outside, compiler }) do
@@ -75,7 +75,7 @@ local function test_the_zones_are_read_under_the_hold()
   assert(assert(Store.zone_names())["UTC"], "UTC is a zone")
 end
 
---- The store's raw table, as its searcher hands it to `cosmic.store`'s
+--- The store's raw table, as its searcher hands it to [`cosmic.store`]'s
 --- loader: a test that calls the searcher by hand reaches it too.
 local function raw_store(): {string:any}
   for _, searcher in ipairs(package.searchers as {Searcher}) do
@@ -85,7 +85,7 @@ local function raw_store(): {string:any}
   error("cosmic.store is handed no raw table")
 end
 
---- `cosmic.store` offers no way to put a hold up or take one down.
+--- [`cosmic.store`] offers no way to put a hold up or take one down.
 local function test_the_public_store_offers_no_hold()
   local public = Store as {string:any}
   assert(public.hold == nil and public.release == nil, "cosmic.store offers a hold")

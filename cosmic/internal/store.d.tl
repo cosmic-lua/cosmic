@@ -35,7 +35,7 @@ local record store
   source: function(name: string): string | nil, string
 
   --- Every database `require` searches, in search order, each as a
-  --- borrowed `cosmic.sqlite` handle that reads only and never closes
+  --- borrowed [`cosmic.sqlite`] handle that reads only and never closes
   --- the connection under it.
   databases: function(): {sqlite.Handle}
 

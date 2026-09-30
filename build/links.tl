@@ -32,11 +32,11 @@
 ---    which is `m`'s member `member`; or a value of the Lua standard
 ---    library this program carries (`string.format`, `print`; not
 ---    `io`, `os` or `debug`, which cosmic leaves out);
---- 2. for a name with a `.` or a `:` (`Fs.read`, `cosmic.fs`), a symbol
+--- 2. for a name with a `.` or a `:` ([`Fs.read`], [`cosmic.fs`]), a symbol
 ---    the project's databases know, by the rule `cosmic docs <word>`
----    answers an exact query with (`docs.exact`, a type's member
+---    answers an exact query with ([`docs.exact`], a type's member
 ---    through an alias included), or a module's member written in full
----    (`cosmic.fs.read`). A name alone names no symbol of another
+---    ([`cosmic.fs.read`]). A name alone names no symbol of another
 ---    module: it links to a declaration of its own file, the standard
 ---    library or a file, and another module's symbol is written in
 ---    full, so that a link does not come to name another thing when
@@ -58,22 +58,22 @@
 --- file it names wins, and only a target that names no file is a name.
 ---
 --- Where the project has no database of its own yet
---- (`Context.unbuilt`), a shortcut that resolves to nothing is counted
+--- ([`Context.unbuilt`]), a shortcut that resolves to nothing is counted
 --- rather than failed: its symbol may be one the build would record.
 ---
 --- `cosmic fix` also makes links of plain code spans (`rewrite`): a
 --- `` `x` `` whose `x` is a name in full naming one symbol, a file of
 --- the tree, or a top-level declaration of its own file becomes
 --- `` [`x`] ``, by the
---- rule `link_resolve.linkable` gives, and `fix --check` fails on each
+--- rule [`link_resolve.linkable`] gives, and `fix --check` fails on each
 --- it would make. A Markdown file also gets the definitions GitHub
 --- needs to show such a link, in a block at its end; a definition
 --- whose label is a code span must name the file the label names, or
 --- the file that declares its symbol.
 ---
---- The parse is `build.link_text`'s and the resolution
---- `build.link_resolve`'s, which the build shares to index each link
---- (`build.link_index`); this module reads C, Zig and Markdown as well,
+--- The parse is [`build.link_text`]'s and the resolution
+--- [`build.link_resolve`]'s, which the build shares to index each link
+--- ([`build.link_index`]); this module reads C, Zig and Markdown as well,
 --- and answers symbols from the project's databases.
 
 local Fs = require("cosmic.fs")
@@ -90,7 +90,7 @@ local type compiler = require("build.compiler")
 
 local record links
   --- What a file declares, for resolution (`declared`) and for linking
-  --- a plain span (`module_level`, `link_resolve.linkable`); `parsed`
+  --- a plain span (`module_level`, [`link_resolve.linkable`]); `parsed`
   --- false for Teal that does not parse.
   record Known
     declared: link_text.Declared
@@ -193,7 +193,7 @@ local function zig_comments(source: string): {link_text.Comment}
   return out
 end
 
---- The comment text of `source`, a file of `kind` (`kind_of`), in
+--- The comment text of `source`, a file of `kind` ([`kind_of`]), in
 --- blocks; a Markdown file is one block of the whole. Teal is lexed with
 --- `built`, which `name` is given to.
 local function comment_blocks(kind: string, source: string, built: compiler, name: string): {link_text.Block}
@@ -217,11 +217,11 @@ local function comment_blocks(kind: string, source: string, built: compiler, nam
 end
 
 --- What C source declares at file scope, read off its lines: each
---- function defined or declared (`name (`, as `build.c.layout` writes
+--- function defined or declared (`name (`, as [`build.c.layout`] writes
 --- one), each macro, and each struct, union, enum and typedef name.
 -- TODO: resolve a C name through what the file includes too, and by
 -- its declarations rather than its lines, once build.c.tree's
--- declarations can be had without compiling the file (`c.check`
+-- declarations can be had without compiling the file ([`c.check`]
 -- compiles only the checked files, and only in cosmic's own tree).
 local function declared_c(source: string): link_text.Declared
   local out: link_text.Declared = { names = {}, aliases = {} }
@@ -323,7 +323,7 @@ end
 
 --- What is wrong with `link`, a definition in the file at the absolute
 --- path `absolute`, when its label is one code span naming a symbol or
---- a file (`link_resolve.meant`): the label decides what the link names,
+--- a file ([`link_resolve.meant`]): the label decides what the link names,
 --- so its target must be the file the label names or the one that
 --- declares its symbol. Nil when it is, and for any other definition,
 --- whose target is checked as a path.
@@ -390,7 +390,7 @@ function links.check(resolver: link_resolve.Resolver, file: string, absolute: st
     elseif link.form ~= "reference" then
       local target, problem = link_resolve.resolve(resolver, absolute, link.target, declared,
         link.form ~= "shortcut")
-      -- No problem named: a symbol not checked (`Context.unbuilt`).
+      -- No problem named: a symbol not checked ([`Context.unbuilt`]).
       if target == nil and problem ~= "" then
         out[#out + 1] = file .. ":" .. link.line .. ": link: " .. link.target ..
           " does not resolve (" .. problem .. ")"
@@ -431,9 +431,9 @@ local record Rewritten
 end
 
 --- `source`, a file of `kind` at the absolute path `absolute`, with each
---- plain code span `link_resolve.linkable` names a target for made a
+--- plain code span [`link_resolve.linkable`] names a target for made a
 --- shortcut link (`` `x` `` to `` [`x`] ``); the rule is that
---- function's, and `link_text.plain_spans` says which spans could be one.
+--- function's, and [`link_text.plain_spans`] says which spans could be one.
 --- A span whose label a definition in its block already holds, or, in
 --- Markdown, whose label two spans would give different targets, stays
 --- as written. Teal that does not parse is left as it is.
@@ -441,7 +441,7 @@ end
 --- GitHub shows a shortcut with no definition as the text it is, so a
 --- Markdown file also gets a block of definitions at its end, sorted,
 --- one for each label of a code span its shortcuts use that names a
---- symbol or a file of the tree (`link_resolve.meant`): the path, from
+--- symbol or a file of the tree ([`link_resolve.meant`]): the path, from
 --- the file's directory, of the file the label names or of the one that
 --- declares its symbol. That block is rewritten whole each time: a
 --- definition no link uses goes, and one that names another file than
@@ -495,7 +495,7 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
       local key = link_text.label_key(span.written)
       local at = (starts[span.line] or 0) > 0 and starts[span.line] + span.column - 1 or 0
       -- A C header's `---` and `--` lines are the Teal declaration of
-      -- its bindings (`build.gen_syscalls`): their names are that
+      -- its bindings ([`build.gen_syscalls`]): their names are that
       -- declaration's, not the header's, so their spans stay as written.
       local teal_in_c = kind == "c" and (block_lines[span.line] or ""):match("^%s*%-%-") ~= nil
       if not defined[key] and not teal_in_c and at > 0 and
@@ -654,8 +654,8 @@ end
 --- says why the view lacks the project's own code, or nil.
 ---
 --- A name is answered from the view's rows held in memory
---- (`build.symbol_index`); only a member of a type an alias stands for
---- (`Sqlite.Handle.exec`), which none of them names, asks `build.docs`.
+--- ([`build.symbol_index`]); only a member of a type an alias stands for
+--- ([`Sqlite.Handle.exec`]), which none of them names, asks [`build.docs`].
 function links.context(root: string, open: function(): docs.View | nil, string,
                        unbuilt: function(): string | nil): link_resolve.Context
   local view: docs.View | nil = nil

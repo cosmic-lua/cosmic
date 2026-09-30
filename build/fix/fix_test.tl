@@ -10,7 +10,7 @@
 ---
 --- Self-hosting is not checked here: that every Teal source in the tree
 --- renders, is canonical, and stays at the fixed point on a second
---- pass. `fix.source` runs the second pass itself (`build.fix.init`)
+--- pass. [`fix.source`] runs the second pass itself (`build.fix.init`)
 --- and refuses a file that is not a fixed point, so `cosmic fix
 --- --check .`, which CI runs over the whole tree as its format-check
 --- step, holds the tree to it. A copy of that walk here would cost
@@ -256,7 +256,7 @@ local function test_changed_rendering_is_checked_before_it_is_accepted()
 end
 
 --- A renderer whose output is not a fixed point is refused, even when
---- its first pass looks fine on its own: `fix.source` renders what it
+--- its first pass looks fine on its own: [`fix.source`] renders what it
 --- produced a second time and requires the same bytes back.
 local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   local original = render_mod.rendered
@@ -278,7 +278,7 @@ local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   assert(ok, tostring(trouble))
 end
 
---- A YAML file named is laid out by `build.flow`, in any tree; one
+--- A YAML file named is laid out by [`build.flow`], in any tree; one
 --- under `.github/` is found only in cosmic's own tree, and only when it
 --- is in flow style.
 local function test_yaml_in_flow_style_is_taken(tmp: string)

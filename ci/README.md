@@ -99,7 +99,7 @@ failed first.
 Each suite a platform phase runs -- the native (`local`) suite, the
 checked and portable suites, and each fixture's `cosmic test` -- writes
 one row to the operations database's `suite_runs` table once it ends
-(`cosmic_ci/suite_output.tl` reads it from the suite's stdout): how it
+([`cosmic_ci/suite_output.tl`] reads it from the suite's stdout): how it
 ended (`timeout` where the driver ended it, which keeps only the key
 parts; `fail` for any other nonzero exit, a PASS line notwithstanding;
 else `pass`, or `unreported` where it printed no summary), its exit
@@ -122,7 +122,7 @@ on every leg before its caches are saved. Each cuts the cache
 Unix seconds (`whole`, for a run that failed, cuts none), and writes
 `digest=<hex>` to `$GITHUB_OUTPUT`: a SHA-256 of the rows it kept, every
 column but `used_ns`, which each run stamps again
-(`cosmic_ci/cache_trim.tl`). The save's key is the cache's prefix and
+([`cosmic_ci/cache_trim.tl`]). The save's key is the cache's prefix and
 that digest, so a run that kept only rows already saved names that
 entry's key again and saves nothing new. Only a push to main and the
 scheduled run save these caches; every run restores the newest main
@@ -167,8 +167,8 @@ cache. Up to ten runs older than the N shown are listed for that, and
 fetched only until one has rows, so each of the N can qualify. Then the medians over the qualifying
 runs that succeeded. A run from before `suite_runs`, or whose artifacts
 have expired, is reported from its step times alone and qualifies for
-nothing. `cosmic_ci/report_test.tl` drives it against a fake `gh`
-(`testdata/report/gh.tl`) and never reaches the network.
+nothing. [`cosmic_ci/report_test.tl`] drives it against a fake `gh`
+([`testdata/report/gh.tl`]) and never reaches the network.
 
 `prerelease-stage` and `prerelease-publish` are prerelease.yml's publish
 job, which runs after each green ci run on main, checks out only `ci/`,
@@ -193,8 +193,8 @@ workflows differ from the commit's, makes nothing and prints a warning:
 that commit has no prerelease, and a pin moves to a later one);
 it resumes an interrupted draft only by accepting assets identical to the
 staged ones, and writes its downloads under `$RUNNER_TEMP/prerelease/`.
-`cosmic_ci/prerelease_test.tl` drives it against a fake `gh`
-(`testdata/prerelease/gh.tl`) and never reaches the network.
+[`cosmic_ci/prerelease_test.tl`] drives it against a fake `gh`
+([`testdata/prerelease/gh.tl`]) and never reaches the network.
 
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
@@ -529,3 +529,10 @@ a re-run of either job more than seven days later cannot download them.
 `report` reads the driver databases, so its suite rows cover about the
 last week; a run whose artifacts expired it reports from its step times
 alone.
+
+[`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
+[`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
+[`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
+[`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
+[`testdata/prerelease/gh.tl`]: testdata/prerelease/gh.tl
+[`testdata/report/gh.tl`]: testdata/report/gh.tl

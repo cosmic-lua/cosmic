@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.tar`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.tar`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -8,7 +8,7 @@ local Tar = require("cosmic.tar")
 local Example = {}
 
 --- A tar made in memory and read back: `writer` over a
---- `Stream.collect`, then `reader` over what it collected.
+--- [`Stream.collect`], then `reader` over what it collected.
 function Example.writer()
   local out = Stream.collect()
   local w = Tar.writer(out, { deterministic = true })

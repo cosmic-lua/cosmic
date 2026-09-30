@@ -13,13 +13,13 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
 -- In the closure, so the store's searcher answers it under a test
--- worker's hold on the store (`raw_process_table`).
+-- worker's hold on the store ([`raw_process_table`]).
 local _ = require("cosmic.child")
 
 local type Searcher = function(string): any, any
 
 --- The raw process table, as the store's searcher hands it to
---- `cosmic.child`'s loader (core/syscalls_test.tl finds it the same
+--- [`cosmic.child`]'s loader (core/syscalls_test.tl finds it the same
 --- way): no module requires it by name but under boot.
 -- TODO: start each child with cosmic.child's sandbox option and drop
 -- this function and its cast (build/contracts.tl's `casts`), once

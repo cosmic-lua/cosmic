@@ -83,7 +83,7 @@ local record Sqlite
   --- Every row of a result, in the order the query gave them.
   type Rows = {Row}
 
-  --- A query's rows read one at a time: see `Sqlite.query`.
+  --- A query's rows read one at a time: see [`Sqlite.query`].
   record Query
     metamethod __close: function(Query)
     --- The next row, and ""; nil and "" after the last; nil and why
@@ -122,7 +122,7 @@ end
 ---
 --- - `sha256(X)`: the 32-byte digest of a text or blob.
 --- - `digest(A, X)`: the digest of X under the algorithm A names (a
----   `cosmic.hash` `Algorithm`).
+---   [`cosmic.hash`] `Algorithm`).
 --- - `hmac(A, K, X)`: the HMAC of X under the key K over A.
 --- - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)`
 ---   writes it; `inflate(X)` decodes such a stream, to a blob.
@@ -253,7 +253,7 @@ end
 
 --- Every row a query yields, each a dense list of typed cells in column
 --- order; SQL NULL is a cell with `kind = "null"`. Answers the rows, or
---- `nil` and why. `values` follows `Sqlite.run`'s contract.
+--- `nil` and why. `values` follows [`Sqlite.run`]'s contract.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Rows | nil, string
   local statement, trouble = prepared(handle, sql, values)
@@ -284,7 +284,7 @@ local query_mt: metatable<Sqlite.Query> = {
 
 --- A query whose rows are read one at a time, as `rows` gives them but
 --- never all held at once: nil and why when the statement does not
---- prepare or bind (`values` follows `Sqlite.run`'s contract). The
+--- prepare or bind (`values` follows [`Sqlite.run`]'s contract). The
 --- statement stays open, and the handle cannot close, until the last
 --- row is read, a step fails, or the query is
 --- closed; hold it in a `<close>` variable to close it on a `break` or
@@ -296,7 +296,7 @@ local query_mt: metatable<Sqlite.Query> = {
 --- write on the same connection to a table the query reads may be
 --- read back by it, without end for an insert into a table scanned
 --- whole; collect what to write first. The statement runs at the first
---- read, not before: `Sqlite.run` is for one that yields no rows.
+--- read, not before: [`Sqlite.run`] is for one that yields no rows.
 ---
 ---     local q <close> = assert(Sqlite.query(db, "SELECT id, body FROM t"))
 ---     for row in q:each() do print(row[1].integer, row[2].text) end

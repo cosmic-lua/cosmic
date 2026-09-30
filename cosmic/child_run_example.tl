@@ -1,4 +1,4 @@
---- Worked example for `Child.run`, shown by `cosmic docs` under the
+--- Worked example for [`Child.run`], shown by `cosmic docs` under the
 --- symbol it demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table.
 
@@ -13,7 +13,7 @@ local Example = {}
 
 --- A host program run to completion, its output collected: a failing
 --- exit is a `Result` with `ok` false and the status in `code`, not an
---- error. `argv[1]` is a path, as given: `Proc.find` finds a program by
+--- error. `argv[1]` is a path, as given: [`Proc.find`] finds a program by
 --- name.
 function Example.run()
   local result = assert(Child.run(

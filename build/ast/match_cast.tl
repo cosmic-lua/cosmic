@@ -1,9 +1,9 @@
---- Cast-position matching for `build.ast.match`'s `$X as $T` support.
+--- Cast-position matching for [`build.ast.match`]'s `$X as $T` support.
 ---
 --- `$T` in type position desugars to the identifier `_T`, a valid Teal
 --- type name, so the compiled pattern's `casttype` is a nominal type
 --- that only its spelling tells from a real one-word type name (`Foo`).
---- `capture_name` tells the two apart. For a capture, `match` binds the
+--- [`capture_name`] tells the two apart. For a capture, `match` binds the
 --- whole candidate `cast` node, so a `$T:PATTERN` predicate or a
 --- rewrite item can reach the site's rendered type text. Otherwise it
 --- compares the two casts' rendered type text for equality, the only
@@ -14,7 +14,7 @@ local type Node = node_mod.Node
 
 --- Narrow a generic type/node value to a string-keyed view. A cast's
 --- `casttype` and its nested type fields (`elements`, `keys`, `values`,
---- `types`, `names`) are tl-parser fields no `Node` record names,
+--- `types`, `names`) are tl-parser fields no [`Node`] record names,
 --- since the payload is a parsed type, not an AST node.
 --- @param t any A generic type/node value
 --- @return {string: any} The same value, viewed as a string-keyed map
@@ -91,7 +91,7 @@ local function render(t: any): string
 end
 
 --- Match a pattern `cast` node against a candidate `cast` node.
---- `build.ast.match`'s `match_value` calls this once both sides have
+--- [`build.ast.match`]'s `match_value` calls this once both sides have
 --- `kind == "cast"`.
 --- @param pv {any: any} The pattern's own `cast` node
 --- @param nv {any: any} The candidate `cast` node

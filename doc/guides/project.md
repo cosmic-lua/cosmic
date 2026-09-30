@@ -84,9 +84,9 @@ return Example
 
 ## a program with options
 
-`cosmic.flags` reads the command line. A spec names each option and
+[`cosmic.flags`] reads the command line. A spec names each option and
 whether it takes a value; any other option is refused, so a typo is
-never read as a file name. `cosmic.log` writes what went wrong to
+never read as a file name. [`cosmic.log`] writes what went wrong to
 standard error under the program's name. The function's result is the
 exit code.
 
@@ -148,7 +148,7 @@ docs Tally.words` shows a function with the examples that call it.
 ## trying it
 
 This runs the verbs above on the files of this guide, each through
-`cosmic.child`, as the guide for the command line does. It builds with
+[`cosmic.child`], as the guide for the command line does. It builds with
 `--host`, a native executable for this system with no launcher.
 
 ```teal
@@ -196,3 +196,7 @@ build: PASS
 test: PASS
 tally (tally.tl)
 ```
+
+[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.flags`]: ../../cosmic/flags.tl
+[`cosmic.log`]: ../../cosmic/log.tl

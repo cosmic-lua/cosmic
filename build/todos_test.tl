@@ -9,7 +9,7 @@ local work = require("build.work")
 
 --- Nothing beyond its closure: the trees these tests list are in no
 --- repository, so `cosmic todos` starts no git for them
---- (`test_a_tree_in_no_repository_starts_no_git`). The test that
+--- ([`test_a_tree_in_no_repository_starts_no_git`]). The test that
 --- blames a repository's lines is build/todos_git_test.tl.
 Test.needs{}
 
@@ -172,9 +172,9 @@ local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: unblamed" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  -- What `cosmic.sys`'s shared table is asked while the listing runs,
+  -- What [`cosmic.sys`]'s shared table is asked while the listing runs,
   -- each call's first argument: every lookup of a variable (`Env`) and
-  -- of a path (`Proc.find`, `Fs.exists`) goes through it.
+  -- of a path ([`Proc.find`], [`Fs.exists`]) goes through it.
   local asked: {string} = {}
   local calls = sys as {string:any}
   local stood: {string:any} = {}

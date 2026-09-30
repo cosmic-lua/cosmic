@@ -1,6 +1,6 @@
 --- The links of a projection's modules, each resolved to what it names
 --- and written to its `links` table ([the schema](schema.tl)) as the
---- projection is written (`build.writer`).
+--- projection is written ([`build.writer`]).
 ---
 --- A parse records each link as written ([`link_text.found`]), keyed by
 --- its source's hash like every other row a parse keeps. What a link
@@ -13,7 +13,7 @@
 --- of the tree on disk, which nothing else in the projection reads.
 ---
 --- So what the files said is part of the projection's signature
---- (`Pending.digest`): each link is resolved first with no symbols at
+--- ([`Pending.digest`]): each link is resolved first with no symbols at
 --- all, which asks after every file and heading any resolution of it
 --- can, and each answer is kept. A link that also names a symbol fails
 --- or stops before it reads more, so the resolution that writes the
@@ -30,9 +30,9 @@
 -- against (a stale tool's are not the ones a boot's would be).
 -- TODO: index the links of Markdown, C and Zig files too, as `cosmic
 -- fix` checks them: no parse keeps them, since none is a module. Read
--- them here, each file's text in `Pending.digest`, once the stage
+-- them here, each file's text in [`Pending.digest`], once the stage
 -- walks every file `fix --check .` does (it leaves out doc/ but its
--- guides); their rows have no `from_module`, so `build.docs` would
+-- guides); their rows have no `from_module`, so [`build.docs`] would
 -- answer them by the database rather than by the module's owner.
 
 local Fs = require("cosmic.fs")
@@ -59,7 +59,7 @@ local record link_index
   end
 
   --- What the disk answered, by absolute path: a kind as
-  --- `Context.kind` answers it (`""` for nothing there), and a text or
+  --- [`Context.kind`] answers it (`""` for nothing there), and a text or
   --- a real path, each in a table of its own so that none is kept as an
   --- answer too.
   record Memo
@@ -68,7 +68,7 @@ local record link_index
     reals: {string: {string}}
   end
 
-  --- One row of the projection's `links` (`build.schema`).
+  --- One row of the projection's `links` ([`build.schema`]).
   record Row
     module: string
     symbol: string
@@ -99,7 +99,7 @@ end
 local text = bind.text
 
 --- Every link the parse recorded in a planned module or a declaration
---- -- the sources whose docs a projection holds (`build.writer`'s
+--- -- the sources whose docs a projection holds ([`build.writer`]'s
 --- `insert_docs`), each under the module its docs name -- in file and
 --- line order. A source under o/, the build's output (the compiler a
 --- boot puts in), is the tree's by no link.
@@ -281,7 +281,7 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     return symbol_index.member(index, module, name), ""
   end
   -- TODO: resolve a member of a type an alias stands for
-  -- (`Sqlite.Handle.close`), as `docs.exact` does through
+  -- ([`Sqlite.Handle.close`]), as [`docs.exact`] does through
   -- `through_alias`, once that lookup is split from build.docs, which
   -- build.writer cannot require (build.docs requires build.rebuild,
   -- which requires build.writer).
@@ -296,7 +296,7 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     local target, _ = link_resolve.resolve(resolver, from, raw.target, declared_for(raw),
       raw.form ~= "shortcut")
     -- A code-span label names its symbol when the definition names the
-    -- file that declares it, as `build.links` checks.
+    -- file that declares it, as [`build.links`] checks.
     local label = label_of(raw)
     if label ~= nil and target ~= nil and target.kind == "file" then
       local named, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)

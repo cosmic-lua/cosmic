@@ -1,10 +1,10 @@
 --- What names an exact query as a symbol, and what is a use of it: one
---- rule, shared by `cosmic docs` and `cosmic uses` (`build.docs`) and by
+--- rule, shared by `cosmic docs` and `cosmic uses` ([`build.docs`]) and by
 --- the compiler's hint for a name it could not resolve
---- (`build.importer`), so a hint never names a row `cosmic docs <word>`
+--- ([`build.importer`]), so a hint never names a row `cosmic docs <word>`
 --- would disagree with. It is a module of its own because
---- `build.importer` requires it for the hint, and `build.docs` requiring
---- `build.importer` back for this rule would be a cycle. This module
+--- [`build.importer`] requires it for the hint, and [`build.docs`] requiring
+--- [`build.importer`] back for this rule would be a cycle. This module
 --- requires neither.
 
 local Sqlite = require("cosmic.sqlite")
@@ -34,7 +34,7 @@ end
 --- The user guides (`doc/guides/<name>.md`) a binary carries: the ones
 --- a reader of `cosmic docs` is meant to find. A guide about how the
 --- runtime is built is left to the tree (`internal_guides`). Every
---- guide is in one list or the other: `build.tree_checks` refuses a
+--- guide is in one list or the other: [`build.tree_checks`] refuses a
 --- guide in neither, so a new one is never left out by mistake.
 symbols.guides = { "command-line", "project", "quickstart" }
 
@@ -44,7 +44,7 @@ symbols.internal_guides = {
 }
 
 --- Whether a module is a user guide a public source answers for: the
---- module a guide compiles as (`doc.guides.quickstart`).
+--- module a guide compiles as ([`doc.guides.quickstart`]).
 function symbols.is_public_guide(module: string): boolean
   for _, name in ipairs(symbols.guides) do
     if module == "doc.guides." .. name then
@@ -64,7 +64,7 @@ function symbols.guide_module(column: string): string
   return column .. " IN (" .. table.concat(names, ", ") .. ")"
 end
 
---- `public_only`, and the user guides too: what a public source's
+--- [`public_only`], and the user guides too: what a public source's
 --- docs rows may hold. Only a guide's own row is carried (its prose),
 --- not the helpers its generated test module declares, so this is a
 --- condition on `docs` rows alone.
@@ -83,7 +83,7 @@ function symbols.local_declaration(alias: string): string
 end
 
 --- The rows of `docs`, under the alias `alias`, that a source shows: as
---- `public_docs` (the standard library and the user guides), and in a
+--- [`public_docs`] (the standard library and the user guides), and in a
 --- public source, no symbol the module keeps to itself: a `local` declaration (a record, enum, type or function) and
 --- what is declared under it, and a field or function whose name starts
 --- with `_`. A metamethod (`__call`) is part of a record's surface, so it
@@ -97,7 +97,7 @@ function symbols.shown_docs(alias: string, public: boolean): string
   local symbol = alias .. ".symbol"
   local dotted = "replace(" .. symbol .. ", ':', '.')"
   -- The declaration is found by where it is written, `source_symbol`: a
-  -- module's `Fs.walk` and its private `local function walk` share the
+  -- module's [`Fs.walk`] and its private `local function walk` share the
   -- symbol `walk`.
   local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
   return module .. " AND (" .. symbol .. " = '' OR (" ..
@@ -120,10 +120,10 @@ end
 local DOTTED <const> = "replace(?1, ':', '.')"
 
 --- The condition under which `alias` (a row of `docs`) names `?1`
---- exactly: a symbol as declared (`Fs.read`), a symbol's last name
+--- exactly: a symbol as declared ([`Fs.read`]), a symbol's last name
 --- alone (`read`, matching every `X.read` and `X:read`), a member path
 --- or its last few names, called or not (`Box:grow`, `Box.grow`), or a
---- module's own row (`cosmic.fs`).
+--- module's own row ([`cosmic.fs`]).
 function symbols.named_where(alias: string): string
   return "(" .. alias .. ".symbol = ?1 OR " .. alias .. ".source_symbol = ?1 OR " ..
     ends_in(alias .. ".symbol", "?1") .. " OR " ..
@@ -146,8 +146,8 @@ end
 
 --- The condition under which `alias` (a row of `docs`) is the member of
 --- module `?1` named `?2`, a method's `:` written `.`: as the symbol
---- column reads (`read`, `Writer.write`) or as the source spells it
---- (`Fs.read`).
+--- column reads (`read`, [`Writer.write`]) or as the source spells it
+--- ([`Fs.read`]).
 function symbols.member_where(alias: string): string
   return "(" .. alias .. ".module = ?1 AND " .. alias .. ".symbol <> '' AND " ..
     "(replace(" .. alias .. ".symbol, ':', '.') = ?2 OR replace(" .. alias ..
@@ -155,19 +155,19 @@ function symbols.member_where(alias: string): string
 end
 
 --- The condition under which `alias` (a row of `uses`) is a use of what
---- `?1` names, the same way `named_where` finds its declaration. A use
+--- `?1` names, the same way [`named_where`] finds its declaration. A use
 --- is recorded under its canonical path, without the module's own
 --- record (`exists`, `Writer.add_file`), so besides that path and
 --- its last name alone, `?1` may spell it from the module's record
---- down (`Fs.exists`, `Zip.Writer.add_file`): one name more, and
---- only one, so `Stream.Writer.write` is not a use of every `write`.
+--- down ([`Fs.exists`], [`Zip.Writer.add_file`]): one name more, and
+--- only one, so [`Stream.Writer.write`] is not a use of every `write`.
 --- A use is recorded with `.` throughout (`Box.grow`), so `?1`'s `:`
 --- is read as one (`Thing.Box:grow`, `Box:grow`), as `cosmic docs`
 --- prints a method's name.
 --- That one name is checked against the module the use is of: it must
 --- be the module's own record (`Fs` in cosmic.fs, `Sqlite` in
---- cosmic.sqlite: a `docs` row of kind record, so `Writer.write` is
---- not a use of `Fs.write`) or, spelled either way, the last name of
+--- cosmic.sqlite: a `docs` row of kind record, so [`Writer.write`] is
+--- not a use of [`Fs.write`]) or, spelled either way, the last name of
 --- the module (`fs` for cosmic.fs, as a caller writes
 --- `local fs = require("cosmic.fs")`).
 function symbols.used_where(alias: string): string
@@ -186,7 +186,7 @@ end
 --- Every symbol `query` names exactly, across `databases` (searched in
 --- order, the tree's own last projection ahead of the binary's), each
 --- as the `symbol` column reads, already qualified by its record
---- (`Removed.io`), or as the bare module name for a module's own row
+--- ([`Removed.io`]), or as the bare module name for a module's own row
 --- (`symbol` is `""` there). It is what a name the compiler could not
 --- resolve might have meant. A database with no `docs` table, or a
 --- query that fails, answers as no match rather than a trouble: a hint
@@ -240,7 +240,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
     for _, lookup in ipairs({
       { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
           symbols.public_only("e.module", public[index] == true), name },
-      -- The phrase matches stemmed words, so `Fs.reads` finds `Fs.read`;
+      -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
       -- the GLOB says the name is there whole, as `docs` checks it.
       { "SELECT e.module FROM examples_fts JOIN examples e " ..
           "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..

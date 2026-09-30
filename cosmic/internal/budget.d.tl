@@ -1,5 +1,5 @@
 --- The instruction budget provided by core/coverage.c, handed only to
---- `build.fuzz` when it loads from the binary's own tree.
+--- [`build.fuzz`] when it loads from the binary's own tree.
 
 local record budget
   --- Arms a budget of `count` VM instructions on the calling coroutine,

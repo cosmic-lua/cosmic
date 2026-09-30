@@ -1,4 +1,4 @@
---- `eval/arena.tl` over an eval/ directory built here: what an arena
+--- [`eval/arena.tl`] over an eval/ directory built here: what an arena
 --- holds, and where it refuses to lay one.
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")

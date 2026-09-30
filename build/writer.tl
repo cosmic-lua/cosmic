@@ -10,7 +10,7 @@
 ---
 --- The store of a test module's import closure a sandboxed worker is
 --- given in the projection's place is derived from the projection by
---- `build.closure_store`, apart from this module, so an edit here that
+--- [`build.closure_store`], apart from this module, so an edit here that
 --- leaves every store's bytes alone moves no store's address.
 
 local Fs = require("cosmic.fs")
@@ -77,10 +77,10 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
---- The documented symbols (`build.analyzer.DocEntry`) found while parsing
---- each planned module and each declaration (`cosmic.sys`'s only source
+--- The documented symbols ([`build.analyzer.DocEntry`]) found while parsing
+--- each planned module and each declaration ([`cosmic.sys`]'s only source
 --- is the C header it is generated from), in module order and then
---- source order. Which of them a reader sees is `build.docs`'s to
+--- source order. Which of them a reader sees is [`build.docs`]'s to
 --- decide: it answers a project only for the public standard library.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
@@ -94,7 +94,7 @@ local insert_docs =
   "JOIN inputs i ON i.path = m.path " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
---- The uses (`build.analyzer.Reference`) found: each
+--- The uses ([`build.analyzer.Reference`]) found: each
 --- `alias.member` resolved against the module the alias names, as the
 --- canonical member path. Targets need not be in this build plan: bundled and
 --- external definitions are selected from the effective database view later.
@@ -106,9 +106,9 @@ local insert_uses =
   "JOIN refs r ON r.source_hash = i.source_hash " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
---- The record-field uses `build.receivers` found while each planned
+--- The record-field uses [`build.receivers`] found while each planned
 --- module was compiled, kept under the compile's key: `w:add_file(...)`
---- on a `Zip.Writer` is a use of `Writer.add_file` in `cosmic.zip`.
+--- on a [`Zip.Writer`] is a use of `Writer.add_file` in [`cosmic.zip`].
 local insert_typed_uses =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
@@ -117,19 +117,19 @@ local insert_typed_uses =
   "JOIN typed_refs r ON r.key = p.key " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
---- The worked examples (`build.analyzer.ExampleEntry`) found: a
+--- The worked examples ([`build.analyzer.ExampleEntry`]) found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
 --- against the module its file name pairs with. That is a planned module
---- or a declaration (as `cosmic.sys` is), never a test or another
+--- or a declaration (as [`cosmic.sys`] is), never a test or another
 --- example.
 ---
 --- The file name less `_example` pairs with the longest such module it
 --- equals or starts with followed by `_`, so a module's examples can be
 --- split by topic: `cosmic/json_yaml_example.tl` pairs with `cosmic.json`
---- beside `cosmic/json_example.tl` (or with `cosmic.json_yaml`, were
+--- beside [`cosmic/json_example.tl`] (or with `cosmic.json_yaml`, were
 --- there one), and `cosmic/jsonx_example.tl` with neither.
 ---
---- Nothing here decides which symbol an example is for. `build.docs`
+--- Nothing here decides which symbol an example is for. [`build.docs`]
 --- decides at read time, by matching an example's text and source
 --- against a symbol's name through `examples_fts`: an example calls the
 --- real function it demonstrates, so the symbol's name is already in its
@@ -157,7 +157,7 @@ local insert_examples =
   "WHERE x.module IS NOT NULL " ..
   "ORDER BY x.module, x.file, e.line"
 
---- The catalog entries (`build.analyzer.CatalogEntry`) found while parsing
+--- The catalog entries ([`build.analyzer.CatalogEntry`]) found while parsing
 --- each planned module: every literal `return nil, ...` under a
 --- top-level function. The guidance a match prints is that function's
 --- own documentation, joined from `docs` at lookup, so `text` is left
@@ -193,7 +193,7 @@ local insert_catalog_extracted =
 --- change to the code finding it redoes under the same key, so that
 --- code's identity (`receivers` in `meta`) is signed too. A link's row
 --- is also a function of the files of the tree it names, which no key
---- holds, so what they said is signed (`?4`, `build.link_index`).
+--- holds, so what they said is signed (`?4`, [`build.link_index`]).
 local function signature_sql(): string
   local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'receivers')"
   return "SELECT lower(hex(sha256(" ..
@@ -222,7 +222,7 @@ local function signed(handle: work.Handle, result: importer.Result, pending: lin
 end
 
 --- The signature of `result`'s projection as the writer whose identity
---- is `binary` would write it -- see `signature_sql`.
+--- is `binary` would write it -- see [`signature_sql`].
 function writer.signature(handle: work.Handle, result: importer.Result,
                           binary: string): string | nil, string
   local pending, trouble = link_index.pending(handle.db, handle.root)
@@ -292,8 +292,8 @@ local function project(handle: work.Handle, path: string,
       end
     end
     -- cosmic's own tree describes the binary it builds: its bill of
-    -- materials (`build.bom`), read from the pins and records beside the
-    -- code, and the CA roots it trusts (`build.roots`). A change to
+    -- materials ([`build.bom`]), read from the pins and records beside the
+    -- code, and the CA roots it trusts ([`build.roots`]). A change to
     -- either comes with a pin's, a tool file, so `boot_hash`, which the
     -- signature covers, moves when one does. A project's tables stay
     -- empty.
@@ -331,15 +331,15 @@ local function project(handle: work.Handle, path: string,
 end
 
 --- The identity of the writer this process runs, which signs what it
---- writes (`signature_sql`) and is recorded beside it as `written_by`.
+--- writes ([`signature_sql`]) and is recorded beside it as `written_by`.
 --- A boot (which carries no database) and a tool fresh against the tree
 --- in `handle` both run the tree's own code, so it is the tree's
 --- (`identities.writer`); so is a binary its caller has found to carry
 --- the tree's code though it is stale by its own (`tree_code`, from
---- `build.reboot`'s `carries_tree_code`). Any other binary names the
+--- [`build.reboot`]'s `carries_tree_code`). Any other binary names the
 --- `writer` it carries or, when it carries none, its whole boot hash, so
 --- a tool it rebuilt is never taken for one the tree's writer wrote
---- (`build.reboot`).
+--- ([`build.reboot`]).
 local function running(handle: work.Handle, identities: work.Identities,
                        tree_code: boolean): string | nil, string
   local boot_hash = Store.meta("boot_hash")
@@ -439,12 +439,12 @@ local dropped_modules <const> =
   "EXCEPT SELECT path FROM carried) "
 
 --- The condition under which a doc row `d` of a `cosmic.internal.*`
---- module is a nested type -- `sqlite.Handle` -- or a member of one
---- (`Handle.exec`) that a public declaration reaches: an alias
+--- module is a nested type -- [`sqlite.Handle`] -- or a member of one
+--- ([`Handle.exec`]) that a public declaration reaches: an alias
 --- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
---- raw_http.Options`), whose page lists them. `symbols.shown_docs`
+--- raw_http.Options`), whose page lists them. [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
---- resolution (`build.docs`) reads them.
+--- resolution ([`build.docs`]) reads them.
 local carried_internal_types =
   "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
@@ -464,7 +464,7 @@ local carried_internal_types =
 
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from
---- `build.schema`, so `*` names the same columns in the same order. A
+--- [`build.schema`], so `*` names the same columns in the same order. A
 --- rowid table's `id` is assigned again, in the projection's order.
 local carry: {string} = {
   "INSERT INTO main.meta SELECT * FROM whole.meta ORDER BY key",
@@ -482,13 +482,13 @@ local carry: {string} = {
   "INSERT INTO main.ca_roots SELECT * FROM whole.ca_roots ORDER BY sha256",
   -- Outside cosmic's own tree, `cosmic docs`, `cosmic uses` and a
   -- compile's hints read the tool's rows only for the public standard
-  -- library (`symbols.public_only`). Inside it they read the tree's own
+  -- library ([`symbols.public_only`]). Inside it they read the tree's own
   -- projection first, and find nothing for `build.*` until a build has
   -- written one. So a doc row about any other module is carried only for
   -- the catalog, whose guidance is the doc comment of the function an
-  -- error came from (core/main.c, `build.embed`).
+  -- error came from (core/main.c, [`build.embed`]).
   --
-  -- A user guide (`symbols.guide_module`) is a generated test module, so
+  -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
   -- `cosmic docs quickstart` answers with.
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..

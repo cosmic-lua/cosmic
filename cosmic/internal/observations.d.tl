@@ -1,5 +1,5 @@
 --- What core/store.c's `open_observations` hands only
---- `build.filesystem_observations` when it loads from the binary's own
+--- [`build.filesystem_observations`] when it loads from the binary's own
 --- tree: the raw tables whose calls it stands in for or drains.
 
 local type process = require("cosmic.internal.process")
@@ -12,8 +12,8 @@ local record observations
   record Call is {any}
     --- The call's name: "getcwd", "executable", "lstat", "readlink",
     --- "realpath", "open", "stat", "readdir", "getenv", "environ",
-    --- "mkdir" or "mkdtemp" of `cosmic.sys`; "tree_digest" or
-    --- "tree_stamps", `cosmic.sys`'s `tree_digest` with contents or
+    --- "mkdir" or "mkdtemp" of [`cosmic.sys`]; "tree_digest" or
+    --- "tree_stamps", [`cosmic.sys`]'s [`tree_digest`] with contents or
     --- without; "spawn", the process table's own, called past the
     --- stand-in for it; or "http", cosmic.http's `open` of a request
     --- that is not scripted.
@@ -42,7 +42,7 @@ local record observations
   --- answered, and those calls themselves, past the log.
   record Syscalls
     --- Turns on or off logging, whoever calls them, what the observed
-    --- calls (see `Call`) are asked and answer. A query whose record
+    --- calls (see [`Call`]) are asked and answer. A query whose record
     --- cannot be kept fails as memory does, having changed nothing; a
     --- call that acts fails so before it acts, or takes back the
     --- directory it made. What is logged stays until `observed` drains

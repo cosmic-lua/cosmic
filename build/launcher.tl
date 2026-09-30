@@ -1,7 +1,7 @@
 --- The production POSIX launcher template for portable artifacts.
 ---
 --- This is a Teal module, rather than a loose build-time asset, because a
---- shipped Cosmic reads `build.artifact` and its dependencies from its Store
+--- shipped Cosmic reads [`build.artifact`] and its dependencies from its Store
 --- projection. `render` substitutes the generated target arms into it,
 --- and, for a test build, the portable test hook and its call sites.
 

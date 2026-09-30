@@ -15,7 +15,7 @@
 ---
 --- Every fixture is a single file in its own fresh subdirectory,
 --- rather than several files sharing one `tmp`, because
---- `build.importer` compiles every `.tl` file it finds under a root
+--- [`build.importer`] compiles every `.tl` file it finds under a root
 --- together: two independent fixtures sharing a root would fail or
 --- pass as one unit rather than on their own.
 

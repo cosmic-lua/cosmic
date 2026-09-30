@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.sqlite`, shown by `cosmic docs` and run by
+--- Worked examples for [`cosmic.sqlite`], shown by `cosmic docs` and run by
 --- `cosmic test`.
 
 local Sqlite = require("cosmic.sqlite")

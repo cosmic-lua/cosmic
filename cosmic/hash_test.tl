@@ -50,7 +50,7 @@ local function test_hmac_matches_published_vectors()
   end
 end
 
---- The raw HMAC of `message` fed to `Hash.hmac_hasher` in pieces of `step` bytes.
+--- The raw HMAC of `message` fed to [`Hash.hmac_hasher`] in pieces of `step` bytes.
 local function chunked_hmac(algorithm: Hash.Algorithm, key: string, message: string, step: integer): string
   local mac = assert(Hash.hmac_hasher(algorithm, key))
   local at = 1

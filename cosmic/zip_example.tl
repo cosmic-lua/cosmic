@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.zip`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.zip`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -7,7 +7,7 @@ local Zip = require("cosmic.zip")
 
 local Example = {}
 
---- A zip made in memory: `writer` over a `Stream.collect`, each entry
+--- A zip made in memory: `writer` over a [`Stream.collect`], each entry
 --- added in turn, and `close` writing the central directory.
 function Example.writer()
   local out = Stream.collect()

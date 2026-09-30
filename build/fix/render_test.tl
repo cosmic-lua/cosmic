@@ -20,7 +20,7 @@
 --- the middle of an argument list. That compiles and is a stable fixed
 --- point, so only a golden string notices.
 ---
---- Every case goes through the whole verb, `build.fix.source`, not the
+--- Every case goes through the whole verb, [`build.fix.source`], not the
 --- renderer alone: that reparses what it wrote and compares the trees,
 --- so a golden string here is checked for meaning as well as for text.
 

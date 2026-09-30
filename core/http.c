@@ -19,7 +19,7 @@
  *
  * `open` drives the transfer until the final response's headers are
  * known. They are final at the blank line ending a header block that is
- * neither a 1xx's nor a redirect curl follows itself (`header_cb`), or
+ * neither a 1xx's nor a redirect curl follows itself ([`header_cb`]), or
  * else once curl hands over the first byte of a body or the whole
  * transfer is over. The status and headers are then read from curl
  * (CURLINFO_RESPONSE_CODE, and the header API's last request) rather
@@ -158,7 +158,7 @@ static struct script *live_scripts;
  * (`ca_roots`, which build/roots.tl fills from Mozilla's bundle), plus
  * the certificates in $SSL_CERT_FILE when it names a readable file --
  * which is how a TLS-intercepting proxy's own CA gets trusted. Parsed
- * once and kept for the life of the process: `use_roots` hands it to
+ * once and kept for the life of the process: [`use_roots`] hands it to
  * every TLS connection, a proxy's included. */
 static mbedtls_x509_crt roots;
 
@@ -1138,7 +1138,7 @@ static CURLcode configure_script (struct transfer *t, const char **which) {
   SET(CURLOPT_CONNECT_TO, t->connect_to);
   SET(CURLOPT_PROXY, "");
   /* https too: the reply is then the server's side of the handshake,
-   * which is how a test sees a certificate verified by `use_roots`. */
+   * which is how a test sees a certificate verified by [`use_roots`]. */
   SET(CURLOPT_PROTOCOLS_STR, "http,https");
   SET(CURLOPT_FRESH_CONNECT, 1L);
   SET(CURLOPT_FORBID_REUSE, 1L);
@@ -1421,7 +1421,7 @@ static const luaL_Reg handle_methods[] = {
 };
 
 /* check_certificate(der): true, "" when mbedtls reads `der` as one
- * X.509 certificate, as `load_roots` reads each of `ca_roots`; false
+ * X.509 certificate, as [`load_roots`] reads each of `ca_roots`; false
  * and why when it does not. What `cosmic refresh` holds a
  * new bundle to, so a root the binary would drop is refused before it
  * is written. Raises when mbedtls had no memory to read it. */

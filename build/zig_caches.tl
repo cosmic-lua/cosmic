@@ -1,10 +1,10 @@
 --- Where zig's global and project caches are, as build/zig.tl puts
---- them. `build.caches` uses it to bind them into a sandboxed worker
+--- them. [`build.caches`] uses it to bind them into a sandboxed worker
 --- that declares the `zig` cache. It is part of the test harness
---- (`build.test`'s `harness_own`), so it requires nothing but
+--- ([`build.test`]'s `harness_own`), so it requires nothing but
 --- cosmic.fs. build/zig.tl runs standalone on the bootstrap's own
 --- standard library and cannot require this module; it spells the same
---- rule in its `Zig.global_cache` and `Zig.project_cache`, which
+--- rule in its [`Zig.global_cache`] and [`Zig.project_cache`], which
 --- build/zig_caches_test.tl holds this to.
 
 local Fs = require("cosmic.fs")
@@ -14,7 +14,7 @@ end
 
 --- Where one of zig's caches would be: `variable` from `environment`
 --- when set, else `tool` in this user's cosmic cache directory as
---- `Fs.cache_path` names it -- nothing made -- else `fallback`.
+--- [`Fs.cache_path`] names it -- nothing made -- else `fallback`.
 local function located(variable: string, tool: string, fallback: string,
                        environment: {string:string}): string
   local given = environment[variable]

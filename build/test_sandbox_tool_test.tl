@@ -145,7 +145,7 @@ end
 
 --- A worker is given the tree's store, its closure's files and what its
 --- module declares of the tree, each at its name under /tree; its
---- scratch directory to write, at `test_sandbox.scratch`; the host files it declares at
+--- scratch directory to write, at [`test_sandbox.scratch`]; the host files it declares at
 --- their own names; and no network but its own loopback. A path that is
 --- not there is not given: a read of it finds nothing either way.
 local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_name(tmp: string)
@@ -285,7 +285,7 @@ end
 --- where that is allowed. The workers nest in this test's own sandbox,
 --- which a host may refuse (the kernel lets root nest one only two deep:
 --- core/syscalls.c's `map_ids`); a case of a sandboxed run then has
---- nothing to check. It says it is skipped (`Test.skip`),
+--- nothing to check. It says it is skipped ([`Test.skip`]),
 --- which a run held to sandboxing fails
 --- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.

@@ -11,7 +11,7 @@
 ---
 ---     cosmic --standalone eval/summarize.tl <arena>/transcript.jsonl
 ---
---- `eval/summarize` runs this on the bootstrap cosmic, as bin/vendor
+--- [`eval/summarize`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only. The arena
 --- is the transcript's own directory, and the repository is found from
 --- this script's path, both with every link resolved.

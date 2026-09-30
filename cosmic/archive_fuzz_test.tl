@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.archive`: opening is total over any bytes,
+--- Fuzz properties for [`cosmic.archive`]: opening is total over any bytes,
 --- plain or behind a compressor's magic, and extraction never writes
 --- outside its destination or leaves a link there that leads out of it,
 --- whatever paths, links and options an archive combines.
@@ -35,7 +35,7 @@ end
 local SAFE_PARTS <const> = { "a", "b", "link", "." }
 local SAFE_TARGETS <const> = { "a", "b", "link", ".", "link/.." }
 
---- An extraction as `Fuzz.pack` fields: a format, the `links` option,
+--- An extraction as [`Fuzz.pack`] fields: a format, the `links` option,
 --- a strip (`1` for `strip_components`, `a` for `strip_prefix`), then
 --- a kind, a path and a body per entry. Entries are well formed but for
 --- at most one hostile one, drawn from anything: extract refuses a

@@ -4,12 +4,12 @@
 --- `standalone_tool_test.tl`.
 
 local standalone = require("build.standalone")
--- A fixture below requires `cosmic.zip`, which a standalone compile
+-- A fixture below requires [`cosmic.zip`], which a standalone compile
 -- types from the store: required here, it is in this test's closure,
 -- so the store the worker is held to answers it.
 local type _ = require("cosmic.zip")
 
---- `standalone.compile` with its cache in the test's own directory, not
+--- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
 local function compile(tmp: string, file: string, source: string): standalone.Main | nil, string
   return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" })

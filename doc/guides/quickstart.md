@@ -9,7 +9,7 @@ start a project of your own, see the guide `cosmic docs project`.
 
 ## hashing bytes
 
-`cosmic.hash` turns a string into its SHA-256 digest, as 64 lowercase
+[`cosmic.hash`] turns a string into its SHA-256 digest, as 64 lowercase
 hex characters.
 
 ```teal
@@ -24,8 +24,8 @@ print(Hash.hex_sha256("cosmic"))
 
 ## reading a file back
 
-`cosmic.fs` reads and writes files. `Fs.mkdtemp` makes a fresh directory
-to work in, `Fs.write` puts a file in it, and `Fs.read` reads it back.
+[`cosmic.fs`] reads and writes files. [`Fs.mkdtemp`] makes a fresh directory
+to work in, [`Fs.write`] puts a file in it, and [`Fs.read`] reads it back.
 
 ```teal
 local Fs = require("cosmic.fs")
@@ -59,7 +59,7 @@ prints a string without its quotes. The path is the `$.users[1].name`
 style the JSON messages print, with indices counted from 1; quote it in
 single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
 out to read standard input, so `curl ... | cosmic json '.items[1]'`
-works. Numbers print as `Json.encode` writes them, so `1e2` reads
+works. Numbers print as [`Json.encode`] writes them, so `1e2` reads
 `100.0`.
 
 When you do not know where a value lives, list them all: `cosmic json
@@ -77,7 +77,7 @@ newline in it takes more than one line), and `cosmic json
 JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
 over `--flat` covers the simple cases. To count or sum, use `cosmic sql
 --from` (next section); for anything else write the script with
-`cosmic.json`, whose `Json.flatten` and `Json.select` are these two.
+`cosmic.json`, whose [`Json.flatten`] and [`Json.select`] are these two.
 `cosmic help json` has the rest.
 
 ## a random id, token or number
@@ -177,7 +177,7 @@ time` has the rest.
 
 `cosmic docs cosmic.hash` lists what a module offers: each function's
 signature, with how many places use it and how many examples it has, ahead
-of the rest of its prose. `cosmic docs hex_sha256` (or `Hash.hex_sha256`)
+of the rest of its prose. `cosmic docs hex_sha256` (or [`Hash.hex_sha256`])
 shows one symbol, with its doc comment and its examples. Words search the
 documentation instead, so `cosmic docs sha256 hex` finds the same function
 when you do not know its name; with no argument, `cosmic docs` lists every
@@ -200,7 +200,7 @@ refers to it, to see how others call it before you do:
 
 ## below cosmic.fs
 
-`cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function
+[`cosmic.fs`] is built on [`cosmic.sys`], the syscall table: one C function
 per call, the same on Linux and on macOS. A call no module wraps, such
 as `lstat`, is there. A failure returns nil, the error, and the errno.
 `cosmic docs cosmic.sys` lists every call.
@@ -222,7 +222,7 @@ dir
 
 ## running another cosmic program
 
-`cosmic.child` starts an executable from an exact path; it does not search
+[`cosmic.child`] starts an executable from an exact path; it does not search
 `PATH`. Its result reports how the process ended. Output is inherited unless
 you redirect it to a caller-owned file descriptor, as this example does.
 It writes a small program, `greeter.tl`, and runs it.
@@ -270,7 +270,7 @@ hello, cosmic
 exit 0
 ```
 
-`Child.start` hands back a running child instead, and `Child.wait_any`
+[`Child.start`] hands back a running child instead, and [`Child.wait_any`]
 waits for the first of several to finish. When its timeout passes first it
 answers `nil` and `""`: nothing finished, and nothing failed. A reason other
 than `""` is a failure to report, never a message to read for its meaning.
@@ -306,7 +306,7 @@ exit 3
 ## ending early
 
 A program's entry returns its exit status. Where returning is awkward,
-`Proc.exit` ends the process at once with a status: it runs no finalizers
+[`Proc.exit`] ends the process at once with a status: it runs no finalizers
 and never returns. This example declares no output, so it compiles and does
 not run: running it would end the test that runs this guide.
 
@@ -329,3 +329,18 @@ the variable is a plain local declared from an integer literal, the message
 names the fix. Write `local peak = 0.0`, or annotate `local peak: number = 0`,
 for a variable that holds floats. A function declared `: number` may still
 `return 0`: an integer is a number.
+
+[`Child.start`]: ../../cosmic/child.tl
+[`Child.wait_any`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.fs`]: ../../cosmic/fs.tl
+[`cosmic.hash`]: ../../cosmic/hash.tl
+[`cosmic.sys`]: ../../core/syscalls.h
+[`Fs.mkdtemp`]: ../../cosmic/fs.tl
+[`Fs.read`]: ../../cosmic/fs.tl
+[`Fs.write`]: ../../cosmic/fs.tl
+[`Hash.hex_sha256`]: ../../cosmic/hash.tl
+[`Json.encode`]: ../../cosmic/json.tl
+[`Json.flatten`]: ../../cosmic/json.tl
+[`Json.select`]: ../../cosmic/json.tl
+[`Proc.exit`]: ../../cosmic/proc.tl

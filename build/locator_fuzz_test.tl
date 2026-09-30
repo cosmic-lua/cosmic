@@ -14,7 +14,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
---- `store`: `embed.tree` joins every `cosmic.*` module's rows.
+--- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
 Test.needs{ tool = true, store = true }
 
 local TRAILER <const> = 48

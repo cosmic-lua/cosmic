@@ -5,13 +5,13 @@
 --- -- answers `nil` and a reason rather than a guess, so every string a
 --- decoder accepts encodes back to exactly itself.
 ---
---- - `Codec.hex` and `Codec.unhex`: lower-case hex, the way to show a
+--- - [`Codec.hex`] and [`Codec.unhex`]: lower-case hex, the way to show a
 ---   digest or a key. The decoder reads either case.
---- - `Codec.base64` and `Codec.unbase64`: the standard alphabet, padded,
+--- - [`Codec.base64`] and [`Codec.unbase64`]: the standard alphabet, padded,
 ---   for data in text formats and headers.
---- - `Codec.base64url` and `Codec.unbase64url`: the URL- and
+--- - [`Codec.base64url`] and [`Codec.unbase64url`]: the URL- and
 ---   filename-safe alphabet, unpadded, for tokens and file names.
---- - `Codec.encoder` and `Codec.decoder`: the same encodings a chunk at a
+--- - [`Codec.encoder`] and [`Codec.decoder`]: the same encodings a chunk at a
 ---   time, for data that does not fit in one string.
 ---
 ---     local text = Codec.base64("hello")      -- "aGVsbG8="
@@ -26,7 +26,7 @@ local record Codec
   end
 
   --- One incremental transform, a chunk at a time, in the shape of
-  --- `cosmic.compress`'s streams: `update(chunk)` feeds bytes (or
+  --- [`cosmic.compress`]'s streams: `update(chunk)` feeds bytes (or
   --- text) and returns the output that is ready, possibly ""; and
   --- `finish()` says no more input follows and returns what is left,
   --- with `nil` and a reason when a decoder's text was refused. Both
@@ -251,7 +251,7 @@ function Codec.base64url(s: string): string
   return encode(URL, s, false)
 end
 
---- The bytes unpadded base64url spells. Strict like `Codec.unbase64`,
+--- The bytes unpadded base64url spells. Strict like [`Codec.unbase64`],
 --- and refuses `=` padding: answers `nil` and a reason for a length
 --- that leaves one character over, a character outside the alphabet,
 --- or a last character whose unused bits are not zero.
@@ -407,7 +407,7 @@ end
 --- An incremental encoder for `name`: feed it chunks of bytes with
 --- `update` and it returns the text they spell so far, holding back at
 --- most two bytes of an unfinished base64 group; `finish` returns the
---- rest, with the padding `Codec.base64` writes. The text of all the
+--- rest, with the padding [`Codec.base64`] writes. The text of all the
 --- chunks together is exactly the whole-string encoder's, whatever the
 --- chunking. Raises on a name it does not know.
 --- @param name hex, base64 or base64url
@@ -430,7 +430,7 @@ function Codec.encoder(name: Codec.Name): Codec.Coder
 end
 
 --- An incremental decoder for `name`, as strict as the whole-string
---- one (`Codec.unhex`, `Codec.unbase64`, `Codec.unbase64url`) and
+--- one ([`Codec.unhex`], [`Codec.unbase64`], [`Codec.unbase64url`]) and
 --- refusing with the same reason, its offsets counted from the first
 --- character fed, whatever the chunking. `update` returns the bytes
 --- whole groups of text spell, holding back at most three characters;

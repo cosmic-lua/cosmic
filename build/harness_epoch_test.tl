@@ -1,4 +1,4 @@
---- The harness's digests (`build.test`'s `harness`: what every worker
+--- The harness's digests ([`build.test`]'s `harness`: what every worker
 --- loads, the sandbox's maker and the code that makes and reads a key,
 --- a digest per module by its source and bytecode) are the ones
 --- build/harness_epoch.tl acknowledges, one to a line. No key holds
@@ -114,7 +114,7 @@ local function epoch_trouble(epoch: string, retired: {string}): string | nil
 end
 
 --- What differs between the harness's modules as `found` has them (a
---- digest per module, `build.test`'s `harness`) and `acknowledged`:
+--- digest per module, [`build.test`]'s `harness`) and `acknowledged`:
 --- nil where they agree, or a message naming each module that moved,
 --- that has no entry, and each entry that names no module of the
 --- harness, with the lines that acknowledge the first two.

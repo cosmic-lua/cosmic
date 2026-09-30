@@ -1,4 +1,4 @@
---- `build.importer`'s tests that read the projection beyond their own
+--- [`build.importer`]'s tests that read the projection beyond their own
 --- closure, apart from build/importer_test.tl's so those stand while the
 --- tree moves: a compile's hint names what the binary's docs, or the
 --- tree's own last projection, document, and a project's uses of the
@@ -114,12 +114,12 @@ local function test_project_keeps_uses_of_bundled_symbols()
   work.close(handle)
 end
 
---- `build.teal` strips `os` (and `io`, `debug`, `dofile`, `loadfile`)
+--- [`build.teal`] strips `os` (and `io`, `debug`, `dofile`, `loadfile`)
 --- from the checker's own globals, so a bare reference is tl's own
 --- "unknown variable" -- not left to fail only once a built program
---- actually runs and reaches `core/surface.c`'s replacement text. The
+--- actually runs and reaches [`core/surface.c`]'s replacement text. The
 --- message earns the same hint an unused variable does: a pointer at
---- `cosmic.removed`'s own field for the name, found by `symbols.named`
+--- [`cosmic.removed`]'s own field for the name, found by [`symbols.named`]
 --- the same way `cosmic docs os` would find it.
 local function test_unresolved_removed_global_names_its_own_replacement()
   local root = assert(write_fixture("removed-global-hint", {
@@ -133,7 +133,7 @@ local function test_unresolved_removed_global_names_its_own_replacement()
 end
 
 --- A removed name's refusal says what to write instead of the very
---- field used, not only where the docs are: `os.getenv` is `Env.get`,
+--- field used, not only where the docs are: `os.getenv` is [`Env.get`],
 --- and the `require` that brings it in, ahead of the docs pointer.
 local function test_a_removed_field_names_its_replacement_at_compile_time()
   local root = assert(write_fixture("removed-field-replacement", {
@@ -147,7 +147,7 @@ local function test_a_removed_field_names_its_replacement_at_compile_time()
 end
 
 --- The same hint, for a literal `require` of a removed name: tl
---- resolves `require("io")` against `env.modules`, which `build.teal`
+--- resolves `require("io")` against `env.modules`, which [`build.teal`]
 --- strips `io` from too, so this fails as an ordinary unresolvable
 --- module rather than a bare global.
 local function test_unresolved_removed_require_names_its_own_replacement()
@@ -183,7 +183,7 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
 end
 
 --- An ordinary undeclared-name typo, unrelated to anything the
---- database documents, earns no hint: `symbols.named` is an exact
+--- database documents, earns no hint: [`symbols.named`] is an exact
 --- match, never the free-text search `cosmic docs` falls back to, so
 --- a name that happens to share words with unrelated prose is never
 --- printed as though it explained this failure.
@@ -201,7 +201,7 @@ end
 --- Concrete checker families point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
 --- the output beside the hint. That every query advertised is answered by
---- the tree's docs is held by `cosmic fix --check .` (`build.tree_checks`).
+--- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
 local function test_language_errors_name_relevant_checked_docs()
   local cases: {string:{string}} = {
     wrong_arguments = {
@@ -236,7 +236,7 @@ end
 --- Syntax rejected while constructing the checker environment still keeps its
 --- original diagnostic. Its corresponding language guide is independently
 --- available rather than being promised by a code path compilation never
---- reaches, which `cosmic fix --check .` holds (`build.tree_checks`).
+--- reaches, which `cosmic fix --check .` holds ([`build.tree_checks`]).
 local function test_malformed_type_keeps_its_error()
   local root = assert(write_fixture("language-guide-malformed-type", {
     ["thing.tl"] = "local x: {string = integer} = {}\nreturn x\n",

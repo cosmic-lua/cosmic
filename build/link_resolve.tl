@@ -1,9 +1,9 @@
---- What a link names (`build.links`), from what a `Context` says of
+--- What a link names ([`build.links`]), from what a [`Context`] says of
 --- the project: the resolution `cosmic fix` checks every link by, and
---- the build indexes each link by (`build.link_index`). Resolution
+--- the build indexes each link by ([`build.link_index`]). Resolution
 --- reads only through its context, so each of them hands it a world of
---- its own: `fix` the disk (`on_disk`) and the project's databases, the
---- build the disk and the projection it is writing. See `build.links`
+--- its own: `fix` the disk ([`on_disk`]) and the project's databases, the
+--- build the disk and the projection it is writing. See [`build.links`]
 --- for the order a target is resolved in.
 
 local Fs = require("cosmic.fs")
@@ -234,7 +234,7 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
       reason = "it lies outside the project's root"
     elseif relative == "o" or relative:sub(1, 2) == "o/" then
       -- Refused before it is looked at, so the build's output never
-      -- enters what a projection is signed by (`build.link_index`).
+      -- enters what a projection is signed by ([`build.link_index`]).
       reason = "it is under o/, the build's output"
     elseif kind_at(resolver, path) ~= nil then
       if resolver.real_root == nil then
@@ -472,9 +472,9 @@ end
 --- standard library, a directory, an anchor, what names nothing or more
 --- than one thing. With `in_tree`, a symbol only when the file that
 --- declares it is a file of the tree: what a Markdown file's definition
---- of a code-span label must name (`build.links`). A name no symbol
+--- of a code-span label must name ([`build.links`]). A name no symbol
 --- answers is not counted among those left unchecked
---- (`Resolver.unchecked`): it is asked, not linked.
+--- ([`Resolver.unchecked`]): it is asked, not linked.
 function link_resolve.meant(resolver: link_resolve.Resolver, from: string, content: string,
                             declared: function(): link_text.Declared,
                             in_tree: boolean): link_resolve.Target | nil
@@ -525,7 +525,7 @@ end
 ---   means, and another module's symbol is written in full;
 --- - a name in full (`module.member`, `Type.member`, `alias.member`
 ---   through a `require` of the file, a module's whole name) that names
----   one symbol of the project (`docs.exact`'s rule), or one member the
+---   one symbol of the project ([`docs.exact`]'s rule), or one member the
 ---   file declares;
 --- - a path of a file of the tree, one with a `/` in it.
 ---

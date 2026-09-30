@@ -1,4 +1,4 @@
---- `eval/summarize.tl` over transcripts built here: what each line of
+--- [`eval/summarize.tl`] over transcripts built here: what each line of
 --- its report counts, and what it skips.
 local Json = require("cosmic.json")
 local Summarize = require("eval.summarize")

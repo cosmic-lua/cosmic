@@ -50,7 +50,7 @@ local function test_a_holder_lets_go_of_the_flock_on_release(tmp: string)
   rebuild_lock.release()
 end
 
---- A wait `sys.flock` cannot take is refused by `take` itself: a
+--- A wait [`sys.flock`] cannot take is refused by `take` itself: a
 --- negative one, which it would take for no limit and SQLite for none,
 --- and one past a C int.
 local function test_a_wait_out_of_range_raises(tmp: string)

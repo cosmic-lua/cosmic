@@ -263,7 +263,7 @@ static bool observe_path (const char *name) {
 
 /* A file the observed VFS opened: the `sqlite3_file` SQLite holds, with
  * `observed_methods` for its methods, over the default VFS's own file,
- * which follows it in the same block (`OBSERVED_FILE_ROOM` bytes in) and
+ * which follows it in the same block ([`OBSERVED_FILE_ROOM`] bytes in) and
  * is handed every call. SQLite keeps `name` unchanged until xClose. */
 struct observed_file {
   sqlite3_file file;
@@ -313,7 +313,7 @@ static sqlite3_file *real_of (sqlite3_file *file) {
 /* The default VFS's methods for `file`, when they are of `version` or
  * later: a file whose methods its own VFS replaced with older ones since
  * it opened (Apple's proxy locking does) has none of the later calls.
- * `observed_file_control` follows such a change, so SQLite, which asks
+ * [`observed_file_control`] follows such a change, so SQLite, which asks
  * the outer file's version, stays out of WAL as it would unwrapped
  * rather than fail with SQLITE_IOERR_SHMMAP; this check is the guard. */
 static const sqlite3_io_methods *methods_of (sqlite3_file *file, int version) {
@@ -769,7 +769,7 @@ static int handle_gc (lua_State *L) {
 }
 
 /* A handle on a connection its owner -- the store -- opened and closes:
- * `Store.databases()` hands these out. A test worker's hold refuses that
+ * [`Store.databases()`] hands these out. A test worker's hold refuses that
  * call to a test whose module does not declare `store`
  * (build/test_worker.tl's `hold_store`), and one that declares it is keyed
  * by the whole projection, so what a query through one reads needs no

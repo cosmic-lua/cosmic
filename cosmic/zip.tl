@@ -1,7 +1,7 @@
 --- A zip reader over a whole file or an in-memory string, walked
 --- through the central directory with positional reads rather than a
 --- sequential scan, plus a streaming writer. Store (method 0) and
---- deflate (method 8, through `cosmic.compress`'s `inflater`/
+--- deflate (method 8, through [`cosmic.compress`]'s `inflater`/
 --- `deflater`) are the only methods understood. Zip64 is read and
 --- written wherever an archive needs it: on the end-of-central-
 --- directory record (more than 65535 entries, or a central directory
@@ -79,7 +79,7 @@ local record Zip
     close: function(Reader): boolean, string
   end
 
-  --- How `add_file` stores an entry's bytes: "deflate" compresses them
+  --- How [`add_file`] stores an entry's bytes: "deflate" compresses them
   --- (zip's method 8), "store" keeps them as they are (method 0).
   enum Method
     "deflate"
@@ -98,7 +98,7 @@ local record Zip
     --- "deflate" (the default) or "store".
     method: Method
     --- The body's uncompressed size, for a body given as a
-    --- `Stream.Reader`; ignored for a string, whose length is its size.
+    --- [`Stream.Reader`]; ignored for a string, whose length is its size.
     --- Optional: a streamed entry whose size is known to reach 2 GiB
     --- must say so, since its local header has to announce zip64
     --- before any of the body is read. When given, the body must turn
@@ -122,7 +122,7 @@ local record Zip
   record Writer
     --- Adds a file at `path` with `data` as its body; returns `true, ""`,
     --- or `false` and why. Refuses a path ending in `/`, which zip reads as a directory.
-    --- A `Stream.Reader` body is read in chunks through the deflater
+    --- A [`Stream.Reader`] body is read in chunks through the deflater
     --- and a running CRC32, so memory stays bounded however long it
     --- is: its sizes and CRC32 follow the data in a data descriptor
     --- (general-purpose bit 3) rather than the local header, so the
@@ -196,7 +196,7 @@ end
 -- means deciding what such an entry's mtime is.
 
 --- Days since 1970-01-01, for a proleptic Gregorian civil date. Howard
---- Hinnant's `days_from_civil`.
+--- Hinnant's [`days_from_civil`].
 local function days_from_civil(y: integer, m: integer, d: integer): integer
   y = m <= 2 and y - 1 or y
   local era = (y >= 0 and y or y - 399) // 400
@@ -206,7 +206,7 @@ local function days_from_civil(y: integer, m: integer, d: integer): integer
   return era * 146097 + doe - 719468
 end
 
---- The inverse of `days_from_civil`.
+--- The inverse of [`days_from_civil`].
 local function civil_from_days(z: integer): integer, integer, integer
   z = z + 719468
   local era = (z >= 0 and z or z - 146096) // 146097
@@ -504,7 +504,7 @@ end
 --- A central directory file header's fixed part, after its signature.
 local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 
---- What `next_record` returns for an entry it was asked only to check.
+--- What [`next_record`] returns for an entry it was asked only to check.
 local CHECKED: Zip.Entry = { path = "", kind = "file", linkpath = "" }
 
 --- The central directory's next entry, or nil and `""` at its end.
@@ -544,7 +544,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   elseif unix_type == S_IFLNK then
     kind = "symlink"
   end
-  -- `open_reader`'s first pass checks this too, so an entry with a zip64
+  -- [`open_reader`]'s first pass checks this too, so an entry with a zip64
   -- value no Lua integer holds (2^63 or more reads negative) is refused
   -- there rather than listed with a negative size.
   if extra_len > 0 and (usize == U32_MAX or csize == U32_MAX or local_offset == U32_MAX) then
@@ -557,10 +557,10 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   -- An entry's local header (30 bytes at least) and compressed body lie
   -- before the central directory: APPNOTE 4.3.6 puts every local
   -- header, body and data descriptor ahead of it and the zip64 end
-  -- records after it, and `open_reader` has already found it inside the
+  -- records after it, and [`open_reader`] has already found it inside the
   -- file. An entry that does not fit there is refused on
-  -- `open_reader`'s first pass, rather than listed and failing only when
-  -- opened (through `Zip.open`, an offset near 2^63 fails as pread's
+  -- [`open_reader`]'s first pass, rather than listed and failing only when
+  -- opened (through [`Zip.open`], an offset near 2^63 fails as pread's
   -- bare "Invalid argument"). Written as subtractions, which cannot
   -- overflow for values already known not to be negative.
   local cd_offset = c.start
@@ -824,7 +824,7 @@ local function central_header(name: string, method: integer, dos_time: integer, 
 end
 
 --- A streaming writer over `w`. A string body is written with its CRC32
---- and sizes in its local header; a `Stream.Reader` body, whose CRC32
+--- and sizes in its local header; a [`Stream.Reader`] body, whose CRC32
 --- and sizes are known only once it is read, with them in a data
 --- descriptor after it (the central directory, which the reader goes by,
 --- has them either way). A reader that walks local headers forward

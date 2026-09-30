@@ -28,7 +28,7 @@ function exit_status.status(value: any): integer | nil
   return whole
 end
 
---- `exit_status.status` of `value`, or, for one that is none, 2 after a
+--- [`exit_status.status`] of `value`, or, for one that is none, 2 after a
 --- complaint on stderr as `what`'s (a file's name, or `-e`).
 function exit_status.of(what: string, value: any): integer
   local status = exit_status.status(value)

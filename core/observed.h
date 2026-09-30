@@ -15,13 +15,13 @@
  *     after it answers, with what it answered -- a walk of a tree one
  *     record of its root, as "tree_digest" by contents or "tree_stamps"
  *     by what `lstat` says of each entry; one whose record cannot be
- *     kept fails as memory does (`cosmic_observed_call`). `chdir`
+ *     kept fails as memory does ([`cosmic_observed_call`]). `chdir`
  *     keeps a stat's of where it goes before it goes
- *     (`cosmic_observed_ask`).
+ *     ([`cosmic_observed_ask`]).
  *   - a call that reaches past the process (`open`, the process table's
  *     `spawn`, cosmic.http's `open`): kept before it acts, with what it
  *     was given alone; one whose record cannot be kept fails, having
- *     done nothing (`cosmic_observed_note`).
+ *     done nothing ([`cosmic_observed_note`]).
  *   - a call that makes a directory (`mkdir`, `mkdtemp`): kept after it
  *     made it, with its path; one whose record cannot be kept removes
  *     what it made and fails.
@@ -72,7 +72,7 @@ int cosmic_observed_call (lua_State *L, enum cosmic_observed_call call,
                           lua_CFunction query);
 
 /* Calls `query` and keeps the record of what it was asked and answered
- * as `call`, as `cosmic_observed_call` does, but answers nothing: the
+ * as `call`, as [`cosmic_observed_call`] does, but answers nothing: the
  * stack is left as it was. False when the record cannot be kept. */
 bool cosmic_observed_ask (lua_State *L, enum cosmic_observed_call call,
                           lua_CFunction query);

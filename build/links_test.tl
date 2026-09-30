@@ -134,7 +134,7 @@ local function symbols_of(spelled: {string}): {link_resolve.Symbol}
   return out
 end
 
---- A world for `links.check`: the files at their absolute paths under
+--- A world for [`links.check`]: the files at their absolute paths under
 --- `/p`, every directory above them, and what each query names.
 local function world(files: {string: string}, symbols?: {string: {string}},
                      members?: {string: {string}}, links_to?: {string: string},
@@ -173,7 +173,7 @@ local function world(files: {string: string}, symbols?: {string: {string}},
   }
 end
 
---- What `links.check` finds in `source`, a file of `kind` at `path`.
+--- What [`links.check`] finds in `source`, a file of `kind` at `path`.
 local function checked(context: link_resolve.Context, path: string, kind: string, source: string): {string}
   return links.check(link_resolve.resolver(context), path, path, kind, source, built)
 end
@@ -316,7 +316,7 @@ end
 
 --- The root's `o/` is refused before anything is asked of it, so what
 --- the build writes there never enters what a projection is signed by
---- (`build.link_index`), whether or not the path is there.
+--- ([`build.link_index`]), whether or not the path is there.
 local function test_the_roots_output_is_never_looked_at()
   local context = world({ ["/p/o/y.md"] = "" })
   local kind = context.kind
@@ -446,7 +446,7 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
   })
 end
 
---- `source`, a file of `kind` at `path`, as `links.rewrite` links it,
+--- `source`, a file of `kind` at `path`, as [`links.rewrite`] links it,
 --- and what it says it linked.
 local function rewritten(context: link_resolve.Context, path: string, kind: string,
                          source: string): string, {string}

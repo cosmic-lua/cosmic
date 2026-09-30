@@ -1,6 +1,6 @@
---- `Errors.guidance_in` over a catalog of the test's own: which row an
+--- [`Errors.guidance_in`] over a catalog of the test's own: which row an
 --- uncaught error's message is matched to, and what is printed for it.
---- `Errors.guidance` asks each database the store holds the same way
+--- [`Errors.guidance`] asks each database the store holds the same way
 --- (cosmic/errors_example.tl shows it over the binary's own catalog).
 local Errors = require("cosmic.errors")
 local Sqlite = require("cosmic.sqlite")
@@ -99,7 +99,7 @@ local function test_a_message_of_function_words_asks_nothing()
 end
 
 --- A database with no catalog, as a project's may be, has no guidance
---- for any message: `Errors.guidance` goes on to the next.
+--- for any message: [`Errors.guidance`] goes on to the next.
 local function test_a_database_without_a_catalog_has_none()
   local db = assert(Sqlite.memory())
   assert(Errors.guidance_in(db, "the quuxifier refused the zorblax") == nil)

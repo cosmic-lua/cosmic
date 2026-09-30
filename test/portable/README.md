@@ -4,9 +4,9 @@
 
 `tool.tl` provides subcommands for writing fixture artifacts, extracting
 manifest entries, corrupting core ranges, and related operations. Run it as
-`cosmic test/portable/tool.tl SUBCOMMAND ARGS...`. `init.tl` (`test.portable`) is
+`cosmic test/portable/tool.tl SUBCOMMAND ARGS...`. `init.tl` ([`test.portable`]) is
 the reusable v1 artifact reader and writer-input helper used by `tool.tl` and
-the `build/artifact.tl` fixtures.
+the [`build/artifact.tl`] fixtures.
 
 Product assembly, transport validation, the cross-language format contract,
 launcher construction and regression, runtime construction and regression,
@@ -19,7 +19,7 @@ projects.
 The driver's `format_test.tl` is the cross-language format check: the
 production Teal writer makes a prefix from `build.zig`'s generated records and
 real cores, and the production C decoder (`format_test.c`, linked against
-`core/portable.c`) validates it before a battery of focused malformed-field
+[`core/portable.c`]) validates it before a battery of focused malformed-field
 mutations is tried against it.
 
 The driver's `launcher_setup.tl` compiles one native contract payload per generated
@@ -81,7 +81,7 @@ still rejects a corrupt selected range while extracting it; and three
 atomic races at the FIFO pause -- replace, unlink, and a pre-open mismatched
 replacement that must be rejected rather than falling back to "no tree to
 boot". Atomic replacement and unlink at that pause prove both VFS and the
-trusted `build.artifact` prefix capability keep reading the retained
+trusted [`build.artifact`] prefix capability keep reading the retained
 artifact descriptor; writing that same inode in place remains unsupported
 and is deliberately not presented as safe. It finishes with informational
 cold/warm entry-timing observations that set no threshold.
@@ -117,10 +117,10 @@ deterministic Teal edit causes exactly one database-only rebuild and
 re-entry at the same logical portable path, with the exact re-entered argv
 and an ordinary environment value checked on arrival. The rebuilt file keeps
 the retained prefix and cache entry count, and its bytes change. A subsequent
-core input edit (`core/startup.h`) is refused, under `COSMIC_AUTO_BOOT=0`,
+core input edit ([`core/startup.h`]) is refused, under `COSMIC_AUTO_BOOT=0`,
 with the named `bin/zig build boot` remedy and touches neither the artifact
 nor the cache. Three further cases -- a pinned `vendor/tl` version, an
-unapplied `patch/tl` entry, and an edited `build/launcher.tl` -- are refused
+unapplied `patch/tl` entry, and an edited [`build/launcher.tl`] -- are refused
 outright, before `test.run` or the artifact is ever reached. A last,
 dependency-free case exercises the prefix comparison itself: an exact match, a
 too-short program, and a single mutated byte.
@@ -131,3 +131,10 @@ In a full run it runs portable suites from a fresh tracked-source export on
 every leg, including the `alpine-x86_64` job container, which builds and
 tests natively on musl/BusyBox like every other leg. Its isolated project and
 command contracts are documented in `ci`.
+
+[`build.artifact`]: ../../build/artifact.tl
+[`build/artifact.tl`]: ../../build/artifact.tl
+[`build/launcher.tl`]: ../../build/launcher.tl
+[`core/portable.c`]: ../../core/portable.c
+[`core/startup.h`]: ../../core/startup.h
+[`test.portable`]: init.tl

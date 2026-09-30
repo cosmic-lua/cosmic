@@ -1,5 +1,5 @@
 --- Fuzz properties for `cosmic codec`'s decoding (build/codec.tl), which
---- reads more than `cosmic.codec` does: it strips whitespace and
+--- reads more than [`cosmic.codec`] does: it strips whitespace and
 --- handles padding and `--lenient`. Every encoding decodes what it
 --- wrote, wrapped or not and with whitespace strewn through it; every
 --- spelling of the text is total -- bytes or a reason naming an offset,

@@ -546,7 +546,7 @@ local function database_of(zip: string): string | nil, string
 end
 
 --- A run's suite rows, read from each of its `ci-driver-` artifacts
---- (its latest attempt's, `driver_artifacts`), fetched by id through the
+--- (its latest attempt's, [`driver_artifacts`]), fetched by id through the
 --- API and written under `scratch`. Each one that cannot be had is named
 --- in the run's `missing` instead.
 local function read_suites(o: Report.Options, run: Report.Run, scratch: string)

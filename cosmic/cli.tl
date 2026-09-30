@@ -159,7 +159,7 @@ local record Cli
   --- the value at the path as JSON, indented, or on one line with
   --- `--compact`; a string prints as its text with `-r`. A path reads
   --- as the paths the JSON messages print: `$` is the document, then
-  --- `.key` or `["a key"]` and `[1]`, counted from 1 as `Json.get`
+  --- `.key` or `["a key"]` and `[1]`, counted from 1 as [`Json.get`]
   --- counts (`$.users[1].name`); with a file after it, a first key
   --- needs no dot (`a.b`), and whitespace in a path is part of a key.
   --- `*` (`.*` or `[*]`) is every member of an object or element of an
@@ -183,17 +183,17 @@ local record Cli
   --- it is the path when it begins `$`, `.` or `[` (and not `./` or
   --- `../`), else the file; a file named `.data.json` is `./.data.json`,
   --- and after `--` the words are `[path] file` whatever they begin
-  --- with. The value is printed as `Json.encode` writes it, not echoed
+  --- with. The value is printed as [`Json.encode`] writes it, not echoed
   --- byte for byte: `1e2` prints as `100.0` and a big integer loses
   --- precision. `--exists` prints
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
-  --- `--shape` prints `Json.describe` of the value, and neither takes a
+  --- `--shape` prints [`Json.describe`] of the value, and neither takes a
   --- pattern, which can match many values. Only a lookup: no
   --- filter, no transform; to count or sum, use `cosmic sql --from`.
   --- Exits 0 when the path is found (a pattern:
   --- when something matches), 1 when it is not, with the message
-  --- `Json.get` gives on standard error (a pattern that matches nothing:
+  --- [`Json.get`] gives on standard error (a pattern that matches nothing:
   --- `<pattern>: no match`; a `null` value is found), 2 for a command line
   --- it cannot read, a pattern too deep to walk, or a
   --- file that is missing or not JSON. It prints no verdict line, which
@@ -204,7 +204,7 @@ local record Cli
   --- it, `<hex>  <name>`, the same on every platform. The algorithm is
   --- `--sha256` (the default), `--sha512`, `--sha384`, `--sha224`,
   --- `--sha1`, `--md5`, or `--sha3-224`, `--sha3-256`, `--sha3-384`,
-  --- `--sha3-512`: those `cosmic.hash` has. Every file streams in a
+  --- `--sha3-512`: those [`cosmic.hash`] has. Every file streams in a
   --- chunk at a time, so its size does not matter to memory. A name with
   --- a backslash or a newline is written as GNU writes it: the line
   --- begins `\` and the name has `\\`, `\n` and `\r` (all three read back). A file named `-` is
@@ -245,7 +245,7 @@ local record Cli
   --- member is a path in the archive and takes what is under it. The
   --- format -- zip, tar, or tar under gzip, xz or bzip2 -- is read from
   --- the file's first bytes, not its name. An absolute path, a `..`,
-  --- or a symlink out of the target is refused (`Archive.extract`), and
+  --- or a symlink out of the target is refused ([`Archive.extract`]), and
   --- so is replacing an existing path unless `--force` is given. Only
   --- that refusal and a member not in the archive write nothing: an
   --- unsafe entry stops the extraction after the entries before it,
@@ -285,7 +285,7 @@ local record Cli
   --- more lines than there are is refused, exit 2, with nothing
   --- printed. Everything secret-grade -- uuid, token, and the rest
   --- without `--seed` -- comes from the operating system's entropy
-  --- source (`Rand.entropy`), never from a seeded generator. `--seed
+  --- source ([`Rand.entropy`]), never from a seeded generator. `--seed
   --- N` (int, pick, shuffle only) draws from `Rand.new(N)` instead, so
   --- a test or a script can replay it: that output is NOT secret, and
   --- `--seed` is refused with uuid and token. Its standard output is
@@ -324,7 +324,7 @@ local record Cli
   --- to write. It reads the file, or standard input when the file is `-`
   --- or absent, and writes the encoding on one line and a newline; with
   --- `-d` it writes the bytes the text spells, and no newline. The
-  --- encodings are those of `cosmic.codec` and no others; `-d` is the
+  --- encodings are those of [`cosmic.codec`] and no others; `-d` is the
   --- one spelling of decode, `base64 -d` and `-D` differing between
   --- platforms. Encoding does not wrap unless `--wrap N` gives the
   --- columns, unlike GNU base64, which wraps at 76. Decoding ignores
@@ -358,7 +358,7 @@ local record Cli
   --- `--head` prints `HTTP <status>` and the headers, names lowercased
   --- and sorted, or with `--json` an object of `status`, `url` and
   --- `headers`, and then fails on a non-2xx too. Redirects are followed,
-  --- up to 10, as `cosmic.http` follows them, but from an https URL a
+  --- up to 10, as [`cosmic.http`] follows them, but from an https URL a
   --- redirect to http is refused (exit 1), unlike curl's default;
   --- `--allow-downgrade` follows it, best with `--sha256`. Header
   --- values print with control bytes as `\xNN`, and a URL's userinfo prints as
@@ -366,7 +366,7 @@ local record Cli
   --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
   --- verified: there is no option that turns it off. GET only, by
   --- design: for a header, a body or another method write the script
-  --- with `cosmic.http`. It prints no verdict line, which would be in
+  --- with [`cosmic.http`]. It prints no verdict line, which would be in
   --- the body a pipe reads. Exits 0 when the body was delivered, 1 when
   --- the fetch failed (no connection, a bad status, a digest that does
   --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
@@ -429,9 +429,9 @@ end
 
 local record Module
   --- One field per verb, named for it: the text `cosmic help <verb>`
-  --- prints, as `Cli` documents it.
+  --- prints, as [`Cli`] documents it.
   fields: Cli
-  --- Each verb's options, by verb, as `Flags.parse` reads a spec: what
+  --- Each verb's options, by verb, as [`Flags.parse`] reads a spec: what
   --- the verb parses its command line with, and what `cosmic help`
   --- lists beneath its prose, so the two cannot drift apart. A verb
   --- that is absent takes none.

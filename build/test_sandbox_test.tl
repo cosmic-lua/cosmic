@@ -18,7 +18,7 @@ end
 
 --- A worker's environment is the pinned variables and the ones its
 --- module declares, as the runner's view has them, or all of them for
---- "*"; and TMPDIR is its scratch directory, `test_sandbox.scratch`,
+--- "*"; and TMPDIR is its scratch directory, [`test_sandbox.scratch`],
 --- whatever the host's.
 local function test_a_worker_is_given_only_the_variables_it_may_read()
   local view = { PATH = "/bin", DECLARED = "d", UNDECLARED = "u", TMPDIR = "/elsewhere",

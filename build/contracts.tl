@@ -17,7 +17,7 @@
 ---    drops it too. A failure to be ignored on purpose (a cleanup on a
 ---    path that is already failing, a diagnostic written to stderr) says
 ---    so by binding both slots to `_`: `local _, _ = Fs.remove(path)`. A
----    method of a record `quieted` names (`cosmic.log`'s Logger) may
+---    method of a record `quieted` names ([`cosmic.log`]'s Logger) may
 ---    stand alone.
 --- 2. A failure carries no value: in a fallible function, a `return a,
 ---    b` whose `b` is not the literal `""` has a literal `nil` (`false`,
@@ -36,8 +36,8 @@
 ---    exactly two results, and no variadic tail. What else a failure
 ---    means goes in its reason, or in a structured error record standing
 ---    as the value.
----    The one exception is `cosmic.sys` (and the raw process table,
----    `cosmic.internal.process`), whose C bindings answer
+---    The one exception is [`cosmic.sys`] (and the raw process table,
+---    [`cosmic.internal.process`]), whose C bindings answer
 ---    `nil | false, error, errno`: a function a module stores into one
 ---    of its fields (`sys.stat = function(...) ... end`, a stand-in for
 ---    a binding) keeps the binding's shape: this rule does not read it,
@@ -66,14 +66,14 @@
 ---    which Teal can give no type.
 --- 8. A type does not repeat its module's name: a record, interface,
 ---    enum or alias the module's returned record declares, at any
----    depth, is read through that record (`Zip.Reader`), so
+---    depth, is read through that record ([`Zip.Reader`]), so
 ---    `Zip.ZipReader` says `Zip` twice. The module's name is the one
 ---    the chunk returns (`return Zip`), whose record is the `local
 ---    record` of that name or the type a `local` of it is declared as
 ---    (`local layout: Layout`). A type named after it outright
 ---    (`Zip.Zip`), or starting with it in any case and then a capital
 ---    (`ZipReader`, `SQLiteHandle` in `Sqlite`), is refused.
----    `Log.Logger` is not: `Log` is followed by a lower-case letter
+---    [`Log.Logger`] is not: `Log` is followed by a lower-case letter
 ---    there, a word of its own.
 --- 9. A mode is an enum, not a string (doc/design.md's fourth
 ---    principle: the checker proves what a comparison could only
@@ -89,7 +89,7 @@
 ---    gave the receiver) into a `local` bound to it or assigned it, a
 ---    default after `or` (whose literal counts), and the parameter of a
 ---    local function it is passed to, each kept by the function that
----    binds the name (see `check_modes`). A string that
+---    binds the name (see [`check_modes`]). A string that
 ---    is genuinely open-ended is named in `modes` with the reason.
 --- 10. A function a module exports answers one result, or a value or an
 ---     effect and its reason: `string, string`, `integer, integer` or
@@ -114,7 +114,7 @@
 --- finds no use for is refused as stale.
 ---
 --- The callee's type is the one the checker stored at the callee's own
---- position (`build.receivers` installs the reporter that keeps it). A
+--- position ([`build.receivers`] installs the reporter that keeps it). A
 --- callee the checker gave no function type is not judged. Rules 2 to
 --- 5 read a function's declared results.
 ---
@@ -237,13 +237,13 @@ local own_exemptions: contracts.Exemptions = {
 
 --- The methods whose failures a statement may ignore without saying
 --- so, by record, with the reason: a diagnostic written to a stream has
---- nowhere else to report that the write failed, as `cosmic.log` says.
+--- nowhere else to report that the write failed, as [`cosmic.log`] says.
 --- Each method is named, so one a record gains later is held to rule 1
 --- until it is listed here. Only a call standing alone as a statement
 --- is let through; a result used any other way is held to rule 1 too.
 --- A stale entry, one whose record no module declares or whose method
---- the record lacks, is refused by `build.tree_checks` over the whole
---- tree's projection, not here: `quiet_records` resolves them against
+--- the record lacks, is refused by [`build.tree_checks`] over the whole
+--- tree's projection, not here: [`quiet_records`] resolves them against
 --- whatever environment compiles the module at hand, which need not
 --- have loaded the record's module, so a miss here is no proof.
 local quieted: {string: contracts.Quiet} = {
@@ -397,7 +397,7 @@ local function list_of(n: Node | nil): {Node}
   return n
 end
 
---- How a callee or a function's owner reads in a message: `Fs.read`,
+--- How a callee or a function's owner reads in a message: [`Fs.read`],
 --- `h:digest`, `helper`.
 local function spelled(e: Node | nil): string
   if e == nil then return "a call" end
@@ -537,7 +537,7 @@ local function scope_of(n: Node, within: string, bound: {Node: string}): string
 end
 
 --- The name the exemption tables key the code of every node reached
---- through `index.order` under (`scope_of`), by node.
+--- through `index.order` under ([`scope_of`]), by node.
 local function scope_names(index: Index, bound: {Node: string}): {Node: string}
   local out: {Node: string} = {}
   local parent = index.parent
@@ -604,7 +604,7 @@ local function returns_of(fn: Node, index: Index): {Node}
 end
 
 --- Rules 2 to 5, over one function's declared results and returns. A
---- stand-in for a `cosmic.sys` binding keeps the binding's third slot,
+--- stand-in for a [`cosmic.sys`] binding keeps the binding's third slot,
 --- so rule 5 does not read it, nor does rule 2 read a return that
 --- hands the binding's whole answer on, errno and all.
 local function check_function(file: string, fn: Node, scope: string, exemptions: contracts.Exemptions,
@@ -739,7 +739,7 @@ local function standing(index: Index): {Node: boolean}
 end
 
 --- Every function literal a module stores into a field of a table of
---- C bindings (`binding_tables`): a stand-in for a binding, which
+--- C bindings ([`binding_tables`]): a stand-in for a binding, which
 --- answers in the binding's own shape. The table is known by the type
 --- the checker gave the field's owner, the record its module declares,
 --- whatever the owner is called.
@@ -1136,7 +1136,7 @@ end
 -- build.receivers keeping the declaring module of each record type.
 -- TODO: leave out a function-typed field of a nested record that a
 -- caller fills in (an options record's callback) rather than the
--- module: cosmic/archive.tl's `ExtractOptions.filter` is taken for one
+-- module: cosmic/archive.tl's [`ExtractOptions.filter`] is taken for one
 -- the module exports, passing rule 10 only because it answers one
 -- result. Telling it from a method the module defines wants the same
 -- declaring-site knowledge.
@@ -1612,8 +1612,8 @@ end
 --- has just checked, `file:line: ...` each, in line order.
 --- @param file the module's path in the tree, for messages
 --- @param root the checked AST
---- @param typed the checker's types, as `build.receivers` kept them
---- @param quiet `quiet_records`' answer, when the caller has an environment
+--- @param typed the checker's types, as [`build.receivers`] kept them
+--- @param quiet [`quiet_records`]' answer, when the caller has an environment
 --- @param bindings the tables of C bindings the checker has loaded
 --- (`binding_tables(env)`), when the caller has an environment
 --- @param given the exemptions to hold the module to, in place of this

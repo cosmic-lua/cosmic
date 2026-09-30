@@ -3,7 +3,7 @@ local Removed = require("cosmic.removed")
 --- Every module `Removed.members` names a member of, required by a
 --- literal name so the test's import closure holds each: a `require`
 --- of a computed name is refused under `cosmic test`
---- (`build.test_worker`).
+--- ([`build.test_worker`]).
 local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
   ["cosmic.hash"] = require("cosmic.hash"),

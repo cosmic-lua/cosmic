@@ -24,7 +24,7 @@ local Test = require("cosmic.test")
 
 -- Every wrapper core/store.c hands a raw module to (`wrappers`, below),
 -- required so it is of the closure: the store's searcher, asked by hand
--- (`raw_behind`), hands its raw value only for a module the closure
+-- ([`raw_behind`]), hands its raw value only for a module the closure
 -- holds.
 local type _artifact = require("build.artifact")
 local type _digest = require("build.digest")
@@ -256,7 +256,7 @@ local makers: {string: function(raw: {string: any}, tmp: string): Made} = {
 --- Every wrapper the store hands a raw module to, and the name of the
 --- raw module's declaration. The preloaded ones have no wrapper. Edit
 --- it together with core/store.c's `raw_modules`, which it repeats:
---- `test_every_raw_module_has_a_declaration` fails when the two part.
+--- [`test_every_raw_module_has_a_declaration`] fails when the two part.
 local wrappers <const>: {string: string} = {
   ["build.artifact"] = "store",
   ["build.digest"] = "hash",

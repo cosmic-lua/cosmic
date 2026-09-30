@@ -75,12 +75,12 @@ static const struct observed_call {
  * The bytes are libc's, as the coverage collector's are, not the heap
  * core/memory.h counts: they are the observer's, kept for whatever call
  * a test makes, and a test that holds the core to what its own C
- * allocates and frees (`testing.c_heap`) is not held to them. Their
+ * allocates and frees ([`testing.c_heap`]) is not held to them. Their
  * growth fails only at the fault point "observed_log": the refusal
- * walk `testing.fail_allocations` drives never reaches it.
+ * walk [`testing.fail_allocations`] drives never reaches it.
  * TODO: grow the log on the counted heap (cosmic_realloc), so
  * the refusal walk reaches its growth as it does every other block of
- * the core's own, once `testing.c_heap` can leave the observer's bytes
+ * the core's own, once [`testing.c_heap`] can leave the observer's bytes
  * out of what it answers (a count of them kept beside the log). */
 static struct {
   char *bytes;
@@ -211,7 +211,7 @@ static bool climbs (const char *path, size_t length) {
 }
 
 /* Whether `path` is `tree` or lies under it, name by name, as
- * `cosmic.fs`'s `within` answers. */
+ * [`cosmic.fs`]'s `within` answers. */
 static bool within (const char *path, size_t length, const char *tree,
                     size_t tree_length) {
   size_t base = unslashed(tree, tree_length);
@@ -301,7 +301,7 @@ static size_t resolution_length (const char *room, size_t found,
   return *prefix + names;
 }
 
-/* Writes the resolution `resolution_length` measured into `out`. */
+/* Writes the resolution [`resolution_length`] measured into `out`. */
 static void resolution_write (char *out, const char *room, size_t prefix,
                               const char *path, size_t rest, size_t length) {
   memcpy(out, room, prefix);

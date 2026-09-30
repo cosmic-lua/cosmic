@@ -3,7 +3,7 @@
 --- `prefix` consumes build.zig's generated target records and the exact raw
 --- cores. It generates both the shell case arms and binary manifest from that
 --- one sequence. `program` appends one SQLite database and the fixed trailer.
---- `host_program` lays out the other format: the running core alone, at the
+--- [`host_program`] lays out the other format: the running core alone, at the
 --- start of the file, then its manifest, database and trailer, so the kernel
 --- executes it directly with no launcher.
 --- None of them writes a path; callers publish the returned bytes through
@@ -35,7 +35,7 @@ local record artifact
     head: string
     --- The SQLite database the artifact carries.
     database: string
-    --- Whether it is a host program (`host_program`) rather than a
+    --- Whether it is a host program ([`host_program`]) rather than a
     --- portable one (`program`).
     host: boolean
   end
@@ -346,7 +346,7 @@ end
 --- a verdict's key holds. It is `head` itself, unless a core its
 --- manifest names carries debug information (build.core_image), which is
 --- keyed by its image instead. Then it is `head` with each core stood
---- for by its image's digest (`core_image.digest`).
+--- for by its image's digest ([`core_image.digest`]).
 ---
 --- The fields that say where the cores lie and what their bytes hash to
 --- are left out where they name exactly what is there: the manifest's

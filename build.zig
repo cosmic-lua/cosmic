@@ -4,20 +4,20 @@
 //!     bin/zig build cores     the core for all three targets
 //!     bin/zig build boot      the host core, then the boot bridge
 //!
-//! Everything lands under `o/`. Run it through `bin/zig`, which pins the
+//! Everything lands under `o/`. Run it through [`bin/zig`], which pins the
 //! compiler and names zig's two caches, which every checkout shares
 //! (build/zig.tl): everything, vendored or the tree's own, compiles from
 //! copies in the project cache, so a checkout at a path no build has seen
-//! compiles nothing another has (`Own`).
+//! compiles nothing another has ([`Own`]).
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// `bin/zig.pin`, read at comptime so that it is the one place that names
+/// [`bin/zig.pin`], read at comptime so that it is the one place that names
 /// the pinned version.
 const zig_pin = @embedFile("bin/zig.pin");
 
-/// The version line out of `bin/zig.pin` ("version X.Y.Z"), parsed at
+/// The version line out of [`bin/zig.pin`] ("version X.Y.Z"), parsed at
 /// comptime. A missing or malformed line fails the build by name rather
 /// than falling back to some default.
 fn pinnedZigVersion() std.SemanticVersion {
@@ -60,10 +60,10 @@ const Configuration = struct {
     sanitize: bool,
 };
 
-/// Whether a core observes its own C (`core/coverage.c`): not at all, or
+/// Whether a core observes its own C ([`core/coverage.c`]): not at all, or
 /// with sancov's per-block flags, once linked with an empty block-to-line
 /// table (`first_link`, read for its debug information and never run) and
-/// once carrying the table `core/coverage_map.zig` wrote from that link.
+/// once carrying the table [`core/coverage_map.zig`] wrote from that link.
 const NativeCoverage = union(enum) {
     off,
     first_link,
@@ -163,7 +163,7 @@ const debug_dir = "-fdebug-compilation-dir=.";
 const own_c = [_][]const u8{ "-std=c11", debug_dir } ++ own_warnings;
 
 /// mbedtls's compile-time configuration, which is
-/// `core/mbedtls_cosmic_config.h` and nothing else: that header is named
+/// [`core/mbedtls_cosmic_config.h`] and nothing else: that header is named
 /// as both configuration files the library reads (tf-psa-crypto's and
 /// mbedtls's own), and no `MBEDTLS_` or `PSA_WANT_` macro is passed on a
 /// command line. Every file that includes the library's headers -- the
@@ -479,7 +479,7 @@ const core_sources = [_][]const u8{
 /// .c file, or of a header in a directory under core/, would find nothing
 /// there and fail to compile. Debug information names the copy, which is
 /// there to read, and whose path ends in the tree's own (`.../core/x.c`):
-/// `core/coverage_map.zig` maps a line back to the tree by it. The
+/// [`core/coverage_map.zig`] maps a line back to the tree by it. The
 /// checked core's sanitizer names the tree's `core/x.c` (`checked_flags`)
 /// -- except in an unnamed type's name, which holds the copy's path, so
 /// the core's own C names its types -- and the analyzer reads the tree's
@@ -570,7 +570,7 @@ pub fn build(b: *std.Build) void {
     // zig keys a C object by its source's path and its flags' bytes, and a
     // path into the tree is an absolute one. The patched trees are
     // build/patch.tl's output, which bin/zig writes before it runs zig into
-    // directories named by their contents (`patchedTrees`), and the
+    // directories named by their contents ([`patchedTrees`]), and the
     // configuration headers the libraries read from core/ are copied here.
     // A checkout sharing another's zig cache then compiles none of vendor/
     // again.
@@ -758,7 +758,7 @@ pub fn build(b: *std.Build) void {
     boot.dependOn(&b.addRunArtifact(environment_check).step);
 
     // Every core but the test fixtures observes its own C: a table from
-    // each core's first link, carried by its second (`observedCore`).
+    // each core's first link, carried by its second ([`observedCore`]).
     // Debug, which keeps every safety check ReleaseSafe does: it reads a
     // core in tens of milliseconds either way, and compiles in a fifth of
     // the time, at the head of every cold build.
@@ -918,7 +918,7 @@ fn formatDecoder(
         .optimize = optimize,
         .link_libc = true,
         // Stripped like `core()` so a target build reuses the musl libc
-        // `cores` already built; see `launcherHelper()`. The native Debug
+        // `cores` already built; see [`launcherHelper()`]. The native Debug
         // decoder keeps its symbols.
         .strip = optimize != .Debug,
     });
@@ -1077,7 +1077,7 @@ const Sources = struct {
 };
 
 /// A core that observes its own C: linked first with an empty block table
-/// and its debug information, which `core/coverage_map.zig` reads to write
+/// and its debug information, which [`core/coverage_map.zig`] reads to write
 /// the table, then linked again carrying it. The table is indexed by block,
 /// so it is only true of a second link holding the first's blocks in the
 /// first's order; `checks` gains the step that holds it to that.
@@ -1315,7 +1315,7 @@ fn vendorLibrary(
 
     // mbedtls: the PSA crypto subtree, then the TLS 1.2/1.3 client and
     // X.509 layer above it, all under the one configuration header (see
-    // `mbedtls_config`). The crypto files below are the ones that hold
+    // [`mbedtls_config`]). The crypto files below are the ones that hold
     // code under that configuration; every other one compiles to nothing.
     const mbedtls_flags = [_][]const u8{ "-std=c11", debug_dir } ++ mbedtls_config;
     const crypto = mbedtls.path(b, "tf-psa-crypto");
@@ -1389,7 +1389,7 @@ fn vendorLibrary(
         .flags = &mbedtls_flags,
     });
 
-    // c-ares: DNS resolution for `cosmic.http`, on every target --
+    // c-ares: DNS resolution for [`cosmic.http`], on every target --
     // including macOS, where the rule against dynamic loading (see
     // `lua_base`) gets its one deliberate carve-out.
     // Apple's DNS configuration is only fully readable through configd,
@@ -1397,7 +1397,7 @@ fn vendorLibrary(
     // (ares_sysconfig_mac.c) rather than linking against; there is no
     // static alternative, so this is that one door left open, and only
     // on macOS. c-ares's own thread support (CARES_THREADS) is off: the
-    // core drives one poll loop itself, matching `cosmic.child`.
+    // core drives one poll loop itself, matching [`cosmic.child`].
     const cares_flags = [_][]const u8{
         "-std=c11",          debug_dir,
         "-DHAVE_CONFIG_H",   "-D_GNU_SOURCE",
@@ -1453,7 +1453,7 @@ fn vendorIncludes(
     mod.addIncludePath(sources.miniz);
     mod.addIncludePath(sources.yyjson.path(b, "src"));
     mod.addIncludePath(sources.bzip2);
-    // xz's own config.h stands in for autoconf's; see `vendorLibrary`.
+    // xz's own config.h stands in for autoconf's; see [`vendorLibrary`].
     const xz_src = sources.xz.path(b, "src");
     mod.addIncludePath(sources.config.path(b, "xz_config"));
     mod.addIncludePath(sources.xz.path(b, "src/common"));
@@ -1517,7 +1517,7 @@ fn core(
         .optimize = coreOptimize(configuration),
         .link_libc = true,
         // The release cores are stripped. The checked core keeps its debug
-        // information; `debug_dir` and the map's `-g0` keep it naming no
+        // information; [`debug_dir`] and the map's `-g0` keep it naming no
         // path of the build, so it too is the same bytes at any path.
         // A first link keeps its debug information for the block map to
         // read; it is never installed.
@@ -1543,7 +1543,7 @@ fn core(
     // core/memory.h's counted allocator and core/fault.h's fault points.
     // Every other core compiles both to the plain call they wrap.
     // Its sanitizer's reports name a file by its last two components,
-    // `core/x.c`, rather than the copy it was compiled from (`Own`).
+    // `core/x.c`, rather than the copy it was compiled from ([`Own`]).
     const checked_flags = core_flags ++ lua_checks ++ [_][]const u8{
         "-DCOSMIC_CHECKED",
         "-fsanitize-undefined-strip-path-components=-2",
@@ -1603,7 +1603,7 @@ fn hostName(b: *std.Build) []const u8 {
 /// restored from a runner on other hardware on every such step; built for
 /// the detected kernel and glibc versions, it would miss after every runner
 /// image update. No core is built for it: the checked core is built for the
-/// host's shipped target (`hostTarget`).
+/// host's shipped target ([`hostTarget`]).
 fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     const host = b.graph.host.result;
     return baselineTarget(b, .{

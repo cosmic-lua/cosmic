@@ -42,7 +42,7 @@ end
 --- core/syscalls.c's `map_ids`, where a root runner cannot run its
 --- workers as a user of their own: build.test_sandbox's `runs_as`);
 --- the sandboxed case then checks only what
---- the unsandboxed one does. It says it is skipped (`Test.skip`),
+--- the unsandboxed one does. It says it is skipped ([`Test.skip`]),
 --- which a run held to sandboxing fails
 --- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
@@ -132,7 +132,7 @@ end
 --- A hung test is ended at its deadline, and so is every process it
 --- left running -- its worker's process group and the strays the
 --- runner adopts, unsandboxed; its worker's pid namespace, sandboxed
---- (`build.test_sandbox`) -- while the rest of the run goes on.
+--- ([`build.test_sandbox`]) -- while the rest of the run goes on.
 local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   for _, mode in ipairs({ "0", "" }) do
@@ -412,7 +412,7 @@ end
 --- other of their prefix as it starts), so the filter's case for them
 --- is the second half's. The first holds the rest of the filter end to
 --- end: its suite declares the whole environment, so the run's own
---- filter (`test.worker_environment`), not a declaration, is what drops
+--- filter ([`test.worker_environment`]), not a declaration, is what drops
 --- how the run was started (OLDPWD, SHLVL).
 local function test_workers_start_without_the_startup_hooks(tmp: string)
   local root = tmp .. "/project"

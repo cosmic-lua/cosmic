@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.time`'s TZif reader (RFC 8536), which
+--- Fuzz properties for [`cosmic.time`]'s TZif reader (RFC 8536), which
 --- reads files from the host and from wherever a caller's bytes came
 --- from: `zone_from_tzif` is total -- whatever bytes it is handed, it
 --- answers a zone or a failure and never raises, and a zone it answers

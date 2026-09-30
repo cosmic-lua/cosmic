@@ -137,7 +137,7 @@ function Fixture.environment_of(base: {string:string},
   return environment
 end
 
---- `environment_of` the fixture's own environment.
+--- [`environment_of`] the fixture's own environment.
 function Fixture.environment(extra?: {string:string}): {string:string}
   return Fixture.environment_of(Env.all(), extra)
 end
@@ -173,7 +173,7 @@ function Fixture.call_with_environment(label: string, argv: {string},
   return { result = finished, out = out, err = err }
 end
 
---- `call_with_environment` with each file of `paths` open for reading on
+--- [`call_with_environment`] with each file of `paths` open for reading on
 --- the descriptor it is keyed by, in the child only.
 function Fixture.call_with_descriptors(label: string, argv: {string},
     directory: string, diagnostics: string, environment: {string:string},

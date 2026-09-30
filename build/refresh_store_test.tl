@@ -4,7 +4,7 @@
 --- of materials records, and that it still runs; and the docs that find
 --- the verb. These need `store`: building that program copies every
 --- `cosmic.*` module's rows from this program's own database
---- (`embed.database` reads `Store.databases()`), and `docs` searches
+--- ([`embed.database`] reads [`Store.databases()`]), and `docs` searches
 --- them. Refreshing this program itself is in build/refresh_tool_test.tl,
 --- and what needs neither in build/refresh_test.tl.
 
@@ -23,7 +23,7 @@ local refresh = require("build.refresh")
 
 --- The vendored bundle and zones a refresh replaces, and this program,
 --- whose core a program it builds runs on.
---- `store`: `embed.database` reads every `cosmic.*` module's rows, and
+--- `store`: [`embed.database`] reads every `cosmic.*` module's rows, and
 --- `docs` searches them.
 Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true, store = true }
 

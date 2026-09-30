@@ -7,12 +7,12 @@
 ---
 --- A spec may describe its options rather than only name them -- `{
 --- ["--jobs"] = { value = "n", about = "run n at once" } }` -- and
---- `Flags.help` writes a program's help from it. `Flags.dispatch` reads a
+--- [`Flags.help`] writes a program's help from it. [`Flags.dispatch`] reads a
 --- command first -- `prog build --jobs 4` -- parses the rest with that
 --- command's own spec, and answers `--help` from the same descriptions.
 
 local record Flags
-  --- One option described, for a spec to name and `Flags.help` to show.
+  --- One option described, for a spec to name and [`Flags.help`] to show.
   record Option
     --- What its value is called in help ("n", "path"), for an option
     --- that takes one; nil for one that takes none.
@@ -37,7 +37,7 @@ local record Flags
     words: {string}
   end
 
-  --- What `Flags.dispatch` did.
+  --- What [`Flags.dispatch`] did.
   record Dispatched
     --- The exit status: what the command's `run` answered, or 0 when
     --- help was asked for instead.
@@ -47,9 +47,9 @@ local record Flags
     help: string
   end
 
-  --- One command `Flags.dispatch` can run.
+  --- One command [`Flags.dispatch`] can run.
   record Command
-    --- The options the command takes, as `Flags.parse` reads a spec;
+    --- The options the command takes, as [`Flags.parse`] reads a spec;
     --- none when nil.
     spec: {string:boolean | Option}
     --- One line on what the command does, for help.
@@ -81,7 +81,7 @@ end
 --- Parses command line options. Reads `argv` from slot `from` on: 1
 --- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
 --- `spec` maps each option, written as it is typed ("--check", "-v"), to
---- whether it takes a value: `true` or `false`, or a `Flags.Option`, which
+--- whether it takes a value: `true` or `false`, or a [`Flags.Option`], which
 --- takes one when it names its `value`. The value is the next word, or
 --- what follows "=" in the same word for a "--" option or a one-dash
 --- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
@@ -104,7 +104,7 @@ end
 --- is never read as a value. A value that begins with "-" is given in
 --- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
 --- not an option ("x", "-", "--"), or that holds an "=" no word could
---- reach ("--a=b"), raises, as does an `Option` whose `value` is "".
+--- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
 --- @param argv {integer:string} The command line
 --- @param from integer The first slot to read
 --- @param spec {string:boolean|Option} Each option, and whether it takes a value
@@ -256,7 +256,7 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   return lines
 end
 
---- The options `spec` names, one line each as `Flags.help` lists them:
+--- The options `spec` names, one line each as [`Flags.help`] lists them:
 --- indented two spaces, sorted, what each does in a column. "" when it
 --- names none. For help of another shape that still lists options the
 --- same way.
@@ -268,7 +268,7 @@ end
 
 --- A program's help, written from its spec: the usage line, `about`
 --- when given, and each option the spec names with its value's name and
---- what it does, as a `Flags.Option` describes it: one named `false`
+--- what it does, as a [`Flags.Option`] describes it: one named `false`
 --- is listed bare, and one named `true` with "<value>". Columns are
 --- aligned by characters, not bytes. It ends without a newline.
 ---
@@ -365,7 +365,7 @@ end
 --- answers build's; `prog help --help` the program's), or when
 --- "--help" or "-h" comes after a command whose spec does not name it,
 --- before any "--" -- even as what would be an option's value, which
---- `Flags.parse` refuses anyway. Each command's help is `Flags.help`'s,
+--- [`Flags.parse`] refuses anyway. Each command's help is [`Flags.help`]'s,
 --- from its spec, `usage` and `about`; the program's lists every
 --- command's `about`. `help` given more than one word is refused.
 ---

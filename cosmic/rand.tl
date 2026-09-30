@@ -3,14 +3,14 @@
 --- chance can be replayed by naming its seed. The generator is
 --- xoshiro256**, its state filled from the seed by splitmix64. It is not
 --- cryptographic: never derive a key, token or nonce from it; draw those
---- from `Rand.entropy`.
+--- from [`Rand.entropy`].
 ---
---- - `Rand.new` makes a seeded `Rand.Source`, whose `int`, `float` and
+--- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float` and
 ---   `bytes` draw from it: use one for shuffles, simulations and tests
 ---   that must replay.
---- - `Rand.uniform` picks an unbiased integer in a range from any
+--- - [`Rand.uniform`] picks an unbiased integer in a range from any
 ---   function that draws 64 random bits.
---- - `Rand.entropy` draws unguessable bytes from the operating system:
+--- - [`Rand.entropy`] draws unguessable bytes from the operating system:
 ---   use it for keys, tokens and nonces.
 ---
 ---     local dice = Rand.new(2026)
@@ -147,7 +147,7 @@ end
 
 --- `count` bytes from the operating system's entropy source
 --- (`getentropy`, as `/dev/urandom` serves), fit for a key, token or
---- nonce: unlike a `Source`, never the same twice and never replayable.
+--- nonce: unlike a [`Source`], never the same twice and never replayable.
 --- Raises when `count` is negative or past 1 MiB.
 --- @param count integer How many bytes
 --- @return string | nil The bytes

@@ -1,4 +1,4 @@
---- `Time.parse_duration`, `Time.format_duration` and `Time.parse_input`,
+--- [`Time.parse_duration`], [`Time.format_duration`] and [`Time.parse_input`],
 --- the readers of what a person types that `cosmic time` uses. The fuzz
 --- properties are in time_input_fuzz_test.tl.
 

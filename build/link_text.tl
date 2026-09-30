@@ -1,12 +1,12 @@
 --- The links a text holds, read off the text alone: what the build's
---- parse records of every Teal source (`build.importer`), keyed by the
---- source's hash, and what `cosmic fix` checks (`build.links`). Nothing
+--- parse records of every Teal source ([`build.importer`]), keyed by the
+--- source's hash, and what `cosmic fix` checks ([`build.links`]). Nothing
 --- here reads a file, a database or the tree: a link's words, where
 --- it is and what the file it is in declares are functions of the
 --- source's bytes, which is what lets a parse keep them. What a link
---- resolves to is `build.link_resolve`'s.
+--- resolves to is [`build.link_resolve`]'s.
 ---
---- See `build.links` for the forms a link takes and what is prose.
+--- See [`build.links`] for the forms a link takes and what is prose.
 
 local String = require("cosmic.string")
 local ast = require("build.ast")
@@ -39,7 +39,7 @@ local record link_text
     starts: {integer} | nil
   end
 
-  --- A code span of a text that no link holds, as `plain_spans` finds
+  --- A code span of a text that no link holds, as [`plain_spans`] finds
   --- it: the line it is on, counted from 1, the byte of that line its
   --- first backtick is, the span as written, backticks and all, and
   --- what it holds.
@@ -54,7 +54,7 @@ local record link_text
   --- its top level as far as a plain span may be linked to it.
   record Declarations
     declared: Declared
-    --- Each module-level name, dotted as `Declared.names` holds it,
+    --- Each module-level name, dotted as [`Declared.names`] holds it,
     --- that nothing else of the file declares.
     module_level: {string: boolean}
   end
@@ -83,7 +83,7 @@ local record link_text
   --- A link a Teal source's comments hold, as the build records it:
   --- the link, whether its comment is a doc comment, and what the
   --- first step of resolution reads of the file for its target
-  --- (`build.link_resolve`): whether the file declares the name
+  --- ([`build.link_resolve`]): whether the file declares the name
   --- (`own`), and the module the name's first part is an alias of
   --- (`alias`, "" for none).
   record Found
@@ -533,7 +533,7 @@ end
 
 --- The name `target` could be, as the first two steps of resolution
 --- read one: a target with no anchor shaped as a name or a dotted path
---- (`read`, `Fs.read`, `Box:grow`), a call's `()` left off; nil
+--- (`read`, [`Fs.read`], `Box:grow`), a call's `()` left off; nil
 --- for one that is no name.
 function link_text.name_of(target: string): string | nil
   if target:find("#", 1, true) ~= nil then

@@ -4,10 +4,10 @@
 ---
 --- WHERE THE BYTES COME FROM. Everything secret-grade -- `uuid`, `token`,
 --- and `int`, `pick` and `shuffle` without `--seed` -- is drawn from the
---- operating system's entropy source, `Rand.entropy`, and from nothing
+--- operating system's entropy source, [`Rand.entropy`], and from nothing
 --- else: `fetch` below is the one read of it, through `secret`, and no
 --- seeded generator is ever reached from those paths. `--seed <n>` is
---- the other road and the only one to `Rand.new`, a replayable
+--- the other road and the only one to [`Rand.new`], a replayable
 --- xoshiro256** that is not secret: it exists so a test or a script can
 --- name its chance, and its output must never be used as a key, token or
 --- nonce. `--seed` is refused with `uuid` and `token`, which have no use
@@ -20,7 +20,7 @@
 --- error as `cosmic: rand: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- UUIDs. Version 4 is 122 bits of entropy. Version 7 (RFC 9562) is the
---- Unix time in milliseconds from `cosmic.time`, then the rest from
+--- Unix time in milliseconds from [`cosmic.time`], then the rest from
 --- entropy. Its 12 bits after the version are the RFC's method 3
 --- (section 6.2, increased clock precision): the clock's fraction of the
 --- current millisecond, in 4096ths, and where a draw would not sort after
@@ -46,7 +46,7 @@ local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
---- The `cosmic rand` verb: `run` is what `build/dispatch.tl` calls.
+--- The `cosmic rand` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
@@ -59,13 +59,13 @@ local record verb
     err: function(line: string)
     --- The whole of standard input, or nil and why.
     stdin: function(): string | nil, string
-    --- The operating system's entropy: `Rand.entropy` when nil.
+    --- The operating system's entropy: [`Rand.entropy`] when nil.
     entropy: function(count: integer): string | nil, string
-    --- The wall clock in nanoseconds: `Time.now_ns` when nil.
+    --- The wall clock in nanoseconds: [`Time.now_ns`] when nil.
     now_ns: function(): integer
   end
 
-  --- The most bytes `token --bytes` gives, `Rand.entropy`'s own limit.
+  --- The most bytes `token --bytes` gives, [`Rand.entropy`]'s own limit.
   MAX_BYTES: integer
   --- The most values `-n` asks for.
   MAX_COUNT: integer
@@ -259,7 +259,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   -- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
   -- may be a secret is made from bytes this returns; a seeded
-  -- generator (`Rand.new`) is reached only from `seeded` below.
+  -- generator ([`Rand.new`]) is reached only from `seeded` below.
   local broken: string | nil
   local function fetch(count: integer): string
     local bytes, why = draw_entropy(count)
@@ -284,7 +284,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return bytes
   end
 
-  --- Uniform over lo..hi from entropy, by `Rand.uniform`'s rejection.
+  --- Uniform over lo..hi from entropy, by [`Rand.uniform`]'s rejection.
   local function secret_int(lo: integer, hi: integer): integer
     if lo == hi then return lo end
     return Rand.uniform(function(): integer
@@ -440,7 +440,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   return code
 end
 
---- The `rand` verb as `build/verb_list.tl` lists it. It reads no tree,
+--- The `rand` verb as [`build/verb_list.tl`] lists it. It reads no tree,
 --- so it is never stale-checked.
 verb.spec = {
   name = "rand",

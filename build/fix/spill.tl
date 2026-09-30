@@ -2,15 +2,15 @@
 --- `assert(...)` whose extra values land where they should not.
 ---
 --- Lua's `assert` returns every value it was given, and the checker
---- says so (`patch/tl/15-assert-returns-every-value.txt`). So at the end
+--- says so ([`patch/tl/15-assert-returns-every-value.txt`]). So at the end
 --- of an argument list, a table constructor or a return,
 --- `f(assert(g()))` passes `g`'s error slot on to `f` as a second
 --- argument. The checker refuses that when `f` has no room for the
---- value or a different type for it, and reports `spill.message` at the
+--- value or a different type for it, and reports [`spill.message`] at the
 --- `assert(` concerned. Wrapping the call in parentheses keeps only its
 --- first value, which is what such code always meant.
 ---
---- The structural rules in `build.fix.rule` cannot make this fix: a
+--- The structural rules in [`build.fix.rule`] cannot make this fix: a
 --- pattern cannot tell `f(assert(g()))` where `f` takes one value from
 --- one where it takes both, and parenthesizing the second would drop a
 --- value passed on purpose. So this stage asks the checker: it builds

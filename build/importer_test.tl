@@ -348,10 +348,10 @@ end
 
 --- The compiler identity is what turns source into bytecode: the Teal
 --- compiler's and Lua's pins and patches, and the build's own modules a
---- compile or a parse runs (`work.compiler_modules`). The standard
+--- compile or a parse runs ([`work.compiler_modules`]). The standard
 --- library the importer runs on
 --- is not in it, so an edit there does not recompile the world -- but
---- for `cosmic.removed`, the names `build.teal` strips from the checker,
+--- for [`cosmic.removed`], the names [`build.teal`] strips from the checker,
 --- which decide what a compile accepts: an edit to it moves the
 --- compiler's identity, though not the runtime basis.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
@@ -439,7 +439,7 @@ local function test_boot_hash_tracks_embedded_inputs()
 end
 
 --- A Teal test is none of what the tool is made of: no binary carries
---- one (`build.writer`'s `carried`), so an edit to one, a new one or one
+--- one ([`build.writer`]'s `carried`), so an edit to one, a new one or one
 --- removed leaves the tool fresh, whichever of the tool's trees holds
 --- it, and a module beside it still moves the hash. The test is staged
 --- as an input all the same, for `cosmic test` to build.
@@ -630,7 +630,7 @@ local function test_uses_of_an_inherited_field_name_its_interface()
 end
 
 --- The compiler identity closes over what its roots require
---- (`work.compiler_modules`), so it is the same whether the working
+--- ([`work.compiler_modules`]), so it is the same whether the working
 --- database is fresh or has parsed the tree before -- a boot on an empty
 --- `o/` must key its modules exactly as a warm one does, or the two
 --- ship different databases. A helper only build.importer requires is
@@ -675,12 +675,12 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "an edit to a module the compiler requires did not move its identity")
 end
 
---- The writer identity is every module `build.writer` reaches, the
+--- The writer identity is every module [`build.writer`] reaches, the
 --- standard library's included, but what a root requires that
---- `work.writer_modules` leaves out: an edit to a module it requires
+--- [`work.writer_modules`] leaves out: an edit to a module it requires
 --- moves it, and an edit to build.importer, which build.writer requires
 --- for a type alone, or to a module only the importer requires, does
---- not. It is what a projection is signed with (`build.writer`), so a
+--- not. It is what a projection is signed with ([`build.writer`]), so a
 --- tool whose writer stands writes what the tree's own would.
 local function test_writer_identity_follows_the_writer_closure()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-writer-identity-"))
@@ -841,7 +841,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
 end
 
 --- A boot carries no database and runs the tree's own code, so it names
---- the analyzer by the tree (`importer.tree_code`). It must name it as
+--- the analyzer by the tree ([`importer.tree_code`]). It must name it as
 --- the tool it writes will name its own, from what that tool carries;
 --- otherwise the first build the booted tool runs forgets every row the
 --- boot derived and parses every source again (about 11 s at release
@@ -926,7 +926,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   -- parses, what it leaves `meta` naming it, and whether a row planted
   -- under build.other's source (which only forgetting every parse
   -- removes) survived. Run as a boot runs, with no `boot_hash`: the
-  -- suite's binary carries one, so `Store.meta` is stood in for across
+  -- suite's binary carries one, so [`Store.meta`] is stood in for across
   -- the derive. `before_derive` changes the working database first.
   local function boot(before_derive?: function(work.Handle)): string, string, string, boolean
     local again = assert(work.open(root))
@@ -1002,7 +1002,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
 end
 
 --- tl's checker silently accepts a `_`-prefixed name as intentionally
---- unused (`vendor/tl/tl.tl`'s own `var_name:sub(1, 1) == "_"` check),
+--- unused ([`vendor/tl/tl.tl`]'s own `var_name:sub(1, 1) == "_"` check),
 --- but its warning for every other name does not mention that escape,
 --- and cosmic refuses the whole compile over any warning (see
 --- `complain`). `with_unused_hint` names the escape in the message.
@@ -1050,7 +1050,7 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
---- `build.contracts` holds a module's exports to rule 10 as it compiles,
+--- [`build.contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
@@ -1082,7 +1082,7 @@ local function test_compile_rejects_an_exported_tuple()
   assert(trouble:find("Bad.split: an exported function answers one result", 1, true), trouble)
 end
 
---- The error-slot discipline (`build.contracts`) is checked beside the
+--- The error-slot discipline ([`build.contracts`]) is checked beside the
 --- checker as cosmic's own modules compile: a dropped reason refuses
 --- the module, whatever the compiled cache holds.
 local function test_compile_rejects_a_dropped_error_slot()
@@ -1115,7 +1115,7 @@ local function test_compile_rejects_a_dropped_error_slot()
   assert(trouble:find("cosmic/dropped.tl:4: get: its error slot is dropped", 1, true), trouble)
 end
 
---- `cosmic.sys`'s documentation points into the header it is generated
+--- [`cosmic.sys`]'s documentation points into the header it is generated
 --- from, not into the generated source: each row's line is its
 --- declaration's own line in core/syscalls.h, through the build and
 --- into the shipped database, along with the worked examples that pair
@@ -1299,7 +1299,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
 end
 
 --- The compiler's identity holds what a compile or a parse runs to
---- decide what it stores (`build.work`'s `compiler_identity`). That
+--- decide what it stores ([`build.work`]'s `compiler_identity`). That
 --- holds only while the set is closed: every module of the tree's that
 --- one of them requires is in it too, or is the standard library the
 --- compile runs on.
@@ -1313,11 +1313,11 @@ end
 --- A `cosmic.*` require is let through whole: it is the standard
 --- library the compile runs on, which the identity leaves out. This
 --- cannot tell that from data that decides what a compile accepts, as
---- `cosmic.removed` does; such a module goes into the identity by hand
---- (`work.compiler_modules`).
+--- [`cosmic.removed`] does; such a module goes into the identity by hand
+--- ([`work.compiler_modules`]).
 ---
 --- The walk here reads the running binary's `imports`
---- (`Store.requires`), where `work.compiler_identity` reads the working
+--- ([`Store.requires`]), where [`work.compiler_identity`] reads the working
 --- database's `requires`, which has rows for a declaration's source
 --- (`.d.tl`) too. The two reach the same modules while no module of the
 --- identity has a declaration of its own but build.compiler, which
@@ -1376,9 +1376,9 @@ local function test_the_compiler_modules_are_closed_under_require()
 end
 
 --- The writer's identity holds what decides a projection's bytes beside
---- the rows it is filled from (`build.work`'s `writer_identity`): all
+--- the rows it is filled from ([`build.work`]'s `writer_identity`): all
 --- that build.writer and build.work reach, but the few requires of
---- theirs that `work.writer_left_out` names with a reason. Each one
+--- theirs that [`work.writer_left_out`] names with a reason. Each one
 --- named is still a require of theirs, and reaches the identity no
 --- other way.
 ---
@@ -1451,13 +1451,13 @@ local function test_the_writer_modules_are_closed_under_require()
   end
 end
 
---- What a source parses to is decided by `importer.analyzer_modules` and
+--- What a source parses to is decided by [`importer.analyzer_modules`] and
 --- nothing else in the tool, so an edit anywhere else reparses only what
 --- it edited. That holds only while the set is closed: every module of
 --- the tree's that one of them requires, as a parse of its source finds
 --- it, is in it too -- including a module only reached through another
---- (`build.ast.match`), and never one the importer alone reaches
---- (`build.test`). The importer's own requires are the exception -- it
+--- ([`build.ast.match`]), and never one the importer alone reaches
+--- ([`build.test`]). The importer's own requires are the exception -- it
 --- is in the set for its derive and parse, not for the rest of the build
 --- it also runs. A declaration of a C binding (`cosmic.internal.*`) is
 --- types over the core, not analysis.

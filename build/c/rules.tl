@@ -1,5 +1,5 @@
 --- The review checklist's mechanical items, checked over a C file's
---- syntax tree (`build.c.tree`) rather than by a reader.
+--- syntax tree ([`build.c.tree`]) rather than by a reader.
 ---
 --- Each rule is a promise AGENTS.md's C checklist makes, narrowed to what
 --- can be decided from one function's tree in source order:
@@ -55,7 +55,7 @@
 --- - "single-file": a function a header declares is referred to by no
 ---   translation unit but the one defining it, so it belongs to that file,
 ---   static, out of the header. It is decided over a whole tree at once
----   (`rules.unit`, `rules.single_file`), so `build.c` finds it only when
+---   ([`rules.unit`], [`rules.single_file`]), so `build.c` finds it only when
 ---   every C file is checked together.
 ---
 --- "pass-fail-int", "constant-return" and "true-alone" read the code
