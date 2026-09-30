@@ -746,21 +746,21 @@ COSMIC_SYSCALL(adopt, 2) {
   return 1;
 }
 
-/* What [`cosmic_socket_entered`] took of COSMIC_NET_WORKER: the part
- * past its supervisor's pid, "" for none. The longest a supervisor
- * writes, 251 listeners' descriptors and the one it watches, fits. */
-static char handed[2048];
+/* What [`cosmic_socket_entered`] took of COSMIC_NET_WORKER: whether it
+ * was set, its value -- "" for one too long to be a supervisor's, whose
+ * longest, 250 listeners' descriptors and the lifeline, fits -- and
+ * this process's parent then. */
+static bool handed_set;
+static char handed_value[2048];
+static long long handed_parent;
 
 void cosmic_socket_entered (void) {
   const char *value = getenv(COSMIC_NET_WORKER);
   if (value == NULL) return;
-  char *rest = NULL;
-  errno = 0;
-  long long supervisor = strtoll(value, &rest, 10);
-  if (errno == 0 && rest != value && *rest == ':' && supervisor == (long long)getppid() &&
-      strlen(rest + 1) < sizeof handed) {
-    memcpy(handed, rest + 1, strlen(rest + 1) + 1);
-  }
+  handed_set = true;
+  handed_parent = (long long)getppid();
+  size_t size = strlen(value);
+  if (size < sizeof handed_value) memcpy(handed_value, value, size + 1);
   /* The name is well formed, so this fails only where the libc cannot
    * change the environment at all, and then nothing starts a child
    * that would inherit it any differently. */
@@ -768,12 +768,16 @@ void cosmic_socket_entered (void) {
 }
 
 COSMIC_SYSCALL(handed, 0) {
-  if (handed[0] == '\0') {
+  if (!handed_set) {
     lua_pushnil(L);
     return 1;
   }
-  lua_pushstring(L, handed);
-  handed[0] = '\0';
+  lua_createtable(L, 0, 2);
+  lua_pushstring(L, handed_value);
+  lua_setfield(L, -2, "value");
+  lua_pushinteger(L, (lua_Integer)handed_parent);
+  lua_setfield(L, -2, "parent");
+  handed_set = false;
   return 1;
 }
 

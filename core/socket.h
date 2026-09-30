@@ -33,10 +33,8 @@ int cosmic_open_socket (lua_State *L);
 
 /* Takes COSMIC_NET_WORKER out of the environment as the runtime
  * starts, before anything runs that could start a child, so no
- * process this one starts inherits it; and keeps its descriptors for
- * `handed` where it names this process's parent as the supervisor --
- * a variable left over from another start, or set by hand, names
- * another, and is dropped. */
+ * process this one starts inherits it, and keeps it for `handed`, with
+ * this process's parent then, which the supervisor it names must be. */
 void cosmic_socket_entered (void);
 
 #endif
@@ -160,8 +158,15 @@ COSMIC_SYSCALL(bound, 1);
 COSMIC_SYSCALL(adopt, 2);
 
 /*
- * --- The descriptors a [`Net.serve`] supervisor handed this process, as COSMIC_NET_WORKER named them when the runtime started -- the part past the supervisor's pid, which must be this process's parent -- the first time it is asked, and nil after, or where there were none. The variable is gone from the environment from the start, so no child inherits it.
- * ---@return string|nil descriptors what the variable named past the supervisor's pid, or nil
+ * --- What COSMIC_NET_WORKER said when the runtime started, which a [`Net.serve`] supervisor starts each worker with, and the process's parent then.
+ * ---@class Handed
+ * ---@field value string the variable's value, "<supervisor pid>:<lifeline>:<listener>,...", or "" for one longer than any supervisor writes
+ * ---@field parent integer this process's parent when the runtime started, which a worker's supervisor is
+ */
+
+/*
+ * --- What COSMIC_NET_WORKER said as the runtime started, the first time it is asked, and nil after, or where it was not set. The variable is gone from the environment from the start, so no child inherits it.
+ * ---@return Handed|nil handed the variable and the parent then, or nil
  */
 COSMIC_SYSCALL(handed, 0);
 

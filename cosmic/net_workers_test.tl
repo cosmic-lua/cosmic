@@ -318,10 +318,9 @@ end
 
 --- A worker handed a descriptor that is no listening socket fails,
 --- naming it, and leaves it open; so does one handed a list it cannot
---- read. A variable naming a supervisor that is not the process's
---- parent -- left over, or set by hand -- is dropped: the process
---- listens itself, and its own descriptors are left be. None sees the
---- variable.
+--- read, or a variable naming a supervisor that is not its parent --
+--- one gone, or a value set by hand -- which neither listens nor
+--- touches a descriptor. None sees the variable.
 local function test_a_worker_handed_what_is_no_listener_fails(tmp: string)
   local file = assert(sys.open(tmp .. "/plain", sys.O_CREAT | sys.O_RDWR, 420))
   local me = tostring(sys.getpid())
@@ -333,9 +332,15 @@ local function test_a_worker_handed_what_is_no_listener_fails(tmp: string)
   assert(two == "false COSMIC_NET_WORKER must name a descriptor for each listener: " ..
     "it names 2, and the spec has 1|true|nil", two)
   local bad = handed(tmp, me .. ":3:x", both)
-  assert(bad:find("^false COSMIC_NET_WORKER must name, past the supervisor's pid") ~= nil, bad)
+  assert(bad:find("^false COSMIC_NET_WORKER must name the supervisor's pid") ~= nil, bad)
+  local garbled = handed(tmp, "3,4", both)
+  assert(garbled == "false COSMIC_NET_WORKER must name the supervisor's pid, a descriptor and " ..
+    "then one for each listener, each from 3 to 253 and each once, as \"<pid>:3:4,5\", " ..
+    "not \"3,4\"|true|nil", garbled)
   local stray = handed(tmp, "1:3:4", both)
-  assert(stray == "true |true|nil", stray)
+  assert(stray == "false COSMIC_NET_WORKER names supervisor 1, not this process's parent " ..
+    me .. ": its supervisor is gone, or it was set by another|true|nil", stray)
+  assert(Fs.stat(tmp .. "/s.sock") == nil, "a process refused as a worker listened")
   assert(sys.close(file))
 end
 

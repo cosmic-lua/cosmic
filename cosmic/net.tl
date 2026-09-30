@@ -278,11 +278,14 @@ local record Net
     --- its drain, exits, status 1, if it is still draining a second
     --- past it.
     ---
-    --- A worker is a process started with `COSMIC_NET_WORKER` naming
-    --- its parent as the supervisor. The runtime takes the variable out
-    --- of the environment as it starts, so no process a worker starts
-    --- inherits it, and drops one that names another process, left over
-    --- or set by hand. The worker's first [`Net.serve`], whatever call
+    --- A worker is a process started with `COSMIC_NET_WORKER`. The
+    --- runtime takes the variable out of the environment as it starts,
+    --- so no process a worker starts inherits it. The worker's first
+    --- [`Net.serve`] fails, touching no descriptor, where the variable
+    --- is malformed or names a supervisor that is not the process's
+    --- parent -- one gone before the worker started, or a value set by
+    --- hand -- rather than serve on its own, or supervise workers of its
+    --- own at the same addresses. That first [`Net.serve`], whatever call
     --- that is, serves the descriptors it names in place of listening,
     --- whatever `workers` says there, and never calls [`on_ready`]. Its
     --- spec must name the listeners the supervisor's did -- a program
@@ -1459,15 +1462,24 @@ local function descriptor_named(word: string): integer | nil
   return fd
 end
 
---- What `value`, the part of [`WORKER_VARIABLE`] past the supervisor's
---- pid, hands a worker of `count` listeners; nil and why it names no
---- such thing.
-local function handed_descriptors(value: string, count: integer): Handed | nil, string
-  local malformed = WORKER_VARIABLE .. " must name, past the supervisor's pid, a descriptor " ..
+--- What `found`, [`WORKER_VARIABLE`] as the runtime took it, hands a
+--- worker of `count` listeners; nil and why it hands nothing: it is
+--- malformed, or names a supervisor that is not this process's parent
+--- -- one gone before the worker started, or a value set by hand --
+--- where serving as a server of its own would take the supervisor's
+--- place, or become one.
+local function handed_descriptors(found: raw_socket.Handed, count: integer): Handed | nil, string
+  local value = found.value
+  local malformed = WORKER_VARIABLE .. " must name the supervisor's pid, a descriptor " ..
     "and then one for each listener, each from " .. FIRST_HANDED .. " to " .. LAST_HANDED ..
     " and each once, as \"<pid>:3:4,5\", not " .. string.format("%q", value)
-  local first, rest = value:match("^([^:]*):(.*)$")
-  local lifeline = first ~= nil and descriptor_named(first) or nil
+  local pid, first, rest = value:match("^(%d+):([^:]*):(.*)$")
+  if pid == nil then return nil, malformed end
+  if math.tointeger(tonumber(pid)) ~= found.parent then
+    return nil, WORKER_VARIABLE .. " names supervisor " .. pid .. ", not this process's parent " ..
+      found.parent .. ": its supervisor is gone, or it was set by another"
+  end
+  local lifeline = descriptor_named(first)
   if lifeline == nil then return nil, malformed end
   local seen: {integer: boolean} = { [lifeline] = true }
   local fds: {integer} = {}
@@ -1531,10 +1543,10 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   if Poll.in_task() then
     error("Net.serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
-  local variable = raw.handed()
+  local found = raw.handed()
   local handed: Handed = nil
-  if variable ~= nil then
-    local fds, trouble = handed_descriptors(variable, #spec.listeners)
+  if found ~= nil then
+    local fds, trouble = handed_descriptors(found, #spec.listeners)
     if fds == nil then return false, trouble end
     handed = fds
   end
