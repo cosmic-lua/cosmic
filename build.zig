@@ -917,7 +917,7 @@ fn formatDecoder(
         .target = target,
         .optimize = optimize,
         .link_libc = true,
-        // Stripped like `core()` so a target build reuses the musl libc
+        // Stripped like [`core()`] so a target build reuses the musl libc
         // `cores` already built; see [`launcherHelper()`]. The native Debug
         // decoder keeps its symbols.
         .strip = optimize != .Debug,
@@ -953,7 +953,7 @@ fn launcherHelper(
         .target = target,
         .optimize = .ReleaseFast,
         .link_libc = true,
-        // Matching `core()`'s strip setting keeps this module's musl libc
+        // Matching [`core()`]'s strip setting keeps this module's musl libc
         // build cache-compatible with the one `cores` already built for
         // the same target: without it, `zig build` reruns a from-scratch
         // musl libc/compiler_rt build for this one-file helper, which cost

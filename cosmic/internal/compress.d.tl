@@ -15,7 +15,7 @@ local record compress
     update: function(Stream, chunk: string, max?: integer): string | nil, string
     -- No more input: returns the remaining output, which for a decoder
     -- is only what follows its drained output (in practice ""). Raises
-    -- while `pending()` is true, and on a finished stream. For a
+    -- while [`pending()`] is true, and on a finished stream. For a
     -- decoder, nil, error if the compressed stream ended early.
     finish: function(Stream): string | nil, string
     -- Decoder only: whether the end of the compressed data was seen.
@@ -27,7 +27,7 @@ local record compress
     -- none.
     rest: function(Stream): string
     -- `local s <close> = ...`: the stream is finished and its codec
-    -- freed; `rest()` still answers.
+    -- freed; [`rest()`] still answers.
     metamethod __close: function(Stream, any)
   end
 
