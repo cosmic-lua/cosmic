@@ -5,7 +5,7 @@ local Sqlite = require("cosmic.sqlite")
 local record State
   schema: string
   --- One suite's row of `suite_runs`: what ran it, how it ended, and
-  --- the figures and key parts its output said (`cosmic_ci.suite_output`),
+  --- the figures and key parts its output said ([`cosmic_ci.suite_output`]),
   --- each nil where the output said none.
   record SuiteRun
     worker: string
@@ -27,7 +27,7 @@ local record State
     sandbox: string
     parts: {string:string}
     --- What its verdict cache held as it began, as its census line
-    --- said it (`SuiteOutput.held` reads it); nil where it said none.
+    --- said it ([`SuiteOutput.held`] reads it); nil where it said none.
     held: string
   end
   key_parts: {{string}}

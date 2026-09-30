@@ -571,9 +571,10 @@ end
 --- a link first names a symbol. A run over part of the tree builds the
 --- project first (`rebuild_here`), so an edit is seen; a `whole` run
 --- reads the projection its tree checks just wrote. Outside cosmic's
---- own tree (`own`), a project with no `o/cosmic.db` has no symbols of
---- its own yet, which the context says rather than failing links to
---- them. `close` closes what was opened.
+--- own tree (`own`), a project with no `o/cosmic.db` once that build
+--- has run (one that failed, or a `rebuild_here` that made none) has no
+--- symbols of its own yet, which the context says rather than failing
+--- links to them. `close` closes what was opened.
 function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
                           databases: function(): docs.Sources): fix.LinkSource
@@ -918,7 +919,11 @@ local function fix_verb(argv: {integer:string}): integer
   for _, file in ipairs(files) do laid_out[file] = true end
   local linked_out: fix.Linked
   do
-    local source = fix.link_context(root, picked.whole, own == true, rebuild.here,
+    -- Built even where no build has been made yet: this run has staged
+    -- and compiled the directory already ([`spill.check`]), and a link
+    -- must resolve alike whether or not a `cosmic test` ran first.
+    local source = fix.link_context(root, picked.whole, own == true,
+      function(verb: string): boolean, string return rebuild.here(verb, true) end,
       function(): docs.Sources return docs.databases() end)
     linked_out = fix.links(source.context, built, linked, checking and "check" or "write", facts,
       laid_out)

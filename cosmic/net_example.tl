@@ -106,4 +106,31 @@ function Example.pair()
   end)
 end
 
+--- A line-echo server on a socket file, each connection served in a
+--- task of its own until [`Server.stop`]: here `on_ready`, called once
+--- the server listens, is its client, and stops it once answered.
+function Example.serve()
+  local dir = assert(Fs.mkdtemp("cosmic-net-example-"))
+  assert(Net.serve{
+    listeners = { Net.unix(dir .. "/echo.sock") },
+    limits = { connections = 64 },
+    timeout_ms = 5000,
+    grace_ms = 1000,
+    serve = function(conn: Net.Conn)
+      local lines = Stream.lines(conn)
+      for line in lines:each() do assert(conn:write(line .. "\n")) end
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local client <close> = assert(Net.connect(addresses[1], { timeout_ms = 5000 }))
+      assert(client:write("hello\n"))
+      local answer = assert(Stream.lines(client):read())
+      print(answer)
+      assert(answer == "hello", answer)
+      server:stop()
+    end,
+  })
+  assert(Fs.stat(dir .. "/echo.sock") == nil, "the socket file was left")
+  assert(Fs.remove_tree(dir))
+end
+
 return Example

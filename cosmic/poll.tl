@@ -53,10 +53,6 @@ Poll.CANCELLED = "cancelled"
 --- The longest wait [`sys.poll`] takes, and so the longest timeout here.
 local MOST_MS <const> = 0x7fffffff
 
---- Readiness `poll` reports whatever was asked: each ends a wait on the
---- descriptor, whose read or write then says what happened.
-local ALWAYS <const> = sys.POLLERR | sys.POLLHUP | sys.POLLNVAL
-
 --- One wait a task is parked in, and what ends it: a descriptor ready, a
 --- time reached, a task joined. `done` is set once one of them has
 --- answered it, so the others that still hold it pass it by.
@@ -330,25 +326,20 @@ local function next_timeout(): integer
 end
 
 --- Waits on every watched descriptor for as long as `timeout`, and
---- answers each wait whose descriptor is ready. A descriptor several
---- waits share goes to `poll` once, asked for all they want: macOS
---- answers only one entry of a descriptor given twice.
+--- answers each wait whose descriptor is ready, or in error or hung up,
+--- which its read or write then reports. Each wait is an entry of its
+--- own, though several share a descriptor: `poll` answers each entry
+--- only the events it asked for, and those three.
 local function poll_once(timeout: integer)
   local fds: {integer} = {}
   local events: {integer} = {}
-  local at: {integer: integer} = {}
   local kept: {Wait} = {}
   -- TODO: keep the descriptor set between polls, changed as waits begin
   -- and end, rather than built again from every wait each time round.
   for _, w in ipairs(loop.watched) do
     if not w.done then
       kept[#kept + 1] = w
-      local i = at[w.fd]
-      if i == nil then
-        i = #fds + 1
-        at[w.fd], fds[i], events[i] = i, w.fd, 0
-      end
-      events[i] = events[i] | w.events
+      fds[#kept], events[#kept] = w.fd, w.events
     end
   end
   loop.watched = kept
@@ -361,8 +352,8 @@ local function poll_once(timeout: integer)
   -- poll short today, and the loop waits on.
   local revents, trouble = sys.poll(fds, events, timeout)
   if revents == nil then error("poll: " .. trouble, 0) end
-  for _, w in ipairs(kept) do
-    if revents[at[w.fd]] & (w.events | ALWAYS) ~= 0 then wake(w, true, "") end
+  for i, w in ipairs(kept) do
+    if revents[i] ~= 0 then wake(w, true, "") end
   end
 end
 

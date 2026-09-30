@@ -115,8 +115,7 @@ local function test_the_file_verbs(tmp: string)
   assert(r.stdout == "one two\nthree\nfirst\nf\ng\nlog\npipe\nsub\n2\n1\n" .. here ..
     "\nstill here\n", r.stdout)
   assert(Fs.read(d .. "/where") == here .. "\n")
-  -- A named pipe is none of a file, a directory or a link.
-  assert(assert(Fs.stat(d .. "/pipe")).kind == "other", assert(Fs.stat(d .. "/pipe")).kind)
+  assert(assert(Fs.stat(d .. "/pipe")).kind == "fifo", assert(Fs.stat(d .. "/pipe")).kind)
   assert(assert(Fs.stat(d .. "/sub")).kind == "dir")
   -- `cat` alone copies its input to its end.
   local fed = run({ probe, "cat; print end" }, {}, "fed\nthrough")
