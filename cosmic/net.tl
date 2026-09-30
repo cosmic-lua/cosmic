@@ -477,6 +477,9 @@ end
 --- from whatever holds it, unless `reclaim` takes a socket file left
 --- behind by a listener that is gone. A TCP one fails "Address in use" at a port
 --- another listens at; its `address` names the port it has.
+--- A unix path too long to bind whole is bound from its directory,
+--- and raises where the process cannot return to its working directory
+--- after.
 function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listener | nil, string
   opts = opts or {}
   local backlog = opts.backlog or DEFAULT_BACKLOG
@@ -506,6 +509,9 @@ end
 --- full (on Linux; see [`ConnectOptions.timeout_ms`]). A TCP one waits
 --- for the connection to be made, and fails "Connection refused" where
 --- nothing listens at the port.
+--- A unix path too long to connect to whole is connected to from its
+--- directory, and raises where the process cannot return to its working
+--- directory after.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
   local timeout_ms = opts ~= nil and opts.timeout_ms or nil
   -- TODO: wait out a connection being made through the run in a task

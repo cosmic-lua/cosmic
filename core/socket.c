@@ -27,6 +27,7 @@
 #include <unistd.h>
 
 #include "check.h"
+#include "errnos.h"
 #include "fail.h"
 #include "lauxlib.h"
 #include "process.h"
@@ -197,11 +198,12 @@ static int reach (int fd, const struct target *target, bool binding, int *strand
 /* Raises for a process [`reach_from`] left in another directory, which
  * no failure returned would tell its caller: every relative path it
  * names from then on would name another file. `why` is the errno of
- * the return. A macro, since no test can reach it: [`reach_from`] opens
- * "." by searching it, so only a directory made unsearchable between
- * that open and the return strands the process. */
+ * the return. A macro, since no test can reach it: where "." is opened
+ * to be searched (O_PATH, O_SEARCH), only a directory made unsearchable
+ * between that open and the return strands the process. */
 #define STRANDED_ERROR(L, why) \
-  luaL_error((L), "the process could not return to its working directory: %s", strerror(why))
+  luaL_error((L), "the process could not return to its working directory: %s", \
+    cosmic_errno_describe((why), NULL))
 
 /* Makes `fd` what every socket of the table is: closed on exec,
  * nonblocking, and, where a send cannot say so itself, answering EPIPE
@@ -441,10 +443,6 @@ COSMIC_SYSCALL(listen, 2) {
   failure = unix_socket && target.directory[0] != '\0'
     ? reach_from(owned->fd, owned->directory, &target, true, &stranded)
     : reach(owned->fd, &target, true, &stranded);
-  if (stranded != 0) {
-    released(owned);
-    return STRANDED_ERROR(L, stranded);
-  }
   /* The file the bind made, read back at once: a file of another kind
    * has taken its name already, and is not the socket's to remove. A
    * process that replaced it with a socket file in that moment would
@@ -459,10 +457,11 @@ COSMIC_SYSCALL(listen, 2) {
    * retargeted -- between its open and the bind: the file is read back
    * from the directory opened, finds another file or none there, and the
    * bind's own file is left to whoever moved the directory, as it is
-   * left where the read back fails at all, or the bind's return to the
-   * working directory does: a file whose identity was not read is not
-   * told from one that took its name, and removing it could remove
-   * another's. */
+   * left where the read back fails at all: a file whose identity was
+   * not read is not told from one that took its name, and removing it
+   * could remove another's. A process the bind left in another
+   * directory reads it back even so, from the directory the socket
+   * holds, before it raises. */
   struct stat st;
   if (failure == 0 && unix_socket) {
     if (fstatat(owned->directory, owned->name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
@@ -474,6 +473,10 @@ COSMIC_SYSCALL(listen, 2) {
       owned->device = st.st_dev;
       owned->inode = st.st_ino;
     }
+  }
+  if (stranded != 0) {
+    released(owned);
+    return STRANDED_ERROR(L, stranded);
   }
   if (failure == 0 && listen(owned->fd, backlog) != 0) failure = errno;
   if (failure != 0) {
