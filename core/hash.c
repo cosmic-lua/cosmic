@@ -7,12 +7,18 @@
 
 #define HASHER_TYPE "cosmic.hash.hasher"
 
+/* One userdata type for a digest and for an HMAC (`keyed`): they answer the same
+ * `update` and `digest` and finish the same way. */
 struct hasher {
-  psa_hash_operation_t operation;
+  bool keyed;
+  union {
+    psa_hash_operation_t hash;
+    psa_mac_operation_t mac;
+  } operation;
   /* Set once `digest` has run, setup failed, or the hasher was closed
    * or collected: every method past that point is an error rather than
    * a crash. */
-  int finished;
+  bool finished;
 };
 
 static struct hasher *checked_hasher (lua_State *L) {
@@ -25,20 +31,35 @@ static struct hasher *checked_hasher (lua_State *L) {
   return h;
 }
 
-static int hash_hasher (lua_State *L) {
-  const char *name = luaL_checkstring(L, 1);
-  psa_algorithm_t alg = cosmic_hash_algorithm(name);
-  if (alg == PSA_ALG_NONE) {
-    return luaL_argerror(L, 1, "no such digest algorithm");
-  }
+/* Pushes a hasher whose operation is initialized and not yet set up.
+ * Unfinished, so the collector abandons it, from the moment it exists. */
+static struct hasher *new_hasher (lua_State *L, bool keyed) {
   struct hasher *h = lua_newuserdatauv(L, sizeof *h, 0);
-  h->operation = (psa_hash_operation_t)PSA_HASH_OPERATION_INIT;
-  h->finished = 0;
+  h->keyed = keyed;
+  if (keyed) {
+    h->operation.mac = (psa_mac_operation_t)PSA_MAC_OPERATION_INIT;
+  } else {
+    h->operation.hash = (psa_hash_operation_t)PSA_HASH_OPERATION_INIT;
+  }
+  h->finished = false;
   luaL_setmetatable(L, HASHER_TYPE);
+  return h;
+}
 
-  psa_status_t status = psa_hash_setup(&h->operation, alg);
+static void abort_hasher (struct hasher *h) {
+  if (h->keyed) {
+    psa_mac_abort(&h->operation.mac);
+  } else {
+    psa_hash_abort(&h->operation.hash);
+  }
+  h->finished = true;
+}
+
+/* Answers for the hasher on top of the stack, set up with `status`: the
+ * hasher and "" on success, otherwise nil and a message. */
+static int started (lua_State *L, struct hasher *h, psa_status_t status) {
   if (status != PSA_SUCCESS) {
-    h->finished = 1;
+    h->finished = true;
     lua_pushnil(L);
     lua_pushstring(L, "the hasher failed to start");
     return 2;
@@ -46,15 +67,38 @@ static int hash_hasher (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+static int hash_hasher (lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  psa_algorithm_t alg = cosmic_hash_algorithm(name);
+  if (alg == PSA_ALG_NONE) {
+    return luaL_argerror(L, 1, "no such digest algorithm");
+  }
+  struct hasher *h = new_hasher(L, false);
+  return started(L, h, psa_hash_setup(&h->operation.hash, alg));
+}
+
+static int hash_hmac_hasher (lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  size_t key_len;
+  const char *key = luaL_checklstring(L, 2, &key_len);
+  psa_algorithm_t alg = cosmic_hash_algorithm(name);
+  if (alg == PSA_ALG_NONE) {
+    return luaL_argerror(L, 1, "no such digest algorithm");
+  }
+  struct hasher *h = new_hasher(L, true);
+  return started(L, h, cosmic_hmac_setup(&h->operation.mac, alg, key, key_len));
+}
+
 static int hasher_update (lua_State *L) {
   struct hasher *h = checked_hasher(L);
   size_t len;
-  const char *data = luaL_checklstring(L, 2, &len);
+  const unsigned char *data =
+      (const unsigned char *)luaL_checklstring(L, 2, &len);
   psa_status_t status =
-      psa_hash_update(&h->operation, (const unsigned char *)data, len);
+      h->keyed ? psa_mac_update(&h->operation.mac, data, len)
+             : psa_hash_update(&h->operation.hash, data, len);
   if (status != PSA_SUCCESS) {
-    psa_hash_abort(&h->operation);
-    h->finished = 1;
+    abort_hasher(h);
     return luaL_error(L, "the hasher failed"); /* throws: an update failure
                                                    here is not a shape a
                                                    correct caller meets */
@@ -67,8 +111,9 @@ static int hasher_digest (lua_State *L) {
   unsigned char out[COSMIC_DIGEST_MAX];
   size_t out_len = 0;
   psa_status_t status =
-      psa_hash_finish(&h->operation, out, sizeof out, &out_len);
-  h->finished = 1;
+      h->keyed ? psa_mac_sign_finish(&h->operation.mac, out, sizeof out, &out_len)
+             : psa_hash_finish(&h->operation.hash, out, sizeof out, &out_len);
+  h->finished = true;
   if (status != PSA_SUCCESS) {
     lua_pushnil(L);
     lua_pushstring(L, "the hasher failed to finish");
@@ -84,8 +129,7 @@ static int hasher_digest (lua_State *L) {
 static int hasher_gc (lua_State *L) {
   struct hasher *h = luaL_checkudata(L, 1, HASHER_TYPE);
   if (!h->finished) {
-    psa_hash_abort(&h->operation);
-    h->finished = 1;
+    abort_hasher(h);
   }
   return 0;
 }
@@ -156,6 +200,7 @@ static const luaL_Reg module[] = {
   {"digest", hash_digest},
   {"hmac", hash_hmac},
   {"hasher", hash_hasher},
+  {"hmac_hasher", hash_hmac_hasher},
   {"byte_sum", hash_byte_sum},
   {NULL, NULL},
 };
