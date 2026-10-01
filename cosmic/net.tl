@@ -1395,8 +1395,12 @@ local function wind_down(s: Supervising)
       s.killing = true
       signal_workers(s, sys.SIGKILL)
     end
+    -- Held to what a wait takes: `grace_ms` may be MOST_MS, and the
+    -- margin past it then runs out over a second wait.
     local left: integer
-    if deadline ~= nil and not s.killing then left = math.max(deadline - now_ms(), 0) end
+    if deadline ~= nil and not s.killing then
+      left = math.min(math.max(deadline - now_ms(), 0), MOST_MS)
+    end
     await_worker(s, left)
   end
 end

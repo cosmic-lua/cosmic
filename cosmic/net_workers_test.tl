@@ -223,6 +223,25 @@ local function test_workers_start_where_the_supervisor_started(tmp: string)
   assert(result.code == 0, "code=" .. tostring(result.code))
 end
 
+--- A supervisor whose grace is the most `grace_ms` takes waits for its
+--- workers within what a wait of cosmic.child takes, and returns true
+--- once they have drained.
+local function test_the_longest_grace_stops_as_a_short_one(tmp: string)
+  local met <close> = workers()
+  local r = running(tmp, met, { tmp, "2147483647" }, {})
+  local h <close> = r.supervisor
+  local _first <close> = r.first
+  local _second <close> = r.second
+  assert(r.first.conn:write("bye\n"))
+  assert(r.second.conn:write("bye\n"))
+  assert(h:stop(sys.SIGTERM))
+  local result = assert(h:wait(60000))
+  local seen: {string} = {}
+  for line in r.out:each() do seen[#seen + 1] = line end
+  assert(result.code == 0, "code=" .. tostring(result.code) .. " signal=" ..
+    tostring(result.signal) .. " " .. table.concat(seen, "\n"))
+end
+
 --- Workers whose supervisor is killed outright -- SIGKILL, which it
 --- cannot act on -- find their lifeline closed, and stop as at SIGTERM:
 --- a connection open is drained at grace_ms and closed, and nothing
