@@ -51,20 +51,20 @@ function Example.into_failure()
   assert(err == "$.assets[1]: expected integer, got string", err)
 end
 
---- A config file's author wants every mistake at once: `failures`
---- lists each value that does not fit, by its path, in the order the
---- walk meets them; `into` answers the typed value once it is empty.
-function Example.failures()
+--- `into` answers the first value that does not fit, in the order the
+--- walk meets them: a record's fields in byte order, a list's elements
+--- by index. A config whose author wants every mistake fixes that one
+--- and runs again.
+function Example.first_failure_only()
   local RELEASE <const> = Shape.record({
     tag = Shape.integer,
     draft = Shape.string,
     assets = Shape.list(Shape.integer),
   })
-  local failures = Shape.failures(decoded(), RELEASE)
-  for _, f in ipairs(failures) do print(f.message) end
-  assert(#failures == 4, "one per value that does not fit")
-  assert(failures[1].message == "$.assets[1]: expected integer, got string", failures[1].message)
-  assert(failures[2].path == "$.assets[2]" and failures[4].path == "$.tag")
+  local release, err: Release | nil, string = Shape.into(decoded(), RELEASE)
+  assert(release == nil)
+  print(err)
+  assert(err == "$.assets[1]: expected integer, got string", err)
 end
 
 --- An enumeration: a level is one of a few strings, and anything else
@@ -100,30 +100,27 @@ function Example.map()
   assert(weights.lua == 2 and weights.teal == 0.5)
 end
 
---- A field that may be one string or a list of them: `either` tries
---- each shape in turn. `any` takes a value as it is, unchecked.
-function Example.either()
+--- A field that may be one string or a list of them: `any` takes the
+--- value as it is, unchecked, and the caller tells the two forms apart,
+--- checking a list with a second `into`.
+function Example.any()
   local record Target
-    names: string | {string}
-    extra: any
+    names: any
+    retries: integer
   end
   local TARGET <const> = Shape.record({
-    names = Shape.either(Shape.string, Shape.list(Shape.string)),
-    extra = Shape.any,
+    names = Shape.any,
+    retries = Shape.integer,
   })
-  local one, err: Target | nil, string =
-    Shape.into(Json.decode('{"names": "a", "extra": [1, {}]}'), TARGET)
-  assert(one ~= nil, err)
-  assert(one.names == "a")
-  local many, many_err: Target | nil, string =
-    Shape.into(Json.decode('{"names": ["a", "b"], "extra": true}'), TARGET)
-  assert(many ~= nil, many_err)
-  local names = many.names
-  assert(names is {string} and #names == 2)
-  local _, why: Target | nil, string =
-    Shape.into(Json.decode('{"names": 3, "extra": true}'), TARGET)
-  print(why)
-  assert(why ~= "")
+  local NAMES <const> = Shape.list(Shape.string)
+  local target, err: Target | nil, string =
+    Shape.into(Json.decode('{"names": ["a", "b"], "retries": 3}'), TARGET)
+  assert(target ~= nil, err)
+  local names, why: {string} | nil, string = Shape.into(target.names, NAMES)
+  assert(names ~= nil and #names == 2, why)
+  local _, bad: {string} | nil, string = Shape.into({ "a", 3 }, NAMES)
+  print(bad)
+  assert(bad == "$[2]: expected string, got integer", bad)
 end
 
 return Example
