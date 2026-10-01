@@ -68,11 +68,12 @@ clean second worktree instead. Preserve this distinction in later reporting.
 
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
-| 1. Compiler and analyzer boundary | pending | planned | see acceptance below |
+| 1. Compiler and analyzer boundary | pending | implementing | independent plan review complete |
 | 2. Writer identity boundary | pending | planned | depends on 1 |
 | 3. Build phase and cleanup ownership | pending | planned | depends on 1–2 |
 | 4. Test judgment boundary | pending | planned | depends on 1–3 |
-| 5. Bootstrap compatibility retirement | pending | planned | verified published pin required |
+| 5a. Bootstrap lock and scratch ownership | pending | planned | prepare for APIs in selected pin |
+| 5b. Bootstrap pin and obsolete adapters | pending | planned | verified published pin required |
 | 6. CI policy and recording | pending | planned | depends on 5 |
 | 7. Zig graph construction | pending | planned | preserve exact graph semantics |
 | 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
@@ -87,7 +88,9 @@ rest of the build. A hint or cache-plumbing edit can invalidate every compile.
 Extract a small, coherent semantic boundary for the code that determines
 analysis rows, dependency keys, generated Lua/bytecode and acceptance. Leave
 coordination, cache lifetime and diagnostic presentation outside that boundary.
-Respect the repository's positional module rules. Reuse existing schema and
+Keep diagnostic classification, warning suppression and rejection inside the
+semantic boundary. Rendering an empty message must never turn a refusal into
+a successful compile. Respect the repository's positional module rules. Reuse existing schema and
 compiler abstractions; do not create a generic pipeline framework. The exact
 module split should follow dependencies discovered during implementation.
 
@@ -103,6 +106,12 @@ Acceptance:
 - Preserve the reference-pruning query-plan regression check.
 - Existing importer/shared parse/compile tests pass; add focused boundary cases
   that would fail if an identity were either too broad or unsoundly narrow.
+- Update ci/fixtures/fixed_point_test.tl: it textually mutates compiler_roots
+  and tool_files in work.tl. Follow moved definitions, retain the combined case
+  and edited-then-undone byte equality, and run ci/run-local for fixture edits.
+- Preserve the analyzer identity's current inclusion of compiler identity in
+  this series; removing that dependency is a separate semantic change. This
+  extraction does not promise that compile-only edits stop reparsing.
 
 ## PR 2: isolate fingerprints and writer identity from staging
 
@@ -119,7 +128,8 @@ actually require the same rule; bootstrap watches may legitimately be broader.
 Acceptance: staging/reporting-only changes do not move writer identity;
 fingerprint or output-affecting identity changes do. Fresh and warm identities
 agree. Source additions/removals and test-only edits still have the intended
-effect. Old-tool rebuilds across a fingerprint-definition change still settle.
+effect. Old-tool rebuilds across a fingerprint-definition change still settle. Update
+and execute the fixed-point fixtures when their textual mutation targets move.
 
 ## PR 3: give phase ordering and cache cleanup one owner
 
@@ -149,7 +159,11 @@ and cause the merge queue to run the full suite.
 
 Extract key/eligibility and worker-access decisions into a narrow module or
 small set of modules closed under the harness rules. Keep CLI and presentation
-outside. Retain the epoch protocol, explicit library boundary and local binding
+outside. The trusted boundary must also construct effective declarations and
+closure/name allowlists, apply held-sandbox skip policy, recheck inputs, persist
+verdicts, remove failed verdicts and schedule shared updates. An unacknowledged
+caller must not be able to supply arbitrary allowlists, reuse eligibility or a
+passed decision. Retain the epoch protocol, explicit library boundary and local binding
 of replaceable library functions. Do not widen workers' access or weaken the
 store hold to make extraction easy.
 
@@ -160,14 +174,21 @@ not merely new acknowledged digests. Run harness/key/worker/isolation tests and
 full CI, including sandboxed runs. Preserve lazy program identity and cached
 verdict coverage replay.
 
-## PR 5: advance the bootstrap pin and delete obsolete adapters
+## PRs 5a–5b: prepare lock ownership, then retire bootstrap compatibility
 
 Choose an already-published, digest-verified green release carrying the APIs
 needed for the cleanup. Inventory every TODO naming cosmic-driver.pin, and
 resolve every one the selected release actually unblocks, as AGENTS.md requires.
 Do not update a pin to an unverified artifact or assume a main commit has a release.
 
-Expected candidates: writable SQLite cast adapters, retired COSMIC_TEST_KEY
+First, prepare the lock/scratch work unblocked by sys.flock and flock_kind:
+bootstrap rebuild locking, Zig-download scratch ownership and patched-vendor
+scratch ownership. Keep API-compatible preparation separate from the pin change
+where practical. These are semantic ownership fixes requiring concurrency and
+namespace cases, not adapter deletions. Split further if a diff loses focus.
+
+Then advance the pin with all remaining unblocked adapters removed. Expected
+candidates: writable SQLite cast adapters, retired COSMIC_TEST_KEY
 plumbing, legacy assumed-verdict fields, and duplicated plural helpers. Verify
 the release's actual capabilities before deleting each. Other TODOs may be
 unblocked; expand this step or split it into smaller PRs if the inventory calls
@@ -184,7 +205,10 @@ unmet prerequisite precisely.
 Extract repeated cache naming/restore/save mechanics into a few concrete local
 actions or helpers. Keep event/leg policy reviewable, including main vs branch,
 light vs full, checked vs release, shard, merge queue and scheduled behavior.
-Preserve hashFiles timing before checkout relocation. Do not introduce a YAML
+Preserve hashFiles timing before checkout relocation. Include any extracted
+local action in both passing-driver marker keys: their current input list names
+only .github/actions/cosmic-driver, not arbitrary new actions. Preserve step IDs
+or update every downstream output reference. Do not introduce a YAML
 generator, new DSL, serial coordinator job or additional critical-path network
 round trips merely to remove repeated text.
 
@@ -193,8 +217,10 @@ Keep phase/child operation identity, timeout vs exit status and retained
 diagnostics. Separate into two PRs if doing both obscures either review.
 
 Cache maintenance should ultimately belong to the code owning its formats;
-inspect whether moving trim/merge behind a pinned command now deletes enough
-code to justify it. Never require a successfully built candidate just to clean
+retain the current trim/merge implementation in this series. Main supplies no
+cache-maintenance verb, so moving it would add a new API and another pin lifecycle
+instead of merely simplifying existing ownership. The existing TODO remains
+the place for that separate feature. Never require a successfully built candidate just to clean
 up a failed run. Record a reasoned scope decision rather than force an abstraction.
 
 Acceptance: workflow/queue/cache tests cover policy outcomes rather than just
@@ -244,7 +270,11 @@ remaining risks, and satisfy AGENTS.md's format/type/whole-tree gates. Measure
 the same scenario before/after on the same host. Record compiled/parsed/reused,
 ran/stood, file reads, output digests and elapsed time, not elapsed time alone.
 Refactors may invalidate caches once; compare steady state after warming, while
-also checking that transition invalidation is safe.
+also checking that transition invalidation is safe. A source refactor changes
+embedded source and fingerprints: do not demand whole-product equality across
+that edit. Compare unaffected generated module code, graph parameters, and
+identical-source reproduction across locations and boot/rebuild paths; demand
+final equality in edited-then-undone fixed-point fixtures.
 
 The integrated scenario set is: no-op project; fresh worktree on shared caches;
 leaf implementation edit; declaration edit; test-only edit; diagnostic/report
@@ -262,3 +292,11 @@ changes the design, update this plan before proceeding and explain the decision.
 - 2026-10-01: initial plan created from detailed source review and local baseline.
   Start with the two identity boundaries. Compatibility retirement precedes CI
   consolidation so new helpers need not preserve already-obsolete interfaces.
+
+- 2026-10-01: independent plan review incorporated: rejection separated from
+  rendering; fixed-point mutation targets move with identities; trusted runner
+  inputs and verdict persistence remain acknowledged; lock/scratch preparation
+  split from pin retirement; new actions enter driver-marker identity. Analyzer
+  compiler-dependence is preserved and a new cache-maintenance verb is out of
+  scope. Exact current-main release next-0471146c is published and verified by
+  GitHub asset digest metadata; recheck the selected release at step 5.
