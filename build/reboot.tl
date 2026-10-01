@@ -244,17 +244,6 @@ local function into(handle: work.Handle, built: compiler,
   -- made is never taken for the tree's compiler's. The tool that replaces
   -- this one carries the tree's identities, and compiles again itself
   -- whatever this compiler compiled (`unsettled`).
-  local shared = shared_compiles.for_build()
-  local derived, derive_trouble = importer.derive(handle, true, built, shared)
-  local identities, identity_trouble: identity.Identities, string = nil, derive_trouble
-  if derived ~= nil then
-    identities, identity_trouble = identity.record_identities(handle.db)
-  end
-  if identities == nil then
-    -- `compile` finishes the cache; here nothing will.
-    if shared ~= nil then shared.finish() end
-    return closing(handle, identity_trouble)
-  end
   -- A tool settling that carries the tree's code ([`carries_tree_code`])
   -- keys by the compiler identity its own [`identity.compiler_identity`]
   -- computes, which is what the tool it writes carries. The identity it
@@ -265,22 +254,22 @@ local function into(handle: work.Handle, built: compiler,
   -- by its own code, and also when a stale tool rebuilt it across a
   -- change to the fingerprint's definition: it is stale by its own code,
   -- and settles on the "teal" path.
-  local tool = Store.meta("compiler") or ""
   local tree_code = false
-  if settle then
-    local recorded, _ = identity.recorded_boot_hash(handle.db)
-    tree_code = (recorded ~= nil and recorded == Store.meta("boot_hash")) or
-      reboot.carries_tree_code(handle)
-    if tree_code then
-      tool = identities.compiler
-    end
-  end
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
-  local result, compile_trouble =
-    importer.compile(handle, built, tool, true, shared)
+  local result, compile_trouble = importer.compile_tree(handle, built,
+    function(recorded: identity.Identities): string, string
+      local tool = Store.meta("compiler") or ""
+      if settle then
+        local boot_hash, _ = identity.recorded_boot_hash(handle.db)
+        tree_code = (boot_hash ~= nil and boot_hash == Store.meta("boot_hash")) or
+          reboot.carries_tree_code(handle)
+        if tree_code then tool = recorded.compiler end
+      end
+      return tool, ""
+    end, true, shared_compiles.for_build())
   if result == nil then
     return closing(handle, compile_trouble)
   end
