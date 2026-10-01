@@ -85,10 +85,23 @@ static int surface_trace (lua_State *L) {
   return 1;
 }
 
+/* The traceback of the coroutine at 1, from its top: where one that
+ * raised stopped, of which `coroutine.resume` answers only the error.
+ * The running coroutine's starts at its caller, as `trace`'s does. */
+static int surface_trace_of (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTHREAD);
+  lua_State *co = lua_tothread(L, 1);
+  const char *message = luaL_optstring(L, 2, NULL);
+  luaL_traceback(L, co, message, co == L ? 1 : 0);
+  return 1;
+}
+
 static int open_errors (lua_State *L) {
-  lua_createtable(L, 0, 1);
+  lua_createtable(L, 0, 2);
   lua_pushcfunction(L, surface_trace);
   lua_setfield(L, -2, "trace");
+  lua_pushcfunction(L, surface_trace_of);
+  lua_setfield(L, -2, "trace_of");
   return 1;
 }
 
