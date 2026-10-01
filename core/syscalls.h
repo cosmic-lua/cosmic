@@ -402,6 +402,26 @@ COSMIC_SYSCALL(getpgid, 1);
 COSMIC_SYSCALL(getuid, 0);
 
 /*
+ * --- Returns the real group identifier the process runs as.
+ * ---@return integer gid the group identifier
+ */
+COSMIC_SYSCALL(getgid, 0);
+
+/*
+ * --- The supplementary groups the process runs with, in the order the
+ * --- system keeps them, which may or may not hold the effective group
+ * --- (macOS's does, first; Linux's does where it was given one). On
+ * --- macOS they are the user's groups as directory services lists them,
+ * --- which may be more than NGROUPS_MAX and do not follow a change
+ * --- setgroups made. EINVAL where the list grew between the call's two
+ * --- looks at it.
+ * ---@return {integer}|nil groups each group's identifier, or nil on failure
+ * ---@return string error what went wrong, when groups is nil
+ * ---@return integer errno the error number, when groups is nil
+ */
+COSMIC_SYSCALL(getgroups, 0);
+
+/*
  * --- Whether this process may be dumped, and its /proc files are its own user's to read and write (prctl's PR_GET_DUMPABLE): 1 where so, 0 where they are root's, 2 where a core dump would be root's alone. With `set`, 0 or 1, it is made so first. ENOSYS off Linux.
  * ---@param set? integer 0 or 1 to make it so, or nil to only ask
  * ---@return integer|nil dumpable 0, 1 or 2, or nil on failure
@@ -418,6 +438,46 @@ COSMIC_SYSCALL(dumpable, 1);
  * ---@return integer previous the mask before this call
  */
 COSMIC_SYSCALL(umask, 1);
+
+/*
+ * --- A resource's limits, as `getrlimit` answers them and `setrlimit`
+ * --- takes them. `math.maxinteger` stands for no limit (RLIM_INFINITY) on
+ * --- every system, and a limit at or past it is answered as none.
+ * ---@class Limits
+ * ---@field soft integer the limit the system holds the process to
+ * ---@field hard integer the most the soft limit may be raised to
+ */
+
+/*
+ * --- The limits the process is held to on `resource`.
+ * ---@param resource integer the resource, such as `RLIMIT_NOFILE`
+ * ---@return Limits|nil limits the soft and hard limits, or nil on failure
+ * ---@return string error what went wrong, when limits is nil
+ * ---@return integer errno the error number, when limits is nil
+ */
+COSMIC_SYSCALL(getrlimit, 1);
+
+/*
+ * --- Holds the process, and every child it starts afterwards, to
+ * --- `soft` on `resource`, with `hard` the most it may be raised to
+ * --- again; `math.maxinteger` stands for no limit. A negative limit
+ * --- raises. A soft limit above the hard one is refused with EINVAL,
+ * --- and a hard one raised without the privilege to with EPERM. The
+ * --- system bounds RLIMIT_NOFILE besides: Linux refuses a limit past
+ * --- fs.nr_open with EPERM; macOS bounds a soft limit, or a hard one
+ * --- changed, by kern.maxfilesperproc (kern.maxfiles for root), and
+ * --- may refuse one past it with EINVAL or hold the process to the
+ * --- bound instead, a soft one of no limit included -- give its hard
+ * --- limit back as `getrlimit` answers it, and a soft one below that
+ * --- bound.
+ * ---@param resource integer the resource, such as `RLIMIT_NOFILE`
+ * ---@param soft integer the limit to hold the process to
+ * ---@param hard integer the most the soft limit may be raised to
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(setrlimit, 3);
 
 /*
  * --- Draws bytes from the operating system's entropy source, fit for a
@@ -687,7 +747,8 @@ COSMIC_SYSCALL(set_nonblocking, 2);
  * --- every system alike. A signal ends the wait early, as
  * --- though nothing were ready. There is no count the call itself
  * --- refuses: the kernel refuses more distinct descriptors than
- * --- RLIMIT_NOFILE's soft limit (at most OPEN_MAX on macOS) with EINVAL.
+ * --- RLIMIT_NOFILE's soft limit (at most OPEN_MAX on macOS) with EINVAL;
+ * --- `setrlimit` raises it.
  * ---@param fds {integer} the descriptors to watch
  * ---@param events {integer} the POLL* mask wanted for each descriptor
  * ---@param timeout_ms integer how long to wait, -1 for no limit
@@ -738,7 +799,6 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
  * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
- * ---@field EBUSY integer the resource is in use
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal
@@ -751,6 +811,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field POLLERR integer for `poll`: the descriptor is in error
  * ---@field POLLHUP integer for `poll`: the other end hung up
  * ---@field POLLNVAL integer for `poll`: the descriptor is not open
+ * ---@field RLIMIT_NOFILE integer for `getrlimit` and `setrlimit`: one more than the highest descriptor the process may open
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -789,7 +850,6 @@ COSMIC_CONSTANT(EOPNOTSUPP)
 COSMIC_CONSTANT(EPERM)
 COSMIC_CONSTANT(ENOSPC)
 COSMIC_CONSTANT(EINVAL)
-COSMIC_CONSTANT(EBUSY)
 COSMIC_CONSTANT(SIGHUP)
 COSMIC_CONSTANT(SIGINT)
 COSMIC_CONSTANT(SIGQUIT)
@@ -802,3 +862,4 @@ COSMIC_CONSTANT(POLLOUT)
 COSMIC_CONSTANT(POLLERR)
 COSMIC_CONSTANT(POLLHUP)
 COSMIC_CONSTANT(POLLNVAL)
+COSMIC_CONSTANT(RLIMIT_NOFILE)

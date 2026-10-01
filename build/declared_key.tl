@@ -263,7 +263,7 @@ local record declared_key
   --- Where [`host_identity`] and [`system_identity`] look, for a test: each
   --- a path, but `sysname`, `machine`, `own_proc`, whether a sandbox gets
   --- a /proc of its own, `host_id`, the value of `host_variable`,
-  --- `system_id`, the value of `system_variable`, and `uid`.
+  --- `system_id`, the value of `system_variable`, and the ids.
   record HostSources
     packages: {string}
     --- The system the host says it is, then its kernel's release and
@@ -282,6 +282,12 @@ local record declared_key
     own_proc: boolean
     host_id: string
     uid: integer
+    --- The group and the supplementary groups this process runs with,
+    --- as [`sys.getgid`] and [`sys.getgroups`] answer them, which a host
+    --- with no /proc/self/status (`status`) is keyed by in place of its
+    --- Gid and Groups lines.
+    gid: integer
+    groups: {integer}
     --- The user and group a sandboxed worker runs as in place of this
     --- process's ([`build.test_sandbox`]'s `worker_user`), nil for its
     --- own: the key holds the worker's, which the kernel judges it by.
@@ -1062,7 +1068,9 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 ---   ([`sys.cpu_features`], each once, `dispatched`);
 --- - the user, groups and capabilities this process -- and so every
 ---   worker -- runs with, and whether no_new_privs and a seccomp filter
----   hold it (/proc/self/status): whether a file's permissions refuse a
+---   hold it (/proc/self/status; on macOS, which has none, the user and
+---   groups [`sys.getgid`] and [`sys.getgroups`] answer, each group
+---   once, sorted): whether a file's permissions refuse a
 ---   read, whether a sandbox may map ids or nest another, and which
 ---   calls a filter refuses are theirs. A worker a root runner runs as a
 ---   user of its own ([`HostSources`]' `worker_uid`) is held as that user
@@ -1098,10 +1106,6 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 -- string whole, once the core reports what it found (a [`cosmic.sys`]
 -- table of the probes' answers): today every kernel update splits
 -- every verdict, though almost none turns on it.
--- TODO: key the groups this process runs with where there is no
--- /proc/self/status (macOS), once cosmic.sys carries getgid and
--- getgroups: today a macOS key holds the uid alone, so a verdict
--- reached as a member of a group stands for a user not in it.
 function declared_key.host_identity(digests: declared_key.Digests,
                                     sources?: declared_key.HostSources): string
   local started = monotonic_ns()
@@ -1159,6 +1163,33 @@ function declared_key.host_identity(digests: declared_key.Digests,
     elseif name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
         name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
       lines[#lines + 1] = line
+    end
+  end
+  if status == nil then
+    -- No /proc/self/status (macOS): the bindings answer its Gid and
+    -- Groups, each group once, sorted, since the system lists them in
+    -- an order of its own. A list that cannot be read keys apart from
+    -- every one that can.
+    local groups: {integer} = from.groups
+    local trouble: string
+    if worker_uid ~= nil then
+      groups = {}
+    elseif groups == nil then
+      groups, trouble = sys.getgroups()
+    end
+    lines[#lines + 1] = "gid " .. tostring(worker_gid or from.gid or sys.getgid())
+    if groups == nil then
+      lines[#lines + 1] = "groups unread: " .. tostring(trouble)
+    else
+      local seen: {integer:boolean} = {}
+      local sorted: {integer} = {}
+      for _, group in ipairs(groups) do
+        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end
+      end
+      table.sort(sorted)
+      local named: {string} = {}
+      for i, group in ipairs(sorted) do named[i] = tostring(group) end
+      lines[#lines + 1] = "groups " .. table.concat(named, " ")
     end
   end
   local own = from.own_proc
