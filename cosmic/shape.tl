@@ -28,6 +28,18 @@
 --- bare `local s = must(Shape.into(...))` fails to compile with "cannot
 --- infer declaration type".
 ---
+--- [`record_of`] makes the record and its shape one declaration: the
+--- spec is read off the record's declaration where the module is built,
+--- and `into` answers the record's own type, so a field added to the
+--- record is checked from then on and no annotation can disagree:
+---
+---     local record Server
+---       host: string
+---       port: integer | nil
+---     end
+---     local SERVER <const> = Shape.record_of("Server")
+---     local server, err = SERVER:into(decoded)
+---
 --- The rules, fixed here:
 ---
 --- - The answer is a copy. A record keeps only the fields its spec
@@ -86,6 +98,19 @@ local record Shape
     strict: boolean
     --- The values admitted, for "one_of".
     values: {string | number | boolean}
+  end
+
+  --- A [`Spec`] and the record `T` it was built from, which
+  --- [`record_of`] answers. Its methods answer a `T`, so no annotation
+  --- stands between the spec and the type of what it checks.
+  record Typed<T>
+    --- The record's shape: what `record` builds for the fields it
+    --- declares.
+    spec: Spec
+    --- [`into`] over `spec`, answering a `T`.
+    into: function(self: Typed<T>, value: any): T | nil, string
+    --- [`decode_into`] over `spec`, answering a `T`.
+    decode_into: function(self: Typed<T>, text: string, opts?: Json.DecodeOptions): T | nil, string
   end
 
   --- Any string.
@@ -155,7 +180,7 @@ function Shape.map(of: Spec): Spec
 end
 
 --- A record's spec over a copy of `fields`, its names in byte order.
-local function record_of(fields: {string: Spec}, strict: boolean, what: string): Spec
+local function record_spec(fields: {string: Spec}, strict: boolean, what: string): Spec
   local own: {string: Spec} = {}
   local names: {string} = {}
   for name, spec in pairs(fields) do
@@ -173,7 +198,7 @@ end
 --- @param fields {string: Spec} Each field's shape, by its name
 --- @return Spec The record's shape
 function Shape.record(fields: {string: Spec}): Spec
-  return record_of(fields, false, "record")
+  return record_spec(fields, false, "record")
 end
 
 --- A record that refuses every key it does not name, for a config file
@@ -190,7 +215,7 @@ end
 --- @param fields {string: Spec} Each field's shape, by its name
 --- @return Spec The record's shape
 function Shape.strict_record(fields: {string: Spec}): Spec
-  return record_of(fields, true, "strict_record")
+  return record_spec(fields, true, "strict_record")
 end
 
 --- The shape `of`, which a missing value, or [`Json.null`], also
@@ -490,6 +515,73 @@ function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOption
   local out, failed: T | nil, string = Shape.into(decoded, spec)
   if out == nil then return nil, failed end
   return out, ""
+end
+
+local function typed_into<T>(self: Shape.Typed<T>, value: any): T | nil, string
+  return Shape.into(value, self.spec)
+end
+
+local function typed_decode_into<T>(self: Shape.Typed<T>, text: string,
+                                    opts?: Json.DecodeOptions): T | nil, string
+  return Shape.decode_into(text, self.spec, opts)
+end
+
+--- The shape of the Teal record `name`, read off its declaration by the
+--- build and answered with the record's type, so a record and its shape
+--- are one declaration: `into` and [`decode_into`] answer a `T`, and no
+--- annotation can say another.
+---
+---     local record Server
+---       host: string
+---       port: integer | nil
+---     end
+---     local SERVER <const> = Shape.record_of("Server")
+---     local server, err = SERVER:into(decoded)
+---
+--- `name` is a string literal: `Record` for a record declared above the
+--- call, in a block the call is in (a test's, or an example's, too), or
+--- `module.Record` for one declared inside the module `module`'s record,
+--- which the calling module requires at its top level. The spec is what `record`
+--- builds for the record's fields: strings, integers, numbers, booleans
+--- and `any`; arrays and string-keyed maps of those; an enum, as
+--- [`one_of`] with its values in byte order; records of those; and a
+--- field typed `T | nil`, as `optional`. A function, a union of more
+--- than one type, a generic, an interface and a record that holds itself
+--- are refused when the module is built, naming the field. The record
+--- keeps its fields only: a key the payload grew is dropped, as `record`
+--- does, and `spec` is a [`Spec`] to put inside any other.
+---
+--- The build, not the program, reads the declaration: it splices the
+--- spec and the record's type in after `name`, which are `built` and
+--- `_witness` (write neither). It finds a call written as
+--- `Shape.record_of("Name")` and no other (not through another name, not
+--- with a computed name), and a script run with `--standalone` has no
+--- build: the checker answers a read of the result's fields with `T
+--- (unresolved generic)`, and a call that gets that far raises here. Such a script writes its
+--- spec with `record`, or runs as `cosmic script.tl`, which builds the
+--- tree around it.
+--- @param name string The record, as a string literal
+--- @param built Spec What the build read off the record
+--- @param _witness function(): T A function the build writes to name `T`, which it never calls
+--- @return Typed<T> The spec and the record it checks
+function Shape.record_of<T>(name: string, built?: Spec, _witness?: function(): T): Shape.Typed<T>
+  -- TODO: a strict form, refusing a key the record does not name, once a
+  -- config record wants one: a `Typed:strict()` over a copy of `spec`.
+  if built == nil then
+    error(("shape: record_of(%q) was not resolved: the build reads a record's declaration " ..
+      "from a call written as Shape.record_of(\"Name\") in a module it compiles, so an " ..
+      "aliased or computed call, a chunk loaded by hand, and a script run with " ..
+      "--standalone have no spec for it; call Shape.record_of(\"Name\") directly under a " ..
+      "build, or write the spec with Shape.record"):format(name), 2)
+  end
+  need_spec(built, "record_of's built")
+  if built.kind ~= "record" then
+    error(("shape: record_of(%q) was given a %s spec, not a record's"):format(name, built.kind), 2)
+  end
+  local typed: Shape.Typed<T> = {
+    spec = built, into = typed_into, decode_into = typed_decode_into,
+  }
+  return typed
 end
 
 return Shape

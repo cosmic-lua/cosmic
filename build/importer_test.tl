@@ -1254,6 +1254,7 @@ local function identity_fixture(case: string): string
     ["build/cache_names.tl"] = module_requiring({}),
     ["build/teal.tl"] = module_requiring({ "cosmic.fs", "cosmic.removed", "build.teal_helper" }),
     ["build/teal_helper.tl"] = module_requiring({}),
+    ["build/shape_specs.tl"] = module_requiring({ "build.ast" }),
     ["build/contracts.tl"] = module_requiring({ "build.ast", "build.receivers" }),
     ["build/receivers.tl"] = module_requiring({ "build.ast" }),
     ["build/tree.tl"] = module_requiring({ "cosmic.fs" }),
@@ -1323,7 +1324,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
   local seen: {string:string} = {}
   local original = identities_of(root)
   seen[original[1]] = "the original tree"
-  for _, path in ipairs({ "build/compilation.tl", "build/derivation.tl", "build/teal.tl", "build/teal_helper.tl",
+  for _, path in ipairs({ "build/compilation.tl", "build/derivation.tl", "build/teal.tl", "build/teal_helper.tl", "build/shape_specs.tl",
                           "build/contracts.tl", "build/receivers.tl", "build/tree.tl",
                           "build/analysis_schema.tl", "build/analyzer.tl",
                           "build/cache_names.tl", "build/ast.tl",
@@ -1374,7 +1375,7 @@ local function test_the_compiler_modules_are_closed_under_require()
       name .. " is the analyzer's but not in the compiler's identity")
   end
   for _, name in ipairs({ "build.compilation", "build.derivation", "build.module", "build.teal", "build.contracts",
-                          "build.receivers", "build.tree", "build.analysis_schema",
+                          "build.receivers", "build.tree", "build.shape_specs", "build.analysis_schema",
                           "build.cache_names", "build.ast.match" }) do
     assert(covered[name], name .. " is not in the compiler's identity: " ..
       table.concat(modules, ", "))

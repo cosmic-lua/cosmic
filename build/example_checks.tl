@@ -21,6 +21,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local doctest = require("build.doctest")
+local shape_specs = require("build.shape_specs")
 local standalone = require("build.standalone")
 local symbols = require("build.symbols")
 local type compiler = require("build.compiler")
@@ -31,8 +32,14 @@ end
 --- What the checker says of `source` as the chunk `name`, one line each.
 local function problems(built: compiler, env: compiler.Env, name: string,
                         source: string): {string}
-  local code, result = built.gen(source, env, nil, "tl")
   local out: {string} = {}
+  -- As the build compiles it: a [`Shape.record_of`] call is resolved first.
+  local resolved, refusal = shape_specs.resolve(built, env, name, name, source)
+  if resolved == nil then
+    out[1] = name .. ": " .. refusal
+    return out
+  end
+  local code, result = built.gen(resolved, env, nil, "tl")
   if result ~= nil then
     for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
       for _, e in ipairs(group or {}) do
