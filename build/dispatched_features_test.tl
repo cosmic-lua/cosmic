@@ -94,8 +94,10 @@ local SITES <const>: {string:Site} = {
   ["core/xz_config/config.h"] = { lines = "6696e76730b82c2d", reads = {} },
   -- `cpu_features`, which answers what the processor has for a key
   -- (build/declared_key.tl's `features`), its declaration and its test:
-  -- none chooses code by it.
-  ["core/syscalls.c"] = { lines = "e554f1db47300ea6", reads = {} },
+  -- none chooses code by it. syscalls.c asks Apple's
+  -- kern.maxfilesperproc too, for the descriptor limit a start raises
+  -- to: no feature.
+  ["core/syscalls.c"] = { lines = "32a25fd84deae026", reads = {} },
   ["core/syscalls.h"] = { lines = "b61d799e030c5448", reads = {} },
   ["core/syscalls_test.tl"] = { lines = "8d0bded5af38f8bd", reads = {} },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.

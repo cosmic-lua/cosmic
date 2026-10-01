@@ -33,6 +33,15 @@
  * count times this, plus the last one's number, which is below it. */
 #define SIGNAL_STAMP_UNIT 64
 
+/* Raises RLIMIT_NOFILE's soft limit toward the hard one, as far as
+ * 10240 (macOS's OPEN_MAX), as a Go program's runtime does at its start:
+ * a spawn places descriptors above the highest it hands a child, 257
+ * and up for a relaunch, past a soft limit as low as macOS's default.
+ * A program this process execs is given the limit it started with back,
+ * unless it set RLIMIT_NOFILE itself (`setrlimit`). A refusal leaves the
+ * limit as it was. `main` calls it before anything starts a child. */
+void cosmic_raise_descriptor_limit (void);
+
 /* Opens the table as the raw [`cosmic.internal.process`] module. */
 int cosmic_open_process (lua_State *L);
 

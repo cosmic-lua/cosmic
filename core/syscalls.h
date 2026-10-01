@@ -460,7 +460,10 @@ COSMIC_SYSCALL(getrlimit, 1);
 /*
  * --- Holds the process, and every child it starts afterwards, to
  * --- `soft` on `resource`, with `hard` the most it may be raised to
- * --- again; `math.maxinteger` stands for no limit. A negative limit
+ * --- again; `math.maxinteger` stands for no limit. The process starts
+ * --- with RLIMIT_NOFILE's soft limit raised toward the hard one, as far
+ * --- as 10240, and gives a program it starts the limit it started with,
+ * --- until this sets RLIMIT_NOFILE. A negative limit
  * --- raises. A soft limit above the hard one is refused with EINVAL,
  * --- and a hard one raised without the privilege to with EPERM. The
  * --- system bounds RLIMIT_NOFILE besides: Linux refuses a limit past

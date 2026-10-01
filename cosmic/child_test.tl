@@ -32,6 +32,23 @@ local function test_a_bare_name_not_found_points_at_proc_find(tmp: string)
   assert(empty:find("Proc.find(", 1, true) == nil, empty)
 end
 
+--- A start refused for want of descriptors above the highest it hands
+--- the child -- a soft RLIMIT_NOFILE just past it -- says so, naming
+--- the limit, rather than a bare EINVAL.
+local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
+  local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  if limits.hard < 256 then return end -- nothing to hand as 255
+  local null = assert(sys.open("/dev/null", sys.O_RDONLY))
+  assert(sys.setrlimit(sys.RLIMIT_NOFILE, 256, limits.hard))
+  local ok, child, trouble = pcall(Child.start, { tmp .. "/never-started" }, { fds = { [255] = null } })
+  assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
+  sys.close(null)
+  assert(ok, tostring(child))
+  assert(child == nil, "started past the limit")
+  assert(trouble:find("handed descriptor 255", 1, true) ~= nil and
+    trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
+end
+
 --- A refused option is blamed on the line that passed it, not on a line
 --- of cosmic.child: the checks under `validate` raise at their caller's
 --- caller's caller.
