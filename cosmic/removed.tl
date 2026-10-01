@@ -164,6 +164,9 @@ local module: Module = {
     ["cosmic.tar.TarWriter"] = "use Tar.Writer, the same record renamed (" .. tar .. ")",
     ["cosmic.archive.ArchiveReader"] = "use Archive.Reader, the same record renamed (" ..
       archive .. ")",
+    ["cosmic.stream.Codec"] = "use Stream.Transform, the interface Stream.transform, " ..
+      "Stream.transform_writer and Stream.run take, which Compress.Stream " ..
+      "satisfies (" .. stream .. ")",
     ["cosmic.sys.spawn"] = "use Child.start(argv, opts), or Child.run(argv, opts) to " ..
       "run it to its end (" .. child .. ")",
     ["cosmic.sys.waitpid"] = "use h:wait() or h:try_wait() on the handle Child.start " ..

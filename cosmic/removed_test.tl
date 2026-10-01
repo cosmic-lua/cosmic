@@ -9,6 +9,7 @@ local modules <const>: {string:any} = {
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
+  ["cosmic.stream"] = require("cosmic.stream"),
   ["cosmic.sys"] = require("cosmic.sys"),
   ["cosmic.tar"] = require("cosmic.tar"),
   ["cosmic.zip"] = require("cosmic.zip"),
@@ -55,4 +56,10 @@ local function test_the_removed_coders_name_the_verb_and_the_whole_string_functi
     assert(instead:find("`cosmic codec`", 1, true), instead)
     assert(instead:find("Codec.base64", 1, true), instead)
   end
+end
+
+--- A program that named the removed codec type is told its interface.
+local function test_the_removed_codec_type_names_the_transform_interface()
+  local instead = Removed.members["cosmic.stream.Codec"]
+  assert(instead ~= nil and instead:find("Stream.Transform", 1, true), instead)
 end

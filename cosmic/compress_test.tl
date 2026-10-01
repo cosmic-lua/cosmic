@@ -741,6 +741,16 @@ local function test_one_shot_deflate_and_inflate_round_trip()
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", "")))) == "")
 end
 
+local function test_inflate_validates_max_bytes()
+  local packed = assert(Compress.deflate("zlib", "abc"))
+  assert(Compress.inflate("zlib", packed, 3) == "abc")
+  local out, trouble = Compress.inflate("zlib", packed, 2)
+  assert(out == nil and trouble == "output is larger than 2 bytes", trouble)
+  assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
+  assert(not pcall(Compress.inflate, "zlib", packed, -1))
+  assert(not pcall(Compress.inflate, "zlib", packed, (1.5) as integer))
+end
+
 --- Each one-shot call frames its bytes as `format` says, the same
 --- framing the streaming codec for that format writes and reads.
 local function test_one_shot_deflate_frames_as_its_format_says()

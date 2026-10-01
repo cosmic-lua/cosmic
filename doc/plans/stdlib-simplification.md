@@ -156,7 +156,7 @@ classification comes from `Json.layout`.
 
 ### wave 3: streams and archives
 
-**PR 7 `stream: one transform contract`.** `Stream.Transform` is an interface
+**PR 7 `stream: one transform contract`.** [`Stream.Transform`] is an interface
 in [`cosmic.stream`] (`update(self, chunk): string | nil, string`,
 `finish(self): string | nil, string`, optional `pending(self): boolean`)
 that [`Compress.Stream`] satisfies; [`Stream.Codec`] is deleted in its favor.
@@ -457,6 +457,7 @@ description.
 [`Stream.read_all`]: ../../cosmic/stream.tl
 [`Stream.tee`]: ../../cosmic/stream.tl
 [`Stream.transform_writer`]: ../../cosmic/stream.tl
+[`Stream.Transform`]: ../../cosmic/stream.tl
 [`String.trim`]: ../../cosmic/string.tl
 [`sys.poll`]: ../../core/syscalls.h
 [`Tar.Writer`]: ../../cosmic/tar.tl

@@ -31,7 +31,8 @@
 ---
 --- The input is streamed, 64 KiB at a time (a read that comes up short,
 --- as a pipe's does, is read on until the chunk is full or the input
---- ends), through the incremental coders below. Encoding writes
+--- ends), through the incremental coders below, which are
+--- [`Stream.Transform`]s. Encoding writes
 --- each chunk's text as soon as it is made. Decoding holds one chunk's
 --- bytes back until the next chunk has decoded, so an input of at most
 --- 64 KiB writes nothing when it is refused. A padding, length or
@@ -58,14 +59,12 @@ local record verb
     "base64url"
   end
 
-  -- TODO: this becomes a `Stream.Transform` once that interface lands
-  -- (doc/plans/stdlib-simplification.md, PR 7).
-  --- One incremental transform, a chunk at a time, in the shape of
-  --- [`cosmic.compress`]'s streams: `update(chunk)` feeds bytes (or
-  --- text) and returns the output that is ready, possibly ""; and
-  --- `finish()` says no more input follows and returns what is left,
-  --- with `nil` and a reason when a decoder's text was refused. Both
-  --- answer `value, ""` on success. An encoder never fails. A decoder
+  --- One incremental transform, a chunk at a time: a
+  --- [`Stream.Transform`] that holds nothing back (it has no
+  --- `pending`). `update(chunk)` feeds bytes (or text) and returns the
+  --- output that is ready, possibly ""; `finish()` says no more input
+  --- follows and returns what is left, with `nil` and a reason when a
+  --- decoder's text was refused. An encoder never fails. A decoder
   --- fails only at `finish`: it cannot tell a bad length from a bad
   --- character until the text ends, and the whole-string decoders
   --- report the length first, so it keeps the first bad character and
@@ -73,12 +72,7 @@ local record verb
   --- yet whole, plus a little state, however much passes through it,
   --- and gives all the output it has at each call. After `finish`,
   --- `update` and `finish` raise.
-  record Coder
-    --- Feeds a chunk; answers the output that is ready, possibly "".
-    update: function(Coder, chunk: string): string | nil, string
-    --- Ends the input; answers what is left, or `nil` and why a
-    --- decoder's text was refused.
-    finish: function(Coder): string | nil, string
+  record Coder is Stream.Transform
   end
 
   --- The verb's registration: see build/verb_spec.tl.
