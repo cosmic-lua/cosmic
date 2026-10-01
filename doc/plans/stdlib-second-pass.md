@@ -67,10 +67,10 @@ left for [`bin/zig`], [`bin/vendor`], `ci/` or the standalone scripts. one PR, a
 **PR A2 `json: the core's encoder keeps only the options the library offers`.**
 PR 2 removed `sorted`, `indent`, `ascii`, `nan_as_null` and `sparse_as_null`
 from [`Json.EncodeOptions`] and left the C encoder supporting them for no
-caller, with `build/json_raw.tl` reaching the raw table so tests could keep
+caller, with [`build/json_raw.tl`] reaching the raw table so tests could keep
 exercising them. delete the five options from [`core/json.c`], the module, its
 `casts` entry in [`build/contracts.tl`], and the tests that exist only for
-them (`core/json_encode_test.tl`'s option cases, the raw-table fuzz
+them ([`core/json_encode_test.tl`]'s option cases, the raw-table fuzz
 properties); keep every test of what the library offers. a C change, so
 `bin/zig build analyze` and the checked core run as PR 16 ran them.
 
@@ -280,6 +280,7 @@ examples).
 [`build/confine.tl`]: ../../build/confine.tl
 [`build/contracts.tl`]: ../../build/contracts.tl
 [`build/importer.tl`]: ../../build/importer.tl
+[`build/json_raw.tl`]: ../../build/json_raw.tl
 [`build/rand.tl`]: ../../build/rand.tl
 [`build/sandbox_probe.tl`]: ../../build/sandbox_probe.tl
 [`build/stand_in_probe.tl`]: ../../build/stand_in_probe.tl
@@ -291,6 +292,7 @@ examples).
 [`ci/cosmic-driver.pin`]: ../../ci/cosmic-driver.pin
 [`ci/cosmic_ci/plural.tl`]: ../../ci/cosmic_ci/plural.tl
 [`core/json.c`]: ../../core/json.c
+[`core/json_encode_test.tl`]: ../../core/json_encode_test.tl
 [`cosmic.codec`]: ../../cosmic/codec.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.http`]: ../../cosmic/http.tl
