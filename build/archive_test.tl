@@ -493,7 +493,7 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   local grown = (peak - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB packing %d MiB"):format(grown, total >> 20))
   local r = assert(Zip.open(tmp .. "/out.zip"))
-  local entries = r:entries()
+  local entries = assert(r:entries())
   assert(#entries == 1 and entries[1].size == total)
   local body = assert(entries[1]:open())
   local seen = 0
@@ -619,10 +619,22 @@ local function test_create_refuses_paths_that_would_extract_outside(tmp: string)
   assert(not Fs.exists(tmp .. "/u.zip") and not Fs.exists(tmp .. "/a.zip"))
   local missing = in_dir(src, { "create", tmp .. "/m.zip", "nope" })
   assert(missing.code == 1 and missing.err:find("nope", 1, true), missing.err)
-  assert(Fs.symlink("loose.txt", src .. "/ln"))
-  local link = in_dir(src, { "create", tmp .. "/l.zip", "ln" })
-  assert(link.code == 2 and link.err:find("zip does not hold", 1, true), link.err)
-  assert(not Fs.exists(tmp .. "/l.zip"))
+end
+
+--- A zip holds a symlink as a tar does: its target is the entry's body,
+--- and extraction makes the link again.
+local function test_create_a_zip_round_trips_with_a_symlink(tmp: string)
+  local src = make_tree(tmp)
+  assert(Fs.symlink("a.txt", src .. "/tree/link"))
+  local ran = in_dir(src, { "create", tmp .. "/out.zip", "tree" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  assert(ran.out:find("tree/link\n", 1, true), ran.out)
+  assert(run({ "list", tmp .. "/out.zip" }).out:find("tree/link -> a.txt\t", 1, true))
+  local dest = tmp .. "/back"
+  local back = run({ "extract", tmp .. "/out.zip", "-C", dest })
+  assert(back.code == 0, back.err)
+  assert(assert(Fs.readlink(dest .. "/tree/link")) == "a.txt")
+  assert(Fs.read(dest .. "/tree/z.txt") == "zed")
 end
 
 local function test_create_leaves_an_existing_output_out_of_itself(tmp: string)

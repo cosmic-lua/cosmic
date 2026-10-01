@@ -229,12 +229,6 @@ local casts: {string: string} = {
   ["build/teal.tl:teal.load"] =
     "the one boundary where the vendored compiler's untyped chunk " ..
     "becomes its declared surface (build/compiler.d.tl)",
-  ["cosmic/archive.tl:wrap_tar"] =
-    "Tar.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
-  ["cosmic/archive.tl:wrap_zip"] =
-    "Zip.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
     "walk has just built to the spec",
