@@ -12,6 +12,7 @@ local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- /proc, where a confined child's coverage is found; the program
 --- itself, which its tests start; and `nests`, for the child it confines
@@ -40,6 +41,7 @@ end
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
+local Time = require("cosmic.time")
 return function(argv: {string}): integer
   Coverage.children(argv[1])
   -- This program again, past its launcher, as `this_program.program`
@@ -54,7 +56,7 @@ return function(argv: {string}): integer
   words[#words + 1] = argv[2]
   local r = assert(Child.run(words, { env = relaunch ~= nil and relaunch.env or {},
     fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
-    stderr = "capture", timeout_ms = 30000 }))
+    stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   print(assert(r.stdout):match("^(%a+)"))
   return 0
@@ -63,7 +65,7 @@ end
   local started = this_program.program({ "parent.tl", reports,
     tmp .. "/child/child.tl", tmp .. "/child" },
     { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ms = 60000 })
+      stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "unseen\n", "the child saw the directory: " .. tostring(r.stdout))
@@ -139,7 +141,7 @@ end
 ]]))
   local started = this_program.program({ "parent.tl", reports, table.concat(reads, "\n") },
     { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ms = 60000 })
+      stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local said = assert(r.stdout)
@@ -177,7 +179,7 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
     local env = this_program.environment()
     env.COSMIC_COVERAGE_CHILDREN = value
     local started = this_program.program({ "-e", "return 0" },
-      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 60000 })
+      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok, tostring(r.stderr))
     local names = assert(Fs.list(dir))

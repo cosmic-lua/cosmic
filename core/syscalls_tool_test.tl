@@ -13,6 +13,7 @@ local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local sandbox_skip = require("build.sandbox_skip")
+local Time = require("cosmic.time")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -126,9 +127,9 @@ sys.nanosleep(30 * 1000000000)
     nil, report, report, false,
     spawn_fds(started)))
   local said = ""
-  local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 30 * 1000000000
+  local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + Time.seconds(30)
   while not said:find("\n") and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    assert(sys.nanosleep(10 * 1000000))
+    assert(sys.nanosleep(Time.ms(10)))
     said = assert(sys.pread(report, 4096, 0))
   end
   sys.close(report)
@@ -142,18 +143,18 @@ sys.nanosleep(30 * 1000000000)
   -- This process adopted it: it ends by the kernel's SIGKILL, its
   -- namespace's end, within seconds, where it would sleep on for 30.
   local ended: raw_process.ChildStatus | nil = nil
-  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
+  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + Time.seconds(5)
   while ended == nil and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
     local status = assert(process.waitpid(child, true))
-    if status.pid == child then ended = status else assert(sys.nanosleep(10 * 1000000)) end
+    if status.pid == child then ended = status else assert(sys.nanosleep(Time.ms(10))) end
   end
   if ended == nil then assert(sys.kill(child, sys.SIGKILL)) end
   -- The rest it adopted: the init, ended with its parent.
-  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
+  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + Time.seconds(5)
   while assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
     local status = process.waitpid(-1, true)
     if status == nil then break end
-    if status.pid == 0 then assert(sys.nanosleep(10 * 1000000)) end
+    if status.pid == 0 then assert(sys.nanosleep(Time.ms(10))) end
   end
   assert(ended ~= nil, "the confined child outlived its parent")
   assert(ended.signal == sys.SIGKILL, "ended by " .. tostring(ended.signal))
@@ -170,8 +171,8 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local started = this_program.program({ "-e",
     "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
     "print(t:find('127.0.0.1', 1, true) and 'up' or 'down') " ..
-    "local Net = require('cosmic.net') " ..
-    "print(select(2, Net.connect(Net.tcp('127.0.0.1', 1), { timeout_ms = 5000 })))" })
+    "local Net = require('cosmic.net') local Time = require('cosmic.time') " ..
+    "print(select(2, Net.connect(Net.tcp('127.0.0.1', 1), { timeout_ns = Time.seconds(5) })))" })
   local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
     tmp, nil, report, report, false,
     spawn_fds(started),
@@ -624,7 +625,7 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   assert(sys.set_nonblocking(ends.reader, true))
   local read = ""
   local closed = false
-  local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 10 * 1000000000
+  local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + Time.seconds(10)
   while not closed and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
     assert(sys.poll({ ends.reader }, { sys.POLLIN }, 100))
     local data, _, errno = sys.read(ends.reader, 4096)
@@ -768,8 +769,8 @@ local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: stri
     assert(#process.sandbox_inits() == 0, "an init outlived the wait for its program")
     if took > slowest then slowest = took end
   end
-  assert(slowest < 500 * 1000000, "a confined start and wait took " ..
-    tostring(slowest // 1000000) .. " ms")
+  assert(slowest < Time.ms(500), "a confined start and wait took " ..
+    tostring(slowest // Time.ms(1)) .. " ms")
 end
 
 --- `exit_watch`'s descriptor is readable once its child has exited, and

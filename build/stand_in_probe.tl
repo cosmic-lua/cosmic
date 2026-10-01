@@ -11,11 +11,11 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
-local SLICE_MS <const> = 5
+local SLICE_NS <const> = Time.ms(5)
 
 --- How long `signal` waits for one it sent itself to end it, and the
 --- status it ends with past that.
-local SIGNAL_WAIT_MS <const> = 2000
+local SIGNAL_WAIT_NS <const> = Time.seconds(2)
 local SIGNAL_MISSED <const> = 4
 
 local signals: {string:integer} = {
@@ -41,16 +41,16 @@ local function trap_fired(): boolean
   return guard ~= nil and not ignoring and guard:cancelled() ~= 0
 end
 
---- Sleeps `ms` milliseconds by the clock, a slice at a time, however
+--- Sleeps `ns` nanoseconds by the clock, a slice at a time, however
 --- long a slice's sleep takes (a host may coalesce short timers into
 --- longer ones): the status a trap ends it with, or nil.
-local function sleep_ms(ms: integer): integer
-  local deadline = Time.monotonic_ns() + ms * 1000000
+local function sleep_for(ns: integer): integer
+  local deadline = Time.monotonic_ns() + ns
   while true do
     if trap_fired() then return trapped end
-    local left = (deadline - Time.monotonic_ns()) // 1000000
+    local left = deadline - Time.monotonic_ns()
     if left <= 0 then break end
-    local _, _ = sys.nanosleep(math.min(left, SLICE_MS) * 1000000)
+    local _, _ = sys.nanosleep(math.min(left, SLICE_NS))
   end
   if trap_fired() then return trapped end
   return nil
@@ -178,12 +178,12 @@ local verbs: {string:function(string, string): integer} = {
     -- that holds it does. One that never lands ends it all the same,
     -- saying so: a `trap -` goes on, and the kernel delivers no
     -- uncaught signal to a pid namespace's init.
-    local stopped = sleep_ms(SIGNAL_WAIT_MS)
+    local stopped = sleep_for(SIGNAL_WAIT_NS)
     if stopped ~= nil then return stopped end
     -- Past the bound it ends at once, running no more of the script
     -- and nothing its end would run.
     local _, _ = Fs.put(2, "probe: signal: SIG" .. name .. " sent to itself did not end it in " ..
-      tostring(SIGNAL_WAIT_MS) .. " ms\n")
+      Time.format_duration({ ns = SIGNAL_WAIT_NS }) .. "\n")
     sys.exit(SIGNAL_MISSED)
     return SIGNAL_MISSED
   end,
@@ -195,17 +195,17 @@ local verbs: {string:function(string, string): integer} = {
     return nil
   end,
   sleep = function(ms: string): integer
-    return sleep_ms(number(ms) or 0)
+    return sleep_for(Time.ms(number(ms) or 0))
   end,
   ["sleep-forever"] = function(): integer
     while true do
-      local stopped = sleep_ms(1000)
+      local stopped = sleep_for(Time.seconds(1))
       if stopped ~= nil then return stopped end
     end
   end,
   ["wait-for"] = function(path: string): integer
     while not exists(path) do
-      local stopped = sleep_ms(SLICE_MS)
+      local stopped = sleep_for(SLICE_NS)
       if stopped ~= nil then return stopped end
     end
     return nil
@@ -288,7 +288,7 @@ local verbs: {string:function(string, string): integer} = {
     return put_all(1, value ~= nil and name .. "=" .. value .. "\n" or name .. " unset\n")
   end,
   connect = function(path: string): integer
-    local conn, trouble = Net.connect(Net.unix(path), { timeout_ms = 5000 })
+    local conn, trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
@@ -298,7 +298,7 @@ local verbs: {string:function(string, string): integer} = {
     if port == nil or port < 0 or port > 65535 then
       return failed("connect-tcp", "no port " .. word)
     end
-    local conn, trouble = Net.connect(Net.tcp(host, port), { timeout_ms = 5000 })
+    local conn, trouble = Net.connect(Net.tcp(host, port), { timeout_ns = Time.seconds(5) })
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")

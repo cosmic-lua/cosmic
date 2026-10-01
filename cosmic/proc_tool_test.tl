@@ -10,6 +10,7 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start to run a chunk (`lua`).
 Test.needs{ lua = true }
@@ -34,7 +35,7 @@ local function test_relaunch_starts_this_same_program(tmp: string)
   local chunk = 'local Proc = require("cosmic.proc") local Store = require("cosmic.store") ' ..
     'print(Store.meta("host_image"), Store.meta("runtime"), (Proc.executable()))'
   local started = this_program.program({ "-e", chunk }, { env = this_program.environment(), cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local expected = table.concat({ assert(Store.meta("host_image")),
@@ -74,7 +75,7 @@ print(trouble)
 require("cosmic.sys").exit(1)
 ]]
   local started = this_program.program({ "-e", chunk, probe }, { env = this_program.environment(), cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local ignored = assert(assert(r.stdout):match("SigIgn:%s*(%x+)"), r.stdout)
@@ -91,7 +92,7 @@ local function test_arguments_and_cwd_are_how_the_program_started(tmp: string)
   local chunk = "local Proc = require('cosmic.proc'); require('cosmic.sys').chdir('/'); " ..
     "print(table.concat(Proc.arguments(), '|')); print(assert(Proc.relaunch()).cwd)"
   local started = this_program.program({ "-e", chunk, "one", "two words" },
-    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.code == 0, tostring(r.stderr))
   local real = assert(sys.realpath(tmp))

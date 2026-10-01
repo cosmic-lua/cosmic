@@ -4,6 +4,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
+local PinTime = require("cosmic_ci.pin_time")
 
 -- Bound subprocess waits and the shorter paused-build handshakes separately.
 local child_wait_timeout_ms <const> = 30000
@@ -86,7 +87,7 @@ local function close_descriptors(running: Process.Running)
 end
 
 function Process.finish(running: Process.Running, timeout?: integer): Child.Result
-  local result, trouble = running.handle:wait(timeout or child_wait_timeout_ms)
+  local result, trouble = running.handle:wait(PinTime.wait(timeout or child_wait_timeout_ms))
   if result == nil then
     running.handle:close(); close_descriptors(running)
     error(running.label .. ": child wait failed: " .. trouble)

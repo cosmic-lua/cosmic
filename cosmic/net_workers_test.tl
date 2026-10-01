@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
@@ -18,7 +19,7 @@ Test.needs{ lua = true, standalone = true, network = { "127.0.0.1" } }
 --- Answers each line with itself, the pid of the worker answering, and
 --- what the worker and a child it starts find of COSMIC_NET_WORKER;
 --- closes its connection at "bye". Its arguments: the directory to
---- listen in, grace_ms, and "chdir" to move to / before serving, as a
+--- listen in, the grace in milliseconds, and "chdir" to move to / before serving, as a
 --- program may that was started with a path relative to where it
 --- started.
 local SERVER <const> = [[
@@ -29,6 +30,7 @@ local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 
 --- What a process this worker starts finds of COSMIC_NET_WORKER.
 local function child_sees(): string
@@ -39,7 +41,7 @@ local function child_sees(): string
   argv[#argv + 1] = "return require('cosmic.env').get('COSMIC_NET_WORKER') == nil and 0 or 7"
   local env = Env.all()
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local r = assert(Child.run(argv, { env = env, fds = relaunch.fds, timeout_ms = 30000 }))
+  local r = assert(Child.run(argv, { env = env, fds = relaunch.fds, timeout_ns = Time.seconds(30) }))
   return r.code == 0 and "unset" or "set"
 end
 
@@ -49,7 +51,7 @@ return function(argv: {string}): integer
     listeners = { Net.unix(argv[1] .. "/s.sock"), Net.tcp("127.0.0.1", 0) },
     workers = 2,
     limits = { connections = 1 },
-    grace_ms = math.tointeger(tonumber(argv[2])),
+    grace_ns = Time.ms(assert(math.tointeger(tonumber(argv[2])))),
     serve = function(conn: Net.Conn)
       local lines = Stream.lines(conn)
       for line in lines:each() do
@@ -109,7 +111,7 @@ local client_mt: metatable<Client> = {
 }
 
 local function client(address: Net.Address): Client
-  local conn = assert(Net.connect(address, { timeout_ms = 30000 }))
+  local conn = assert(Net.connect(address, { timeout_ns = Time.seconds(30) }))
   return setmetatable({ conn = conn, lines = Stream.lines(conn) }, client_mt)
 end
 
@@ -120,10 +122,6 @@ local function asked(c: Client, line: string): {string}
   local words: {string} = {}
   for word in answer:gmatch("%S+") do words[#words + 1] = word end
   return words
-end
-
-local function now_ms(): integer
-  return assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) // 1000000
 end
 
 --- A running server of SERVER's: its supervisor, what it prints, its
@@ -162,13 +160,13 @@ end
 
 --- Waits until nothing listens at `address` any longer.
 local function refused_at(address: Net.Address)
-  local deadline = now_ms() + 30000
+  local deadline = Time.monotonic_ns() + Time.seconds(30)
   while true do
-    local conn, why = Net.connect(address, { timeout_ms = 1000 })
+    local conn, why = Net.connect(address, { timeout_ns = Time.seconds(1) })
     if conn == nil and why:find("Connection refused", 1, true) ~= nil then return end
     if conn ~= nil then local _, _ = conn:close() end
-    assert(now_ms() < deadline, "something still listens: " .. tostring(why))
-    assert(sys.nanosleep(20 * 1000000))
+    assert(Time.monotonic_ns() < deadline, "something still listens: " .. tostring(why))
+    assert(Time.sleep_ns(Time.ms(20)))
   end
 end
 
@@ -183,16 +181,16 @@ local function test_workers_serve_and_drain_at_sigterm(tmp: string)
   local _first <close> = r.first
   local _second <close> = r.second
   assert(h:stop(sys.SIGTERM))
-  local deadline = now_ms() + 30000
+  local deadline = Time.monotonic_ns() + Time.seconds(30)
   while Fs.stat(tmp .. "/s.sock") ~= nil do
-    assert(now_ms() < deadline, "the socket file outlived the stop")
-    assert(sys.nanosleep(10 * 1000000))
+    assert(Time.monotonic_ns() < deadline, "the socket file outlived the stop")
+    assert(Time.sleep_ns(Time.ms(10)))
   end
   assert(asked(r.first, "after")[1] == "after")
   assert(asked(r.second, "later")[1] == "later")
   assert(r.first.conn:write("bye\n"))
   assert(r.second.conn:write("bye\n"))
-  local result = assert(h:wait(60000))
+  local result = assert(h:wait(Time.seconds(60)))
   local seen: {string} = {}
   for line in r.out:each() do seen[#seen + 1] = line end
   local rest = table.concat(seen, "\n")
@@ -219,11 +217,11 @@ local function test_workers_start_where_the_supervisor_started(tmp: string)
   assert(r.first.conn:write("bye\n"))
   assert(r.second.conn:write("bye\n"))
   assert(h:stop(sys.SIGTERM))
-  local result = assert(h:wait(60000))
+  local result = assert(h:wait(Time.seconds(60)))
   assert(result.code == 0, "code=" .. tostring(result.code))
 end
 
---- A supervisor whose grace is the most `grace_ms` takes waits for its
+--- A supervisor whose grace is the most `grace_ns` takes waits for its
 --- workers within what a wait of cosmic.child takes, and returns true
 --- once they have drained.
 local function test_the_longest_grace_stops_as_a_short_one(tmp: string)
@@ -235,7 +233,7 @@ local function test_the_longest_grace_stops_as_a_short_one(tmp: string)
   assert(r.first.conn:write("bye\n"))
   assert(r.second.conn:write("bye\n"))
   assert(h:stop(sys.SIGTERM))
-  local result = assert(h:wait(60000))
+  local result = assert(h:wait(Time.seconds(60)))
   local seen: {string} = {}
   for line in r.out:each() do seen[#seen + 1] = line end
   assert(result.code == 0, "code=" .. tostring(result.code) .. " signal=" ..
@@ -244,7 +242,7 @@ end
 
 --- Workers whose supervisor is killed outright -- SIGKILL, which it
 --- cannot act on -- find their lifeline closed, and stop as at SIGTERM:
---- a connection open is drained at grace_ms and closed, and nothing
+--- a connection open is drained at grace_ns and closed, and nothing
 --- listens at either listener once they have exited.
 local function test_workers_stop_once_their_supervisor_is_killed(tmp: string)
   local met <close> = workers()
@@ -253,7 +251,7 @@ local function test_workers_stop_once_their_supervisor_is_killed(tmp: string)
   local _first <close> = r.first
   local _second <close> = r.second
   assert(h:stop(sys.SIGKILL))
-  local result = assert(h:wait(60000))
+  local result = assert(h:wait(Time.seconds(60)))
   assert(result.signal == sys.SIGKILL, tostring(result.signal))
   local data, why = r.first.lines:read()
   assert(data == nil, data)
@@ -274,7 +272,7 @@ local function test_the_longest_grace_drains_once_the_supervisor_is_killed(tmp: 
   local _first <close> = r.first
   local _second <close> = r.second
   assert(h:stop(sys.SIGKILL))
-  local result = assert(h:wait(60000))
+  local result = assert(h:wait(Time.seconds(60)))
   assert(result.signal == sys.SIGKILL, tostring(result.signal))
   refused_at(Net.unix(tmp .. "/s.sock"))
   for _, c in ipairs({ r.first, r.second }) do
@@ -315,7 +313,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]], { tmp }, { stdout = "capture", stderr = "capture" })
-  local r = assert(h:wait(60000))
+  local r = assert(h:wait(Time.seconds(60)))
   assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
   local said = r.stdout or ""
   assert(said:find("^false every worker exited before the server stopped\n") ~= nil, said)
@@ -356,7 +354,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]], { tmp }, { env = env, fds = fds, stdout = "capture", stderr = "capture" })
-  local r = assert(h:wait(60000))
+  local r = assert(h:wait(Time.seconds(60)))
   assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
   return r.stdout or ""
 end
@@ -390,8 +388,8 @@ local function test_a_worker_handed_what_is_no_listener_fails(tmp: string)
 end
 
 --- A worker whose protocol never ends -- it holds the thread rather
---- than wait through the run, so its task cannot be killed at grace_ms
---- -- is sent SIGKILL a second past grace_ms after the stop, and
+--- than wait through the run, so its task cannot be killed at grace_ns
+--- -- is sent SIGKILL a second past grace_ns after the stop, and
 --- reported; the supervisor then returns true.
 local function test_a_worker_outlasting_the_stop_is_killed(tmp: string)
   local h <close> = started(tmp, "stuck.tl", [[
@@ -404,15 +402,15 @@ return function(argv: {string}): integer
   local ok, why = Net.serve{
     listeners = { Net.unix(argv[1] .. "/s.sock") },
     workers = 1,
-    grace_ms = 0,
+    grace_ns = 0,
     serve = function(conn: Net.Conn)
       assert(Stream.lines(conn):read())
       assert(conn:write("held\n"))
-      while true do local _, _ = Time.sleep_ns(10000000) end
+      while true do local _, _ = Time.sleep_ns(Time.ms(10)) end
     end,
     on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 30000 }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Time.seconds(30) }))
       assert(conn:write("hold\n"))
       assert(Stream.lines(conn):read() == "held")
       server:stop()
@@ -422,36 +420,37 @@ return function(argv: {string}): integer
   return 0
 end
 ]], { tmp }, { stdout = "capture", stderr = "capture" })
-  local r = assert(h:wait(60000))
+  local r = assert(h:wait(Time.seconds(60)))
   assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
   local said = r.stdout or ""
-  assert(said:find("^true \nworker %d+ was still running 1000 ms past grace_ms after the stop, " ..
+  assert(said:find("^true \nworker %d+ was still running 1s past grace_ns after the stop, " ..
     "and was killed$") ~= nil, said)
 end
 
 --- A worker whose protocol waits on through the run after the stop,
---- ignoring every failure, has its task killed at grace_ms and exits
+--- ignoring every failure, has its task killed at grace_ns and exits
 --- on its own, before the supervisor would send it SIGKILL.
-local function test_a_worker_waiting_past_the_stop_exits_at_grace_ms(tmp: string)
+local function test_a_worker_waiting_past_the_stop_exits_at_grace_ns(tmp: string)
   local h <close> = started(tmp, "waits.tl", [[
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
 return function(argv: {string}): integer
   local troubles: {string} = {}
   local ok, why = Net.serve{
     listeners = { Net.unix(argv[1] .. "/s.sock") },
     workers = 1,
-    grace_ms = 0,
+    grace_ns = 0,
     serve = function(conn: Net.Conn)
       assert(Stream.lines(conn):read())
       assert(conn:write("held\n"))
-      while true do local _, _ = Poll.delay(10) end
+      while true do local _, _ = Poll.delay(Time.ms(10)) end
     end,
     on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 30000 }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Time.seconds(30) }))
       assert(conn:write("hold\n"))
       assert(Stream.lines(conn):read() == "held")
       server:stop()
@@ -461,7 +460,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]], { tmp }, { stdout = "capture", stderr = "capture" })
-  local r = assert(h:wait(60000))
+  local r = assert(h:wait(Time.seconds(60)))
   assert(r.code == 0, tostring(r.code) .. " " .. tostring(r.stderr))
   -- The worker's line and the supervisor's, neither reporting trouble.
   assert(r.stdout == "true \ntrue \n", string.format("%q", r.stdout))

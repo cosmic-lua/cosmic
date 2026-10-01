@@ -38,6 +38,7 @@ local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
+local Time = require("cosmic.time")
 
 local type Searcher = function(string): any, any
 
@@ -265,8 +266,8 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
-    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ms = 5000 }))
-    local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
     local accepted <close> = assert(server:accept())
     assert(client:write("hello"))
     assert(accepted:read() == "hello")
@@ -285,9 +286,9 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
   local path = tmp .. "/r.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
-    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ms = 5000 }))
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
     Poll.run(function()
-      local _client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+      local _client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
       local accepted <close> = assert(server:accept())
       assert(accepted:peer())
     end)

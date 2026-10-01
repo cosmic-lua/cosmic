@@ -10,6 +10,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The script, and the system's `sh` and tools, which run it.
 Test.needs{ reads = { ".github/scripts/leg-host-id.sh" }, system = true }
@@ -40,7 +41,7 @@ local function named(tmp: string, args: {string}, extra: {string:string}):
   local argv = { "/bin/sh", SCRIPT }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result = assert(Child.run(argv, { env = env, cwd = dir, stdout = "capture",
-    stderr = "capture", timeout_ms = 30000 }))
+    stderr = "capture", timeout_ns = Time.seconds(30) }))
   return Fs.read(dir .. "/env") or "", Fs.read(dir .. "/output") or "",
     result.code, (result.stdout or "") .. (result.stderr or "")
 end

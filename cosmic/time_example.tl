@@ -56,6 +56,19 @@ function Example.hours()
   assert(Time.hours(24) == 86400 * 1000000000 and Time.hours(0.5) == Time.minutes(30))
 end
 
+--- A span as the count of a unit that covers it, for a call that takes
+--- milliseconds: a nanosecond is one millisecond, never none.
+function Example.ceil()
+  local ms = Time.ms(1)
+  print(Time.ceil(1, ms), Time.ceil(Time.ms(5), ms), Time.ceil(Time.ms(5) + 1, ms))
+  assert(Time.ceil(0, ms) == 0 and Time.ceil(1, ms) == 1)
+  assert(Time.ceil(Time.ms(5), ms) == 5 and Time.ceil(Time.ms(5) + 1, ms) == 6)
+  assert(Time.ceil(-1, ms) == 0 and Time.ceil(Time.seconds(2), Time.seconds(1)) == 2)
+  local ok, why = pcall(Time.ceil, 1, 0)
+  print(ok, why)
+  assert(not ok)
+end
+
 --- A duration as people write it: a calendar part (years, months, days)
 --- and an exact part in nanoseconds, with one sign for the whole. Text
 --- that is not one is refused with why.

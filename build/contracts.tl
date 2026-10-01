@@ -167,6 +167,11 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
+  ["build/zig_fetch.tl:ZigFetch.limits"] =
+    "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
+    "whose Http.Options counts its limits in milliseconds and seconds " ..
+    "where the tree's counts nanoseconds: no one declaration fits both, " ..
+    "so the table of both is read as the tree's record",
   ["build/zig.tl:open_writable"] =
     "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
     "whose Sqlite.open is (string, boolean) where the tree's is (string, " ..

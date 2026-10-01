@@ -34,14 +34,19 @@ local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
+-- A millisecond and a second in nanoseconds, written out: the pinned
+-- release's cosmic.time has no `ms` or `seconds` to write them with.
+local MS <const> = 1000 * 1000
+local SECOND <const> = 1000 * MS
+
 local record ZigFetch
   --- What [`ZigFetch.fetch`] downloads with, pauses with (for
-  --- milliseconds) and reads the time from (in milliseconds):
+  --- nanoseconds) and reads the time from (in nanoseconds):
   --- [`Http.download`], [`sys.nanosleep`] and [`Time.monotonic_ns`]
   --- unless a test says otherwise.
   record Fetcher
     download: function(url: string, path: string, opts: Http.Options): boolean, string
-    sleep: function(ms: integer)
+    sleep: function(ns: integer)
     now: function(): integer
   end
 end
@@ -107,7 +112,7 @@ local MIRRORS_TRIED <const> = 4
 --- How many times over the sources an install goes before it gives up.
 local ROUNDS <const> = 3
 --- The pause before round `n` is `(n - 1)` times this.
-local BACKOFF_MS <const> = 2000
+local BACKOFF_NS <const> = 2 * SECOND
 
 --- What bounds the attempts. The limits are there to stop a slow or
 --- hostile mirror, not a slow link, which slows every source alike:
@@ -126,13 +131,13 @@ local BACKOFF_MS <const> = 2000
 ---   design. It is tried once a round, and once more, last, when the
 ---   budget runs out partway through the mirrors -- at most `ROUNDS`
 ---   times in all.
-local CONNECT_TIMEOUT_MS <const> = 10000
+local CONNECT_TIMEOUT_NS <const> = 10 * SECOND
 local MIRROR_LOW_SPEED_BYTES <const> = 64 * 1024
-local MIRROR_LOW_SPEED_SECONDS <const> = 20
-local MIRROR_TIMEOUT_MS <const> = 3 * 60 * 1000
+local MIRROR_LOW_SPEED_NS <const> = 20 * SECOND
+local MIRROR_TIMEOUT_NS <const> = 3 * 60 * SECOND
 local FALLBACK_LOW_SPEED_BYTES <const> = 1024
-local FALLBACK_LOW_SPEED_SECONDS <const> = 60
-local BUDGET_MS <const> = 12 * 60 * 1000
+local FALLBACK_LOW_SPEED_NS <const> = 60 * SECOND
+local BUDGET_NS <const> = 12 * 60 * SECOND
 
 --- The URLs to fetch `name`, zig `version`'s release tarball, from, in
 --- the order to try them: `MIRRORS_TRIED` of `mirrors` in a random order
@@ -165,12 +170,34 @@ function ZigFetch.sources(version: string, name: string, mirrors: {string},
   return out
 end
 
-local function real_sleep(ms: integer)
-  local _, _ = sys.nanosleep(ms * 1000 * 1000)
+local function real_sleep(ns: integer)
+  local _, _ = sys.nanosleep(ns)
 end
 
-local function real_now_ms(): integer
-  return Time.monotonic_ns() // (1000 * 1000)
+--- The download limits as [`Http.download`] reads them, whichever
+--- release runs this: the pinned one counts them in milliseconds and
+--- seconds (`connect_timeout_ms`, `low_speed_seconds`, `timeout_ms`),
+--- the tree's in nanoseconds, and each ignores the other's fields. A
+--- span is rounded up to the milliseconds, or for `low_speed_ns` the
+--- seconds, since 0 is no limit.
+-- TODO: set the nanosecond fields alone, and take the Time.ms and
+-- Time.seconds spans for SECOND above, once ci/cosmic-driver.pin names
+-- a release whose Http.Options counts its limits in nanoseconds and
+-- whose cosmic.time has `seconds`.
+function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
+    timeout_ns?: integer): Http.Options
+  local options: {string:integer} = {
+    connect_timeout_ns = connect_ns,
+    connect_timeout_ms = (connect_ns + MS - 1) // MS,
+    low_speed_bytes = low_speed_bytes,
+    low_speed_ns = low_speed_ns,
+    low_speed_seconds = (low_speed_ns + SECOND - 1) // SECOND,
+  }
+  if timeout_ns ~= nil then
+    options.timeout_ns = timeout_ns
+    options.timeout_ms = (timeout_ns + MS - 1) // MS
+  end
+  return options as any as Http.Options
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
@@ -178,7 +205,7 @@ end
 --- growing pause between rounds. Every url but the last is a mirror,
 --- held to the mirror limits and the budget; the last is the fallback
 --- (ziglang.org), held only to a stall guard (see the limits above
---- `CONNECT_TIMEOUT_MS`). Once the budget is spent the mirrors are
+--- `CONNECT_TIMEOUT_NS`). Once the budget is spent the mirrors are
 --- skipped and the fallback is tried one last time.
 ---
 --- Each attempt starts from no file at `path` ([`Http.download`] writes a
@@ -193,8 +220,8 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     via?: ZigFetch.Fetcher): boolean, string
   local download = via ~= nil and via.download or Http.download
   local sleep = via ~= nil and via.sleep or real_sleep
-  local now = via ~= nil and via.now or real_now_ms
-  local deadline = now() + BUDGET_MS
+  local now = via ~= nil and via.now or Time.monotonic_ns
+  local deadline = now() + BUDGET_NS
   local last: {string:string} = {}
   local wrong: {string:boolean} = {}
   local attempts = 0
@@ -219,14 +246,14 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     if String.starts_with(trouble, url .. ": ") then
       trouble = trouble:sub(#url + 3)
     end
-    last[url] = trouble .. " (after " .. tostring((now() - started) // 1000) .. " s)"
+    last[url] = trouble .. " (after " .. tostring((now() - started) // SECOND) .. " s)"
     return false
   end
 
   local fallback = urls[#urls]
   for round = 1, ROUNDS do
     if round > 1 then
-      sleep((round - 1) * BACKOFF_MS)
+      sleep((round - 1) * BACKOFF_NS)
     end
     for i = 1, #urls - 1 do
       local url = urls[i]
@@ -235,12 +262,8 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
         if left <= 0 then
           out_of_time = true
         else
-          local ok = attempt(url, {
-            connect_timeout_ms = math.min(CONNECT_TIMEOUT_MS, left),
-            low_speed_bytes = MIRROR_LOW_SPEED_BYTES,
-            low_speed_seconds = MIRROR_LOW_SPEED_SECONDS,
-            timeout_ms = math.min(MIRROR_TIMEOUT_MS, left),
-          })
+          local ok = attempt(url, ZigFetch.limits(math.min(CONNECT_TIMEOUT_NS, left),
+            MIRROR_LOW_SPEED_BYTES, MIRROR_LOW_SPEED_NS, math.min(MIRROR_TIMEOUT_NS, left)))
           if ok then
             return true, ""
           end
@@ -256,11 +279,8 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
       end
     end
     if fallback ~= nil then
-      local ok = attempt(fallback, {
-        connect_timeout_ms = CONNECT_TIMEOUT_MS,
-        low_speed_bytes = FALLBACK_LOW_SPEED_BYTES,
-        low_speed_seconds = FALLBACK_LOW_SPEED_SECONDS,
-      })
+      local ok = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
+        FALLBACK_LOW_SPEED_NS))
       if ok then
         return true, ""
       end

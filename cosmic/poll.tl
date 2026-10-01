@@ -4,7 +4,7 @@
 ---
 ---     Poll.run(function()
 ---       local worker = Poll.spawn(function()
----         assert(Poll.readable(fd, 5000))
+---         assert(Poll.readable(fd, Time.seconds(5)))
 ---         print(sys.read(fd, 4096))
 ---       end)
 ---       assert(worker:join())
@@ -14,7 +14,7 @@
 --- task has ended. A task waits by calling `readable`, `writable`,
 --- `delay` or a Task's `join`, each of which answers true and "" once
 --- what it waits for happens, or false and [`Poll.TIMEOUT`] once its
---- `timeout_ms` passes first, or false and [`Poll.CANCELLED`] once the task
+--- `timeout_ns` passes first, or false and [`Poll.CANCELLED`] once the task
 --- is cancelled; `ready` waits on several descriptors at once, and
 --- answers what each had, as [`sys.poll`] does; a Task's `kill` ends
 --- one outright, for a task that goes on after its waits fail.
@@ -30,16 +30,17 @@
 
 local errors = require("cosmic.internal.errors")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 
 local record Poll
   --- A function running under [`Poll.run`] beside the others, answered by
   --- [`Poll.spawn`].
   record Task
-    --- Waits for the task to end, at most `timeout_ms` milliseconds (no
+    --- Waits for the task to end, at most `timeout_ns` nanoseconds (no
     --- limit when nil): true and "" once it has returned, false and
     --- [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] otherwise -- CANCELLED, too, for
     --- a task killed, or one a failed run closed where it waited.
-    join: function(Task, timeout_ms?: integer): boolean, string
+    join: function(Task, timeout_ns?: integer): boolean, string
     --- Ends the task at its next wait: the wait it is in, if any, and
     --- every one after, answers false and [`Poll.CANCELLED`] at once --
     --- but for one in [`Poll.shielded`], which waits on as though the
@@ -63,17 +64,22 @@ local record Poll
     kill: function(Task)
   end
 
-  --- What a wait answers once its `timeout_ms` passes first.
+  --- What a wait answers once its `timeout_ns` passes first.
   TIMEOUT: string
   --- What a wait answers once its task is cancelled.
   CANCELLED: string
+  --- The longest wait [`sys.poll`] takes, in nanoseconds, and so the
+  --- longest timeout any wait here, in [`cosmic.child`] and in
+  --- [`cosmic.net`] takes: 2^31-1 milliseconds, about 24 days.
+  MOST_NS: integer
 end
 
 Poll.TIMEOUT = "timed out"
 Poll.CANCELLED = "cancelled"
 
---- The longest wait [`sys.poll`] takes, and so the longest timeout here.
-local MOST_MS <const> = 0x7fffffff
+Poll.MOST_NS = Time.ms(0x7fffffff)
+--- One millisecond, which [`sys.poll`] counts its waits in.
+local MS <const> = Time.ms(1)
 --- The highest descriptor [`sys.poll`] takes: a C `int`.
 local MOST_FD <const> = 0x7fffffff
 --- What [`sys.poll`] answers of a descriptor whether asked or not.
@@ -193,12 +199,6 @@ local record Loop
 end
 
 local loop: Loop = nil
-
-local function now_ms(): integer
-  local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
-  if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble) end
-  return reading // 1000000
-end
 
 local function earlier(a: Wait, b: Wait): boolean
   if a.at ~= b.at then return a.at < b.at end
@@ -367,16 +367,16 @@ local function current(what: string, level: integer): State
   return task
 end
 
-local function checked_ms(value: integer | nil, name: string, level: integer)
-  if value ~= nil and (math.type(value) ~= "integer" or value < 0 or value > MOST_MS) then
-    error(name .. " must be an integer from 0 to " .. MOST_MS, level + 1)
+local function checked_ns(value: integer | nil, name: string, level: integer)
+  if value ~= nil and (math.type(value) ~= "integer" or value < 0 or value > Poll.MOST_NS) then
+    error(name .. " must be an integer from 0 to " .. Poll.MOST_NS, level + 1)
   end
 end
 
---- Parks `task` in `w`, bounded by `timeout_ms`, and answers what ends
+--- Parks `task` in `w`, bounded by `timeout_ns`, and answers what ends
 --- it. A cancelled task still yields, answered at once, so a task that
 --- waits in a loop lets the others run.
-local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, string
+local function park(task: State, w: Wait, timeout_ns: integer | nil): boolean, string
   task.parked = w
   loop.seq = loop.seq + 1
   w.seq = loop.seq
@@ -390,8 +390,8 @@ local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, s
       w.watches = {}
       for place, fd in ipairs(w.fds) do enter(w, fd, w.masks[place], place) end
     end
-    if timeout_ms ~= nil then
-      w.at, w.in_heap = now_ms() + timeout_ms, true
+    if timeout_ns ~= nil then
+      w.at, w.in_heap = Time.monotonic_ns() + timeout_ns, true
       heap_push(loop.timers, w)
     end
   end
@@ -404,39 +404,39 @@ local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, s
   error("a task was resumed other than by Poll.run", 2)
 end
 
-local function wait_fd(fd: integer, events: integer, timeout_ms: integer | nil, what: string): boolean, string
+local function wait_fd(fd: integer, events: integer, timeout_ns: integer | nil, what: string): boolean, string
   local task = current(what, 3)
-  checked_ms(timeout_ms, "timeout_ms", 3)
+  checked_ns(timeout_ns, "timeout_ns", 3)
   if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_FD then
     error("fd must be a descriptor", 3)
   end
-  return park(task, { task = task, fd = fd, events = events }, timeout_ms)
+  return park(task, { task = task, fd = fd, events = events }, timeout_ns)
 end
 
 --- Waits until `fd` can be read without waiting -- data, the end of what
 --- the peer sends, a connection to accept, or an error to read -- at most
---- `timeout_ms` milliseconds (no limit when nil).
-function Poll.readable(fd: integer, timeout_ms?: integer): boolean, string
-  return wait_fd(fd, sys.POLLIN, timeout_ms, "Poll.readable")
+--- `timeout_ns` nanoseconds (no limit when nil).
+function Poll.readable(fd: integer, timeout_ns?: integer): boolean, string
+  return wait_fd(fd, sys.POLLIN, timeout_ns, "Poll.readable")
 end
 
 --- Waits until `fd` can be written without waiting, or has failed, at
---- most `timeout_ms` milliseconds (no limit when nil).
-function Poll.writable(fd: integer, timeout_ms?: integer): boolean, string
-  return wait_fd(fd, sys.POLLOUT, timeout_ms, "Poll.writable")
+--- most `timeout_ns` nanoseconds (no limit when nil).
+function Poll.writable(fd: integer, timeout_ns?: integer): boolean, string
+  return wait_fd(fd, sys.POLLOUT, timeout_ns, "Poll.writable")
 end
 
 --- Waits until any of `fds` is ready for its mask of `events`
---- ([`sys.POLLIN`], [`sys.POLLOUT`]), at most `timeout_ms` milliseconds
+--- ([`sys.POLLIN`], [`sys.POLLOUT`]), at most `timeout_ns` nanoseconds
 --- (no limit when nil), as [`sys.poll`] does: the events each descriptor
 --- had, by its place -- [`sys.POLLERR`] and [`sys.POLLHUP`] among them,
 --- unasked, and 0 for one that had none, as every one has once
---- `timeout_ms` passes first -- or nil and [`Poll.CANCELLED`] once the
+--- `timeout_ns` passes first -- or nil and [`Poll.CANCELLED`] once the
 --- task is cancelled. A descriptor another module is about to close
 --- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
-function Poll.ready(fds: {integer}, events: {integer}, timeout_ms?: integer): {integer} | nil, string
+function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {integer} | nil, string
   local task = current("Poll.ready", 2)
-  checked_ms(timeout_ms, "timeout_ms", 2)
+  checked_ns(timeout_ns, "timeout_ns", 2)
   if #fds == 0 or #events ~= #fds then
     error("Poll.ready takes one or more descriptors, and events for each", 2)
   end
@@ -452,19 +452,19 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ms?: integer): {i
     watched[i], masks[i], answers[i] = fd, mask, 0
   end
   local ok, why = park(task,
-    { task = task, fds = watched, masks = masks, answers = answers, expiry_ok = true }, timeout_ms)
+    { task = task, fds = watched, masks = masks, answers = answers, expiry_ok = true }, timeout_ns)
   if not ok then return nil, why end
   return answers, ""
 end
 
---- Waits `ms` milliseconds while the other tasks run: true and "" once
+--- Waits `ns` nanoseconds while the other tasks run: true and "" once
 --- they have passed, false and [`Poll.CANCELLED`] once the task is
 --- cancelled first.
-function Poll.delay(ms: integer): boolean, string
+function Poll.delay(ns: integer): boolean, string
   local task = current("Poll.delay", 2)
-  if ms == nil then error("ms must be an integer from 0 to " .. MOST_MS, 2) end
-  checked_ms(ms, "ms", 2)
-  return park(task, { task = task, expiry_ok = true }, ms)
+  if ns == nil then error("ns must be an integer from 0 to " .. Poll.MOST_NS, 2) end
+  checked_ns(ns, "ns", 2)
+  return park(task, { task = task, expiry_ok = true }, ns)
 end
 
 --- Ends `task`, suspended, as a Task's `kill` says: its wait is marked
@@ -494,15 +494,15 @@ end
 local function start(fn: function()): Poll.Task
   local state: State = { co = coroutine.create(fn), loop = loop, shields = 0, joiners = {} }
   state.handle = {
-    join = function(_self: Poll.Task, timeout_ms?: integer): boolean, string
+    join = function(_self: Poll.Task, timeout_ns?: integer): boolean, string
       local task = current("Task:join", 2)
-      checked_ms(timeout_ms, "timeout_ms", 2)
+      checked_ns(timeout_ns, "timeout_ns", 2)
       if state.killed then return false, Poll.CANCELLED end
       if state.ended or state.loop ~= loop then return true, "" end
       if state == task then error("a task cannot join itself", 2) end
       local w: Wait = { task = task, joined = state }
       state.joiners[#state.joiners + 1] = w
-      return park(task, w, timeout_ms)
+      return park(task, w, timeout_ns)
     end,
     cancel = function(_self: Poll.Task)
       if state.loop ~= loop or state.ended or state.cancelled then return end
@@ -604,15 +604,16 @@ local function step(task: State, ok: boolean, why: string)
   end
 end
 
---- How long the next `poll` may wait: 0 while a task is ready, until the
---- nearest time wait, or -1 for no limit.
+--- How long the next `poll` may wait, in the milliseconds [`sys.poll`]
+--- counts, rounded up so a wait with time left never polls for none: 0
+--- while a task is ready, until the nearest time wait, or -1 for no limit.
 local function next_timeout(): integer
   if #loop.ready > 0 then return 0 end
   while #loop.timers > 0 and loop.timers[1].done do pop_timer() end
   if #loop.timers == 0 then return -1 end
-  local left = loop.timers[1].at - now_ms()
-  if left < 0 then return 0 end
-  return math.min(left, MOST_MS)
+  local left = loop.timers[1].at - Time.monotonic_ns()
+  if left <= 0 then return 0 end
+  return math.min(Time.ceil(left, MS), Time.ceil(Poll.MOST_NS, MS))
 end
 
 --- Waits on every watched descriptor for as long as `timeout`, and
@@ -654,7 +655,7 @@ end
 
 --- Answers every time wait whose time has come.
 local function expire()
-  local t = now_ms()
+  local t = Time.monotonic_ns()
   while #loop.timers > 0 and (loop.timers[1].done or loop.timers[1].at <= t) do
     local w = pop_timer()
     if not w.done then

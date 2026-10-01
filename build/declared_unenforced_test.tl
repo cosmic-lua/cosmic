@@ -22,6 +22,7 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- What a run of `cosmic test` needs of the host, and the program it
 --- runs; and whether this run is held to sandboxing, for the one case
@@ -97,7 +98,7 @@ end
 local function run(root: string, output: string, env: {string:string}): integer, string
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test" }, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

@@ -4,6 +4,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 
 --- Answers each line with itself until the peer ends what it sends.
 local function echo(conn: Net.Conn)
@@ -26,12 +27,8 @@ local client_mt: metatable<Client> = {
 }
 
 local function client(address: Net.Address): Client
-  local conn = assert(Net.connect(address, { timeout_ms = 5000 }))
+  local conn = assert(Net.connect(address, { timeout_ns = Time.seconds(5) }))
   return setmetatable({ conn = conn, lines = Stream.lines(conn) }, client_mt)
-end
-
-local function now_ms(): integer
-  return assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) // 1000000
 end
 
 --- Connections are served at once, each in a task of its own: the last
@@ -113,12 +110,12 @@ local function test_at_the_connection_limit_accepting_waits(tmp: string)
         assert(first.lines:read() == "one")
         second = client(addresses[1])
         assert(second.conn:write("two\n"))
-        second.conn.timeout_ms = 100
+        second.conn.timeout_ns = Time.ms(100)
         local nothing: string
         nothing, waiting_why = second.conn:read()
         assert(nothing == nil)
         assert(accepted == 1, tostring(accepted))
-        second.conn.timeout_ms = 5000
+        second.conn.timeout_ns = Time.seconds(5)
       end
       answer = assert(second.lines:read())
       local _, _ = second.conn:close()
@@ -130,12 +127,12 @@ local function test_at_the_connection_limit_accepting_waits(tmp: string)
   assert(accepted == 2, tostring(accepted))
 end
 
---- A connection's reads and writes wait at most the spec's timeout_ms.
-local function test_timeout_ms_bounds_each_connection(tmp: string)
+--- A connection's reads and writes wait at most the spec's timeout_ns.
+local function test_timeout_ns_bounds_each_connection(tmp: string)
   local why = ""
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
-    timeout_ms = 20,
+    timeout_ns = Time.ms(20),
     serve = function(conn: Net.Conn)
       local data: string
       data, why = conn:read()
@@ -152,10 +149,10 @@ local function test_timeout_ms_bounds_each_connection(tmp: string)
 end
 
 --- Stopping closes the listener, removing its socket file, at once; a
---- connection in flight finishes, and one still open at grace_ms has
+--- connection in flight finishes, and one still open at grace_ns has
 --- its task killed, its protocol never resumed, before Net.serve
 --- returns.
-local function test_stop_drains_then_kills_after_grace_ms(tmp: string)
+local function test_stop_drains_then_kills_after_grace_ns(tmp: string)
   local path = tmp .. "/s.sock"
   local started = 0
   local stuck_why = ""
@@ -164,7 +161,7 @@ local function test_stop_drains_then_kills_after_grace_ms(tmp: string)
   local stuck: Client
   assert(Net.serve{
     listeners = { Net.unix(path) },
-    grace_ms = 200,
+    grace_ns = Time.ms(200),
     serve = function(conn: Net.Conn)
       started = started + 1
       local lines = Stream.lines(conn)
@@ -173,15 +170,15 @@ local function test_stop_drains_then_kills_after_grace_ms(tmp: string)
         stuck_why = why
         return
       end
-      assert(Poll.delay(50))
+      assert(Poll.delay(Time.ms(50)))
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local slow <close> = client(addresses[1])
       stuck = client(addresses[1])
       assert(slow.conn:write("slow\n"))
-      while started < 2 do assert(Poll.delay(1)) end
-      stopped_at = now_ms()
+      while started < 2 do assert(Poll.delay(Time.ms(1))) end
+      stopped_at = Time.monotonic_ns()
       server:stop()
       assert(Fs.stat(path) == nil, "the socket file was left")
       local refused, why = Net.connect(addresses[1])
@@ -189,13 +186,13 @@ local function test_stop_drains_then_kills_after_grace_ms(tmp: string)
       answer = assert(slow.lines:read())
     end,
   })
-  returned_at = now_ms()
+  returned_at = Time.monotonic_ns()
   local ended, why = stuck.lines:read()
   assert(ended == nil and why == "", why)
   local _, _ = stuck.conn:close()
   assert(answer == "slow", answer)
   assert(stuck_why == "", stuck_why)
-  assert(returned_at - stopped_at >= 200, tostring(returned_at - stopped_at))
+  assert(returned_at - stopped_at >= Time.ms(200), tostring(returned_at - stopped_at))
 end
 
 --- A listener that cannot listen fails the whole server, having closed
@@ -234,8 +231,12 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
     "spec.limits.connections must be")
   refused({ listeners = { address }, serve = echo, limits = { conections = 1 } },
     "spec.limits has no field conections")
-  refused({ listeners = { address }, serve = echo, grace_ms = -1 }, "spec.grace_ms must be")
-  refused({ listeners = { address }, serve = echo, timeout_ms = 1.5 }, "spec.timeout_ms must be")
+  refused({ listeners = { address }, serve = echo, grace_ns = -1 }, "spec.grace_ns must be")
+  refused({ listeners = { address }, serve = echo, timeout_ns = 1.5 }, "spec.timeout_ns must be")
+  refused({ listeners = { address }, serve = echo, grace_ns = Poll.MOST_NS + 1 },
+    "spec.grace_ns must be")
+  refused({ listeners = { address }, serve = echo, timeout_ms = 5 }, "spec has no field timeout_ms")
+  refused({ listeners = { address }, serve = echo, grace_ms = 5 }, "spec has no field grace_ms")
   refused({ listeners = { address }, serve = echo, on_ready = true }, "spec.on_ready must be")
   refused({ listeners = { address }, serve = echo, grace = 10 }, "spec has no field grace")
   for _, workers in ipairs({ -1, 1.5, "2", true } as {any}) do
@@ -257,10 +258,10 @@ local record Closer
 end
 
 --- A protocol that ignores every failure and waits on, on its
---- connection or on time, is killed at grace_ms, and Net.serve returns:
+--- connection or on time, is killed at grace_ns, and Net.serve returns:
 --- its `<close>` variables are closed, its connection with them, and
 --- nothing is reported of it.
-local function test_a_protocol_ignoring_failures_is_killed_at_grace_ms(tmp: string)
+local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns(tmp: string)
   local failures: {string} = {}
   local errors: {string} = {}
   local started, closed = 0, 0
@@ -268,14 +269,14 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ms(tmp: stri
   local held: {Client} = {}
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
-    grace_ms = 20,
+    grace_ns = Time.ms(20),
     serve = function(conn: Net.Conn)
       local _ <close> = setmetatable({} as Closer, closer_mt)
       started = started + 1
       local reads = started == 1
       while true do
         local _, why: any, string
-        if reads then _, why = conn:read() else _, why = Poll.delay(60000) end
+        if reads then _, why = conn:read() else _, why = Poll.delay(Time.seconds(60)) end
         failures[#failures + 1] = why
         -- A bound, so a regression fails the assertion below rather
         -- than looping until the test times out.
@@ -286,7 +287,7 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ms(tmp: stri
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       held[1] = client(addresses[1])
       held[2] = client(addresses[1])
-      while started < 2 do assert(Poll.delay(1)) end
+      while started < 2 do assert(Poll.delay(Time.ms(1))) end
       server:stop()
     end,
   })
@@ -309,16 +310,16 @@ local function test_a_killed_protocols_close_error_is_reported(tmp: string)
   local held: Client
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
-    grace_ms = 0,
+    grace_ns = 0,
     serve = function(_conn: Net.Conn)
       local _ <close> = setmetatable({} as Closer, raiser_mt)
       started = true
-      assert(Poll.delay(60000))
+      assert(Poll.delay(Time.seconds(60)))
     end,
     on_error = function(trouble: string) errors[#errors + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       held = client(addresses[1])
-      while not started do assert(Poll.delay(1)) end
+      while not started do assert(Poll.delay(Time.ms(1))) end
       server:stop()
     end,
   })
@@ -331,7 +332,7 @@ end
 --- A killed protocol's `<close>` handler meets its connection closed:
 --- a write there fails at once, where it would otherwise wait on a peer
 --- that reads nothing, and another wait raises, reported; Net.serve
---- returns soon after grace_ms.
+--- returns soon after grace_ns.
 local function test_a_killed_protocols_close_cannot_wait(tmp: string)
   local errors: {string} = {}
   local wrote = ""
@@ -340,7 +341,7 @@ local function test_a_killed_protocols_close_cannot_wait(tmp: string)
   local held: Client
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
-    grace_ms = 50,
+    grace_ns = Time.ms(50),
     serve = function(conn: Net.Conn)
       local farewell_mt: metatable<Closer> = { __close = function()
         local _, why = conn:write(string.rep("x", 8 * 1024 * 1024))
@@ -349,22 +350,22 @@ local function test_a_killed_protocols_close_cannot_wait(tmp: string)
       end }
       local _ <close> = setmetatable({} as Closer, farewell_mt)
       started = true
-      while true do local _, _ = Poll.delay(60000) end
+      while true do local _, _ = Poll.delay(Time.seconds(60)) end
     end,
     on_error = function(trouble: string) errors[#errors + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       held = client(addresses[1])
-      while not started do assert(Poll.delay(1)) end
-      stopped_at = now_ms()
+      while not started do assert(Poll.delay(Time.ms(1))) end
+      stopped_at = Time.monotonic_ns()
       server:stop()
     end,
   })
-  returned_at = now_ms()
+  returned_at = Time.monotonic_ns()
   local _, _ = held.conn:close()
   assert(wrote == "connection is closed", wrote)
   assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true),
     table.concat(errors, "\n"))
-  assert(returned_at - stopped_at < 5000, tostring(returned_at - stopped_at))
+  assert(returned_at - stopped_at < Time.seconds(5), tostring(returned_at - stopped_at))
 end
 
 --- The limit counts connections across listeners: while one listener's
@@ -384,11 +385,11 @@ local function test_the_connection_limit_is_shared_by_every_listener(tmp: string
         assert(first.lines:read() == "one")
         second = client(addresses[2])
         assert(second.conn:write("two\n"))
-        second.conn.timeout_ms = 100
+        second.conn.timeout_ns = Time.ms(100)
         local nothing: string
         nothing, waiting_why = second.conn:read()
         assert(nothing == nil)
-        second.conn.timeout_ms = 5000
+        second.conn.timeout_ns = Time.seconds(5)
       end
       answer = assert(second.lines:read())
       local _, _ = second.conn:close()
@@ -441,10 +442,10 @@ end
 --- Waits, in a task, until `path` is gone -- the server that listened
 --- there has stopped -- failing after five seconds.
 local function until_gone(path: string)
-  local deadline = now_ms() + 5000
+  local deadline = Time.monotonic_ns() + Time.seconds(5)
   while Fs.stat(path) ~= nil do
-    assert(now_ms() < deadline, "the server did not stop")
-    assert(Poll.delay(1))
+    assert(Time.monotonic_ns() < deadline, "the server did not stop")
+    assert(Poll.delay(Time.ms(1)))
   end
 end
 
@@ -464,13 +465,13 @@ local function test_sigterm_stops_the_server_and_it_drains(tmp: string)
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
       started = true
-      assert(Poll.delay(50))
+      assert(Poll.delay(Time.ms(50)))
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       local c <close> = client(addresses[1])
       assert(c.conn:write("slow\n"))
-      while not started do assert(Poll.delay(1)) end
+      while not started do assert(Poll.delay(Time.ms(1))) end
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
       until_gone(path)
       answer = assert(c.lines:read())
@@ -502,7 +503,7 @@ local function test_a_second_signal_ends_the_grace(tmp: string)
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       stuck = client(addresses[1])
-      while not started do assert(Poll.delay(1)) end
+      while not started do assert(Poll.delay(Time.ms(1))) end
       assert(sys.kill(sys.getpid(), sys.SIGINT))
       until_gone(path)
       assert(sys.kill(sys.getpid(), sys.SIGTERM))

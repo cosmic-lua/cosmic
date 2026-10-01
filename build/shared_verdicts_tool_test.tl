@@ -36,7 +36,7 @@ local function run(root: string, output: string, env: {string:string},
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ms = 60000,
+    process_group = true, timeout_ns = Time.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

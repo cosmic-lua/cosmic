@@ -3,6 +3,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
+local PinTime = require("cosmic_ci.pin_time")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
@@ -26,10 +27,10 @@ local driver_timeout = 60000
 local function call(argv: {string}, cwd: string, output: string,
     extra?: {string:string}, timeout?: integer): Child.Result
   local fd = assert(Fs.open_write(output))
-  local result, trouble = Child.run(argv, {
+  local result, trouble = Child.run(argv, PinTime.options({
     cwd = cwd, env = environment(extra), stdout = fd, stderr = fd,
-    process_group = true, timeout_ms = timeout or 5000,
-  })
+    process_group = true,
+  }, timeout or 5000))
   assert(Fs.close(fd))
   return (assert(result, trouble))
 end
@@ -403,7 +404,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   end
   assert(Predicate.exists(ready), "interrupted operation never started")
   assert(child:stop())
-  local stopped = assert(child:wait(5000))
+  local stopped = assert(child:wait(PinTime.wait(5000)))
   assert(Fs.close(fd))
   assert(not stopped.ok, "interrupted driver succeeded")
 

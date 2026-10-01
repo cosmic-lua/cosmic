@@ -13,6 +13,7 @@ local parses_fixture = require("build.parses_fixture")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -100,7 +101,7 @@ local function build(root: string, env: {string:string}): string
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ms = 60000,
+    process_group = true, timeout_ns = Time.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))

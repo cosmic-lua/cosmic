@@ -1,7 +1,7 @@
 --- Coverage for cosmic.http without the network: option and URL
 --- validation, a connection refused on a closed local port, and every
 --- response-handling case through the scripted transport
---- ([`Options.script`]), where each connection curl opens reads a canned
+--- ([`Http.Options.script`]), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
 local Child = require("cosmic.child")
@@ -12,6 +12,7 @@ local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- Requests to a closed local port, which a loopback alone answers:
 --- the worker runs offline, and is keyed. The tests that start the
@@ -322,7 +323,7 @@ end
 local function test_connection_refused_on_a_closed_local_port()
   -- Nothing binds port 1, so the connection is refused.
   local response, trouble = Http.open("http://127.0.0.1:1/",
-    { connect_timeout_ms = 2000 })
+    { connect_timeout_ns = Time.seconds(2) })
   assert(response == nil)
   assert(trouble ~= "")
   assert(trouble:lower():find("refus", 1, true) ~= nil or
@@ -331,7 +332,7 @@ end
 
 local function test_get_reports_the_same_failure_as_open()
   local got, trouble = Http.get("http://127.0.0.1:1/",
-    { connect_timeout_ms = 2000 })
+    { connect_timeout_ns = Time.seconds(2) })
   assert(got == nil)
   assert(trouble ~= "")
 end
@@ -387,7 +388,7 @@ end
 
 local function test_download_reports_the_same_failure_as_open(tmp: string)
   local ok, trouble = Http.download("http://127.0.0.1:1/", tmp .. "/unreached",
-    { connect_timeout_ms = 2000 })
+    { connect_timeout_ns = Time.seconds(2) })
   assert(not ok)
   assert(trouble ~= "")
 end
@@ -473,31 +474,32 @@ local function raised(opts: Http.Options): string
 end
 
 local function test_an_integer_option_takes_no_numeric_string()
-  local err = raised({ timeout_ms = "5" as integer })
-  assert(err:find("opts.timeout_ms must be an integer", 1, true) ~= nil, err)
+  local err = raised({ timeout_ns = "5" as integer })
+  assert(err:find("opts.timeout_ns must be an integer", 1, true) ~= nil, err)
 end
 
 local function test_an_integer_option_takes_no_fraction()
-  local err = raised({ connect_timeout_ms = 1.5 as integer })
-  assert(err:find("opts.connect_timeout_ms must be an integer", 1, true) ~= nil, err)
+  local err = raised({ connect_timeout_ns = 1.5 as integer })
+  assert(err:find("opts.connect_timeout_ns must be an integer", 1, true) ~= nil, err)
 end
 
 local function test_a_negative_timeout_is_refused_not_ignored()
   -- curl refuses -5 and keeps its default, which is no timeout at all.
-  local err = raised({ timeout_ms = -5 })
-  assert(err:find("opts.timeout_ms must be between 0 and", 1, true) ~= nil, err)
+  local err = raised({ timeout_ns = -5 })
+  assert(err:find("opts.timeout_ns must be between 0 and", 1, true) ~= nil, err)
 end
 
 local function test_an_integer_option_curl_would_clamp_is_refused()
   local err = raised({ max_redirects = 40000 })
   assert(err:find("opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
-  err = raised({ low_speed_seconds = 70000 })
-  assert(err:find("opts.low_speed_seconds must be between 0 and 65535", 1, true) ~= nil, err)
+  err = raised({ low_speed_ns = Time.seconds(70000) })
+  assert(err:find("opts.low_speed_ns must be between 0 and " .. Time.seconds(65535), 1, true) ~= nil,
+    err)
 end
 
 local function test_zero_integer_options_are_accepted()
-  local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ms = 0,
-    max_redirects = 0, low_speed_bytes = 0, low_speed_seconds = 0 })
+  local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ns = 0,
+    max_redirects = 0, low_speed_bytes = 0, low_speed_ns = 0 })
   assert(response.status == 200 and body == "ok")
 end
 

@@ -14,6 +14,7 @@ local Fuzz = require("build.fuzz")
 local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
+local Time = require("cosmic.time")
 
 --- The scalar fields of a spec a preimage names, in the order it spells
 --- them, and the optional ones, which are there or not.
@@ -221,7 +222,7 @@ local function spec_of(d: Drawn, host: string): declared_key.Spec
   local s = d.scalars
   return {
     id = s.id, group = "group", module_key = s.module_key, runtime = s.runtime,
-    compiler = s.compiler, epoch = "1-00000000", timeout_ms = 30000, program = s.program, host = s.host,
+    compiler = s.compiler, epoch = "1-00000000", timeout_ns = Time.seconds(30), program = s.program, host = s.host,
     system = s.system, launcher = s.launcher, declaration = s.declaration,
     effective = effective, environment = environment, runs_tool = false,
     closure_store = s.closure_store, tree = s.tree,

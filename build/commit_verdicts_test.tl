@@ -55,7 +55,7 @@ jq -r "$3" "$FAKE/answer"
 --- own jq (gojq) runs them, which this system jq only stands in for.
 local function has_jq(): boolean
   local result = Child.run({ "/bin/sh", "-c", "command -v jq" }, { stdout = "capture", stderr = "capture",
-    timeout_ms = 30000 })
+    timeout_ns = Time.seconds(30) })
   return result ~= nil and result.code == 0
 end
 
@@ -79,7 +79,7 @@ local function run(tmp: string, script: string, env: {string: string}, answer: s
   }
   for name, value in pairs(env) do full[name] = value end
   local result = assert(Child.run({ "/bin/sh", script }, { env = full, cwd = dir,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   local said = (result.stdout or "") .. (result.stderr or "")
   assert(result.code == 0, "the script failed the job: " .. said)
   return Fs.read(dir .. "/output") or "", Fs.read(dir .. "/calls") or "", said

@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 Test.needs{ tool = true }
 
@@ -99,7 +100,7 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   for name, value in pairs(relaunch.env) do env[name] = value end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e", probe }, {
     env = env, fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] },
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
   local after = assert(sys.stat(copy))
@@ -224,7 +225,7 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
     stderr = "capture" }))
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(caller, values) }, { env = env, fds = fds, stdout = "capture", stderr = "capture",
-    timeout_ms = 8000 }))
+    timeout_ns = Time.seconds(8) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))

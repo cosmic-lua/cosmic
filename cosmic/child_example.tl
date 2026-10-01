@@ -38,7 +38,7 @@ function Example.guard()
     running[i] = assert(Child.start(argv, { env = again.env, fds = again.fds }))
   end
   while #running > 0 and guard:cancelled() == 0 do
-    local done, trouble = Child.wait_any(running, 100)
+    local done, trouble = Child.wait_any(running, Time.ms(100))
     if done == nil and trouble ~= "" then error(trouble) end
     local still: {Child.Handle} = {}
     for _, h in ipairs(running) do
@@ -76,7 +76,7 @@ function Example.release()
     else
       local taken = guard:take()
       if taken ~= 0 then assert(h:stop(taken)) end
-      Time.sleep_ns(10 * 1000 * 1000)
+      Time.sleep_ns(Time.ms(10))
     end
   end
   local caught = assert(guard:release())

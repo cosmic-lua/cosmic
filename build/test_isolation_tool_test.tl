@@ -57,7 +57,7 @@ local function invoke(root: string, output: string, args: {string},
   for _, value in ipairs(args) do words[#words + 1] = value end
   local fd = assert(Fs.open_write(output))
   local started = this_program.program(words, {
-    cwd = root, env = env or environment(), stdout = fd, stderr = fd, timeout_ms = 60000,
+    cwd = root, env = env or environment(), stdout = fd, stderr = fd, timeout_ns = Time.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -148,7 +148,7 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" }, env)
     local text = assert(Fs.read(output))
     assert(not result.ok, text)
-    assert(Time.monotonic_ns() - started < 30 * 1000 * 1000 * 1000, text)
+    assert(Time.monotonic_ns() - started < Time.seconds(30), text)
     assert(text:find("suite.hang_test test_hangs: timed out after 1 s", 1, true), text)
     assert(text:find("suite.exits_test test_exits: the test process exited with status 0 " ..
       "before it reported", 1, true), text)
@@ -213,7 +213,7 @@ local Child = require("cosmic.child")
 local function test_orphans()
   -- In this worker's group, as `late` is, and so no subreaper made.
   local r = assert(Child.run({ "bin/probe", "start SHARED/late" },
-    { process_group = false, timeout_ms = 30000 }))
+    { process_group = false, timeout_ns = Time.seconds(30) }))
   assert(r.ok)
   assert(Fs.write("SHARED/ready", ""))
   await("SHARED/then", 30)
@@ -329,15 +329,15 @@ local function test_second(tmp: string) hold(tmp, "second") end
   local runner, trouble = Child.start(held.argv, held.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
-  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + Time.seconds(30)
   while not (Fs.exists(marks .. "/first") and Fs.exists(marks .. "/second")) do
     assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
     -- Leaves the runner running, as a timed `wait` would not.
-    local done, _ = Child.wait_any({ handle }, 50)
+    local done, _ = Child.wait_any({ handle }, Time.ms(50))
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
   end
   assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(30000))
+  local result = assert(handle:wait(Time.seconds(30)))
   local text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGTERM, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)
@@ -386,14 +386,14 @@ end
   local runner, trouble = Child.start(failed.argv, failed.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
-  local deadline = Time.monotonic_ns() + 20 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + Time.seconds(20)
   while not Fs.exists(marks .. "/held") do
     assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
-    local done, _ = Child.wait_any({ handle }, 50)
+    local done, _ = Child.wait_any({ handle }, Time.ms(50))
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
   end
   assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(5000))
+  local result = assert(handle:wait(Time.seconds(5)))
   local text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGTERM, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)
