@@ -131,8 +131,8 @@ local record Json
   record Members
     --- How the table encodes: see [`Json.layout`].
     layout: Json.TableLayout
-    --- The keys to visit, in order: an object's or a hole's, none for an
-    --- array.
+    --- The keys to visit, in order: an object's or a hole's, and a marked
+    --- array's integer keys when it has a gap; none for any other array.
     keys: {string | integer}
     --- An array's highest index, 0 for any other layout.
     extent: integer
@@ -274,16 +274,28 @@ end
 local function classify(t: {any:any}, members: boolean): Json.TableLayout, {string | integer}, integer
   if raw.is_array(t) then
     local extent = 0
+    local keys: {string | integer} = {}
     if members then
+      local count = 0
       for key in pairs(t) do
         local k: any = key
-        if k is integer and k > extent then extent = k end
+        if k is integer and k >= 1 then
+          count = count + 1
+          if k > extent then extent = k end
+        end
+      end
+      if count ~= extent then
+        for key in pairs(t) do
+          local k: any = key
+          if k is integer and k >= 1 then keys[#keys + 1] = k end
+        end
+        table.sort(keys)
       end
     end
-    return "array", {}, extent
+    return "array", keys, extent
   end
   local keys: {string | integer} = {}
-  local strings, numbers = 0, 0
+  local strings, numbers, top = 0, 0, 0
   for key in pairs(t) do
     local k: any = key
     if k is string then
@@ -291,13 +303,16 @@ local function classify(t: {any:any}, members: boolean): Json.TableLayout, {stri
       if members then keys[strings + numbers] = k end
     elseif k is integer and k >= 1 then
       numbers = numbers + 1
+      if k > top then top = k end
       if members then keys[strings + numbers] = k end
     else
       return "mixed", {}, 0
     end
   end
   if strings > 0 and numbers > 0 then return "mixed", {}, 0 end
-  if numbers > 0 and numbers == rawlen(t) then return "array", {}, numbers end
+  -- `rawlen` is only some border, so as many keys as it says are the
+  -- integers 1 to it only when none lies past it.
+  if numbers > 0 and numbers == rawlen(t) and top == numbers then return "array", {}, numbers end
   if members then table.sort(keys) end
   return numbers > 0 and "hole" or "object", keys, 0
 end
@@ -320,10 +335,12 @@ end
 
 --- `t`'s [`Json.layout`] with what a walk over it visits. The keys are
 --- an object's string keys, or a hole's integer keys, sorted, so the
---- elements around a gap keep their indexes; an array has none. The
---- extent is an array's highest index, where `rawlen` is only a border
---- of a decoded array that dropped a `null`; 0 for any other layout.
---- Unlike [`Json.layout`], it scans a marked array to find that extent.
+--- elements around a gap keep their indexes; an array has none, unless
+--- it is a marked one with a gap, which lists its integer keys, so a walk
+--- need not count up to an extent a stray index set. The extent is an
+--- array's highest index, where `rawlen` is only a border of a decoded
+--- array that dropped a `null`; 0 for any other layout. Unlike
+--- [`Json.layout`], it scans a marked array to find that extent.
 function Json.members(t: {any:any}): Json.Members
   local layout, keys, extent = classify(t, true)
   return { layout = layout, keys = keys, extent = extent }

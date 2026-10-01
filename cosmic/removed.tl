@@ -87,6 +87,7 @@ local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
 local json <const> = 'local Json = require("cosmic.json")'
+local shape <const> = 'local Shape = require("cosmic.shape")'
 local sys <const> = 'local sys = require("cosmic.sys")'
 local module: Module = {
   fields = {
@@ -193,6 +194,14 @@ local module: Module = {
       "which only `cosmic json` calls",
     ["cosmic.json.DescribeOptions"] = "moved to build.json_query, with describe, which " ..
       "only `cosmic json` calls",
+    ["cosmic.shape.failures"] = "use Shape.into(value, spec), which answers the first " ..
+      "failure; a config whose author wants every mistake runs again after fixing each (" ..
+      shape .. ")",
+    ["cosmic.shape.Failure"] = "Shape.into(value, spec) answers the first failure as one " ..
+      "message, its path first (`$.rows[2].id: expected string, got integer`) (" .. shape .. ")",
+    ["cosmic.shape.either"] = "use Shape.one_of(...) for literal alternatives, or call " ..
+      "Shape.into once for each form the value may take and keep the first that answers " ..
+      "a value (" .. shape .. ")",
     ["cosmic.codec.encoder"] = streamed,
     ["cosmic.codec.decoder"] = streamed,
     ["cosmic.codec.Coder"] = streamed,

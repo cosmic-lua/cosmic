@@ -741,10 +741,20 @@ local function test_members_lists_what_a_walk_visits()
   local array = Json.members({ "x", "y" })
   assert(array.layout == "array" and #array.keys == 0 and array.extent == 2, "no key list for an array")
   local holed = Json.members(decoded("[1, null, null, 4, null]") as {any: any})
-  assert(holed.layout == "array" and #holed.keys == 0 and holed.extent == 4, "a decoded array's extent")
+  assert(holed.layout == "array" and holed.extent == 4, "a decoded array's extent")
+  assert(#holed.keys == 2 and holed.keys[1] == 1 and holed.keys[2] == 4, "a marked array's keys, past a gap")
+  local dense = Json.members(decoded("[1, 2]") as {any: any})
+  assert(#dense.keys == 0 and dense.extent == 2, "a marked array with no gap lists no keys")
   local mixed = Json.members({ 1, a = 2 })
   assert(mixed.layout == "mixed" and #mixed.keys == 0 and mixed.extent == 0)
   assert(Json.members(Json.array()).extent == 0)
+  -- `rawlen` of this table is 3, and its keys are as many, but 5 lies past it.
+  local bordered: {any: any} = { 1, 2, 3 }
+  bordered[2] = nil
+  bordered[5] = 5
+  assert(Json.layout(bordered) == "hole", "a border is not the extent")
+  local far = Json.members(Json.array({ [1 << 40] = 7 } as {any}) as {any: any})
+  assert(far.layout == "array" and far.extent == 1 << 40 and #far.keys == 1)
 end
 
 --- A lookup in a large decoded array is direct, not a scan of it: a scan

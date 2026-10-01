@@ -31,7 +31,7 @@ end
 local gen_spec: function(r: Recipe, depth: integer): Shape.Spec
 
 gen_spec = function(r: Recipe, depth: integer): Shape.Spec
-  local pick = byte(r, depth > 0 and 11 or 6)
+  local pick = byte(r, depth > 0 and 9 or 6)
   local spec: Shape.Spec
   if pick == 0 then spec = Shape.string
   elseif pick == 1 then spec = Shape.number
@@ -41,12 +41,10 @@ gen_spec = function(r: Recipe, depth: integer): Shape.Spec
   elseif pick == 5 then spec = Shape.one_of("a", 1, true)
   elseif pick == 6 then spec = Shape.list(gen_spec(r, depth - 1))
   elseif pick == 7 then spec = Shape.map(gen_spec(r, depth - 1))
-  elseif pick == 8 then
+  else
     local fields: {string: Shape.Spec} = {}
     for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, depth - 1) end
     spec = byte(r, 2) == 0 and Shape.strict_record(fields) or Shape.record(fields)
-  else
-    spec = Shape.either(gen_spec(r, depth - 1), gen_spec(r, depth - 1))
   end
   if byte(r, 4) == 0 then spec = Shape.optional(spec) end
   return spec
@@ -81,8 +79,6 @@ gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolea
   elseif kind == "integer" then return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) * 1.0
   elseif kind == "boolean" then return byte(r, 2) == 0
   elseif kind == "one_of" then return spec.values[byte(r, #spec.values) + 1]
-  elseif kind == "either" then
-    return gen_value(r, spec.choices[byte(r, #spec.choices) + 1], depth, strict)
   elseif kind == "list" then
     local t: {any} = {}
     for i = 1, byte(r, 4) do t[i] = gen_value(r, spec.of, depth - 1, strict) end
@@ -155,11 +151,6 @@ fits = function(v: any, spec: Shape.Spec): boolean
       if v == want then return true end
     end
     return false
-  elseif kind == "either" then
-    for _, c in ipairs(spec.choices) do
-      if fits(v, c) then return true end
-    end
-    return false
   end
   if not (v is table) then return false end
   local t = v as {any: any}
@@ -196,28 +187,10 @@ local function check_total(input: string): boolean, string
   local spec = gen_spec(r, 3)
   local value = gen_value(r, spec, 4, false)
   local out, err: any, string = Shape.into(value, spec)
-  -- `failures` is empty exactly when into succeeds, holds into's
-  -- reason when it fails, and is the same list every call.
-  local failures = Shape.failures(value, spec)
-  if (err == "") ~= (#failures == 0) then
-    return false, ("into answered %q, failures %d"):format(err, #failures)
-  end
-  local listed = {}
-  local held = false
-  for _, f in ipairs(failures) do
-    if f.message:sub(1, #f.path + 2) ~= f.path .. ": " then
-      return false, "a failure's message does not start with its path: " .. f.message
-    end
-    held = held or f.message == err
-    listed[#listed + 1] = f.path .. "\0" .. f.message
-  end
-  if err ~= "" and not held then return false, "into's reason is not among the failures: " .. err end
-  local again_listed = {}
-  for _, f in ipairs(Shape.failures(value, spec)) do
-    again_listed[#again_listed + 1] = f.path .. "\0" .. f.message
-  end
-  if table.concat(listed, "\n") ~= table.concat(again_listed, "\n") then
-    return false, "two calls answered two lists of failures"
+  -- The same value answers the same failure on every call.
+  local _, again_err: any, string = Shape.into(value, spec)
+  if again_err ~= err then
+    return false, ("two calls answered %q and %q"):format(err, again_err)
   end
   if err ~= "" then
     if out ~= nil then return false, "a failure answered a value" end
