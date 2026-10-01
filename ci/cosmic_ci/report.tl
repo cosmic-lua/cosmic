@@ -528,9 +528,14 @@ end
 local function database_of(zip: string): string | nil, string
   local reader, why = Zip.open_string(zip)
   if reader == nil then return nil, why end
+  local listed, list_why = reader:entries()
+  if listed == nil then
+    reader:close()
+    return nil, list_why
+  end
   local found: string | nil = nil
   local trouble = "no operations.db"
-  for _, entry in ipairs(reader:entries()) do
+  for _, entry in ipairs(listed) do
     if entry.path == "operations.db" and entry.kind == "file" then
       local stream, opened = entry.open(entry)
       if stream == nil then trouble = opened

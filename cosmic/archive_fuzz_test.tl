@@ -172,7 +172,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       -- mode but "create" as "skip".
       local mode: Archive.Links = fields[2] == "create" and "create" or "skip"
       local written, trouble = Archive.extract(file, dest, { links = mode, strip_prefix = strip_prefix,
-        strip_components = strip_components, mtimes = false })
+        strip_components = strip_components })
       if written ~= nil and #written > 0 then Fuzz.label("extracted") end
       -- What a hostile entry among well-formed ones reaches: the
       -- writes before it, left in place when it is refused.
@@ -424,7 +424,6 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
         links = fields[2] == "create" and "create" or "skip",
         strip_prefix = fields[3] == "a" and "a" or nil,
         strip_components = fields[3] == "1" and 1 or nil,
-        mtimes = false,
       }
       local from_file, file_why = Archive.extract(file, case .. "/by-file", opts)
       local reader = Archive.open_stream(chunked(archive))

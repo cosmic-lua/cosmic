@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
 
 -- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
 -- require build/, and a shared module under cosmic.internal would be
@@ -21,21 +22,13 @@ local function counted(n: integer, singular: string, several?: string): string
 end
 
 local record Zip
-  enum Kind
-    "file"
-    "dir"
-    --- A Unix symlink (an entry whose external attributes say
-    --- S_IFLNK); its body is the target, also given as `linkpath`.
-    "symlink"
-  end
-
-  record Entry
-    --- The entry's path as the archive stores it.
-    path: string
-    --- What the entry is.
-    kind: Kind
-    --- The uncompressed size.
-    size: integer
+  --- A zip's entry: a [`Stream.ArchiveEntry`] that also says how its body
+  --- is stored. Its `kind` is only ever "file", "dir" or "symlink" (an
+  --- entry whose external attributes say S_IFLNK, whose body is the
+  --- target, also given as `linkpath`); its `mode` comes from the
+  --- external attributes of an entry made by a Unix zip tool; and its
+  --- `mtime` is read from the DOS date and time as UTC, to two seconds.
+  record Entry is Stream.ArchiveEntry
     --- The size of the body as stored, compressed.
     compressed_size: integer
     -- TODO: EntryOptions.method is a Zip.Method name and this is zip's
@@ -48,14 +41,6 @@ local record Zip
     method: integer
     --- The CRC-32 the archive records for the uncompressed body.
     crc32: integer
-    --- The permission bits from the entry's external attributes, when
-    --- it was made by a Unix zip tool; 0 otherwise.
-    mode: integer
-    --- The modification time, in Unix epoch seconds, read from the
-    --- entry's DOS date and time as UTC.
-    mtime: integer
-    --- A symlink's target; "" otherwise.
-    linkpath: string
     --- Where the entry's local file header starts in the file.
     offset: integer
     --- This entry's uncompressed body. Verifies the CRC32 as it reads
@@ -65,10 +50,11 @@ local record Zip
     open: function(Entry): Stream.Reader | nil, string
   end
 
-  record Reader
+  record Reader is Stream.ArchiveReader
     --- Every entry, in central directory order: built on the first
     --- call, which must come before `close`, and kept for later ones.
-    entries: function(Reader): {Entry}
+    --- Nil and why, as `next` answers, when the reader is closed first.
+    entries: function(Reader): {Entry} | nil, string
     --- The next entry in central directory order, read straight off
     --- the directory, so walking an archive of any size holds one
     --- entry at a time; nil and `""` after the last. Independent of
@@ -86,17 +72,12 @@ local record Zip
     "store"
   end
 
-  record EntryOptions
-    --- The Unix permission bits (the low 12 bits are recorded).
-    --- Defaults to 0644 for a file and 0755 for a directory.
-    mode: integer
+  record EntryOptions is Stream.EntryOptions
     --- Unix epoch seconds; zip's own resolution is two seconds, and
     --- only 1980 through 2107 is representable -- anything outside
     --- that is clamped to its nearer end. Defaults to 0, which is
     --- clamped to 1980-01-01. Ignored when the writer is `deterministic`.
     mtime: integer
-    --- "deflate" (the default) or "store".
-    method: Method
     --- The body's uncompressed size, for a body given as a
     --- [`Stream.Reader`]; ignored for a string, whose length is its size.
     --- Optional: a streamed entry whose size is known to reach 2 GiB
@@ -104,6 +85,9 @@ local record Zip
     --- before any of the body is read. When given, the body must turn
     --- out exactly this long, or the write fails.
     size: integer
+    --- "deflate" (the default) or "store". Only [`add_file`] reads it:
+    --- a directory and a symlink are stored.
+    method: Method
   end
 
   record WriterOptions
@@ -119,7 +103,7 @@ local record Zip
   --- Once any call fails, the underlying Stream.Writer is aborted and every
   --- later call, `close` included, returns that failure. A call after
   --- `close` fails too.
-  record Writer
+  record Writer is Stream.ArchiveWriter
     --- Adds a file at `path` with `data` as its body; returns `true, ""`,
     --- or `false` and why. Refuses a path ending in `/`, which zip reads as a directory.
     --- A [`Stream.Reader`] body is read in chunks through the deflater
@@ -134,6 +118,14 @@ local record Zip
     --- Adds a directory entry at `path`, to which a trailing `/` is
     --- added if missing. Returns `true, ""`, or `false` and why.
     add_dir: function(self: Writer, path: string, opts?: EntryOptions): boolean, string
+    --- Adds a symbolic link at `path` pointing at `target`, as Info-ZIP
+    --- does: an entry whose external attributes say S_IFLNK and whose
+    --- stored body is the target, which [`Reader`] answers as a
+    --- "symlink" with `linkpath`. Returns `true, ""`, or `false` and
+    --- why. Refuses what a reader would refuse to open the archive for:
+    --- a target longer than 4096 bytes or holding a NUL byte, and a
+    --- path ending in `/`.
+    add_symlink: function(self: Writer, path: string, target: string, opts?: EntryOptions): boolean, string
     --- Writes the central directory and closes the underlying
     --- Stream.Writer, committing it. Returns `true, ""`, or `false` and why.
     close: function(self: Writer): boolean, string
@@ -159,97 +151,55 @@ local STREAM_ZIP64_AT <const> = 1 << 31
 local LINK_LIMIT <const> = 4096
 
 ------------------------------------------------------------------
--- little-endian field access
-------------------------------------------------------------------
-
-local function u16(s: string, at: integer): integer
-  return s:byte(at) | (s:byte(at + 1) << 8)
-end
-
-local function u32(s: string, at: integer): integer
-  return s:byte(at) | (s:byte(at + 1) << 8) | (s:byte(at + 2) << 16) | (s:byte(at + 3) << 24)
-end
-
-local function u64(s: string, at: integer): integer
-  return u32(s, at) | (u32(s, at + 4) << 32)
-end
-
-local function le16(n: integer): string
-  return string.char(n & 0xFF, (n >> 8) & 0xFF)
-end
-
-local function le32(n: integer): string
-  return string.char(n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF)
-end
-
-local function le64(n: integer): string
-  return le32(n & 0xFFFFFFFF) .. le32((n >> 32) & 0xFFFFFFFF)
-end
-
-------------------------------------------------------------------
 -- DOS date/time, Unix epoch seconds; no timezone -- both sides are UTC
 ------------------------------------------------------------------
 
--- TODO: these two copy cosmic.time's calendar, in seconds. Use
--- Time.civil for unix_to_dos; dos_to_unix reads an impossible DOS date
--- (February 31) leniently, which Time.from_civil refuses, so moving it
--- means deciding what such an entry's mtime is.
+-- TODO: once cosmic.time has Time.seconds (PR 6 of
+-- doc/plans/stdlib-simplification.md), take a second's nanoseconds from it.
+local NS_PER_SECOND <const> = 1000000000
+--- 1980-01-01T00:00:00Z and 2107-12-31T23:59:59Z, the first and last
+--- moments a DOS date holds: its year is seven bits from 1980.
+local DOS_FIRST <const> = 315532800
+local DOS_LAST <const> = 4354819199
 
---- Days since 1970-01-01, for a proleptic Gregorian civil date. Howard
---- Hinnant's [`days_from_civil`].
-local function days_from_civil(y: integer, m: integer, d: integer): integer
-  y = m <= 2 and y - 1 or y
-  local era = (y >= 0 and y or y - 399) // 400
-  local yoe = y - era * 400
-  local doy = (153 * (m + (m > 2 and -3 or 9)) + 2) // 5 + d - 1
-  local doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
-  return era * 146097 + doe - 719468
-end
-
---- The inverse of [`days_from_civil`].
-local function civil_from_days(z: integer): integer, integer, integer
-  z = z + 719468
-  local era = (z >= 0 and z or z - 146096) // 146097
-  local doe = z - era * 146097
-  local yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
-  local y = yoe + era * 400
-  local doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
-  local mp = (5 * doy + 2) // 153
-  local d = doy - (153 * mp + 2) // 5 + 1
-  local m = mp < 10 and mp + 3 or mp - 9
-  y = m <= 2 and y + 1 or y
-  return y, m, d
-end
-
-local function dos_to_unix(date: integer, time: integer): integer
-  local year = ((date >> 9) & 0x7F) + 1980
-  local month = (date >> 5) & 0x0F
-  local day = date & 0x1F
-  if month < 1 then month = 1 end
-  if day < 1 then day = 1 end
-  local hour = (time >> 11) & 0x1F
-  local minute = (time >> 5) & 0x3F
-  local second = (time & 0x1F) * 2
-  return days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
-end
-
-local function unix_to_dos(epoch: integer): integer, integer
-  if epoch < 0 then epoch = 0 end
-  local days = epoch // 86400
-  local secs_of_day = epoch % 86400
-  local y, m, d = civil_from_days(days)
-  if y < 1980 then
-    y, m, d, secs_of_day = 1980, 1, 1, 0
-  elseif y > 2107 then
-    -- the year field's seven bits end at 1980 + 127
-    y, m, d, secs_of_day = 2107, 12, 31, 86399
+--- A DOS date and time as Unix epoch seconds. A field its bits can
+--- spell but no clock or calendar has is clamped to the nearest it
+--- could be: month 13 to December, hour 24 to 23, a second of 60 to 59,
+--- and a day past its month's end (February 31) to the month's last.
+local function dos_to_unix(date: integer, clock: integer): integer
+  local c: Time.Civil = {
+    year = ((date >> 9) & 0x7F) + 1980,
+    month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
+    day = math.max(date & 0x1F, 1),
+    hour = math.min((clock >> 11) & 0x1F, 23),
+    minute = math.min((clock >> 5) & 0x3F, 59),
+    second = math.min((clock & 0x1F) * 2, 59),
+    nanosecond = 0,
+  }
+  local ns, _ = Time.from_civil(c)
+  -- Only a day past the month's end can be refused now.
+  while ns == nil do
+    c.day = c.day - 1
+    ns, _ = Time.from_civil(c)
   end
-  local hour = secs_of_day // 3600
-  local minute = (secs_of_day % 3600) // 60
-  local second = secs_of_day % 60
-  local date = ((y - 1980) << 9) | (m << 5) | d
-  local time = (hour << 11) | (minute << 5) | (second // 2)
-  return date, time
+  return ns // NS_PER_SECOND
+end
+
+--- Unix epoch seconds as a DOS date and time, to two seconds: a moment
+--- before 1980 or after 2107, which a DOS date cannot hold, becomes the
+--- nearer end of that range.
+local function unix_to_dos(epoch: integer): integer, integer
+  local c = Time.civil(math.min(math.max(epoch, DOS_FIRST), DOS_LAST) * NS_PER_SECOND)
+  return ((c.year - 1980) << 9) | (c.month << 5) | c.day,
+    (c.hour << 11) | (c.minute << 5) | (c.second // 2)
+end
+
+--- The refusal of `text`, which `what` names, when it holds a NUL byte:
+--- every system call would take it as the end of the string and never
+--- see the rest. "" when it holds none.
+local function nul_refusal(text: string, what: string): string
+  if text:find("\0", 1, true) == nil then return "" end
+  return "zip: NUL byte " .. what
 end
 
 ------------------------------------------------------------------
@@ -275,7 +225,7 @@ local function find_eocd(size: integer, pread: Pread): integer | nil, string
     local i = chunk:find(EOCD_SIG, from, true)
     if i == nil or i > #chunk - 21 then break end
     last = i
-    if exact == nil and i + 21 + u16(chunk, i + 20) == #chunk then exact = i end
+    if exact == nil and i + 21 + string.unpack("<I2", chunk, i + 20) == #chunk then exact = i end
     from = i + 1
   end
   local found = exact or last
@@ -290,15 +240,14 @@ local function apply_zip64_extra(extra: string, usize: integer, csize: integer,
     local_offset: integer): integer, integer, integer
   local at = 1
   while at + 3 <= #extra do
-    local id = u16(extra, at)
-    local sz = u16(extra, at + 2)
+    local id, sz = string.unpack("<I2I2", extra, at)
     if id == 1 then
       local data = extra:sub(at + 4, at + 4 + sz - 1)
       local p = 1
-      if usize == U32_MAX and p + 7 <= #data then usize = u64(data, p); p = p + 8 end
-      if csize == U32_MAX and p + 7 <= #data then csize = u64(data, p); p = p + 8 end
+      if usize == U32_MAX and p + 7 <= #data then usize = string.unpack("<I8", data, p); p = p + 8 end
+      if csize == U32_MAX and p + 7 <= #data then csize = string.unpack("<I8", data, p); p = p + 8 end
       if local_offset == U32_MAX and p + 7 <= #data then
-        local_offset = u64(data, p)
+        local_offset = string.unpack("<I8", data, p)
         p = p + 8
       end
       return usize, csize, local_offset
@@ -427,7 +376,8 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
   local header, trouble = pread(e.offset, guess)
   if header == nil then return nil, trouble end
   if #header < 30 or header:sub(1, 4) ~= LFH_SIG then return nil, "zip: bad local file header" end
-  local skip = 30 + u16(header, 27) + u16(header, 29)
+  local name_len, extra_len = string.unpack("<I2I2", header, 27)
+  local skip = 30 + name_len + extra_len
   local held: string
   if #header > skip then
     held = header:sub(skip + 1, skip + csize)
@@ -528,17 +478,16 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   c.at = at + whole
   local name_start = at + 46
   local name_end = name_start + name_len - 1
-  local nul = buf:find("\0", name_start, true)
-  if nul ~= nil and nul <= name_end then
-    return nil, "zip: NUL byte in an entry name"
-  end
+  local name = buf:sub(name_start, name_end)
+  local refusal = nul_refusal(name, "in an entry name")
+  if refusal ~= "" then return nil, refusal end
   local mode = 0
   local unix_type = 0
   if (made_by >> 8) == 3 then -- made by a Unix tool
     mode = (ext_attrs >> 16) & 0xFFF
     unix_type = (ext_attrs >> 16) & S_IFMT
   end
-  local kind: Zip.Kind = "file"
+  local kind: Stream.EntryKind = "file"
   if (name_len > 0 and buf:byte(name_end) == 47) or unix_type == S_IFDIR then -- '/'
     kind = "dir"
   elseif unix_type == S_IFLNK then
@@ -565,12 +514,11 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   -- overflow for values already known not to be negative.
   local cd_offset = c.start
   if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
-    return nil, "zip: entry " .. buf:sub(name_start, name_end) .. " (offset " ..
+    return nil, "zip: entry " .. name .. " (offset " ..
       tostring(local_offset) .. ", " .. counted(csize, "compressed byte") .. ") runs past " ..
       "the start of the central directory at " .. tostring(cd_offset)
   end
   if bare and kind ~= "symlink" then return CHECKED, "" end
-  local name = buf:sub(name_start, name_end)
   local entry: Zip.Entry = setmetatable({
     path = name,
     kind = kind,
@@ -596,9 +544,8 @@ local function read_link(entry: Zip.Entry): string | nil, string
   if body == nil then return nil, trouble end
   local target, rtrouble = Stream.read_all(body)
   if target == nil then return nil, entry.path .. ": " .. rtrouble end
-  if target:find("\0", 1, true) ~= nil then
-    return nil, "zip: NUL byte in the target of symlink " .. entry.path
-  end
+  local refusal = nul_refusal(target, "in the target of symlink " .. entry.path)
+  if refusal ~= "" then return nil, refusal end
   return target, ""
 end
 
@@ -608,9 +555,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   if eocd_off == nil then return nil, trouble end
   local fixed, ftrouble = pread(eocd_off, 22)
   if fixed == nil then return nil, ftrouble end
-  local total = u16(fixed, 11)
-  local cd_size = u32(fixed, 13)
-  local cd_offset = u32(fixed, 17)
+  local total, cd_size, cd_offset = string.unpack("<I2I4I4", fixed, 11)
   -- The central directory must end before whichever end record
   -- follows it.
   local cd_limit = eocd_off
@@ -618,7 +563,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     local loc, loc_trouble = pread(eocd_off - 20, 20)
     if loc == nil then return nil, loc_trouble end
     if #loc == 20 and loc:sub(1, 4) == Z64_LOC_SIG then
-      local z64_off = u64(loc, 9)
+      local z64_off = string.unpack("<I8", loc, 9)
       if z64_off < 0 or z64_off > eocd_off - 20 - 56 then
         return nil, "zip: zip64 end of central directory lies outside the file"
       end
@@ -627,9 +572,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
       if #rec ~= 56 or rec:sub(1, 4) ~= Z64_EOCD_SIG then
         return nil, "zip: bad zip64 end of central directory record"
       end
-      total = u64(rec, 33)
-      cd_size = u64(rec, 41)
-      cd_offset = u64(rec, 49)
+      total, cd_size, cd_offset = string.unpack("<I8I8I8", rec, 33)
       cd_limit = z64_off
     end
   end
@@ -693,24 +636,24 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     if target ~= nil then entry.linkpath = target end
     return entry, ""
   end
-  zr.entries = function(_self: Zip.Reader): {Zip.Entry}
-    if listed ~= nil then return listed end
+  zr.entries = function(_self: Zip.Reader): {Zip.Entry} | nil, string
+    if listed ~= nil then return listed, "" end
     local all: {Zip.Entry} = {}
     local c = cursor(pread, cd_offset, cd_size)
     while true do
-      -- TODO: answer `{Zip.Entry} | nil, string` from `entries`, so a
-      -- malformed or closed reader's list is refused rather than cut
-      -- short; a public signature change every caller follows.
-      local entry, _ = next_record(c, entry_mt)
-      if entry == nil then break end
+      local entry, etrouble = next_record(c, entry_mt)
+      if entry == nil then
+        -- Only a complete list is kept: one cut short by a closed
+        -- reader is refused, here and on every later call.
+        if etrouble ~= "" then return nil, etrouble end
+        break
+      end
       all[#all + 1] = entry
       local target = links[#all]
       if target ~= nil then entry.linkpath = target end
     end
-    -- Only a complete list is kept, so one cut short (by a closed
-    -- reader) is not what every later call gets.
-    if #all == count then listed = all end
-    return all
+    listed = all
+    return all, ""
   end
   zr.close = function(_self: Zip.Reader): boolean, string
     if closed then return true, "" end
@@ -777,9 +720,7 @@ local DOS_DIR_ATTR <const> = 0x10
 
 local function zip64_extra(values: {integer}): string
   if #values == 0 then return "" end
-  local parts: {string} = { le16(1), le16(8 * #values) }
-  for _, v in ipairs(values) do parts[#parts + 1] = le64(v) end
-  return table.concat(parts)
+  return string.pack("<I2I2" .. string.rep("I8", #values), 1, 8 * #values, table.unpack(values))
 end
 
 --- A local file header. Sizes that do not fit 32 bits become the
@@ -796,9 +737,8 @@ local function local_header(name: string, method: integer, dos_time: integer, do
     -- knows either size, included).
     usize, csize, version = U32_MAX, U32_MAX, 45
   end
-  return LFH_SIG .. le16(version) .. le16(flags or 0) .. le16(method) .. le16(dos_time) ..
-    le16(dos_date) .. le32(crc) .. le32(csize) .. le32(usize) .. le16(#name) ..
-    le16(#extra) .. name .. extra
+  return LFH_SIG .. string.pack("<I2I2I2I2I2I4I4I4I2I2", version, flags or 0, method, dos_time,
+    dos_date, crc, csize, usize, #name, #extra) .. name .. extra
 end
 
 --- A central directory header. Each of the uncompressed size, the
@@ -817,10 +757,25 @@ local function central_header(name: string, method: integer, dos_time: integer, 
   end
   local extra = zip64_extra(wide)
   local version = #wide > 0 and 45 or 20
-  return CDFH_SIG .. le16(UNIX_MADE_BY) .. le16(version) .. le16(flags or 0) .. le16(method) ..
-    le16(dos_time) .. le16(dos_date) .. le32(crc) .. le32(csize) .. le32(usize) ..
-    le16(#name) .. le16(#extra) .. le16(0) .. le16(0) .. le16(0) .. le32(ext_attrs) ..
-    le32(local_offset) .. name .. extra
+  return CDFH_SIG .. string.pack(CDFH_FIELDS, UNIX_MADE_BY, version, flags or 0, method, dos_time,
+    dos_date, crc, csize, usize, #name, #extra, 0, 0, 0, ext_attrs, local_offset) .. name .. extra
+end
+
+--- What an entry's body came to, which its central directory record
+--- carries.
+local record Written
+  crc: integer
+  usize: integer
+  csize: integer
+end
+
+--- The most bytes an entry's path may have: its length is two bytes.
+local PATH_LIMIT <const> = 0xFFFF
+
+--- The external attributes of an entry of Unix type `type_bits`
+--- (`S_IFREG`, `S_IFDIR` or `S_IFLNK`) and permission bits `mode`.
+local function attributes(type_bits: integer, mode: integer): integer
+  return ((type_bits | (mode & 0xFFF)) << 16) | (type_bits == S_IFDIR and DOS_DIR_ATTR or 0)
 end
 
 --- A streaming writer over `w`. A string body is written with its CRC32
@@ -847,126 +802,110 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     return true, ""
   end
 
-  local function write_entry(path: string, data: string, method_name: Zip.Method,
-      mode: integer, mtime: integer, is_dir: boolean): boolean, string
-    local usable, why = sink:usable()
-    if not usable then return false, why end
-    if path:find("\0", 1, true) ~= nil then return false, "zip: NUL byte in a path" end
-    if #path > 0xFFFF then return false, "zip: path longer than 65535 bytes" end
-    local dos_date: integer
-    local dos_time: integer
-    if deterministic then
-      dos_date, dos_time = 0x21, 0
-    else
-      dos_date, dos_time = unix_to_dos(mtime)
-    end
-    local crc = Compress.crc32(data)
-    local usize = #data
-    local method: integer
-    local payload: string
-    if method_name == "store" or is_dir then
-      method, payload = 0, data
-    elseif method_name == "deflate" then
+  --- A string body, compressed up front so its CRC32 and sizes go in
+  --- the local header. Fills `done` with what it came to.
+  local function write_whole(path: string, data: string, method: integer, dos_time: integer,
+      dos_date: integer, done: Written): boolean, string
+    local payload = data
+    done.crc, done.usize = Compress.crc32(data), #data
+    if method == 8 then
       local packed, dtrouble = Compress.deflate("raw", data)
       if packed == nil then return false, dtrouble end
-      payload, method = packed, 8
-    else
-      return false, "zip: unknown method '" .. method_name .. "'"
+      payload = packed
     end
-    local csize = #payload
-    local type_bits = is_dir and S_IFDIR or S_IFREG
-    local ext_attrs = ((type_bits | (mode & 0xFFF)) << 16) | (is_dir and DOS_DIR_ATTR or 0)
-    local local_offset = offset
-    local ok, trouble = put(local_header(path, method, dos_time, dos_date, crc, csize, usize))
+    done.csize = #payload
+    local ok, trouble = put(local_header(path, method, dos_time, dos_date, done.crc, done.csize,
+      done.usize))
     if not ok then return false, trouble end
-    ok, trouble = put(payload)
-    if not ok then return false, trouble end
-    cd_parts[#cd_parts + 1] = central_header(path, method, dos_time, dos_date, crc, csize, usize,
-      ext_attrs, local_offset)
-    count = count + 1
-    return true, ""
+    return put(payload)
   end
 
-  local function write_streamed(path: string, body: Stream.Reader, method_name: Zip.Method,
-      mode: integer, mtime: integer, hint: integer | nil): boolean, string
-    local usable, why = sink:usable()
-    if not usable then return false, why end
-    if path:find("\0", 1, true) ~= nil then return false, "zip: NUL byte in a path" end
-    if #path > 0xFFFF then return false, "zip: path longer than 65535 bytes" end
-    if hint ~= nil and (math.type(hint) ~= "integer" or hint < 0) then
-      return false, "zip: opts.size must be a non-negative integer"
-    end
+  --- A [`Stream.Reader`] body, read to its end and compressed as it
+  --- goes, its CRC32 and sizes in a data descriptor after it. `hint` is
+  --- the size `opts.size` promised, if any. Fills `done`.
+  local function write_streamed(path: string, body: Stream.Reader, method: integer,
+      dos_time: integer, dos_date: integer, hint: integer | nil, done: Written): boolean, string
     local deflater: Compress.Stream
-    local method: integer
-    if method_name == "store" then
-      method = 0
-    elseif method_name == "deflate" then
+    if method == 8 then
       local made, dtrouble = Compress.deflater("raw")
       if made == nil then return false, dtrouble end
-      deflater, method = made, 8
-    else
-      return false, "zip: unknown method '" .. method_name .. "'"
-    end
-    local dos_date: integer
-    local dos_time: integer
-    if deterministic then
-      dos_date, dos_time = 0x21, 0
-    else
-      dos_date, dos_time = unix_to_dos(mtime)
+      deflater = made
     end
     local wide = hint ~= nil and hint >= STREAM_ZIP64_AT
-    local local_offset = offset
     local ok, trouble = put(local_header(path, method, dos_time, dos_date, 0, 0, 0,
       FLAG_DESCRIPTOR, wide))
     if not ok then return false, trouble end
-    local crc, usize, csize = 0, 0, 0
+    local too_big = "zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size"
     local function emit(data: string): boolean, string
       if data == "" then return true, "" end
-      csize = csize + #data
-      if not wide and csize >= U32_MAX then
-        return sink:fail("zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size")
-      end
+      done.csize = done.csize + #data
+      if not wide and done.csize >= U32_MAX then return sink:fail(too_big) end
       return put(data)
     end
-    while true do
-      local chunk, rtrouble = body:read(chunk_size)
-      if chunk == nil then
-        if rtrouble ~= "" then return sink:fail(rtrouble) end
-        break
-      end
-      usize = usize + #chunk
-      if not wide and usize >= U32_MAX then
-        return sink:fail("zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size")
-      end
-      crc = Compress.crc32(chunk, crc)
-      if deflater ~= nil then
-        local out, etrouble = deflater:update(chunk)
-        if out == nil then return sink:fail(etrouble) end
-        ok, trouble = emit(out)
-      else
-        ok, trouble = emit(chunk)
-      end
-      if not ok then return false, trouble end
+    local feed: Stream.Writer = {}
+    feed.write = function(_self: Stream.Writer, chunk: string): boolean, string
+      done.usize = done.usize + #chunk
+      if not wide and done.usize >= U32_MAX then return sink:fail(too_big) end
+      done.crc = Compress.crc32(chunk, done.crc)
+      if deflater == nil then return emit(chunk) end
+      local out, etrouble = deflater:update(chunk)
+      if out == nil then return sink:fail(etrouble) end
+      return emit(out)
     end
+    feed.close = function(_self: Stream.Writer): boolean, string return true, "" end
+    feed.abort = feed.close
+    local copied, ctrouble = Stream.copy(body, feed)
+    -- A failure of the writer is the sink's already, and `fail` keeps the first.
+    if copied == nil then return sink:fail(ctrouble) end
     if deflater ~= nil then
       local tail, ftrouble = deflater:finish()
       if tail == nil then return sink:fail(ftrouble) end
       ok, trouble = emit(tail)
       if not ok then return false, trouble end
     end
-    if hint ~= nil and hint ~= usize then
-      return sink:fail("zip: " .. path .. ": body is " .. counted(usize, "byte") .. ", not " ..
+    if hint ~= nil and hint ~= done.usize then
+      return sink:fail("zip: " .. path .. ": body is " .. counted(done.usize, "byte") .. ", not " ..
         counted(hint, "byte"))
     end
     if wide then
-      ok, trouble = put(DESCRIPTOR_SIG .. le32(crc) .. le64(csize) .. le64(usize))
+      return put(DESCRIPTOR_SIG .. string.pack("<I4I8I8", done.crc, done.csize, done.usize))
+    end
+    return put(DESCRIPTOR_SIG .. string.pack("<I4I4I4", done.crc, done.csize, done.usize))
+  end
+
+  --- One entry of Unix type `type_bits`: its local header, `body`, and
+  --- the central directory record that lists it. `hint` is a streamed
+  --- body's promised size.
+  local function put_entry(path: string, body: string | Stream.Reader, method_name: Zip.Method,
+      type_bits: integer, mode: integer, mtime: integer, hint?: integer): boolean, string
+    local usable, why = sink:usable()
+    if not usable then return false, why end
+    local refusal = nul_refusal(path, "in a path")
+    if refusal ~= "" then return false, refusal end
+    if #path > PATH_LIMIT then return false, "zip: path longer than 65535 bytes" end
+    if not (body is string) and hint ~= nil and (math.type(hint) ~= "integer" or hint < 0) then
+      return false, "zip: opts.size must be a non-negative integer"
+    end
+    if method_name ~= "store" and method_name ~= "deflate" then
+      return false, "zip: unknown method '" .. method_name .. "'"
+    end
+    local method = method_name == "deflate" and 8 or 0
+    local dos_date, dos_time = 0x21, 0
+    if not deterministic then dos_date, dos_time = unix_to_dos(mtime) end
+    local local_offset = offset
+    local done: Written = { crc = 0, usize = 0, csize = 0 }
+    local ok: boolean
+    local trouble: string
+    local flags = 0
+    if body is string then
+      ok, trouble = write_whole(path, body, method, dos_time, dos_date, done)
     else
-      ok, trouble = put(DESCRIPTOR_SIG .. le32(crc) .. le32(csize) .. le32(usize))
+      flags = FLAG_DESCRIPTOR
+      ok, trouble = write_streamed(path, body, method, dos_time, dos_date, hint, done)
     end
     if not ok then return false, trouble end
-    local ext_attrs = (S_IFREG | (mode & 0xFFF)) << 16
-    cd_parts[#cd_parts + 1] = central_header(path, method, dos_time, dos_date, crc, csize, usize,
-      ext_attrs, local_offset, FLAG_DESCRIPTOR)
+    cd_parts[#cd_parts + 1] = central_header(path, method, dos_time, dos_date, done.crc,
+      done.csize, done.usize, attributes(type_bits, mode), local_offset, flags)
     count = count + 1
     return true, ""
   end
@@ -977,21 +916,27 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     -- would read back as one.
     if path:sub(-1) == "/" then return false, "zip: a file's path ends in /: " .. path end
     fopts = fopts or {}
-    local mode = fopts.mode or 0x1a4
-    local mtime = fopts.mtime or 0
-    local method_name = fopts.method or "deflate"
-    if data is string then
-      return write_entry(path, data, method_name, mode, mtime, false)
-    end
-    return write_streamed(path, data, method_name, mode, mtime, fopts.size)
+    return put_entry(path, data, fopts.method or "deflate", S_IFREG, fopts.mode or 0x1a4,
+      fopts.mtime or 0, fopts.size)
   end
 
   zw.add_dir = function(_self: Zip.Writer, path: string, fopts?: Zip.EntryOptions): boolean, string
     fopts = fopts or {}
-    local mode = fopts.mode or 0x1ed
-    local mtime = fopts.mtime or 0
     local dirpath = path:sub(-1) == "/" and path or (path .. "/")
-    return write_entry(dirpath, "", "store", mode, mtime, true)
+    return put_entry(dirpath, "", "store", S_IFDIR, fopts.mode or 0x1ed, fopts.mtime or 0)
+  end
+
+  zw.add_symlink = function(_self: Zip.Writer, path: string, target: string,
+      fopts?: Zip.EntryOptions): boolean, string
+    -- What a reader refuses an archive for, refused before it is written.
+    if path:sub(-1) == "/" then return false, "zip: a symlink's path ends in /: " .. path end
+    if #target > LINK_LIMIT then
+      return false, "zip: symlink " .. path .. " has a " .. tostring(#target) .. "-byte target"
+    end
+    local refusal = nul_refusal(target, "in the target of symlink " .. path)
+    if refusal ~= "" then return false, refusal end
+    fopts = fopts or {}
+    return put_entry(path, target, "store", S_IFLNK, fopts.mode or 0x1ff, fopts.mtime or 0)
   end
 
   zw.close = function(_self: Zip.Writer): boolean, string
@@ -1005,15 +950,15 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     local needs_zip64 = count >= 0xFFFF or cd_size >= U32_MAX or cd_offset >= U32_MAX
     if needs_zip64 then
       local zip64_eocd_offset = cd_offset + cd_size
-      trailer[#trailer + 1] = Z64_EOCD_SIG .. le64(44) .. le16((3 << 8) | 45) .. le16(45) ..
-        le32(0) .. le32(0) .. le64(count) .. le64(count) .. le64(cd_size) .. le64(cd_offset)
-      trailer[#trailer + 1] = Z64_LOC_SIG .. le32(0) .. le64(zip64_eocd_offset) .. le32(1)
+      trailer[#trailer + 1] = Z64_EOCD_SIG .. string.pack("<I8I2I2I4I4I8I8I8I8", 44, (3 << 8) | 45,
+        45, 0, 0, count, count, cd_size, cd_offset)
+      trailer[#trailer + 1] = Z64_LOC_SIG .. string.pack("<I4I8I4", 0, zip64_eocd_offset, 1)
     end
     local eocd_count = needs_zip64 and 0xFFFF or count
     local eocd_cd_size = needs_zip64 and U32_MAX or cd_size
     local eocd_cd_offset = needs_zip64 and U32_MAX or cd_offset
-    trailer[#trailer + 1] = EOCD_SIG .. le16(0) .. le16(0) .. le16(eocd_count) ..
-      le16(eocd_count) .. le32(eocd_cd_size) .. le32(eocd_cd_offset) .. le16(0)
+    trailer[#trailer + 1] = EOCD_SIG .. string.pack("<I2I2I2I2I4I4I2", 0, 0, eocd_count,
+      eocd_count, eocd_cd_size, eocd_cd_offset, 0)
     cd_parts = {}
     return sink:close(table.concat(trailer))
   end

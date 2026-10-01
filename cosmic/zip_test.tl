@@ -8,10 +8,16 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
 local Zip = require("cosmic.zip")
 
 local ZIP_B64 <const> =
   "UEsDBAoAAAAAADItN13z+cmLFAAAABQAAAANABwAc3JjL3Nob3J0LnR4dFVUCQADkGazapBms2p1eAsAAQQAAAAABAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzClBLAwQKAAAAAAAyLTddI9j0uAkAAAAJAAAADgAcAHNyYy9hZGlyL2FsaW5rVVQJAAOQZrNqkGazanV4CwABBAAAAAAEAAAAAHNob3J0LnR4dFBLAwQUAAAACAA4LTdd0RXq2CAAAACZCAAACwAcAHNyYy9iaWcudHh0VVQJAAOcZrNqn2azanV4CwABBAAAAAAEAAAAAEtJTctJLElVyE1VSBlljjJHmaPMUeYoc5Q5yhxIJhcAUEsDBAoAAAAAADgtN13z+cmLFAAAABQAAAAUABwAc3JjL3Nob3J0X3N0b3JlZC50eHRVVAkAA5xms2qfZrNqdXgLAAEEAAAAAAQAAAAAc2hvcnQgZmlsZSBjb250ZW50cwpQSwECHgMKAAAAAAAyLTdd8/nJixQAAAAUAAAADQAYAAAAAAABAAAApIEAAAAAc3JjL3Nob3J0LnR4dFVUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADItN10j2PS4CQAAAAkAAAAOABgAAAAAAAAAAAD/oVsAAABzcmMvYWRpci9hbGlua1VUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAxQAAAAIADgtN13RFerYIAAAAJkIAAALABgAAAAAAAEAAACkgawAAABzcmMvYmlnLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADgtN13z+cmLFAAAABQAAAAUABgAAAAAAAAAAACkgREBAABzcmMvc2hvcnRfc3RvcmVkLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLBQYAAAAABAAEAFIBAABzAQAAAAA="
+
+--- Every entry of `r`, which has no reason to fail here.
+local function entries_of(r: Zip.Reader): {Zip.Entry}
+  return (assert(r:entries()))
+end
 
 local function by_path(entries: {Zip.Entry}, path: string): Zip.Entry
   for _, e in ipairs(entries) do
@@ -28,7 +34,7 @@ local function test_writer_and_reader_roundtrip_stored_files_and_dirs()
   assert(w:close())
 
   local r = assert(Zip.open_string(c:result()))
-  local entries = r:entries()
+  local entries = assert(r:entries())
   assert(#entries == 2, tostring(#entries))
   local dir = by_path(entries, "adir/")
   assert(dir.kind == "dir")
@@ -44,7 +50,7 @@ local function test_deterministic_mode_uses_the_1980_epoch()
   assert(w:add_file("f", "x", { method = "store", mtime = 1700000000 }))
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
-  local entry = by_path(r:entries(), "f")
+  local entry = by_path(entries_of(r), "f")
   -- 1980-01-01T00:00:00Z
   assert(entry.mtime == 315532800, tostring(entry.mtime))
 end
@@ -63,7 +69,7 @@ local function test_mode_bits_round_trip_through_external_attributes()
   assert(w:add_file("exe", "x", { method = "store", mode = 0x1ff }))
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
-  local entry = by_path(r:entries(), "exe")
+  local entry = by_path(entries_of(r), "exe")
   assert(entry.mode == 0x1ff, string.format("%o", entry.mode))
 end
 
@@ -78,7 +84,7 @@ local function test_a_corrupt_body_fails_its_crc_check()
   local at = raw:find("hello", 1, true)
   local corrupt = raw:sub(1, at - 1) .. "x" .. raw:sub(at + 1)
   local r = assert(Zip.open_string(corrupt))
-  local entry = by_path(r:entries(), "f")
+  local entry = by_path(entries_of(r), "f")
   local reader = assert(entry:open())
   local data, trouble = Stream.read_all(reader)
   assert(data == nil and trouble:find("crc32", 1, true) ~= nil, trouble)
@@ -97,7 +103,7 @@ local function test_open_reads_a_zip_from_a_path(tmp: string)
   local path = tmp .. "/archive.zip"
   assert(Fs.write(path, c:result()))
   local r = assert(Zip.open(path))
-  local entry = by_path(r:entries(), "f")
+  local entry = by_path(entries_of(r), "f")
   assert(Stream.read_all((assert(entry:open()))) == "on disk")
   assert(r:close())
 end
@@ -108,7 +114,7 @@ local function test_writer_and_reader_roundtrip_a_deflated_file()
   assert(w:add_file("f", "hello there, deflated", { method = "deflate" }))
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
-  local entry = by_path(r:entries(), "f")
+  local entry = by_path(entries_of(r), "f")
   assert(entry.method == 8, tostring(entry.method))
   local body = assert(Stream.read_all((assert(entry:open()))))
   assert(body == "hello there, deflated")
@@ -117,7 +123,7 @@ end
 local function test_a_system_made_deflated_entry_reads_back()
   local raw = assert(Codec.unbase64(ZIP_B64))
   local r = assert(Zip.open_string(raw))
-  local entry = by_path(r:entries(), "src/big.txt")
+  local entry = by_path(entries_of(r), "src/big.txt")
   assert(entry.method == 8)
   local data = assert(Stream.read_all((assert(entry:open()))))
   assert(#data == entry.size)
@@ -127,7 +133,7 @@ end
 local function test_a_system_made_zip_fixture_lists_its_stored_entries()
   local raw = assert(Codec.unbase64(ZIP_B64))
   local r = assert(Zip.open_string(raw))
-  local entries = r:entries()
+  local entries = assert(r:entries())
   assert(#entries == 4, tostring(#entries))
   local short = by_path(entries, "src/short.txt")
   assert(short.method == 0)
@@ -178,7 +184,7 @@ local function test_more_than_65535_entries_round_trip_through_zip64()
   for i = 1, n do assert(w:add_file("f" .. tostring(i), "", { method = "store" })) end
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
-  local entries = r:entries()
+  local entries = assert(r:entries())
   assert(#entries == n, tostring(#entries))
   assert(entries[n].path == "f" .. tostring(n))
 end
@@ -206,7 +212,7 @@ local function test_local_header_offsets_past_4_gib_go_in_zip64_extra_fields(tmp
   assert(Fs.put(fd, raw))
   assert(Fs.close(fd))
   local r = assert(Zip.open(path))
-  local entries = r:entries()
+  local entries = assert(r:entries())
   assert(#entries == 2)
   assert(Stream.read_all((assert(by_path(entries, "a"):open()))) == "first body")
   assert(Stream.read_all((assert(by_path(entries, "b"):open()))) == string.rep("deflate me ", 50))
@@ -312,7 +318,7 @@ local function test_a_forged_end_record_inside_the_comment_is_not_taken_for_the_
     le16(0)
   local forged = raw:sub(1, #raw - 2) .. le16(#fake) .. fake
   local r = assert(Zip.open_string(forged))
-  assert(#r:entries() == 3)
+  assert(#assert(r:entries()) == 3)
 end
 
 local function test_a_nul_byte_in_an_entry_name_is_refused()
@@ -346,7 +352,7 @@ local function test_an_entry_body_larger_than_its_recorded_size_fails_at_once()
   local cd = assert(raw:find("PK\1\2", 1, true))
   local lying = patch(raw, cd + 24, le32(5))
   local r = assert(Zip.open_string(lying))
-  local body = assert(by_path(r:entries(), "f"):open())
+  local body = assert(by_path(entries_of(r), "f"):open())
   local data, trouble = Stream.read_all(body)
   assert(data == nil and trouble:find("larger than its recorded size", 1, true) ~= nil, trouble)
 end
@@ -359,7 +365,7 @@ local function test_entries_of_a_closed_reader_cannot_be_opened(tmp: string)
   assert(w:close())
   assert(Fs.write(path, c:result()))
   local r = assert(Zip.open(path))
-  local entries = r:entries()
+  local entries = assert(r:entries())
   assert(r:close())
   local body, trouble = entries[1]:open()
   assert(body == nil and trouble:find("closed", 1, true) ~= nil, trouble)
@@ -367,9 +373,9 @@ end
 
 local function test_a_unix_symlink_entry_is_reported_as_a_symlink()
   local r = assert(Zip.open_string((assert(Codec.unbase64(ZIP_B64)))))
-  local link = by_path(r:entries(), "src/adir/alink")
+  local link = by_path(entries_of(r), "src/adir/alink")
   assert(link.kind == "symlink" and link.linkpath == "short.txt", link.kind)
-  assert(by_path(r:entries(), "src/short.txt").linkpath == "")
+  assert(by_path(entries_of(r), "src/short.txt").linkpath == "")
 end
 
 local function test_mtimes_past_2107_clamp_to_the_last_dos_time()
@@ -378,7 +384,7 @@ local function test_mtimes_past_2107_clamp_to_the_last_dos_time()
   assert(w:add_file("y2200", "x", { mtime = 7258118400 }))
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
-  local mtime = by_path(r:entries(), "y2200").mtime
+  local mtime = by_path(entries_of(r), "y2200").mtime
   assert(mtime == 4354819198, tostring(mtime)) -- 2107-12-31 23:59:58
 end
 
@@ -407,7 +413,7 @@ local function test_next_walks_a_central_directory_many_windows_long()
   end
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
-  local listed = r:entries()
+  local listed = assert(r:entries())
   assert(#listed == n)
   local count = 0
   while true do
@@ -496,7 +502,7 @@ local function test_a_streamed_body_round_trips_through_the_reader()
     assert(w:add_file("sized", Stream.from_string(whole), { method = method, size = #whole }))
     assert(w:close())
     local r = assert(Zip.open_string(c:result()))
-    local entries = r:entries()
+    local entries = assert(r:entries())
     assert(#entries == 4)
     assert(Stream.read_all((assert(by_path(entries, "a"):open()))) == whole, method)
     assert(Stream.read_all((assert(by_path(entries, "empty"):open()))) == "", method)
@@ -528,10 +534,10 @@ local function test_a_streamed_entry_carries_a_data_descriptor_after_its_body()
   assert(rd32(bytes, at + 4) == Compress.crc32(body))
   assert(rd32(bytes, at + 8) == #body and rd32(bytes, at + 12) == #body)
   local r = assert(Zip.open_string(bytes))
-  local entry = by_path(r:entries(), "d.txt")
+  local entry = by_path(entries_of(r), "d.txt")
   assert(entry.crc32 == rd32(bytes, at + 4) and entry.compressed_size == #body)
   -- A string body keeps its local header sizes and no descriptor.
-  local s = by_path(r:entries(), "s.txt")
+  local s = by_path(entries_of(r), "s.txt")
   assert(rd32(bytes, s.offset + 7) & 0xFFFF == 0)
   assert(rd32(bytes, s.offset + 19) == 6)
 end
@@ -626,4 +632,113 @@ local function test_a_streamed_body_takes_bounded_memory()
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
         method, early, late, #chunk * rounds // 1024))
   end
+end
+
+local function test_a_symlink_round_trips_with_its_target_mode_and_time()
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  assert(w:add_file("a.txt", "hello"))
+  assert(w:add_symlink("link", "a.txt", { mtime = 1700000000 }))
+  assert(w:add_symlink("deep/link", "../a.txt", { mode = 0x1ed }))
+  assert(w:close())
+  local r = assert(Zip.open_string(c:result()))
+  local entries = entries_of(r)
+  local link = by_path(entries, "link")
+  assert(link.kind == "symlink" and link.linkpath == "a.txt", link.kind)
+  assert(link.mode == 0x1ff and link.size == 5 and link.method == 0 and link.mtime == 1700000000)
+  assert(by_path(entries, "deep/link").mode == 0x1ed)
+  assert(by_path(entries, "deep/link").linkpath == "../a.txt")
+  assert(by_path(entries, "a.txt").kind == "file" and by_path(entries, "a.txt").linkpath == "")
+  -- `next` says the same of each entry.
+  local seen: {string:string} = {}
+  while true do
+    local entry = r:next()
+    if entry == nil then break end
+    seen[entry.path] = entry.kind .. ":" .. entry.linkpath
+  end
+  assert(seen.link == "symlink:a.txt" and seen["a.txt"] == "file:")
+end
+
+local function test_a_symlink_a_reader_would_refuse_is_refused_when_added()
+  local w = Zip.writer(Stream.collect())
+  local ok, trouble = w:add_symlink("l", string.rep("t", 4097))
+  assert(not ok and trouble:find("4097-byte target", 1, true) ~= nil, trouble)
+  ok, trouble = w:add_symlink("l", "a\0b")
+  assert(not ok and trouble:find("NUL", 1, true) ~= nil, trouble)
+  ok, trouble = w:add_symlink("dir/", "x")
+  assert(not ok and trouble:find("ends in /", 1, true) ~= nil, trouble)
+  -- Each refusal is of an argument, not a failed write: the longest
+  -- target a reader takes is still written, and the archive opens.
+  assert(w:add_symlink("l", string.rep("t", 4096)))
+  assert(w:close())
+end
+
+--- The Unix time of a UTC calendar moment.
+local function unix(year: integer, month: integer, day: integer, hour: integer, minute: integer,
+    second: integer): integer
+  local ns = assert(Time.from_civil({
+    year = year, month = month, day = day, hour = hour, minute = minute, second = second,
+    nanosecond = 0,
+  }))
+  return ns // 1000000000
+end
+
+--- A DOS date and time are only bits: those spelling no calendar day or
+--- clock reading are clamped to the nearest there is, not carried over
+--- into the next month or day.
+local function test_a_dos_date_no_calendar_has_is_clamped()
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  assert(w:add_file("f", "x", { method = "store", mtime = 1700000000 }))
+  assert(w:close())
+  local raw = c:result()
+  local header = (assert(raw:find("PK\1\2", 1, true)))
+  local function mtime_of(year: integer, month: integer, day: integer, hour: integer,
+      minute: integer, second: integer): integer
+    local date = ((year - 1980) << 9) | (month << 5) | day
+    local clock = (hour << 11) | (minute << 5) | (second // 2)
+    local r = assert(Zip.open_string(patch(raw, header + 12, le16(clock) .. le16(date))))
+    return entries_of(r)[1].mtime
+  end
+  assert(mtime_of(2021, 2, 31, 10, 20, 30) == unix(2021, 2, 28, 10, 20, 30))
+  assert(mtime_of(2020, 2, 30, 10, 20, 30) == unix(2020, 2, 29, 10, 20, 30))
+  assert(mtime_of(2021, 4, 31, 10, 20, 30) == unix(2021, 4, 30, 10, 20, 30))
+  assert(mtime_of(2021, 13, 1, 10, 20, 30) == unix(2021, 12, 1, 10, 20, 30))
+  assert(mtime_of(2021, 0, 0, 10, 20, 30) == unix(2021, 1, 1, 10, 20, 30))
+  assert(mtime_of(2021, 6, 15, 30, 63, 62) == unix(2021, 6, 15, 23, 59, 59))
+  -- A date that is real is read as it is, including the last day of a
+  -- month and a leap day.
+  assert(mtime_of(2020, 2, 29, 0, 0, 0) == unix(2020, 2, 29, 0, 0, 0))
+  assert(mtime_of(2107, 12, 31, 23, 59, 58) == 4354819198)
+end
+
+local function test_an_mtime_survives_the_dos_round_trip_to_two_seconds()
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  assert(w:add_file("a", "x", { mtime = 1700000001 }))
+  assert(w:add_file("b", "x", { mtime = 315532800 }))
+  assert(w:add_file("c", "x", { mtime = 315532799 }))
+  assert(w:add_file("d", "x", { mtime = -5 }))
+  assert(w:add_file("e", "x", { mtime = math.maxinteger }))
+  assert(w:close())
+  local entries = entries_of((assert(Zip.open_string(c:result()))))
+  assert(by_path(entries, "a").mtime == 1700000000)
+  assert(by_path(entries, "b").mtime == 315532800)
+  assert(by_path(entries, "c").mtime == 315532800 and by_path(entries, "d").mtime == 315532800)
+  assert(by_path(entries, "e").mtime == 4354819198)
+end
+
+local function test_entries_of_a_reader_closed_first_fail_as_next_does()
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  assert(w:add_file("f", "body"))
+  assert(w:close())
+  local r = assert(Zip.open_string(c:result()))
+  assert(r:close())
+  local entries, trouble = r:entries()
+  assert(entries == nil and trouble:find("closed", 1, true) ~= nil, trouble)
+  local entry, next_trouble = r:next()
+  assert(entry == nil and next_trouble:find("closed", 1, true) ~= nil, next_trouble)
+  local again, again_trouble = r:entries()
+  assert(again == nil and again_trouble == trouble, "a failed listing is not kept")
 end

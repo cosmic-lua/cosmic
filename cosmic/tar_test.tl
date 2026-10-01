@@ -535,3 +535,35 @@ local function test_a_stale_entry_cannot_be_opened()
   assert(body == nil and trouble:find("no longer current", 1, true) ~= nil, trouble)
   assert(Stream.read_all((assert(b:open()))) == "two")
 end
+
+local function test_a_reader_body_is_read_to_its_stated_size_and_no_further()
+  local source = Stream.from_string("abcdefghij")
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file("f", source, { size = 4 }))
+  assert(w:close())
+  assert(Stream.read_all(source) == "efghij", "the writer read past its stated size")
+  local r = Tar.reader(Stream.from_string(c:result()))
+  local entry = assert(r:next())
+  assert(entry.size == 4 and Stream.read_all((assert(entry:open()))) == "abcd")
+end
+
+local function test_a_failing_body_names_what_the_writer_was_doing()
+  local bad: Stream.Reader = {}
+  bad.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    return nil, "disk on fire"
+  end
+  bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local w = Tar.writer(Stream.collect())
+  local ok, trouble = w:add_file("f", bad, { size = 3 })
+  assert(not ok and trouble == "tar: add_file: disk on fire", trouble)
+  assert(not w:add_file("g", "x"))
+end
+
+local function test_a_link_target_holding_a_nul_byte_is_refused()
+  local w = Tar.writer(Stream.collect())
+  local ok, trouble = w:add_symlink("l", "a\0b")
+  assert(not ok and trouble == "tar: NUL byte in a link target", trouble)
+  -- A refused argument is not a failed write.
+  assert(w:add_symlink("l", "ok"))
+end

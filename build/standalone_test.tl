@@ -4,10 +4,13 @@
 --- `standalone_tool_test.tl`.
 
 local standalone = require("build.standalone")
--- A fixture below requires [`cosmic.zip`], which a standalone compile
--- types from the store: required here, it is in this test's closure,
--- so the store the worker is held to answers it.
+-- A fixture below requires [`cosmic.zip`], [`cosmic.tar`] or
+-- [`cosmic.archive`], which a standalone compile types from the store:
+-- required here, each is in this test's closure, so the store the
+-- worker is held to answers it.
 local type _ = require("cosmic.zip")
+local type _tar = require("cosmic.tar")
+local type _archive = require("cosmic.archive")
 local type _json = require("cosmic.json")
 
 --- [`standalone.compile`] with its cache in the test's own directory, not
@@ -133,6 +136,26 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
   assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("unknown type Zip.list", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
+end
+
+--- The types the archive modules shared, now one in [`cosmic.stream`], name
+--- where each went.
+local function test_a_removed_archive_type_names_its_replacement(tmp: string)
+  for _, case in ipairs({
+    { "cosmic.tar", "Tar", "Kind", "use Stream.EntryKind" },
+    { "cosmic.zip", "Zip", "Kind", "use Stream.EntryKind" },
+    { "cosmic.archive", "Archive", "Kind", "use Stream.EntryKind" },
+    { "cosmic.tar", "Tar", "EntryOptions", "use Stream.EntryOptions" },
+    { "cosmic.archive", "Archive", "Unsupported", "an entry Archive.extract cannot extract" },
+  }) do
+    local module, alias, name, words = case[1], case[2], case[3], case[4]
+    local chunk, trouble = compile(tmp, "old.tl",
+      'local ' .. alias .. ' = require("' .. module .. '")\n' ..
+      'local function f(x: ' .. alias .. '.' .. name .. '): integer\n  return x and 1 or 0\n' ..
+      'end\nreturn f\n')
+    assert(chunk == nil)
+    assert(trouble:find(alias .. "." .. name .. " was removed: " .. words, 1, true) ~= nil, trouble)
+  end
 end
 
 --- A record of the file's own named like a module's alias is not that

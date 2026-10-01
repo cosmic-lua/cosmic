@@ -52,7 +52,12 @@ local record Module
   -- EncodeOptions lost: `sorted` (keys are always in byte order),
   -- `indent` (`pretty` indents two spaces), `ascii` (no replacement),
   -- `nan_as_null` (write Json.null for the number) and `sparse_as_null`
-  -- (put Json.null where the hole is, as decode's `null_value` does).
+  -- (put Json.null where the hole is, as decode's `null_value` does);
+  -- and for the fields cosmic.archive's ExtractOptions lost:
+  -- `unsupported` (an entry that cannot be extracted always fails the
+  -- extraction; `filter` leaves its path out), `mtimes` (every file,
+  -- directory and symlink gets its archived time) and `max_bytes` (no
+  -- replacement; `max_entries` bounds the entries).
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as [`core/surface.c`] does for a
@@ -81,6 +86,8 @@ local streamed <const> = "the streaming coders are `cosmic codec`'s, not the lib
   "Codec.base64url and decodes one with Codec.unhex, Codec.unbase64 or " ..
   "Codec.unbase64url (" .. codec .. ")"
 local archive <const> = 'local Archive = require("cosmic.archive")'
+local entry_kind <const> = "use Stream.EntryKind, the one enum every archive entry's kind is (" ..
+  'local Stream = require("cosmic.stream")' .. ")"
 local zip <const> = 'local Zip = require("cosmic.zip")'
 local string_ <const> = 'local String = require("cosmic.string")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
@@ -216,6 +223,14 @@ local module: Module = {
     ["cosmic.tar.TarWriter"] = "use Tar.Writer, the same record renamed (" .. tar .. ")",
     ["cosmic.archive.ArchiveReader"] = "use Archive.Reader, the same record renamed (" ..
       archive .. ")",
+    ["cosmic.archive.Kind"] = entry_kind,
+    ["cosmic.tar.Kind"] = entry_kind,
+    ["cosmic.zip.Kind"] = entry_kind,
+    ["cosmic.tar.EntryOptions"] = "use Stream.EntryOptions, which Tar.Writer's add_file, " ..
+      "add_dir and add_symlink take and Zip's EntryOptions extends (" .. stream .. ")",
+    ["cosmic.archive.Unsupported"] = "an entry Archive.extract cannot extract (a hard " ..
+      "link, a device, a FIFO, a sparse file) always fails it, naming the entry; " ..
+      "leave its path out with ExtractOptions.filter (" .. archive .. ")",
     ["cosmic.stream.Codec"] = "use Stream.Transform, the interface Stream.transform, " ..
       "Stream.transform_writer and Stream.run take, which Compress.Stream " ..
       "satisfies (" .. stream .. ")",
