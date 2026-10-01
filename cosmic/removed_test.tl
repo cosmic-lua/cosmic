@@ -7,6 +7,7 @@ local Removed = require("cosmic.removed")
 local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
   ["cosmic.hash"] = require("cosmic.hash"),
+  ["cosmic.json"] = require("cosmic.json"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
   ["cosmic.sys"] = require("cosmic.sys"),
   ["cosmic.tar"] = require("cosmic.tar"),

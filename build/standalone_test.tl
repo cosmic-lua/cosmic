@@ -8,6 +8,7 @@ local standalone = require("build.standalone")
 -- types from the store: required here, it is in this test's closure,
 -- so the store the worker is held to answers it.
 local type _ = require("cosmic.zip")
+local type _json = require("cosmic.json")
 
 --- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
@@ -68,6 +69,29 @@ local function test_a_removed_member_names_its_replacement(tmp: string)
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:15: invalid key 'hex' in record 'Digest' of type Digest " ..
     "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
+end
+
+--- What `cosmic.json` handed to the tool, or dropped, is told where it
+--- went or what to write instead: a function, a type, and a function
+--- with a replacement in the library.
+local function test_a_moved_json_member_names_its_new_home(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
+    'local Json = require("cosmic.json")\nreturn Json.describe({})\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:13: invalid key 'describe' in record 'Json' of type Json " ..
+    "-- Json.describe was removed: moved to build.json_query, which only `cosmic json` calls; " ..
+    "`cosmic json --shape file` prints a document's shape", 1, true) ~= nil, trouble)
+  chunk, trouble = compile(tmp, "step.tl",
+    'local Json = require("cosmic.json")\n' ..
+    'local function f(step: Json.Step): integer\n  return step and 1 or 0\nend\nreturn f\n')
+  assert(chunk == nil)
+  assert(trouble:find("step.tl:2:24: unknown type Json.Step -- Json.Step was removed: " ..
+    "moved to build.json_query", 1, true) ~= nil, trouble)
+  chunk, trouble = compile(tmp, "lines.tl",
+    'local Json = require("cosmic.json")\nreturn Json.encode_lines({})\n')
+  assert(chunk == nil)
+  assert(trouble:find("Json.encode_lines was removed: use Json.encode(value) for each value", 1, true) ~= nil,
+    trouble)
 end
 
 --- A `<const>` binding, and a second alias of it, are the module still.

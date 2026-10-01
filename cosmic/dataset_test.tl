@@ -1,5 +1,4 @@
 local Dataset = require("cosmic.dataset")
-local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 
 --- A fresh in-memory database.
@@ -120,9 +119,9 @@ end
 
 local function test_at_reads_the_rows_from_a_path()
   local rows = assert(Dataset.read("json", '{"a": {"rows": [{"id": 1}, {"id": 2}]}}',
-    { at = assert(Json.parse_path("$.a.rows")) }))
+    { at = { "a", "rows" } }))
   assert(#rows == 2 and rows[2].id == 2)
-  local none, why = Dataset.read("json", '{"a": 1}', { at = assert(Json.parse_path("$.b")) })
+  local none, why = Dataset.read("json", '{"a": 1}', { at = { "b" } })
   assert(none == nil and why:find('no key "b"', 1, true), why)
   local bad, bad_why = Dataset.read("json", "{", {})
   assert(bad == nil and bad_why:find("invalid JSON", 1, true), bad_why)
