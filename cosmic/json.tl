@@ -120,7 +120,7 @@ local record Json
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
-  enum Layout
+  enum TableLayout
     "array"
     "object"
     "hole"
@@ -130,7 +130,7 @@ local record Json
   --- What a walk over a table visits: see [`Json.members`].
   record Members
     --- How the table encodes: see [`Json.layout`].
-    layout: Json.Layout
+    layout: Json.TableLayout
     --- The keys to visit, in order: an object's or a hole's, none for an
     --- array.
     keys: {string | integer}
@@ -271,7 +271,7 @@ end
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
 --- lists them as [`Json.members`] says; else the keys are empty and the
 --- extent 0, and a marked array is classified with no scan of it.
-local function classify(t: {any:any}, members: boolean): Json.Layout, {string | integer}, integer
+local function classify(t: {any:any}, members: boolean): Json.TableLayout, {string | integer}, integer
   if raw.is_array(t) then
     local extent = 0
     if members then
@@ -313,7 +313,7 @@ end
 ---     assert(Json.layout({ a = 1 }) == "object")
 ---     assert(Json.layout({ [1] = 1, [3] = 3 }) == "hole")
 ---     assert(Json.layout({ 1, a = 2 }) == "mixed")
-function Json.layout(t: {any:any}): Json.Layout
+function Json.layout(t: {any:any}): Json.TableLayout
   local layout = classify(t, false)
   return layout
 end
