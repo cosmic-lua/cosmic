@@ -115,7 +115,7 @@ local record verb
   refusal: function(why: string, protocols: {string}): string
 end
 
-local spec = Cli.options.fetch
+local spec = Cli.verbs.fetch.spec
 
 local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
   "[--allow-downgrade] [--head [--json]]"

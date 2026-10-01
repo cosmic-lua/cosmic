@@ -3,15 +3,15 @@ local Time = require("cosmic.time")
 local NS <const> = 1000000000
 
 local function civil(year: integer, month: integer, day: integer, hour?: integer, minute?: integer,
-    second?: integer, nanosecond?: integer): Time.Civil
+    second?: integer, ns?: integer): Time.Civil
   return { year = year, month = month, day = day, hour = hour or 0, minute = minute or 0,
-    second = second or 0, nanosecond = nanosecond or 0 }
+    second = second or 0, ns = ns or 0 }
 end
 
 local function same_moment(got: Time.Civil, want: Time.Civil)
   local function text(c: Time.Civil): string
     return ("%d-%d-%d %d:%d:%d.%d"):format(c.year, c.month, c.day, c.hour, c.minute, c.second,
-      c.nanosecond)
+      c.ns)
   end
   assert(text(got) == text(want), ("got %s, want %s"):format(text(got), text(want)))
 end
@@ -124,12 +124,12 @@ local function test_format_writes_a_fraction_only_when_there_is_one()
 end
 
 local function test_format_digits_fix_the_fraction_cut_toward_the_past()
-  assert(Time.format_rfc3339(0, { digits = 3 }) == "1970-01-01T00:00:00.000Z")
-  assert(Time.format_rfc3339(-1, { digits = 3 }) == "1969-12-31T23:59:59.999Z")
-  assert(Time.format_rfc3339(-1, { digits = 0 }) == "1969-12-31T23:59:59Z")
-  assert(Time.format_rfc3339(123456789, { digits = 9 }) == "1970-01-01T00:00:00.123456789Z")
+  assert(Time.format_rfc3339(0, nil, { digits = 3 }) == "1970-01-01T00:00:00.000Z")
+  assert(Time.format_rfc3339(-1, nil, { digits = 3 }) == "1969-12-31T23:59:59.999Z")
+  assert(Time.format_rfc3339(-1, nil, { digits = 0 }) == "1969-12-31T23:59:59Z")
+  assert(Time.format_rfc3339(123456789, nil, { digits = 9 }) == "1970-01-01T00:00:00.123456789Z")
   for _, digits in ipairs({ -1, 10 }) do
-    local ok, err = pcall(Time.format_rfc3339, 0, { digits = digits })
+    local ok, err = pcall(Time.format_rfc3339, 0, nil, { digits = digits })
     assert(not ok and tostring(err):find("digits", 1, true), tostring(err))
   end
 end
@@ -191,7 +191,7 @@ end
 
 local function test_add_calendar_moves_years_months_then_days()
   local from = at("2024-01-31T10:20:30.5Z")
-  local cases: {{Time.Change, string, string}} = {
+  local cases: {{Time.Duration, string, string}} = {
     { { days = 1 }, "reject", "2024-02-01T10:20:30.5Z" },
     { { days = -31 }, "reject", "2023-12-31T10:20:30.5Z" },
     { { months = 2 }, "reject", "2024-03-31T10:20:30.5Z" },
@@ -203,25 +203,54 @@ local function test_add_calendar_moves_years_months_then_days()
     { {}, "reject", "2024-01-31T10:20:30.5Z" },
   }
   for _, case in ipairs(cases) do
-    local moved = assert(Time.add_calendar(from, case[1], { overflow = case[2] as Time.Overflow }))
+    local moved = assert(Time.add_calendar(from, case[1], nil, { overflow = case[2] as Time.Overflow }))
     assert(Time.format_rfc3339(moved) == case[3], Time.format_rfc3339(moved) .. " not " .. case[3])
   end
   local leap_day = at("2024-02-29T00:00:00Z")
   assert(Time.format_rfc3339((assert(Time.add_calendar(leap_day, { years = 4 })))) ==
     "2028-02-29T00:00:00Z")
-  local clamped = assert(Time.add_calendar(leap_day, { years = 1 }, { overflow = "clamp" }))
+  local clamped = assert(Time.add_calendar(leap_day, { years = 1 }, nil, { overflow = "clamp" }))
   assert(Time.format_rfc3339(clamped) == "2025-02-28T00:00:00Z")
+end
+
+--- The exact part comes last, after the calendar's own, as nanoseconds.
+local function test_add_calendar_adds_the_exact_part_last()
+  local from = at("2024-01-31T10:00:00Z")
+  local moved = assert(Time.add_calendar(from, { months = 1, ns = Time.minutes(90) }, nil,
+    { overflow = "clamp" }))
+  assert(Time.format_rfc3339(moved) == "2024-02-29T11:30:00Z", Time.format_rfc3339(moved))
+  local back = assert(Time.add_calendar(from, { days = 1, ns = -Time.hours(25) }))
+  assert(Time.format_rfc3339(back) == "2024-01-31T09:00:00Z", Time.format_rfc3339(back))
+  assert(Time.add_calendar(from, { ns = 7 }) == from + 7)
+  -- The sum is checked against the range, not wrapped.
+  local none, why = Time.add_calendar(math.maxinteger - 5, { ns = 6 })
+  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  none, why = Time.add_calendar(math.mininteger + 5, { ns = -6 })
+  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  assert(Time.add_calendar(math.maxinteger - 5, { ns = 5 }) == math.maxinteger)
+  none, why = Time.add_calendar(0, { ns = 1.5 as integer })
+  assert(none == nil and why:find("ns is not an integer", 1, true) ~= nil, why)
+end
+
+--- The calendar part may leave the range on the way when the exact part
+--- brings the sum back into it.
+local function test_add_calendar_holds_only_the_sum_to_the_range()
+  local near_end = math.maxinteger - 86400 * NS + 1
+  assert(Time.add_calendar(near_end, { days = 1, ns = -1 }) == math.maxinteger)
+  assert(Time.add_calendar(math.mininteger + 86400 * NS - 1, { days = -1, ns = 1 }) == math.mininteger)
+  local none, why = Time.add_calendar(near_end, { days = 1 })
+  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
 end
 
 local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   local none, why = Time.add_calendar(at("2024-01-31T00:00:00Z"), { months = 1 })
   assert(none == nil and why == "2024-02 has no day 31; overflow \"clamp\" takes its last", why)
-  none, why = Time.add_calendar(at("2024-02-29T00:00:00Z"), { years = 1 }, { overflow = "reject" })
+  none, why = Time.add_calendar(at("2024-02-29T00:00:00Z"), { years = 1 }, nil, { overflow = "reject" })
   assert(none == nil and why:find("2025-02 has no day 29", 1, true) ~= nil, why)
   -- A step past the range on the way is not refused: the result is what counts.
   local back = assert(Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 10, days = -3652 }))
   assert(Time.format_rfc3339(back) == "2262-01-01T00:00:00Z", Time.format_rfc3339(back))
-  assert(not pcall(Time.add_calendar, 0, { days = 1 }, { overflow = "Clamp" as Time.Overflow }))
+  assert(not pcall(Time.add_calendar, 0, { days = 1 }, nil, { overflow = "Clamp" as Time.Overflow }))
   none, why = Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 1 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(at("1678-01-01T00:00:00Z"), { days = -200 })
@@ -232,15 +261,10 @@ local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   assert(none == nil and why:find("years", 1, true) ~= nil, why)
 end
 
-local function test_days_between_counts_dates_not_hours()
-  assert(Time.days_between(at("2024-03-01T23:59:59Z"), at("2024-03-02T00:00:00Z")) == 1)
-  assert(Time.days_between(at("2024-03-02T00:00:00Z"), at("2024-03-01T23:59:59Z")) == -1)
-  assert(Time.days_between(at("2024-01-01T00:00:00Z"), at("2025-01-01T00:00:00Z")) == 366)
-  assert(Time.days_between(at("1969-12-31T23:59:59.9Z"), at("1970-01-01T00:00:00Z")) == 1)
-  assert(Time.days_between(0, 0) == 0)
-end
-
-local function test_months_between_counts_whole_months()
+--- `between`'s whole months, in the cases Java's `ChronoUnit.MONTHS.between`
+--- answers: the years are their twelves, so a count of months is a
+--- duration's years times 12 plus its months.
+local function test_between_counts_whole_months()
   local cases: {{string, string, integer}} = {
     { "2024-01-31T00:00:00Z", "2024-02-29T00:00:00Z", 0 },
     { "2024-01-31T00:00:00Z", "2024-03-31T00:00:00Z", 2 },
@@ -258,13 +282,111 @@ local function test_months_between_counts_whole_months()
     { "1969-05-31T00:00:00Z", "1969-02-28T12:00:00Z", -2 },
   }
   for _, case in ipairs(cases) do
-    local got = Time.months_between(at(case[1]), at(case[2]))
+    local span = assert(Time.between(at(case[1]), at(case[2])))
+    local got = span.years * 12 + span.months
     assert(got == case[3], case[1] .. " to " .. case[2] .. ": " .. got)
   end
-  -- A birthday's years: whole months over 12 (a count that is not
-  -- negative, so // truncates as it floors).
-  local age = Time.months_between(at("1990-06-15T00:00:00Z"), at("2026-06-14T00:00:00Z")) // 12
+  -- A birthday's years: the whole years of a count that is not negative.
+  local age = assert(Time.between(at("1990-06-15T00:00:00Z"), at("2026-06-14T00:00:00Z"))).years
   assert(age == 35, tostring(age))
+end
+
+local function test_between_answers_years_months_days_and_the_rest()
+  local function span(from: string, to: string, zone?: Time.Zone): string
+    return Time.format_duration((assert(Time.between(at(from), at(to), zone))))
+  end
+  assert(span("2024-01-31T09:00:00Z", "2026-03-15T10:30:00Z") == "2y1mo15d1h30m")
+  assert(span("2024-01-31T09:00:00Z", "2024-01-31T09:00:00Z") == "0s")
+  assert(span("2024-01-31T09:00:00Z", "2024-01-31T09:00:00.25Z") == "0.25s")
+  assert(span("2024-01-15T12:00:00Z", "2024-02-15T11:59:59Z") == "30d23h59m59s")
+  -- The days run from the date the months reach, which a short month
+  -- clamps: January 31 plus a month is February 29, and March 1 is a day on.
+  assert(span("2024-01-31T00:00:00Z", "2024-03-01T00:00:00Z") == "1mo1d")
+  -- Every field is at most zero when `to` is earlier.
+  assert(span("2026-03-15T10:30:00Z", "2024-01-31T09:00:00Z") == "-2y1mo15d1h30m")
+end
+
+--- The duration is what `add_calendar` takes, and clamping the month, as
+--- `between` does, gives the moment `between` was asked about.
+local function test_between_and_add_calendar_are_inverses()
+  for _, pair in ipairs({
+    { "2024-01-31T09:00:00Z", "2026-03-15T10:30:00Z" },
+    { "2024-05-31T23:59:59.999999999Z", "2024-06-30T00:00:00Z" },
+    { "2026-03-15T10:30:00Z", "2024-01-31T09:00:00Z" },
+    { "1999-12-31T00:00:00Z", "2000-02-29T12:00:00Z" },
+    { "2020-02-29T00:00:00Z", "2021-02-28T00:00:00Z" },
+  } as {{string, string}}) do
+    local from, to = at(pair[1]), at(pair[2])
+    local span = assert(Time.between(from, to))
+    local back = assert(Time.add_calendar(from, span, nil, { overflow = "clamp" }))
+    assert(back == to, ("%s to %s: %s adds to %s"):format(pair[1], pair[2],
+      Time.format_duration(span), Time.format_rfc3339(back)))
+  end
+end
+
+local function test_between_spans_the_whole_range()
+  local far = assert(Time.between(math.mininteger, math.maxinteger))
+  assert(far.years == 584 and far.months == 6, ("%d %d"):format(far.years, far.months))
+end
+
+local function test_the_constructors_scale_a_count_to_nanoseconds()
+  assert(Time.ms(1) == 1000000 and Time.seconds(1) == NS and Time.minutes(1) == 60 * NS)
+  assert(Time.hours(1) == 3600 * NS and Time.ms(0) == 0 and Time.ms(-5) == -5000000)
+  -- A float is as good as an integer when the span is whole, and is answered as one.
+  assert(Time.ms(1.5) == 1500000 and math.type(Time.ms(1.5)) == "integer")
+  assert(Time.seconds(0.25) == 250000000 and Time.minutes(1.5) == 90 * NS)
+  assert(Time.hours(0.5) == 1800 * NS and Time.hours(2.0) == 7200 * NS)
+  assert(Time.hours(24) == Time.seconds(86400) and Time.minutes(60) == Time.hours(1))
+  -- Float rounding in the product is no refusal: a count whose span is whole to within it.
+  assert(Time.seconds(1.005) == 1005000000 and Time.seconds(1.1) == 1100000000)
+  assert(Time.seconds(0.1 + 0.2) == 300000000 and Time.ms(0.1 + 0.2) == 300000)
+  assert(Time.minutes(0.1) == 6 * NS and Time.hours(1 / 3) == 1200 * NS)
+  -- The largest count each takes.
+  assert(Time.seconds(math.maxinteger // NS) == math.maxinteger // NS * NS)
+  assert(Time.ms(-(math.maxinteger // 1000000)) == -(math.maxinteger // 1000000) * 1000000)
+end
+
+local function test_the_constructors_refuse_what_is_no_span_an_integer_holds()
+  local constructors: {string:function(number): integer} = {
+    ["Time.ms"] = Time.ms, ["Time.seconds"] = Time.seconds, ["Time.minutes"] = Time.minutes,
+    ["Time.hours"] = Time.hours,
+  }
+  for name, make in pairs(constructors) do
+    for _, bad in ipairs({ 1e-12, 0 / 0, math.huge, -math.huge,
+        math.maxinteger, math.mininteger + 1, 2 ^ 62 } as {number}) do
+      local ok, err = pcall(make, bad)
+      assert(not ok and tostring(err):find(name, 1, true), name .. " " .. tostring(bad))
+    end
+    local text: any = "5"
+    local ok, err = pcall(make, text as number)
+    assert(not ok and tostring(err):find("takes a number, not string", 1, true), tostring(err))
+  end
+  local ok, err = pcall(Time.ms, 0.0000001)
+  assert(not ok and tostring(err):find("not a whole number of nanoseconds", 1, true), tostring(err))
+  ok, err = pcall(Time.seconds, math.maxinteger // NS + 1)
+  assert(not ok and tostring(err):find("outside what an integer", 1, true), tostring(err))
+end
+
+--- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.
+local function test_a_text_that_stops_says_where_and_what_it_wanted()
+  local function why(parse: function(string): (integer | nil, string), text: string): string
+    local got, reason = parse(text)
+    assert(got == nil, text)
+    return reason
+  end
+  local rfc = Time.parse_rfc3339
+  assert(why(rfc, "2026-9-25T04:09:21Z") == "month: expected 2 digits at byte 6")
+  assert(why(rfc, "2026-09-25 04:09:21Z") == "expected \"T\" between the date and the time at byte 11")
+  assert(why(rfc, "2026-09-25T04:09:21") == "expected \"Z\" or an offset at byte 20")
+  assert(why(rfc, "2026-09-25T04:09:21+05") == "expected \":\" in the offset at byte 23")
+  assert(why(rfc, "2026-09-25T04:09:21.Z") == "fraction at byte 21: expected 1 to 9 digits, not 0")
+  assert(why(rfc, "2026-09-25T04:09:21.1234567890Z") == "fraction at byte 21: expected 1 to 9 digits, not 10")
+  assert(why(rfc, "2026-09-25T04:09:21Zx") == "unexpected text at byte 21")
+  assert(why(rfc, "2026-09-25T04:09:21+24:00") == "the offset's hour 24 is not 0 through 23")
+  assert(why(Time.parse_http, "Mox, 26 Jul 1997 05:00:00 GMT") == "expected a day name at byte 1")
+  assert(why(Time.parse_http, "Mon, 26 Jul 1997 05:00:00 UTC") == "expected \" GMT\" after the time at byte 26")
+  assert(why(Time.parse_http, "Mon, 26 Jul 97 05:00:00 GMT") == "year: expected 4 digits at byte 13")
+  assert(why(Time.parse_date, "2026-09-25x") == "unexpected text at byte 11")
 end
 
 local function test_format_date_is_the_utc_date()

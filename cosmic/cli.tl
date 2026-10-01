@@ -7,8 +7,9 @@
 --- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options, or
 --- `Flags.dispatch(argv, 1, commands)` its commands -- see argv.
 ---
---- The index comes from `usage`, `summary` and `groups`, a verb's page
---- from its field and `options`, in the order `order` gives.
+--- The index comes from each verb's `usage` and `about` and from `groups`,
+--- a verb's page from its field and its `spec`, in the order `order`
+--- gives.
 
 local Flags = require("cosmic.flags")
 
@@ -434,15 +435,17 @@ local record Module
   --- One field per verb, named for it: the text `cosmic help <verb>`
   --- prints, as [`Cli`] documents it.
   fields: Cli
-  --- Each verb's options, by verb, as [`Flags.parse`] reads a spec: what
-  --- the verb parses its command line with, and what `cosmic help`
-  --- lists beneath its prose, so the two cannot drift apart. A verb
-  --- that is absent takes none.
-  options: {string: {string:boolean | Flags.Option}}
-  --- The command line of each verb, as its line in the index shows it.
-  usage: {string:string}
-  --- What each verb does, as one short phrase for the index.
-  summary: {string:string}
+  --- Each verb as [`Flags.Command`] records it, by verb. Its `spec` is the
+  --- verb's options, as [`Flags.parse`] reads a spec: what the verb parses
+  --- its command line with, and what `cosmic help` lists beneath its
+  --- prose, so the two cannot drift apart; a verb with none leaves it
+  --- out. Its `about` is what the verb does, as one short phrase for the
+  --- index, and its `usage` what follows the verb's name on its line
+  --- there. The four typed as no word of their own -- `cosmic <file.tl>`,
+  --- `--standalone`, `-e` and `--version` -- have the `usage` that follows
+  --- what is typed instead. No verb's `run` is set: the prose is all this
+  --- module holds.
+  verbs: {string: Flags.Command}
   --- The index's sections, each a title and the verbs under it, in
   --- order. Together they name every verb once.
   groups: {{string}}
@@ -457,160 +460,211 @@ local module: Module = {
     db = "db", sql = "sql", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
-  options = {
+  verbs = {
+    run = {
+      about = "build the tree around a file and run it",
+      usage = "<file.tl> [args]",
+    },
+    standalone = {
+      about = "run one file with no tree around it",
+      usage = "<file.tl>",
+    },
+    eval = {
+      about = "run a Lua chunk",
+      usage = "'<chunk>' [args]",
+    },
+    version = {
+      about = "print this binary's digest",
+      usage = "",
+    },
     test = {
-      ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
-        "checkout or another (COSMIC_TEST_ALL=1)" },
-      ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
-        "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
-      ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
-        "stood on the shared cache, how many rows it holds, even in a checkout " ..
-        "that ran before" },
-      ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
-      ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
-        "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
-      ["--timeout"] = { value = "seconds",
-        about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
+      about = "build the tree and run its tests",
+      usage = "[selector...]",
+      spec = {
+        ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
+          "checkout or another (COSMIC_TEST_ALL=1)" },
+        ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
+          "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
+        ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
+          "stood on the shared cache, how many rows it holds, even in a checkout " ..
+          "that ran before" },
+        ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
+        ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
+          "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
+        ["--timeout"] = { value = "seconds",
+          about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
+      },
     },
     fix = {
-      ["--check"] = { about = "write nothing; name what a fix would change, and fail if any" },
-      ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
-        "changed since the whole tree passed; what spans files still covers it all" },
+      about = "format source files and check the tree",
+      usage = "[path...]",
+      spec = {
+        ["--check"] = { about = "write nothing; name what a fix would change, and fail if any" },
+        ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
+          "changed since the whole tree passed; what spans files still covers it all" },
+      },
     },
     build = {
-      ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
+      about = "write o/bin/<name> per cmd/<name>/main.tl",
+      usage = "[path...]",
+      spec = {
+        ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
+      },
+    },
+    db = {
+      about = "what the databases under o/ hold",
+      usage = "[path...]",
     },
     sql = {
-      ["--db"] = { value = "path", about = "run against this file" },
-      ["--build"] = { about = "run against o/build.db" },
-      ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
-      ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
-        "named for its stem, or `name=file`; repeat for a join" },
-      ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
-        "or tsv, rather than by its extension" },
-      ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
-        "no number is read, an empty cell is '' not NULL" },
-      ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
-        "path ($.rows), not the document" },
+      about = "read-only SQL on a database or data files",
+      usage = "<statement>",
+      spec = {
+        ["--db"] = { value = "path", about = "run against this file" },
+        ["--build"] = { about = "run against o/build.db" },
+        ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
+        ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
+          "named for its stem, or `name=file`; repeat for a join" },
+        ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
+          "or tsv, rather than by its extension" },
+        ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
+          "no number is read, an empty cell is '' not NULL" },
+        ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
+          "path ($.rows), not the document" },
+      },
     },
     json = {
-      ["--compact"] = { about = "print the value on one line" },
-      ["-r"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
-      ["--raw"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
-      ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
-      ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
-      ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
-      ["--shape"] = { about = "print a summary of the value's shape, not the value" },
+      about = "look up a path in a JSON file",
+      usage = "<path> [file]",
+      spec = {
+        ["--compact"] = { about = "print the value on one line" },
+        ["-r"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+        ["--raw"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+        ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
+        ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
+        ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
+        ["--shape"] = { about = "print a summary of the value's shape, not the value" },
+      },
     },
     hash = {
-      ["--md5"] = { about = "digest with MD5" },
-      ["--sha1"] = { about = "digest with SHA-1" },
-      ["--sha224"] = { about = "digest with SHA-224" },
-      ["--sha256"] = { about = "digest with SHA-256 (the default)" },
-      ["--sha384"] = { about = "digest with SHA-384" },
-      ["--sha512"] = { about = "digest with SHA-512" },
-      ["--sha3-224"] = { about = "digest with SHA3-224" },
-      ["--sha3-256"] = { about = "digest with SHA3-256" },
-      ["--sha3-384"] = { about = "digest with SHA3-384" },
-      ["--sha3-512"] = { about = "digest with SHA3-512" },
-      ["--json"] = { about = "print an array of {path, algorithm, digest}" },
-      ["--check"] = { value = "sums", about = "verify a sums file, or - for standard input" },
-      ["--quiet"] = { about = "with --check, print only the failures" },
-      ["--hmac"] = { value = "key", about = "make each digest an HMAC under key (visible in ps)" },
-      ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file" },
-    },
-    archive = {
-      ["--json"] = { about = "list: print an array of objects, not lines" },
-      ["-C"] = { value = "dir", about = "extract: unpack into dir (default: the working directory)" },
-      ["--force"] = { about = "extract: replace existing files" },
-      ["--reproducible"] = { about = "create: fix every modification time, so the same tree packs alike" },
-    },
-    rand = {
-      ["--v4"] = { about = "uuid: version 4, random (the default)" },
-      ["--v7"] = { about = "uuid: version 7, time-ordered within a run" },
-      ["-n"] = { value = "n", about = "uuid, int, pick: how many to draw (default 1)" },
-      ["--bytes"] = { value = "n", about = "token: bytes of entropy, 1 to 1048576 (default 32)" },
-      ["--hex"] = { about = "token: lowercase hex" },
-      ["--base64url"] = { about = "token: unpadded base64url (the default)" },
-      ["--seed"] = { value = "n", about = "int, pick, shuffle: replayable, NOT secret; refused for uuid and token" },
+      about = "digest files, or check a sums file",
+      usage = "[file...]",
+      spec = {
+        ["--md5"] = { about = "digest with MD5" },
+        ["--sha1"] = { about = "digest with SHA-1" },
+        ["--sha224"] = { about = "digest with SHA-224" },
+        ["--sha256"] = { about = "digest with SHA-256 (the default)" },
+        ["--sha384"] = { about = "digest with SHA-384" },
+        ["--sha512"] = { about = "digest with SHA-512" },
+        ["--sha3-224"] = { about = "digest with SHA3-224" },
+        ["--sha3-256"] = { about = "digest with SHA3-256" },
+        ["--sha3-384"] = { about = "digest with SHA3-384" },
+        ["--sha3-512"] = { about = "digest with SHA3-512" },
+        ["--json"] = { about = "print an array of {path, algorithm, digest}" },
+        ["--check"] = { value = "sums", about = "verify a sums file, or - for standard input" },
+        ["--quiet"] = { about = "with --check, print only the failures" },
+        ["--hmac"] = { value = "key", about = "make each digest an HMAC under key (visible in ps)" },
+        ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file" },
+      },
     },
     codec = {
-      ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
-      ["--decode"] = { about = "decode text to bytes, ignoring whitespace" },
-      ["--wrap"] = { value = "n", about = "wrap encoded text at n columns; no wrapping by default" },
-      ["--lenient"] = { about = "with -d, accept missing base64 padding, or base64url padding" },
+      about = "encode or decode base64, hex and the like",
+      usage = "<encoding> [file]",
+      spec = {
+        ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
+        ["--decode"] = { about = "decode text to bytes, ignoring whitespace" },
+        ["--wrap"] = { value = "n", about = "wrap encoded text at n columns; no wrapping by default" },
+        ["--lenient"] = { about = "with -d, accept missing base64 padding, or base64url padding" },
+      },
+    },
+    archive = {
+      about = "list, extract or create tar and zip files",
+      usage = "<command> ...",
+      spec = {
+        ["--json"] = { about = "list: print an array of objects, not lines" },
+        ["-C"] = { value = "dir", about = "extract: unpack into dir (default: the working directory)" },
+        ["--force"] = { about = "extract: replace existing files" },
+        ["--reproducible"] = { about = "create: fix every modification time, so the same tree packs alike" },
+      },
     },
     fetch = {
-      ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
-      ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
-      ["--sha512"] = { value = "hex", about = "fail unless the body has this sha512 (also checked with --sha256)" },
-      ["--allow-downgrade"] = { about = "follow a redirect from https to http, which is refused by default" },
-      ["--head"] = { about = "print the status and headers, not the body" },
-      ["--json"] = { about = "with --head, print them as a JSON object" },
+      about = "GET a URL, verifying what it keeps",
+      usage = "<url>",
+      spec = {
+        ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
+        ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
+        ["--sha512"] = { value = "hex", about = "fail unless the body has this sha512 (also checked with --sha256)" },
+        ["--allow-downgrade"] = { about = "follow a redirect from https to http, which is refused by default" },
+        ["--head"] = { about = "print the status and headers, not the body" },
+        ["--json"] = { about = "with --head, print them as a JSON object" },
+      },
     },
     time = {
-      ["--zone"] = { value = "IANA", about = "the zone to show, or to run the calendar in (default: the host's)" },
-      ["--from"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
-      ["--to"] = { value = "IANA", about = "the zone to write in (default: the host's)" },
-      ["--format"] = { value = "form", about = "rfc3339 (default), date, http or epoch" },
-      ["--days"] = { about = "between: whole calendar days" },
-      ["--months"] = { about = "between: whole calendar months" },
-      ["--seconds"] = { about = "between: whole seconds" },
-      ["--clamp"] = { about = "add: a day the month lacks takes its last day, not an error" },
-      ["--disambiguate"] = { value = "how", about = "a local time in a gap or overlap: " ..
-        "compatible (default), earlier, later or reject" },
-      ["--json"] = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" },
+      about = "show, convert and calculate with times",
+      usage = "<command> ...",
+      spec = {
+        ["--zone"] = { value = "IANA", about = "the zone to show, or to run the calendar in (default: the host's)" },
+        ["--from"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
+        ["--to"] = { value = "IANA", about = "the zone to write in (default: the host's)" },
+        ["--format"] = { value = "form", about = "rfc3339 (default), date, http or epoch" },
+        ["--days"] = { about = "between: whole calendar days" },
+        ["--months"] = { about = "between: whole calendar months" },
+        ["--seconds"] = { about = "between: whole seconds" },
+        ["--clamp"] = { about = "add: a day the month lacks takes its last day, not an error" },
+        ["--disambiguate"] = { value = "how", about = "a local time in a gap or overlap: " ..
+          "compatible (default), earlier, later or reject" },
+        ["--json"] = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" },
+      },
     },
-    bom = {
-      ["--licenses"] = { about = "print each component's license notices" },
-      ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
+    rand = {
+      about = "uuids, tokens, integers, picks",
+      usage = "<command> ...",
+      spec = {
+        ["--v4"] = { about = "uuid: version 4, random (the default)" },
+        ["--v7"] = { about = "uuid: version 7, time-ordered within a run" },
+        ["-n"] = { value = "n", about = "uuid, int, pick: how many to draw (default 1)" },
+        ["--bytes"] = { value = "n", about = "token: bytes of entropy, 1 to 1048576 (default 32)" },
+        ["--hex"] = { about = "token: lowercase hex" },
+        ["--base64url"] = { about = "token: unpadded base64url (the default)" },
+        ["--seed"] = { value = "n", about = "int, pick, shuffle: replayable, NOT secret; refused for uuid and token" },
+      },
     },
-    refresh = {
-      ["-o"] = { value = "path", about = "write the refreshed binary here" },
-      ["--binary"] = { value = "path", about = "refresh this binary rather than the running one" },
-      ["--cacert"] = { value = "file", about = "read the CA roots from this PEM bundle" },
-      ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
+    docs = {
+      about = "a symbol's or module's docs, or a search",
+      usage = "[words...]",
+    },
+    uses = {
+      about = "every place that refers to a symbol",
+      usage = "<symbol> [path...]",
     },
     todos = {
-      ["--oldest"] = { about = "list the oldest first, even when searching" },
+      about = "every TODO, with its date and commit",
+      usage = "[path | words...]",
+      spec = {
+        ["--oldest"] = { about = "list the oldest first, even when searching" },
+      },
     },
-  },
-  usage = {
-    run = "cosmic <file.tl> [args]", standalone = "cosmic --standalone <file.tl>",
-    eval = "cosmic -e '<chunk>' [args]", version = "cosmic --version",
-    test = "cosmic test [selector...]", fix = "cosmic fix [path...]",
-    build = "cosmic build [path...]", db = "cosmic db [path...]",
-    sql = "cosmic sql <statement>", json = "cosmic json <path> [file]",
-    hash = "cosmic hash [file...]", codec = "cosmic codec <encoding> [file]",
-    archive = "cosmic archive <command> ...", fetch = "cosmic fetch <url>",
-    time = "cosmic time <command> ...", rand = "cosmic rand <command> ...",
-    docs = "cosmic docs [words...]", uses = "cosmic uses <symbol> [path...]",
-    todos = "cosmic todos [path | words...]", bom = "cosmic bom",
-    refresh = "cosmic refresh -o <path>", help = "cosmic help [verb]",
-  },
-  summary = {
-    run = "build the tree around a file and run it",
-    standalone = "run one file with no tree around it",
-    eval = "run a Lua chunk",
-    version = "print this binary's digest",
-    test = "build the tree and run its tests",
-    fix = "format source files and check the tree",
-    build = "write o/bin/<name> per cmd/<name>/main.tl",
-    db = "what the databases under o/ hold",
-    sql = "read-only SQL on a database or data files",
-    json = "look up a path in a JSON file",
-    hash = "digest files, or check a sums file",
-    codec = "encode or decode base64, hex and the like",
-    archive = "list, extract or create tar and zip files",
-    fetch = "GET a URL, verifying what it keeps",
-    time = "show, convert and calculate with times",
-    rand = "uuids, tokens, integers, picks",
-    docs = "a symbol's or module's docs, or a search",
-    uses = "every place that refers to a symbol",
-    todos = "every TODO, with its date and commit",
-    bom = "third-party components in this binary",
-    refresh = "update a binary's CA roots and time zones",
-    help = "this index, or a verb's full text",
+    bom = {
+      about = "third-party components in this binary",
+      usage = "",
+      spec = {
+        ["--licenses"] = { about = "print each component's license notices" },
+        ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
+      },
+    },
+    refresh = {
+      about = "update a binary's CA roots and time zones",
+      usage = "-o <path>",
+      spec = {
+        ["-o"] = { value = "path", about = "write the refreshed binary here" },
+        ["--binary"] = { value = "path", about = "refresh this binary rather than the running one" },
+        ["--cacert"] = { value = "file", about = "read the CA roots from this PEM bundle" },
+        ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
+      },
+    },
+    help = {
+      about = "this index, or a verb's full text",
+      usage = "[verb]",
+    },
   },
   groups = {
     { "Running code", "run", "standalone", "eval", "version" },

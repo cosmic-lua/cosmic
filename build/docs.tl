@@ -1211,7 +1211,7 @@ end
 
 --- The verbs whose symbol, prose and options together carry every word
 --- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
---- and a verb's options are data ([`Cli.options`]), so what one does is
+--- and a verb's options are data (a `spec` of [`Cli.verbs`]), so what one does is
 --- matched here instead, against the options of the binary answering,
 --- as `render` shows them. Each word is a phrase, as [`fts_query`] quotes
 --- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
@@ -1229,7 +1229,9 @@ local function by_options(view: docs.View, query: string,
     return {}
   end
   local names: {string} = {}
-  for verb in pairs(Cli.options) do names[#names + 1] = "Cli." .. verb end
+  for verb, command in pairs(Cli.verbs) do
+    if command.spec ~= nil then names[#names + 1] = "Cli." .. verb end
+  end
   table.sort(names)
   local fields, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -1245,7 +1247,7 @@ local function by_options(view: docs.View, query: string,
     local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
     if verb ~= nil and not held[entry.module .. "\n" .. entry.symbol] then
       local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
-        entry.text .. "\n" .. Flags.options(Cli.options[verb]))
+        entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec))
       local all = true
       for _, phrase in ipairs(wanted) do
         if not spoken:find(phrase, 1, true) then all = false end
@@ -2146,13 +2148,14 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   end
   if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
-  -- A verb's options are data, [`Cli.options`], not prose: shown under
+  -- A verb's options are data, a `spec` of [`Cli.verbs`], not prose: shown under
   -- its field as `cosmic help <verb>` shows them, and searched by
   -- [`by_options`].
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
-  if verb ~= nil and Cli.options[verb] ~= nil then
+  local command = verb ~= nil and Cli.verbs[verb] or nil
+  if command ~= nil and command.spec ~= nil then
     lines[#lines + 1] = "  options:"
-    for line in String.lines(Flags.options(Cli.options[verb])) do
+    for line in String.lines(Flags.options(command.spec)) do
       lines[#lines + 1] = "  " .. line
     end
   end
