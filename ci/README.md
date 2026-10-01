@@ -247,6 +247,25 @@ first and is added to every leg, and each later entry overwrites all of
 its values for its own leg (build/workflows_test.tl expands the matrix
 as GitHub does, for either scope).
 
+A `light` run also splits linux-x86_64's native suite, the longest of
+its legs' (some 114 s after an edit to a carried module, 190 to 205 s
+after a core change, where linux-aarch64's takes 83 s and 120 to 131 s),
+between two legs: the matrix's `shard` dimension gives every leg `1/2`
+and `2/2`, its `exclude` drops the second of every leg but
+linux-x86_64, and `COSMIC_CI_SHARD` passes the share on to that leg's
+two jobs alone (`linux-x86_64` and `linux-x86_64-shard`), whose native
+suites run `cosmic test --shard 1/2` and `2/2`. The harness deals the
+chosen tests in turn, in sorted order, so the two run each test once
+between them whatever either restored; a deal by recorded cost would
+turn on the verdict cache each restored, which two runners need not
+restore alike. Each job is linux-x86_64's in all but the share: its
+runner, image, caches and verdict cache, so the same key parts, and
+the gate (`ci`) needs both. Neither checks that every C function is
+entered, which only a whole run answers (linux-aarch64's and
+macos-aarch64's light runs still do, and every leg of a `full` run).
+A light run saves no verdicts, so neither share's stands for the
+other's. A `full` run's `shard` is empty, and every leg runs whole.
+
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
 run one at a time, in one concurrency group, so the caches they save
