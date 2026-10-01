@@ -533,6 +533,14 @@ local function test_run_bounds_what_it_returns()
   assert(Stream.run(shouting(), "") == "!")
 end
 
+local function test_run_bounds_output_met_while_draining_a_decoder()
+  -- A decoder's first call gives 1 MiB; the bound falls in a later
+  -- `update("")`, in the drain loop.
+  local packed = assert(Compress.deflate("zlib", string.rep("\0", 3 << 20)))
+  local out, trouble = Stream.run(assert(Compress.inflater("zlib")), packed, (1 << 20) + 5)
+  assert(out == nil and trouble:find("larger than", 1, true) ~= nil, trouble)
+end
+
 local function test_run_answers_a_transform_failure()
   local out, trouble = Stream.run(assert(Compress.inflater("zlib")), "not zlib")
   assert(out == nil and trouble ~= "", trouble)

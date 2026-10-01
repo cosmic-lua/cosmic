@@ -747,8 +747,11 @@ local function test_inflate_validates_max_bytes()
   local out, trouble = Compress.inflate("zlib", packed, 2)
   assert(out == nil and trouble == "output is larger than 2 bytes", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
-  assert(not pcall(Compress.inflate, "zlib", packed, -1))
-  assert(not pcall(Compress.inflate, "zlib", packed, (1.5) as integer))
+  for _, bad in ipairs({ -1, 1.5 } as {any}) do
+    local ok, trouble = pcall(Compress.inflate, "zlib", packed, bad as integer)
+    assert(not ok and tostring(trouble):find("compress: max_bytes", 1, true) ~= nil,
+      tostring(trouble))
+  end
 end
 
 --- Each one-shot call frames its bytes as `format` says, the same

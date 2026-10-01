@@ -96,6 +96,9 @@ end
 --- too.
 function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer):
     string | nil, string
+  if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
+    error("compress: max_bytes must be an integer of at least 0", 2)
+  end
   local dec, trouble = raw.inflater(format)
   if dec == nil then return nil, trouble end
   local out, run_trouble = Stream.run(dec, data, max_bytes)

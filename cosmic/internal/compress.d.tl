@@ -6,7 +6,8 @@
 local record compress
   -- The incremental transform [`cosmic.stream`] names Stream.Transform,
   -- declared here because a declaration may require only declarations,
-  -- and the Stream below must satisfy it. cosmic/stream.tl documents
+  -- and Teal's interface conformance is nominal: the Stream below must
+  -- say `is Transform` where it is declared. cosmic/stream.tl documents
   -- the contract.
   interface Transform
     -- Feeds a chunk; the output that is ready, possibly "".

@@ -494,8 +494,7 @@ end
 --- @param bytes what to encode
 --- @param wrap columns per line; 0 for one line
 function verb.encode(name: verb.Name, bytes: string, wrap: integer): string
-  local coder = encoding(name, wrap)
-  return assert(coder:update(bytes)) .. assert(coder:finish())
+  return (assert(Stream.run(encoding(name, wrap), bytes)))
 end
 
 --- The bytes `text` spells in encoding `name`, ignoring ASCII
@@ -504,12 +503,7 @@ end
 --- @param text the encoded text
 --- @param lenient whether the other padding spelling is accepted
 function verb.decode(name: verb.Name, text: string, lenient: boolean): string | nil, string
-  local coder = verb.decoding(name, lenient)
-  local head, why = coder:update(text)
-  if head == nil then return nil, why end
-  local tail, tail_why = coder:finish()
-  if tail == nil then return nil, tail_why end
-  return head .. tail, ""
+  return Stream.run(verb.decoding(name, lenient), text)
 end
 
 --- What a command line asks for.
@@ -608,6 +602,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local coder = decode and verb.decoding(request.name, request.lenient)
     or encoding(request.name, request.wrap)
   local source = request.file or "standard input"
+  -- The coders are driven by hand, not through Stream.transform_writer,
+  -- on purpose: a decoder's output is held back one chunk, so an input
+  -- of at most 64 KiB that is refused writes nothing, and a Writer
+  -- over `to.out` would have written each chunk's bytes already.
   -- What one chunk decoded to, kept until the next chunk shows the
   -- text is sound so far: see the head of this file. Not used to encode.
   local held = ""

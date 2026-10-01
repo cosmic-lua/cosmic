@@ -20,8 +20,9 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 
--- The raw declaration holds the interface, so that its Stream can satisfy
--- it: a declaration may require only declarations.
+-- The raw declaration holds the interface. A declaration may require only
+-- declarations, and Teal's interface conformance is nominal: the raw
+-- Stream must say `is Transform` where it is declared.
 local type raw_compress = require("cosmic.internal.compress")
 
 -- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
@@ -506,7 +507,7 @@ local default_line_limit <const> = 1 << 20
 function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
   local limit = max_bytes or default_line_limit
   if math.type(limit) ~= "integer" or limit < 1 then
-    error("stream: a line limit must be an integer of at least 1", 2)
+    error("stream: max_bytes must be an integer of at least 1", 2)
   end
   -- `chunk` is the last one read, given out from `at`; `parts` holds
   -- the pieces of a line no chunk has ended yet, `held` bytes of them,
@@ -719,6 +720,10 @@ end
 --- -- `tee` it beside the Writer the body is really going to. Given a
 --- `key`, it is the HMAC under that key ([`Hash.hmac_hasher`]) that
 --- `digest` answers, not the plain digest.
+-- TODO: once Hash.Hasher's `update` answers `"", ""` (or a thin adapter
+-- stands over it), make a Hasher a Stream.Transform with `finish` as its
+-- `digest`, so `Stream.run` and `transform_writer` drive it and this
+-- Writer shrinks to that adapter.
 function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing | nil, string
   local feed: function(data: string)
   local finish: function(): string | nil, string
