@@ -161,7 +161,7 @@ local simple: {string:boolean} = {
 }
 
 local type_end: function(Scan, integer): integer
-local rets_end: function(Scan, integer): integer
+local rets_end: function(Scan, integer, ? boolean): integer
 
 --- The end of one type with no `|` alternatives after it.
 local function single_end(s: Scan, i: integer): integer
@@ -179,7 +179,7 @@ local function single_end(s: Scan, i: integer): integer
     end
     j = closing(s, j)
     if tk(s, j + 1) == ":" then
-      return rets_end(s, j + 2)
+      return rets_end(s, j + 2, true)
     end
     return j
   end
@@ -208,25 +208,82 @@ type_end = function(s: Scan, i: integer): integer
   return j
 end
 
+--- Whether token `i` starts a parameter: `name:`, `name?:`, `?T` or
+--- `...`, none of which can start a type. tl ends a function's return
+--- types before a `,` followed by one (its parse_trying_list's
+--- lookahead, with patch/tl's 30-return-types-end-before-a-parameter.txt),
+--- so that `function(f: function(): integer, n?: integer)` is two
+--- parameters.
+local function starts_a_parameter(s: Scan, i: integer): boolean
+  local t = s.tokens[i]
+  if t == nil then
+    return false
+  end
+  if t.tk == "?" or t.tk == "..." then
+    return true
+  end
+  return t.kind == "identifier"
+    and (tk(s, i + 1) == ":" or (tk(s, i + 1) == "?" and tk(s, i + 2) == ":"))
+end
+
 --- The index of the last token of a comma-separated list of types
 --- starting at token `i`, or of the parenthesized list it opens with.
 --- A function's return types and a declaration's type list are both
 --- this shape, and a variadic last one (`: any...`) ends at its `...`.
+--- A function's return types (`returns`) also end before a `,` that
+--- [`starts_a_parameter`] follows.
 --- @param s Scan
 --- @param i integer
+--- @param returns boolean|nil Whether the list is a function's return types
 --- @return integer
-rets_end = function(s: Scan, i: integer): integer
+rets_end = function(s: Scan, i: integer, returns?: boolean): integer
   if tk(s, i) == "(" then
     return closing(s, i)
   end
   local j = type_end(s, i)
-  while tk(s, j + 1) == "," do
+  while tk(s, j + 1) == "," and not (returns and starts_a_parameter(s, j + 2)) do
     j = type_end(s, j + 2)
   end
   if tk(s, j + 1) == "..." then
     j = j + 1
   end
   return j
+end
+
+--- Whether the type starting at token `i` ends in a function's return
+--- types that tl would read on into across a `,` after it: return types
+--- neither in parentheses nor closed by a `...`. A table entry ending
+--- in a cast to such a type needs a `;` after it, since tl reads the
+--- next entry after a `,` as one more return type.
+--- @param s Scan
+--- @param i integer
+--- @return boolean
+local function open_returns(s: Scan, i: integer): boolean
+  local last = i
+  local j = single_end(s, i)
+  while tk(s, j + 1) == "|" do
+    last = j + 2
+    j = single_end(s, last)
+  end
+  if tk(s, last) ~= "function" then
+    return false
+  end
+  local k = last + 1
+  if tk(s, k) == "<" then
+    k = closing_angle(s, k) + 1
+  end
+  if tk(s, k) ~= "(" then
+    return false
+  end
+  k = closing(s, k)
+  if tk(s, k + 1) ~= ":" or tk(s, k + 2) == "(" then
+    return false
+  end
+  j = type_end(s, k + 2)
+  while tk(s, j + 1) == "," and not starts_a_parameter(s, j + 2) do
+    j = type_end(s, j + 2)
+  end
+  return tk(s, j + 1) ~= "..."
 end
 
 --- The index of the first token spelled `word` at or after `i`, outside
@@ -277,7 +334,8 @@ local record TypescanModule
   index_before: function(s: Scan, y: integer, x: integer): integer
   bounded_end: function(s: Scan, y: integer, x: integer): integer
   type_end: function(s: Scan, i: integer): integer
-  rets_end: function(s: Scan, i: integer): integer
+  rets_end: function(s: Scan, i: integer, returns?: boolean): integer
+  open_returns: function(s: Scan, i: integer): boolean
   closing: function(s: Scan, i: integer): integer
   closing_angle: function(s: Scan, i: integer): integer
   word_after: function(s: Scan, i: integer, word: string): integer
@@ -292,6 +350,7 @@ local M: TypescanModule = {
   bounded_end = bounded_end,
   type_end = type_end,
   rets_end = rets_end,
+  open_returns = open_returns,
   closing = closing,
   closing_angle = closing_angle,
   word_after = word_after,

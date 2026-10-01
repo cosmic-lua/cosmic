@@ -1,0 +1,20 @@
+file: tl.tl
+note: a function type's return types end before a `,` that starts the enclosing list's next parameter, and tl only knew `name:` to start one, so `function(cb: function(): integer, n?: string)`, `(cb: function(): integer, ...: any)`, `(cb: function(): integer, ...)` and `(f: function(): integer, ?string)` were refused. A parameter can also start `name?:`, `?` or `...`, none of which can start a type (a vararg return type is `T...`, its `...` after the type, never after a `,`), so stopping there turns only a refusal into a parse
+--- find
+   while ps.tokens[i].tk == ","
+   and (not ret_lookahead
+        or (not (ps.tokens[i + 1].kind == "identifier"
+                 and ps.tokens[i + 2] and ps.tokens[i + 2].tk == ":")))
+   do
+--- replace
+   while ps.tokens[i].tk == ","
+   and (not ret_lookahead
+        or (not (ps.tokens[i + 1].kind == "identifier"
+                 and ps.tokens[i + 2] and ps.tokens[i + 2].tk == ":")
+            and not (ps.tokens[i + 1].kind == "identifier"
+                     and ps.tokens[i + 2] and ps.tokens[i + 2].tk == "?"
+                     and ps.tokens[i + 3] and ps.tokens[i + 3].tk == ":")
+            and ps.tokens[i + 1].tk ~= "?"
+            and ps.tokens[i + 1].tk ~= "..."))
+   do
+--- end

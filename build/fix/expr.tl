@@ -61,18 +61,27 @@ local function in_brackets(c: Ctx, key: Node)
   emit.put(c.em, inside .. "]")
 end
 
---- What follows an `as` or an `is`, as original bytes. `anchor` is the
---- operator's own token when there is one: the type begins right after
---- it, which is a surer place to start than the type object's recorded
---- position, since tl stamps a generic type at the end of its file.
-local function cast_type(c: Ctx, n: Node, anchor: integer | nil)
+--- The index of the first token of a cast's type, or nil when it has
+--- none of its own. `anchor` is the operator's own token when there is
+--- one: the type begins right after it, which is a surer place to start
+--- than the type object's recorded position, since tl stamps a generic
+--- type at the end of its file.
+local function cast_start(c: Ctx, n: Node, anchor: integer | nil): integer | nil
   local declared = n.casttype
   if declared == nil then
+    return nil
+  end
+  return anchor ~= nil and anchor + 1
+    or typescan.index_at(c.scan, declared.y, declared.x)
+end
+
+--- What follows an `as` or an `is`, as original bytes.
+local function cast_type(c: Ctx, n: Node, anchor: integer | nil)
+  if n.casttype == nil then
     refuse(c, "a cast with no type")
     return
   end
-  local first = anchor ~= nil and anchor + 1
-    or typescan.index_at(c.scan, declared.y, declared.x)
+  local first = cast_start(c, n, anchor)
   if first == nil then
     refuse(c, "a cast whose type has no token of its own")
     return
@@ -80,13 +89,38 @@ local function cast_type(c: Ctx, n: Node, anchor: integer | nil)
   ctx_mod.region(c, first, typescan.type_end(c.scan, first))
 end
 
+--- Whether `n` ends in a cast whose type's return types a `,` after it
+--- would continue ([`typescan.open_returns`]).
+local function ends_in_open_returns(c: Ctx, n: Node): boolean
+  if n.kind == "literal_table_item" then
+    local value = n.value
+    return value ~= nil and ends_in_open_returns(c, value)
+  end
+  local o, e1, e2 = n.op, n.e1, n.e2
+  if n.kind ~= "op" or o == nil then
+    return false
+  end
+  if e2 == nil then
+    return e1 ~= nil and ends_in_open_returns(c, e1)
+  end
+  if o.op == "as" or o.op == "is" then
+    local first = cast_start(c, e2, typescan.index_at(c.scan, o.y, o.x))
+    return first ~= nil and typescan.open_returns(c.scan, first)
+  end
+  if o.op == "@funcall" or o.op == "@method" or o.op == "@index" or o.op == "." or o.op == ":" then
+    return false
+  end
+  return ends_in_open_returns(c, e2)
+end
+
 --- A comma-separated run of expressions, each moved to its own line
---- wherever the source put it there.
-local function items(c: Ctx, list: Node, first_inline: string)
+--- wherever the source put it there. A table's entries (`table_like`)
+--- are separated by a `;` after one that [`ends_in_open_returns`].
+local function items(c: Ctx, list: Node, first_inline: string, table_like?: boolean)
   for i, item in ipairs(list) do
     local inline = first_inline
     if i > 1 then
-      emit.put(c.em, ",")
+      emit.put(c.em, table_like and ends_in_open_returns(c, list[i - 1]) and ";" or ",")
       inline = " "
     end
     ctx_mod.lead(c, item, inline)
@@ -115,9 +149,9 @@ local function bracketed(c: Ctx, list: Node, open: string, close: string,
     emit.put(c.em, close)
     return
   end
-  items(c, list, gap)
+  items(c, list, gap, table_like)
   if table_like and close_y > c.em.line then
-    emit.put(c.em, ",")
+    emit.put(c.em, ends_in_open_returns(c, list[#list]) and ";" or ",")
   end
   ctx_mod.lead_at(c, close_y, close_x, gap)
   emit.put(c.em, close)

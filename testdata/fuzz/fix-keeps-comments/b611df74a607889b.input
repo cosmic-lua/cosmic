@@ -1,0 +1,44 @@
+#!/usr/bin/env cosmic
+;
+	global function f<T>(n1: {string: integer}, ...); global t: boolean return a / "s" * y, value
+  end
+local interface I
+   end -- @1@ why
+    repeat --#region @2@
+ ---@3@keep -- this
+ --#region @4@
+
+      function f< T >(p0, ...: any)
+
+    local function
+	a<T, U>(...); local a, a < const >, a <const >: {string: integer}, {string: integer}, integer;
+ end; local n1 , a <const>, x  < const >: {string: string}, {string: integer}, {string: string} = a --[[ @5@ why ]] ; return a, a, a
+ end;
+until b
+       if function(b, ...): integer, {string: integer}
+ a_name_long_enough_to_push_a_line_past_any_width = "\u{e9}"
+
+        local macroexp m(a: integer): integer --[=[ @6@
+
+      été ]=] return    nil end
+        y.name = a_name_long_enough_to_push_a_line_past_any_width -- @7@ a note
+end + 0 then; local a <const>: {string: integer};
+ local a , a <const >: {string: integer}, {string: integer} = nil
+   if [[
+line one  
+  line two
+]]
+then;
+ global a: integer; return M, b
+   elseif a then; end
+
+      global x: {string: string} t( function< T >()
+--- @8@ why
+        end,    t.k2 ^ --[[@9@]] #nil) -- @10@ keep -- this
+    self({go --
+= a, f = a
+    ,    f = n1.f ,    [n1[n1]:go( self, 0)] = x as
+       function(integer): string; (a.k2) <= a_name_long_enough_to_push_a_line_past_any_width.f;})
+
+        end -- @11@ why
+return a
