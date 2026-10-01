@@ -96,15 +96,6 @@ local exempt_on: {string: {string: string}} = {
     ["core/syscalls_fs.c:descriptor_name"] = "called only from reaches_descriptor_name (see it)",
   },
   Darwin = {
-    -- TODO: drop these once Darwin's child starts through posix_spawn
-    -- (the TODO at core/syscalls.c's fork), or once a child's hits reach
-    -- the parent some other way, such as its own report before exec.
-    ["core/syscalls.c:spawn_child"] = "Darwin's child is a fork, so the flags it sets land in its own copy of the " ..
-      "parent's memory, which it never reports; Linux's clone(CLONE_VM) child's reach the parent",
-    ["core/syscalls.c:report_child_error"] = "called only from spawn_child, whose child's hits never reach the parent " ..
-      "on macOS (see spawn_child)",
-    ["core/syscalls.c:run_program"] = "called only from spawn_child, whose child's hits never reach the parent " ..
-      "on macOS (see spawn_child)",
     -- Every Linux core, the checked one too, is static musl, whose printf
     -- measures each `%s` with the core's strnlen, so a Linux run holds it.
     ["core/strnlen.c:strnlen"] = "libSystem's printf measures a `%s` with its own strnlen, never the core's, " ..

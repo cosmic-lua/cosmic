@@ -44,7 +44,7 @@ extern long syscall (long, ...);
 extern int clone (int (*)(void *), void *, int, void *, ...);
 #endif
 #if defined(__APPLE__)
-#include <libproc.h>
+#include <spawn.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
 #endif
@@ -302,8 +302,8 @@ COSMIC_SYSCALL(getrlimit, 1) {
 /* RLIMIT_NOFILE's soft limit as this process started with it, while
  * `descriptor_limit_raised` says the start raised it and nothing has set
  * it since: what a program it execs is given back
- * ([`restore_descriptor_limit`]). A child reads them on the parent's
- * memory, or a copy of it, before exec. */
+ * ([`restore_descriptor_limit`]). A Linux child reads them on the
+ * parent's memory before exec. */
 static rlim_t started_descriptor_limit;
 static bool descriptor_limit_raised;
 
@@ -332,13 +332,15 @@ void cosmic_raise_descriptor_limit (void) {
  * process started with, where the start raised it, so a host program --
  * a shell's `ulimit -n` -- sees what the user set; a relaunch of this
  * program raises it again. The hard limit stays as it is now, and bounds
- * the soft one where something lowered it since. True where it lowered
- * the limit. A refusal leaves the raised one, which harms no program. */
-static bool restore_descriptor_limit (void) {
+ * the soft one where something lowered it since; `least` bounds it
+ * from below, where a descriptor numbered under it is yet to be placed
+ * ([`spawn_program`]). True where it lowered the limit. A refusal leaves
+ * the raised one, which harms no program. */
+static bool restore_descriptor_limit (rlim_t least) {
   struct rlimit limits;
   if (!descriptor_limit_raised || getrlimit(RLIMIT_NOFILE, &limits) != 0) return false;
-  limits.rlim_cur = started_descriptor_limit < limits.rlim_max ? started_descriptor_limit
-                                                                : limits.rlim_max;
+  rlim_t soft = started_descriptor_limit < least ? least : started_descriptor_limit;
+  limits.rlim_cur = soft < limits.rlim_max ? soft : limits.rlim_max;
   return setrlimit(RLIMIT_NOFILE, &limits) == 0;
 }
 
@@ -451,7 +453,7 @@ COSMIC_SYSCALL(execve, 3) {
   /* Lowered before the report, which credits what lowers it; a report
    * whose file finds no room under the lowered limit is left unwritten. */
   struct rlimit raised;
-  bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 && restore_descriptor_limit();
+  bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 && restore_descriptor_limit(0);
   cosmic_coverage_report(); /* nothing of this image remains to report later */
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
   execve(path, argv, given);
@@ -469,6 +471,10 @@ static void free_environment (char **envp, lua_Integer count) {
   free(envp);
 }
 
+/* The highest descriptor number a child may be handed besides stdio. */
+#define CHILD_FD_MAX 255
+
+#if defined(__linux__)
 static int report_child_error (int fd, int number) {
   const char *at = (const char *)&number;
   size_t left = sizeof number;
@@ -482,46 +488,16 @@ static int report_child_error (int fd, int number) {
   return 0;
 }
 
-/* The highest descriptor number a child may be handed besides stdio. */
-#define CHILD_FD_MAX 255
-
 /* Close every descriptor from `from` up to `limit`. Cosmic-opened
  * descriptors are CLOEXEC already; this also closes foreign descriptors
- * that are not. Where Linux closes no range, the loop walks up to the
- * soft limit, which the start's raise bounds ([`DESCRIPTOR_LIMIT_RAISED`]);
- * macOS's stops past the highest open ([`open_descriptor_bound`]). */
+ * that are not. Where the kernel closes no range, the loop walks up to
+ * the soft limit, which the start's raise bounds
+ * ([`DESCRIPTOR_LIMIT_RAISED`]). */
 static void close_child_descriptors (int from, long limit) {
-#if defined(__linux__) && defined(SYS_close_range)
+#if defined(SYS_close_range)
   if (syscall(SYS_close_range, (unsigned)from, ~0u, 0u) == 0) return;
 #endif
   for (int fd = from; fd < limit; fd++) close(fd);
-}
-
-#if defined(__APPLE__)
-/* One past the highest descriptor this process has open: where a
- * child's close loop ([`close_child_descriptors`]) can stop, short of
- * walking every number up to `limit`, the soft limit, with no range to
- * close -- and past `limit` where a descriptor is held above a limit
- * lowered since it opened. `limit` where the kernel lists none, or
- * more than the room given for what opened since it was asked how
- * many. */
-static long open_descriptor_bound (long limit) {
-  int size = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, NULL, 0);
-  if (size <= 0) return limit;
-  size_t room = (size_t)size + 16 * sizeof(struct proc_fdinfo);
-  struct proc_fdinfo *open_fds = cosmic_malloc(room);
-  if (open_fds == NULL) return limit;
-  int got = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, open_fds, (int)room);
-  long bound = 0;
-  if (got <= 0 || (size_t)got >= room) {
-    bound = limit;
-  } else {
-    for (int i = 0; i < got / (int)sizeof *open_fds; i++) {
-      if (open_fds[i].proc_fd >= bound) bound = (long)open_fds[i].proc_fd + 1;
-    }
-  }
-  cosmic_free(open_fds);
-  return bound;
 }
 #endif
 
@@ -1325,8 +1301,8 @@ static int go_offline (int unmap_root, const char *uid_map, const char *gid_map)
  * parent's but the one thing it means to -- the coverage flags of the
  * functions it enters, and on the checked core UBSan's own state -- and
  * reads only this, which the parent holds, unchanged, until the child
- * has exec'd or ended. On Darwin the child is a copy ([`start_child`]),
- * which holds it to the same rules all the same. */
+ * has exec'd or ended. On Darwin the parent hands it to posix_spawn
+ * ([`spawn_program`]). */
 struct spawn_plan {
   const char *path;
   char **argv;
@@ -1387,13 +1363,10 @@ struct spawn_plan {
   sigset_t mask;
 };
 
-/* One past the highest signal number: Linux's real-time signals end at
- * 64, and Darwin's run to 31. */
 #if defined(__linux__)
+/* One past the highest signal number: Linux's real-time signals end at
+ * 64. */
 #define SIGNAL_LIMIT 65
-#else
-#define SIGNAL_LIMIT 32
-#endif
 
 /* In the child, with every signal blocked: every signal this process
  * catches is set back to its default, so none can run a handler of the
@@ -1459,12 +1432,8 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * left /proc out would gain it. Until then a child held to one reads
    * nothing of its own /proc. */
   if (!failure && confined >= 0) {
-#if defined(__linux__)
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
     else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
-#else
-    failure = ENOSYS;
-#endif
   }
   /* A pledge last of all: the filter would refuse nothing above, but
    * it is the one a later step could trip over. */
@@ -1476,27 +1445,19 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
     failure = ENOSYS;
 #endif
   }
-  /* Up past the copies this child made above `top` too, which the
-   * parent's bound may stop short of ([`open_descriptor_bound`]). */
-  long reach = plan->descriptor_limit;
-  for (int t = 0; t <= top; t++) {
-    if (pinned[t] >= reach) reach = (long)pinned[t] + 1;
-  }
-  if (confined >= reach) reach = (long)confined + 1;
-  close_child_descriptors(top + 2, reach);
+  close_child_descriptors(top + 2, plan->descriptor_limit);
   /* The program starts with the parent's own mask; a signal pending
    * since the start is delivered now, at its default. */
   if (!failure && sigprocmask(SIG_SETMASK, &plan->mask, NULL) != 0) failure = errno;
   /* Lowered last, once every descriptor is moved above `top`, which a
    * lower limit can refuse; what is open above it stays open. */
-  if (!failure) restore_descriptor_limit();
+  if (!failure) restore_descriptor_limit(0);
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
   _exit(127);
 }
 
-#if defined(__linux__)
 #ifndef SYS_pidfd_open
 #define SYS_pidfd_open 434
 #endif
@@ -1806,24 +1767,21 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
   if (failure) report_child_error(status_fd, failure);
   _exit(failure ? 127 : 0);
 }
-#endif
 
-/* The child `spawn` starts, from its start to exec:
- * on Linux on the parent's memory, through clone(CLONE_VM | CLONE_VFORK)
- * on a stack of its own, the parent stopped until this execs or ends;
- * on Darwin through fork, so on a copy. So it neither allocates nor touches the Lua state, writes only
- * its own stack and descriptors, the kernel's side of the process, and
- * errno (which is the parent's too on Linux; the parent reads none after
- * a start that succeeded) -- and, deliberately, the parent's memory in
- * one place on Linux: the coverage flag of each function it enters
- * (core/coverage.h), so a test is credited with what its child ran, and
- * on the checked core the sanitizer runtime's state (UBSan's report
- * dedup), which a report from here would write; an unveiled one writes
- * its program's pid too ([`start_unveiled`]). On Darwin those flags
- * land in the copy and are lost with it, so build/c_functions.tl
- * exempts this function there. It leaves by exec or _exit, never by
- * returning, so no atexit handler or stdio flush runs. A failure goes to
- * the parent over the status pipe as an errno. */
+/* The child `spawn` starts on Linux, from its start to exec: on the
+ * parent's memory, through clone(CLONE_VM | CLONE_VFORK) on a stack of
+ * its own, the parent stopped until this execs or ends. So it neither
+ * allocates nor touches the Lua state, writes only its own stack and
+ * descriptors, the kernel's side of the process, and errno (which is
+ * the parent's too; the parent reads none after a start that succeeded)
+ * -- and, deliberately, the parent's memory in one place: the coverage
+ * flag of each function it enters (core/coverage.h), so a test is
+ * credited with what its child ran, and on the checked core the
+ * sanitizer runtime's state (UBSan's report dedup), which a report from
+ * here would write; an unveiled one writes its program's pid too
+ * ([`start_unveiled`]). It leaves by exec or _exit, never by returning,
+ * so no atexit handler or stdio flush runs. A failure goes to the
+ * parent over the status pipe as an errno. */
 static _Noreturn int spawn_child (void *argument) {
   const struct spawn_plan *plan = argument;
   int top = plan->top;
@@ -1869,17 +1827,14 @@ static _Noreturn int spawn_child (void *argument) {
   }
   /* The sandbox's own namespaces first: the root the rest resolves in,
    * and mounting, which Landlock and a pledge would refuse. */
-#if defined(__linux__)
   if (plan->unveiling) start_unveiled(plan, pinned, confined, status_fd);
   if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map)) != 0) {
     report_child_error(status_fd, failure);
     _exit(127);
   }
-#endif
   run_program(plan, pinned, confined, status_fd);
 }
 
-#if defined(__linux__)
 /* The kind of descriptor `fd` is (S_IFIFO and the like), or 0 where it
  * is none. */
 static mode_t descriptor_kind (int fd) {
@@ -1961,6 +1916,116 @@ _Noreturn void cosmic_sandbox_init (void) {
 }
 #endif
 
+#if !defined(__linux__)
+/* Darwin's start ([`start_child`]): posix_spawn, given as its attributes
+ * and file actions what Linux's child does itself before exec
+ * ([`spawn_child`]), less the sandbox Darwin has none of -- its process
+ * group, its directory, its descriptors, the parent's mask, and SIGPIPE
+ * at its default where cosmic ignored it; a signal the parent catches
+ * the exec itself sets back to its default. Every descriptor not handed
+ * on is closed at exec (POSIX_SPAWN_CLOEXEC_DEFAULT): an inherited
+ * stdio one is handed on as it is, a closed one staying closed. Each
+ * source is copied above `top` first, as Linux's child pins it, so no
+ * dup2 overwrites a source a later one reads, and a source that is its
+ * own target is moved from a copy, as a dup2 onto itself may leave
+ * CLOEXEC set. The kernel takes these steps in the child, which shares nothing
+ * of this process's memory, and answers an exec's failure as
+ * posix_spawn's own, so the status pipe is never written. The child's
+ * pid, or -1 and the errno in `error`. */
+static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
+  /* Darwin has neither Landlock nor seccomp. */
+  if (plan->confine >= 0 || plan->pledged) {
+    *error = ENOSYS;
+    return -1;
+  }
+  /* Given a directory to change to, macOS's posix_spawn can start a
+   * program a relative path names and still answer ENOENT, so the path
+   * is made absolute first, from where the child resolves it. One longer
+   * than PATH_MAX that way is refused, ENAMETOOLONG, though its parts
+   * fit. */
+  const char *path = plan->path;
+  char absolute[PATH_MAX];
+  if (plan->cwd != NULL && path[0] != '/') {
+    char here[PATH_MAX];
+    int length = -1;
+    if (plan->cwd[0] == '/') {
+      length = snprintf(absolute, sizeof absolute, "%s/%s", plan->cwd, path);
+    } else if (getcwd(here, sizeof here) == NULL) {
+      *error = errno;
+      return -1;
+    } else {
+      length = snprintf(absolute, sizeof absolute, "%s/%s/%s", here, plan->cwd, path);
+    }
+    if (length < 0 || (size_t)length >= sizeof absolute) {
+      *error = ENAMETOOLONG;
+      return -1;
+    }
+    path = absolute;
+  }
+  int top = plan->top;
+  int pinned[CHILD_FD_MAX + 1];
+  int failure = 0;
+  for (int t = 0; t <= top; t++) {
+    pinned[t] = -1;
+    if (!failure && plan->source[t] >= 0) {
+      pinned[t] = fcntl(plan->source[t], F_DUPFD_CLOEXEC, top + 2);
+      if (pinned[t] < 0) failure = errno;
+    }
+  }
+  pid_t pid = -1;
+  posix_spawn_file_actions_t actions;
+  posix_spawnattr_t attributes;
+  if (!failure) failure = posix_spawn_file_actions_init(&actions);
+  if (!failure) {
+    failure = posix_spawnattr_init(&attributes);
+    if (!failure) {
+      int flags = POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK;
+      if (plan->process_group) flags |= POSIX_SPAWN_SETPGROUP;
+      if (sigpipe_ignored_here) flags |= POSIX_SPAWN_SETSIGDEF;
+      sigset_t defaults;
+      sigemptyset(&defaults);
+      sigaddset(&defaults, SIGPIPE);
+      failure = posix_spawnattr_setflags(&attributes, (short)flags);
+      if (!failure) failure = posix_spawnattr_setsigmask(&attributes, &plan->mask);
+      if (!failure) failure = posix_spawnattr_setsigdefault(&attributes, &defaults);
+      if (!failure && plan->cwd != NULL)
+        failure = posix_spawn_file_actions_addchdir_np(&actions, plan->cwd);
+      for (int t = 0; !failure && t <= top; t++) {
+        if (pinned[t] >= 0) {
+          failure = posix_spawn_file_actions_adddup2(&actions, pinned[t], t);
+        } else if (t < 3) {
+          if (fcntl(t, F_GETFD) >= 0) failure = posix_spawn_file_actions_addinherit_np(&actions, t);
+          else if (errno != EBADF) failure = errno;
+        }
+      }
+      /* posix_spawn has no step for a limit: the child inherits this
+       * process's, lowered for the call alone, across which this one
+       * thread opens nothing. The kernel's dup2 refuses a target at or
+       * past the child's limit, so where the user's is no higher than
+       * `top` the child's is `top` + 1, the least that holds what it is
+       * handed. */
+      if (!failure) {
+        struct rlimit raised;
+        bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 &&
+                       restore_descriptor_limit((rlim_t)top + 1);
+        failure = posix_spawn(&pid, path, &actions, &attributes, plan->argv, plan->envp);
+        if (lowered) setrlimit(RLIMIT_NOFILE, &raised);
+      }
+      posix_spawnattr_destroy(&attributes);
+    }
+    posix_spawn_file_actions_destroy(&actions);
+  }
+  for (int t = 0; t <= top; t++) {
+    if (pinned[t] >= 0) close(pinned[t]);
+  }
+  if (failure) {
+    *error = failure;
+    return -1;
+  }
+  return pid;
+}
+#endif
+
 /* The stack a Linux child runs [`spawn_child`] on, above a guard page:
  * the most it needs is [`build_root`]'s paths and a libc's formatting, well
  * under this, and only the pages it touches are ever made. */
@@ -1972,18 +2037,13 @@ _Noreturn void cosmic_sandbox_init (void) {
  * `error`.
  * Not fork, whose copy of a large parent's page tables costs more than
  * the rest of a start together (4.4 ms of the test runner's 8.2 ms per
- * test at 150 MB), and not posix_spawn, which has no step for a
- * namespace, a pivoted root, Landlock or a seccomp filter. On Linux,
- * clone(CLONE_VM | CLONE_VFORK) rather than vfork: the child runs on a
+ * test at 150 MB). On Linux, clone(CLONE_VM | CLONE_VFORK): not
+ * posix_spawn, which has no step for a namespace, a pivoted root,
+ * Landlock or a seccomp filter, and not vfork: the child runs on a
  * stack of its own, so nothing it calls can overwrite a frame the
  * parent returns to, and the static analyzer has no vfork to refuse.
- * posix_spawn is refused on Linux alone: Darwin's covers every step its
- * child takes (descriptors, cwd through posix_spawn_file_actions_addchdir_np,
- * a process group, the mask and defaults), having no sandbox to set up.
- * Darwin forks: macOS's libc makes vfork a fork anyway (Libc's
- * sys/fork.c: "vfork() is now just fork()"), and a plain fork gives the
- * child all it calls before exec without vfork's undefined behavior, at
- * fork's cost.
+ * On Darwin, which has no sandbox to set up, posix_spawn
+ * ([`spawn_program`]), which covers every step a child takes there.
  * Every signal is blocked across the whole start, not only its first
  * steps, so a child hung in setup -- a chdir or an unveiled path on a
  * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
@@ -2029,14 +2089,7 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
     munmap(stack, size);
   }
 #else
-  /* TODO: start the child through posix_spawn on Darwin, which covers
-   * every step [`spawn_child`] takes there and spares a large parent
-   * fork's copy, as clone spares it on Linux, once a macOS host can run
-   * core/syscalls_test.tl and CI's macOS job against it: this path is
-   * compiled and started only there. */
-  pid = fork();
-  if (pid == 0) spawn_child(plan);
-  if (pid < 0) *error = errno;
+  pid = spawn_program(plan, error);
 #endif
   sigprocmask(SIG_SETMASK, &plan->mask, NULL);
   return pid;
@@ -2436,10 +2489,10 @@ COSMIC_SYSCALL(spawn, 10) {
   /* Move both ends clear of every descriptor the child is handed, so
    * closed parent stdio cannot make a pipe end collide with the
    * remapping below. These ends, and the descriptors the child moves
-   * above its own (the pinned and confining ones, and
-   * [`raise_descriptor`]'s), go to `top` + 2 and up -- 257 and up for a
-   * relaunch, which hands the child 255 (cosmic/proc.tl's CORE_FD) --
-   * which F_DUPFD refuses past RLIMIT_NOFILE's soft limit: EINVAL at it,
+   * above its own (the pinned and confining ones -- on Darwin this
+   * process copies the pinned ones -- and [`raise_descriptor`]'s), go
+   * to `top` + 2 and up -- 257 and up for a relaunch, which hands the
+   * child 255 (cosmic/proc.tl's CORE_FD) -- which F_DUPFD refuses past RLIMIT_NOFILE's soft limit: EINVAL at it,
    * EMFILE just under it; SPAWN_PLACED_ABOVE (core/process.h) counts
    * them. A start raises that limit past macOS's default of 256
    * ([`cosmic_raise_descriptor_limit`]); a hard limit that low still
@@ -2458,12 +2511,6 @@ COSMIC_SYSCALL(spawn, 10) {
     free(argv);
     return cosmic_fail(L, promote_error);
   }
-#if defined(__APPLE__)
-  /* Every descriptor the child inherits is open by now, these ends the
-   * last; the copies it makes above them it reaches itself
-   * ([`run_program`]). */
-  descriptor_limit = open_descriptor_bound(descriptor_limit);
-#endif
   /* What an unveiled child resolves in a root of its own is resolved here
    * first, while this process's filesystem is still the one its names
    * mean: each unveiled path with no link or `..` left in it, a shorter
