@@ -305,7 +305,7 @@
           name: "name the zig build cache, and the run's start",
           id: "names",
           shell: "sh",
-          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"",
+          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-${{ matrix.name }}-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'cosmic/removed.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
         },
 
         # The newest entry for this vendor part: `full` with this core
@@ -375,17 +375,39 @@
           },
         },
 
-        # The compiles and parses main's last run of the leg used
-        # (COSMIC_BUILD_CACHE); a row that no longer answers is a miss.
+        # The compiles and parses (COSMIC_BUILD_CACHE) of this branch's
+        # last push that saved some, of the same compiler (below), else
+        # main's last run of the leg; a row that no longer answers is a
+        # miss. Only a branch's own push saves under `compiles-branch-`,
+        # and GitHub lets no other ref restore it (main, a sibling
+        # branch or the merge queue), so on main the first prefix finds
+        # nothing. `names` hashes, as the compiler a branch's entry was
+        # made by, the build's own modules, cosmic.removed and the Teal
+        # compiler's and Lua's pins and patches: more than the
+        # compiler's identity holds (build.work's `compiler_identity`),
+        # so an edit to the rest of build/ falls back to main's entry
+        # rather than to one of another compiler. It stays wider than
+        # that identity, since a list of its modules here would drift
+        # from build.work's unseen, and a wider hash costs only hits.
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.name }}-",
-            "restore-keys": "compiles-${{ matrix.name }}-\n",
+            key: "${{ steps.names.outputs.compiles }}",
+            "restore-keys": "${{ steps.names.outputs.compiles }}\ncompiles-${{ matrix.name }}-\n",
           },
+        },
+
+        # What was restored, for the trim to count the compiles the
+        # run's builds made beside it (`fresh`), where a branch's save
+        # turns on.
+        {
+          name: "set aside a copy of the compiles restored",
+          "working-directory": ".",
+          shell: "sh",
+          run: "[ ! -f \"$RUNNER_TEMP/build-cache/cache.db\" ] || cp \"$RUNNER_TEMP/build-cache/cache.db\" \"$RUNNER_TEMP/compiles-restored.db\"",
         },
 
         # Restored on the host, bootstrapped in the container: a composite
@@ -637,7 +659,7 @@
           name: "keep only this run's compiles and parses",
           id: "compiles-trim",
           if: "always() && steps.driver.outcome == 'success'",
-          run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\"",
+          run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\" \"${{ runner.temp }}/compiles-restored.db\"",
         },
 
         # A run that failed keeps what it restored too (`whole`).
@@ -854,6 +876,25 @@
             key: "compiles-${{ matrix.name }}-${{ steps.compiles-trim.outputs.digest }}",
           },
         },
+
+        # A branch's push saves for its own later pushes, under a key
+        # only they restore (above), where its builds compiled more than
+        # 50 modules (some 5 s of a boot's 40) that the entry restored
+        # lacked: after a change to the compiler, which moves every
+        # row's key, every push would compile the whole tree again on
+        # every leg. Trimmed to what the run used, as main's entry is,
+        # some 5 MB compressed; linux-x86_64's second share saves
+        # nothing, its rows being the first's. `prune` deletes these a
+        # day after they were saved.
+        {
+          name: "save compiles and parses for this branch's later pushes",
+          if: "always() && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && env.COSMIC_CI_SCOPE == 'light' && matrix.shard != '2/2' && fromJSON(steps.compiles-trim.outputs.fresh || '0') > 50",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "${{ steps.names.outputs.compiles }}${{ steps.compiles-trim.outputs.digest }}",
+          },
+        },
       ],
     },
 
@@ -922,7 +963,7 @@
           name: "name the zig build cache, and the run's start",
           id: "names",
           shell: "sh",
-          run: "echo \"vendor=zig-build-linux-x86_64-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"",
+          run: "echo \"vendor=zig-build-linux-x86_64-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-linux-x86_64-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'cosmic/removed.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
         },
         {
           name: "restore zig build outputs",
@@ -998,8 +1039,8 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-linux-x86_64-",
-            "restore-keys": "compiles-linux-x86_64-\n",
+            key: "${{ steps.names.outputs.compiles }}",
+            "restore-keys": "${{ steps.names.outputs.compiles }}\ncompiles-linux-x86_64-\n",
           },
         },
         # A light run looks up the marker main's linux-x86_64 leg saves
@@ -1466,9 +1507,11 @@
       ],
     },
 
-    # Main's copies of its verdicts under a commit, a day on
+    # Main's copies of its verdicts under a commit, and the compiles a
+    # branch's push saved for its later pushes, a day on
     # (prune-commit-verdicts.sh): a branch based on an older commit
-    # restores main's newest. The one job whose token may write the
+    # restores main's newest verdicts, and a branch pushed again a day
+    # later main's compiles. The one job whose token may write the
     # cache, and it runs no tree code but the script. After every job
     # that saves, whatever their result, so a red push to main prunes
     # too; beside the join, so the check a ruleset requires waits on
@@ -1492,7 +1535,7 @@
           },
         },
         {
-          name: "prune verdicts saved under a commit",
+          name: "prune verdicts saved under a commit, and branches' compiles",
           if: "github.ref == 'refs/heads/main'",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
