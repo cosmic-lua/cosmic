@@ -460,9 +460,10 @@ end
 
 --- Whether a build reads the file at `path`, relative to the root:
 --- CI's cache key ([`bin/zig.pin`], `build.zig`, `build.zig.zon`,
---- `core/`, `test/portable/*.c`, `vendor/`, `patch/`, [`build/patch.tl`]), plus what the
---- boot stages -- the tool's own trees whole, Teal anywhere else, and
---- the doc guides whose examples it runs.
+--- `core/`, `test/portable/*.c`, `vendor/`, `patch/`), plus what the
+--- boot stages -- the tool's own trees whole ([`build/patch.tl`], the
+--- applier, among them), Teal anywhere else, and the doc guides whose
+--- examples it runs.
 local function watches(path: string): boolean
   if watched_files[path] then
     return true
