@@ -93,6 +93,37 @@ local function test_an_undeclared_file_does_not_move_it(tmp: string)
   assert(key_of(tmp, s) == before)
 end
 
+--- A module that declares `lua` starts this program held to its closure
+--- (build.test_worker's `hold_children`), so its key holds the program as
+--- a module that declares neither `lua` nor `tool` does: by the closure's
+--- store and the runtime, not by what the program carries -- an edit to a
+--- module the program carries outside its closure, which moves `program`
+--- and o/bin, leaves it -- while the closure's store, which holds each of
+--- `lua_loads`, moves it.
+local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: string)
+  tree(tmp)
+  assert(Fs.mkdirs(tmp .. "/o/bin"))
+  assert(Fs.write(tmp .. "/o/bin/cosmic", "one program"))
+  local function lua_spec(program: string, store: string): declared_key.Spec
+    local s = spec()
+    s.effective.lua = true
+    s.declaration = s.declaration .. "\nlua true"
+    s.program = program
+    s.closure_store = store
+    return s
+  end
+  local before = key_of(tmp, lua_spec("one program", "one store"))
+  assert(Fs.write(tmp .. "/o/bin/cosmic", "another program"))
+  assert(key_of(tmp, lua_spec("another program", "one store")) == before)
+  assert(key_of(tmp, lua_spec("one program", "another store")) ~= before)
+  -- A module that declares `tool` is keyed by the program, as ever.
+  local s = lua_spec("one program", "one store")
+  s.effective.lua, s.effective.tool = false, true
+  local tool_before = key_of(tmp, s)
+  s.program = "another program"
+  assert(key_of(tmp, s) ~= tool_before)
+end
+
 --- Each thing it is a digest of moves it: a declared file's contents,
 --- one added beneath a declared directory, a file's mode, a module of
 --- the closure, the declaration, a variable's value, the runtime (the
@@ -260,7 +291,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
     env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    tool = true, nests = true, store = true, system = true,
+    tool = true, lua = true, nests = true, store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
     variables = { "DECLARED", "H" }, named = { H = true },
     spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
@@ -346,6 +377,9 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
         "offline worker's own loopback answers",
       variables = declaration,
+      lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
+        "and `closure_store`: every process it starts is held to that closure " ..
+        "(build.test_worker's `hold_children`)",
       nests = declaration .. ", and, where the module does not declare `tool`, " ..
         "`runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",

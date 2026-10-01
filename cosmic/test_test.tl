@@ -8,12 +8,12 @@ local Test = require("cosmic.test")
 --- does, so the checks the build and `needs` make keep to the type.
 local function test_every_field_of_needs_is_one_fields_names()
   local every: Test.Needs = {
-    reads = {}, host = {}, env = {}, network = {}, tool = true,
+    reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,
     nests = true, store = true, system = true, caches = {},
   }
   local want: {string:string} = {
     reads = "list", host = "list", env = "list", network = "list",
-    tool = "flag", nests = "flag", store = "flag", system = "flag",
+    tool = "flag", lua = "flag", nests = "flag", store = "flag", system = "flag",
     caches = "list",
   }
   local count = 0
@@ -54,4 +54,19 @@ local function test_skip_takes_a_reason()
   end
   local ok, trouble: boolean, any = pcall(Test.skip as function(any), nil)
   assert(not ok and tostring(trouble):find("skip takes a reason", 1, true), tostring(trouble))
+end
+
+--- `lua` stands alone or beside what cannot start the program past its
+--- hold; beside `tool` or `store`, which key the whole program already,
+--- or `system` or a cache, whose host program or cached cosmic could
+--- start it unheld, it is refused, naming the field it meets.
+local function test_lua_is_refused_beside_what_starts_the_program_unheld()
+  assert(Test.lua_trouble(true, false, false, false, false) == "")
+  assert(Test.lua_trouble(false, true, true, true, true) == "")
+  for i, name in ipairs({ "tool", "store", "system", "caches" }) do
+    local given = { false, false, false, false }
+    given[i] = true
+    local why = Test.lua_trouble(true, given[1], given[2], given[3], given[4])
+    assert(why:find("lua is refused beside " .. name, 1, true), why)
+  end
 end

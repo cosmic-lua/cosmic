@@ -53,6 +53,30 @@ bool cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size);
 int cosmic_store_count (lua_State *L);
 sqlite3 *cosmic_store_database (lua_State *L, int index);
 
+/* Whether a lookup of the module `name` may answer it: false where a hold
+ * (core/store.c's `store_hold`) holds it, so what reads a module's rows past the
+ * searcher -- the source line an uncaught error names (core/main.c) --
+ * reads none of a held one, and false where there is no memory to ask.
+ * It never raises. */
+bool cosmic_store_lets (lua_State *L, const char *name);
+
+/* Takes the hold a test's worker handed the processes its test starts
+ * (COSMIC_TEST_CHILD_HOLD) out of this process's environment, before any
+ * Lua runs, keeping it to put up ([`cosmic_store_hold_inherited`]) and to
+ * hand on ([`cosmic_store_environment`]). */
+void cosmic_store_prepare (void);
+
+/* Puts up the hold this process was started under, if any, before its
+ * main module loads: false where it was started under one it could not
+ * keep or put up, which it must not run past. */
+bool cosmic_store_hold_inherited (lua_State *L);
+
+/* `envp`, or where the processes this one starts are held, a new array
+ * (to free, not its entries) of `envp`'s entries but any hold's, with
+ * this one's hold after them; NULL where there is no memory for it, which
+ * must start nothing. */
+char **cosmic_store_environment (char **envp);
+
 /* The validated portable artifact this process was started from, or NULL
  * for a native start. It stays owned by the entry. */
 const struct cosmic_artifact *cosmic_store_artifact (lua_State *L);

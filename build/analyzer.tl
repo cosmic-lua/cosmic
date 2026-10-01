@@ -86,6 +86,7 @@ local record analyzer
     env: {string}
     network: {string}
     tool: boolean
+    lua: boolean
     nests: boolean
     store: boolean
     system: boolean
@@ -1420,7 +1421,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
-    tool = false, nests = false, store = false, system = false, caches = {},
+    tool = false, lua = false, nests = false, store = false, system = false, caches = {},
   }
   local seen: {string:boolean} = {}
   for _, item in ipairs(value) do
@@ -1447,6 +1448,8 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       local on = given.tk == "true"
       if field == "tool" then
         out.tool = on
+      elseif field == "lua" then
+        out.lua = on
       elseif field == "nests" then
         out.nests = on
       elseif field == "system" then
@@ -1507,6 +1510,8 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       return nil, where .. field .. " takes " .. wanted .. ", written out"
     end
   end
+  local refused = Test.lua_trouble(out.lua, out.tool, out.store, out.system, #out.caches > 0)
+  if refused ~= "" then return nil, at(found) .. refused end
   return out, ""
 end
 

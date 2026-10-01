@@ -1,7 +1,7 @@
 --- `cosmic --standalone`, run as this program: a file's path and
 --- arguments, its exit status, and the compile cache it keeps. These
---- start this program, its core and retained descriptor, so they need
---- `tool`; the in-process compiles are in `standalone_test.tl`.
+--- start this program, its core and retained descriptor, only to run a
+--- file standalone, so they declare `lua`; the in-process compiles are in `standalone_test.tl`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -10,7 +10,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.needs{ lua = true }
 
 --- End to end, from a directory holding no tree: the file gets its own
 --- path at argv[0] and what follows it, its exit code is the process's,

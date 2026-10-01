@@ -110,6 +110,12 @@ allowed["build.harness_epoch.retired"] = "every token the harness's epoch held "
 allowed["build.harness_epoch.library"] = "the standard-library modules the harness " ..
   "may reach, each with its reason, which only its test reads: a rule the test holds " ..
   "the harness's digests to, not code the harness runs"
+allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds " ..
+  "a child's `-e` to loading no more than, as the hold a `lua` module's children get " ..
+  "lets them load"
+allowed["build.closure_store.loaded_beside"] = "what build/lua_children_test.tl " ..
+  "holds build.test_inputs' copy to, which a `lua` module's children may load beside " ..
+  "a module of their closure"
 allowed["build.test.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
