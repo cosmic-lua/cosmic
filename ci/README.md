@@ -550,12 +550,25 @@ that reuses the queue's run builds nothing, and saves instead the
 queue's leg's entry where that leg restored none of its core and vendor
 part (the queue's result, above), so once per core change too.
 The scheduled run restores nothing, compiles cold and saves a compact
-entry. An entry is a few hundred MB compressed a leg (linux-x86_64's
-grew 323 to 388 MB over a day's runs: the `TODO:` on ci.yml's names),
-about 1 GB a set of the four legs, and it grows
-with each save, since zig never prunes its cache and a save carries all
-it restored: a day's core changes each save one that holds the last's,
-until the nightly's cold build, which is what bounds an entry. When
+entry. zig never prunes its cache, and a save carries all its run
+restored, so a day's core changes each saved one that held the last's,
+until the nightly's cold build: at a day's end macOS's entry was 561 MB
+compressed (1.8 GB on disk) and linux-x86_64's 867 MB, where the
+entries of 2026-09-29, before the queue seeded them, were 118 to 142 MB;
+and every leg's first step, the restore, took 9 to 19 s on Linux and
+15 to 27 s on macOS. So before
+either save a leg prunes them (`driver.tl zig-prune`,
+[`cosmic_ci/zig_prune.tl`]): a core change makes zig write the manifest
+of the step that copies `core/` again, vouching for a new copy, so the
+old copy is no manifest's, and every compile and link of the old core,
+which lists a file of it, goes with its output. On that day's last
+seed that is 1.2 of its 1.8 GB (147 of its 165 linked cores), leaving
+some 140 MB compressed; a build of the tree it was built from reads
+none of what goes, and one of an older core compiles it again. The
+prune keeps everything where a manifest reads otherwise than zig
+0.16's, and an orphan holding files no current output holds (zig's
+`dependencies.zig`, which `zig build` writes with no manifest).
+When
 main saved after every run, GitHub evicted the least recently used
 entries, the fuzz job's and other legs' own among them, which then
 built cold; one a core change is fewer, and the older of them are the
@@ -623,5 +636,6 @@ alone.
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
+[`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 [`testdata/prerelease/gh.tl`]: testdata/prerelease/gh.tl
 [`testdata/report/gh.tl`]: testdata/report/gh.tl

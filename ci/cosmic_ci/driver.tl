@@ -13,6 +13,7 @@ local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Verdicts = require("cosmic_ci.verdicts")
+local ZigPrune = require("cosmic_ci.zig_prune")
 
 local function open_database(path: string): Sqlite.Handle
   return State.open(path)
@@ -104,6 +105,8 @@ local commands: {string:Command} = {
     usage = "SINCE", handler = Compiles.trim_command },
   ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE, and digest them",
     usage = "SINCE|whole", handler = Verdicts.trim_command },
+  ["zig-prune"] = { about = "remove the zig build outputs no manifest of a current step vouches for",
+    usage = "", handler = ZigPrune.prune_command },
   ["verdicts-merge"] = { about = "add the verdicts of the merge queue's run ahead, in DIR, to this run's",
     usage = "DIR", handler = Verdicts.merge_command },
   platform = { about = "run one phase of this worker's platform job",
