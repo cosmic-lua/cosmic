@@ -2844,7 +2844,7 @@ local function run(argv: {integer:string}): integer
   -- as the binary names it.
   local host_image = Store.meta("host_image")
   rec.store_runtime = identity
-  if host_image ~= nil and rec.runtime:sub(1, #identity) == identity then
+  if host_image ~= nil and String.starts_with(rec.runtime, identity) then
     rec.store_runtime = declared_key.runtime_identity(rec.digests, identity, host_image,
       Store.meta("runtime_basis") or "")
     rec.runtime = rec.store_runtime .. rec.runtime:sub(#identity + 1)

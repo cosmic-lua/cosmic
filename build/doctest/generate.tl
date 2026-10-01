@@ -304,7 +304,7 @@ function generate.prose(source: string): string
       kept[#kept + 1] = line
     end
   end
-  return (table.concat(kept, "\n"):gsub("\n%s*\n%s*\n+", "\n\n"):match("^%s*(.-)%s*$"))
+  return String.trim((table.concat(kept, "\n"):gsub("\n%s*\n%s*\n+", "\n\n")))
 end
 
 --- The block sequence as one Teal source string: a header comment, the

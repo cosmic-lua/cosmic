@@ -13,6 +13,7 @@ local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Plural = require("cosmic_ci.plural")
+local String = require("cosmic.string")
 
 local record Prerelease
   --- The platform legs, in the byte order of their products'
@@ -118,7 +119,7 @@ function Prerelease.source_valid(text: string, commit: string, digest: string,
   if source.digest ~= digest then return false, "source.json names another digest" end
   local run_url = source.run_url
   if not run_url is string then return false, "source.json's run_url is no string" end
-  if run_url:sub(1, #run_prefix) ~= run_prefix
+  if not String.starts_with(run_url, run_prefix)
       or not run_url:sub(#run_prefix + 1):match("^[0-9]+$") then
     return false, "source.json's run_url is not " .. run_prefix .. "<run id>"
   end

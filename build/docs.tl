@@ -287,7 +287,7 @@ local function pieces_of(head: string): {{string}}
     lines = {}
     code = ""
   end
-  for line in (head .. "\n"):gmatch("(.-)\n") do
+  for line in String.lines(head) do
     local comment = line:match("^%-%-") ~= nil
     if line ~= "" and line:match("^%s") == nil and not closes(line) then
       if code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
@@ -710,7 +710,7 @@ end
 local function plain(word: string): string
   local lower = word:lower()
   for _, ending in ipairs({ "ing", "ed", "es", "s" }) do
-    if #lower >= #ending + 3 and lower:sub(-#ending) == ending then
+    if #lower >= #ending + 3 and String.ends_with(lower, ending) then
       return lower:sub(1, -#ending - 1)
     end
   end
@@ -1046,7 +1046,7 @@ local function used_as(view: docs.View, entry: docs.Entry): string | nil, string
     view.value_records[entry.module] = cached
   end
   local prefix = cached .. "."
-  if cached ~= "" and entry.source_symbol:sub(1, #prefix) == prefix then
+  if cached ~= "" and String.starts_with(entry.source_symbol, prefix) then
     return (entry.source_symbol:sub(#prefix + 1):gsub(":", ".")), ""
   end
   return nil
@@ -1206,7 +1206,7 @@ end
 --- as " phrase " and never inside a longer word.
 local function tokens_of(written: string): string
   local spaced = written:lower():gsub("[^%w]+", " ")
-  return " " .. spaced:match("^%s*(.-)%s*$") .. " "
+  return " " .. String.trim(spaced) .. " "
 end
 
 --- The verbs whose symbol, prose and options together carry every word
@@ -1450,7 +1450,7 @@ end
 --- up to the first `.`, `?` or `!` that a space or the end follows,
 --- outside backticks and not closing "e.g" or "i.e".
 local function first_sentence(documented: string): string
-  local trimmed = link_text.unlinked(documented):match("^%s*(.-)%s*$")
+  local trimmed = String.trim(link_text.unlinked(documented))
   local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
   local quoted = false
   for at = 1, #paragraph do

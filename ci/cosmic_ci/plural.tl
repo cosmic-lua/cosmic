@@ -8,6 +8,8 @@ end
 --- `count` and `singular`, the noun made plural (by an `s`, or by
 --- `several` when the plural is not that) unless `count` is 1.
 function Plural.count(count: integer, singular: string, several?: string): string
+  -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.string has
+  -- `counted`, return that.
   return count .. " " .. (count == 1 and singular or several or singular .. "s")
 end
 

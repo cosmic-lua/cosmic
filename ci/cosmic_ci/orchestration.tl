@@ -16,6 +16,7 @@ local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Time = require("cosmic.time")
 local Plural = require("cosmic_ci.plural")
+local String = require("cosmic.string")
 
 local record Orchestration
   stands: function(env: {string:string}): boolean
@@ -266,7 +267,7 @@ local function names_the_run(name: string): boolean
     if name == exact then return true end
   end
   for _, prefix in ipairs(RunNames.prefixes) do
-    if name:sub(1, #prefix) == prefix then return true end
+    if String.starts_with(name, prefix) then return true end
   end
   return false
 end
@@ -821,7 +822,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local candidate = assert(Fs.absolute(c.root))
   local destination = assert(Fs.absolute(diagnostics))
   assert(destination ~= candidate and
-    destination:sub(1, #candidate + 1) ~= candidate .. "/",
+    not String.starts_with(destination, candidate .. "/"),
     "snapshot path must be outside candidate checkout")
   local out = destination .. "/" .. label
   assert(not exists(out), "snapshot already exists: " .. out); mkdir(out)
@@ -962,7 +963,7 @@ local darwin_list <const> = "ci/darwin-tests.txt"
 function Orchestration.darwin_modules(text: string): {string}
   local modules: {string} = {}
   for line in text:gmatch("[^\n]+") do
-    local path = (line:gsub("#.*$", "")):match("^%s*(.-)%s*$")
+    local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then modules[#modules + 1] = path end
   end
   return modules

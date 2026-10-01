@@ -150,7 +150,7 @@ function link_resolve.anchors(text: string): {string: boolean}
     end
   end
   local previous: string | nil = nil
-  for line in (link_text.without_code(text) .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(link_text.without_code(text)) do
     local atx = line:match("^ ? ? ?#+%s+(.-)%s*$")
     if atx ~= nil then
       heading(atx)
@@ -210,7 +210,7 @@ end
 
 --- Whether `path` is `root` or under it.
 local function within(path: string, root: string): boolean
-  return path == root or path:sub(1, #root + 1) == root .. "/"
+  return path == root or String.starts_with(path, root .. "/")
 end
 
 --- The file or directory the path `target` names from the file at
@@ -255,7 +255,7 @@ end
 --- `path` as the project's root sees it.
 local function shown(resolver: link_resolve.Resolver, path: string): string
   local root = resolver.context.root
-  if path:sub(1, #root + 1) == root .. "/" then
+  if String.starts_with(path, root .. "/") then
     return path:sub(#root + 2)
   end
   return path

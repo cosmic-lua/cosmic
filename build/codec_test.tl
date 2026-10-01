@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Codec = require("cosmic.codec")
 local codec = require("build.codec")
+local String = require("cosmic.string")
 
 local record Ran
   code: integer
@@ -497,7 +498,7 @@ local function test_a_long_stream_takes_bounded_memory()
     local matched = 0
     local function drain()
       while #held >= #chunk do
-        assert(held:sub(1, #chunk) == chunk, name)
+        assert(String.starts_with(held, chunk), name)
         held = held:sub(#chunk + 1)
         matched = matched + 1
       end

@@ -8,6 +8,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
+local String = require("cosmic.string")
 
 Test.needs{ reads = { "core" }, store = true }
 
@@ -56,7 +57,7 @@ local function test_a_search_in_words_finds_the_symbol_meant()
     for index = 2, #row do
       for _, name in ipairs(top) do
         if name == row[index] or (row[index]:sub(-1) == "." and
-            name:sub(1, #row[index]) == row[index]) then
+            String.starts_with(name, row[index])) then
           found = true
         end
       end

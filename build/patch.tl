@@ -48,6 +48,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 local record Patch
   --- One record, parsed.
@@ -77,7 +78,7 @@ local function header(text: string, at: integer, key: string): Line | nil
   end
   local line = text:sub(at, eol - 1)
   local prefix = key .. ": "
-  if line:sub(1, #prefix) ~= prefix then
+  if not String.starts_with(line, prefix) then
     return nil
   end
   return { value = line:sub(#prefix + 1), start = at, after = eol + 1 }

@@ -5,6 +5,7 @@ local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 -- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
@@ -121,7 +122,7 @@ local function selected_header_line(artifact_bytes: string, host: string):
   local header = artifact_bytes:sub(1, 16384)
   local line: string | nil = nil
   for candidate in header:gmatch("[^\n]+") do
-    if candidate:sub(1, #host + 2) == "  " .. host then
+    if String.starts_with(candidate, "  " .. host) then
       assert(line == nil, "duplicate selected manifest header line")
       line = candidate
     end
@@ -486,14 +487,14 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   if Fs.exists(stamp) then
     local cold = assert(sys.lstat(core))
     local prefix = string.format("%d|%d|%d|", cold.size, cold.ino, cold.mtime)
-    assert(Fixture.read(stamp):sub(1, #prefix) == prefix,
+    assert(String.starts_with(Fixture.read(stamp), prefix),
       "a cold stamp does not record the entry")
   end
   assert(Time.sleep_ns(1100000000))
   Fixture.run("stamp-warm", { program, "help" }, work, diagnostics, values)
   local st = assert(sys.lstat(core))
   local recorded = string.format("%d|%d|%d|", st.size, st.ino, st.mtime)
-  assert(Fixture.read(stamp):sub(1, #recorded) == recorded,
+  assert(String.starts_with(Fixture.read(stamp), recorded),
     "stamp does not record the entry")
 
   local bytes = Fixture.read(core)
