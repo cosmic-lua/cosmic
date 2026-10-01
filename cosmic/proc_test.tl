@@ -66,5 +66,8 @@ local function test_find_takes_an_empty_entry_as_the_working_directory(dir: stri
 end
 
 local function test_find_refuses_an_empty_name()
-  assert(not pcall(Proc.find, ""))
+  local ok, why: boolean, any = pcall(Proc.find, "")
+  assert(not ok and tostring(why):find("proc: find's name is empty", 1, true), tostring(why))
+  ok, why = pcall(Proc.exec, {})
+  assert(not ok and tostring(why):find("proc: argv is empty", 1, true), tostring(why))
 end

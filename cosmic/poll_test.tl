@@ -154,6 +154,22 @@ local function test_an_error_ends_the_run_and_closes_the_rest()
   assert(ran, "a run after a raise did not run")
 end
 
+--- A raise names its module, however the call was wrong.
+local function test_a_raise_names_the_module()
+  local raising: {function()} = {
+    function() Poll.delay(0) end,
+    function() Poll.spawn(function() end) end,
+    function() Poll.run(nil as function()) end,
+    function() Poll.shielded(nil as function()) end,
+    function() Poll.checked_ns(-1, "poll: span", 1) end,
+    function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end,
+  }
+  for i, call in ipairs(raising) do
+    local ok, err: boolean, any = pcall(call)
+    assert(not ok and tostring(err):find(": poll: ", 1, true) ~= nil, i .. ": " .. tostring(err))
+  end
+end
+
 local function test_waiting_outside_a_task_raises()
   raises(function() Poll.delay(0) end, "outside Poll.run")
   raises(function() Poll.spawn(function() end) end, "outside Poll.run")

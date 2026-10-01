@@ -145,7 +145,7 @@ local function failing(self: StagedFile, why: string): string
 end
 
 StagedFile_methods.write = function(self: StagedFile, data: string): boolean, string
-  if self.closed then return false, self.path .. ": already closed" end
+  if self.closed then return false, self.path .. ": the file is closed" end
   if self.failed then return false, self.failed end
   local ok, why = write_all(self.temporary.fd, data)
   if not ok then return false, failing(self, why) end
@@ -153,7 +153,7 @@ StagedFile_methods.write = function(self: StagedFile, data: string): boolean, st
 end
 
 StagedFile_methods.sync = function(self: StagedFile): boolean, string
-  if self.closed then return false, self.path .. ": already closed" end
+  if self.closed then return false, self.path .. ": the file is closed" end
   if self.failed then return false, self.failed end
   local ok, why = sys.fsync(self.temporary.fd)
   if not ok then return false, failing(self, why) end
@@ -600,7 +600,7 @@ function Fs.chmod(path: string, mode: integer): boolean, string
   if mode < 0 or mode > 0xfff then
     local shown = (mode > 0 and math.tointeger(mode) ~= nil) and string.format("0x%x", mode) or
       tostring(mode)
-    error("chmod: mode " .. shown .. " is outside 0 to 0xfff", 2)
+    error("fs: mode " .. shown .. " is outside 0 to 0xfff", 2)
   end
   local changed, trouble = sys.chmod(path, mode)
   if not changed then
@@ -687,7 +687,7 @@ end
 --- target. `ns` outside [0, 1e9) raises.
 function Fs.set_mtime(path: string, seconds: integer, ns?: integer): boolean, string
   if ns ~= nil and (ns < 0 or ns >= 1000000000) then
-    error("bad argument #3 to 'set_mtime' (nanoseconds outside [0, 1e9))", 2)
+    error("fs: nanoseconds are outside [0, 1e9)", 2)
   end
   local set, trouble = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then

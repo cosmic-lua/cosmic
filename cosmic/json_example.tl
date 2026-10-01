@@ -102,7 +102,7 @@ end
 function Example.encode_failure()
   local _, why = Json.encode({ users = { { name = "ada" }, { name = print } } })
   print(why)
-  assert(why == "cannot encode a function at $.users[2].name")
+  assert(why == "json: cannot encode a function at $.users[2].name")
 end
 
 --- Read a list from outside: [`decode_array`] checks the outermost shape.
@@ -113,7 +113,7 @@ function Example.decode_array()
   assert(#tags == 2 and tags[1] == "lua")
   local _, why = Json.decode_array('{"tags": []}')
   print(why)
-  assert(why == "expected a JSON array, got object", why)
+  assert(why == "json: expected a JSON array, got object", why)
 end
 
 --- Nesting is bounded: [`max_depth`] is [`Json.default_depth`] unless

@@ -17,6 +17,12 @@ else
   raw = require("cosmic.internal.compress")
 end
 
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "compress: " .. why
+end
+
 local record Compress
   --- The deflate framings: bare "raw" deflate (RFC 1951, as zip
   --- stores it), "zlib" (RFC 1950), and "gzip" (RFC 1952).
@@ -104,7 +110,7 @@ function Compress.inflate(format: Compress.Format, data: string, max_bytes?: int
   local out, run_trouble = Stream.run(dec, data, max_bytes)
   if out == nil then return nil, run_trouble end
   if dec:rest() ~= "" then
-    return nil, "trailing bytes after the compressed data"
+    return refuse("trailing bytes after the compressed data")
   end
   return out, ""
 end

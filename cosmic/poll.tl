@@ -366,15 +366,16 @@ end
 --- none: a wait outside [`Poll.run`], in a coroutine a task made of its
 --- own, or while the run closes its tasks.
 local function current(what: string, level: integer): State
-  if loop == nil then error(what .. " outside Poll.run", level + 1) end
-  if loop.closing then error(what .. " while Poll.run closes its tasks", level + 1) end
+  if loop == nil then error("poll: " .. what .. " outside Poll.run", level + 1) end
+  if loop.closing then error("poll: " .. what .. " while Poll.run closes its tasks", level + 1) end
   local task = loop.tasks[coroutine.running()]
-  if task == nil then error(what .. " outside a task's own coroutine", level + 1) end
-  if task.killed then error(what .. " while its task is killed", level + 1) end
+  if task == nil then error("poll: " .. what .. " outside a task's own coroutine", level + 1) end
+  if task.killed then error("poll: " .. what .. " while its task is killed", level + 1) end
   return task
 end
 
---- Raises, naming `name` and at `level` as `error` takes it in the
+--- Raises, naming `name` (the argument or field, after its module's
+--- name: "net: timeout_ns") and at `level` as `error` takes it in the
 --- function that calls this (1 is that function, 2 its caller), unless
 --- `value` is nil or an integer from 0 to [`Poll.MOST_NS`]: what every
 --- `timeout_ns` is held to, so a field or argument set wrong is named
@@ -411,10 +412,10 @@ local function park(task: State, w: Wait, timeout_ns: integer | nil): boolean, s
   task.waiting = true
   local ok, why = coroutine.yield(w)
   task.waiting = false
-  if not w.done then error("a task was resumed other than by Poll.run", 2) end
+  if not w.done then error("poll: a task was resumed other than by Poll.run", 2) end
   if ok == true then return true, "" end
   if ok == false and why is string then return false, why end
-  error("a task was resumed other than by Poll.run", 2)
+  error("poll: a task was resumed other than by Poll.run", 2)
 end
 
 --- The task the calling coroutine is, for a wait that goes on without
@@ -426,8 +427,8 @@ local function waiting_task(what: string, level: integer): State | nil
   if loop == nil then return nil end
   local task = loop.tasks[coroutine.running()]
   if task == nil then return nil end
-  if loop.closing then error(what .. " while Poll.run closes its tasks", level + 1) end
-  if task.killed then error(what .. " while its task is killed", level + 1) end
+  if loop.closing then error("poll: " .. what .. " while Poll.run closes its tasks", level + 1) end
+  if task.killed then error("poll: " .. what .. " while its task is killed", level + 1) end
   if not coroutine.isyieldable() then return nil end
   return task
 end
@@ -436,14 +437,14 @@ end
 --- `level` above this function's caller.
 local function checked_fd(fd: any, name: string, level: integer)
   if not (fd is integer and fd >= 0 and fd <= MOST_FD) then
-    error(name .. " must be a descriptor", level + 1)
+    error("poll: " .. name .. " must be a descriptor", level + 1)
   end
 end
 
 --- Checks a mask of POLL* events, as [`checked_fd`] does.
 local function checked_events(mask: any, name: string, level: integer)
   if not (mask is integer and mask >= 0 and mask <= 0x7fff) then
-    error(name .. " must be a mask of POLL* events", level + 1)
+    error("poll: " .. name .. " must be a mask of POLL* events", level + 1)
   end
 end
 
@@ -460,7 +461,7 @@ end
 --- nothing ready.
 local function wait_on(fd: integer, events: integer, timeout_ns: integer | nil,
     what: string): boolean, string
-  Poll.checked_ns(timeout_ns, "timeout_ns", 3)
+  Poll.checked_ns(timeout_ns, "poll: timeout_ns", 3)
   checked_fd(fd, "fd", 3)
   checked_events(events, "events", 3)
   local task = waiting_task(what, 3)
@@ -520,9 +521,9 @@ end
 --- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
 function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {integer} | nil, string
   local task = current("Poll.ready", 2)
-  Poll.checked_ns(timeout_ns, "timeout_ns", 2)
+  Poll.checked_ns(timeout_ns, "poll: timeout_ns", 2)
   if #fds == 0 or #events ~= #fds then
-    error("Poll.ready takes one or more descriptors, and events for each", 2)
+    error("poll: Poll.ready takes one or more descriptors, and events for each", 2)
   end
   local watched, masks, answers: {integer}, {integer}, {integer} = {}, {}, {}
   for i, fd in ipairs(fds) do
@@ -542,8 +543,8 @@ end
 --- cancelled first.
 function Poll.delay(ns: integer): boolean, string
   local task = current("Poll.delay", 2)
-  if ns == nil then error("ns must be an integer from 0 to " .. Poll.MOST_NS, 2) end
-  Poll.checked_ns(ns, "ns", 2)
+  if ns == nil then error("poll: ns must be an integer from 0 to " .. Poll.MOST_NS, 2) end
+  Poll.checked_ns(ns, "poll: ns", 2)
   return park(task, { task = task, expiry_ok = true }, ns)
 end
 
@@ -576,10 +577,10 @@ local function start(fn: function()): Poll.Task
   state.handle = {
     join = function(_self: Poll.Task, timeout_ns?: integer): boolean, string
       local task = current("Task:join", 2)
-      Poll.checked_ns(timeout_ns, "timeout_ns", 2)
+      Poll.checked_ns(timeout_ns, "poll: timeout_ns", 2)
       if state.killed then return false, Poll.CANCELLED end
       if state.ended or state.loop ~= loop then return true, "" end
-      if state == task then error("a task cannot join itself", 2) end
+      if state == task then error("poll: a task cannot join itself", 2) end
       local w: Wait = { task = task, joined = state }
       state.joiners[#state.joiners + 1] = w
       return park(task, w, timeout_ns)
@@ -591,7 +592,7 @@ local function start(fn: function()): Poll.Task
     end,
     kill = function(_self: Poll.Task)
       if state.loop ~= loop or state.ended then return end
-      if state == current("Task:kill", 2) then error("a task cannot kill itself", 2) end
+      if state == current("Task:kill", 2) then error("poll: a task cannot kill itself", 2) end
       close_task(state)
     end,
   }
@@ -618,7 +619,7 @@ local shielding_mt: metatable<Shielding> = {
 --- only those to end it. What `fn` raises, it raises.
 function Poll.shielded(fn: function())
   local task = current("Poll.shielded", 2)
-  if type(fn) ~= "function" then error("Poll.shielded takes a function", 2) end
+  if type(fn) ~= "function" then error("poll: Poll.shielded takes a function", 2) end
   -- Made before the count moves, so a refused allocation leaves it be.
   local held: Shielding = { task = task }
   local _held <close> = setmetatable(held, shielding_mt)
@@ -629,7 +630,7 @@ end
 --- Starts `fn` as a task of its own, run once the calling task waits.
 function Poll.spawn(fn: function()): Poll.Task
   current("Poll.spawn", 2)
-  if type(fn) ~= "function" then error("Poll.spawn takes a function", 2) end
+  if type(fn) ~= "function" then error("poll: Poll.spawn takes a function", 2) end
   return start(fn)
 end
 
@@ -680,7 +681,7 @@ local function step(task: State, ok: boolean, why: string)
     loop.live = loop.live - 1
     for _, w in ipairs(task.joiners) do wake(w, true, "") end
   elseif not task.waiting then
-    error("a task yielded other than through cosmic.poll", 0)
+    error("poll: a task yielded other than through cosmic.poll", 0)
   end
 end
 
@@ -704,7 +705,7 @@ end
 --- be.
 local function poll_once(timeout: integer)
   if #loop.fds == 0 and timeout < 0 then
-    error("every task waits on another: none can go on", 0)
+    error("poll: every task waits on another: none can go on", 0)
   end
   -- A signal a Child.guard catches only cuts this poll short, and the
   -- loop waits on: what one means -- end every wait, or stop taking
@@ -804,8 +805,8 @@ end
 --- every task left waits on another, which none could ever answer. It
 --- cannot be called from within a task.
 function Poll.run(main: function())
-  if loop ~= nil then error("Poll.run is already running", 2) end
-  if type(main) ~= "function" then error("Poll.run takes a function", 2) end
+  if loop ~= nil then error("poll: Poll.run is already running", 2) end
+  if type(main) ~= "function" then error("poll: Poll.run takes a function", 2) end
   loop = { tasks = {}, live = 0, ready = {}, fds = {}, events = {}, watched = {}, timers = {},
     stale = 0, seq = 0 }
   -- Nothing may allocate between setting `loop` and the pcall, or a

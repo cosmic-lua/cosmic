@@ -24,7 +24,7 @@ struct hasher {
 static struct hasher *checked_hasher (lua_State *L) {
   struct hasher *h = luaL_checkudata(L, 1, HASHER_TYPE);
   if (h->finished) {
-    luaL_error(L, "the hasher is finished"); /* throws: a use after the
+    luaL_error(L, "hash: the hasher is finished"); /* throws: a use after the
                                                 end is a bug, not a
                                                 runtime failure */
   }
@@ -61,7 +61,7 @@ static int started (lua_State *L, struct hasher *h, psa_status_t status) {
   if (status != PSA_SUCCESS) {
     h->finished = true;
     lua_pushnil(L);
-    lua_pushstring(L, "the hasher failed to start");
+    lua_pushstring(L, "hash: the hasher failed to start");
     return 2;
   }
   return cosmic_succeeded(L);
@@ -99,7 +99,7 @@ static int hasher_update (lua_State *L) {
              : psa_hash_update(&h->operation.hash, data, len);
   if (status != PSA_SUCCESS) {
     abort_hasher(h);
-    return luaL_error(L, "the hasher failed"); /* throws: an update failure
+    return luaL_error(L, "hash: the hasher failed"); /* throws: an update failure
                                                    here is not a shape a
                                                    correct caller meets */
   }
@@ -116,7 +116,7 @@ static int hasher_digest (lua_State *L) {
   h->finished = true;
   if (status != PSA_SUCCESS) {
     lua_pushnil(L);
-    lua_pushstring(L, "the hasher failed to finish");
+    lua_pushstring(L, "hash: the hasher failed to finish");
     return 2;
   }
   lua_pushlstring(L, (const char *)out, out_len);
@@ -162,7 +162,7 @@ static int hashed (lua_State *L, int status, const unsigned char *digest,
     return luaL_argerror(L, 1, "no such digest algorithm");
   }
   if (status != 0) {
-    return luaL_error(L, "the digest failed with status %d", status);
+    return luaL_error(L, "hash: the digest failed with status %d", status);
   }
   lua_pushlstring(L, (const char *)digest, len);
   return 1;

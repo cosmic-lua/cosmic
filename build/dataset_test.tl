@@ -141,11 +141,11 @@ local function test_formats_are_found_by_name_and_extension()
   assert(dataset.format_of("a/b.json") == "json" and dataset.format_of("x.JSONL") == "ndjson")
   assert(dataset.format_of("x.ndjson") == "ndjson")
   local unknown, why = dataset.format_of("data.xml")
-  assert(unknown == nil and why == "unknown extension .xml (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", why)
+  assert(unknown == nil and why == "dataset: unknown extension .xml (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", why)
   local none, none_why = dataset.format_of("README")
-  assert(none == nil and none_why:find("^no extension"), none_why)
+  assert(none == nil and none_why:find("^dataset: no extension"), none_why)
   local missing, missing_why = dataset.read("yaml", "a: 1")
-  assert(missing == nil and missing_why == "no format yaml (known: csv, json, ndjson, tsv)", missing_why)
+  assert(missing == nil and missing_why == "dataset: no format yaml (known: csv, json, ndjson, tsv)", missing_why)
   assert(dataset.about("json") ~= nil and dataset.about("yaml") == nil)
 end
 
@@ -156,7 +156,7 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   local again, why = dataset.load(db, "T", rows)
   assert(again == nil and why:find("already exists", 1, true), why)
   local nameless, nameless_why = dataset.load(db, "", rows)
-  assert(nameless == nil and nameless_why == "a table needs a name")
+  assert(nameless == nil and nameless_why == "dataset: a table needs a name")
   local odd = assert(dataset.load(db, 'we"ird name', rows))
   assert(odd.name == 'we"ird name')
   local ok = Sqlite.rows(db, 'SELECT a FROM "we""ird name"')
@@ -174,7 +174,7 @@ local function test_a_nul_byte_in_a_key_or_name_is_not_sql()
   assert(made.renamed["a_b"] == "a\0b" and made.renamed["a_b_2"] == "a_b")
   assert(grid(db, "SELECT a_b, a_b_2 FROM t")[1] == "i1|i2")
   local bad, why = dataset.load(db, "u\0v", {})
-  assert(bad == nil and why == "a table name cannot hold a NUL byte", why)
+  assert(bad == nil and why == "dataset: a table name cannot hold a NUL byte", why)
 end
 
 local function test_a_key_named_rowid_does_not_shadow_the_row_id()
@@ -193,7 +193,7 @@ local function test_too_many_columns_says_the_limit_and_the_count()
   assert(dataset.load(db, "t", { row }), "1999 keys and `_json` are 2000 columns")
   row.extra = 1
   local made, why = dataset.load(db, "u", { row })
-  assert(made == nil and why == "too many columns: 2000 distinct keys, and SQLite holds at most " ..
+  assert(made == nil and why == "dataset: too many columns: 2000 distinct keys, and SQLite holds at most " ..
     "2000 columns in a table (one is `_json`)", why)
   assert(not Sqlite.rows(db, "SELECT * FROM u"), "a refused load leaves no table")
 end
@@ -251,7 +251,7 @@ local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
   assert(dataset.format_of("x.csv") == "csv")
   for _, name in ipairs({ "csv", "tsv" }) do
     local none, why = dataset.read(name, "a\n1\n", { at = { "a" } })
-    assert(none == nil and why == "the " .. name .. " format takes no path: each record is a row", why)
+    assert(none == nil and why == "dataset: the " .. name .. " format takes no path: each record is a row", why)
   end
   local bad, why = dataset.read("csv", "a,b\n1\n")
   assert(bad == nil and why:find("line 2, column 1", 1, true), why)

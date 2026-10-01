@@ -46,7 +46,7 @@ local function test_a_refused_line_and_a_bad_file_keep_the_verdict_last(tmp: str
   assert(unknown.out:find("^sql: FAIL %(usage"), unknown.out)
   local invalid = cosmic(tmp, { "sql", "--from", "-", "--as", "json", "SELECT 1" }, "{")
   assert(invalid.code == 1 and invalid.out:find("^sql: FAIL %(standard input"), invalid.out)
-  assert(invalid.err:find("standard input: invalid JSON", 1, true), invalid.err)
+  assert(invalid.err:find("standard input: json: invalid JSON", 1, true), invalid.err)
 end
 
 --- Help reads the store's docs, which a test not declaring `store` is held

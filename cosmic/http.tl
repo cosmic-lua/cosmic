@@ -209,10 +209,10 @@ local function counted(ns: integer | nil, unit: integer, most_ns: integer,
     name: string): integer | nil
   if ns == nil then return nil end
   if math.type(ns) ~= "integer" then
-    error(("opts.%s must be an integer"):format(name), 4)
+    error(("http: opts.%s must be an integer"):format(name), 4)
   end
   if ns < 0 or ns > most_ns then
-    error(("opts.%s must be between 0 and %d"):format(name, most_ns), 4)
+    error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), 4)
   end
   return Time.ceil(ns, unit)
 end

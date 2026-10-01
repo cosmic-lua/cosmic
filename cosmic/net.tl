@@ -287,12 +287,12 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
   local conn: Net.Conn
   conn = {
     set_timeout = function(_self: Net.Conn, wait_ns: integer | nil)
-      Poll.checked_ns(wait_ns, "timeout_ns", 2)
+      Poll.checked_ns(wait_ns, "net: timeout_ns", 2)
       limit = wait_ns
     end,
     read = function(_self: Net.Conn, max?: integer): string | nil, string
       if max ~= nil and max <= 0 then error("net: max must be positive", 2) end
-      if not open then return nil, "connection is closed" end
+      if not open then return nil, "net: the connection is closed" end
       if read_failure ~= "" then return nil, read_failure end
       while true do
         local data, why, errno = sys.read(fd, max or DEFAULT_READ)
@@ -308,11 +308,11 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
         if not ready then return nil, waiting end
         -- Another task may have closed the connection while this one
         -- waited in a run, and its descriptor gone to another socket.
-        if not open then return nil, "connection is closed" end
+        if not open then return nil, "net: the connection is closed" end
       end
     end,
     write = function(_self: Net.Conn, data: string): boolean, string
-      if not open then return false, "connection is closed" end
+      if not open then return false, "net: the connection is closed" end
       if write_failure ~= "" then return false, write_failure end
       local from = 1
       while from <= #data do
@@ -328,7 +328,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
             write_failure = waiting
             return false, waiting
           end
-          if not open then return false, "connection is closed" end
+          if not open then return false, "net: the connection is closed" end
         end
       end
       return true, ""
@@ -337,7 +337,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
       if how ~= "read" and how ~= "write" and how ~= "both" then
         error("net: how must be \"read\", \"write\" or \"both\"", 2)
       end
-      if not open then return false, "connection is closed" end
+      if not open then return false, "net: the connection is closed" end
       local ok, why = raw.shutdown(fd, how)
       if not ok then return false, why end
       return true, ""
@@ -390,12 +390,12 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
   listener = {
     address = address,
     set_timeout = function(_self: Net.Listener, wait_ns: integer | nil)
-      Poll.checked_ns(wait_ns, "timeout_ns", 2)
+      Poll.checked_ns(wait_ns, "net: timeout_ns", 2)
       limit = wait_ns
     end,
     accept = function(_self: Net.Listener, wait_ns?: integer): Net.Conn | nil, string
-      Poll.checked_ns(wait_ns, "timeout_ns", 2)
-      if not open then return nil, "listener is closed" end
+      Poll.checked_ns(wait_ns, "net: timeout_ns", 2)
+      if not open then return nil, "net: the listener is closed" end
       wait_ns = wait_ns or limit
       while true do
         local connection, why, errno = raw.accept(fd)
@@ -403,7 +403,7 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
         if errno ~= raw.EAGAIN then return nil, why end
         local ready, waiting = waited(fd, false, wait_ns)
         if not ready then return nil, waiting end
-        if not open then return nil, "listener is closed" end
+        if not open then return nil, "net: the listener is closed" end
       end
     end,
     close = function(_self: Net.Listener): boolean, string
@@ -441,6 +441,21 @@ local connecting_mt: metatable<Connecting> = {
   end,
 }
 
+--- Why `address` is no [`Net.Address`] a listener can take, or "".
+local function address_trouble(address: any): string
+  if not address is {any: any} then return "an address, from Net.unix or Net.tcp" end
+  local kind, path, host, port = address.kind, address.path, address.host, address.port
+  if kind == "unix" then
+    if path is string and path ~= "" then return "" end
+    return "a unix address whose path is a string of at least one byte"
+  end
+  if kind == "tcp" then
+    if host is string and port is integer and port >= 0 and port <= 65535 then return "" end
+    return "a tcp address whose host is a string and port an integer from 0 to 65535"
+  end
+  return "an address, from Net.unix or Net.tcp"
+end
+
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
 --- task of [`Poll.run`], through the run; anywhere else, holding the
 --- thread.
@@ -449,7 +464,7 @@ local function connection(address: Net.Address, timeout_ns: integer | nil): Atte
   -- outside a task too, as `waited`'s TODO says: raw.connect, which
   -- waits in the core and ends at a caught signal, is what that
   -- replaces.
-  Poll.checked_ns(timeout_ns, "timeout_ns", 3)
+  Poll.checked_ns(timeout_ns, "net: timeout_ns", 3)
   if not Poll.in_task() then
     local socket, trouble, errno = raw.connect(address, milliseconds(timeout_ns))
     return { socket = socket, trouble = trouble, errno = errno }
@@ -480,9 +495,11 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
     error("net: ListenOptions.reclaim is gone: remove the socket file a listener left " ..
       "behind (Fs.remove) once connecting to it is refused, then listen", level + 1)
   end
+  local unusable = address_trouble(address)
+  if unusable ~= "" then error("net: address must be " .. unusable, level + 1) end
   local backlog = opts.backlog or DEFAULT_BACKLOG
-  if backlog < 1 then error("backlog must be at least 1", level + 1) end
-  Poll.checked_ns(opts.timeout_ns, "timeout_ns", level + 1)
+  if backlog < 1 then error("net: backlog must be at least 1", level + 1) end
+  Poll.checked_ns(opts.timeout_ns, "net: timeout_ns", level + 1)
   local socket, trouble, errno = raw.listen(address, backlog)
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
   if address.kind ~= "tcp" then
@@ -503,7 +520,8 @@ end
 --- another listens at; its `address` names the port it has.
 --- A unix path too long to bind whole is bound from its directory,
 --- and raises where the process cannot return to its working directory
---- after.
+--- after. An `address` that is no [`Net.Address`] (a unix one with an
+--- empty path, a TCP port past 65535) raises, as does a `backlog` below 1.
 function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listener | nil, string
   local opened, why = listening(address, opts or {}, 2)
   if opened == nil then return nil, why end
@@ -518,8 +536,10 @@ end
 --- nothing listens at the port.
 --- A unix path too long to connect to whole is connected to from its
 --- directory, and raises where the process cannot return to its working
---- directory after.
+--- directory after. An `address` that is no [`Net.Address`] raises.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
+  local unusable = address_trouble(address)
+  if unusable ~= "" then error("net: address must be " .. unusable, 2) end
   local timeout_ns = opts ~= nil and opts.timeout_ns or nil
   local attempt = connection(address, timeout_ns)
   if attempt.socket == nil then
@@ -546,31 +566,16 @@ local REMOVED_FIELDS <const>: {string: string} = {
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
 local function spec_error(field: string, must: string)
-  error("Net.serve: spec." .. field .. " must be " .. must, 4)
-end
-
---- Why `address` is no [`Net.Address`] a listener can take, or "".
-local function address_trouble(address: any): string
-  if not address is {any: any} then return "an address, from Net.unix or Net.tcp" end
-  local kind, path, host, port = address.kind, address.path, address.host, address.port
-  if kind == "unix" then
-    if path is string and path ~= "" then return "" end
-    return "a unix address whose path is a non-empty string"
-  end
-  if kind == "tcp" then
-    if host is string and port is integer and port >= 0 and port <= 65535 then return "" end
-    return "a tcp address whose host is a string and port an integer from 0 to 65535"
-  end
-  return "an address, from Net.unix or Net.tcp"
+  error("net: spec." .. field .. " must be " .. must, 4)
 end
 
 --- Raises, naming the field, where `spec` is no [`Net.ServeSpec`].
 local function checked_spec(spec: any)
-  if not spec is {any: any} then error("Net.serve takes a spec table", 3) end
+  if not spec is {any: any} then error("net: serve takes a spec table", 3) end
   for key in pairs(spec) do
     if not (key is string and SPEC_FIELDS[key]) then
       local gone = key is string and REMOVED_FIELDS[key] or nil
-      error("Net.serve: spec has no field " .. tostring(key) ..
+      error("net: spec has no field " .. tostring(key) ..
         (gone ~= nil and ": " .. gone or ""), 3)
     end
   end
@@ -592,7 +597,7 @@ local function checked_spec(spec: any)
     else
       for key in pairs(limits) do
         if key ~= "connections" then
-          error("Net.serve: spec.limits has no field " .. tostring(key), 3)
+          error("net: spec.limits has no field " .. tostring(key), 3)
         end
       end
       local most = limits.connections
@@ -602,7 +607,10 @@ local function checked_spec(spec: any)
     end
   end
   for _, field in ipairs({ "timeout_ns", "grace_ns" }) do
-    Poll.checked_ns(spec[field], "Net.serve: spec." .. field, 3)
+    local span = spec[field]
+    if span ~= nil and not (span is integer and span >= 0 and span <= Poll.MOST_NS) then
+      spec_error(field, "nil or an integer from 0 to " .. Poll.MOST_NS)
+    end
   end
   for _, field in ipairs({ "on_ready", "on_error" }) do
     local fn = spec[field]
@@ -674,7 +682,7 @@ local function report(s: Serving, trouble: string)
     s.spec.on_error(trouble)
     return
   end
-  local _, _ = Fs.put(Fs.stderr, "Net.serve: " .. trouble .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "net: " .. trouble .. "\n")
 end
 
 --- What a protocol raised, with the stack it raised from, which is gone
@@ -868,7 +876,7 @@ end
 --- fails at once, and any other wait raises -- and what one of them
 --- raises is reported the same way, without its stack.
 --- A protocol that loops without waiting -- calling read after
---- "connection is closed", which fails without waiting, or computing
+--- "net: the connection is closed", which fails without waiting, or computing
 --- without end -- cannot be killed: it holds the thread, and so every
 --- task of the run and Net.serve's return, until it waits.
 ---
@@ -892,7 +900,7 @@ end
 function Net.serve(spec: Net.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then
-    error("Net.serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
+    error("net: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
   local ok, why = true, ""
   Poll.run(function() ok, why = serving(spec) end)

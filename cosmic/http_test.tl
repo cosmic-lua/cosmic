@@ -523,18 +523,18 @@ end
 
 local function test_redirect_protocols_takes_a_list_of_http_and_https()
   local err = raised({ redirect_protocols = "https" as {string} })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = {} })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = { "ftp" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = { "HTTPS" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   -- a name is compared whole, not up to a NUL: "http\0s" is not "http"
   err = raised({ redirect_protocols = { "http\0s" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = { "https\0" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
 end
 
 local function test_a_boolean_option_takes_only_a_boolean()

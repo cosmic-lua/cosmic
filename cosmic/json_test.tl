@@ -82,25 +82,25 @@ local function test_decode_object_and_array_check_the_shape()
   for text, kind in pairs({ ["[1]"] = "array", ["[]"] = "array", ["42"] = "number",
       ['"s"'] = "string", ["true"] = "boolean", ["null"] = "null" }) do
     local none, why = Json.decode_object(text)
-    assert(none == nil and why == "expected a JSON object, got " .. kind, why)
+    assert(none == nil and why == "json: expected a JSON object, got " .. kind, why)
   end
   for text, kind in pairs({ ['{"a": 1}'] = "object", ["{}"] = "object", ["1.5"] = "number",
       ["null"] = "null" }) do
     local none, why = Json.decode_array(text)
-    assert(none == nil and why == "expected a JSON array, got " .. kind, why)
+    assert(none == nil and why == "json: expected a JSON array, got " .. kind, why)
   end
   local _, sentinel_why = Json.decode_object("null", { null_value = Json.null })
-  assert(sentinel_why == "expected a JSON object, got null", sentinel_why)
+  assert(sentinel_why == "json: expected a JSON object, got null", sentinel_why)
   local _, invalid = Json.decode_array("[1,")
-  assert(invalid:match("^invalid JSON"), "a syntax error passes through: " .. invalid)
+  assert(invalid:match("^json: invalid JSON"), "a syntax error passes through: " .. invalid)
 end
 
 local function test_a_failure_names_line_and_column()
   local err = decode_failure('{\n  "a": tru\n}')
-  assert(err:match("^invalid JSON at line 2, column 8: "), err)
+  assert(err:match("^json: invalid JSON at line 2, column 8: "), err)
   assert(decode_failure("[1] x"):match("line 1, column 5: unexpected content"), "trailing text")
-  assert(decode_failure("") == "invalid JSON: the text is empty", "empty text")
-  assert(decode_failure(" \n ") == "invalid JSON: the text is empty", "blank text")
+  assert(decode_failure("") == "json: invalid JSON: the text is empty", "empty text")
+  assert(decode_failure(" \n ") == "json: invalid JSON: the text is empty", "blank text")
 end
 
 local function test_only_rfc_8259_is_read()
@@ -139,8 +139,8 @@ b",
   assert(decoded("'\\a'", five) == "\a", "and escapes JSON5 does not have")
   assert(Json.decode_object("{a: 1,}", five) ~= nil, "decode_object takes json5")
   assert(Json.decode_array("[1,]", five) ~= nil, "and decode_array")
-  assert(decode_failure("{a: 1,}"):match("^invalid JSON"), "the default stays strict")
-  assert(decode_failure("{a: 1", five):match("^invalid JSON at line 1"), "JSON5 fails with a place too")
+  assert(decode_failure("{a: 1,}"):match("^json: invalid JSON"), "the default stays strict")
+  assert(decode_failure("{a: 1", five):match("^json: invalid JSON at line 1"), "JSON5 fails with a place too")
   assert(encoded(decoded("{a: [1,],}", five)) == '{"a":[1]}', "output is RFC 8259")
 end
 
@@ -158,7 +158,7 @@ local function test_strings_are_utf8()
 end
 
 local function test_encode_refuses_what_is_not_utf8()
-  assert(encode_failure("\xff") == "cannot encode a string that is not UTF-8", "a stray byte")
+  assert(encode_failure("\xff") == "json: cannot encode a string that is not UTF-8", "a stray byte")
   encode_failure("\xc0\xaf")
   encode_failure("\xed\xa0\x80")
   encode_failure("\xf4\x90\x80\x80")
@@ -203,8 +203,8 @@ local function test_floats_stay_floats()
 end
 
 local function test_nan_and_infinity()
-  assert(encode_failure(0 / 0) == "cannot encode NaN", "NaN")
-  assert(encode_failure(math.huge) == "cannot encode an infinite number", "infinity")
+  assert(encode_failure(0 / 0) == "json: cannot encode NaN", "NaN")
+  assert(encode_failure(math.huge) == "json: cannot encode an infinite number", "infinity")
   encode_failure({ x = -math.huge })
 end
 
@@ -214,7 +214,7 @@ local function test_null_policy()
   assert(encoded(obj) == '{"b":1}', "and stays absent")
   local list = decoded("[1, null, 3]") as {any}
   assert(list[1] == 1 and list[2] == nil and list[3] == 3, "a null element is a hole")
-  assert(encode_failure(list) == "cannot encode an array with a hole (index 2 is nil)",
+  assert(encode_failure(list) == "json: cannot encode an array with a hole (index 2 is nil)",
     "a hole is an error, not a truncation")
   local kept = decoded('{"a": null, "b": [null]}', { null_value = Json.null }) as {string: any}
   assert(kept.a == Json.null and (kept.b as {any})[1] == Json.null, "the stand-in keeps them")
@@ -251,37 +251,37 @@ end
 local function test_tables_are_classified_by_their_keys()
   assert(encoded({ 1, 2, 3 }) == "[1,2,3]", "keys 1..n are an array")
   assert(encoded({ b = 1, a = 2 }) == '{"a":2,"b":1}', "string keys are an object")
-  assert(encode_failure({ 1, a = 2 }) == "cannot encode a table with both string and integer keys",
+  assert(encode_failure({ 1, a = 2 }) == "json: cannot encode a table with both string and integer keys",
     "mixed")
-  assert(encode_failure({ [true] = 1 } as {any: any}) == "cannot encode a table with a boolean key",
+  assert(encode_failure({ [true] = 1 } as {any: any}) == "json: cannot encode a table with a boolean key",
     "boolean key")
-  assert(encode_failure({ [1.5] = 1 } as {any: any}) == "cannot encode a table with a fractional number key",
+  assert(encode_failure({ [1.5] = 1 } as {any: any}) == "json: cannot encode a table with a fractional number key",
     "float key")
-  assert(encode_failure({ [0] = 1 } as {any: any}) == "cannot encode a table with an integer key below 1",
+  assert(encode_failure({ [0] = 1 } as {any: any}) == "json: cannot encode a table with an integer key below 1",
     "zero key")
-  assert(encode_failure({ [{}] = 1 } as {any: any}) == "cannot encode a table with a table key",
+  assert(encode_failure({ [{}] = 1 } as {any: any}) == "json: cannot encode a table with a table key",
     "table key")
   local marked = Json.array({ 1 }) as {any: any}
   marked.x = 1
-  assert(encode_failure(marked) == "cannot encode an array with a string key", "marked with a string key")
+  assert(encode_failure(marked) == "json: cannot encode an array with a string key", "marked with a string key")
   local plain = setmetatable({ x = 1 } as {string: any}, { __index = function(): any return 2 end })
   assert(encoded(plain) == '{"x":1}', "another metatable encodes the raw contents")
 end
 
 local function test_values_json_cannot_say()
-  assert(encode_failure(print) == "cannot encode a function", "function")
-  assert(encode_failure(coroutine.create(print)) == "cannot encode a thread", "thread")
+  assert(encode_failure(print) == "json: cannot encode a function", "function")
+  assert(encode_failure(coroutine.create(print)) == "json: cannot encode a thread", "thread")
   local hasher = assert(Hash.hasher("sha256"))
-  assert(encode_failure(hasher) == "cannot encode a userdata", "userdata")
-  assert(encode_failure({ f = print }) == "cannot encode a function at $.f", "nested")
+  assert(encode_failure(hasher) == "json: cannot encode a userdata", "userdata")
+  assert(encode_failure({ f = print }) == "json: cannot encode a function at $.f", "nested")
 end
 
 local function test_depth_limits()
   local ok = decoded(string.rep("[", 64) .. "1" .. string.rep("]", 64))
   assert(ok ~= nil, "64 levels decode by default")
   local deep = string.rep("[", 65) .. "1" .. string.rep("]", 65)
-  assert(decode_failure(deep) == "JSON nests deeper than 64 levels at line 1, column 65", "65 do not")
-  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "JSON nests deeper than 1 levels at line 1, column 6",
+  assert(decode_failure(deep) == "json: JSON nests deeper than 64 levels at line 1, column 65", "65 do not")
+  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "json: JSON nests deeper than 1 levels at line 1, column 6",
     "an object counts")
   assert(decoded(deep, { max_depth = 65 }) ~= nil, "the limit is the caller's")
   local root: {any} = {}
@@ -293,7 +293,7 @@ local function test_depth_limits()
   end
   assert(encoded(root) ~= "", "64 levels encode by default")
   t[1] = {}
-  assert(encode_failure(root):match("^cannot encode a value nested deeper than 64 levels"), "65 do not")
+  assert(encode_failure(root):match("^json: cannot encode a value nested deeper than 64 levels"), "65 do not")
   local cycle: {any} = {}
   cycle[1] = cycle
   assert(encode_failure(cycle, { max_depth = 5 }):match("contain itself"), "a cycle fails")
@@ -406,22 +406,22 @@ end
 
 local function test_an_encode_failure_says_where()
   local users = { { name = "ada" }, { name = "bob" }, { name = print } }
-  assert(encode_failure({ users = users }) == "cannot encode a function at $.users[3].name",
+  assert(encode_failure({ users = users }) == "json: cannot encode a function at $.users[3].name",
     "a path through objects and arrays")
-  assert(encode_failure({ ["a key"] = { 1, 0 / 0 } }) == 'cannot encode NaN at $["a key"][2]',
+  assert(encode_failure({ ["a key"] = { 1, 0 / 0 } }) == 'json: cannot encode NaN at $["a key"][2]',
     "a key that is not a word is quoted")
-  assert(encode_failure({ ['q"\1'] = print }) == 'cannot encode a function at $["q\\"?"]',
+  assert(encode_failure({ ['q"\1'] = print }) == 'json: cannot encode a function at $["q\\"?"]',
     "its quotes escaped and its unprintable bytes shown as ?")
   assert(encode_failure({ x = { 1, nil, 3 } as {any} }) ==
-    "cannot encode an array with a hole (index 2 is nil) at $.x", "a table's own failure names the table")
-  assert(encode_failure({ x = { ["\xff"] = 1 } }) == "cannot encode a key that is not UTF-8 at $.x",
+    "json: cannot encode an array with a hole (index 2 is nil) at $.x", "a table's own failure names the table")
+  assert(encode_failure({ x = { ["\xff"] = 1 } }) == "json: cannot encode a key that is not UTF-8 at $.x",
     "a bad key is the object's")
-  assert(encode_failure(print) == "cannot encode a function", "nothing to say at the top")
+  assert(encode_failure(print) == "json: cannot encode a function", "nothing to say at the top")
   local long = string.rep("k", 60)
   local deep: {string: any} = { [long] = print }
   for _ = 1, 8 do deep = { [long] = deep } end
   local where = encode_failure(deep)
-  assert(where:match('^cannot encode a function at %$%.%.%.%["k') and where:sub(-5) == '..."]',
+  assert(where:match('^json: cannot encode a function at %$%.%.%.%["k') and where:sub(-5) == '..."]',
     "a path too long keeps its innermost segments: " .. where)
 end
 
@@ -449,23 +449,23 @@ local function test_json_lines()
   local empty = Json.decode_lines("")
   assert(empty ~= nil and #empty == 0, "no lines")
   local _, bad = Json.decode_lines('1\n\n{"a": tru}\n')
-  assert(bad == "invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
+  assert(bad == "json: invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
   local _, deep = Json.decode_lines('1\n[[1]]', { max_depth = 1 })
-  assert(deep == "JSON nests deeper than 1 levels at line 2, column 2", deep)
+  assert(deep == "json: JSON nests deeper than 1 levels at line 2, column 2", deep)
   -- Records split on \n alone: a lone \r, or in JSON5 a U+2028, is
   -- no record boundary, before a failing record or inside it, and a
   -- failure's column counts from its record's start.
   local _, past_cr = Json.decode_lines('[1,\r2]\n{"a": tru}')
-  assert(past_cr == "invalid JSON at line 2, column 7: invalid literal, expected 'true'", past_cr)
+  assert(past_cr == "json: invalid JSON at line 2, column 7: invalid literal, expected 'true'", past_cr)
   local _, past_ls = Json.decode_lines('[1,\u{2028}2]\n[[1]]', { json5 = true, max_depth = 1 })
-  assert(past_ls == "JSON nests deeper than 1 levels at line 2, column 2", past_ls)
+  assert(past_ls == "json: JSON nests deeper than 1 levels at line 2, column 2", past_ls)
   local _, inside_cr = Json.decode_lines('1\n[1,\r x]')
-  assert(inside_cr:match("^invalid JSON at line 2, column 6: "), inside_cr)
+  assert(inside_cr:match("^json: invalid JSON at line 2, column 6: "), inside_cr)
   local _, inside_ls = Json.decode_lines('1\n[1,\u{2028} x]', { json5 = true })
-  assert(inside_ls:match("^invalid JSON at line 2, column 8: "), inside_ls)
+  assert(inside_ls:match("^json: invalid JSON at line 2, column 8: "), inside_ls)
   -- A JSON5 record holding only a comment holds no value.
   local _, comment = Json.decode_lines('1\n// c', { json5 = true })
-  assert(comment == "invalid JSON at line 2: the line holds no value", comment)
+  assert(comment == "json: invalid JSON at line 2: the line holds no value", comment)
   local kept = Json.decode_lines("null\n1", { null_value = Json.null })
   assert(kept ~= nil and kept[1] == Json.null, "options apply to each line")
 end
@@ -492,19 +492,19 @@ local function test_hash_comments_are_read_when_asked()
   local v = decoded(text, five) as {string: any}
   assert(v.name == "ci" and (v["runs-on"] as {string})[1] == "ubuntu-24.04", "JSON5 with # comments")
   assert(Json.decode_object(text, five) ~= nil, "decode_object takes hash_comments")
-  assert(decode_failure("# c\n1"):match("^invalid JSON at line 1, column 1"), "RFC 8259 has no # comment")
-  assert(decode_failure("# c\n1", { json5 = true }):match("^invalid JSON at line 1, column 1"),
+  assert(decode_failure("# c\n1"):match("^json: invalid JSON at line 1, column 1"), "RFC 8259 has no # comment")
+  assert(decode_failure("# c\n1", { json5 = true }):match("^json: invalid JSON at line 1, column 1"),
     "nor does JSON5")
-  assert(decode_failure("# only", hash) == "invalid JSON: the text is empty", "a comment is no value")
+  assert(decode_failure("# only", hash) == "json: invalid JSON: the text is empty", "a comment is no value")
   -- A # comment ends where a // one does: at U+2028 in JSON5, and
   -- only at \n or \r outside it.
   assert(decoded("# c\u{2028}1", five) == 1, "JSON5 ends it at U+2028")
-  assert(decode_failure("# c\u{2028}1", hash) == "invalid JSON: the text is empty",
+  assert(decode_failure("# c\u{2028}1", hash) == "json: invalid JSON: the text is empty",
     "outside JSON5, U+2028 is inside it")
   local values = assert(Json.decode_lines("1 # one\n3", hash))
   assert(#values == 2 and values[2] == 3, "decode_lines takes hash_comments")
   local _, only = Json.decode_lines("1\n# two", hash)
-  assert(only == "invalid JSON at line 2: the line holds no value", only)
+  assert(only == "json: invalid JSON at line 2: the line holds no value", only)
 end
 
 --- A depth failure says where the refused array or object opens,
@@ -513,22 +513,22 @@ end
 local function test_a_depth_failure_says_where()
   local text = '{"s": "[[{", "a": [\n  [1, {"x": [2]}]]}'
   assert(decode_failure(text, { max_depth = 3 }) ==
-    "JSON nests deeper than 3 levels at line 2, column 7", decode_failure(text, { max_depth = 3 }))
+    "json: JSON nests deeper than 3 levels at line 2, column 7", decode_failure(text, { max_depth = 3 }))
   local five = "// [[[\n{'s': '[{', /* { */ a: [[0]]}"
   assert(decode_failure(five, { json5 = true, max_depth = 2 }) ==
-    "JSON nests deeper than 2 levels at line 2, column 25", decode_failure(five, { json5 = true, max_depth = 2 }))
+    "json: JSON nests deeper than 2 levels at line 2, column 25", decode_failure(five, { json5 = true, max_depth = 2 }))
   -- JSON5 ends a line comment at \r, U+2028 and U+2029 as well as \n,
   -- and the line it names counts each as a line end.
   for _, eol in ipairs({ "\r", "\r\n", "\u{2028}", "\u{2029}" }) do
     local failure = decode_failure("// c" .. eol .. "[[1]]", { json5 = true, max_depth = 1 })
-    assert(failure == "JSON nests deeper than 1 levels at line 2, column 2", failure)
+    assert(failure == "json: JSON nests deeper than 1 levels at line 2, column 2", failure)
     local hashed = decode_failure("# c" .. eol .. "[[1]]", { json5 = true, hash_comments = true, max_depth = 1 })
-    assert(hashed == "JSON nests deeper than 1 levels at line 2, column 2", hashed)
+    assert(hashed == "json: JSON nests deeper than 1 levels at line 2, column 2", hashed)
   end
   -- Outside JSON5, a # comment runs past U+2028 to the \n, and the
   -- brackets it holds are no part of the count.
   local past = decode_failure("# [ \u{2028} [\n[[1]]", { hash_comments = true, max_depth = 1 })
-  assert(past == "JSON nests deeper than 1 levels at line 2, column 2", past)
+  assert(past == "json: JSON nests deeper than 1 levels at line 2, column 2", past)
 end
 
 --- A syntax error's line counts every line end the text's grammar
@@ -539,18 +539,18 @@ local function test_a_failure_counts_each_line_end()
   for _, eol in ipairs({ "\n", "\r", "\r\n" }) do
     for _, five in ipairs({ false, true }) do
       local err = decode_failure("[1," .. eol .. eol .. "  x]", { json5 = five })
-      assert(err:match("^invalid JSON at line 3, column 3: "), err)
+      assert(err:match("^json: invalid JSON at line 3, column 3: "), err)
     end
   end
   for _, eol in ipairs({ "\u{2028}", "\u{2029}" }) do
     local err = decode_failure("[1," .. eol .. "  x]", { json5 = true })
-    assert(err:match("^invalid JSON at line 2, column 3: "), err)
+    assert(err:match("^json: invalid JSON at line 2, column 3: "), err)
     local strict = decode_failure('["' .. eol .. '", x]')
-    assert(strict:match("^invalid JSON at line 1, column 9: "), strict)
+    assert(strict:match("^json: invalid JSON at line 1, column 9: "), strict)
     -- JSON5 takes one raw inside a quoted string, and it ends the
     -- line there too, as an editor shows it.
     local quoted = decode_failure("['a" .. eol .. "b', x]", { json5 = true })
-    assert(quoted:match("^invalid JSON at line 2, column 5: "), quoted)
+    assert(quoted:match("^json: invalid JSON at line 2, column 5: "), quoted)
   end
 end
 

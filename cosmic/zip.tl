@@ -77,7 +77,8 @@ local record Zip
     --- Optional: a streamed entry whose size is known to reach 2 GiB
     --- must say so, since its local header has to announce zip64
     --- before any of the body is read. When given, the body must turn
-    --- out exactly this long, or the write fails.
+    --- out exactly this long, or the write fails. A size that is no
+    --- integer, or is negative, raises.
     size: integer
     --- "deflate" (the default) or "store". Only [`add_file`] reads it:
     --- a directory and a symlink are stored.
@@ -143,6 +144,12 @@ local FLAG_DESCRIPTOR <const> = 8
 local STREAM_ZIP64_AT <const> = 1 << 31
 --- The longest symlink target read out of an entry body.
 local LINK_LIMIT <const> = 4096
+
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "zip: " .. why
+end
 
 ------------------------------------------------------------------
 -- DOS date/time, Unix epoch seconds; no timezone -- both sides are UTC
@@ -231,7 +238,7 @@ local function find_eocd(size: integer, pread: Pread): integer | nil, string
     from = i + 1
   end
   local found = exact or last
-  if found == nil then return nil, "zip: end of central directory record not found" end
+  if found == nil then return refuse("end of central directory record not found") end
   return start + found - 1, ""
 end
 
@@ -377,7 +384,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
   if csize <= HELD_LIMIT then guess = 30 + #e.path + EXTRA_SLACK + csize end
   local header, trouble = pread(e.offset, guess)
   if header == nil then return nil, trouble end
-  if #header < 30 or header:sub(1, 4) ~= LFH_SIG then return nil, "zip: bad local file header" end
+  if #header < 30 or header:sub(1, 4) ~= LFH_SIG then return refuse("bad local file header") end
   local name_len, extra_len = string.unpack("<I2I2", header, 27)
   local skip = 30 + name_len + extra_len
   local held: string
@@ -397,7 +404,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
     if inflater == nil then return nil, itrouble end
     body = Stream.transform(raw, inflater)
   else
-    return nil, "zip: unsupported compression method " .. tostring(method)
+    return refuse("unsupported compression method " .. tostring(method))
   end
   local checked: Checked = setmetatable({
     inner = body, crc = e.crc32, size = e.size, seen = 0,
@@ -469,7 +476,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   local ok, trouble = need(c, 46)
   if not ok then return nil, trouble end
   local buf, at = c.buf, c.at
-  if buf:sub(at, at + 3) ~= CDFH_SIG then return nil, "zip: malformed central directory" end
+  if buf:sub(at, at + 3) ~= CDFH_SIG then return refuse("malformed central directory") end
   local made_by, _version, _flags, method, mtime_dos, mdate_dos, crc, csize, usize,
     name_len, extra_len, comment_len, _disk, _internal, ext_attrs, local_offset =
     string.unpack(CDFH_FIELDS, buf, at + 4)
@@ -501,7 +508,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
     local extra = buf:sub(name_end + 1, name_end + extra_len)
     usize, csize, local_offset = apply_zip64_extra(extra, usize, csize, local_offset)
     if usize < 0 or csize < 0 or local_offset < 0 then
-      return nil, "zip: a zip64 extra field's size or offset is past 2^63"
+      return refuse("a zip64 extra field's size or offset is past 2^63")
     end
   end
   -- An entry's local header (30 bytes at least) and compressed body lie
@@ -515,9 +522,9 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   -- overflow for values already known not to be negative.
   local cd_offset = c.start
   if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
-    return nil, "zip: entry " .. buf:sub(name_start, name_end) .. " (offset " ..
+    return refuse("entry " .. buf:sub(name_start, name_end) .. " (offset " ..
       tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
-      "the start of the central directory at " .. tostring(cd_offset)
+      "the start of the central directory at " .. tostring(cd_offset))
   end
   if bare and kind ~= "symlink" then return CHECKED, "" end
   local entry: Zip.Entry = setmetatable({
@@ -538,8 +545,8 @@ end
 --- A symlink entry's target: its (small) body.
 local function read_link(entry: Zip.Entry): string | nil, string
   if entry.size > LINK_LIMIT then
-    return nil, "zip: symlink " .. entry.path .. " has a " .. tostring(entry.size) ..
-      "-byte target"
+    return refuse("symlink " .. entry.path .. " has a " .. tostring(entry.size) ..
+      "-byte target")
   end
   local body, trouble = entry:open()
   if body == nil then return nil, trouble end
@@ -566,12 +573,12 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     if #loc == 20 and loc:sub(1, 4) == Z64_LOC_SIG then
       local z64_off = string.unpack("<I8", loc, 9)
       if z64_off < 0 or z64_off > eocd_off - 20 - 56 then
-        return nil, "zip: zip64 end of central directory lies outside the file"
+        return refuse("zip64 end of central directory lies outside the file")
       end
       local rec, rec_trouble = pread(z64_off, 56)
       if rec == nil then return nil, rec_trouble end
       if #rec ~= 56 or rec:sub(1, 4) ~= Z64_EOCD_SIG then
-        return nil, "zip: bad zip64 end of central directory record"
+        return refuse("bad zip64 end of central directory record")
       end
       total, cd_size, cd_offset = string.unpack("<I8I8I8", rec, 33)
       cd_limit = z64_off
@@ -579,12 +586,12 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   end
   if cd_offset < 0 or cd_size < 0 or cd_offset + cd_size > cd_limit or
       cd_offset + cd_size < cd_offset then
-    return nil, "zip: central directory (offset " .. tostring(cd_offset) .. ", " ..
-      String.counted(cd_size, "byte") .. ") lies outside the file"
+    return refuse("central directory (offset " .. tostring(cd_offset) .. ", " ..
+      String.counted(cd_size, "byte") .. ") lies outside the file")
   end
   if total < 0 or total > cd_size // 46 then
-    return nil, "zip: " .. String.counted(total, "entry", "entries") .. " cannot fit a " .. tostring(cd_size) ..
-      "-byte central directory"
+    return refuse(String.counted(total, "entry", "entries") .. " cannot fit a " .. tostring(cd_size) ..
+      "-byte central directory")
   end
 
   -- One `open` serves every entry this reader makes, through their
@@ -619,8 +626,8 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     end
   end
   if count ~= total then
-    return nil, "zip: central directory holds " .. String.counted(count, "entry", "entries") ..
-      ", but the end record says " .. tostring(total)
+    return refuse("central directory holds " .. String.counted(count, "entry", "entries") ..
+      ", but the end record says " .. tostring(total))
   end
 
   local closed = false
@@ -629,7 +636,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   local listed: {Zip.Entry}
   local zr: Zip.Reader = {}
   zr.next = function(_self: Zip.Reader): Zip.Entry | nil, string
-    if closed then return nil, "zip: reader is closed" end
+    if closed then return refuse("the reader is closed") end
     local entry, etrouble = next_record(walk, entry_mt)
     if entry == nil then return nil, etrouble end
     walked = walked + 1
@@ -674,12 +681,12 @@ function Zip.open(path: string): Zip.Reader | nil, string
   local st, strouble = sys.fstat(fd)
   if st == nil then
     local _, _ = Fs.close(fd)
-    return nil, "zip: " .. path .. ": " .. strouble
+    return refuse(path .. ": " .. strouble)
   end
   local closed = false
   local pread: Pread = function(offset: integer, count: integer): string | nil, string
     -- Once closed, `fd` may already name some other file.
-    if closed then return nil, "zip: " .. path .. ": reader is closed" end
+    if closed then return refuse(path .. ": the reader is closed") end
     local data, ptrouble = sys.pread(fd, count, offset)
     if data == nil then return nil, ptrouble end
     return data, ""
@@ -700,7 +707,7 @@ end
 function Zip.open_string(data: string): Zip.Reader | nil, string
   local closed = false
   local pread: Pread = function(offset: integer, count: integer): string | nil, string
-    if closed then return nil, "zip: reader is closed" end
+    if closed then return refuse("the reader is closed") end
     if offset >= #data then return "", "" end
     return data:sub(offset + 1, offset + count), ""
   end
@@ -888,9 +895,6 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     local refusal = nul_refusal(path, "in a path")
     if refusal ~= "" then return false, refusal end
     if #path > PATH_LIMIT then return false, "zip: path longer than 65535 bytes" end
-    if not (body is string) and hint ~= nil and (math.type(hint) ~= "integer" or hint < 0) then
-      return false, "zip: opts.size must be a non-negative integer"
-    end
     if method_name ~= "store" and method_name ~= "deflate" then
       return false, "zip: unknown method '" .. method_name .. "'"
     end
@@ -921,6 +925,10 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     -- would read back as one.
     if path:sub(-1) == "/" then return false, "zip: a file's path ends in /: " .. path end
     fopts = fopts or {}
+    local size = fopts.size
+    if not (data is string) and size ~= nil and (math.type(size) ~= "integer" or size < 0) then
+      error("zip: opts.size must be an integer of at least 0", 2)
+    end
     return put_entry(path, data, fopts.method or "deflate", S_IFREG, fopts.mode or 0x1a4,
       fopts.mtime or 0, fopts.size)
   end

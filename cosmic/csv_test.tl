@@ -97,16 +97,16 @@ local function test_a_lone_carriage_return_is_data()
 end
 
 local function test_an_unclosed_quote_names_where_it_opened()
-  assert(refused('a,"b') == "unclosed quote opened at line 1, column 3")
-  assert(refused('a,b\n1,2\n"never closed,x\n3\n') == "unclosed quote opened at line 3, column 1")
-  assert(refused('"a\nb\nc",d\ne,"f\n') == "unclosed quote opened at line 4, column 3")
-  assert(refused('"a""') == "unclosed quote opened at line 1, column 1")
+  assert(refused('a,"b') == "csv: unclosed quote opened at line 1, column 3")
+  assert(refused('a,b\n1,2\n"never closed,x\n3\n') == "csv: unclosed quote opened at line 3, column 1")
+  assert(refused('"a\nb\nc",d\ne,"f\n') == "csv: unclosed quote opened at line 4, column 3")
+  assert(refused('"a""') == "csv: unclosed quote opened at line 1, column 1")
 end
 
 local function test_a_stray_quote_is_refused_with_its_place()
-  assert(refused('a,b"c\n') == "a quote inside an unquoted field at line 1, column 4")
-  assert(refused('a\nb\nxy"z') == "a quote inside an unquoted field at line 3, column 3")
-  assert(refused('"x\ny"\nab"') == "a quote inside an unquoted field at line 3, column 3")
+  assert(refused('a,b"c\n') == "csv: a quote inside an unquoted field at line 1, column 4")
+  assert(refused('a\nb\nxy"z') == "csv: a quote inside an unquoted field at line 3, column 3")
+  assert(refused('"x\ny"\nab"') == "csv: a quote inside an unquoted field at line 3, column 3")
   assert(refused('"a"b\n'):find("after a closing quote, expected the delimiter or the end of the line at line 1, column 4", 1, true))
   assert(refused('"a"\rb\n'):find("line 1, column 4", 1, true))
   assert(refused('1,2\n"a" ,b\n'):find("line 2, column 4", 1, true))
@@ -122,12 +122,12 @@ end
 
 local function test_a_ragged_record_is_refused_strictly_naming_its_line()
   local none, why = rows_of("a,b\n1,2\n3\n")
-  assert(none == nil and why == "line 3, column 1: the record has 1 field, the header 2", why)
+  assert(none == nil and why == "csv: line 3, column 1: the record has 1 field, the header 2", why)
   none, why = rows_of("a,b\n1,2,3\n")
-  assert(none == nil and why == "line 2, column 1: the record has 3 fields, the header 2", why)
+  assert(none == nil and why == "csv: line 2, column 1: the record has 3 fields, the header 2", why)
   -- The line is where the record began, after a quoted line break.
   none, why = rows_of('a,b\n"x\ny",1\n\n7\n')
-  assert(none == nil and why == "line 5, column 1: the record has 1 field, the header 2", why)
+  assert(none == nil and why == "csv: line 5, column 1: the record has 1 field, the header 2", why)
   -- A trailing delimiter is a field, so it must be in the header too.
   none, why = rows_of("a,b\n1,2,\n")
   assert(none == nil, "a trailing delimiter makes a third field")
@@ -159,10 +159,10 @@ local function test_a_large_file_reads_in_full()
   assert(#rows == 60000 and rows[60000].id == "60000" and rows[1].note == 'note, "1" \nmore')
   -- A fault at the end is placed by the line count, quoted breaks included.
   local none, why = rows_of(text .. "9,x")
-  assert(none == nil and why == "line 120002, column 1: the record has 2 fields, the header 3", why)
+  assert(none == nil and why == "csv: line 120002, column 1: the record has 2 fields, the header 3", why)
   local big = '"' .. string.rep("line\n", 200000) .. '"x'
   local _, big_why = Csv.parse(big)
-  assert(big_why == "after a closing quote, expected the delimiter or the end of the line at line 200001, column 2",
+  assert(big_why == "csv: after a closing quote, expected the delimiter or the end of the line at line 200001, column 2",
     big_why)
 end
 
@@ -186,7 +186,7 @@ local function test_a_file_of_two_columns_skips_blank_lines()
   assert(#rows == 2 and rows[2].a == "3")
   assert(#assert(rows_of("\na,b\r\n\r\n1,2\r\n")) == 1)
   local none, why = rows_of("a,b\n1,2\n\n3\n")
-  assert(none == nil and why == "line 4, column 1: the record has 1 field, the header 2", why)
+  assert(none == nil and why == "csv: line 4, column 1: the record has 1 field, the header 2", why)
 end
 
 local function test_table_keeps_the_headers_order()

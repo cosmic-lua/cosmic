@@ -75,7 +75,7 @@ static int checked_depth (lua_State *L, int arg) {
   int exact = 0;
   lua_Integer depth = lua_tointegerx(L, arg, &exact);
   if (!exact || depth < 1 || depth > MAX_DEPTH) {
-    luaL_error(L, "max_depth must be an integer from 1 to %d", MAX_DEPTH);
+    luaL_error(L, "json: max_depth must be an integer from 1 to %d", MAX_DEPTH);
   }
   return (int)depth;
 }
@@ -926,7 +926,7 @@ static int json_encode (lua_State *L) {
   e.pretty = lua_toboolean(L, 2);
   e.indent = luaL_optlstring(L, 3, "  ", &e.indent_len);
   if (!is_blank(e.indent, e.indent_len)) {
-    return luaL_error(L, "indent must be spaces and tabs");
+    return luaL_error(L, "json: indent must be spaces and tabs");
   }
   e.sorted = lua_isnoneornil(L, 4) ? 1 : lua_toboolean(L, 4);
   e.max_depth = checked_depth(L, 5);

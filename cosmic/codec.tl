@@ -21,6 +21,12 @@
 local record Codec
 end
 
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "codec: " .. why
+end
+
 --- Every byte's two lowercase hex digits, by the byte: `gsub` takes the
 --- table as its replacement, one lookup per byte.
 local hex_of: {string:string} = {}
@@ -56,11 +62,11 @@ end
 --- @return string Why the text was refused, or "" when it was not
 function Codec.unhex(s: string): string | nil, string
   if #s % 2 ~= 0 then
-    return nil, ("codec: hex text of odd length %d"):format(#s)
+    return refuse(("hex text of odd length %d"):format(#s))
   end
   local at = s:find("[^0-9a-fA-F]")
   if at ~= nil then
-    return nil, ("codec: byte 0x%02x at %d is not a hex digit"):format(s:byte(at), at)
+    return refuse(("byte 0x%02x at %d is not a hex digit"):format(s:byte(at), at))
   end
   return (s:gsub("..", byte_of_hex)), ""
 end
@@ -157,7 +163,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
   local n = #s
   if padded then
     if n % 4 ~= 0 then
-      return nil, ("codec: %s text of length %d, not a multiple of 4"):format(name, n)
+      return refuse(("%s text of length %d, not a multiple of 4"):format(name, n))
     end
     if s:sub(-2) == "==" then
       n = n - 2
@@ -165,14 +171,14 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
       n = n - 1
     end
   elseif n % 4 == 1 then
-    return nil, ("codec: %s text of length %d leaves one character over"):format(name, n)
+    return refuse(("%s text of length %d leaves one character over"):format(name, n))
   end
   local at = s:find(a.class)
   if at ~= nil and at <= n then
     if s:byte(at) == 61 then
-      return nil, ("codec: %s text has misplaced '=' padding at %d"):format(name, at)
+      return refuse(("%s text has misplaced '=' padding at %d"):format(name, at))
     end
-    return nil, ("codec: byte 0x%02x at %d is outside the %s alphabet"):format(s:byte(at), at, name)
+    return refuse(("byte 0x%02x at %d is outside the %s alphabet"):format(s:byte(at), at, name))
   end
   local value = a.value
   local out: {string} = {}
@@ -183,14 +189,14 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     local c1, c2 = s:byte(n - 1, n)
     local v = (value[c1] << 6) | value[c2]
     if v & 15 ~= 0 then
-      return nil, ("codec: %s text ends in nonzero padding bits"):format(name)
+      return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
     out[k + 1] = string.char(v >> 4)
   elseif left == 3 then
     local c1, c2, c3 = s:byte(n - 2, n)
     local v = (value[c1] << 12) | (value[c2] << 6) | value[c3]
     if v & 3 ~= 0 then
-      return nil, ("codec: %s text ends in nonzero padding bits"):format(name)
+      return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
     out[k + 1] = string.char(v >> 10, (v >> 2) & 255)
   end

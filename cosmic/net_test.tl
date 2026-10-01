@@ -82,16 +82,16 @@ local function test_a_timeout_out_of_range_is_refused(tmp: string)
   local p <close> = pair(tmp)
   for _, bad in ipairs({ -5, Poll.MOST_NS + 1, 1.5 } as {number}) do
     local ok, why: boolean, any = pcall(function() p.client:set_timeout(bad as integer) end)
-    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: timeout_ns must be nil or an integer from 0 to",
+    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: timeout_ns must be nil or an integer from 0 to",
       1) ~= nil, tostring(why))
     local listener_ok, listener_why: boolean, any = pcall(function()
       p.server:set_timeout(bad as integer)
     end)
-    assert(not listener_ok and tostring(listener_why):find("^cosmic%.net_test:%d+: timeout_ns must be", 1) ~= nil,
+    assert(not listener_ok and tostring(listener_why):find("^cosmic%.net_test:%d+: net: timeout_ns must be", 1) ~= nil,
       tostring(listener_why))
   end
   local accepting, accept_why: boolean, any = pcall(function() local _, _ = p.server:accept(-1) end)
-  assert(not accepting and tostring(accept_why):find("^cosmic%.net_test:%d+: timeout_ns must be", 1) ~= nil,
+  assert(not accepting and tostring(accept_why):find("^cosmic%.net_test:%d+: net: timeout_ns must be", 1) ~= nil,
     tostring(accept_why))
   p.client:set_timeout(Time.ms(10))
   assert(not pcall(function() p.client:set_timeout(-1) end))
@@ -226,11 +226,11 @@ local function test_a_closed_connection_says_so_and_closes_again(tmp: string)
   assert(client:abort())
   assert(client:close())
   local data, why = client:read()
-  assert(data == nil and why == "connection is closed", why)
+  assert(data == nil and why == "net: the connection is closed", why)
   local ok, trouble = client:write("x")
-  assert(not ok and trouble == "connection is closed", trouble)
+  assert(not ok and trouble == "net: the connection is closed", trouble)
   local shut, shut_trouble = client:shutdown("write")
-  assert(not shut and shut_trouble == "connection is closed", shut_trouble)
+  assert(not shut and shut_trouble == "net: the connection is closed", shut_trouble)
 end
 
 --- A `max` below 1 and a `how` of none of the three raise, at the line
@@ -298,7 +298,7 @@ local function test_close_removes_the_socket_file_it_made(tmp: string)
   assert(Fs.stat(path) == nil, "the socket file was left")
   assert(server:close())
   local conn, why = server:accept()
-  assert(conn == nil and why == "listener is closed", why)
+  assert(conn == nil and why == "net: the listener is closed", why)
 end
 
 --- A name another file took since the listener made its own is not the
@@ -349,10 +349,16 @@ local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
   local held, held_why = Net.listen(Net.unix(nul))
   assert(held == nil and held_why == nul .. ": Invalid argument", held_why)
   assert(Fs.stat(tmp .. "/a") == nil, "a shorter name was bound")
-  assert(not pcall(Net.listen, Net.unix("")))
-  assert(not pcall(Net.connect, Net.unix("")))
+  for _, address in ipairs({ Net.unix(""), Net.tcp("127.0.0.1", 65536), { kind = "pipe" } as Net.Address }) do
+    local listen_ok, listen_why = pcall(Net.listen, address)
+    assert(not listen_ok and tostring(listen_why):find("net: address must be ", 1, true) == 1,
+      tostring(listen_why))
+    local connect_ok, connect_why = pcall(Net.connect, address)
+    assert(not connect_ok and tostring(connect_why):find("net: address must be ", 1, true) == 1,
+      tostring(connect_why))
+  end
   local listened, backlog_why = pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { backlog = 0 })
-  assert(not listened and tostring(backlog_why):find("backlog must be at least 1", 1, true),
+  assert(not listened and tostring(backlog_why):find("net: backlog must be at least 1", 1, true),
     tostring(backlog_why))
 end
 
@@ -496,7 +502,7 @@ local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled(tmp:
 end
 
 --- A read waiting in a task whose connection another task closes ends
---- "connection is closed", even where a new connection has taken the
+--- "net: the connection is closed", even where a new connection has taken the
 --- same descriptor number with data waiting, which it leaves alone.
 local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends(tmp: string)
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Time.seconds(5) }))
@@ -519,7 +525,7 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends(tmp: st
     later = assert(second:read())
     assert(second:close())
   end)
-  assert(answer == "connection is closed", answer)
+  assert(answer == "net: the connection is closed", answer)
   assert(later == "second's", later)
 end
 

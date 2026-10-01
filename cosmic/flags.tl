@@ -118,7 +118,7 @@ function Flags.parse(argv: {integer:string}, from: integer,
     end
     local entry = spec[name]
     if entry is Flags.Option and entry.value == "" then
-      error("flags: " .. name .. "'s value needs a name, not \"\"", 2)
+      error("flags: " .. name .. "'s value name is empty", 2)
     end
   end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
@@ -289,7 +289,7 @@ end
 --- @return string The help
 function Flags.help(command: Flags.Command, name: string): string
   if name == "" then
-    error("flags: help needs a name for the usage line", 2)
+    error("flags: help's name is empty", 2)
   end
   local spec = command.spec or {}
   local usage = command.usage

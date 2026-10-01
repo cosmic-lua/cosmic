@@ -50,7 +50,7 @@ static int failed_effect (lua_State *L, sqlite3 *db, int rc) {
 static struct handle *checked_handle (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
-    luaL_error(L, "the database handle is closed"); /* throws: a use after
+    luaL_error(L, "sqlite: the database handle is closed"); /* throws: a use after
                                                        close is a bug, not a
                                                        runtime failure */
   }
@@ -60,7 +60,7 @@ static struct handle *checked_handle (lua_State *L) {
 static struct statement *checked_statement (lua_State *L) {
   struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
   if (s->stmt == NULL) {
-    luaL_error(L, "the statement is finalized"); /* throws: as above */
+    luaL_error(L, "sqlite: the statement is closed"); /* throws: as above */
   }
   return s;
 }
@@ -275,7 +275,7 @@ static int sqlite_open (lua_State *L) {
   int writable = lua_toboolean(L, 2);
   int immutable = lua_toboolean(L, 3);
   if (writable && immutable) {
-    return luaL_error(L, "a database cannot be both writable and immutable");
+    return luaL_error(L, "sqlite: a database cannot be both writable and immutable");
   }
   /* SQLite takes a C string: a NUL would silently open a shorter path. */
   if (memchr(path, '\0', path_len) != NULL) {
@@ -469,7 +469,7 @@ static int handle_limit (lua_State *L) {
       return 1;
     }
   }
-  return luaL_error(L, "no such limit: %s", name); /* a bug, not a failure */
+  return luaL_error(L, "sqlite: no such limit: %s", name); /* a bug, not a failure */
 }
 
 static int handle_last_insert_rowid (lua_State *L) {

@@ -106,7 +106,7 @@ static int address_of (lua_State *L, int index, struct target *out) {
   if (lua_type(L, -1) != LUA_TSTRING) return luaL_argerror(L, index, "path must be a string");
   const char *path = cosmic_path(L, lua_gettop(L));
   size_t size = lua_rawlen(L, -1);
-  if (size == 0) return luaL_argerror(L, index, "path must not be empty");
+  if (size == 0) return luaL_argerror(L, index, "path is empty");
   struct sockaddr_un *unix_address = (struct sockaddr_un *)&out->address;
   const char *name = path;
   size_t name_size = size;

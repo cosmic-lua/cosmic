@@ -116,7 +116,7 @@ local DEFAULT_PATH <const> = "/bin:/usr/bin"
 --- executable (a shell's 127 and 126). An empty name raises.
 function Proc.find(name: string, path?: string): string | nil, string
   if name == "" then
-    error("Proc.find: the name is empty", 2)
+    error("proc: find's name is empty", 2)
   end
   if name:find("/", 1, true) ~= nil then
     return name, ""
@@ -155,7 +155,7 @@ end
 --- searched. It returns only when it fails.
 function Proc.exec(argv: {string}, opts?: Proc.ExecOptions): boolean, string
   local path = argv[1]
-  if path == nil then error("argv is empty", 2) end
+  if path == nil then error("proc: argv is empty", 2) end
   local environment = opts ~= nil and opts.env or nil
   local _, trouble = sys.execve(path, argv, environment or sys.environ())
   return false, path .. ": " .. trouble

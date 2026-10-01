@@ -139,7 +139,7 @@ local record Stream
     --- failure kept, every time.
     fail: function(Sticky, trouble: string): boolean, string
     --- True and "" while more may be written; false and the failure,
-    --- or "<name>: writer is closed" once `close` or `abort` ran.
+    --- or "<name>: the writer is closed" once `close` or `abort` ran.
     usable: function(Sticky): boolean, string
     --- Puts `trailer` and closes the Writer, once: false and the
     --- failure kept when there is one, and true and "" when it is
@@ -278,7 +278,13 @@ end
 
 local chunk_size = 1 << 16
 
-local closed_message <const> = "stream: already closed"
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "stream: " .. why
+end
+
+local closed_message <const> = "stream: the reader is closed"
 
 --- A Reader over bytes already in memory.
 function Stream.from_string(s: string): Stream.Reader
@@ -319,9 +325,9 @@ end
 --- raising at `level` above the caller of this function's caller.
 local function fd_options(opts: Stream.FdOptions | nil, level: integer): Stream.FdOptions
   if opts == nil then return {} end
-  Poll.checked_ns(opts.timeout_ns, "timeout_ns", level + 1)
+  Poll.checked_ns(opts.timeout_ns, "stream: timeout_ns", level + 1)
   if (opts.timeout_ns ~= nil or opts.wait ~= nil) and not opts.nonblocking then
-    error("timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
+    error("stream: timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
       "cannot be waited on in pieces", level + 1)
   end
   -- A copy, so a field set after this check cannot go past it.
@@ -616,8 +622,8 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, str
   local data, trouble = Stream.read_up_to(reader, n)
   if data == nil then return nil, trouble end
   if #data < n then
-    return nil, "unexpected end of stream: wanted " .. String.counted(n, "byte") ..
-      ", got " .. tostring(#data)
+    return refuse("truncated: wanted " .. String.counted(n, "byte") ..
+      ", got " .. tostring(#data))
   end
   return data, ""
 end
@@ -635,7 +641,7 @@ function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
     local chunk, trouble = reader:read(want)
     if chunk == nil then
       if trouble ~= "" then return false, trouble end
-      return false, "unexpected end of stream: skipping " .. String.counted(n, "byte")
+      return false, "stream: truncated: skipping " .. String.counted(n, "byte")
     end
     left = left - #chunk
   end
@@ -679,7 +685,7 @@ function Stream.sticky(w: Stream.Writer, name: string): Stream.Sticky
   end
   s.usable = function(_self: Stream.Sticky): boolean, string
     if failed then return false, failed end
-    if closed then return false, name .. ": writer is closed" end
+    if closed then return false, name .. ": the writer is closed" end
     return true, ""
   end
   s.close = function(self: Stream.Sticky, trailer: string): boolean, string
@@ -827,7 +833,7 @@ function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer)
     local chunk, trouble = reader:read(want)
     if chunk == nil then
       if trouble ~= "" then return false, trouble end
-      return false, "unexpected end of stream before its stated size: wanted " ..
+      return false, "stream: truncated before its stated size: wanted " ..
         String.counted(n, "byte") .. ", got " .. tostring(n - left)
     end
     local ok, wtrouble = writer:write(chunk)
@@ -877,7 +883,7 @@ function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
       local put, trouble, errno = sys.write(fd, piece)
       if put ~= nil then
         if put == 0 then
-          failed = "write made no progress"
+          failed = "stream: write made no progress"
           return false, failed
         end
         at = at + put
@@ -1146,7 +1152,7 @@ function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): str
     return max_bytes == nil or total <= max_bytes
   end
   local function too_much(): nil, string
-    return nil, "output is larger than " .. String.counted(max_bytes, "byte")
+    return refuse("output is larger than " .. String.counted(max_bytes, "byte"))
   end
   local out, trouble = t:update(data)
   while true do

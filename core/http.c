@@ -287,7 +287,7 @@ static const char *http_ready (lua_State *L) {
  * why not. */
 static const char *header_problem (const char *name, size_t name_len,
                                    const char *value, size_t value_len) {
-  if (name_len == 0) return "a header name must not be empty";
+  if (name_len == 0) return "a header name is empty";
   for (size_t i = 0; i < name_len; i++) {
     if (name[i] == '\r' || name[i] == '\n') {
       return "a header name must not contain CR or LF";
@@ -379,7 +379,7 @@ static long opt_integer (lua_State *L, const char *key, long fallback,
  * empty set; `follow = false` is how to take no redirect), raises. */
 static const char *opt_redirect_protocols (lua_State *L) {
   static const char *const names[] = { NULL, "http", "https", "http,https" };
-  const char *want = "a non-empty list of \"http\" and \"https\"";
+  const char *want = "a list of one or more of \"http\" and \"https\"";
   lua_getfield(L, 2, "redirect_protocols");
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);
@@ -759,7 +759,7 @@ static void transfer_release (struct transfer *t) {
 static struct transfer *checked (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (t->closed) {
-    luaL_error(L, "the response is closed"); /* throws: use after close is
+    luaL_error(L, "http: the response is closed"); /* throws: use after close is
                                                 a bug, as in core/sqlite.c */
   }
   return t;

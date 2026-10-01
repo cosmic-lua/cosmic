@@ -366,6 +366,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local function zone_of(name: string): Time.Zone | nil
     local text = parsed.values[name]
     if text == nil then return local_zone() end
+    if text == "" then
+      complain(name .. ": the zone name is empty")
+      return nil
+    end
     local zone, why = Time.zone(text)
     if zone == nil then
       complain(name .. ": " .. why)

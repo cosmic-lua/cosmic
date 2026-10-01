@@ -555,7 +555,7 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
     assert(writer:join(Time.seconds(5)))
     assert(Fs.close(fd))
   end)
-  assert(not wrote and why == "stream: already closed", tostring(why))
+  assert(not wrote and why == "child: the writer is closed", tostring(why))
   assert(assert(Fs.read(victim)) == "", "the write went on into another file")
 end
 

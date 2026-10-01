@@ -441,7 +441,7 @@ local function test_the_depth_limits_are_exact(tmp: string)
       local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
       if n <= limit then
         if err ~= "" then return false, ("%d levels under a limit of %d: %s"):format(n, limit, err) end
-      elseif value ~= nil or err ~= ("JSON nests deeper than %d levels at line 1, column %d"):
+      elseif value ~= nil or err ~= ("json: JSON nests deeper than %d levels at line 1, column %d"):
            format(limit, deepest(opens, limit + 1)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end

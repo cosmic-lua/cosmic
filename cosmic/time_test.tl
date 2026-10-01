@@ -83,14 +83,26 @@ local function test_from_civil_refuses_fields_out_of_range()
     local v, why = Time.from_civil(c)
     assert(v == nil and why ~= "", tostring(v))
   end
+end
+
+--- A field that is no integer is a mistake in the call, not a date out of
+--- range: it raises, naming the field and the caller.
+local function test_from_civil_raises_for_a_field_that_is_no_integer()
   local float_year = civil(2026, 1, 1)
   float_year.year = 2026.0 as integer
-  local fv, fwhy = Time.from_civil(float_year)
-  assert(fv == nil and fwhy:find("year is not an integer: float", 1, true), fwhy)
-  local c = civil(2026, 1, 1)
-  c.month = nil
-  local v, why = Time.from_civil(c)
-  assert(v == nil and why:find("month", 1, true), why)
+  local ok, why: boolean, any = pcall(Time.from_civil, float_year)
+  assert(not ok and tostring(why):find("time: year is not an integer: float 2026.0", 1, true),
+    tostring(why))
+  local absent = civil(2026, 1, 1)
+  absent.month = nil
+  ok, why = pcall(Time.from_civil, absent)
+  assert(not ok and tostring(why):find("time: month is not an integer: nil nil", 1, true),
+    tostring(why))
+  local fraction = civil(2026, 1, 1)
+  fraction.ns = 0.5 as integer
+  ok, why = pcall(Time.from_civil, fraction, Time.UTC)
+  assert(not ok and tostring(why):find("time: ns is not an integer", 1, true), tostring(why))
+  assert(Time.from_civil(civil(2026, 1, 1)) ~= nil)
 end
 
 local function test_from_civil_refuses_what_an_integer_cannot_hold()
@@ -228,8 +240,8 @@ local function test_add_calendar_adds_the_exact_part_last()
   none, why = Time.add_calendar(math.mininteger + 5, { ns = -6 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   assert(Time.add_calendar(math.maxinteger - 5, { ns = 5 }) == math.maxinteger)
-  none, why = Time.add_calendar(0, { ns = 1.5 as integer })
-  assert(none == nil and why:find("ns is not an integer", 1, true) ~= nil, why)
+  local ok, raised: boolean, any = pcall(Time.add_calendar, 0, { ns = 1.5 as integer })
+  assert(not ok and tostring(raised):find("time: ns is not an integer", 1, true), tostring(raised))
 end
 
 --- The calendar part may leave the range on the way when the exact part
@@ -255,8 +267,8 @@ local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(at("1678-01-01T00:00:00Z"), { days = -200 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
-  none, why = Time.add_calendar(0, { months = 1.5 as integer })
-  assert(none == nil and why:find("months is not an integer", 1, true) ~= nil, why)
+  local ok, raised: boolean, any = pcall(Time.add_calendar, 0, { months = 1.5 as integer })
+  assert(not ok and tostring(raised):find("time: months is not an integer", 1, true), tostring(raised))
   none, why = Time.add_calendar(0, { years = math.maxinteger })
   assert(none == nil and why:find("years", 1, true) ~= nil, why)
 end

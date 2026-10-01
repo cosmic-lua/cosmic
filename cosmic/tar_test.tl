@@ -97,6 +97,20 @@ local function test_deterministic_mode_zeroes_mtime_uid_and_gid()
   assert(entry.mtime == 0 and entry.uid == 0 and entry.gid == 0)
 end
 
+local function test_a_size_below_zero_or_no_integer_raises()
+  local w = Tar.writer(Stream.collect())
+  for _, size in ipairs({ -1, 1.5 } as {number}) do
+    local ok, why: boolean, any = pcall(function()
+      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer })
+    end)
+    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true),
+      tostring(why))
+    assert(tostring(why):find("tar_test", 1, true), "blames the caller: " .. tostring(why))
+  end
+  assert(w:add_file("g", "x"))
+  assert(w:close())
+end
+
 local function test_add_file_from_a_reader_needs_an_explicit_size()
   local c = Stream.collect()
   local w = Tar.writer(c)

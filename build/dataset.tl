@@ -72,6 +72,12 @@ local Sqlite = require("cosmic.sqlite")
 local json_query = require("build.json_query")
 local plural = require("build.plural")
 
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "dataset: " .. why
+end
+
 local record dataset
   --- One row: a column name's key to its value. A value is a string, a
   --- number, a boolean, [`Json.null`], or a table (a nested object or
@@ -200,7 +206,7 @@ end
 local function delimited(name: string, delimiter: string): function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
   return function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
     if opts.at ~= nil then
-      return nil, "the " .. name .. " format takes no path: each record is a row"
+      return refuse("the " .. name .. " format takes no path: each record is a row")
     end
     local made, trouble = Csv.table(text, { delimiter = delimiter })
     if made == nil then
@@ -226,7 +232,7 @@ local formats: {string:dataset.Format} = {
     extensions = { "json" },
     read = function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
       if opts.raw then
-        return nil, "the json format has no raw cells: its values are typed by JSON"
+        return refuse("the json format has no raw cells: its values are typed by JSON")
       end
       local document, trouble = Json.decode(text, { null_value = Json.null })
       if trouble ~= "" then
@@ -244,10 +250,10 @@ local formats: {string:dataset.Format} = {
     extensions = { "ndjson", "jsonl" },
     read = function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
       if opts.at ~= nil then
-        return nil, "the ndjson format takes no path: each line is a row"
+        return refuse("the ndjson format takes no path: each line is a row")
       end
       if opts.raw then
-        return nil, "the ndjson format has no raw cells: its values are typed by JSON"
+        return refuse("the ndjson format has no raw cells: its values are typed by JSON")
       end
       local values, trouble = Json.decode_lines(text, { null_value = Json.null })
       if values == nil then
@@ -300,8 +306,8 @@ function dataset.format_of(path: string): string | nil, string
     end
   end
   table.sort(known)
-  return nil, (extension and "unknown extension ." .. extension or "no extension") ..
-    " (known: " .. table.concat(known, ", ") .. ")"
+  return refuse((extension and "unknown extension ." .. extension or "no extension") ..
+    " (known: " .. table.concat(known, ", ") .. ")")
 end
 
 --- The rows `text` holds in the format `name`, and ""; nil and why when
@@ -310,7 +316,7 @@ end
 function dataset.read(name: string, text: string, opts?: dataset.ReadOptions): dataset.Rows | nil, string
   local format = formats[name]
   if format == nil then
-    return nil, "no format " .. name .. " (known: " .. table.concat(dataset.names(), ", ") .. ")"
+    return refuse("no format " .. name .. " (known: " .. table.concat(dataset.names(), ", ") .. ")")
   end
   return format.read(text, opts or {})
 end
@@ -396,16 +402,16 @@ local max_columns <const> = 2000
 --- `name` is written into SQL text, so it holds no NUL byte.
 function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): dataset.Table | nil, string
   if name == "" then
-    return nil, "a table needs a name"
+    return refuse("a table needs a name")
   end
   if name:find("\0", 1, true) then
-    return nil, "a table name cannot hold a NUL byte"
+    return refuse("a table name cannot hold a NUL byte")
   end
   local names, key_of, renamed = columns_of(rows, rows.columns)
   if #names + 1 > max_columns then
-    return nil, "too many columns: " .. plural.count(#names, "distinct key") ..
+    return refuse("too many columns: " .. plural.count(#names, "distinct key") ..
       ", and SQLite holds at most " .. plural.count(max_columns, "column") ..
-      " in a table (one is `_json`)"
+      " in a table (one is `_json`)")
   end
   local declared: {string} = {}
   local marks: {string} = {}
@@ -445,7 +451,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
     return true, ""
   end)
   if not ok then
-    return nil, trouble
+    return refuse(trouble)
   end
   local columns: {string} = {}
   for index, column in ipairs(names) do
