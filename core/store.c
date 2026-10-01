@@ -90,7 +90,9 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * debug library), and [`cosmic_store_open_raw`] all the others, a raw
  * value shared by several wrappers once, at its first entry.
  * [`build.test_worker`] gets the store's to put a hold up ([`store_hold`]),
- * which [`cosmic.store`] does not offer. [`build.fuzz`] gets the instruction
+ * which [`cosmic.store`] does not offer. [`build.coverage_hits`] gets the
+ * collector's, to read the open window in place, which [`cosmic.coverage`]
+ * does not offer. [`build.fuzz`] gets the instruction
  * budget alone, which shares the coverage collector's hook but none of
  * its collection. The process table is [`cosmic.child`]'s,
  * [`cosmic.proc`]'s and [`build.confine`]'s, whose stand-in for its `spawn`
@@ -108,6 +110,7 @@ static const struct raw_module {
   {"build.artifact", "cosmic.internal.store", NULL},
   {"build.test_worker", "cosmic.internal.store", NULL},
   {"cosmic.coverage", "cosmic.internal.debug", NULL},
+  {"build.coverage_hits", "cosmic.internal.debug", NULL},
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"build.digest", "cosmic.internal.hash", NULL},

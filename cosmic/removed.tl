@@ -257,6 +257,22 @@ local module: Module = {
     ["cosmic.sys.Relaunch"] = "use Proc.Relaunch, what Proc.relaunch() answers (" ..
       proc .. ")",
     ["cosmic.sys.digest"] = "use Hash.digest(algorithm, data) (" .. hash .. ")",
+    ["cosmic.test.fields"] = "moved into build.analyzer, which holds a `needs` " ..
+      "declaration read from the source to it, and exports nothing of it; `needs` takes " ..
+      "the table `Test.Needs` describes",
+    ["cosmic.test.any_host_refusal"] = "moved into build.analyzer, which refuses " ..
+      "`network = true` before the module runs, and exports nothing of it",
+    ["cosmic.test.network_trouble"] = "moved into build.analyzer, which refuses a `network` " ..
+      "that is no loopback address 127.a.b.c before the module runs, and exports nothing " ..
+      "of it",
+    ["cosmic.test.lua_trouble"] = "moved into build.analyzer, which refuses a `lua` beside " ..
+      "what starts the program unheld before the module runs, and exports nothing of it",
+    ["cosmic.coverage.snapshot"] = "moved to build.coverage_hits, which only the " ..
+      "collector's own tests call; a program's hits are what Coverage.stop(session) " ..
+      "answers",
+    ["cosmic.coverage.native_entries"] = "moved to build.coverage_hits, which only the " ..
+      "collector's own tests call; a program reads each C function's first line from " ..
+      "Coverage.native_functions()",
     ["cosmic.sys.hmac"] = "use Hash.hmac(algorithm, key, data) (" .. hash .. ")",
     ["cosmic.sys.utimens"] = "use sys.utimensat(path, atime_s, atime_ns, mtime_s, " ..
       "mtime_ns), which takes each time as seconds and nanoseconds and leaves one " ..

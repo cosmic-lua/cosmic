@@ -57,11 +57,6 @@
 local errors = require("cosmic.internal.errors")
 
 local record Test
-  --- What each field of [`Needs`] takes; see below.
-  fields: {string:string}
-  --- What [`network_trouble`] says of `network = true`.
-  any_host_refusal: string
-
   --- What the tests of one module read beyond their default inputs.
   --- Every field is optional.
   record Needs
@@ -99,7 +94,7 @@ local record Test
     --- -- `::1` and `localhost` among them, whose answer turns on how
     --- the host sets up IPv6 -- and a spelling no request's host is
     --- (a port, brackets, a leading zero) are refused, naming this
-    --- rule ([`network_trouble`]).
+    --- rule, as the build refuses them before the module runs.
     network: {string}
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
@@ -198,10 +193,12 @@ local record Test
 end
 
 --- What each field of [`Needs`] takes: a list of strings ("list") or a
---- boolean ("flag").
--- The build holds a declaration read from the source to the same table
--- (build/analyzer.tl).
-Test.fields = {
+--- boolean ("flag"). The build holds a declaration read from the source
+--- to the same table (`input_fields` in build/analyzer.tl); what only the
+--- build can say of one -- that `network` names loopback addresses alone,
+--- which fields `lua` stands beside -- it says before the module runs, so
+--- `needs` holds a value to its shape and no more.
+local FIELDS <const>: {string:string} = {
   reads = "list", host = "list", env = "list", network = "list",
   tool = "flag", lua = "flag", standalone = "flag", nests = "flag", store = "flag",
   system = "flag", caches = "list",
@@ -222,73 +219,25 @@ local function runner_in(module: any): {string:any}
   return nil
 end
 
---- The rule a `network` declaration is held to, as a refusal names it.
-local LOOPBACK_ONLY <const> = "network takes loopback addresses 127.a.b.c only: no test " ..
-  "reaches another host, whose answer no key holds (::1 and localhost included), so one " ..
-  "that needs a service starts its own on 127.0.0.1"
-
-Test.any_host_refusal = "network = true: " .. LOOPBACK_ONLY
-
---- Why `host` may not be declared in `network`, or "" when it may: a
---- dotted quad of 127/8, `127.a.b.c`, each part decimal, 0 to 255,
---- with no leading zero. Strict: a name a lookup might answer
---- elsewhere, `localhost` or `::1`, a shortened or octal spelling,
---- `0.0.0.0`, a range or `*` is none; nor is a spelling no request's
---- host is (`127.0.0.1:8080`, whose port a request's host leaves out).
-function Test.network_trouble(host: string): string
-  local refused = string.format("network %q: %s", host, LOOPBACK_ONLY)
-  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if a ~= "127" then return refused end
-  for _, part in ipairs({ b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
-      return refused
-    end
-  end
-  return ""
-end
-
---- Why a declaration with `lua` and `standalone` set as given, beside
---- `tool`, `store`, `system` and any cache (`caches`) as given, is
---- refused, or "" when it is not: `lua` holds every process the tests
---- start to what a key holds of the program ([`Needs.lua`]), which a
---- host program, or a cosmic a cache holds, could start the program
---- past; `tool` and `store` key the whole program already; and
---- `standalone` widens what `lua` holds, so it means nothing alone.
-function Test.lua_trouble(lua: boolean, standalone: boolean, tool: boolean, store: boolean,
-                          system: boolean, caches: boolean): string
-  if standalone and not lua then
-    return "standalone is refused without lua: it adds what `cosmic --standalone` " ..
-      "loads to what lua holds; declare lua = true beside it"
-  end
-  if not lua then return "" end
-  local beside: {string:boolean} = { tool = tool, store = store, system = system,
-    caches = caches }
-  for _, name in ipairs({ "tool", "store", "system", "caches" }) do
-    if beside[name] then
-      return "lua is refused beside " .. name .. ": " ..
-        ((name == "tool" or name == "store") and
-          "declare tool = true alone, whose key holds every module the program carries" or
-          "a host program, or a cosmic a cache holds, could start this program with no " ..
-          "hold on what it loads; declare tool = true in place of lua")
-    end
-  end
-  return ""
-end
-
 --- Where the one `needs` call came from, once it has come.
 local called_at: string = nil
 
 --- Why `value`, handed to `needs`, is no [`Needs`], or "" when it is one.
+--
+-- TODO: write this as a cosmic.shape spec over [`Needs`] once cosmic.shape,
+-- and the cosmic.json it requires, may be in the harness (build/harness_epoch.tl's
+-- `library`) without every edit to either moving each worker's key: its
+-- messages (`$.reads: expected list, got string`) would also differ from
+-- the ones cosmic/test_tool_test.tl holds.
 local function trouble_of(value: any): string
   if not value is {any:any} then
     return "takes a table, got " .. type(value)
   end
   for key, field_value in pairs(value) do
-    local takes = key is string and Test.fields[key] or nil
+    local takes = key is string and FIELDS[key] or nil
     if takes == nil then
       return "has no field " .. tostring(key)
     end
-    if key == "network" and field_value == true then return Test.any_host_refusal end
     local wanted = takes == "list" and "a list of strings" or "true or false"
     local is_flag = field_value is boolean
     if (is_flag and takes == "list") or (not is_flag and takes == "flag") or
@@ -300,17 +249,10 @@ local function trouble_of(value: any): string
         if not (math.type(i) == "integer" and item is string) then
           return tostring(key) .. " takes " .. wanted
         end
-        if key == "network" and item is string then
-          local refused = Test.network_trouble(item)
-          if refused ~= "" then return refused end
-        end
       end
     end
   end
-  local caches = value["caches"]
-  return Test.lua_trouble(value["lua"] == true, value["standalone"] == true,
-    value["tool"] == true, value["store"] == true, value["system"] == true,
-    caches is {any:any} and next(caches) ~= nil)
+  return ""
 end
 
 --- Where `needs` was called from, as the chunk and line a traceback

@@ -1,19 +1,19 @@
-local Coverage = require("cosmic.coverage")
+local Hits = require("build.coverage_hits")
 
 local function test_distinct_long_strings_with_same_source_merge_hits()
   local name = "coverage.same." .. string.rep("long", 40)
   local first = assert(load("local n = 1\nreturn n", "@" .. name, "t"))
   assert(first() == 1)
-  local before = Coverage.snapshot()
+  local before = Hits.snapshot()
   local second = assert(load(string.rep("\n", 8192) .. "local n = 2\nreturn n", "@" .. name, "t"))
   assert(second() == 2)
-  local after = Coverage.snapshot()
+  local after = Hits.snapshot()
   assert(after[name][1] == true)
   assert(after[name][8193] == true, "equal source names must union their hits")
   assert(before[name][8193] == nil, "snapshots must not acquire later hits")
   after[name][1] = nil
   after[name] = {}
-  assert(Coverage.snapshot()[name][1] == true, "snapshot mutation must not change collection")
+  assert(Hits.snapshot()[name][1] == true, "snapshot mutation must not change collection")
 end
 
 local function test_source_identity_survives_collection_and_stack_reuse()
@@ -26,7 +26,7 @@ local function test_source_identity_survives_collection_and_stack_reuse()
     collectgarbage("collect")
   end
   collectgarbage("collect")
-  local hits = Coverage.snapshot()
+  local hits = Hits.snapshot()
   for i = 1, 40 do
     local name = "coverage.retained." .. tostring(i) .. string.rep("long", 40)
     assert(hits[name][1] == true, "collected chunks must retain their source identity")
@@ -41,11 +41,11 @@ local coroutine_probe = assert(load(table.concat({
 local shared_thread = coroutine.create(coroutine_probe)
 
 local function check_fresh_session_and_coroutine()
-  local before = Coverage.snapshot()
+  local before = Hits.snapshot()
   assert(before["coverage.coroutine.sessions"] == nil, "a session must start with no previous hits")
   local ok, value = coroutine.resume(shared_thread)
   assert(ok and value == 42, "a coroutine must survive collector session changes")
-  local after = Coverage.snapshot()
+  local after = Hits.snapshot()
   assert(after["coverage.coroutine.sessions"][2] == true)
 end
 

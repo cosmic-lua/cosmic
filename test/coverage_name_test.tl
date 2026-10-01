@@ -1,4 +1,4 @@
-local Coverage = require("cosmic.coverage")
+local Hits = require("build.coverage_hits")
 
 local function test_long_source_names_remain_distinct()
   -- Both names exceed short_src's display limit. Their identical suffix
@@ -13,7 +13,7 @@ local function test_long_source_names_remain_distinct()
   assert(a() == 1)
   assert(b() == 2)
 
-  local hits = Coverage.snapshot()
+  local hits = Hits.snapshot()
   local first_hits = hits[first]
   local second_hits = hits[second]
   assert(first_hits ~= nil, "full first source name must be preserved")

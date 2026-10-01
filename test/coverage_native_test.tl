@@ -6,6 +6,7 @@
 --- test/coverage_native_tool_test.tl.
 
 local Coverage = require("cosmic.coverage")
+local Hits = require("build.coverage_hits")
 local Hash = require("cosmic.hash")
 
 local function is_core_c(path: string): boolean
@@ -25,7 +26,7 @@ local function test_c_hits_land_on_native_lines()
   -- Hashing runs core/crypto.c inside this test's own window.
   assert(#Hash.sha256("coverage") == 32)
   local observable = Coverage.native_lines()
-  local hits = Coverage.snapshot()
+  local hits = Hits.snapshot()
   local crypto_hit = false
   for path, lines in pairs(hits) do
     if is_core_c(path) then
@@ -46,7 +47,7 @@ end
 --- of core/crypto.c's functions within this test's own window.
 local function test_function_entries_are_observable_lines()
   local lines = Coverage.native_lines()
-  local entries = Coverage.native_entries()
+  local entries = Hits.native_entries()
   for path, here in pairs(entries) do
     for line in pairs(here) do
       assert((lines[path] or {})[line], path .. ":" .. line .. " is not observable")
@@ -57,7 +58,7 @@ local function test_function_entries_are_observable_lines()
     return
   end
   assert(#Hash.sha256("entries") == 32)
-  local hit = Coverage.snapshot()["core/crypto.c"] or {}
+  local hit = Hits.snapshot()["core/crypto.c"] or {}
   local entered = false
   for line in pairs(entries["core/crypto.c"] or {}) do
     entered = entered or hit[line] == true
