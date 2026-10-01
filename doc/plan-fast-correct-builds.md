@@ -1023,3 +1023,35 @@ Each milestone is decided from 0.3's `report`, as follows.
 - **Fixed-point regression** on one gating leg (#2281).
 - **Tool and store floor, batch 1:** 245 tests off (#2283).
 - **Checked suite bound** at twice its measured time (#2272).
+- **PR pushes and the queue gate** (2026-09-30 to 2026-10-01):
+  - A light run's checked job skips the driver check on main's marker
+    (#2485). The tree's own source checks move into the tree's suite.
+  - A light run's format check lays out only the changed paths
+    (#2487). It narrowed on 1 of 12 pushes measured, falling back on
+    core/ and build/fix/ edits.
+  - `Test.needs { lua = true }` keys a module whose children only run
+    Lua (`-e`, relaunch) by its closure and what `-e` loads, not
+    `program` (#2486). `standalone = true` adds `--standalone`'s way
+    (#2488). 27 more tests moved (#2492), and a stand-in's main is let
+    through the hold. A comment edit to cosmic/zip.tl now runs 502
+    tests against 583 before.
+  - A light run splits linux-x86_64's native suite across two legs
+    (`cosmic test --shard I/N`, #2490). The halves take 60–114 s, down
+    from 190–205 s.
+  - The merge queue runs the portable suite on alpine-x86_64 alone
+    (#2498), about 110–185 s off each queue run. glibc-host coverage of
+    the portable suite now comes from the nightly.
+  - The macOS child-wait test asserts its exit watch, not a clock
+    (#2495).
+  - Light pushes, measured after #2490: a core change takes 206–327 s
+    (median about 245, from 280–320), with macOS the pole every time.
+    A carried edit takes about 177 s (from about 200), with every leg
+    within 15 s. A ci/ or test-only change takes about 148 s.
+  - Measured and dropped: a per-verb `program` key for `tool` tests.
+    It would save about 5 s per push, and it needs nested holds,
+    row-filtered store handles and no program-by-name.
+  - Declined for cost (2026-10-01): sharding macOS and linux-aarch64,
+    which would save 60–100 s on core changes.
+  - Next: duration-balanced shards; light runs reusing a branch's
+    compiles after a compiler-identity change (30–40 s per leg on
+    re-pushes); a slimmer zig-build restore (9–27 s per leg).
