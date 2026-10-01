@@ -271,25 +271,31 @@ end
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
 --- lists them as [`Json.members`] says; else the keys are empty and the
 --- extent 0, and a marked array is classified with no scan of it.
-local function classify(t: {any:any}, members: boolean): Json.TableLayout, {string | integer}, integer
+--- `gaps` asks for a marked array's integer keys when it has a gap.
+local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.TableLayout, {string | integer}, integer
   if raw.is_array(t) then
     local extent = 0
     local keys: {string | integer} = {}
-    if members then
+    if members and gaps then
       local count = 0
       for key in pairs(t) do
         local k: any = key
-        if k is integer and k >= 1 then
-          count = count + 1
-          if k > extent then extent = k end
-        end
+        if not (k is integer and k >= 1) then return "mixed", {}, 0 end
+        count = count + 1
+        if k > extent then extent = k end
       end
       if count ~= extent then
         for key in pairs(t) do
           local k: any = key
-          if k is integer and k >= 1 then keys[#keys + 1] = k end
+          if k is integer then keys[#keys + 1] = k end
         end
         table.sort(keys)
+      end
+    elseif members then
+      for key in pairs(t) do
+        local k: any = key
+        if not (k is integer and k >= 1) then return "mixed", {}, 0 end
+        if k > extent then extent = k end
       end
     end
     return "array", keys, extent
@@ -329,20 +335,22 @@ end
 ---     assert(Json.layout({ [1] = 1, [3] = 3 }) == "hole")
 ---     assert(Json.layout({ 1, a = 2 }) == "mixed")
 function Json.layout(t: {any:any}): Json.TableLayout
-  local layout = classify(t, false)
+  local layout = classify(t, false, false)
   return layout
 end
 
 --- `t`'s [`Json.layout`] with what a walk over it visits. The keys are
 --- an object's string keys, or a hole's integer keys, sorted, so the
 --- elements around a gap keep their indexes; an array has none, unless
---- it is a marked one with a gap, which lists its integer keys, so a walk
---- need not count up to an extent a stray index set. The extent is an
---- array's highest index, where `rawlen` is only a border of a decoded
---- array that dropped a `null`; 0 for any other layout. Unlike
---- [`Json.layout`], it scans a marked array to find that extent.
-function Json.members(t: {any:any}): Json.Members
-  local layout, keys, extent = classify(t, true)
+--- `gaps` is true and it is a marked one with a gap, which then lists
+--- its integer keys, so a walk need not count up to an extent a stray
+--- index set. The extent is an array's highest index, where `rawlen` is
+--- only a border of a decoded array that dropped a `null`; 0 for any
+--- other layout. Unlike [`Json.layout`], it scans a marked array, to
+--- find that extent and to answer "mixed" for one that holds a key
+--- other than a positive integer.
+function Json.members(t: {any:any}, gaps?: boolean): Json.Members
+  local layout, keys, extent = classify(t, true, gaps == true)
   return { layout = layout, keys = keys, extent = extent }
 end
 

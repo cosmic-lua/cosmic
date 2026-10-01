@@ -104,7 +104,9 @@ end
 local type Spec = Shape.Spec
 
 --- Each [`Shape.Kind`] by its spelling. Teal's `is` on an enum tests
---- only for a string, so [`need_spec`] asks this table instead.
+--- only for a string, so [`need_spec`] asks this table instead. Nothing
+--- ties it to the enum: the tests build a spec of every kind, so a kind
+--- left out fails there.
 local KINDS <const>: {string: Shape.Kind} = {
   string = "string", number = "number", integer = "integer", boolean = "boolean",
   any = "any", list = "list", map = "map", record = "record", one_of = "one_of",
@@ -334,9 +336,9 @@ local function unknown_key(t: {any: any}, spec: Spec, path: string): string
   return ""
 end
 
---- `v` checked against `spec` at `path`: the copy to answer and nil, or
---- nil and the message for the first value that does not fit. The
---- copy is nil too for a missing value an optional spec admits.
+--- `v` checked against `spec` at `path`: the copy to answer and "", or
+--- nil and the message for the first value that does not fit. The copy
+--- is nil too for a missing value an optional spec admits.
 local walk: function(v: any, spec: Spec, path: string): any, string
 
 local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
@@ -356,7 +358,7 @@ end
 local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
   -- A key the list refuses fails it where it stands, and no element is
   -- looked at; the elements go in index order.
-  local members = Json.members(t)
+  local members = Json.members(t, true)
   if members.layout == "mixed" or (members.layout == "object" and #members.keys > 0) then
     return nil, refusal(path, "list", least_refused(t, is_index))
   end

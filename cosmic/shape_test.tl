@@ -297,6 +297,22 @@ local function test_a_hole_is_a_missing_element_in_every_table_that_has_one()
   fails(Json.array({ [1 << 40] = 7 } as {any}), required, "$[1]: expected integer, got nothing")
 end
 
+-- A marked array holding a key that is no positive index is refused as
+-- an unmarked table is, and nothing it holds is dropped silently.
+local function test_a_marked_array_with_a_stray_key_is_refused()
+  local optional = Shape.list(Shape.optional(Shape.integer))
+  local function marked(key: any): {any: any}
+    local t: {any: any} = Json.array({ 1 }) as {any: any}
+    t[key] = 2
+    return t
+  end
+  fails(marked("x"), optional, '$: expected list, got the string key "x"')
+  fails(marked(0), optional, "$: expected list, got the integer key 0")
+  fails(marked(-3), optional, "$: expected list, got the integer key -3")
+  fails(marked(1.5), optional, "$: expected list, got the float key 1.5")
+  fails(marked(true), optional, "$: expected list, got the boolean key true")
+end
+
 -- A Spec the module did not build raises, wherever the walk meets it.
 local function test_a_nested_spec_of_unknown_kind_raises_when_met()
   local broken: {string: any} = { kind = "strig", optional = false }
