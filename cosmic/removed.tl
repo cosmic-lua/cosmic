@@ -76,6 +76,10 @@ local time <const> = 'local Time = require("cosmic.time")'
 local child <const> = 'local Child = require("cosmic.child")'
 local errors <const> = 'local Errors = require("cosmic.errors")'
 local codec <const> = 'local Codec = require("cosmic.codec")'
+local streamed <const> = "the streaming coders are `cosmic codec`'s, not the library's; " ..
+  "a program encodes a whole string with Codec.hex, Codec.base64 or " ..
+  "Codec.base64url and decodes one with Codec.unhex, Codec.unbase64 or " ..
+  "Codec.unbase64url (" .. codec .. ")"
 local archive <const> = 'local Archive = require("cosmic.archive")'
 local zip <const> = 'local Zip = require("cosmic.zip")'
 local string_ <const> = 'local String = require("cosmic.string")'
@@ -189,6 +193,10 @@ local module: Module = {
       "which only `cosmic json` calls",
     ["cosmic.json.DescribeOptions"] = "moved to build.json_query, with describe, which " ..
       "only `cosmic json` calls",
+    ["cosmic.codec.encoder"] = streamed,
+    ["cosmic.codec.decoder"] = streamed,
+    ["cosmic.codec.Coder"] = streamed,
+    ["cosmic.codec.Name"] = streamed,
     ["cosmic.zip.list"] = "use Archive.list(path) (" .. archive .. "), or " ..
       "Zip.open(path) and then reader:entries() (" .. zip .. ")",
     ["cosmic.zip.ZipReader"] = "use Zip.Reader, the same record renamed (" .. zip .. ")",

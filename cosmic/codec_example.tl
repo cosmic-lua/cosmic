@@ -49,28 +49,4 @@ function Example.base64url()
   assert(Codec.unbase64url(text) == "\xfb\xff?")
 end
 
---- Text fed to an incremental encoder in pieces comes out as the
---- whole-string encoder writes it: the encoder holds back the bytes of
---- an unfinished group until more arrive, or until `finish` pads them.
-function Example.encoder()
-  local enc = Codec.encoder("base64")
-  local text = assert(enc:update("hel")) .. assert(enc:update("lo")) .. assert(enc:finish())
-  print(text)
-  assert(text == "aGVsbG8=" and text == Codec.base64("hello"), text)
-end
-
---- Text cut anywhere decodes as it would whole, and a fault is found
---- at `finish` with the offset counted from the first character fed.
-function Example.decoder()
-  local dec = Codec.decoder("base64")
-  local bytes = assert(dec:update("aGVs")) .. assert(dec:update("bG8=")) .. assert(dec:finish())
-  assert(bytes == "hello", bytes)
-  local bad = Codec.decoder("hex")
-  assert(bad:update("66"))
-  assert(bad:update("6g"))
-  local none, why = bad:finish()
-  print(why)
-  assert(none == nil and why == "codec: byte 0x67 at 4 is not a hex digit", why)
-end
-
 return Example
