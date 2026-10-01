@@ -73,7 +73,7 @@ end
 
 local NS <const> = 1000000000
 
-local spec = Cli.options.time
+local spec = Cli.verbs.time.spec
 
 local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
   "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..

@@ -154,7 +154,7 @@ local function test_help_lists_each_option_sorted_beside_what_it_does()
     ["--color"] = false,
     ["-n"] = true,
   }
-  local help = Flags.help("tool [options] <file>", described)
+  local help = Flags.help({ spec = described, usage = "[options] <file>" }, "tool")
   assert(help == table.concat({
     "usage: tool [options] <file>",
     "",
@@ -165,8 +165,28 @@ local function test_help_lists_each_option_sorted_beside_what_it_does()
     "  -o <path>   where to write",
     "  --verbose   say more",
   }, "\n"), help)
-  assert(Flags.help("tool", {}) == "usage: tool")
-  assert(Flags.help("tool", {}, "Does one thing.") == "usage: tool\n\nDoes one thing.")
+  assert(Flags.help({}, "tool") == "usage: tool")
+  assert(Flags.help({ about = "Does one thing." }, "tool") == "usage: tool\n\nDoes one thing.")
+end
+
+local function test_help_of_a_command_says_options_where_its_usage_is_unwritten()
+  local described: {string:boolean | Flags.Option} = { ["-v"] = { about = "say more" } }
+  local lines = "\n\noptions:\n  -v  say more"
+  assert(Flags.help({ spec = described }, "prog run") == "usage: prog run [options]" .. lines)
+  assert(Flags.help({ spec = described, usage = "<file>" }, "prog run") ==
+    "usage: prog run <file>" .. lines)
+  assert(Flags.help({ spec = described, usage = "" }, "prog run") == "usage: prog run" .. lines)
+  assert(Flags.help({ about = "Runs." }, "prog run") == "usage: prog run\n\nRuns.")
+end
+
+local function test_asks_help_stops_at_the_double_dash_and_defers_to_the_spec()
+  local line: {integer:string} = { "run", "a", "--help" }
+  assert(Flags.asks_help(line, 2, {}))
+  assert(Flags.asks_help({ "run", "-j", "-h" }, 2, { ["-j"] = true }))
+  assert(not Flags.asks_help({ "run", "--", "--help" }, 2, {}))
+  assert(not Flags.asks_help(line, 2, { ["--help"] = false }))
+  assert(not Flags.asks_help(line, 4, {}))
+  assert(not Flags.asks_help({ "run", "a" }, 2, {}))
 end
 
 local function test_dispatch_runs_the_command_with_its_own_options()
@@ -304,9 +324,9 @@ local function test_help_aligns_by_characters_not_bytes()
     ["-é"] = { value = "n", about = "accented" },
     ["--long"] = { about = "plain" },
   }
-  assert(Flags.help("t", described) == table.concat({
-    "usage: t", "", "options:", "  --long  plain", "  -é <n>  accented",
-  }, "\n"), Flags.help("t", described))
+  assert(Flags.help({ spec = described }, "t") == table.concat({
+    "usage: t [options]", "", "options:", "  --long  plain", "  -é <n>  accented",
+  }, "\n"), Flags.help({ spec = described }, "t"))
   local commands: {string:Flags.Command} = {
     ["héllo"] = { about = "Greets.", run = function(_: Flags.Parsed): integer return 0 end },
     build = { about = "Builds.", run = function(_: Flags.Parsed): integer return 0 end },

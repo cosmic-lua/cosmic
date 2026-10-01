@@ -64,11 +64,14 @@ local function test_the_list_and_cli_order_agree()
     table.concat(Cli.order, " "))
 end
 
-local function test_every_option_table_is_a_verbs()
+local function test_every_verb_record_is_a_verb_in_order_and_back()
   local known: {string:boolean} = {}
-  for _, name in ipairs(Cli.order) do known[name] = true end
-  for name in pairs(Cli.options) do
-    assert(known[name], "Cli.options." .. name .. " is not a verb in Cli.order")
+  for _, name in ipairs(Cli.order) do
+    known[name] = true
+    assert(Cli.verbs[name] ~= nil, "Cli.order names " .. name .. ", which Cli.verbs lacks")
+  end
+  for name in pairs(Cli.verbs) do
+    assert(known[name], "Cli.verbs." .. name .. " is not a verb in Cli.order")
   end
 end
 

@@ -75,7 +75,7 @@ end
 verb.MAX_BYTES = 1048576
 verb.MAX_COUNT = 10000000
 
-local spec = Cli.options.rand
+local spec = Cli.verbs.rand.spec
 
 local usage = "cosmic rand uuid [--v4|--v7] [-n N] | token [--bytes N] [--hex|--base64url] | " ..
   "int [-n N] [--seed S] [--] <lo> <hi> | pick [-n N] [--seed S] [file|-] | shuffle [--seed S] [file|-]"

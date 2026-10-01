@@ -47,7 +47,7 @@ local record verb
   end
 end
 
-local spec = Cli.options.archive
+local spec = Cli.verbs.archive.spec
 
 local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..

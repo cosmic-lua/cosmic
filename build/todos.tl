@@ -562,7 +562,7 @@ local function run(argv: {integer:string}): integer
   if code ~= nil then
     return code
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.todos)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.todos.spec)
   if parsed == nil then
     log:complain("todos: " .. parse_trouble)
     return 2

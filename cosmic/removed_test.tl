@@ -6,6 +6,7 @@ local Removed = require("cosmic.removed")
 --- ([`build.test_worker`]).
 local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
+  ["cosmic.cli"] = require("cosmic.cli"),
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.json"] = require("cosmic.json"),
@@ -92,4 +93,14 @@ local function test_the_sqlite_options_name_each_old_boolean_call()
   local instead = Removed.arguments["cosmic.sqlite.OpenOptions"]
   assert(instead ~= nil and instead:find("{ writable = true }", 1, true)
     and instead:find("nothing for `false`", 1, true), instead)
+end
+
+--- A program that read the verbs' parallel maps is told each is a field of
+--- the record `Cli.verbs` holds for the verb.
+local function test_the_removed_cli_maps_name_the_verb_record_field_that_replaced_each()
+  local fields: {string:string} = { options = "spec", usage = "usage", summary = "about" }
+  for member, field in pairs(fields) do
+    local instead = Removed.members["cosmic.cli." .. member]
+    assert(instead ~= nil and instead:find("Cli.verbs[verb]." .. field, 1, true), member)
+  end
 end

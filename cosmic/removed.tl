@@ -95,6 +95,7 @@ local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
 local json <const> = 'local Json = require("cosmic.json")'
 local shape <const> = 'local Shape = require("cosmic.shape")'
 local sys <const> = 'local sys = require("cosmic.sys")'
+local cli <const> = 'local Cli = require("cosmic.cli")'
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -274,7 +275,19 @@ local module: Module = {
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.last_insert_rowid"] = "use db:last_insert_rowid(), the method on " ..
       "the handle Sqlite.open answers (" .. sqlite .. ")",
+    ["cosmic.cli.options"] = "use Cli.verbs[verb].spec, the options of the verb's " ..
+      "Flags.Command (" .. cli .. ")",
+    ["cosmic.cli.usage"] = "use Cli.verbs[verb].usage, which follows the verb's name " ..
+      "rather than beginning with `cosmic` (" .. cli .. ")",
+    ["cosmic.cli.summary"] = "use Cli.verbs[verb].about, the verb's Flags.Command " ..
+      "description (" .. cli .. ")",
   },
+  -- TODO: a call that still passes Flags.help its old arguments (the usage
+  -- line, the spec, what the command does) gets only `argument 1: got
+  -- string, expected Flags.Command`, with no hint: `arguments` answers a
+  -- boolean given for a record. Say `Flags.help({ spec = spec, about =
+  -- about, usage = <what follows the program's name> }, program)` once
+  -- [`build.teal`]'s `replacement` also reads a string given for a record.
   -- TODO: a call that still passes Sqlite.open's old third argument gets
   -- only the arity error (`wrong number of arguments ... at most 2`), with
   -- no hint: the message names no callee. Say `{ immutable = true }` for

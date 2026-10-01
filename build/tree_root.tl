@@ -152,7 +152,7 @@ end
 --- The tree a command line's verb runs in and its command line for it,
 --- or nil when it runs where it was started.
 --- @param argv the command line, the verb at slot 1
---- @param options the verb's options, as [`cosmic.cli`] names them
+--- @param options the verb's options, as [`cosmic.cli`] names them in `verbs`
 --- @param home the home directory, or nil for none, where the climb ends
 --- @param named `COSMIC_TREE`, or nil: the root, `.` for the working directory
 function tree_root.move(argv: {integer:string},

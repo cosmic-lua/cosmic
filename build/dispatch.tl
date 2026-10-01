@@ -14,7 +14,6 @@
 local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
 local verdict = require("build.verdict")
-local type Flags = require("cosmic.flags")
 local type verb_spec = require("build.verb_spec")
 
 local log = verdict.log
@@ -72,7 +71,7 @@ local function verb_help(verbs: {string}): {string: string}
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else
       lines[#lines + 1] = text
-      local options = require("cosmic.flags").options(Cli.options[verb] or {})
+      local options = require("cosmic.flags").options(Cli.verbs[verb].spec or {})
       if options ~= "" then
         lines[#lines + 1] = options
       end
@@ -196,14 +195,43 @@ local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): 
   return (docs or verb_help({ verb })[verb]) .. "\n" .. spec_notes(verb, spec)
 end
 
+--- The verbs spelled as options, by that spelling.
+local as_option: {string:string} = {
+  ["--standalone"] = "standalone",
+  ["-e"] = "eval",
+  ["--version"] = "version",
+}
+
+--- What the index shows of `verb`'s command line: `cosmic`, what names
+--- the verb there, and the verb's own `usage`. A file run is named by
+--- the file, and `--standalone`, `-e` and `--version` by their spelling.
+local function usage_line(verb: string): string
+  local typed = verb
+  if verb == "run" then
+    typed = ""
+  end
+  for spelled, name in pairs(as_option) do
+    if name == verb then typed = spelled end
+  end
+  local words: {string} = { "cosmic" }
+  if typed ~= "" then words[#words + 1] = typed end
+  local usage = require("cosmic.cli").verbs[verb].usage
+  if usage ~= "" then words[#words + 1] = usage end
+  return table.concat(words, " ")
+end
+
 --- The index `cosmic help` prints: what `cosmic` is, each verb's usage
 --- and purpose in the sections [`cosmic.cli.groups`] names, and where to
 --- read more.
 local function index_help(): string
+  -- TODO: write the index through Flags.dispatch's program help, which
+  -- lists every command alphabetically with its `about`. It waits on
+  -- that help taking sections and a preamble: the index's groups, and
+  -- the prose around them, are what `cosmic help` shows today.
   local Cli = require("cosmic.cli")
   local width = 0
   for _, verb in ipairs(Cli.order) do
-    width = math.max(width, #Cli.usage[verb])
+    width = math.max(width, #usage_line(verb))
   end
   local lines = {
     "cosmic -- a runtime for self-contained command-line software",
@@ -218,8 +246,9 @@ local function index_help(): string
     lines[#lines + 1] = group[1] .. ":"
     for slot = 2, #group do
       local verb = group[slot]
-      lines[#lines + 1] = "  " .. Cli.usage[verb] .. string.rep(" ", width - #Cli.usage[verb] + 2)
-        .. Cli.summary[verb]
+      local usage = usage_line(verb)
+      lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) ..
+        Cli.verbs[verb].about
     end
   end
   for _, line in ipairs({
@@ -407,13 +436,6 @@ local function run(file: string, argv: {integer:string}): integer
   end
   return 0
 end
-
---- The verbs spelled as options, by that spelling.
-local as_option: {string:string} = {
-  ["--standalone"] = "standalone",
-  ["-e"] = "eval",
-  ["--version"] = "version",
-}
 
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
@@ -617,22 +639,6 @@ local function detail_of(code: integer): string
   return ""
 end
 
---- Whether a verb's command line asks for its help: "--help" or "-h"
---- anywhere after the verb, before a "--", that its options do not
---- name -- as [`Flags.dispatch`] reads a command's.
-local function asks_help(argv: {integer:string},
-    options: {string:boolean | Flags.Option}): boolean
-  local slot = 2
-  while argv[slot] ~= nil and argv[slot] ~= "--" do
-    local word = argv[slot]
-    if (word == "--help" or word == "-h") and options[word] == nil then
-      return true
-    end
-    slot = slot + 1
-  end
-  return false
-end
-
 local dispatch = {}
 
 --- Every text `cosmic help` prints, by what asks for it: `""` is the
@@ -676,6 +682,7 @@ function dispatch.main(argv: {integer:string}): integer
   end
   local Cli = require("cosmic.cli")
   local Env = require("cosmic.env")
+  local Flags = require("cosmic.flags")
   local Fs = require("cosmic.fs")
   local String = require("cosmic.string")
   local sys = require("cosmic.sys")
@@ -684,7 +691,14 @@ function dispatch.main(argv: {integer:string}): integer
     verb = "help"
   end
   local chosen = spec_of(verb)
-  if chosen ~= nil and verb ~= "help" and asks_help(argv, Cli.options[verb] or {}) then
+  -- TODO: dispatch through Flags.dispatch, with each verb a Flags.Command
+  -- whose `run` takes the Flags.Parsed. It cannot yet: a verb reads its
+  -- own argv, and `time` and `rand` set a negative number aside before
+  -- parsing (build/time.tl's `protect`, build/rand.tl's `marked`), which
+  -- Flags.dispatch's parse would refuse. It waits on Flags.parse reading
+  -- a negative number as a word where the spec names no digit option.
+  local options = chosen ~= nil and Cli.verbs[verb].spec or {}
+  if chosen ~= nil and verb ~= "help" and Flags.asks_help(argv, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
     verb = "help"
@@ -700,8 +714,7 @@ function dispatch.main(argv: {integer:string}): integer
     -- A tree verb started below an established tree's root runs at the
     -- root ([`build.tree_root`]), its paths still read from here.
     local tree_root = require("build.tree_root")
-    local answer = tree_root.move(argv, Cli.options[verb] or {},
-      Env.get("HOME"), Env.get("COSMIC_TREE"))
+    local answer = tree_root.move(argv, options, Env.get("HOME"), Env.get("COSMIC_TREE"))
     local moved, refused, note = answer.move, answer.refused, answer.note
     if refused ~= "" then
       log:complain(verb .. ": " .. refused)

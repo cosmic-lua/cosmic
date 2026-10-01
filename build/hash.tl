@@ -91,7 +91,7 @@ local SIZE <const>: {string:integer} = {
   ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
 }
 
-local spec = Cli.options.hash
+local spec = Cli.verbs.hash.spec
 
 local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json] " ..
   "[--hmac <key> | --hmac-file <path>] [<file>|-]...; " ..
