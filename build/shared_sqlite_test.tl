@@ -87,7 +87,7 @@ end
 --- holder lets go.
 local function held_open(path: string, statements: {string},
                          wait_ms: integer): integer, string
-  local holder = assert(Sqlite.open(path, true))
+  local holder = assert(Sqlite.open(path, { writable = true }))
   assert(holder:exec("CREATE TABLE held (x)"))
   for _, statement in ipairs(statements) do assert(holder:exec(statement)) end
   local started = Time.monotonic_ns()

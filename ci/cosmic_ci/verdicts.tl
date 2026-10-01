@@ -33,6 +33,7 @@ local CacheTrim = require("cosmic_ci.cache_trim")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 local Plural = require("cosmic_ci.plural")
 
 local record Verdicts
@@ -173,7 +174,7 @@ end
 --- already held by, is left as it is and said so. Answers what to say
 --- on standard output and on standard error.
 local function merge_file(from: string, into: string): string, string
-  local opened, open_trouble = Sqlite.open(into, true)
+  local opened, open_trouble = SqliteOpen.writable(into)
   if opened == nil then
     return "", "verdicts-merge: " .. into .. ": " .. open_trouble .. "; nothing merged\n"
   end

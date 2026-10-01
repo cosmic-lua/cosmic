@@ -167,6 +167,13 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
+  ["build/zig.tl:open_writable"] =
+    "bin/zig runs this file on the release ci/cosmic-driver.pin names, whose " ..
+    "Sqlite.open takes a boolean where the tree's takes an options table",
+  ["eval/check/notes.tl:open_writable"] =
+    "eval/check/notes runs this file on the release ci/cosmic-driver.pin " ..
+    "names, whose Sqlite.open takes a boolean where the tree's takes an " ..
+    "options table",
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..

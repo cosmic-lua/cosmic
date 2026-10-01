@@ -111,7 +111,7 @@ end
 
 --- Every row `sql` answers of the database at `path`, a line each.
 local function dump(path: string, sql: string): string
-  local db = assert(Sqlite.open(path, false))
+  local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, sql))
   assert(db:close())
   local lines: {string} = {}
@@ -218,13 +218,13 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   checkout(tmp .. "/first")
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   local keys: {string:string} = {}
-  local db = assert(Sqlite.open(tmp .. "/first/o/cosmic.db", false))
+  local db = assert(Sqlite.open(tmp .. "/first/o/cosmic.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
     keys[row[1]] = shared_compiles.key(row[2], false, false)
   end
   assert(db:close())
-  local cache = assert(Sqlite.open(path, true))
+  local cache = assert(Sqlite.open(path, { writable = true }))
   -- `b`'s Lua becomes no stream at all, and `c`'s becomes `a`'s.
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = x'deadbeef' WHERE key = ?1",
     { { text = keys.b } }))
@@ -266,7 +266,7 @@ local function test_an_earlier_formats_table_is_dropped(tmp: string)
   local env, path = environment(tmp)
   assert(Fs.mkdirs(tmp .. "/cache"))
   assert(Fs.chmod(tmp .. "/cache", 0x1c0))
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE compiled_v1 (key TEXT PRIMARY KEY, lua BLOB NOT NULL, " ..
     "bytecode BLOB NOT NULL, refs BLOB NOT NULL, size INTEGER NOT NULL, used_ns INTEGER NOT NULL)"))
   assert(db:close())
@@ -344,7 +344,7 @@ local function test_a_cache_another_build_is_making_is_opened(tmp: string)
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
-local db = assert(Sqlite.open(%q, true))
+local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("BEGIN IMMEDIATE"))
 assert(Fs.write(%q, ""))
 assert(Time.sleep_ns(500 * 1000000))

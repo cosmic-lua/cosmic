@@ -195,7 +195,7 @@ local function build_links(handle: work.Handle, out: string): {string}
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   assert(writer.write_result(handle, out, result, nil, link_index.none))
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   local found = rows(db, "SELECT from_file || ':' || line, kind, symbol, path || '#' || anchor " ..
     "FROM links ORDER BY from_file, line, column")
   assert(db:close())
@@ -293,7 +293,7 @@ end
 --- The links of `out`'s files that are no module, each as
 --- `file:line:column source kind symbol path#anchor`.
 local function file_links(out: string): {string}
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   local found = rows(db, "SELECT from_file || ':' || line || ':' || column, source, kind, " ..
     "symbol, path || '#' || anchor FROM links WHERE from_module = '' " ..
     "ORDER BY from_file, line, column")
@@ -304,7 +304,7 @@ end
 --- What `cosmic uses` lists for `query` in the projection at `out`, each
 --- as `file:line`.
 local function places(out: string, query: string): {string}
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   local found: {string} = {}
   for _, use in ipairs((assert(docs.uses(assert(docs.view({ db })), query)))) do
     found[#found + 1] = use.from_file .. ":" .. use.line .. (use.link and " link" or "")
@@ -548,7 +548,7 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
   local stdlib = library(tmp, "docs one", true)
   assert(writer.write_result(handle, out, result, nil, stdlib))
   assert(work.close(handle))
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   same(rows(db, "SELECT from_file, line, column, from_module, module, symbol FROM links " ..
     "ORDER BY from_file, line, column"), {
     "README.md 1 11  cosmic.fs read",
@@ -588,7 +588,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   assert(writer.signature(handle, result, "a writer", two) ~= first)
   local function written(stdlib: link_index.Library): {string}
     assert(writer.write_result(handle, out, result, nil, stdlib))
-    local db = assert(Sqlite.open(out, false))
+    local db = assert(Sqlite.open(out))
     local found = rows(db, "SELECT from_file || ':' || line, symbol FROM links " ..
       "UNION ALL SELECT 'kept', value FROM meta WHERE key = 'kept' ORDER BY 1, 2")
     assert(db:close())
@@ -596,7 +596,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   end
   same(written(one), { "README.md:1 read", "greet.tl:1 read", "greet.tl:1 write" })
   -- A row the write would not leave says whether the file was written.
-  local db = assert(Sqlite.open(out, true))
+  local db = assert(Sqlite.open(out, { writable = true }))
   assert(db:exec("INSERT INTO meta (key, value) VALUES ('kept', 'yes')"))
   assert(db:close())
   same(written(again), { "README.md:1 read", "greet.tl:1 read", "greet.tl:1 write", "kept yes" })
@@ -634,7 +634,7 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
   local out = root .. "/o/cosmic.db"
   assert(writer.write_result(handle, out, result, nil, refusing))
   assert(work.close(handle))
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   same(rows(db, "SELECT count(*) FROM links WHERE module = 'cosmic.fs'"), { "0" })
   assert(db:close())
 end
@@ -664,7 +664,7 @@ local function test_a_projects_own_links_read_no_library(tmp: string)
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   assert(writer.write_result(handle, out, result))
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   same(rows(db, "SELECT from_file || ':' || line, module, symbol FROM links " ..
     "ORDER BY from_file, line, column"), {
     "README.md:1 other fn",

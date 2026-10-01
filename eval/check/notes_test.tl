@@ -9,7 +9,7 @@ local stand_in = require("build.stand_in")
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.
 local function database(path: string, inputs: {{string}}, runs: {{string}})
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec([[
     create table inputs (path text primary key, kind text, origin text);
     create table runs (path text, passed integer);

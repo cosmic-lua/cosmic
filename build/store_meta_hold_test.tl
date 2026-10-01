@@ -52,7 +52,7 @@ end
 --- not hold is held as ever.
 local function test_a_database_the_test_attached_answers_a_held_row(tmp: string)
   local path = tmp .. "/own.db"
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT, value TEXT); " ..
     "INSERT INTO meta VALUES ('projected', 'mine')"))
   assert(db:close())

@@ -621,7 +621,7 @@ function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | 
   if not closed then
     return nil, close_trouble
   end
-  return Sqlite.open(path, false)
+  return Sqlite.open(path)
 end
 
 --- A spec table's top-level fields as its source writes them: `name`,

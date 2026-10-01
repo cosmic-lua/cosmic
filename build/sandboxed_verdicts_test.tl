@@ -372,7 +372,7 @@ local function rebuilt(tmp: string, path: string, statements: string)
   local db_path = tmp .. "/carried.db"
   local _, _ = Fs.remove(db_path)
   assert(Fs.write(db_path, parts.database))
-  local db = assert(Sqlite.open(db_path, true))
+  local db = assert(Sqlite.open(db_path, { writable = true }))
   assert(db:exec(statements))
   assert(db:close())
   local program = assert(artifact.host_program(assert(artifact.trusted_core()),
@@ -609,7 +609,7 @@ end
   env.COSMIC_TEST_COMPILER_SALT = "another compiler"
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("1 ran, 1 stood", 1, true), moved)
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
     "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
@@ -746,7 +746,7 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   local first = run(root, tmp .. "/first.out", env)
   if unsandboxed(first) then return end
   local function forge()
-    local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", true))
+    local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", { writable = true }))
     assert(db:exec("UPDATE stores_v1 SET digest = 'not the digest of its bytes'"))
     assert(db:close())
   end
@@ -784,7 +784,7 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   if unsandboxed(first) then return end
   -- Every store, and what the shared verdicts keep of it, made to agree
   -- on bytes no write makes.
-  local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", true))
+  local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", { writable = true }))
   local listed: {string} = assert(Fs.list(root .. "/o/stores"))
   for _, entry in ipairs(listed) do
     local address = entry:match("^base%-(%x+)%.db$") or entry:match("^(%x+)%.db$")

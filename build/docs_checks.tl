@@ -36,7 +36,7 @@ function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle | ni
   if not made then
     return nil, made_trouble
   end
-  local db, open_trouble = Sqlite.open(scratch, false)
+  local db, open_trouble = Sqlite.open(scratch)
   local removed, remove_trouble = Fs.remove(scratch)
   if db == nil then
     return nil, open_trouble

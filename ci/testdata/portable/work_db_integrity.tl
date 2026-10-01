@@ -27,7 +27,7 @@ return function(argv: {string}): integer
   -- --recover-copy only for its second disposable copy, allowing SQLite to
   -- recover that copy before integrity checks. The preserved bytes remain
   -- unopened and retain their exact database+journal hashes.
-  local db, open_trouble = Sqlite.open(path, recover)
+  local db, open_trouble = Sqlite.open(path, { writable = recover })
   if db == nil then
     print("work database integrity: FAIL (open: " .. open_trouble .. ")")
     return 1

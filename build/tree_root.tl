@@ -68,7 +68,7 @@ end
 -- on that record.
 local function staged(root: string, path: string): boolean | nil, string
   local file = root .. "/o/build.db"
-  local db, open_trouble = Sqlite.open(file, false)
+  local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, open_trouble end
   local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..
     "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
