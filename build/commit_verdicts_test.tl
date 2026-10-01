@@ -28,6 +28,7 @@ local BASE <const> = "fedcba9876543210fedcba9876543210fedcba98"
 --- The filters the scripts hand `gh api --jq`, as they write them.
 local BASE_FILTER <const> = ".merge_base_commit.sha"
 local PRUNE_FILTER <const> = [[.actions_caches[] | select(.key | test(\"-sha-[0-9a-f]{40}\$\")) | select((.created_at | sub(\"[.][0-9]+\"; \"\") | fromdateiso8601) < $cutoff) | .id]]
+local COMPILES_FILTER <const> = [[.actions_caches[] | select(.key | startswith(\"compiles-branch-\")) | select((.created_at | sub(\"[.][0-9]+\"; \"\") | fromdateiso8601) < $cutoff) | .id]]
 
 --- A fake `gh`: `api [--paginate] URL --jq FILTER` answers the file
 --- `answer` through FILTER, or fails where it holds FAIL; `api -X DELETE
@@ -88,7 +89,9 @@ local function test_the_filters_are_the_scripts()
   local text = assert(Fs.read(MERGE_BASE))
   assert(text:find("--jq '" .. BASE_FILTER .. "'", 1, true), "merge-base.sh's filter moved")
   text = assert(Fs.read(PRUNE))
-  assert(text:find('--jq "' .. PRUNE_FILTER .. '"', 1, true), "prune-commit-verdicts.sh's filter moved")
+  assert(text:find('prune verdicts- "' .. PRUNE_FILTER .. '"', 1, true), "prune-commit-verdicts.sh's filter moved")
+  assert(text:find('prune compiles-branch- "' .. COMPILES_FILTER .. '"', 1, true),
+    "prune-commit-verdicts.sh's filter of the branches' compiles moved")
 end
 
 --- A branch's push asks the API for its merge base with main, by the
@@ -167,6 +170,21 @@ local function test_the_prune_deletes_only_old_verdicts_under_a_commit(tmp: stri
   -- HOURS moves the cutoff.
   _, calls = run(tmp, PRUNE, { HOURS = "1" }, listing(entry(2, "verdicts-leg-h-f-sha-" .. BASE, 2)))
   assert(deleted(calls) == "2", calls)
+end
+
+--- The compiles a branch's push saved for its later pushes go a day
+--- on too, and nothing else of the compiles: main's own, keyed by their
+--- content, stay, whatever their age.
+local function test_the_prune_deletes_old_branch_compiles(tmp: string)
+  if not has_jq() then return end
+  local _, calls, said = run(tmp, PRUNE, {}, listing(
+    entry(1, "compiles-branch-leg-0123abcd-d0d0d0", 30),
+    entry(2, "compiles-branch-leg-0123abcd-d1d1d1", 2),
+    entry(3, "compiles-leg-d0d0d0", 50),
+    entry(4, "verdicts-leg-0123456789abcdef-f-d0d0d0", 50)))
+  assert(calls:find("api --paginate repos/o/r/actions/caches?key=compiles-branch-&per_page=100 --jq ", 1, true), calls)
+  assert(deleted(calls) == "1", calls)
+  assert(said:find("pruned 1 branch compiles entries", 1, true), said)
 end
 
 --- A listing or a delete that fails fails nothing: the rest go on.

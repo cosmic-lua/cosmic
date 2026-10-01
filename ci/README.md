@@ -115,7 +115,7 @@ fixture's run is keyed by nothing and says none. `summarize` appends
 these rows as a second table. The driver's self-check (`cosmic-driver
 test cosmic_ci`) is a step of its own and writes none.
 
-`compiles-trim SINCE` and `verdicts-trim SINCE|whole` are ci.yml's, run
+`compiles-trim SINCE [RESTORED]` and `verdicts-trim SINCE|whole` are ci.yml's, run
 on every leg before its caches are saved. Each cuts the cache
 `COSMIC_BUILD_CACHE` names, or every `.db` beside the file
 `COSMIC_VERDICT_CACHE` names, to the rows the run used since SINCE, in
@@ -128,7 +128,11 @@ entry's key again and saves nothing new. Only a push to main and the
 scheduled run save these caches; every run restores the newest main
 saved, except where its own ref holds an entry under the same prefix
 saved before only main saved, which GitHub searches first, until that
-branch or entry goes.
+branch or entry goes. The one exception is a branch's compiles for its
+own later pushes (the caches, below): given RESTORED, a copy of what
+the leg restored made before its builds, `compiles-trim` also writes
+`fresh=<n>`, how many of the compiles it kept that copy lacks, which
+that save turns on, and removes the copy.
 
 `verdicts-merge DIR` is ci.yml's too, run in a merge queue run before
 its suite: it adds each `.db` in DIR, the verdicts the queue's run
@@ -492,10 +496,36 @@ that reuses the queue's run) save the verdicts, the
 compiles and parses, the zig build outputs and the driver check's
 marker (the pinned zig and the driver's bootstrap are saved by any run
 that misses their exact key, which names only the pin). A branch or the
-merge queue restores main's and saves nothing: a PR's later pushes
-stand on main's entries, not its earlier push's. GitHub searches a
-ref's own entries before main's, so a branch's entry saved before only
-main saved still wins over main's newer one under the same prefix.
+merge queue restores main's and saves nothing but one thing: a PR's
+later pushes stand on main's entries, not its earlier push's. GitHub
+searches a ref's own entries before main's, so a branch's entry saved
+before only main saved still wins over main's newer one under the same
+prefix.
+
+That one thing is a branch's compiles. A change to the compiler (the
+Teal compiler's patches, cosmic.removed, the build's modules a compile
+runs: build.work's `compiler_identity`) moves every compile's key, so
+main's entry answers none of a branch that makes one, and each of its
+pushes compiled the whole tree again (some 40 s a boot, on each leg and
+the checked job). So a branch's push (`light`) whose builds compiled
+more than 50 modules its restored entry lacked (`compiles-trim`'s
+`fresh`) saves its trimmed compiles under
+`compiles-branch-<leg>-<compiler>-<digest>`, where `<compiler>` hashes
+the build's own modules but its tests, cosmic.removed and the Teal
+compiler's and Lua's pins and patches: wider than the compiler's
+identity, so an edit to the rest of `build/` falls back to main's entry
+rather than to one of another compiler. Every restore of the compiles
+asks for `compiles-branch-<leg>-<compiler>-` first, then main's
+`compiles-<leg>-`; GitHub lets only the ref that saved an entry restore
+it (beside the default branch's, which every ref restores), so main,
+the merge queue and sibling branches never read a branch's, and on main
+the first prefix finds nothing. Each is some 5 MB compressed a leg;
+51 of the 130 branch pushes from 2026-09-29 to 2026-10-01 would have
+made one, three legs each, and 20 later pushes would have stood on one
+rather than compile the tree again. `prune` deletes them a day after
+they were saved, so they hold some 600 MB of the repository's 10 GB. The rows are keyed by
+their inputs and digest-checked as main's are, so an entry of the wrong
+compiler costs only the compiles it misses.
 Which entry a restore takes decides only how many tests stand, never
 whether a verdict or a compile is right: every row is keyed by its own
 inputs.
