@@ -73,6 +73,12 @@ Poll.CANCELLED = "cancelled"
 local MOST_MS <const> = 0x7fffffff
 --- The highest descriptor [`sys.poll`] takes: a C `int`.
 local MOST_FD <const> = 0x7fffffff
+--- What [`sys.poll`] answers of a descriptor whether asked or not.
+local UNASKED <const> = sys.POLLERR | sys.POLLHUP | sys.POLLNVAL
+--- How many done waits the timer heap holds before it is rebuilt
+--- without them, however few are live: rebuilding a small heap saves
+--- nothing.
+local STALE_FLOOR <const> = 64
 
 --- One wait a task is parked in, and what ends it: a descriptor ready, a
 --- time reached, a task joined. `done` is set once one of them has
@@ -87,13 +93,44 @@ local record Wait
   fds: {integer}
   masks: {integer}
   answers: {integer}
+  --- Its descriptors' entries among the run's, while it waits on them.
+  watches: {Watch}
   at: integer
+  --- When it began among the run's waits: the order those a poll
+  --- answers together are woken in, and the tie-break between timers.
   seq: integer
+  --- Set while it is in the run's `timers`, done or not.
+  in_heap: boolean
+  --- The task a join waits on.
+  joined: State
+  --- Set once a poll, or a descriptor closing, has answered it.
+  hit: boolean
   --- What the wait answers once `at` is reached: a delay's success, or
   --- a `ready`'s, which answers no descriptor ready; any other wait's
   --- TIMEOUT.
   expiry_ok: boolean
   done: boolean
+end
+
+--- One descriptor of a wait, among the waits on that descriptor.
+local record Watch
+  wait: Wait
+  fd: integer
+  mask: integer
+  --- Its place among the wait's `fds`, 0 for a wait on one descriptor.
+  place: integer
+  --- Its place in its descriptor's `watches`.
+  index: integer
+end
+
+--- A descriptor the run polls, and every wait on it.
+local record Watched
+  --- Its place in the run's `fds` and `events`.
+  slot: integer
+  watches: {Watch}
+  --- How many of `watches` ask each mask: the descriptor's events are
+  --- their union.
+  masks: {integer:integer}
 end
 
 --- What a run keeps of a task, beside the handle `spawn` answers.
@@ -126,10 +163,17 @@ local record Loop
   tasks: {thread: State}
   live: integer
   ready: {Wake}
-  --- Descriptor waits, in the order they began.
-  watched: {Wait}
+  --- What [`sys.poll`] is handed, kept as waits begin and end: each
+  --- descriptor waited on, and the union of the events its waits ask,
+  --- by slot.
+  fds: {integer}
+  events: {integer}
+  watched: {integer:Watched}
   --- Time waits, a binary heap on `at` then `seq`.
   timers: {Wait}
+  --- How many of `timers` are done: each leaves only on reaching the
+  --- top, or when the heap is rebuilt without them.
+  stale: integer
   seq: integer
   --- Set while the run closes its tasks, when nothing may start or wait.
   closing: boolean
@@ -159,30 +203,143 @@ local function heap_push(heap: {Wait}, w: Wait)
   end
 end
 
-local function heap_pop(heap: {Wait}): Wait
+local function sift_down(heap: {Wait}, i: integer)
+  while true do
+    local l, r, least = 2 * i, 2 * i + 1, i
+    if l <= #heap and earlier(heap[l], heap[least]) then least = l end
+    if r <= #heap and earlier(heap[r], heap[least]) then least = r end
+    if least == i then return end
+    heap[i], heap[least] = heap[least], heap[i]
+    i = least
+  end
+end
+
+--- Takes the nearest wait from the run's timers.
+local function pop_timer(): Wait
+  local heap = loop.timers
   local top = heap[1]
   local last = table.remove(heap)
   if #heap > 0 then
     heap[1] = last
-    local i = 1
-    while true do
-      local l, r, least = 2 * i, 2 * i + 1, i
-      if l <= #heap and earlier(heap[l], heap[least]) then least = l end
-      if r <= #heap and earlier(heap[r], heap[least]) then least = r end
-      if least == i then break end
-      heap[i], heap[least] = heap[least], heap[i]
-      i = least
+    sift_down(heap, 1)
+  end
+  top.in_heap = false
+  if top.done then loop.stale = loop.stale - 1 end
+  return top
+end
+
+--- Rebuilds the run's timers from the waits not done. `at` then `seq`
+--- orders every pair of waits, so the rebuilt heap answers in the same
+--- order the old one would have.
+local function compact_timers()
+  local heap, kept = loop.timers, 0
+  for i = 1, #heap do
+    local w = heap[i]
+    if w.done then
+      w.in_heap = false
+    else
+      kept = kept + 1
+      heap[kept] = w
     end
   end
-  return top
+  for i = #heap, kept + 1, -1 do heap[i] = nil end
+  loop.stale = 0
+  for i = kept // 2, 1, -1 do sift_down(heap, i) end
+end
+
+--- Enters `w`'s wait on `fd` for `mask` among the waits on `fd`, whose
+--- polled events take in `mask`.
+local function enter(w: Wait, fd: integer, mask: integer, place: integer)
+  local entry = loop.watched[fd]
+  if entry == nil then
+    local slot = #loop.fds + 1
+    entry = { slot = slot, watches = {}, masks = {} }
+    loop.fds[slot], loop.events[slot] = fd, 0
+    loop.watched[fd] = entry
+  end
+  local watch: Watch = { wait = w, fd = fd, mask = mask, place = place, index = #entry.watches + 1 }
+  entry.watches[watch.index] = watch
+  entry.masks[mask] = (entry.masks[mask] or 0) + 1
+  loop.events[entry.slot] = loop.events[entry.slot] | mask
+  w.watches[#w.watches + 1] = watch
+end
+
+--- Takes `watch` from among the waits on its descriptor, and the
+--- descriptor from what is polled once none is left.
+local function leave(watch: Watch)
+  local fd = watch.fd
+  local entry = loop.watched[fd]
+  local watches = entry.watches
+  local last = watches[#watches]
+  watches[watch.index], last.index = last, watch.index
+  watches[#watches] = nil
+  if #watches == 0 then
+    local slot, top = entry.slot, #loop.fds
+    local moved = loop.fds[top]
+    loop.fds[slot], loop.events[slot] = moved, loop.events[top]
+    loop.watched[moved].slot = slot
+    loop.fds[top], loop.events[top] = nil, nil
+    loop.watched[fd] = nil
+    return
+  end
+  local left = entry.masks[watch.mask] - 1
+  if left > 0 then
+    entry.masks[watch.mask] = left
+    return
+  end
+  entry.masks[watch.mask] = nil
+  local events = 0
+  for mask in pairs(entry.masks) do events = events | mask end
+  loop.events[entry.slot] = events
+end
+
+--- Takes a join's wait from the joiners of the task it waits on, the
+--- rest left in their order.
+local function unjoin(w: Wait)
+  local joiners = w.joined.joiners
+  for i = #joiners, 1, -1 do
+    if joiners[i] == w then
+      table.remove(joiners, i)
+      return
+    end
+  end
+end
+
+--- Marks `w` answered: it leaves what is polled now, and the joiners of
+--- a task still running; and the timer heap once it reaches the top,
+--- or once the done waits there outnumber the live ones and the heap is
+--- rebuilt without them.
+local function finish(w: Wait)
+  w.done = true
+  -- A task that has ended answers its joiners while it walks them, and
+  -- is marked ended first, so none is taken from under the walk.
+  if w.joined ~= nil and not w.joined.ended then unjoin(w) end
+  if w.watches ~= nil then
+    for _, watch in ipairs(w.watches) do leave(watch) end
+    w.watches = nil
+  end
+  if w.in_heap then
+    loop.stale = loop.stale + 1
+    if loop.stale > STALE_FLOOR and loop.stale * 2 > #loop.timers then compact_timers() end
+  end
 end
 
 --- Answers `w`, once: the run resumes its task with `ok` and `why`.
 local function wake(w: Wait, ok: boolean, why: string)
   if w.done then return end
-  w.done = true
+  finish(w)
   w.task.parked = nil
   loop.ready[#loop.ready + 1] = { task = w.task, ok = ok, why = why }
+end
+
+local function began_first(a: Wait, b: Wait): boolean
+  return a.seq < b.seq
+end
+
+--- Answers each of `hits` ready, in the order they began.
+local function wake_hits(hits: {Wait})
+  table.sort(hits, began_first)
+  for _, w in ipairs(hits) do wake(w, true, "") end
 end
 
 --- The task the calling coroutine is, raising at `level` where there is
@@ -208,16 +365,20 @@ end
 --- waits in a loop lets the others run.
 local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, string
   task.parked = w
+  loop.seq = loop.seq + 1
+  w.seq = loop.seq
   if task.cancelled then
     wake(w, false, Poll.CANCELLED)
   else
-    if w.fd ~= nil or w.fds ~= nil then loop.watched[#loop.watched + 1] = w end
+    if w.fd ~= nil then
+      w.watches = {}
+      enter(w, w.fd, w.events, 0)
+    elseif w.fds ~= nil then
+      w.watches = {}
+      for place, fd in ipairs(w.fds) do enter(w, fd, w.masks[place], place) end
+    end
     if timeout_ms ~= nil then
-      loop.seq = loop.seq + 1
-      w.at, w.seq = now_ms() + timeout_ms, loop.seq
-      -- TODO: drop done waits from the heap once they outnumber the live
-      -- ones: one leaves only on reaching the top, so a server whose long
-      -- timeouts are answered early holds one per wait until each expires.
+      w.at, w.in_heap = now_ms() + timeout_ms, true
       heap_push(loop.timers, w)
     end
   end
@@ -300,7 +461,7 @@ end
 local function close_task(task: State)
   task.killed = true
   if task.parked ~= nil then
-    task.parked.done = true
+    finish(task.parked)
     task.parked = nil
   end
   local ready: {Wake} = {}
@@ -326,10 +487,8 @@ local function start(fn: function()): Poll.Task
       if state.killed then return false, Poll.CANCELLED end
       if state.ended or state.loop ~= loop then return true, "" end
       if state == task then error("a task cannot join itself", 2) end
-      local w: Wait = { task = task }
+      local w: Wait = { task = task, joined = state }
       state.joiners[#state.joiners + 1] = w
-      -- TODO: drop a joiner's wait once a timeout answers it: a task
-      -- joined over and over with a timeout keeps every one until it ends.
       return park(task, w, timeout_ms)
     end,
     cancel = function(_self: Poll.Task)
@@ -406,7 +565,7 @@ end
 --- nearest time wait, or -1 for no limit.
 local function next_timeout(): integer
   if #loop.ready > 0 then return 0 end
-  while #loop.timers > 0 and loop.timers[1].done do heap_pop(loop.timers) end
+  while #loop.timers > 0 and loop.timers[1].done do pop_timer() end
   if #loop.timers == 0 then return -1 end
   local left = loop.timers[1].at - now_ms()
   if left < 0 then return 0 end
@@ -415,57 +574,46 @@ end
 
 --- Waits on every watched descriptor for as long as `timeout`, and
 --- answers each wait whose descriptor is ready, or in error or hung up,
---- which its read or write then reports. Each wait is an entry of its
---- own, though several share a descriptor: `poll` answers each entry
---- only the events it asked for, and those three.
+--- which its read or write then reports. A descriptor is polled once
+--- for the union of what its waits ask; each wait is answered only the
+--- events it asked for, and those three, as an entry of its own would
+--- be.
 local function poll_once(timeout: integer)
-  local fds: {integer} = {}
-  local events: {integer} = {}
-  --- Each entry's wait, and its place among the wait's `fds`, 0 for a
-  --- wait on one descriptor.
-  local owners: {Wait} = {}
-  local places: {integer} = {}
-  local kept: {Wait} = {}
-  -- TODO: keep the descriptor set between polls, changed as waits begin
-  -- and end, rather than built again from every wait each time round.
-  for _, w in ipairs(loop.watched) do
-    if not w.done then
-      kept[#kept + 1] = w
-      if w.fds == nil then
-        local n = #fds + 1
-        fds[n], events[n], owners[n], places[n] = w.fd, w.events, w, 0
-      else
-        for place, fd in ipairs(w.fds) do
-          local n = #fds + 1
-          fds[n], events[n], owners[n], places[n] = fd, w.masks[place], w, place
-        end
-      end
-    end
-  end
-  loop.watched = kept
-  if #fds == 0 and timeout < 0 then
+  if #loop.fds == 0 and timeout < 0 then
     error("every task waits on another: none can go on", 0)
   end
   -- A signal a Child.guard catches only cuts this poll short, and the
   -- loop waits on: what one means -- end every wait, or stop taking
   -- work and drain it, as Net.serve does -- is the run's to say, by a
   -- task that waits on the guard (`g:wait`).
-  local revents, trouble = sys.poll(fds, events, timeout)
+  local revents, trouble = sys.poll(loop.fds, loop.events, timeout)
   if revents == nil then error("poll: " .. trouble, 0) end
-  for i, w in ipairs(owners) do
-    if revents[i] ~= 0 then
-      -- Every entry of one wait is recorded before its task resumes.
-      if places[i] > 0 then w.answers[places[i]] = revents[i] end
-      wake(w, true, "")
+  -- Every descriptor of a wait is recorded before any wait is answered,
+  -- which changes what is polled.
+  local hits: {Wait} = {}
+  for slot, happened in ipairs(revents) do
+    if happened ~= 0 then
+      for _, watch in ipairs(loop.watched[loop.fds[slot]].watches) do
+        local answer = happened & (watch.mask | UNASKED)
+        if answer ~= 0 then
+          local w = watch.wait
+          if watch.place > 0 then w.answers[watch.place] = answer end
+          if not w.hit then
+            w.hit = true
+            hits[#hits + 1] = w
+          end
+        end
+      end
     end
   end
+  wake_hits(hits)
 end
 
 --- Answers every time wait whose time has come.
 local function expire()
   local t = now_ms()
   while #loop.timers > 0 and (loop.timers[1].done or loop.timers[1].at <= t) do
-    local w = heap_pop(loop.timers)
+    local w = pop_timer()
     if not w.done then
       if w.expiry_ok then wake(w, true, "") else wake(w, false, Poll.TIMEOUT) end
     end
@@ -495,18 +643,18 @@ end
 --- Outside a run, and for a descriptor nothing waits on, it does nothing.
 function Poll.closing(fd: integer)
   if loop == nil then return end
-  for _, w in ipairs(loop.watched) do
-    if w.fd == fd then
-      wake(w, true, "")
-    elseif w.fds ~= nil and not w.done then
-      for place, each in ipairs(w.fds) do
-        if each == fd then
-          w.answers[place] = sys.POLLNVAL
-          wake(w, true, "")
-        end
-      end
+  local entry = loop.watched[fd]
+  if entry == nil then return end
+  local hits: {Wait} = {}
+  for _, watch in ipairs(entry.watches) do
+    local w = watch.wait
+    if watch.place > 0 then w.answers[watch.place] = sys.POLLNVAL end
+    if not w.hit then
+      w.hit = true
+      hits[#hits + 1] = w
     end
   end
+  wake_hits(hits)
 end
 
 --- Whether the caller is a task of a running [`Poll.run`], whose waits
@@ -533,7 +681,8 @@ end
 function Poll.run(main: function())
   if loop ~= nil then error("Poll.run is already running", 2) end
   if type(main) ~= "function" then error("Poll.run takes a function", 2) end
-  loop = { tasks = {}, live = 0, ready = {}, watched = {}, timers = {}, seq = 0 }
+  loop = { tasks = {}, live = 0, ready = {}, fds = {}, events = {}, watched = {}, timers = {},
+    stale = 0, seq = 0 }
   -- Nothing may allocate between setting `loop` and the pcall, or a
   -- refused allocation would raise past the teardown and leave `loop`
   -- set for every later run: so no closure is made here.
