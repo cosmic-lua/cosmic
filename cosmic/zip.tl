@@ -861,14 +861,9 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     if method_name == "store" or is_dir then
       method, payload = 0, data
     elseif method_name == "deflate" then
-      local deflater, dtrouble = Compress.deflater("raw")
-      if deflater == nil then return false, dtrouble end
-      local part1, trouble = deflater:update(data)
-      if part1 == nil then return false, trouble end
-      local part2, ftrouble = deflater:finish()
-      if part2 == nil then return false, ftrouble end
-      payload = part1 .. part2
-      method = 8
+      local packed, dtrouble = Compress.deflate("raw", data)
+      if packed == nil then return false, dtrouble end
+      payload, method = packed, 8
     else
       return false, "zip: unknown method '" .. method_name .. "'"
     end

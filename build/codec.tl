@@ -31,7 +31,8 @@
 ---
 --- The input is streamed, 64 KiB at a time (a read that comes up short,
 --- as a pipe's does, is read on until the chunk is full or the input
---- ends), through the incremental coders below. Encoding writes
+--- ends), through the incremental coders below, which are
+--- [`Stream.Transform`]s. Encoding writes
 --- each chunk's text as soon as it is made. Decoding holds one chunk's
 --- bytes back until the next chunk has decoded, so an input of at most
 --- 64 KiB writes nothing when it is refused. A padding, length or
@@ -58,14 +59,12 @@ local record verb
     "base64url"
   end
 
-  -- TODO: this becomes a `Stream.Transform` once that interface lands
-  -- (doc/plans/stdlib-simplification.md, PR 7).
-  --- One incremental transform, a chunk at a time, in the shape of
-  --- [`cosmic.compress`]'s streams: `update(chunk)` feeds bytes (or
-  --- text) and returns the output that is ready, possibly ""; and
-  --- `finish()` says no more input follows and returns what is left,
-  --- with `nil` and a reason when a decoder's text was refused. Both
-  --- answer `value, ""` on success. An encoder never fails. A decoder
+  --- One incremental transform, a chunk at a time: a
+  --- [`Stream.Transform`] that holds nothing back (it has no
+  --- `pending`). `update(chunk)` feeds bytes (or text) and returns the
+  --- output that is ready, possibly ""; `finish()` says no more input
+  --- follows and returns what is left, with `nil` and a reason when a
+  --- decoder's text was refused. An encoder never fails. A decoder
   --- fails only at `finish`: it cannot tell a bad length from a bad
   --- character until the text ends, and the whole-string decoders
   --- report the length first, so it keeps the first bad character and
@@ -73,12 +72,7 @@ local record verb
   --- yet whole, plus a little state, however much passes through it,
   --- and gives all the output it has at each call. After `finish`,
   --- `update` and `finish` raise.
-  record Coder
-    --- Feeds a chunk; answers the output that is ready, possibly "".
-    update: function(Coder, chunk: string): string | nil, string
-    --- Ends the input; answers what is left, or `nil` and why a
-    --- decoder's text was refused.
-    finish: function(Coder): string | nil, string
+  record Coder is Stream.Transform
   end
 
   --- The verb's registration: see build/verb_spec.tl.
@@ -500,8 +494,7 @@ end
 --- @param bytes what to encode
 --- @param wrap columns per line; 0 for one line
 function verb.encode(name: verb.Name, bytes: string, wrap: integer): string
-  local coder = encoding(name, wrap)
-  return assert(coder:update(bytes)) .. assert(coder:finish())
+  return (assert(Stream.run(encoding(name, wrap), bytes)))
 end
 
 --- The bytes `text` spells in encoding `name`, ignoring ASCII
@@ -510,12 +503,7 @@ end
 --- @param text the encoded text
 --- @param lenient whether the other padding spelling is accepted
 function verb.decode(name: verb.Name, text: string, lenient: boolean): string | nil, string
-  local coder = verb.decoding(name, lenient)
-  local head, why = coder:update(text)
-  if head == nil then return nil, why end
-  local tail, tail_why = coder:finish()
-  if tail == nil then return nil, tail_why end
-  return head .. tail, ""
+  return Stream.run(verb.decoding(name, lenient), text)
 end
 
 --- What a command line asks for.
@@ -614,6 +602,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local coder = decode and verb.decoding(request.name, request.lenient)
     or encoding(request.name, request.wrap)
   local source = request.file or "standard input"
+  -- The coders are driven by hand, not through Stream.transform_writer,
+  -- on purpose: a decoder's output is held back one chunk, so an input
+  -- of at most 64 KiB that is refused writes nothing, and a Writer
+  -- over `to.out` would have written each chunk's bytes already.
   -- What one chunk decoded to, kept until the next chunk shows the
   -- text is sound so far: see the head of this file. Not used to encode.
   local held = ""
