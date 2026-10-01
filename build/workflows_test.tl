@@ -925,6 +925,16 @@ local MAIN_SAVES <const> = "${{ github.ref == 'refs/heads/main' && " ..
   "(github.event_name == 'push' || github.event_name == 'schedule') }}"
 local SAVES <const> = "env.COSMIC_CI_SAVES == 'true'"
 
+--- The prefix a branch's push saves its compiles under, for its own
+--- later pushes, and restores them by first: `names`' output, which
+--- names the leg and the compiler the compiles were made by.
+local BRANCH_COMPILES <const> = "${{ steps.names.outputs.compiles }}"
+
+--- Whether `key`, a save's, is a branch's compiles for its later pushes.
+local function branch_compiles(key: string): boolean
+  return key:find(BRANCH_COMPILES, 1, true) == 1
+end
+
 --- Holds each cache save of `steps`, a job's, to main's saves (below),
 --- and counts them.
 local function main_saves(steps: {{string: any}}): integer
@@ -965,7 +975,8 @@ local function main_saves(steps: {{string: any}}): integer
         restores[path] = step
       end
     end
-    if uses:find("actions/cache/save@", 1, true) ~= nil then
+    if uses:find("actions/cache/save@", 1, true) ~= nil and
+        not branch_compiles(with.key as string) then
       saves = saves + 1
       local path = with.path as string
       local condition = step["if"] as string
@@ -987,9 +998,17 @@ local function main_saves(steps: {{string: any}}): integer
         local trim = verdicts and trims.verdicts or
           path == "${{ runner.temp }}/build-cache" and trims.compiles or nil
         assert(trim ~= nil, path .. " is saved under a key of its own, cut by no trim: " .. key)
-        local prefix = ((restore.with as {string: any})["restore-keys"] as string):match("^(.*)\n$")
-        assert(prefix ~= nil and (rkey == prefix or verdicts and rkey == at_the_base(prefix)),
-          path .. " is restored by another prefix than it is saved under: " .. rkey)
+        -- Main's prefix last: a branch's compiles are asked for first
+        -- (test_a_branch_saves_compiles_for_its_later_pushes).
+        local rkeys = (restore.with as {string: any})["restore-keys"] as string
+        local prefix = rkeys:match("([^\n]*)\n$")
+        if path == "${{ runner.temp }}/build-cache" then
+          assert(rkey == BRANCH_COMPILES and rkeys == BRANCH_COMPILES .. "\n" .. prefix .. "\n",
+            path .. " is restored by other prefixes than a branch's, then main's: " .. rkeys)
+        else
+          assert(rkeys == prefix .. "\n" and (rkey == prefix or verdicts and rkey == at_the_base(prefix)),
+            path .. " is restored by another prefix than it is saved under: " .. rkey)
+        end
         local digest = "${{ steps." .. trim .. ".outputs.digest }}"
         if verdicts and key == under_the_commit(prefix) then
           -- Whatever was restored: its own key is new each commit.
@@ -1010,7 +1029,8 @@ end
 --- from main alone -- a push or the scheduled run, never a branch's push
 --- nor the merge queue's run -- and restore on every run, whatever its
 --- event or ref, so a branch stands on what main saved and saves nothing
---- of its own.
+--- of its own but its compiles, for its own later pushes, under a prefix
+--- of their own (test_a_branch_saves_compiles_for_its_later_pushes).
 --- Main's pushes share one concurrency group that cancels nothing in
 --- progress, so their saves land in commit order and a restore's newest
 --- entry is never an older commit's saved late, with no lookup of the
@@ -1062,6 +1082,8 @@ local function save_of(steps: {{string: any}}, path: string): {string: any}, {st
     if (step.with as {string: string}).path == path then
       if key:find("sha-${{ github.sha }}", 1, true) or key:find("outputs.verdicts-sha }}", 1, true) then
         commit = step
+      elseif branch_compiles(key) then
+        -- A branch's, for its later pushes, which main never saves.
       else
         plain = step
       end
@@ -1077,6 +1099,93 @@ local function step_running(steps: {{string: any}}, text: string): {string: any}
     if run is string and run:find(text, 1, true) ~= nil then return step, i end
   end
   error("no step runs " .. text)
+end
+
+--- What `names` hashes as the compiler a branch's compiles were made
+--- by: the build's own modules, cosmic.removed, and the Teal compiler's
+--- and Lua's pins and patches, as the compiler's identity holds them
+--- (build.work's `compiler_identity`), and the rest of build/ beside.
+local COMPILER_HASH <const> = "${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', " ..
+  "'cosmic/removed.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}"
+
+--- A branch's push saves its compiles for its own later pushes, where
+--- its builds compiled more than a few dozen modules the entry it
+--- restored lacked (`fresh`): a change to the compiler moves every
+--- compile's key, and each later push would otherwise compile the whole
+--- tree again on every leg. The save is a light run's alone (a branch's
+--- push), once for linux-x86_64's two shares, under a prefix main never
+--- saves under (`compiles-branch-`) that names the leg and the
+--- compiler, trimmed to the run's rows and named by their digest as
+--- main's are. Every restore of the compiles, the checked job's too,
+--- asks for that prefix first and main's after, so a branch stands on
+--- its own entry of the same compiler where there is one and main's
+--- otherwise. The trim counts the fresh compiles against a copy of what
+--- was restored, made before the boot.
+local function test_a_branch_saves_compiles_for_its_later_pushes()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  for job, leg in pairs({ platform = "${{ matrix.name }}", checked = "linux-x86_64" }) do
+    local steps = jobs[job].steps as {{string: any}}
+    local names: {string: any}
+    for _, step in ipairs(steps) do
+      if step.id == "names" then names = step end
+    end
+    assert(names ~= nil and (names.run as string):find("echo \"compiles=compiles-branch-" .. leg .. "-" ..
+      COMPILER_HASH .. "-\" >> \"$GITHUB_OUTPUT\"", 1, true) ~= nil,
+      job .. " names a branch's compiles by another leg or compiler: " .. tostring(names and names.run))
+    local restore: {string: string}
+    for _, step in ipairs(steps) do
+      if step.id == "compiles-restore" then restore = step.with as {string: string} end
+    end
+    assert(restore.key == BRANCH_COMPILES and
+      restore["restore-keys"] == BRANCH_COMPILES .. "\ncompiles-" .. leg .. "-\n",
+      job .. " restores other compiles than its branch's, then main's: " .. tostring(restore["restore-keys"]))
+  end
+  assert(not ("compiles-branch-"):find("compiles-${{ matrix.name }}-", 1, true),
+    "main's prefix takes a branch's entries")
+
+  local steps = jobs.platform.steps as {{string: any}}
+  local branch: {{string: any}} = {}
+  for key, step in pairs(saves_of(steps)) do
+    if branch_compiles(key) then branch[#branch + 1] = step end
+  end
+  assert(#branch == 1, "a branch's compiles are saved by " .. #branch .. " steps")
+  local with = branch[1].with as {string: string}
+  assert(with.path == "${{ runner.temp }}/build-cache" and
+    with.key == BRANCH_COMPILES .. "${{ steps.compiles-trim.outputs.digest }}",
+    "a branch's compiles are saved from elsewhere, or not by their digest: " .. with.key)
+  local condition = branch[1]["if"] as string
+  for _, part in ipairs({ "steps.release-suite.outcome == 'success'", "steps.compiles-trim.outputs.digest != ''",
+      LIGHT, "matrix.shard != '2/2'", "fromJSON(steps.compiles-trim.outputs.fresh || '0') > 50" }) do
+    assert(condition:find(part, 1, true) ~= nil, "a branch saves its compiles without " .. part .. ": " .. condition)
+  end
+  assert(not condition:find(SAVES, 1, true), "main saves a branch's compiles: " .. condition)
+  for _, step in pairs(saves_of(jobs.checked.steps as {{string: any}})) do
+    assert(not branch_compiles((step.with as {string: string}).key), "the checked job saves a branch's compiles")
+  end
+
+  -- The copy of what was restored: made after the restore and before
+  -- the boot, where the trim reads it, outside the path saved.
+  local _, restored, copy, boot: integer, integer, integer, integer
+  for i, step in ipairs(steps) do
+    if step.id == "compiles-restore" then restored = i end
+    if step.name == "build release Cosmic" then boot = i end
+    local run = step.run
+    if run is string and run:find("cp \"$RUNNER_TEMP/build-cache/cache.db\" " ..
+        "\"$RUNNER_TEMP/compiles-restored.db\"", 1, true) ~= nil then
+      copy = i
+      -- On a light run alone, since only it saves; a copy that fails
+      -- only costs a save, so it never fails the leg.
+      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'light'" and step["continue-on-error"] == true and
+        step.shell == "sh", "the copy is made on a run that saves none, fails the leg, or runs in the container")
+    end
+  end
+  assert(restored ~= nil and copy ~= nil and boot ~= nil and restored < copy and copy < boot,
+    "the compiles restored are copied elsewhere than between their restore and the boot")
+  local trim = step_running(steps, "driver.tl compiles-trim")
+  assert((trim.run as string):find("compiles-trim \"${{ steps.names.outputs.since }}\" " ..
+    "\"${{ runner.temp }}/compiles-restored.db\"", 1, true) ~= nil,
+    "the trim counts the fresh compiles against another file: " .. (trim.run as string))
 end
 
 --- A push to main tests the commit the merge queue just tested, so it

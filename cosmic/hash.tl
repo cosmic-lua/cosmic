@@ -48,38 +48,13 @@ local record Hash
     "sha3-512"
   end
 
-  --- An incremental digest: feed it chunks with `update`, then read the
-  --- raw digest with `digest`, which answers `digest, ""` (or
-  --- `nil, error`) and finishes it. Calling either method again
-  --- afterward throws. A hasher is closeable: `local h <close> = ...`
-  --- abandons an unfinished digest at the end of the scope.
+  --- An incremental digest, or HMAC from [`Hash.hmac_hasher`]: feed it
+  --- chunks with `update`, then read the raw digest (or code) with
+  --- `digest`, which answers `digest, ""` (or `nil, error`) and finishes
+  --- it. Calling either method again afterward throws. A hasher is
+  --- closeable: `local h <close> = ...` abandons an unfinished one at the
+  --- end of the scope.
   type Hasher = raw_hash.Hasher
-
-  --- An incremental HMAC: the same calls as a [`Hasher`], `update` and
-  --- `digest`, the digest being the raw code [`Hash.hmac`] gives over
-  --- the whole of what was fed. Calling either method after `digest`
-  --- throws; a `<close>` abandons an unfinished one.
-  record Mac
-    --- Feeds a chunk. Throws on a finished Mac.
-    update: function(Mac, data: string)
-    --- The raw HMAC, as `digest, ""` or `nil, error`; finishes it.
-    digest: function(Mac): string | nil, string
-    metamethod __close: function(Mac, any)
-  end
-end
-
---- The block size of each algorithm's compression function, in bytes:
---- what an HMAC key is padded to (the rate of a SHA-3 sponge).
-local BLOCK <const>: {string:integer} = {
-  ["md5"] = 64, ["sha1"] = 64, ["sha224"] = 64, ["sha256"] = 64, ["sha384"] = 128, ["sha512"] = 128,
-  ["sha3-224"] = 144, ["sha3-256"] = 136, ["sha3-384"] = 104, ["sha3-512"] = 72,
-}
-
---- `key` with every byte xor `mask`.
-local function xor_with(key: string, mask: integer): string
-  return (key:gsub(".", function(c: string): string
-    return string.char(c:byte() ~ mask)
-  end))
 end
 
 --- The raw digest of some bytes under an algorithm: 16 bytes for MD5,
@@ -117,42 +92,13 @@ end
 --- An incremental HMAC (RFC 2104) under `key` over an algorithm, for a
 --- message that arrives in chunks; its raw code equals
 --- `Hash.hmac(algorithm, key, ...)` over the whole of what was fed to
---- it, for a key of any length. Answers `mac, ""`, or `nil, error` when
---- the digest cannot start. Raises on an unknown algorithm.
-function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Mac | nil, string
-  local block = BLOCK[algorithm]
-  if block == nil then error("unknown hash algorithm: " .. tostring(algorithm), 2) end
-  local padded = #key > block and raw.digest(algorithm, key) or key
-  padded = padded .. string.rep("\0", block - #padded)
-  local started, why = raw.hasher(algorithm)
-  if started == nil then return nil, why end
-  local inner: Hash.Hasher = started
-  inner:update(xor_with(padded, 0x36))
-  local outer_pad: string | nil = xor_with(padded, 0x5c)
-  local finished = false
-  local mac: Hash.Mac = {}
-  mac.update = function(_self: Hash.Mac, data: string)
-    if finished then error("hasher is finished", 2) end
-    inner:update(data)
-  end
-  mac.digest = function(_self: Hash.Mac): string | nil, string
-    if finished then error("hasher is finished", 2) end
-    finished = true
-    -- The key-derived pad is not kept past the digest.
-    local pad = outer_pad
-    outer_pad = nil
-    if pad == nil then error("hasher is finished", 2) end
-    local first, trouble = inner:digest()
-    if first == nil then return nil, trouble end
-    return raw.digest(algorithm, pad .. first), ""
-  end
-  return setmetatable(mac, { __close = function()
-    if not finished then
-      finished = true
-      outer_pad = nil
-      local _, _ = inner:digest()
-    end
-  end }), ""
+--- it, for a key of any length. It is a [`Hash.Hasher`]: `update` and
+--- `digest` as a digest's, `digest` answering the code and finishing it,
+--- a `<close>` abandoning an unfinished one. Answers `mac, ""`, or
+--- `nil, error` when the digest cannot start. Raises on an unknown
+--- algorithm.
+function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher | nil, string
+  return raw.hmac_hasher(algorithm, key)
 end
 
 --- The sum of the unsigned bytes of `data` from `first` through `last`

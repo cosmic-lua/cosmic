@@ -1,4 +1,5 @@
 local Json = require("cosmic.json")
+local json_raw = require("build.json_raw")
 local Shape = require("cosmic.shape")
 
 local record Server
@@ -168,7 +169,7 @@ local function test_json_null_is_a_missing_value()
   local far: {integer} = must(Shape.into({ [1 << 40] = 7 }, Shape.list(Shape.optional(Shape.integer))))
   assert(far[1 << 40] == 7)
   -- An answer re-encodes, its nulls written for its holes when asked.
-  assert(must(Json.encode(l, { sparse_as_null = true })) == "[1,null,3]")
+  assert(must(json_raw.encode(l, { sparse_as_null = true })) == "[1,null,3]")
 end
 
 -- A whole number another encoder wrote as a float reads as an integer,

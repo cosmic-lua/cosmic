@@ -43,6 +43,14 @@ int cosmic_hmac (const char *name, const void *key, size_t key_len,
                  const void *data, size_t len,
                  unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len);
 
+/* Starts `operation`, freshly initialized, as an incremental HMAC under
+ * `key` of any length over `alg`, which [`cosmic_hash_algorithm`] named:
+ * the library's status. The operation holds the key's derived pads, not
+ * the key; `psa_mac_abort` or `psa_mac_sign_finish` releases them. */
+psa_status_t cosmic_hmac_setup (psa_mac_operation_t *operation,
+                                psa_algorithm_t alg, const void *key,
+                                size_t key_len);
+
 /* Whether the `length` bytes at `offset` in `fd` hash, under sha256, to
  * the bytes `want` holds. False on any read or digest failure too. */
 bool cosmic_sha256_range_matches (int fd, uint64_t offset, uint64_t length,
