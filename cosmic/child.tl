@@ -1449,6 +1449,28 @@ local function unfound_name(name: string, cwd?: string): boolean
   return found == nil
 end
 
+--- Why a start that failed with EINVAL or EMFILE may have failed: the
+--- descriptors it places above the highest it hands the child are
+--- refused past RLIMIT_NOFILE's soft limit, which a process raises at
+--- its start but no further than the hard one. "" where the limit
+--- leaves them room.
+local function descriptor_limit_hint(slots: {integer:integer}): string
+  local top, count = 2, 0
+  for number in pairs(slots) do
+    count = count + 1
+    if number > top then top = number end
+  end
+  local limits, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
+  -- The child's status end takes top + 1; above it, a copy of each
+  -- descriptor handed and what spawn places besides.
+  if limits == nil or limits.soft > top + 1 + count + raw.SPAWN_PLACED_ABOVE then return "" end
+  local remedy = limits.soft < limits.hard and "sys.setrlimit raises it as far as the hard one" or
+    "only a higher hard limit makes room"
+  return ": the child is handed descriptor " .. tostring(top) .. ", and the start " ..
+    "places descriptors above it, past RLIMIT_NOFILE's soft limit of " ..
+    tostring(limits.soft) .. " (hard " .. tostring(limits.hard) .. "): " .. remedy
+end
+
 --- [`Child.start`] on options already validated.
 local function start(argv: {string}, opts: Options): Handle | nil, string
   local grouped = opts.process_group
@@ -1490,6 +1512,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
       trouble = trouble .. ": " .. string.format("%q", argv[1]) ..
         " is run as a path, with no PATH search; Proc.find(" ..
         string.format("%q", argv[1]) .. ") answers where a shell would find it"
+    elseif errno == sys.EINVAL or errno == sys.EMFILE then
+      trouble = trouble .. descriptor_limit_hint(slots)
     end
     return nil, "start: " .. trouble
   end

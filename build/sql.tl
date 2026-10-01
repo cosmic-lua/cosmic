@@ -45,6 +45,7 @@ local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local bare = require("build.bare")
 local clock = require("build.clock")
+local json_query = require("build.json_query")
 local verdicts = require("build.verdict")
 local verb_spec = require("build.verb_spec")
 
@@ -472,7 +473,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
         end
         input.format = value
       else
-        local steps, why = Json.parse_path(value)
+        local steps, why = json_query.parse_path(value)
         if steps == nil then
           return nil, "--at " .. value .. ": " .. why
         end

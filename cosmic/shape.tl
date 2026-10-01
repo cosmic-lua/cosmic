@@ -232,7 +232,15 @@ function Shape.either(...: Spec): Spec
 end
 
 local quoted = Json.quote
-local field_path = Json.child_path
+
+--- `path` extended by the field `name`, as a message spells where a miss
+--- is: `$.user` for a word, `$["a key"]` for any other key.
+local function field_path(path: string, name: string): string
+  if name:match("^[%a_][%w_]*$") then
+    return path .. "." .. name
+  end
+  return path .. "[" .. quoted(name) .. "]"
+end
 
 --- What a value is, for a message: the Lua type, with integer and float
 --- told apart, and JSON's null and arrays by their JSON names.
@@ -336,6 +344,10 @@ end
 --- 1 through `#t` when those are `t`'s keys, which a decoded JSON array's
 --- are, or nil: what [`split_keys`] would keep, without sorting anything.
 local function dense_keys(t: {any: any}): {any}
+  -- TODO: classify `t` with Json.layout and Json.members, as encode and
+  -- get do, and drop this and [`split_keys`]' classification, once PR 5
+  -- of doc/plans/stdlib-simplification.md (one failure mode) reworks the
+  -- walk.
   local n = rawlen(t)
   local count = 0
   for _ in next, t do
