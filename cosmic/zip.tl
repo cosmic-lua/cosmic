@@ -148,9 +148,7 @@ local LINK_LIMIT <const> = 4096
 -- DOS date/time, Unix epoch seconds; no timezone -- both sides are UTC
 ------------------------------------------------------------------
 
--- TODO: once cosmic.time has Time.seconds (PR 6 of
--- doc/plans/stdlib-simplification.md), take a second's nanoseconds from it.
-local NS_PER_SECOND <const> = 1000000000
+local NS_PER_SECOND <const> = Time.seconds(1)
 --- 1980-01-01T00:00:00Z and 2107-12-31T23:59:59Z, the first and last
 --- moments a DOS date holds: its year is seven bits from 1980.
 local DOS_FIRST <const> = 315532800
@@ -172,7 +170,7 @@ local function dos_to_unix(date: integer, clock: integer): integer
       year = ((date >> 9) & 0x7F) + 1980,
       month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
       day = math.max(date & 0x1F, 1),
-      hour = 0, minute = 0, second = 0, nanosecond = 0,
+      hour = 0, minute = 0, second = 0, ns = 0,
     }
     local ns, _ = Time.from_civil(c)
     -- Only a day past the month's end can be refused now.

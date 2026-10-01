@@ -141,13 +141,13 @@ local function record_of(seen: Seen): {string:any}
   local c = Time.civil(seen.ns, seen.zone)
   return {
     epoch = seen.ns // NS,
-    rfc3339 = Time.format_rfc3339(seen.ns, { zone = seen.zone }),
+    rfc3339 = Time.format_rfc3339(seen.ns, seen.zone),
     zone = seen.zone.name == "Etc/UTC" and "UTC" or seen.zone.name,
     offset = c.offset,
     abbreviation = c.abbreviation,
     dst = c.dst,
     year = c.year, month = c.month, day = c.day,
-    hour = c.hour, minute = c.minute, second = c.second, nanosecond = c.nanosecond,
+    hour = c.hour, minute = c.minute, second = c.second, nanosecond = c.ns,
     weekday = c.weekday, yday = c.yday,
   }
 end
@@ -169,12 +169,132 @@ local function epoch_text(ns: integer): string
   return (negative and "-" or "") .. text
 end
 
+-- TODO: [`fraction_ns`], the range bounds below and [`epoch_text`]'s
+-- trimming copy cosmic.time's private [`fraction_ns`], `instant` and
+-- `fraction_text`. Call them once cosmic.time exports a moment from whole
+-- seconds and nanoseconds, and a fraction's digits both ways.
+
+--- The first and last moments an integer of nanoseconds holds, as whole
+--- seconds and the nanoseconds past them, and how `@` text refuses one
+--- outside them.
+local MIN_S <const> = math.mininteger // NS
+local MIN_NS <const> = math.mininteger % NS
+local MAX_S <const> = math.maxinteger // NS
+local MAX_NS <const> = math.maxinteger % NS
+local RANGE <const> = "outside 1677-09-21T00:12:43.145224192Z through " ..
+  "2262-04-11T23:47:16.854775807Z, what an integer of nanoseconds holds"
+
+--- The nanoseconds the digits of a fraction of a second spell, one to
+--- nine of them: `5` is 500000000.
+local function fraction_ns(digits: string): integer
+  return math.tointeger(tonumber(digits .. ("0"):rep(9 - #digits)))
+end
+
+--- What the text [`verb.parse_input`] reads may spell.
+local INPUT_FORMS <const> = "expected RFC 3339 (2026-09-25T04:09:21Z), a date (2026-09-25), " ..
+  "a local time (2026-09-25T04:09[:21]) or @<epoch seconds>"
+
+--- [`verb.parse_input`] less the forms' names in its failures.
+local function read_input(text: string, zone: Time.Zone | nil,
+    how: Time.Disambiguation): Time.Zoned | nil, string
+  if text:sub(1, 1) == "@" then
+    local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
+    if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
+      return nil, "@ and seconds since 1970, as @1700000000 or @-1.5, at most 10 digits " ..
+        "(the calendar ends in 2262) and 9 of fraction"
+    end
+    local s = math.tointeger(tonumber(whole))
+    local n = frac == "" and 0 or fraction_ns(frac)
+    if sign == "-" then
+      s = -s
+      if n > 0 then s, n = s - 1, NS - n end
+    end
+    if s < MIN_S or (s == MIN_S and n < MIN_NS) or s > MAX_S or (s == MAX_S and n > MAX_NS) then
+      return nil, RANGE
+    end
+    return { ns = s * NS + n }, ""
+  end
+  if text:match("^%d%d%d%d%-%d%d%-%d%d$") then
+    local ns, why = Time.parse_date(text, zone)
+    if ns == nil then return nil, why end
+    return { ns = ns }, ""
+  end
+  local year, month, day, hour, minute, tail = text:match(
+    "^(%d%d%d%d)%-(%d%d)%-(%d%d)[Tt](%d%d):(%d%d)(.*)$")
+  if tail ~= nil and (tail == "" or tail:match("^:%d%d$") or tail:match("^:%d%d%.%d+$")) then
+    local c: Time.Civil = {
+      year = math.tointeger(tonumber(year)), month = math.tointeger(tonumber(month)),
+      day = math.tointeger(tonumber(day)), hour = math.tointeger(tonumber(hour)),
+      minute = math.tointeger(tonumber(minute)), second = 0, ns = 0,
+    }
+    if tail ~= "" then
+      c.second = math.tointeger(tonumber(tail:sub(2, 3)))
+      if c.second == 60 then
+        return nil, "second 60 is not 0 through 59: cosmic time has no leap seconds"
+      end
+      if #tail > 3 then
+        local digits = #tail - 4
+        if digits > 9 then
+          return nil, ("fraction: expected 1 to 9 digits, not %d"):format(digits)
+        end
+        c.ns = fraction_ns(tail:sub(5))
+      end
+    end
+    local ns, from_why = Time.from_civil(c, zone, { disambiguation = how })
+    if ns == nil then return nil, from_why end
+    return { ns = ns }, ""
+  end
+  -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
+  local zoned, why: Time.Zoned | nil, string
+  local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
+  if minutes ~= nil then
+    zoned, why = Time.parse_rfc3339_zoned(minutes .. ":00" .. rest)
+    if zoned == nil then
+      -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
+      why = why:gsub("byte (%d+)", function(n: string): string
+        local at = math.tointeger(n) or 0
+        return "byte " .. (at >= 17 and at - 3 or at)
+      end)
+    end
+  else
+    zoned, why = Time.parse_rfc3339_zoned(text)
+  end
+  if zoned == nil then return nil, why end
+  return zoned, ""
+end
+
+--- The moment a user's text names, in whichever form they wrote it, or
+--- nil and why: RFC 3339 as [`Time.parse_rfc3339_zoned`] reads it, whose
+--- zone is the suffix's, or else the text's own offset (`Z` is UTC); a
+--- date `2026-09-25`, its first moment on the calendar of `zone` (UTC's
+--- when nil), as [`Time.parse_date`] has it; a local time
+--- `2026-09-25T04:09` or `2026-09-25T04:09:21.5`, without `Z` or an
+--- offset, on the calendar of `zone`, resolved as `how` says
+--- ("compatible" when absent, as a wall clock would: a time in a gap
+--- lands after the gap, and a time passed twice is the earlier); and `@`
+--- and seconds since 1970, an integer with an optional sign and
+--- fraction, `@1700000000`, `@-1.5`. Seconds are optional in the clock
+--- of RFC 3339 text as in local text (`2026-09-25T04:09Z`), and a failure
+--- names the forms, then the fault. The zone returned is nil for the
+--- last three, which name none. Any text answers a moment or a failure.
+--- Raises for a `zone` no function of [`cosmic.time`] made.
+function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): Time.Zoned | nil, string
+  local zoned, why = read_input(text, zone, how or "compatible")
+  if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
+  return zoned, ""
+end
+
+--- The whole days from the epoch to the local date `ns` falls on in `zone`.
+local function local_day(ns: integer, zone: Time.Zone): integer
+  return (ns // NS + Time.civil(ns, zone).offset) // 86400
+end
+
 --- `seen` in the format the command line named.
 local function shown(seen: Seen, format: string, digits?: integer): string
   if format == "epoch" then return epoch_text(seen.ns) end
   if format == "date" then return Time.format_date(seen.ns, seen.zone) end
   if format == "http" then return Time.format_http(seen.ns) end
-  return Time.format_rfc3339(seen.ns, { zone = seen.zone, digits = digits })
+  return Time.format_rfc3339(seen.ns, seen.zone, { digits = digits })
 end
 
 --- `cosmic time [subcommand] ...`: prints what it is asked and returns the
@@ -269,7 +389,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   --- What a time argument names: nil after a complaint.
   local function read_time(text: string, zone: Time.Zone): Time.Zoned | nil
-    local zoned, why = Time.parse_input(text, zone, { disambiguation = disambiguation })
+    local zoned, why = verb.parse_input(text, zone, disambiguation)
     if zoned == nil then
       complain(("%q: %s"):format(text, why))
       return nil
@@ -308,22 +428,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       complain(("%q: %s"):format(parsed.words[3], why))
       return bare.refused
     end
-    local moved, moved_why = Time.add_calendar(first.ns,
-      { years = duration.years, months = duration.months, days = duration.days }, {
-        zone = calendar, overflow = parsed.set["--clamp"] and "clamp" or "reject",
-        disambiguation = disambiguation,
-      })
+    local moved, moved_why = Time.add_calendar(first.ns, duration, calendar, {
+      overflow = parsed.set["--clamp"] and "clamp" or "reject", disambiguation = disambiguation,
+    })
     if moved == nil then
       complain((moved_why:gsub('overflow "clamp" takes its last', "--clamp takes its last")))
       return bare.failed
     end
-    local exact = moved + duration.nanoseconds
-    if (duration.nanoseconds > 0 and exact < moved) or (duration.nanoseconds < 0 and exact > moved) then
-      complain("outside 1677-09-21T00:12:43.145224192Z through 2262-04-11T23:47:16.854775807Z, " ..
-        "what an integer of nanoseconds holds")
-      return bare.failed
-    end
-    return print_seen({ ns = exact, zone = calendar })
+    return print_seen({ ns = moved, zone = calendar })
   end
 
   local second = read_time(parsed.words[3], calendar)
@@ -336,39 +448,15 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local unit = #modes == 1 and modes[1]:sub(3) or "duration"
   local value: integer | string
   if unit == "days" then
-    value = Time.days_between(first.ns, second.ns, calendar)
-  elseif unit == "months" then
-    value = Time.months_between(first.ns, second.ns, calendar)
+    value = local_day(second.ns, calendar) - local_day(first.ns, calendar)
   elseif unit == "seconds" then
     local whole = second.ns // NS - first.ns // NS
     local fraction = second.ns % NS - first.ns % NS
     if whole > 0 and fraction < 0 then whole = whole - 1 elseif whole < 0 and fraction > 0 then whole = whole + 1 end
     value = whole
   else
-    local months = Time.months_between(first.ns, second.ns, calendar)
-    local options: Time.AddOptions = { zone = calendar, overflow = "clamp", disambiguation = "compatible" }
-    local anchor, why = Time.add_calendar(first.ns, { months = months }, options)
-    if anchor == nil then
-      complain(why)
-      return bare.failed
-    end
-    local days = Time.days_between(anchor, second.ns, calendar)
-    local moved, days_why = Time.add_calendar(anchor, { days = days }, options)
-    -- A whole day past the second is one too many.
-    if moved ~= nil and ((days > 0 and moved > second.ns) or (days < 0 and moved < second.ns)) then
-      days = days > 0 and days - 1 or days + 1
-      moved, days_why = Time.add_calendar(anchor, { days = days }, options)
-    end
-    if moved == nil then
-      complain(days_why)
-      return bare.failed
-    end
-    local sign = (months < 0 or days < 0 or second.ns < moved) and -1 or 1
-    local years = sign * (math.abs(months) // 12)
-    value = Time.format_duration({
-      years = years, months = sign * (math.abs(months) % 12), days = days,
-      nanoseconds = second.ns - moved,
-    })
+    local span = Time.between(first.ns, second.ns, calendar)
+    value = unit == "months" and span.years * 12 + span.months or Time.format_duration(span)
   end
   if as_json then
     local encoded, why = Json.encode({
