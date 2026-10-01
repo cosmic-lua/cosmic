@@ -107,23 +107,30 @@ local record Test
     --- nor a root of their own for what they start (`nests`).
     tool: boolean
     --- Whether the tests start this program only to run Lua in it: a
-    --- `-e` chunk or a file `--standalone`, past its launcher or by
-    --- [`Proc.relaunch`]. Like `tool`, it lets them run the program --
-    --- but not read it by its name -- and every process they start, and
-    --- each one those start, is held as their worker is, whatever
-    --- environment it is given: it loads nothing of the program but the
-    --- tests' import closure and what `cosmic -e` and `cosmic
-    --- --standalone` load before the chunk or file runs, and reads no
-    --- rows but theirs. So their key holds those, not every module the program
+    --- `-e` chunk, past its launcher or by [`Proc.relaunch`] -- and a
+    --- file `--standalone` too where they declare `standalone`. Like
+    --- `tool`, it lets them run the program -- but not read it by its
+    --- name -- and every process they start, and each one those start,
+    --- is held as their worker is, whatever environment it is given: it
+    --- loads nothing of the program but the tests' import closure and
+    --- what `cosmic -e` loads before the chunk runs, and reads no rows
+    --- but theirs. So their key holds those, not every module the program
     --- carries, and an edit to another module the program carries runs
     --- them no more than one to a module of the tree outside their
     --- closure. A chunk that requires a module outside them, or a verb
-    --- run that way, fails, naming this field: require the module at the
-    --- top level of the test module, or declare `tool` in its place. It
-    --- is refused beside `tool`, `store`, `system` or `caches`: a host
-    --- program, or a cosmic a cache holds, could start the program with
-    --- no hold.
+    --- run that way -- `--standalone` among them, unless `standalone` is
+    --- declared -- fails, naming this field: require the module at the
+    --- top level of the test module, declare `standalone` beside it, or
+    --- declare `tool` in its place. It is refused beside `tool`, `store`,
+    --- `system` or `caches`: a host program, or a cosmic a cache holds,
+    --- could start the program with no hold.
     lua: boolean
+    --- Whether the tests, declaring `lua`, also run a file `cosmic
+    --- --standalone`: their closure holds what that way loads before the
+    --- file runs too -- the checker, the compiler beside it, and what
+    --- they require -- so their key moves with those, and their children
+    --- may load them. Refused without `lua`.
+    standalone: boolean
     --- Whether the tests confine a process in a root of its own: a
     --- `sandbox` that unveils ([`cosmic.child`]), or a `cosmic test` they
     --- start whose workers are sandboxed. A sandboxed worker whose
@@ -196,8 +203,8 @@ end
 -- (build/analyzer.tl).
 Test.fields = {
   reads = "list", host = "list", env = "list", network = "list",
-  tool = "flag", lua = "flag", nests = "flag", store = "flag", system = "flag",
-  caches = "list",
+  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", store = "flag",
+  system = "flag", caches = "list",
 }
 
 --- What a test runner installed as `__runner` on this module's table
@@ -240,14 +247,19 @@ function Test.network_trouble(host: string): string
   return ""
 end
 
---- Why a declaration with `lua` set as given, beside `tool`, `store`,
---- `system` and any cache (`caches`) as given, is refused, or "" when it
---- is not: `lua` holds every process the tests start to what a key
---- holds of the program ([`Needs.lua`]), which a host program, or a
---- cosmic a cache holds, could start the program past; and `tool` and
---- `store` key the whole program already.
-function Test.lua_trouble(lua: boolean, tool: boolean, store: boolean, system: boolean,
-                          caches: boolean): string
+--- Why a declaration with `lua` and `standalone` set as given, beside
+--- `tool`, `store`, `system` and any cache (`caches`) as given, is
+--- refused, or "" when it is not: `lua` holds every process the tests
+--- start to what a key holds of the program ([`Needs.lua`]), which a
+--- host program, or a cosmic a cache holds, could start the program
+--- past; `tool` and `store` key the whole program already; and
+--- `standalone` widens what `lua` holds, so it means nothing alone.
+function Test.lua_trouble(lua: boolean, standalone: boolean, tool: boolean, store: boolean,
+                          system: boolean, caches: boolean): string
+  if standalone and not lua then
+    return "standalone is refused without lua: it adds what `cosmic --standalone` " ..
+      "loads to what lua holds; declare lua = true beside it"
+  end
   if not lua then return "" end
   local beside: {string:boolean} = { tool = tool, store = store, system = system,
     caches = caches }
@@ -296,8 +308,9 @@ local function trouble_of(value: any): string
     end
   end
   local caches = value["caches"]
-  return Test.lua_trouble(value["lua"] == true, value["tool"] == true, value["store"] == true,
-    value["system"] == true, caches is {any:any} and next(caches) ~= nil)
+  return Test.lua_trouble(value["lua"] == true, value["standalone"] == true,
+    value["tool"] == true, value["store"] == true, value["system"] == true,
+    caches is {any:any} and next(caches) ~= nil)
 end
 
 --- Where `needs` was called from, as the chunk and line a traceback

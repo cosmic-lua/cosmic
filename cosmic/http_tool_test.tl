@@ -17,8 +17,8 @@ local type _ = require("cosmic.http")
 --- Requests to a local port, closed or one a test serves, which a
 --- loopback alone answers: the worker runs offline, and is keyed. And
 --- the program itself, which its tests start only to run a script
---- standalone (`lua`).
-Test.needs{ network = { "127.0.0.1" }, lua = true }
+--- standalone (`lua`, `standalone`).
+Test.needs{ network = { "127.0.0.1" }, lua = true, standalone = true }
 
 --- What a fresh process, $SSL_CERT_FILE naming `cert_file`, is told
 --- when it opens a closed local port: the roots, that file's included,

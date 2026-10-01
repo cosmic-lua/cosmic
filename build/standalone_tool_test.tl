@@ -9,8 +9,9 @@ local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start.
-Test.needs{ lua = true }
+--- The program itself, which its tests start to run a file `--standalone`
+--- (`standalone`).
+Test.needs{ lua = true, standalone = true }
 
 --- End to end, from a directory holding no tree: the file gets its own
 --- path at argv[0] and what follows it, its exit code is the process's,
