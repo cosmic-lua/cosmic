@@ -517,7 +517,9 @@ local function test_workers_is_refused_naming_the_removal(tmp: string)
     local text = tostring(why)
     assert(not ok and text:find("^cosmic%.net_serve_test:%d+: Net%.serve: spec has no field workers: ") ~= nil,
       text)
-    assert(text:find("a server runs in one process; to serve in several, start each " ..
+    assert(text:find("workers = 0 asked for and is now the default, so drop the key", 1, true) ~= nil,
+      text)
+    assert(text:find("to serve in several, start each " ..
       "(Proc.relaunch gives the command, Child.start runs it)", 1, true) ~= nil, text)
   end
   assert(Fs.stat(tmp .. "/s.sock") == nil)

@@ -258,8 +258,7 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
                           char **argv) {
   cosmic_coverage_prepare();
   cosmic_store_prepare();
-  cosmic_process_entered(argc, argv);
-  cosmic_socket_entered();
+  cosmic_process_entered();
   const char *startup_trouble = cosmic_startup_validate(startup);
   if (startup_trouble != NULL) {
     return complain(startup_trouble, NULL);

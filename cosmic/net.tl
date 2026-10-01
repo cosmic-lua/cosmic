@@ -48,15 +48,6 @@ local errors = require("cosmic.internal.errors")
 --- `require` passes this chunk's loader, as cosmic/http.tl's does.
 local type raw_socket = require("cosmic.internal.socket")
 
--- TODO: delete the raw socket calls no one makes now that [`Net.serve`]
--- has no workers and Net no pair or peer: `pair`, `peer`, `adopt` and
--- `handed`, COSMIC_NET_WORKER's removal from the environment as the
--- runtime starts (core/socket.c, core/socket.h), their tests in
--- core/socket_test.tl and core/allocation_test.tl, and Proc's raw
--- `arguments` (core/process.h), with the core's next change: an edit to
--- core/ moves every test's key and boots the tree, which this change
--- keeps out of its diff.
-
 local extra: any = select(2, ...)
 local raw: raw_socket
 if type(extra) == "table" then
@@ -246,7 +237,8 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
   return trouble
 end
 
---- Waits for `fd` to be readable, or writable, at most `timeout_ns`: in a
+--- Waits for `fd` to be readable, or writable, at most `timeout_ns`, which
+--- the caller has held to what a wait can last: in a
 --- task of a run, through it; anywhere else, in the raw wait, which
 --- also ends at a signal the innermost [`Child.guard`] caught.
 local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
@@ -257,7 +249,6 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil)
   -- a wait a signal interrupted, and a loop in Poll.wait outside a task
   -- that polls in slices to look for one. A Conn's read and write are
   -- then Stream.from_fd and Stream.to_fd (see the TODO at [`new_conn`]).
-  Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if Poll.in_task() then
     return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
   end
@@ -403,6 +394,7 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
       limit = wait_ns
     end,
     accept = function(_self: Net.Listener, wait_ns?: integer): Net.Conn | nil, string
+      Poll.checked_ns(wait_ns, "timeout_ns", 2)
       if not open then return nil, "listener is closed" end
       wait_ns = wait_ns or limit
       while true do
@@ -546,7 +538,8 @@ local SPEC_FIELDS <const>: {string: boolean} = {
 --- A field a spec once held, and what to do instead, so a program that
 --- still sets one is told rather than only that the field is unknown.
 local REMOVED_FIELDS <const>: {string: string} = {
-  workers = "a server runs in one process; to serve in several, start each " ..
+  workers = "a server runs in one process, which workers = 0 asked for and is now " ..
+    "the default, so drop the key; to serve in several, start each " ..
     "(Proc.relaunch gives the command, Child.start runs it), each listening at an " ..
     "address of its own",
 }

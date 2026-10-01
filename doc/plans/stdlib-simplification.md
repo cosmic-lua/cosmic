@@ -307,10 +307,11 @@ set through `set_timeout(ns)` (the tree's setters are `set_*`, as
 line. [`Net.serve`] with `workers` and [`Net.listen`] with `reclaim` raise naming
 the removal. of the four asserts, one went with `reclaim` and one had
 become [`Poll.checked_ns`] in PR 10; the two left, `read`'s `max` and
-`shutdown`'s `how`, raise `net: ...` at the caller. Left, a `TODO:` in net.tl:
-the raw socket calls nothing makes now (`peer`, `adopt`, `handed`, the
-variable's removal, and process's `arguments`) wait for the core's next
-change.
+`shutdown`'s `how`, raise `net: ...` at the caller. the raw bindings only
+the supervisor and `Net.pair`/`Conn:peer` used went from the core with them:
+`pair`, `peer`, `adopt`, `handed`, `cosmic_socket_entered` (the removal of
+`COSMIC_NET_WORKER` from the environment) and process's `arguments`, with
+their tests.
 
 **PR 13 `fs: one atomic write, and http streams through it`** (after PR
 11). `Fs.write(path, data, mode?)` is [`Stream.create`] plus write plus

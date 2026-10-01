@@ -90,6 +90,9 @@ local function test_a_timeout_out_of_range_is_refused(tmp: string)
     assert(not listener_ok and tostring(listener_why):find("^cosmic%.net_test:%d+: timeout_ns must be", 1) ~= nil,
       tostring(listener_why))
   end
+  local accepting, accept_why: boolean, any = pcall(function() local _, _ = p.server:accept(-1) end)
+  assert(not accepting and tostring(accept_why):find("^cosmic%.net_test:%d+: timeout_ns must be", 1) ~= nil,
+    tostring(accept_why))
   p.client:set_timeout(Time.ms(10))
   assert(not pcall(function() p.client:set_timeout(-1) end))
   local data, read_why = p.client:read()
