@@ -58,6 +58,8 @@ local record verb
     "base64url"
   end
 
+  -- TODO: this becomes a `Stream.Transform` once that interface lands
+  -- (doc/plans/stdlib-simplification.md, PR 7).
   --- One incremental transform, a chunk at a time, in the shape of
   --- [`cosmic.compress`]'s streams: `update(chunk)` feeds bytes (or
   --- text) and returns the output that is ready, possibly ""; and
@@ -118,7 +120,9 @@ end
 
 --- One base64 alphabet: how [`cosmic.codec`] writes and reads it whole,
 --- `class` a pattern matching a character outside it, `padded` whether
---- its text ends in `=`, and `name` what its refusals call it.
+--- its text ends in `=`, and `name` what its refusals call it. `class`,
+--- `padded` and `name` must match the whole-string decoder's, which
+--- keeps them private, so a coder's refusals read as its own.
 local record Alphabet
   encode: function(string): string
   decode: function(string): string | nil, string
@@ -164,14 +168,22 @@ local function hex_decoder(): verb.Coder
       total = total + #chunk
       if bad_at ~= nil then return "", "" end
       local data = carry .. chunk
-      local at = data:find("[^0-9a-fA-F]")
-      if at ~= nil then
-        bad_at, bad_byte, carry = before + at, data:byte(at), ""
-        return "", ""
-      end
+      -- Text that is sound decodes in one pass through the library;
+      -- only a refusal, or a character in the held-back byte, looks for
+      -- where the first bad character lies.
       local even = #data - #data % 2
-      carry = data:sub(even + 1)
-      return (assert(Codec.unhex(data:sub(1, even)))), ""
+      local tail = data:sub(even + 1)
+      if not tail:find("[^0-9a-fA-F]") then
+        local out, _why = Codec.unhex(even == #data and data or data:sub(1, even))
+        if out ~= nil then
+          carry = tail
+          return out, ""
+        end
+      end
+      local at = data:find("[^0-9a-fA-F]")
+      assert(at ~= nil, "codec: hex text refused though every character is a digit")
+      bad_at, bad_byte, carry = before + at, data:byte(at), ""
+      return "", ""
     end,
     function(): string | nil, string
       if total % 2 ~= 0 then
@@ -210,9 +222,24 @@ local function base64_decoder(a: Alphabet): verb.Coder
         return "", ""
       end
       local data = carry .. chunk
+      -- As in [`hex_decoder`]: a chunk whose whole groups the library
+      -- decodes needs no search for a bad character. A group ending in
+      -- `=` is left to the search below, since the library would take
+      -- it for padding.
+      local whole = #data - #data % 4
+      if whole > 0 and data:byte(whole) ~= 61 then
+        local tail = data:sub(whole + 1)
+        if not tail:find(a.class) then
+          local out, _why = a.decode(whole == #data and data or data:sub(1, whole))
+          if out ~= nil then
+            carry = tail
+            return out, ""
+          end
+        end
+      end
       local at = data:find(a.class)
       local usable = at ~= nil and at - 1 or #data
-      local whole = usable - usable % 4
+      whole = usable - usable % 4
       carry = data:sub(whole + 1, usable)
       if at ~= nil then
         bad_at, bad_byte = before + at, data:byte(at)
