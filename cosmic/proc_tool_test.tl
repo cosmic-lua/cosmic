@@ -1,6 +1,6 @@
 --- The cases of cosmic/proc_test.tl about this very program: its path,
---- and the program it starts again or becomes. They declare `tool`
---- because they start this program or ask for its path.
+--- and the program it starts again or becomes. They declare `lua`
+--- because they start this program, only to run a chunk.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -11,8 +11,8 @@ local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start.
-Test.needs{ tool = true }
+--- The program itself, which its tests start to run a chunk (`lua`).
+Test.needs{ lua = true }
 
 --- The public wrapper and annotated syscall name the same directly executable
 --- logical program. Native mode preserves the physical executable answer;
@@ -31,16 +31,9 @@ local function test_relaunch_starts_this_same_program(tmp: string)
   local relaunch = Proc.relaunch()
   if relaunch == nil then return end -- a native start has nothing to relaunch
   assert(Proc.relaunch() == relaunch, "the relaunch description is kept")
-  local script = tmp .. "/identity.tl"
-  assert(Fs.write(script, [[
-local Proc = require("cosmic.proc")
-local Store = require("cosmic.store")
-return function(): integer
-  print(Store.meta("host_image"), Store.meta("runtime"), (Proc.executable()))
-  return 0
-end
-]]))
-  local started = this_program.program({ script }, { env = this_program.environment(), cwd = tmp,
+  local chunk = 'local Proc = require("cosmic.proc") local Store = require("cosmic.store") ' ..
+    'print(Store.meta("host_image"), Store.meta("runtime"), (Proc.executable()))'
+  local started = this_program.program({ "-e", chunk }, { env = this_program.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
@@ -65,25 +58,22 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   -- starts with no descriptors and no environment handed it, and says
   -- which signals it arrived ignoring.
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local script = tmp .. "/becomes.tl"
-  assert(Fs.write(script, [[
+  local chunk = [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-return function(argv: {string}): integer
-  local probe = argv[1]
-  -- Feeding a child its input is what makes this process ignore
-  -- SIGPIPE, so a write to a child that has gone cannot end it.
-  local fed = assert(Child.start({ probe, "exit 0" }, { input = "" }))
-  assert(fed:wait())
-  local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
-  assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")
-  local _, trouble = Proc.exec(probe, { probe, "status-field SigIgn" }, {})
-  print(trouble)
-  return 1
-end
-]]))
-  local started = this_program.program({ script, probe }, { env = this_program.environment(), cwd = tmp,
+local probe = ...
+-- Feeding a child its input is what makes this process ignore
+-- SIGPIPE, so a write to a child that has gone cannot end it.
+local fed = assert(Child.start({ probe, "exit 0" }, { input = "" }))
+assert(fed:wait())
+local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
+assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")
+local _, trouble = Proc.exec(probe, { probe, "status-field SigIgn" }, {})
+print(trouble)
+require("cosmic.sys").exit(1)
+]]
+  local started = this_program.program({ "-e", chunk, probe }, { env = this_program.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))

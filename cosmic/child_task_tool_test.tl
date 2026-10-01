@@ -13,8 +13,9 @@ local type raw_process = require("cosmic.internal.process")
 local this_program = require("build.this_program")
 
 --- What the tests read: the environment, which a child inherits, and
---- the program itself (`tool`), which every child is.
-Test.needs{ env = { "*" }, tool = true }
+--- the program itself, which every child is, started only to run a
+--- chunk (`lua`).
+Test.needs{ env = { "*" }, lua = true }
 
 local type Searcher = function(string): any, any
 local type ChildModule = require("cosmic.child")

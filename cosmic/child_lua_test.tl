@@ -558,6 +558,49 @@ local function test_wait_any_returns_the_first_to_finish()
   assert(slow:close())
 end
 
+--- What `call` raised, which must name this file: a wrong shape is the
+--- caller's mistake, so the error points at the call.
+local function raised(call: function()): string
+  local ok, message: boolean, any = pcall(call)
+  assert(not ok, "did not raise")
+  local text = tostring(message)
+  assert(text:find("child_lua_test:", 1, true), text)
+  return text
+end
+
+local function test_a_wait_refuses_a_timeout_out_of_range()
+  local h <close> = assert(Child.start(lua(sleep(5000))))
+  for _, bad in ipairs({ -1, math.mininteger, 2147483648 }) do
+    local message = raised(function() local _, _ = h:wait(bad) end)
+    assert(message:find("timeout_ms is out of range", 1, true), message)
+  end
+  -- The handle is untouched by the refusals: a zero timeout ends it.
+  local r = assert(h:wait(0))
+  assert(r.timed_out)
+  -- A settled handle refuses one too, rather than answering its Result.
+  local message = raised(function() local _, _ = h:wait(-1) end)
+  assert(message:find("timeout_ms is out of range", 1, true), message)
+  local quick <close> = assert(Child.start(lua("return 3")))
+  r = assert(quick:wait(10000))
+  assert(r.code == 3 and not r.timed_out)
+  local plain <close> = assert(Child.start(lua("return 4")))
+  r = assert(plain:wait())
+  assert(r.code == 4)
+end
+
+local function test_wait_any_refuses_a_timeout_out_of_range()
+  local slow <close> = assert(Child.start(lua(sleep(5000))))
+  for _, bad in ipairs({ -1, math.mininteger, 2147483648 }) do
+    local message = raised(function() local _, _ = Child.wait_any({ slow }, bad) end)
+    assert(message:find("timeout_ms is out of range", 1, true), message)
+  end
+  local none, trouble = Child.wait_any({ slow }, 0)
+  assert(none == nil and trouble == "", trouble)
+  local quick <close> = assert(Child.start(lua("")))
+  local first = assert(Child.wait_any({ slow, quick }))
+  assert(first == quick)
+end
+
 local function test_start_refuses_a_timeout_it_would_not_honour()
   local ok, message = pcall(Child.start, { "/bin/sh", "-c", "exit 0" },
     { timeout_ms = 10 } as Child.Options)

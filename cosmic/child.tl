@@ -254,7 +254,8 @@ local record Handle
   --- and "cancelled by signal N"; the guard keeps the signal, and a
   --- later wait answers the ended child's Result. In a task of
   --- [`Poll.run`] that is cancelled, it answers nil and
-  --- [`Poll.CANCELLED`], and leaves the child running.
+  --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ms`
+  --- below 0 or past 2^31-1 raises.
   wait: function(Handle, timeout_ms?: integer): Result | nil, string
   --- Whether the child has exited, without waiting: `finished` is false
   --- while it runs, and true with its `result` once it has exited and its
@@ -987,6 +988,9 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   end
 
   function h:wait(timeout_ms?: integer): Result | nil, string
+    if timeout_ms ~= nil and (timeout_ms < 0 or timeout_ms > INT_MAX) then
+      error("timeout_ms is out of range", 2)
+    end
     if self._result then return self._result, "" end
     if timeout_ms == nil and active == nil and not self._streams and
         not self._input_fd and not through_run() then
@@ -994,10 +998,6 @@ local function make_handle(pid: integer, process_group: boolean): Handle
       if not status then return nil, trouble end
       return settled(self, false)
     end
-    -- TODO: raise on a negative timeout, as `validate` does for Child.run's
-    -- `timeout_ms` and as [`Child.wait_any`] should too: a wrong shape is a
-    -- mistake, not a failure to report.
-    if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end
     local deadline: integer
     if timeout_ms ~= nil then deadline = now() + timeout_ms * 1000000 end
     local r, trouble = poll_until(self, deadline)
@@ -1531,11 +1531,6 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   return start(argv, opts)
 end
 
--- TODO: carry a settled group's lingering members on Child.Result, a
--- field beside the exit status, and answer the handle with "" here:
--- build/test.tl reads the trouble beside the handle's result today, and
--- build.contracts exempts this pair from the error-slot rules until then.
-
 --- Waits for the first of several handles to finish, servicing every
 --- one's streams meanwhile, and returns it settled: its `wait()` answers
 --- at once. Nil and "" when `timeout_ms` passes first -- no handle
@@ -1543,14 +1538,17 @@ end
 --- a timeout is `done == nil and trouble == ""`, so test `done` itself.
 --- `assert` on this answer raises at a timeout, with an empty message.
 --- In a task of [`Poll.run`] that is cancelled, it answers nil and
---- [`Poll.CANCELLED`], the handles left running too.
+--- [`Poll.CANCELLED`], the handles left running too. A `timeout_ms`
+--- below 0 or past 2^31-1 raises.
 function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, string
   -- TODO: carry a settled group's lingering members on Child.Result, a
   -- field beside the exit status, and answer the handle with "" here:
   -- build/test.tl reads the trouble beside the handle's result today, and
   -- build.contracts exempts this pair from the error-slot rules until then.
   if #handles == 0 then error("no handles to wait for", 2) end
-  if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end
+  if timeout_ms ~= nil and (timeout_ms < 0 or timeout_ms > INT_MAX) then
+    error("timeout_ms is out of range", 2)
+  end
   local deadline = timeout_ms ~= nil and now() + timeout_ms * 1000000 or nil
   while true do
     for _, h in ipairs(handles) do

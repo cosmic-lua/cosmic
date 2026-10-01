@@ -540,8 +540,9 @@ end
 --- the names its import closure holds, `lua_loads` among them, and
 --- `standalone_loads` where it declares `standalone` too
 --- ([`build.test_inputs`]), what those load beside them (its
---- `loaded_beside`, which their closure store carries), and
---- [`cosmic.removed`]; with the `meta` rows
+--- `loaded_beside`, which their closure store carries), the names a
+--- program built of the closure carries one of its modules under (its
+--- `carried_as`), and [`cosmic.removed`]; with the `meta` rows
 --- of [`meta_keys`]. So what such a process runs and reads of the program
 --- is what the test's key holds of its closure -- its store's bytes --
 --- and of the runtime, as it is for this worker; the program's other
@@ -554,6 +555,9 @@ local function hold_children(module_path: string, closure: {string:boolean})
     names[#names + 1] = name
     for _, beside in ipairs(test_inputs.loaded_beside[name] or {}) do
       if not closure[beside] then names[#names + 1] = beside end
+    end
+    for _, carried in ipairs(test_inputs.carried_as[name] or {}) do
+      if not closure[carried] then names[#names + 1] = carried end
     end
   end
   table.sort(names)

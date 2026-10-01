@@ -1170,8 +1170,13 @@ local function watch_supervisor(s: Serving)
   stop(s)
   local grace = s.spec.grace_ms
   if grace == nil then return end
-  local outlasted, _ = Poll.delay(grace + KILL_MARGIN_MS)
-  if not outlasted then return end
+  -- Over more than one delay where `grace` is near MOST_MS, the most
+  -- one takes.
+  local deadline = now_ms() + grace + KILL_MARGIN_MS
+  repeat
+    local outlasted, _ = Poll.delay(math.min(math.max(deadline - now_ms(), 0), MOST_MS))
+    if not outlasted then return end
+  until now_ms() >= deadline
   local _, _ = Fs.put(Fs.stderr, "Net.serve: the supervisor is gone, and connections are " ..
     "still open " .. KILL_MARGIN_MS .. " ms past grace_ms: exiting\n")
   Proc.exit(1)
@@ -1395,8 +1400,12 @@ local function wind_down(s: Supervising)
       s.killing = true
       signal_workers(s, sys.SIGKILL)
     end
+    -- Held to what a wait takes: `grace_ms` may be MOST_MS, and the
+    -- margin past it then runs out over a second wait.
     local left: integer
-    if deadline ~= nil and not s.killing then left = math.max(deadline - now_ms(), 0) end
+    if deadline ~= nil and not s.killing then
+      left = math.min(math.max(deadline - now_ms(), 0), MOST_MS)
+    end
     await_worker(s, left)
   end
 end

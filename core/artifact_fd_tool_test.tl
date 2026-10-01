@@ -13,6 +13,14 @@ local Test = require("cosmic.test")
 
 Test.needs{ tool = true }
 
+--- The program's own path names a file, which a `tool` test, given the
+--- program at its own name, can stat.
+local function test_executable_is_a_file()
+  local path = assert(sys.executable())
+  assert(path:sub(1, 1) == "/", "the executable's path is absolute")
+  assert(assert(sys.stat(path)).kind == "file")
+end
+
 --- Only a name that reaches the program through one of its descriptors
 --- is refused (core/syscalls_fs.c's `artifact_through_descriptor`,
 --- whose walk refusing descriptor links finds it by its own name).
