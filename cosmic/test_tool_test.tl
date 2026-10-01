@@ -47,13 +47,15 @@ local function run(tmp: string, body: string): string
 end
 
 --- A value no `Needs` could be is refused, saying why, and nothing of it
---- reaches the runner.
+--- reaches the runner. What `needs` holds a value to is its shape: that
+--- `network` names loopback addresses alone, and which fields `lua`
+--- stands beside, the build refuses before the module runs
+--- (build/analyzer_test.tl).
 local function test_needs_refuses_what_no_declaration_is(tmp: string)
   local said = run(tmp, table.concat({
     "  local cases: {any} = { 1, { reeds = {} }, { reads = \"a\" }, { reads = { 1 } },",
     "    { tool = \"yes\" }, { network = 3 }, { network = { 3 } }, { reads = true },",
-    "    { network = true }, { network = { \"127.0.0.1\", \"::1\" } },",
-    "    { network = { \"localhost\" } }, { network = { \"example.com\" } } }",
+    "    { network = true } }",
     "  for _, case in ipairs(cases) do",
     "    say(try(function() T.needs(case as T.Needs) end))",
     "  end",
@@ -67,11 +69,21 @@ local function test_needs_refuses_what_no_declaration_is(tmp: string)
     "false needs network takes a list of strings",
     "false needs network takes a list of strings",
     "false needs reads takes a list of strings",
-    "false needs " .. Test.any_host_refusal,
-    "false needs " .. Test.network_trouble("::1"),
-    "false needs " .. Test.network_trouble("localhost"),
-    "false needs " .. Test.network_trouble("example.com"),
+    "false needs network takes a list of strings",
   }, "\n") .. "\n", said)
+end
+
+--- Every field of `Needs` is one `needs` takes, with the value its type
+--- says, so the shape `needs` holds a call to is the type's. Which
+--- fields may stand together is the build's to say, before the module
+--- runs (build/analyzer_test.tl).
+local function test_needs_takes_every_field_of_needs(tmp: string)
+  local said = run(tmp, table.concat({
+    "  T.needs { reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,",
+    "    standalone = true, nests = true, store = true, system = true, caches = {} }",
+    "  say(try(function() end))",
+  }, "\n"))
+  assert(said == "handed nil nil true\ntrue \n", said)
 end
 
 --- One call reaches the runner as it was handed; a second is refused,

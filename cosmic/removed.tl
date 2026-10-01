@@ -322,6 +322,18 @@ local module: Module = {
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.last_insert_rowid"] = "use db:last_insert_rowid(), the method on " ..
       "the handle Sqlite.open answers (" .. sqlite .. ")",
+    ["cosmic.coverage.snapshot"] = "a program's hits are what Coverage.stop(session) answers; " ..
+      "a test reads the open window through build.coverage_hits",
+    ["cosmic.coverage.native_entries"] = "read each C function's first line from " ..
+      "Coverage.native_functions(); a test reads them through build.coverage_hits",
+    ["cosmic.test.fields"] = "the build checks a `needs` declaration's fields; declare " ..
+      "needs with Test.needs { ... } and let `cosmic test` refuse a bad one",
+    ["cosmic.test.any_host_refusal"] = "the build refuses `network = true`; declare " ..
+      "loopback addresses 127.a.b.c in Test.needs and let `cosmic test` refuse a bad one",
+    ["cosmic.test.network_trouble"] = "the build refuses a `network` that is no loopback " ..
+      "address 127.a.b.c; declare it in Test.needs and let `cosmic test` check it",
+    ["cosmic.test.lua_trouble"] = "the build refuses a `lua` beside tool, store, system or " ..
+      "caches; declare Test.needs and let `cosmic test` refuse a bad one",
     ["cosmic.cli.options"] = "use Cli.verbs[verb].spec, the options of the verb's " ..
       "Flags.Command (" .. cli .. ")",
     ["cosmic.cli.usage"] = "use Cli.verbs[verb].usage, which follows the verb's name " ..

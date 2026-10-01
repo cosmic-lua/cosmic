@@ -56,9 +56,7 @@ local function test_a_standalone_file_runs_on_what_standalone_loads(tmp: string)
     "table.sort(t)\nprint(table.concat(t, ' '))\n"))
   local ok, out, err = run({ "--standalone", file })
   assert(ok, err)
-  -- And the diagnostic the core loads for a removed global, which the
-  -- hold lets through (core/store.c's `put_up_inherited`).
-  local allowed: {string:boolean} = { ["cosmic.sys"] = true, ["cosmic.removed"] = true }
+  local allowed: {string:boolean} = { ["cosmic.sys"] = true }
   for _, name in ipairs(test_inputs.lua_loads) do allowed[name] = true end
   for _, name in ipairs(test_inputs.standalone_loads) do allowed[name] = true end
   for name in pairs(package.loaded) do

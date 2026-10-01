@@ -145,10 +145,11 @@ end
 --- to the runner, to how a key is computed or to how a verdict is looked
 --- up under one moves the digest, a comment's too, and fails
 --- build/harness_epoch_test.tl until it is acknowledged or the epoch
---- bumped; so does one to the worker, to the plan of its sandbox, to
---- cosmic's main or to the diagnostic the core loads, and one to the
---- store's writer, its schema or a module they require moves the address.
---- One to a module of none of them moves neither: not one to
+--- bumped; so does one to the worker, to the plan of its sandbox or to
+--- cosmic's main, and one to the store's writer, its schema or a module
+--- they require moves the address. One to a module of none of them
+--- moves neither: not one to cosmic.removed, which a test is keyed by
+--- only where its closure holds it, nor one to
 --- build.dispatch, or to what only it requires, since cosmic's main
 --- starts a worker ahead of it (cmd/cosmic/main.tl), nor one to the
 --- projection's writer, whose edits reach a store only through the rows
@@ -172,7 +173,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   local others = { "build.test_sandbox", "build.caches", "build.zig_caches", "cosmic.child",
     "build.closure_store", "build.writer",
-    "build.schema", "build.importer", "build.analyzer", "cosmic.sqlite", "cosmic.sys" }
+    "build.schema", "build.importer", "build.analyzer", "cosmic.removed", "cosmic.sqlite",
+    "cosmic.sys" }
   -- Each module's bytecode names what it requires, as a require by
   -- value leaves the name among its constants ([`test.value_imports`]).
   local named_in: {string:string} = {}
@@ -219,12 +221,12 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
                           "build.artifact", "build.test_worker", "build.test_sandbox",
                           "cmd.cosmic.main", "build.confine",
-                          "build.test_inputs", "cosmic.test", "cosmic.removed",
+                          "build.test_inputs", "cosmic.test",
                           "build.caches", "build.zig_caches" }) do
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer",
-                          "build.harness_epoch" }) do
+                          "build.harness_epoch", "cosmic.removed" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",

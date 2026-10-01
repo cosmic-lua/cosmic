@@ -118,8 +118,7 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 --- (core/store.c's `hold_children`). A module added to that way is
 --- refused to such a process, naming `lua`, until it is added here;
 --- build/lua_children_test.tl holds a `-e` child to loading no more.
--- TODO: hold cosmic.errors and its closure here too, or let the hold
--- through it as a diagnostic keyed as cosmic.removed is: the core
+-- TODO: hold cosmic.errors and its closure here too: the core
 -- requires it for an uncaught error's guidance (core/main.c's
 -- `ask_guidance`), which a held child is refused and so prints none,
 -- silently, where an unheld one prints the catalog's.

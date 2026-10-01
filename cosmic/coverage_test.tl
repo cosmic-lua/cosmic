@@ -11,6 +11,7 @@
 
 local Store = require("cosmic.store")
 local Coverage = require("cosmic.coverage")
+local Hits = require("build.coverage_hits")
 
 local function test_internal_debug_not_reachable_by_name()
   local ok = pcall(require, "cosmic.internal.debug")
@@ -29,6 +30,17 @@ local function test_untrusted_load_cannot_reach_raw_debug()
   -- never resolves (test_internal_debug_not_reachable_by_name), so the
   -- module fails to load instead of returning a working collector.
   local ok = pcall(chunk, "cosmic.coverage", "not a table")
+  assert(not ok, "an untrusted load must not obtain a working native collector")
+end
+
+--- The collector's other wrapper, [`build.coverage_hits`], is gated the
+--- same way: an untrusted load of it fails rather than answering hits.
+local function test_untrusted_load_of_the_hits_reader_cannot_reach_raw_debug()
+  local bytes, trouble = Store.bytecode("build.coverage_hits")
+  assert(bytes ~= nil and trouble == "", tostring(trouble))
+  local chunk, load_trouble = load(bytes, "@build.coverage_hits", "b")
+  assert(chunk ~= nil, tostring(load_trouble))
+  local ok = pcall(chunk, "build.coverage_hits", "not a table")
   assert(not ok, "an untrusted load must not obtain a working native collector")
 end
 
@@ -59,7 +71,7 @@ end
 --- run once has the lines it executed marked hit, and a line in a branch
 --- it never took not.
 ---
---- It runs under the window [`build.test`] has open. [`Coverage.snapshot`]
+--- It runs under the window [`build.test`] has open. [`build.coverage_hits`]'s `snapshot`
 --- only copies the lines hit so far, so reading it here leaves the
 --- window as it was.
 local function test_native_collector_hits_executed_lines_only()
@@ -78,7 +90,7 @@ local function test_native_collector_hits_executed_lines_only()
   assert(tiny ~= nil, tostring(trouble))
   assert(tiny(true) == 1)
 
-  local hits = Coverage.snapshot()
+  local hits = Hits.snapshot()
   local for_file = hits["coverage_probe"]
   assert(for_file ~= nil, "the collector must attribute hits to the fixture")
   assert(for_file[2] == true, "the always-run line must be hit")

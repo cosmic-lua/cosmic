@@ -6,33 +6,34 @@ local Coverage = require("cosmic.coverage")
 
 local Example = {}
 
---- The lines hit so far, looked in on without ending the collection:
---- empty when none is open, as outside `cosmic test`.
-function Example.snapshot()
+--- The lines hit between `start` and `stop`, by module path. A window
+--- already open, as under `cosmic test`, refuses a second `start`.
+function Example.stop()
+  local session, trouble = Coverage.start()
+  if session == nil then
+    print(trouble)
+    return
+  end
+  local hits = assert(Coverage.stop(session))
   local modules = 0
-  for _ in pairs(Coverage.snapshot()) do
+  for _ in pairs(hits) do
     modules = modules + 1
   end
   print(modules)
   assert(modules >= 0)
 end
 
---- The core's own C functions a run entered: a function's first line,
---- among [`native_entries`], is hit when it was entered. Both are empty
---- in a core built without native coverage.
-function Example.native_entries()
-  local entries = Coverage.native_entries()
-  local hits = Coverage.snapshot()
-  local entered = 0
-  for _, fn in ipairs(Coverage.native_functions()) do
-    local first = entries[fn.path]
-    assert(first ~= nil and first[fn.line], fn.path .. ":" .. fn.name)
-    local hit = hits[fn.path]
-    if hit ~= nil and hit[fn.line] then
-      entered = entered + 1
-    end
+--- The core's own C functions: each begins on a line among
+--- [`Coverage.native_lines`], which a hit names when the function was entered.
+--- Both are empty in a core built without native coverage.
+function Example.native_functions()
+  local lines = Coverage.native_lines()
+  local functions = Coverage.native_functions()
+  for _, fn in ipairs(functions) do
+    local here = lines[fn.path]
+    assert(here ~= nil and here[fn.line], fn.path .. ":" .. fn.name)
   end
-  print(entered)
+  print(#functions)
 end
 
 return Example

@@ -66,8 +66,9 @@ local record work
   ---
   --- `compiler` is what turns source into bytecode: the build's own
   --- modules a compile or a parse runs to decide what it stores
-  --- ([`work.compiler_identity`]), [`cosmic.removed`] (the names the checker
-  --- is stripped of), and the Teal compiler's and Lua's pins and patches.
+  --- ([`work.compiler_identity`]), among them [`build.teal`], which names
+  --- the globals the checker is stripped of, and the Teal compiler's and
+  --- Lua's pins and patches.
   --- The rest of the standard library the importer runs on is plumbing,
   --- not transformation (a bug there breaks the build loudly rather than
   --- changing bytecode quietly), and is left out, as is the rest of the
@@ -1487,7 +1488,7 @@ local compiler_roots: {string} = {
 --- The modules the compiler's identity holds, sorted, as `requires`
 --- answers what a module of the tree requires: every one `require`
 --- reaches from `compiler_roots` that is the build's own
---- (`build.*`), and [`cosmic.removed`]. build.importer's own requires are
+--- (`build.*`). build.importer's own requires are
 --- not followed: it is here for its compile and parse, not for the
 --- rest of the build it runs.
 function work.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
@@ -1507,7 +1508,7 @@ function work.compiler_modules(requires: function(string): {string} | nil, strin
   end
   local names: {string} = {}
   for name in pairs(reached) do
-    if name:sub(1, 6) == "build." or name == "cosmic.removed" then names[#names + 1] = name end
+    if name:sub(1, 6) == "build." then names[#names + 1] = name end
   end
   table.sort(names)
   return names, ""
@@ -1531,10 +1532,10 @@ end
 ---
 --- - the pinned compiler and Lua;
 --- - build.importer's own compile and parse;
---- - the checker's environment ([`build.teal`]) and the names it is
----   stripped of ([`cosmic.removed`], the one module of the standard
----   library that is data deciding a compile rather than what one runs
----   on);
+--- - the checker's environment ([`build.teal`]), and the names it is
+---   stripped of, which build.teal spells itself (its `withheld`) rather
+---   than reading [`cosmic.removed`]: the rest of that catalog is only
+---   what a refusal says, which no compile keeps;
 --- - the rules a module is refused by and the tree they hold in
 ---   ([`build.contracts`], [`build.tree`]);
 --- - the uses the checker finds ([`build.receivers`]);

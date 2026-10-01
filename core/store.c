@@ -90,7 +90,9 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * debug library), and [`cosmic_store_open_raw`] all the others, a raw
  * value shared by several wrappers once, at its first entry.
  * [`build.test_worker`] gets the store's to put a hold up ([`store_hold`]),
- * which [`cosmic.store`] does not offer. [`build.fuzz`] gets the instruction
+ * which [`cosmic.store`] does not offer. [`build.coverage_hits`] gets the
+ * collector's, to read the open window in place, which [`cosmic.coverage`]
+ * does not offer. [`build.fuzz`] gets the instruction
  * budget alone, which shares the coverage collector's hook but none of
  * its collection. The process table is [`cosmic.child`]'s,
  * [`cosmic.proc`]'s and [`build.confine`]'s, whose stand-in for its `spawn`
@@ -108,6 +110,7 @@ static const struct raw_module {
   {"build.artifact", "cosmic.internal.store", NULL},
   {"build.test_worker", "cosmic.internal.store", NULL},
   {"cosmic.coverage", "cosmic.internal.debug", NULL},
+  {"build.coverage_hits", "cosmic.internal.debug", NULL},
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"build.digest", "cosmic.internal.hash", NULL},
@@ -1073,8 +1076,10 @@ static void name_each (lua_State *L, int into, const char *from, const char *end
 
 /* Puts up the hold this process inherited (`child_hold_entry`): on
  * every module and declaration the binary's own database holds but
- * those its value names and [`cosmic.removed`], the diagnostic the core
- * loads for a removed global, which every worker loads too. */
+ * those its value names. [`cosmic.removed`], which the core requires to
+ * say what to write instead of a removed global, is held like any
+ * other: a process whose test's closure does not hold it says only that
+ * the name is not available (core/surface.c's `raise_removed`). */
 static int put_up_inherited (lua_State *L) {
   const char *value = child_hold_entry + sizeof CHILD_HOLD_NAME;
   const char *end = value + strlen(value);
@@ -1090,8 +1095,6 @@ static int put_up_inherited (lua_State *L) {
   lua_newtable(L);
   int allowed = lua_gettop(L);
   name_each(L, allowed, meta_end, end, ' ');
-  lua_pushboolean(L, 1);
-  lua_setfield(L, allowed, "cosmic.removed");
   lua_newtable(L);
   int names = lua_gettop(L);
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);

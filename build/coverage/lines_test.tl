@@ -2,7 +2,7 @@
 --- `executable` table [`build.work`]'s schema adds so a run where a
 --- module's source has not changed answers from `o/build.db` instead
 --- of reparsing it.
-local Coverage = require("cosmic.coverage")
+local Hits = require("build.coverage_hits")
 local Sqlite = require("cosmic.sqlite")
 local lines = require("build.coverage.lines")
 local teal = require("build.teal")
@@ -94,7 +94,7 @@ local function test_every_executable_line_of_straight_code_is_hit()
   local name = "coverage.lines_test.straight"
   local chunk = assert(load(source, "@" .. name, "t"))
   chunk()
-  local hit = Coverage.snapshot()[name] or {}
+  local hit = Hits.snapshot()[name] or {}
   for line in pairs(executable) do
     assert(hit[line], "executable line " .. line .. " was never hit")
   end
