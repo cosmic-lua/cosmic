@@ -68,8 +68,8 @@ clean second worktree instead. Preserve this distinction in later reporting.
 
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
-| 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | final CI | independent approval; 6 fixed points pass; final gates running |
-| 2. Writer identity boundary | pending | planned | depends on 1 |
+| 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merge queue | final head green; independent approval; all local gates passed |
+| 2. Writer identity boundary | pending | implementing | prepared from step 1 queue; publish only after step 1 merges |
 | 3. Build phase and cleanup ownership | pending | planned | depends on 1–2 |
 | 4. Reporting outside the acknowledged runner | pending | planned | preserve existing trust model |
 | 5a. Bootstrap lock ownership preparation | pending | planned | old-pin compatible; retain SQL lock |
@@ -149,18 +149,29 @@ sequencing. Callers open a shared cache but compile finishes it, leaving earlier
 failures to clean it up themselves. Some paths derive before compile derives
 again. These contracts require tracing across modules.
 
-Introduce the smallest coordinator justified by the actual common sequence,
-with explicit phase results and one cache-cleanup owner. Retain separate input
-preparation and publication where boot and stale-tool rebuild differ. A prepared
-compile must have an enforceable precondition, not a boolean that silently skips
-required work. Preserve analyzer identity stabilization; a second pass that
-establishes correctness is not redundant just because it resembles the first.
+Preflight favors unifying preparation/compilation inside importer rather than
+adding a general coordinator. Keep ordinary compile and add a narrowly scoped
+self-build entry point only if justified. Both can call a private compile_derived;
+no public prepared boolean. The self-build path derives, records tree identities,
+then lets boot/reboot select the proper compiler key in their existing order.
 
-Acceptance: failure at each meaningful phase closes owned resources, preserves
-reusable successful compiles where intended, and cannot publish a partial tool.
-Keep transaction/lock ordering, no-op projection avoidance, stale-tool settling,
-and output bytes. Run boot/rebuild/lock and relevant fixture coverage; run-local
-is required where the entry/launcher/artifact boundaries are touched.
+Derive borrows the shared cache. Each public compile operation consumes it and
+finishes exactly once after success or any failure, preserving successful offered
+rows and cache-write fallback. Keep analyzer stabilization/reparse inside derive;
+remove only the redundant outer derivation and count parse work once.
+
+Leave work.Handle, transaction ownership and publication in their current callers.
+Keep writer's commit-before-attach/vacuum boundary, boot/reboot's distinct compiler,
+zone and executable-prefix sources, reboot's unjudged settling, and ordinary
+projects' use of the running compiler. Writer's later identity calculation still
+belongs at its projection-signing boundary. A cache flush is not publication.
+
+Acceptance: focused resource tests cover finish exactly once after derive,
+identity-choice and compile failures. Shared-row fallback, analyzer stabilization,
+unjudged cache behavior, fixed-point edit/undo, writer failure/commit and rebuild
+locks remain correct. Compare no-op and fresh-shared counts without extra compiler
+initialization. Run the existing fixture path for the boot/reboot boundary;
+run-local is required wherever AGENTS.md's entry/artifact/fixture trigger applies.
 
 ## PR 4: separate reporting from the acknowledged runner
 
@@ -386,3 +397,17 @@ changes the design, update this plan before proceeding and explain the decision.
   Initial CI was green on every platform; final-head CI remains pending.
 - 2026-10-01: corrected bootstrap inventory arithmetic: thirteen literal TODOs
   unblocked and eleven still blocked, twenty-four pin-related comments total.
+
+- 2026-10-01: step 1 namespace/export correction fully gated and independently
+  approved at tree `b68f416885bd6c08028e7092250a73d352e93252`, remote head
+  `f453e5a8dafefeeafbf0d5331b931cb3082772d0`. Whole-tree check: 629 files,
+  zero findings; 80 focused tests passed; no new TODOs. Final CI run 36883812425
+  passed every platform. Auto-merge requested; integrated queue run 36932275052
+  is in progress. No implementation has merged yet.
+- 2026-10-01: step 2 preparation started from the integrated step 1 queue commit.
+  Publication remains serial: confirm the preceding merge and exact resulting
+  base before publishing the next implementation PR. Preparation may overlap
+  the preceding queue to avoid idle time; no check or review is skipped.
+- 2026-10-01: step 3 narrowed after call-graph review: unify cache-consuming
+  compile paths, preserve caller-owned transactions and publication. Step 4/8
+  should also update declared_key's receivers_identity comment to compilation.
