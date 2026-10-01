@@ -69,12 +69,12 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
 | 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merged | a6d458c9; final and queue CI green; independent approval |
-| 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | in merge queue | cf1e2777; shape integration independently approved; branch CI36940909057 green |
-| 3. Build phase and cleanup ownership | pending | locally approved | c70ce491; 76 tests and 7 fixed points pass; rebase after 2 |
+| 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | merged | 09240c31; branch and integrated queue36941246664 green; independent approval |
+| 3. Build phase and cleanup ownership | pending | integrated review | 6a04d5a6 on merged2; identical approved patch; fresh gates running |
 | 4. Reporting outside the acknowledged runner | pending | locally approved | 9187fa7b; reporting and runner-boundary checks pass; rebase after 3 |
 | 5a. Bootstrap lock ownership preparation | pending | locally approved | cc912a80; independent old-pin boot and 65 focused tests pass |
 | 5b. Pin, flock/scratch and obsolete adapters | pending | implementing | verified release executed; locking and API slices prepare one atomic PR |
-| 6a. CI cache-name policy | pending | reviewing | 20420196; 38 workflow and 34 driver tests pass |
+| 6a. CI cache-name policy | pending | locally approved | 20420196; independent output/identity/policy checks and 38 tests pass |
 | 6b. CI operation recording | pending | planned | preserve durable exit codes and diagnostics |
 | 7. Zig graph construction | pending | locally approved | 32d63aa5; 19 artifact hashes and 590 dependency lines preserved |
 | 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
@@ -493,3 +493,8 @@ changes the design, update this plan before proceeding and explain the decision.
 - 2026-10-01: selected step5b release was downloaded, SHA256 verified and
   executed successfully. Separate implementation agents own bootstrap locking
   and CI/API retirement; their changes will enter one atomic pin-transition PR.
+
+- 2026-10-01: step2 #2531 merged as09240c31856f88ccdcf26f76424ce1427910c43b
+  after every check in queue36941246664 passed, including Alpine. Independent
+  queue review confirms preceding PR2530 keeps all writer/compiler boundaries
+  and step2 harness acknowledgments. Step3 rebase is patch-identical at6a04d5a6.
