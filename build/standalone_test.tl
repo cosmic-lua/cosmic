@@ -158,20 +158,27 @@ end
 --- replacement is: [`cosmic.stream`] holds the entry kind, the entry
 --- options and the interfaces the three modules share.
 local function test_a_removed_archive_type_names_its_replacement(tmp: string)
-  for _, case in ipairs({
-    { "cosmic.tar", "Tar", "Kind", "use Stream.EntryKind" },
-    { "cosmic.zip", "Zip", "Kind", "use Stream.EntryKind" },
-    { "cosmic.archive", "Archive", "Kind", "use Stream.EntryKind" },
-    { "cosmic.tar", "Tar", "EntryOptions", "use Stream.EntryOptions" },
-    { "cosmic.archive", "Archive", "Unsupported", "an entry Archive.extract cannot extract" },
-  }) do
-    local module, alias, name, words = case[1], case[2], case[3], case[4]
-    local chunk, trouble = compile(tmp, "old.tl",
-      'local ' .. alias .. ' = require("' .. module .. '")\n' ..
-      'local function f(x: ' .. alias .. '.' .. name .. '): integer\n  return x and 1 or 0\n' ..
-      'end\nreturn f\n')
-    assert(chunk == nil)
-    assert(trouble:find(alias .. "." .. name .. " was removed: " .. words, 1, true) ~= nil, trouble)
+  -- One file, so the archive closure is type-checked once: the checker
+  -- reports every unknown type, not only the first.
+  local cases = {
+    { "Tar", "Kind", "use Stream.EntryKind" },
+    { "Zip", "Kind", "use Stream.EntryKind" },
+    { "Archive", "Kind", "use Stream.EntryKind" },
+    { "Tar", "EntryOptions", "use Stream.EntryOptions" },
+    { "Archive", "Unsupported", "an entry Archive.extract cannot extract" },
+  }
+  local source = 'local Tar = require("cosmic.tar")\n' ..
+    'local Zip = require("cosmic.zip")\n' ..
+    'local Archive = require("cosmic.archive")\n'
+  for index, case in ipairs(cases) do
+    source = source .. 'local function f' .. index .. '(x: ' .. case[1] .. '.' .. case[2] ..
+      '): integer\n  return x and 1 or 0\nend\n'
+  end
+  local chunk, trouble = compile(tmp, "old.tl", source .. "return { f1, f2, f3, f4, f5 }\n")
+  assert(chunk == nil)
+  for _, case in ipairs(cases) do
+    assert(trouble:find(case[1] .. "." .. case[2] .. " was removed: " .. case[3], 1, true) ~= nil,
+      case[1] .. "." .. case[2] .. ": " .. trouble)
   end
 end
 
