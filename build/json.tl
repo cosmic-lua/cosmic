@@ -1,10 +1,10 @@
 --- `cosmic json`: one lookup in a JSON document, for the ten-second
 --- question ("is there a key `x` in this export?") that a script costs
 --- more than. It reads a file, or standard input, walks the path
---- [`Json.parse_pattern`] reads, and prints what is there -- and nothing else:
+--- [`json_query.parse_pattern`] reads, and prints what is there -- and nothing else:
 --- no filter, no transform. A path names one value and prints it as JSON;
 --- `--flat` prints every leaf under it, and a path with `*` or `..` in it
---- every match, each as a `path = value` line ([`Json.flat_line`]), whose
+--- every match, each as a `path = value` line ([`json_query.flat_line`]), whose
 --- path is one this verb takes back, so `--flat | grep` finds a leaf and
 --- its path pastes into `cosmic json '<path>'`. JSONPath's filters and
 --- slices are left out on purpose: the verb is a lookup and no query
@@ -27,6 +27,7 @@ local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local json_query = require("build.json_query")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
@@ -54,9 +55,9 @@ local record verb
     path: {string | integer}
     --- The steps of a path that can match many values (`*`, `..`);
     --- nil for a plain path.
-    pattern: {Json.Step} | nil
-    --- The path as [`Json.child_path`] spells it (a pattern as
-    --- [`Json.spell_pattern`] does), for a message; "$" when none was
+    pattern: {json_query.Step} | nil
+    --- The path as [`json_query.child_path`] spells it (a pattern as
+    --- [`json_query.spell_pattern`] does), for a message; "$" when none was
     --- given.
     spelled: string
     --- The file to read; nil for standard input.
@@ -126,18 +127,18 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
   if request.file == "" then return nil, bare.empty_file end
   if request.file == "-" then request.file = nil end
   if path ~= nil then
-    local steps, _ = Json.parse_path(path)
+    local steps, _ = json_query.parse_path(path)
     if steps ~= nil then
       request.path, request.spelled = steps, "$"
       for _, step in ipairs(steps) do
-        request.spelled = Json.child_path(request.spelled, step)
+        request.spelled = json_query.child_path(request.spelled, step)
       end
     else
       -- Not a plain path: a pattern, or no path at all, which says so.
-      local pattern, why = Json.parse_pattern(path)
+      local pattern, why = json_query.parse_pattern(path)
       if pattern == nil then return nil, why end
       request.pattern = pattern
-      request.spelled = Json.spell_pattern(pattern)
+      request.spelled = json_query.spell_pattern(pattern)
       if request.mode == "keys" or request.mode == "shape" then
         return nil, "--" .. request.mode .. " reads one value and `" .. request.spelled ..
           "` can match many; name one path (`--flat` lists every leaf under a pattern)"
@@ -150,7 +151,7 @@ end
 --- What kind of value `value` is, for a complaint: a scalar's type, or
 --- `{...}` and `[n x ...]` for a container.
 local function shown(value: any): string
-  return Json.describe(value, { max_depth = 0 })
+  return json_query.describe(value, { max_depth = 0 })
 end
 
 --- What `--keys` prints for `value`: an object's keys, sorted, one per
@@ -218,8 +219,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   -- What `--flat` and a pattern print: one `path = value` line per leaf
   -- or match; `-r` prints a pattern's matches as their text, one to a line.
-  local walk: Json.WalkOptions = { max_depth = Json.depth_limit }
-  local function print_lines(found: {Json.Located}, as_text: boolean): integer
+  local walk: json_query.WalkOptions = { max_depth = Json.depth_limit }
+  local function print_lines(found: {json_query.Located}, as_text: boolean): integer
     local lines: {string} = {}
     for _, item in ipairs(found) do
       local line: string | nil
@@ -231,7 +232,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         line, why = Json.encode(leaf)
         if line == nil then why = item.path .. ": " .. why end
       else
-        line, why = Json.flat_line(item.path, leaf)
+        line, why = json_query.flat_line(item.path, leaf)
       end
       if line == nil then
         complain(why)
@@ -243,7 +244,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return written(to.out(table.concat(lines, "\n") .. "\n"))
   end
   if request.pattern ~= nil then
-    local matches, why = Json.select(document, request.pattern, walk)
+    local matches, why = json_query.select(document, request.pattern, walk)
     if matches == nil then
       complain(why)
       return bare.refused
@@ -254,7 +255,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     if request.mode == "exists" then return 0 end
     if request.mode ~= "flat" then return print_lines(matches, request.raw) end
-    local leaves: {Json.Located} = {}
+    local leaves: {json_query.Located} = {}
     -- Matches come before what is inside them, so those under a match
     -- already flattened follow it: skip them, or each leaf would print
     -- once per match above it (`$..a` over nested `a`s, `$..*`).
@@ -265,7 +266,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         goto next_match
       end
       covered = match.path
-      local under, flat_why = Json.flatten(match.value, { max_depth = walk.max_depth, root = match.path })
+      local under, flat_why = json_query.flatten(match.value, { max_depth = walk.max_depth, root = match.path })
       if under == nil then
         complain(flat_why)
         return bare.refused
@@ -282,7 +283,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   if request.mode == "exists" then return 0 end
   if request.mode == "flat" then
-    local leaves, why = Json.flatten(value, { max_depth = walk.max_depth, root = request.spelled })
+    local leaves, why = json_query.flatten(value, { max_depth = walk.max_depth, root = request.spelled })
     if leaves == nil then
       complain(why)
       return bare.refused
@@ -290,7 +291,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return print_lines(leaves, false)
   end
   if request.mode == "shape" then
-    return written(to.out(Json.describe(value) .. "\n"))
+    return written(to.out(json_query.describe(value) .. "\n"))
   end
   if request.mode == "keys" then
     local listed, why = keys_of(value)
@@ -316,7 +317,7 @@ end
 verb.spec = {
   name = "json",
   guide = "a quick question about a JSON file",
-  tests = { "build.json_test", "build.json_tool_test" },
+  tests = { "build.json_test", "build.json_tool_test", "build.json_query_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a path and a file",

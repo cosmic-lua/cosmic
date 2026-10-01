@@ -188,8 +188,9 @@ local record Cli
   --- precision. `--exists` prints
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
-  --- `--shape` prints [`Json.describe`] of the value, and neither takes a
-  --- pattern, which can match many values. Only a lookup: no
+  --- `--shape` prints a summary of the value's shape (`{ids: [2 x number],
+  --- ok: boolean}`), and neither takes a pattern, which can match many
+  --- values. Only a lookup: no
   --- filter, no transform; to count or sum, use `cosmic sql --from`.
   --- Exits 0 when the path is found (a pattern:
   --- when something matches), 1 when it is not, with the message
@@ -497,7 +498,7 @@ local module: Module = {
       ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
       ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
-      ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
+      ["--shape"] = { about = "print a summary of the value's shape, not the value" },
     },
     hash = {
       ["--md5"] = { about = "digest with MD5" },
