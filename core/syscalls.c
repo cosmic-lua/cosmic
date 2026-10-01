@@ -448,7 +448,8 @@ COSMIC_SYSCALL(execve, 3) {
   char **carried = cosmic_store_environment(envp);
   if (carried == NULL) return cosmic_fail_effect(L, ENOMEM);
   char **given = cosmic_coverage_environment(carried);
-  /* Lowered before the report, which credits what lowers it. */
+  /* Lowered before the report, which credits what lowers it; a report
+   * whose file finds no room under the lowered limit is left unwritten. */
   struct rlimit raised;
   bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 && restore_descriptor_limit();
   cosmic_coverage_report(); /* nothing of this image remains to report later */
@@ -497,26 +498,30 @@ static void close_child_descriptors (int from, long limit) {
 }
 
 #if defined(__APPLE__)
-/* One past the highest descriptor this process has open, at most
- * `limit`, the soft limit: where a child's close loop
- * ([`close_child_descriptors`]) can stop, short of walking every number
- * up to `limit` with no range to close. `limit` where the kernel lists
- * none, or more than the room given for what opened since it was
- * asked how many. */
+/* One past the highest descriptor this process has open: where a
+ * child's close loop ([`close_child_descriptors`]) can stop, short of
+ * walking every number up to `limit`, the soft limit, with no range to
+ * close -- and past `limit` where a descriptor is held above a limit
+ * lowered since it opened. `limit` where the kernel lists none, or
+ * more than the room given for what opened since it was asked how
+ * many. */
 static long open_descriptor_bound (long limit) {
   int size = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, NULL, 0);
   if (size <= 0) return limit;
   size_t room = (size_t)size + 16 * sizeof(struct proc_fdinfo);
-  struct proc_fdinfo *open_fds = malloc(room);
+  struct proc_fdinfo *open_fds = cosmic_malloc(room);
   if (open_fds == NULL) return limit;
   int got = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, open_fds, (int)room);
   long bound = 0;
-  if (got <= 0 || (size_t)got >= room) bound = limit;
-  for (int i = 0; bound < limit && i < got / (int)sizeof *open_fds; i++) {
-    if (open_fds[i].proc_fd >= bound) bound = (long)open_fds[i].proc_fd + 1;
+  if (got <= 0 || (size_t)got >= room) {
+    bound = limit;
+  } else {
+    for (int i = 0; i < got / (int)sizeof *open_fds; i++) {
+      if (open_fds[i].proc_fd >= bound) bound = (long)open_fds[i].proc_fd + 1;
+    }
   }
-  free(open_fds);
-  return bound < limit ? bound : limit;
+  cosmic_free(open_fds);
+  return bound;
 }
 #endif
 
