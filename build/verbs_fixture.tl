@@ -9,6 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
 local this_program = require("build.this_program")
+local String = require("cosmic.string")
 
 local record verbs_fixture
 end
@@ -72,7 +73,7 @@ end
 --- PASS` or `verb: FAIL`, alone or before a detail in parentheses.
 local function verdict_of(line: string, verb: string): string | nil
   local head = verb .. ": "
-  if line:sub(1, #head) ~= head then
+  if not String.starts_with(line, head) then
     return nil
   end
   local rest = line:sub(#head + 1)

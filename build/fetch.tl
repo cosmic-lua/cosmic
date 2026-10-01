@@ -84,6 +84,7 @@ local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 local verb_spec = require("build.verb_spec")
+local String = require("cosmic.string")
 
 --- The `cosmic fetch` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -114,7 +115,7 @@ local record verb
   refusal: function(why: string, protocols: {string}): string
 end
 
-local spec = Cli.options.fetch
+local spec = Cli.verbs.fetch.spec
 
 local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
   "[--allow-downgrade] [--head [--json]]"
@@ -353,7 +354,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       local lines: {string} = { "HTTP " .. response.status }
       for _, name in ipairs(names) do
         -- A repeated Set-Cookie arrives joined with "\n": a line each.
-        for value in (response.headers[name] .. "\n"):gmatch("(.-)\n") do
+        for value in String.lines(response.headers[name]) do
           lines[#lines + 1] = escaped(name .. ": " .. value)
         end
       end

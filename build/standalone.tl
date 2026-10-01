@@ -39,7 +39,6 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Removed = require("cosmic.removed")
 local Store = require("cosmic.store")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
@@ -61,7 +60,7 @@ function standalone.environment(built: compiler): compiler.Env | nil, string
   if env == nil then
     return nil, trouble
   end
-  for _, name in ipairs(Removed.order) do
+  for _, name in ipairs(teal.withheld) do
     env.globals[name] = nil
     env.modules[name] = nil
   end

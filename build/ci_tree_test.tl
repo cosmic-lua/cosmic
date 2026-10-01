@@ -5,6 +5,7 @@
 --- sources it reads, so a change to one runs it again on every leg.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 --- The tree's sources, the variables the driver keeps from a gating
 --- suite (ci/cosmic_ci/run_names.tl), and the darwin list.
@@ -37,7 +38,7 @@ local function names_the_run(names: RunNames, name: string): boolean
     if name == exact then return true end
   end
   for _, prefix in ipairs(names.prefixes) do
-    if name:sub(1, #prefix) == prefix then return true end
+    if String.starts_with(name, prefix) then return true end
   end
   return false
 end
@@ -121,7 +122,7 @@ end
 local function test_the_darwin_list_names_test_modules_of_the_tree()
   local modules: {string} = {}
   for line in (assert(Fs.read("ci/darwin-tests.txt"))):gmatch("[^\n]+") do
-    local path = (line:gsub("#.*$", "")):match("^%s*(.-)%s*$")
+    local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then modules[#modules + 1] = path end
   end
   assert(#modules > 0, "the darwin list names no module")

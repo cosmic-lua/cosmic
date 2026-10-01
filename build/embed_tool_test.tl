@@ -15,6 +15,7 @@ local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 --- This program's database, which every executable's is joined from.
 --- The programs these tests run are built `--host`, so no launcher --
@@ -70,7 +71,7 @@ local function test_a_project_becomes_an_executable(tmp: string)
   local prefix = assert(artifact.trusted_prefix())
   assert(bytes:sub(1, 10) == "#!/bin/sh\n",
     "the portable file has its script entry")
-  assert(bytes:sub(1, #prefix) == prefix,
+  assert(String.starts_with(bytes, prefix),
     "the portable file reuses the exact retained prefix")
 end
 
@@ -252,7 +253,7 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
   local out = tmp .. "/o/bin/who"
   local bytes = assert(Fs.read(out))
   local core = assert(artifact.trusted_core())
-  assert(bytes:sub(1, #core.bytes) == core.bytes, "the file starts with the running core")
+  assert(String.starts_with(bytes, core.bytes), "the file starts with the running core")
   assert(bytes:sub(-48, -41) == "CosmicH1", "its trailer says host")
   local r = run_program(out)
   assert(r.ok, tostring(r.stderr))
@@ -261,8 +262,8 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
   local expected = table.concat({ "host-v1", assert(Store.meta("host_image")),
     assert(Store.meta("runtime")) }, "\t") .. "\t"
   local printed = assert(r.stdout)
-  assert(printed:sub(1, #expected) == expected, printed .. " ~= " .. expected)
-  assert(printed:sub(-#"/o/bin/who\n") == "/o/bin/who\n", printed)
+  assert(String.starts_with(printed, expected), printed .. " ~= " .. expected)
+  assert(String.ends_with(printed, "/o/bin/who\n"), printed)
 end
 
 --- A host program's arguments are its own, a first one that reads as the
@@ -316,7 +317,7 @@ local Time = require("cosmic.time")
 return function(): integer
   -- The zones the program carries: the only ones any program reads.
   local zone = assert(Time.zone("Asia/Kolkata"))
-  print(Time.format_rfc3339(0, { zone = zone, zone_name = true }))
+  print(Time.format_rfc3339(0, zone, { zone_name = true }))
   error("coverage collection is already active", 0)
 end
 ]]))

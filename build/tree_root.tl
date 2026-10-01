@@ -68,7 +68,7 @@ end
 -- on that record.
 local function staged(root: string, path: string): boolean | nil, string
   local file = root .. "/o/build.db"
-  local db, open_trouble = Sqlite.open(file, false)
+  local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, open_trouble end
   local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..
     "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
@@ -152,7 +152,7 @@ end
 --- The tree a command line's verb runs in and its command line for it,
 --- or nil when it runs where it was started.
 --- @param argv the command line, the verb at slot 1
---- @param options the verb's options, as [`cosmic.cli`] names them
+--- @param options the verb's options, as [`cosmic.cli`] names them in `verbs`
 --- @param home the home directory, or nil for none, where the climb ends
 --- @param named `COSMIC_TREE`, or nil: the root, `.` for the working directory
 function tree_root.move(argv: {integer:string},

@@ -15,6 +15,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 
 local record Notes
   --- How many tests and examples passed.
@@ -51,7 +52,7 @@ function Notes.built_notes(output: string): boolean
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
       for name in wrote:gmatch("[^,]+") do
-        if name:match("^%s*(.-)%s*$") == "o/bin/notes" then
+        if String.trim(name) == "o/bin/notes" then
           return true
         end
       end
@@ -69,6 +70,19 @@ local function trimmed(text: string): string
   return (text:gsub("\n+$", ""))
 end
 
+--- `Sqlite.open(path, { writable = true })`, spelled for the release this
+--- file runs on and the tree it is checked against: the release's open
+--- takes a boolean, the tree's an options table. The table is truthy to
+--- the one and read by the other, and the cast keeps neither from
+--- refusing the call by type.
+local function open_writable(path: string): Sqlite.Handle | nil, string
+  -- TODO: once ci/cosmic-driver.pin names a release whose Sqlite.open
+  -- takes `{ writable = true }`, call that where this is called and drop
+  -- this.
+  local open = Sqlite.open as any as function(string, any): Sqlite.Handle | nil, string
+  return open(path, { writable = true })
+end
+
 --- Clears the runs a build database records, keeping its verdicts:
 --- `cosmic test` credits a verdict that still stands into runs again,
 --- so what `check_evidence` finds afterward is this grading's own. A
@@ -80,7 +94,7 @@ function Notes.reset_evidence(path: string): boolean, string
   elseif not present then
     return true, ""
   end
-  local db, otrouble = Sqlite.open(path, true)
+  local db, otrouble = open_writable(path)
   if db == nil then
     return false, otrouble
   end

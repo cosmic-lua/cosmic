@@ -109,6 +109,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local artifact = require("build.artifact")
 local bind = require("build.bind")
 local schema = require("build.schema")
@@ -119,11 +120,13 @@ local schema = require("build.schema")
 local _ = require("build.stand_in_probe")
 -- What the core itself requires of the program it runs, beside its
 -- main module: [`cosmic.errors`], for an uncaught error's guidance
--- (core/main.c's `ask_guidance`), and [`cosmic.removed`], for what to
--- write instead of a name the runtime removes (core/surface.c's
--- `removed_message`). Required so they are of the closure too.
+-- (core/main.c's `ask_guidance`). Required so it is of the closure too.
+-- Not [`cosmic.removed`], which the core requires only to say what to
+-- write instead of a removed global (core/surface.c's
+-- `removed_message`): the probe reaches for none, and without the
+-- catalog the core still refuses one, by name. Carrying it would key
+-- every test that builds a stand-in by an edit to the catalog.
 local type _ = require("cosmic.errors")
-local _ = require("cosmic.removed")
 
 local record stand_in
 end
@@ -142,9 +145,9 @@ local probe_module <const> = "build.stand_in_probe"
 --- which names it too).
 local main_module <const> = "stand_in.main"
 
---- What the core requires of any program it runs, beside its main
---- module (see the requires above).
-local core_requires <const>: {string} = { "cosmic.errors", "cosmic.removed" }
+--- What the stand-in carries of what the core requires of any program
+--- it runs, beside its main module (see the requires above).
+local core_requires <const>: {string} = { "cosmic.errors" }
 
 --- One module the stand-in carries, with what it requires.
 local record Carried
@@ -165,7 +168,7 @@ local function carried(): {Carried} | nil, string
   for _, name in ipairs(core_requires) do pending[#pending + 1] = name end
   while #pending > 0 do
     local name = table.remove(pending, 1)
-    if not seen[name] and name:sub(1, #"cosmic.internal.") ~= "cosmic.internal." then
+    if not seen[name] and not String.starts_with(name, "cosmic.internal.") then
       seen[name] = true
       local requires, trouble = Store.requires(name)
       if requires == nil then return nil, name .. ": " .. trouble end
@@ -190,7 +193,7 @@ local function database(path: string): string | nil, string
   local modules, closure_trouble = carried()
   if modules == nil then return nil, closure_trouble end
   local _, _ = Fs.remove(path)
-  local db, open_trouble = Sqlite.open(path, true)
+  local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then return nil, path .. ": " .. open_trouble end
   local statements: {string} = {}
   for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end

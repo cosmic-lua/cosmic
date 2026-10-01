@@ -5,7 +5,8 @@
 --- what to use instead, naming the replacement for the very field used
 --- (`os.getenv` is [`Env.get`]). `cosmic docs os` (or any field below)
 --- answers the same thing directly. `members` does the same at compile
---- time for a member a `cosmic.*` module no longer has. Help on the
+--- time for a member a `cosmic.*` module no longer has, and `arguments`
+--- for a boolean passed where a record is now taken. Help on the
 --- language's other libraries is in the checked examples that ordinary
 --- documentation search returns.
 local record Removed
@@ -52,7 +53,17 @@ local record Module
   -- EncodeOptions lost: `sorted` (keys are always in byte order),
   -- `indent` (`pretty` indents two spaces), `ascii` (no replacement),
   -- `nan_as_null` (write Json.null for the number) and `sparse_as_null`
-  -- (put Json.null where the hole is, as decode's `null_value` does).
+  -- (put Json.null where the hole is, as decode's `null_value` does);
+  -- and for the fields cosmic.archive's ExtractOptions lost:
+  -- `unsupported` (an entry that cannot be extracted always fails the
+  -- extraction; `filter` leaves its path out), `mtimes` (every file,
+  -- directory and symlink gets its archived time) and `max_bytes` (no
+  -- replacement; `max_entries` bounds the entries).
+  -- Likewise for what cosmic.time's records lost: `Civil.nanosecond` and
+  -- `Duration.nanoseconds` (both `ns` now), and the `zone` field of
+  -- FormatOptions and AddOptions (the zone is an argument, right after the
+  -- data: `format_rfc3339(ns, zone, opts)`, `add_calendar(ns, duration,
+  -- zone, opts)`).
   -- TODO: a whole module that left the library (cosmic.dataset, now
   -- build.dataset) has no entry: `members` names a member of a module
   -- that still loads, and a `require` of a module that is gone says only
@@ -69,6 +80,11 @@ local record Module
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
   members: {string:string}
+  --- What to write where a boolean is passed for a parameter that now
+  --- takes a record, by the record's module and name
+  --- ([`cosmic.sqlite.OpenOptions`]). The compiler says it after its
+  --- `argument 2: got boolean, expected Sqlite.OpenOptions`.
+  arguments: {string:string}
   --- What to write instead of `name`, or of its field `field`.
   message: function(name: string, field?: string): string
 end
@@ -86,6 +102,8 @@ local streamed <const> = "the streaming coders are `cosmic codec`'s, not the lib
   "Codec.base64url and decodes one with Codec.unhex, Codec.unbase64 or " ..
   "Codec.unbase64url (" .. codec .. ")"
 local archive <const> = 'local Archive = require("cosmic.archive")'
+local entry_kind <const> = "use Stream.EntryKind, the one enum every archive entry's kind is (" ..
+  'local Stream = require("cosmic.stream")' .. ")"
 local zip <const> = 'local Zip = require("cosmic.zip")'
 local string_ <const> = 'local String = require("cosmic.string")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
@@ -93,7 +111,9 @@ local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
 local json <const> = 'local Json = require("cosmic.json")'
 local csv <const> = 'local Csv = require("cosmic.csv")'
+local shape <const> = 'local Shape = require("cosmic.shape")'
 local sys <const> = 'local sys = require("cosmic.sys")'
+local cli <const> = 'local Cli = require("cosmic.cli")'
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -136,8 +156,8 @@ local module: Module = {
     ["os.difftime"] = "subtract two Time.now_ns() readings (" .. time .. ")",
     ["os.date"] = "use Time.civil(Time.now_ns(), zone) for the calendar's " ..
       "fields -- UTC's without a zone, local time with Time.local_zone(), " ..
-      "or Time.zone(\"Europe/Paris\")'s -- or Time.format_rfc3339(ns, " ..
-      "{ zone = zone }) for text; there is no strftime (" .. time .. ")",
+      "or Time.zone(\"Europe/Paris\")'s -- or Time.format_rfc3339(ns, zone) " ..
+      "for text; there is no strftime (" .. time .. ")",
     ["os.remove"] = "use Fs.remove(path) (" .. fs .. ")",
     ["os.rename"] = "use Fs.rename(from, to) (" .. fs .. ")",
     ["os.tmpname"] = "use Fs.mkdtemp(prefix), which makes a private " ..
@@ -163,6 +183,8 @@ local module: Module = {
   },
   members = {
     ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
+    ["cosmic.hash.Mac"] = "use Hash.Hasher, which Hash.hmac_hasher answers as " ..
+      "Hash.hasher does (" .. hash .. ")",
     ["cosmic.json.lines"] = "use Stream.lines(reader) and Json.decode(line) on each " ..
       "line it reads, skipping a blank one (" .. stream .. "; " .. json .. ")",
     ["cosmic.json.Lines"] = "use Stream.Lines, what Stream.lines(reader) answers, " ..
@@ -220,6 +242,14 @@ local module: Module = {
       "and a line feed after the record; also quote a field that begins with the byte order " ..
       "mark (a reader drops one there) and the empty only field of a record (else the " ..
       "record is a blank line); there is no writer in the library",
+    ["cosmic.shape.failures"] = "use Shape.into(value, spec), which answers the first " ..
+      "failure; a config whose author wants every mistake runs again after fixing each (" ..
+      shape .. ")",
+    ["cosmic.shape.Failure"] = "Shape.into(value, spec) answers the first failure as one " ..
+      "message, its path first (`$.rows[2].id: expected string, got integer`) (" .. shape .. ")",
+    ["cosmic.shape.either"] = "use Shape.one_of(...) for literal alternatives, or call " ..
+      "Shape.into once for each form the value may take and keep the first that answers " ..
+      "a value (" .. shape .. ")",
     ["cosmic.codec.encoder"] = streamed,
     ["cosmic.codec.decoder"] = streamed,
     ["cosmic.codec.Coder"] = streamed,
@@ -232,6 +262,17 @@ local module: Module = {
     ["cosmic.tar.TarWriter"] = "use Tar.Writer, the same record renamed (" .. tar .. ")",
     ["cosmic.archive.ArchiveReader"] = "use Archive.Reader, the same record renamed (" ..
       archive .. ")",
+    ["cosmic.archive.Kind"] = entry_kind,
+    ["cosmic.tar.Kind"] = entry_kind,
+    ["cosmic.zip.Kind"] = entry_kind,
+    ["cosmic.tar.EntryOptions"] = "use Stream.EntryOptions, which Tar.Writer's add_file, " ..
+      "add_dir and add_symlink take and Zip's EntryOptions extends (" .. stream .. ")",
+    ["cosmic.archive.Unsupported"] = "an entry Archive.extract cannot extract (a hard " ..
+      "link, a device, a FIFO, a sparse file) always fails it, naming the entry; " ..
+      "leave its path out with ExtractOptions.filter (" .. archive .. ")",
+    ["cosmic.stream.Codec"] = "use Stream.Transform, the interface Stream.transform, " ..
+      "Stream.transform_writer and Stream.run take, which Compress.Stream " ..
+      "satisfies (" .. stream .. ")",
     ["cosmic.sys.spawn"] = "use Child.start(argv, opts), or Child.run(argv, opts) to " ..
       "run it to its end (" .. child .. ")",
     ["cosmic.sys.waitpid"] = "use h:wait() or h:try_wait() on the handle Child.start " ..
@@ -271,6 +312,25 @@ local module: Module = {
       "seconds, ns) (" .. fs .. ")",
     ["cosmic.sys.EBUSY"] = "compare sys.errno_name(errno) with \"EBUSY\", the errno's " ..
       "name on every system (" .. sys .. ")",
+    ["cosmic.time.Change"] = "use Time.Duration, which Time.add_calendar takes: " ..
+      "years, months, days and an exact part in `ns` (" .. time .. ")",
+    ["cosmic.time.CivilOptions"] = "use Time.AddOptions, the one record Time.from_civil " ..
+      "and Time.add_calendar take (" .. time .. ")",
+    ["cosmic.time.days_between"] = "use Time.between(from, to, zone), whose Duration " ..
+      "holds the whole years, months and days between two moments; the days between " ..
+      "two dates alone are (Time.parse_date(Time.format_date(to, zone)) - " ..
+      "Time.parse_date(Time.format_date(from, zone))) // Time.hours(24) (" .. time .. ")",
+    ["cosmic.time.months_between"] = "use Time.between(from, to, zone): its years * 12 " ..
+      "+ months are the whole months (" .. time .. ")",
+    ["cosmic.time.parse_input"] = "moved to build.time, which only `cosmic time` calls; " ..
+      "`cosmic time convert <text>` reads what a person typed, and a script reads " ..
+      "RFC 3339 with Time.parse_rfc3339_zoned, a date with Time.parse_date(text, zone) and " ..
+      "a local time with Time.from_civil(fields, zone, opts) (" .. time .. ")",
+    ["cosmic.time.zone_from_posix"] = "use Time.local_zone({ tz = tz }), which reads a " ..
+      "POSIX TZ string when the binary carries no zone of that name; Time.zone(name) " ..
+      "answers one it does (" .. time .. ")",
+    ["cosmic.sqlite.cell"] = "use Sqlite.rows(db, sql, values), whose rows carry typed cells, " ..
+      "or Sqlite.query(db, sql, values) to read them one at a time (" .. sqlite .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..
@@ -279,6 +339,40 @@ local module: Module = {
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.last_insert_rowid"] = "use db:last_insert_rowid(), the method on " ..
       "the handle Sqlite.open answers (" .. sqlite .. ")",
+    ["cosmic.coverage.snapshot"] = "a program's hits are what Coverage.stop(session) answers; " ..
+      "a test reads the open window through build.coverage_hits",
+    ["cosmic.coverage.native_entries"] = "read each C function's first line from " ..
+      "Coverage.native_functions(); a test reads them through build.coverage_hits",
+    ["cosmic.test.fields"] = "the build checks a `needs` declaration's fields; declare " ..
+      "needs with Test.needs { ... } and let `cosmic test` refuse a bad one",
+    ["cosmic.test.any_host_refusal"] = "the build refuses `network = true`; declare " ..
+      "loopback addresses 127.a.b.c in Test.needs and let `cosmic test` refuse a bad one",
+    ["cosmic.test.network_trouble"] = "the build refuses a `network` that is no loopback " ..
+      "address 127.a.b.c; declare it in Test.needs and let `cosmic test` check it",
+    ["cosmic.test.lua_trouble"] = "the build refuses a `lua` beside tool, store, system or " ..
+      "caches; declare Test.needs and let `cosmic test` refuse a bad one",
+    ["cosmic.cli.options"] = "use Cli.verbs[verb].spec, the options of the verb's " ..
+      "Flags.Command (" .. cli .. ")",
+    ["cosmic.cli.usage"] = "use Cli.verbs[verb].usage, which follows the verb's name " ..
+      "rather than beginning with `cosmic` (" .. cli .. ")",
+    ["cosmic.cli.summary"] = "use Cli.verbs[verb].about, the verb's Flags.Command " ..
+      "description (" .. cli .. ")",
+  },
+  -- TODO: a call that still passes Flags.help its old arguments (the usage
+  -- line, the spec, what the command does) gets only `argument 1: got
+  -- string, expected Flags.Command`, with no hint: `arguments` answers a
+  -- boolean given for a record. Say `Flags.help({ spec = spec, about =
+  -- about, usage = <what follows the program's name> }, program)` once
+  -- [`build.teal`]'s `replacement` also reads a string given for a record.
+  -- TODO: a call that still passes Sqlite.open's old third argument gets
+  -- only the arity error (`wrong number of arguments ... at most 2`), with
+  -- no hint: the message names no callee. Say `{ immutable = true }` for
+  -- `false, true` once the checker carries a hint for an arity error that
+  -- names the callee.
+  arguments = {
+    ["cosmic.sqlite.OpenOptions"] = "Sqlite.open(path, opts) takes a table: " ..
+      "{ writable = true } for the old `true`, and nothing for `false` (" ..
+      sqlite .. ")",
   },
 }
 

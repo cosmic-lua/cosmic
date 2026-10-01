@@ -6,6 +6,7 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
 
@@ -838,7 +839,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       "chmod 755 o/bin/cosmic\n", 493)
     local database = runner_temp .. "/cosmic-ci/operations.db"
     if case.broken then
-      local db = assert(Sqlite.open(database, true))
+      local db = assert(SqliteOpen.writable(database))
       assert(db:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY)"))
       assert(db:close())
     end
@@ -1304,19 +1305,24 @@ end
 --- `local-boundary`), which on the macOS leg, where it stands on
 --- verdicts, runs the listed modules with a row of its own, "darwin",
 --- and fails where they fail. The scheduled run's native suite, `--all`,
---- runs them already, and a Linux leg has none: there it does nothing.
+--- runs them already, as does a native suite where none stood (a core
+--- change's), and a Linux leg has none: there it does nothing.
 local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tmp: string)
   local base, project = command(tmp)
   local darwin = "test --all --census core/a_test.tl build/b_test.tl"
   local cases = {
     { name = "macos-push", target = "aarch64-macos", event = "push", sandbox = "0",
-      ran = "test --census\n" .. darwin .. "\n", suites = "local darwin", ok = true },
+      ran = "test --census\n" .. darwin .. "\n", suites = "local darwin", ok = true,
+      stood = 3 },
     { name = "macos-failing", target = "aarch64-macos", event = "push", sandbox = "0",
-      ran = "test --census\n" .. darwin .. "\n", suites = "local darwin", ok = false },
+      ran = "test --census\n" .. darwin .. "\n", suites = "local darwin", ok = false,
+      stood = 3 },
+    { name = "macos-none-stood", target = "aarch64-macos", event = "push", sandbox = "0",
+      ran = "test --census\n", suites = "local", ok = true, stood = 0 },
     { name = "macos-schedule", target = "aarch64-macos", event = "schedule", sandbox = "0",
-      ran = "test --census --all\n", suites = "local", ok = true },
+      ran = "test --census --all\n", suites = "local", ok = true, stood = 0 },
     { name = "linux-push", target = "x86_64-linux-musl", event = "push", sandbox = "1",
-      ran = "test --census\n", suites = "local", ok = true },
+      ran = "test --census\n", suites = "local", ok = true, stood = 3 },
   }
   for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
@@ -1328,14 +1334,18 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
     assert(Fs.write(fake .. "/ci/darwin-tests.txt",
       "# why\ncore/a_test.tl\n\nbuild/b_test.tl # and why\n"))
     -- bin/zig's boot leaves a cosmic that logs each command line and
-    -- says a suite's figures: a failure, in the failing case, for the
-    -- darwin suite's line.
+    -- says a suite's figures: the native suite's with the case's stood
+    -- count, and a failure, in the failing case, for the darwin suite's
+    -- line.
     local failing = case.ok and "" or
       "if [ \"$*\" = '" .. darwin .. "' ]; then printf '%s\\n' " ..
       "'test: FAIL (1 of 2 failed, 0 infrastructure errors, 5 ms; unsandboxed)'; exit 1; fi\n"
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
       "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
       "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..
+      "case \"$*\" in 'test --census'*) printf '%s\\n' " ..
+      "'test: PASS (" .. (2 + case.stood) .. " tests, 2 modules; 2 ran, " .. case.stood ..
+      " stood, 5 ms; unsandboxed)'; exit 0;; esac\n" ..
       "if [ \"$1\" = test ]; then printf '%s\\n' " ..
       "'test: PASS (2 tests, 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed)'; fi\nexit 0\nEOF\n" ..
       "chmod 755 o/bin/cosmic\n", 493)
@@ -1359,9 +1369,30 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
       local passed = case.ok or row.suite ~= "darwin"
       assert(row.status == (passed and "pass" or "fail"), case.name .. ": " .. row.suite ..
         ": " .. tostring(row.status))
-      assert(not passed or (row.ran == 2 and row.stood == 0), case.name .. ": " .. row.suite)
+      local stood = row.suite == "local" and case.stood or 0
+      assert(not passed or (row.ran == 2 and row.stood == stood), case.name .. ": " .. row.suite)
     end
     assert(db:close())
     assert(table.concat(names, " ") == case.suites, case.name .. ": " .. table.concat(names, " "))
   end
+end
+
+--- A native suite that passed with none standing ran every test it
+--- chose; one where any stood, that failed, or that the driver ended
+--- did not, nor did one that said no summary or ran a share.
+local function test_a_native_suite_ran_every_test_where_none_stood()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local function line(ran: integer, stood: integer): string
+    return string.format("test: PASS (%d tests, 3 modules; %d ran, %d stood, 5 ms; unsandboxed)\n",
+      ran + stood, ran, stood)
+  end
+  assert(Orchestration.native_ran_every(line(4, 0), 0))
+  assert(not Orchestration.native_ran_every(line(4, 1), 0))
+  assert(not Orchestration.native_ran_every(line(4, 0), 1))
+  assert(not Orchestration.native_ran_every(line(4, 0), 124))
+  assert(not Orchestration.native_ran_every("", 0))
+  assert(not Orchestration.native_ran_every(
+    "test: PASS (4 tests, 3 modules; 4 ran, 0 stood, 5 ms; unsandboxed; shard 1 of 2)\n", 0))
+  assert(not Orchestration.native_ran_every(
+    "test: FAIL (1 of 4 failed, 0 infrastructure errors, 5 ms; unsandboxed)\n", 1))
 end

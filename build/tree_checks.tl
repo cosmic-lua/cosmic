@@ -38,6 +38,7 @@ local symbols = require("build.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
 local type compiler = require("build.compiler")
+local String = require("cosmic.string")
 
 local type Node = ast.Node
 
@@ -329,7 +330,7 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
       local fields: {Row} = {}
       local anchor = true
       for _, r in ipairs(all) do
-        if r.module == owner.module and r.symbol:sub(1, #prefix) == prefix
+        if r.module == owner.module and String.starts_with(r.symbol, prefix)
             and r.symbol:find(".", #prefix + 1, true) == nil then
           local name = r.symbol:sub(#prefix + 1)
           fields[#fields + 1] = r
@@ -400,7 +401,7 @@ function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {str
   end
   local found: {string: boolean} = {}
   for _, row in ipairs(rows) do
-    for line in (row[2] .. "\n"):gmatch("([^\n]*)\n") do
+    for line in String.lines(row[2]) do
       if reads(line) then
         found[row[1]] = true
         break
@@ -620,7 +621,7 @@ function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | 
   if not closed then
     return nil, close_trouble
   end
-  return Sqlite.open(path, false)
+  return Sqlite.open(path)
 end
 
 --- A spec table's top-level fields as its source writes them: `name`,
@@ -800,7 +801,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string | nil): {string
   local sections: {string:string} = {}
   local current: string | nil = nil
   local fenced = false
-  for line in ((quickstart or "") .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(quickstart or "") do
     if line:match("^```") then fenced = not fenced end
     local heading = not fenced and line:match("^## (.+)$") or nil
     if heading ~= nil then

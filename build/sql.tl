@@ -104,7 +104,7 @@ end
 
 --- The options `cosmic sql` takes: each names a database, and at most
 --- one may be given.
-local spec = Cli.options.sql
+local spec = Cli.verbs.sql.spec
 
 --- The database a command line names under `root`, the working
 --- directory: `--db <path>`, `--build` (o/build.db), `--store` (the
@@ -210,7 +210,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, s
   if between ~= nil then
     between()
   end
-  local db, open_trouble = Sqlite.open(path, false, not frames)
+  local db, open_trouble = Sqlite.open(path, { immutable = not frames })
   if db == nil then
     return nil, open_trouble
   end
@@ -222,7 +222,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, s
     end
     if later then
       local _, _ = db:close()
-      db, open_trouble = Sqlite.open(path, false, false)
+      db, open_trouble = Sqlite.open(path)
       if db == nil then
         return nil, open_trouble
       end
@@ -264,16 +264,18 @@ local function escape(text: string): string
   return bare.escape(text, { named = true })
 end
 
---- One cell as the text a row line carries.
-local function cell_text(cell: Sqlite.Cell): string
-  if cell.kind == "integer" then
-    return string.format("%d", cell.integer)
-  elseif cell.kind == "number" then
-    return real(cell.number)
-  elseif cell.kind == "text" then
-    return escape(cell.text)
-  elseif cell.kind == "blob" then
-    return "X'" .. (cell.blob:gsub(".", function(byte: string): string
+--- Column `index` of the row `statement` stands on, as the text a row
+--- line carries.
+local function cell_text(statement: Sqlite.Statement, index: integer): string
+  local kind = statement:kind(index)
+  if kind == "integer" then
+    return string.format("%d", statement:integer(index))
+  elseif kind == "number" then
+    return real(statement:number(index))
+  elseif kind == "text" then
+    return escape(statement:bytes(index))
+  elseif kind == "blob" then
+    return "X'" .. (statement:bytes(index):gsub(".", function(byte: string): string
       return string.format("%02X", byte:byte())
     end)) .. "'"
   end
@@ -324,7 +326,7 @@ local function stream(db: Sqlite.Handle, statement: string,
       break
     end
     for index = 0, width - 1 do
-      cells[index + 1] = cell_text(Sqlite.cell(prepared, index))
+      cells[index + 1] = cell_text(prepared, index)
     end
     rows = rows + 1
     local written, write_trouble = emit(table.concat(cells, "\t"))

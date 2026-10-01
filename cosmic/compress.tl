@@ -7,12 +7,7 @@
 -- indirection exists.
 local type raw_compress = require("cosmic.internal.compress")
 
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
+local Stream = require("cosmic.stream")
 
 local extra: any = select(2, ...)
 local raw: raw_compress
@@ -31,14 +26,17 @@ local record Compress
     "gzip"
   end
 
-  --- One incremental transform, a chunk at a time. Every call that
-  --- can fail answers `value, ""` on success and `nil, error` on
-  --- failure, like the constructors.
+  --- One incremental transform, a chunk at a time: a
+  --- [`Stream.Transform`], so [`Stream.transform`],
+  --- [`Stream.transform_writer`] and [`Stream.run`] drive it. Every
+  --- call that can fail answers `value, ""` on success and
+  --- `nil, error` on failure, like the constructors.
   ---
-  --- `update(chunk, max?)` feeds `chunk` and returns output, possibly
-  --- "". A decoder returns at most `max` bytes per call (default
-  --- 1 MiB), however far a small input expands: input it has not got
-  --- to yet stays inside the stream, and `pending()` turns true.
+  --- `update(chunk, max_bytes?)` feeds `chunk` and returns output,
+  --- possibly "". A decoder returns at most `max_bytes` bytes per
+  --- call (default 1 MiB), however far a small input expands: input it
+  --- has not got to yet stays inside the stream, and `pending()` turns
+  --- true.
   --- While `pending()` is true, `update("")` returns the next piece
   --- without new input (it may return "" once, when the limit fell
   --- exactly at the end). An encoder returns all of its output and
@@ -87,41 +85,28 @@ function Compress.deflate(format: Compress.Format, data: string, level?: integer
     string | nil, string
   local enc, trouble = raw.deflater(format, level)
   if enc == nil then return nil, trouble end
-  local head, update_trouble = enc:update(data)
-  if head == nil then return nil, update_trouble end
-  local tail, ftrouble = enc:finish()
-  if tail == nil then return nil, ftrouble end
-  return head .. tail, ""
+  return Stream.run(enc, data)
 end
 
 --- Expands `data`, whole, from the `format` framing, such as `deflate`
---- produced; raises on an unknown format. When `max` is given, more
---- than `max` bytes of output is an error rather than an answer. Bytes
---- after the end of the compressed data are an error too.
-function Compress.inflate(format: Compress.Format, data: string, max?: integer):
+--- produced; raises on an unknown format. When `max_bytes` is given,
+--- more than `max_bytes` bytes of output is an error rather than an
+--- answer, and a `max_bytes` that is not an integer of at least 0
+--- raises. Bytes after the end of the compressed data are an error
+--- too.
+function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer):
     string | nil, string
+  if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
+    error("compress: max_bytes must be an integer of at least 0", 2)
+  end
   local dec, trouble = raw.inflater(format)
   if dec == nil then return nil, trouble end
-  local parts: {string} = {}
-  local total = 0
-  local out, utrouble = dec:update(data)
-  while true do
-    if out == nil then return nil, utrouble end
-    total = total + #out
-    if max ~= nil and total > max then
-      return nil, "expanded data is larger than " .. counted(max, "byte")
-    end
-    parts[#parts + 1] = out
-    if not dec:pending() then break end
-    out, utrouble = dec:update("")
-  end
-  local last, ftrouble = dec:finish()
-  if last == nil then return nil, ftrouble end
+  local out, run_trouble = Stream.run(dec, data, max_bytes)
+  if out == nil then return nil, run_trouble end
   if dec:rest() ~= "" then
     return nil, "trailing bytes after the compressed data"
   end
-  parts[#parts + 1] = last
-  return table.concat(parts), ""
+  return out, ""
 end
 
 --- A streaming decoder for `format`. A gzip decoder parses the header
@@ -144,11 +129,11 @@ end
 --- padding are handled. The filters are LZMA2, delta, x86 BCJ and
 --- ARM64 BCJ, and the checks are CRC32, CRC64 and SHA-256. The decoder
 --- refuses, with "xz memory limit exceeded", a stream whose headers
---- ask for more than `memlimit` bytes of decoder memory (default 256
+--- ask for more than `max_memory` bytes of decoder memory (default 256
 --- MiB; `xz -9` needs 65 MiB).
---- Raises when `memlimit` is not positive.
-function Compress.xz_decoder(memlimit?: integer): Compress.Stream | nil, string
-  return raw.xz_decoder(memlimit)
+--- Raises when `max_memory` is not positive.
+function Compress.xz_decoder(max_memory?: integer): Compress.Stream | nil, string
+  return raw.xz_decoder(max_memory)
 end
 
 --- A streaming decoder for .bz2: multi-stream is handled.
@@ -160,6 +145,10 @@ end
 --- `crc` to continue it over more than one call; raises when `crc` is
 --- outside 0 to 0xffffffff.
 function Compress.crc32(data: string, crc?: integer): integer
+  -- TODO: a zip's checksum is no compressor's, and [`cosmic.zip`] is this
+  -- function's one caller: move it there once a module can be handed
+  -- another module's `cosmic.internal.` table, as this one is handed its
+  -- own (the C sum is what keeps a body's bytes off the Lua loop).
   return raw.crc32(data, crc)
 end
 

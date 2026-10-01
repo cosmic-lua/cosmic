@@ -13,6 +13,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 local record shared_sqlite
 end
@@ -46,7 +47,7 @@ function shared_sqlite.set_aside(path: string, now_ns: integer): string | nil, s
   local dir, name = Fs.dirname(path), Fs.basename(path)
   local listed, _ = Fs.list(dir)
   for _, entry in ipairs(listed or {}) do
-    if entry:sub(1, #name + 9) == name .. ".corrupt-" then
+    if String.starts_with(entry, name .. ".corrupt-") then
       local _, _ = Fs.remove(dir .. "/" .. entry)
     end
   end
@@ -102,7 +103,7 @@ end
 function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boolean, string),
                             wait_ms?: integer): Sqlite.Handle | nil, string
   wait_ms = wait_ms or busy_ms
-  local opened, trouble = Sqlite.open(path, true)
+  local opened, trouble = Sqlite.open(path, { writable = true })
   if opened == nil then return nil, path .. ": " .. trouble end
   local db: Sqlite.Handle = opened
   local function fail(why: string): Sqlite.Handle | nil, string

@@ -515,7 +515,7 @@ local file_check_files: {string: string} = {
 --- `/`, "" for the root itself; nil for one outside it.
 local function under(root: string, path: string): string | nil
   local out = path
-  if out:sub(1, #root + 1) == root .. "/" then
+  if String.starts_with(out, root .. "/") then
     out = out:sub(#root + 2)
   elseif out == root then
     out = ""
@@ -531,7 +531,7 @@ end
 
 --- Whether `file`, a path under the root, is `named` or under it.
 local function inside(file: string, named: string): boolean
-  return named == "" or file == named or file:sub(1, #named + 1) == named .. "/"
+  return named == "" or file == named or String.starts_with(file, named .. "/")
 end
 
 --- The files, under the root, of the modules `file_checks` names and
@@ -874,7 +874,7 @@ end
 --- @return integer The exit code: 0 when nothing is left to fix
 local function fix_verb(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.fix)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.fix.spec)
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2

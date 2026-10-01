@@ -16,7 +16,7 @@ end
 --- found, the empty database a tool from before the flock made.
 local function test_a_held_flock_keeps_another_run_out(tmp: string)
   local root, path = tree(tmp)
-  local made = assert(Sqlite.open(path, true))
+  local made = assert(Sqlite.open(path, { writable = true }))
   assert(made:close())
   local other = assert(sys.open(path, sys.O_RDWR, 0))
   assert(sys.flock(other, "exclusive"))

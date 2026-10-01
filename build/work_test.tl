@@ -38,7 +38,7 @@ local function test_recording_error_rolls_back_every_table(tmp: string)
   local inserted, trouble = handle.db:exec("INSERT INTO coverage VALUES (1, 'p', 1, 1)")
   assert(not inserted and trouble:find("injected", 1, true) ~= nil)
   assert(work.abort(handle))
-  local reopened = assert(Sqlite.open(tmp .. "/o/build.db", false))
+  local reopened = assert(Sqlite.open(tmp .. "/o/build.db"))
   for _, table_name in ipairs({
     "runs", "verdicts", "test_runs", "coverage", "coverage_by_test",
   }) do
@@ -57,7 +57,7 @@ local function test_assertion_failure_records_atomically(tmp: string)
   assert(handle.db:exec("INSERT INTO coverage VALUES (1, 'p', 1, 1)"))
   assert(work.close(handle))
 
-  local reopened = assert(Sqlite.open(tmp .. "/o/build.db", false))
+  local reopened = assert(Sqlite.open(tmp .. "/o/build.db"))
   assert(count(reopened, "runs") == 1)
   assert(count(reopened, "verdicts") == 1)
   assert(count(reopened, "test_runs") == 1)

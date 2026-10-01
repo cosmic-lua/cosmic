@@ -6,10 +6,12 @@
 --- For every `vendor/<name>/PIN` under `root` it prints `<name>`, a tab,
 --- and the directory holding `vendor/<name>` with every record under
 --- `patch/<name>/` applied, in name order. The directory is
---- `<cache>/<name>-<key>`, `<key>` a hash of this file, every file of the
---- vendored tree and every record, so it is named by its contents alone:
---- the same from every checkout, which is what lets zig's cache, keyed by
---- a source's path, compile a vendored file once for all of them. One
+--- `<cache>/<name>-<key>`, `<key>` a hash of the patched tree itself --
+--- its directories, and each file's path, permission bits and bytes as
+--- written -- so it is named by its contents alone: the same from every
+--- checkout, and from every version of this file that writes the same
+--- bytes, which is what lets zig's cache, keyed by a source's path,
+--- compile a vendored file once for all of them. One
 --- already there is used as it is; one is written beside it first and
 --- renamed into place, so a directory at that name is always whole.
 ---
@@ -36,10 +38,14 @@
 --- files and directories, with their permission bits; a link or anything
 --- else is not upstream source and is left out.
 ---
---- The applier's own source is part of every key, so an edit to this file
---- -- a comment's included -- names every tree anew: zig compiles all of
---- vendor/ again, and, since the file is in the image fingerprint
---- (build/work.tl), the tool boots.
+--- This file's own source is in no key: an edit to it that writes the
+--- same trees (a comment, a refactor) names every tree as before, and
+--- zig compiles none of vendor/ again; one that changes a tree's bytes
+--- names that tree anew. Every byte written under a tree's name is
+--- decided by the [`Tree`] its key hashes, so a change to how a tree is
+--- written must go through that record to reach the disk. Since the file
+--- is in the image fingerprint (build/work.tl), an edit still boots the
+--- tool.
 ---
 --- Like [`build/zig.tl`], which runs it before every `zig build`, this runs
 --- standalone -- against the running binary's own standard library,
@@ -48,6 +54,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 local record Patch
   --- One record, parsed.
@@ -77,7 +84,7 @@ local function header(text: string, at: integer, key: string): Line | nil
   end
   local line = text:sub(at, eol - 1)
   local prefix = key .. ": "
-  if line:sub(1, #prefix) ~= prefix then
+  if not String.starts_with(line, prefix) then
     return nil
   end
   return { value = line:sub(#prefix + 1), start = at, after = eol + 1 }
@@ -306,12 +313,55 @@ local function sync_dir(path: string): boolean, string
   return true, ""
 end
 
---- Writes `inputs` into `out`, which must not exist, with the records
---- applied, and syncs every file and directory it wrote. Modes are set
---- outright, whatever the umask.
-local function write_tree(inputs: Inputs, out: string): boolean, string
+--- A patched tree as it is to be written, every byte of it decided:
+--- each directory, by its path under the tree and its permission bits,
+--- and each file, by its path, permission bits and bytes, the records
+--- applied. Its key ([`key_of`]) hashes all of it and [`write_tree`]
+--- writes all of it and nothing else, so two trees of one key are the
+--- same bytes, whatever version of this file wrote them.
+local record Tree
+  dir_mode: integer
+  dirs: {string}
+  files: {Input}
+end
+
+--- What every directory of a tree is given, whatever the umask.
+local dir_mode <const> = 0x1ed
+
+--- `inputs` with its records applied, or nil and why, naming the record
+--- that failed.
+local function patched(inputs: Inputs): Tree | nil, string
+  local contents: {string:string} = {}
+  for _, file in ipairs(inputs.files) do
+    contents[file.path] = file.data
+  end
+  for _, input in ipairs(inputs.records) do
+    local parsed, parse_trouble = Patch.parse(input.data, input.path)
+    if parsed == nil then
+      return nil, parse_trouble
+    end
+    local source = contents[parsed.file]
+    if source == nil then
+      return nil, input.path .. ": no file " .. parsed.file .. " to patch"
+    end
+    local applied, apply_trouble = Patch.apply(source, parsed, input.path)
+    if applied == nil then
+      return nil, apply_trouble
+    end
+    contents[parsed.file] = applied
+  end
+  local files: {Input} = {}
+  for _, file in ipairs(inputs.files) do
+    files[#files + 1] = { path = file.path, mode = file.mode, data = contents[file.path] }
+  end
+  return { dir_mode = dir_mode, dirs = inputs.dirs, files = files }, ""
+end
+
+--- Writes `tree` into `out`, which must not exist, and syncs every file
+--- and directory it wrote. Modes are set outright, whatever the umask.
+local function write_tree(tree: Tree, out: string): boolean, string
   local dirs: {string} = { out }
-  for _, dir in ipairs(inputs.dirs) do
+  for _, dir in ipairs(tree.dirs) do
     dirs[#dirs + 1] = out .. "/" .. dir
   end
   for _, dir in ipairs(dirs) do
@@ -319,36 +369,14 @@ local function write_tree(inputs: Inputs, out: string): boolean, string
     if not made then
       return false, trouble
     end
-    local moded, mode_trouble = Fs.chmod(dir, 0x1ed)
+    local moded, mode_trouble = Fs.chmod(dir, tree.dir_mode)
     if not moded then
       return false, mode_trouble
     end
   end
-  local contents: {string:string} = {}
-  local modes: {string:integer} = {}
-  for _, file in ipairs(inputs.files) do
-    contents[file.path] = file.data
-    modes[file.path] = file.mode
-  end
-  for _, input in ipairs(inputs.records) do
-    local parsed, parse_trouble = Patch.parse(input.data, input.path)
-    if parsed == nil then
-      return false, parse_trouble
-    end
-    local source = contents[parsed.file]
-    if source == nil then
-      return false, input.path .. ": no file " .. parsed.file .. " to patch"
-    end
-    local patched, apply_trouble = Patch.apply(source, parsed, input.path)
-    if patched == nil then
-      return false, apply_trouble
-    end
-    contents[parsed.file] = patched
-  end
-  for _, file in ipairs(inputs.files) do
+  for _, file in ipairs(tree.files) do
     local path = out .. "/" .. file.path
-    local written, write_trouble = write_synced(path, contents[file.path],
-      modes[file.path])
+    local written, write_trouble = write_synced(path, file.data, file.mode)
     if not written then
       return false, write_trouble
     end
@@ -369,25 +397,27 @@ function Patch.tree(root: string, name: string, out: string): boolean, string
   if inputs == nil then
     return false, trouble
   end
-  return write_tree(inputs, out)
+  local tree, patch_trouble = patched(inputs)
+  if tree == nil then
+    return false, patch_trouble
+  end
+  return write_tree(tree, out)
 end
 
---- The hash that names a patched tree: `applier`, the source doing the
---- patching, then every directory and file of the vendored tree, each
---- file with its permission bits, and every record, each by its path and
---- contents.
-local function key_of(inputs: Inputs, applier: string): string
-  local lines: {string} = { "applier " .. Hash.hex_sha256(applier) .. "\n" }
-  for _, dir in ipairs(inputs.dirs) do
+--- The hash that names a patched tree: all of `tree`, as it is to be
+--- written -- the directories' permission bits, then every directory,
+--- and every file with its permission bits and the hash of its patched
+--- bytes, in path order. Neither the records nor the source doing the
+--- patching is in it but through what they write, so an edit to either
+--- that writes the same bytes names the same tree.
+local function key_of(tree: Tree): string
+  local lines: {string} = { "dirs " .. tostring(tree.dir_mode) .. "\n" }
+  for _, dir in ipairs(tree.dirs) do
     lines[#lines + 1] = "dir " .. dir .. "\n"
   end
-  for _, file in ipairs(inputs.files) do
+  for _, file in ipairs(tree.files) do
     lines[#lines + 1] = "file " .. file.path .. " " .. tostring(file.mode) ..
       " " .. Hash.hex_sha256(file.data) .. "\n"
-  end
-  for _, input in ipairs(inputs.records) do
-    lines[#lines + 1] = "record " .. input.path .. " " ..
-      Hash.hex_sha256(input.data) .. "\n"
   end
   return Hash.hex_sha256(table.concat(lines))
 end
@@ -425,18 +455,21 @@ end
 --- the storage itself (not on macOS; see below).
 -- TODO: on macOS fsync leaves the data in the drive's own cache; sync
 -- with fcntl(F_FULLFSYNC) there once cosmic.sys carries fcntl.
--- TODO: nothing removes a tree no build names any more, and each edit to
--- a vendored tree, a record or this file leaves one behind (tens of MB
--- for every tree at once); remove the ones older than the newest of each
+-- TODO: nothing removes a tree no build names any more, and each edit
+-- that changes a tree's bytes leaves the one before behind (tens of MB
+-- when every tree changes at once); remove the ones older than the newest of each
 -- name, or those no manifest (o/patched.tsv) names, as zig leaves its
 -- own cache to be deleted whole.
-function Patch.prepare(root: string, name: string, cache: string,
-                       applier: string): string | nil, string
+function Patch.prepare(root: string, name: string, cache: string): string | nil, string
   local inputs, trouble = read_inputs(root, name)
   if inputs == nil then
     return nil, trouble
   end
-  local dir = cache .. "/" .. name .. "-" .. key_of(inputs, applier)
+  local tree, patch_trouble = patched(inputs)
+  if tree == nil then
+    return nil, patch_trouble
+  end
+  local dir = cache .. "/" .. name .. "-" .. key_of(tree)
   local present, present_trouble = Fs.exists(dir)
   if present == nil then
     return nil, present_trouble
@@ -451,7 +484,7 @@ function Patch.prepare(root: string, name: string, cache: string,
   sweep(cache)
   local scratch = dir .. ".work." .. tostring(sys.getpid())
   local _, _ = Fs.remove_tree(scratch)
-  local written, write_trouble = write_tree(inputs, scratch)
+  local written, write_trouble = write_tree(tree, scratch)
   if not written then
     local _, _ = Fs.remove_tree(scratch)
     return nil, write_trouble
@@ -498,11 +531,6 @@ function Patch.main(argv: {integer:string}): integer
     log:complain("usage: cosmic --standalone build/patch.tl <root> <cache>")
     return 2
   end
-  local applier, applier_trouble = Fs.read(argv[0])
-  if applier == nil then
-    log:complain(applier_trouble)
-    return 1
-  end
   local names, trouble = Patch.names(root)
   if names == nil then
     log:complain(trouble)
@@ -510,7 +538,7 @@ function Patch.main(argv: {integer:string}): integer
   end
   local lines: {string} = {}
   for _, name in ipairs(names) do
-    local dir, prepare_trouble = Patch.prepare(root, name, cache, applier)
+    local dir, prepare_trouble = Patch.prepare(root, name, cache)
     if dir == nil then
       log:complain(prepare_trouble)
       return 1

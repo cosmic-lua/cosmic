@@ -9,6 +9,7 @@ local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 local SLICE_MS <const> = 5
 
@@ -160,7 +161,7 @@ local verbs: {string:function(string, string): integer} = {
     if target:sub(1, 1) == "@" then
       local held, trouble = Fs.read(target:sub(2))
       if held == nil then return failed(target:sub(2), trouble) end
-      named = held:match("^%s*(.-)%s*$")
+      named = String.trim(held)
     end
     local pid = target == "" and sys.getpid() or number(named)
     if pid == nil then return failed("signal", "no process " .. named) end
@@ -251,7 +252,7 @@ local verbs: {string:function(string, string): integer} = {
     local status, trouble = Fs.read("/proc/self/status")
     if status == nil then return failed("/proc/self/status", trouble) end
     for line in status:gmatch("[^\n]+") do
-      if line:sub(1, #name + 1) == name .. ":" then return put_all(1, line .. "\n") end
+      if String.starts_with(line, name .. ":") then return put_all(1, line .. "\n") end
     end
     return failed("status-field", "no " .. name)
   end,
@@ -388,7 +389,7 @@ local function run_script(script: string, args: {string}, dir: string): integer
     return run(substituted(first, joined, dir), substituted(rest, joined, dir))
   end
   for each in script:gmatch("[^;\n]+") do
-    local line: string = each:match("^%s*(.-)%s*$")
+    local line: string = String.trim(each)
     local only, guarded: string, string = line:match("^%[([^%]]*)%]%s+(.*)$")
     if only ~= nil then
       line = only == args[1] and guarded or ""

@@ -384,8 +384,9 @@ end
 --- The stand-in is a host program whose main module is named under
 --- neither `build.*` nor `cosmic.*`, so it loads untrusted, as one
 --- `cosmic build --host` makes: it carries no `build.*` row at all, and
---- does carry the modules the core itself requires of a program
---- ([`cosmic.errors`], [`cosmic.removed`]).
+--- does carry what the core itself requires of a program
+--- ([`cosmic.errors`]), but not [`cosmic.removed`], which only words a
+--- refusal of a removed global its probe never reaches for.
 local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   local parts = assert(artifact.split((assert(Fs.read(built(tmp))))))
   assert(parts.host)
@@ -400,7 +401,8 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")
   assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")
   assert(one("SELECT count(*) FROM modules WHERE path IN " ..
-    "('cosmic.errors', 'cosmic.removed', 'cosmic.child')") == "3")
+    "('cosmic.errors', 'cosmic.child')") == "2")
+  assert(one("SELECT count(*) FROM modules WHERE path = 'cosmic.removed'") == "0")
   assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
   assert(db:close())
 end

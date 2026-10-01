@@ -280,7 +280,7 @@ local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string
   env.COSMIC_SANDBOX = nil
   local function database_checkout(root: string, value: string)
     assert(Fs.mkdirs(root .. "/suite"))
-    local db = assert(Sqlite.open(root .. "/suite/data.db", true))
+    local db = assert(Sqlite.open(root .. "/suite/data.db", { writable = true }))
     assert(db:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('" .. value .. "')"))
     assert(db:close())
     assert(Fs.write(root .. "/suite/database_test.tl", [[
@@ -290,7 +290,7 @@ local Test = require("cosmic.test")
 Test.needs { reads = { "suite/data.db" } }
 
 local function test_reads_a_database()
-  local db = assert(Sqlite.open("suite/data.db", false))
+  local db = assert(Sqlite.open("suite/data.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
   assert(db:close())
   assert(rows[1][1] == "one", rows[1][1])
@@ -389,7 +389,7 @@ local function test_a_database_attached_through_the_store_is_keyed_by_its_conten
   env.COSMIC_SANDBOX = nil
   local function attached_checkout(root: string, value: string)
     assert(Fs.mkdirs(root .. "/suite"))
-    local db = assert(Sqlite.open(root .. "/suite/data.db", true))
+    local db = assert(Sqlite.open(root .. "/suite/data.db", { writable = true }))
     assert(db:exec("CREATE TABLE meta (key TEXT, value TEXT); " ..
       "INSERT INTO meta VALUES ('v', '" .. value .. "')"))
     assert(db:close())
@@ -456,7 +456,7 @@ local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_st
 local Sqlite = require("cosmic.sqlite")
 
 local function test_makes_a_database(tmp: string)
-  local db = assert(Sqlite.open(tmp .. "/own.db", true))
+  local db = assert(Sqlite.open(tmp .. "/own.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (v TEXT)"))
   assert(db:close())
 end
@@ -526,7 +526,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
   assert(first:find("4 ran, 0 stood", 1, true), first)
   if not shares(first) then return end
-  local db = assert(Sqlite.open(cache, true))
+  local db = assert(Sqlite.open(cache, { writable = true }))
   local tables = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   assert(#tables == 1, "one table")
@@ -577,7 +577,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   env.OUTSIDE = tmp
   local other = tmp .. "/other/verdicts.db"
   assert(Fs.mkdirs(tmp .. "/other"))
-  local db = assert(Sqlite.open(other, true))
+  local db = assert(Sqlite.open(other, { writable = true }))
   local probe = assert(shared_verdicts.open(tmp .. "/probe/verdicts.db"))
   local named = assert(Sqlite.text_rows(probe.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))

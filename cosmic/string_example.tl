@@ -46,4 +46,12 @@ function Example.starts_with()
   assert(not String.starts_with("-", "--"))
 end
 
+--- A count in a message, with the right plural.
+function Example.counted()
+  local message = String.counted(1, "entry", "entries") .. ", " ..
+    String.counted(3, "entry", "entries") .. ", " .. String.counted(2, "file")
+  print(message)
+  assert(message == "1 entry, 3 entries, 2 files")
+end
+
 return Example

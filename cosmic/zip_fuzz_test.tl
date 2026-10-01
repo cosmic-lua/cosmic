@@ -101,7 +101,7 @@ local function walk(input: string): boolean, string
     end
   end
   if not ended then return false, "more than 10000 entries from one input" end
-  zr:entries()
+  local _, _ = zr:entries()
   zr:close()
   return true, ""
 end

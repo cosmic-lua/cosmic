@@ -45,6 +45,7 @@ local Time = require("cosmic.time")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
+local String = require("cosmic.string")
 
 --- The `cosmic rand` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -74,7 +75,7 @@ end
 verb.MAX_BYTES = 1048576
 verb.MAX_COUNT = 10000000
 
-local spec = Cli.options.rand
+local spec = Cli.verbs.rand.spec
 
 local usage = "cosmic rand uuid [--v4|--v7] [-n N] | token [--bytes N] [--hex|--base64url] | " ..
   "int [-n N] [--seed S] [--] <lo> <hi> | pick [-n N] [--seed S] [file|-] | shuffle [--seed S] [file|-]"
@@ -156,7 +157,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
   end
   local request: Request = { command = command, version = 4, bytes = 32, encoding = "base64url", words = {} }
   for _, word in ipairs(parsed.words) do
-    if command == "int" and word:sub(1, #NEGATIVE) == NEGATIVE then word = word:sub(#NEGATIVE + 1) end
+    if command == "int" and String.starts_with(word, NEGATIVE) then word = word:sub(#NEGATIVE + 1) end
     request.words[#request.words + 1] = word
   end
   if parsed.set["--v4"] and parsed.set["--v7"] then

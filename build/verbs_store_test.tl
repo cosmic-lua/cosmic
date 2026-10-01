@@ -11,6 +11,7 @@ local Test = require("cosmic.test")
 local verb_cases = require("build.verb_cases")
 local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
+local String = require("cosmic.string")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
@@ -72,7 +73,8 @@ local function test_help_takes_a_verb(tmp: string)
 end
 
 local function test_help_lists_each_option_a_verb_parses(tmp: string)
-  for verb, options in pairs(Cli.options) do
+  for verb, command in pairs(Cli.verbs) do
+    local options = command.spec or {}
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout or ""
     for name, entry in pairs(options) do
       assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "",
@@ -130,8 +132,16 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   for _ in all:gmatch("\n") do lines = lines + 1 end
   assert(lines < 60, lines .. " lines:\n" .. all)
   for _, verb in ipairs(Cli.order) do
-    assert(all:find(Cli.usage[verb] .. " ", 1, true), verb .. " is not in the index:\n" .. all)
-    assert(all:find(Cli.summary[verb], 1, true), verb .. " has no line:\n" .. all)
+    local command = Cli.verbs[verb]
+    assert(all:find(command.usage .. "  ", 1, true), verb .. " is not in the index:\n" .. all)
+    assert(all:find(command.about, 1, true), verb .. " has no line:\n" .. all)
+  end
+  -- A usage follows the word that names its verb, or what is typed
+  -- where a verb has no word of its own.
+  for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
+      "\n  cosmic --standalone <file.tl>  ", "\n  cosmic -e '<chunk>' [args]  ",
+      "\n  cosmic --version  ", "\n  cosmic bom  " }) do
+    assert(all:find(line, 1, true), line .. ":\n" .. all)
   end
   for _, pointer in ipairs({ "cosmic help <verb>", "cosmic help exit", "cosmic docs <module>",
       "cosmic.removed" }) do
@@ -310,7 +320,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
   -- A path may be named resolved: /var/... is /private/var/... on macOS.
   local real = assert(Fs.absolute(tmp))
   for _, path in ipairs(listed) do
-    local under = path:sub(1, #tmp) == tmp or path:sub(1, #real) == real
+    local under = String.starts_with(path, tmp) or String.starts_with(path, real)
     assert(not under, "sql listed " .. path)
   end
   assert(Fs.read(tmp .. "/o/build.db") == garbage)

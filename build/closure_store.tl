@@ -26,6 +26,7 @@ local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
+local String = require("cosmic.string")
 
 local record closure_store
   --- What every closure store a projection yields is a function of,
@@ -142,7 +143,7 @@ end
 
 --- The basis of the closure stores of the projection at `whole`.
 function closure_store.basis(whole: string): closure_store.Basis | nil, string
-  local opened, trouble = Sqlite.open(whole, false)
+  local opened, trouble = Sqlite.open(whole)
   if opened == nil then return nil, whole .. ": " .. trouble end
   local db: Sqlite.Handle = opened
   local function read(): closure_store.Basis | nil, string
@@ -294,7 +295,7 @@ local function candidates(basis: closure_store.Basis, name: string): {string}
   local stem = name:sub(1, #name - #"_example")
   local out: {string} = {}
   for _, path in ipairs(basis.pairable) do
-    if path == stem or stem:sub(1, #path + 1) == path .. "_" then out[#out + 1] = path end
+    if path == stem or String.starts_with(stem, path .. "_") then out[#out + 1] = path end
   end
   return out
 end

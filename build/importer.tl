@@ -39,6 +39,7 @@ local work = require("build.work")
 local type compiler = require("build.compiler")
 local bind = require("build.bind")
 local plural = require("build.plural")
+local String = require("cosmic.string")
 
 local type Module = positions.Module
 
@@ -1876,7 +1877,7 @@ local function bytecode_of(code: string, name: string,
     return nil, file .. ": " .. tostring(load_trouble)
   end
   local bytecode = string.dump(chunk, false)
-  if bytecode:sub(1, #bytecode_header) ~= bytecode_header then
+  if not String.starts_with(bytecode, bytecode_header) then
     return nil, file .. ": this host dumps bytecode the three " ..
       "targets do not share"
   end
@@ -2085,7 +2086,7 @@ local function compile(handle: work.Handle, built: compiler, tool: string,
     if hint_databases == nil then
       local databases: {Sqlite.Handle} = {}
       local public: {boolean} = {}
-      local projection, _ = Sqlite.open(handle.root .. "/o/cosmic.db", false)
+      local projection, _ = Sqlite.open(handle.root .. "/o/cosmic.db")
       if projection ~= nil then
         hint_projection = projection
         databases[1] = projection

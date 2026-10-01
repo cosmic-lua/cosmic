@@ -18,15 +18,13 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Compress = require("cosmic.compress")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
+-- The raw declaration holds the interface. A declaration may require only
+-- declarations, and Teal's interface conformance is nominal: the raw
+-- Stream must say `is Transform` where it is declared.
+local type raw_compress = require("cosmic.internal.compress")
 
 local record Stream
   interface Reader
@@ -101,9 +99,131 @@ local record Stream
     abort: function(Sticky): boolean, string
   end
 
-  --- The incremental codec `transform` and [`transform_writer`] drive:
-  --- one of [`cosmic.compress`]'s inflaters, deflaters or decoders.
-  type Codec = Compress.Stream
+  --- One incremental transform, a chunk at a time: what
+  --- [`Stream.transform`], [`Stream.transform_writer`] and
+  --- [`Stream.run`] drive. [`cosmic.compress`]'s inflaters, deflaters
+  --- and decoders are Transforms, and so are `cosmic codec`'s coders.
+  --- Every call answers `value, ""` on success and `nil, error` on
+  --- failure.
+  ---
+  --- `update(chunk)` feeds `chunk` and answers the output that is
+  --- ready, possibly "". On bad input it answers `nil` and why, and
+  --- the Transform is finished.
+  ---
+  --- `finish()` says no more input follows and answers what is left,
+  --- or `nil` and why when the input ended where it could not (a
+  --- compressed stream cut short). A driver calls it once, after the
+  --- last `update`.
+  ---
+  --- `pending()` is present only on a Transform that can hold output
+  --- back, as a decoder does to bound what one call returns however
+  --- far its input expands: it says whether some is held, which
+  --- `update("")` then gives out. A driver drains it, calling
+  --- `update("")` while `pending()` answers true, before it feeds
+  --- more input or calls `finish`; where there is no `pending`,
+  --- nothing is ever held.
+  type Transform = raw_compress.Transform
+
+  --- What an archive entry is. A zip entry is only ever a "file", a
+  --- "dir" or a "symlink".
+  enum EntryKind
+    "file"
+    "dir"
+    "symlink"
+    --- A tar entry that names another entry of the archive as `linkpath`.
+    "hardlink"
+    --- Anything else: a device, a FIFO, a GNU sparse file (typeflag
+    --- `S`, or pax `GNU.sparse.*` records), or a typeflag this module
+    --- does not know. Its body, if any, is still skipped correctly.
+    "other"
+  end
+
+  -- TODO: once `cosmic docs` lists the fields a record gets from an `is`
+  -- parent, the pages of Tar.Entry, Zip.Entry, Archive.Entry and
+  -- Archive.Reader should show path, kind, mode, size, mtime, linkpath and
+  -- open (this interface's, with their docs) beside each record's own
+  -- fields; today those two aliases list none and the records list only
+  -- what they redeclare.
+  --- One entry of a tar or a zip, as [`cosmic.archive`] walks both. The
+  --- interface lives here, not there, because Teal's interface
+  --- conformance is nominal: [`cosmic.tar`] and [`cosmic.zip`] each
+  --- declare their entry `is` it, and [`cosmic.archive`] requires them
+  --- both.
+  interface ArchiveEntry
+    --- The entry's path as the archive stores it.
+    path: string
+    --- What the entry is.
+    kind: EntryKind
+    --- The permission bits (the low 12); 0 for a zip entry whose tool
+    --- recorded none.
+    mode: integer
+    --- The body's size in bytes, uncompressed. A zip symlink's body is its
+    --- target, so its size is the target's length; a tar symlink's is 0.
+    size: integer
+    --- The modification time, in Unix epoch seconds.
+    mtime: integer
+    --- A symlink's or hardlink's target; "" otherwise.
+    linkpath: string
+    --- The entry's body. Read it before asking for the next entry: a
+    --- tar body cannot be read after that, and no body can be read once
+    --- the reader is closed. An entry from [`Archive.list`] cannot be
+    --- opened at all.
+    open: function(ArchiveEntry): Reader | nil, string
+  end
+
+  --- The entries of a tar or a zip, one at a time: what
+  --- [`cosmic.tar`]'s and [`cosmic.zip`]'s readers are, and what
+  --- [`Archive.open`] and [`Archive.open_stream`] answer.
+  interface ArchiveReader
+    --- The next entry, nil and "" at the end, or nil and an error. For
+    --- a compressed tar, the end also runs the decompressor to the end
+    --- of its stream, so a truncated or corrupt one fails here rather
+    --- than passing as a complete archive.
+    next: function(ArchiveReader): ArchiveEntry | nil, string
+    --- Closes the file or stream the archive is read from.
+    close: function(ArchiveReader): boolean, string
+  end
+
+  --- What [`ArchiveWriter`] may be told about an entry. Every field is
+  --- optional. A zip's own options, [`Zip.EntryOptions`], add the `method`
+  --- a body is stored by.
+  interface EntryOptions
+    --- The permission bits (the low 12 are written). Defaults to 0644
+    --- for a file, 0755 for a directory and 0777 for a symlink.
+    mode: integer
+    --- Modification time in Unix epoch seconds; defaults to 0. Ignored
+    --- (the archive's own zero) when the writer is `deterministic`.
+    mtime: integer
+    --- The body's size, for a file whose body is a [`Stream.Reader`]: required
+    --- by a tar, whose header states it before the body, and optional
+    --- for a zip.
+    size: integer
+  end
+
+  --- The writer a tar or a zip gives: [`cosmic.tar`]'s and
+  --- [`cosmic.zip`]'s writers are one, so a caller that packs a tree
+  --- writes it once. Once any call fails, the underlying [`Stream.Writer`] is
+  --- aborted and every later call, `close` included, returns that
+  --- failure: a half-written archive is never committed. A call after
+  --- `close` fails too.
+  interface ArchiveWriter
+    --- Adds a regular file at `path` with `data` as its body. A
+    --- [`Stream.Reader`] body is read to `opts.size` bytes (to its end, when
+    --- the format allows no size), and is not closed. Returns `true,
+    --- ""`, or `false` and why.
+    add_file: function(ArchiveWriter, path: string, data: string | Reader, opts?: EntryOptions): boolean, string
+    --- Adds a directory entry at `path`, to which a trailing `/` is
+    --- added if missing. Returns `true, ""`, or `false` and why.
+    add_dir: function(ArchiveWriter, path: string, opts?: EntryOptions): boolean, string
+    --- Adds a symbolic link at `path` pointing at `target`. Returns
+    --- `true, ""`, or `false` and why.
+    add_symlink: function(ArchiveWriter, path: string, target: string, opts?: EntryOptions): boolean, string
+    --- Writes the archive's end and closes the underlying [`Stream.Writer`],
+    --- committing it. Returns `true, ""`, or `false` and why.
+    close: function(ArchiveWriter): boolean, string
+    --- Abandons the archive: aborts the underlying [`Stream.Writer`].
+    abort: function(ArchiveWriter): boolean, string
+  end
 end
 
 local chunk_size = 1 << 16
@@ -230,11 +350,17 @@ function Stream.open(path: string): Stream.Reader | nil, string
   return make_fd_reader(fd, true), ""
 end
 
---- A Reader that pipes another Reader through an incremental codec:
+--- Whether `t` holds output back, which `update("")` gives out; a
+--- Transform with no `pending` never does.
+local function holds_output(t: Stream.Transform): boolean
+  return t.pending ~= nil and t:pending()
+end
+
+--- A Reader that pipes another Reader through a [`Stream.Transform`]:
 --- `reader`'s chunks go through `codec:update`, and `codec:finish` is
 --- called once, at `reader`'s end of file, for whatever the codec was
 --- still holding. A codec or `reader` error ends it, stickily.
-function Stream.transform(reader: Stream.Reader, codec: Stream.Codec): Stream.Reader
+function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Stream.Reader
   -- `pending` holds the codec's last batch of output, and `at` is how
   -- far into it this reader has already given out -- an offset rather
   -- than shrinking `pending` on every read, since a codec can hand
@@ -256,7 +382,7 @@ function Stream.transform(reader: Stream.Reader, codec: Stream.Codec): Stream.Re
   --- `finish` runs once, at the end of `reader`, when nothing is
   --- pending, and so returns only the codec's small tail.
   local function step(): string | nil, string
-    if codec:pending() then return codec:update("") end
+    if holds_output(codec) then return codec:update("") end
     if at_eof then
       finished = true
       return codec:finish()
@@ -355,24 +481,46 @@ function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
   return r
 end
 
---- Reads exactly `n` bytes, or nil and an error when the stream ends
---- first.
-function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, string
-  if n == 0 then return "", "" end
-  local parts: {string} = {}
-  local got = 0
+--- Reads up to `n` bytes: all of them, or what is left when the stream
+--- ends first, answered with "". So "" is a clean end of the stream and
+--- fewer than `n` bytes are a truncated one; nil and why when `reader`
+--- fails, with the bytes already read dropped.
+---
+---     local head, why = Stream.read_up_to(reader, 4)
+---     assert(head, why)
+---     if #head < 4 then print("shorter than a header") end
+function Stream.read_up_to(reader: Stream.Reader, n: integer): string | nil, string
+  if n <= 0 then return "", "" end
+  local first, trouble = reader:read(n)
+  if first == nil then
+    if trouble ~= "" then return nil, trouble end
+    return "", ""
+  end
+  if #first >= n then return first, "" end
+  local parts: {string} = { first }
+  local got = #first
   while got < n do
-    local chunk, trouble = reader:read(n - got)
+    local chunk, rtrouble = reader:read(n - got)
     if chunk == nil then
-      if trouble ~= "" then return nil, trouble end
-      return nil, "unexpected end of stream: wanted " .. counted(n, "byte") ..
-        ", got " .. tostring(got)
+      if rtrouble ~= "" then return nil, rtrouble end
+      break
     end
     parts[#parts + 1] = chunk
     got = got + #chunk
   end
-  if #parts == 1 then return parts[1], "" end
   return table.concat(parts), ""
+end
+
+--- Reads exactly `n` bytes, or nil and an error when the stream ends
+--- first.
+function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, string
+  local data, trouble = Stream.read_up_to(reader, n)
+  if data == nil then return nil, trouble end
+  if #data < n then
+    return nil, "unexpected end of stream: wanted " .. String.counted(n, "byte") ..
+      ", got " .. tostring(#data)
+  end
+  return data, ""
 end
 
 --- Moves `reader` forward `n` bytes: with its `skip` when it has one,
@@ -388,7 +536,7 @@ function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
     local chunk, trouble = reader:read(want)
     if chunk == nil then
       if trouble ~= "" then return false, trouble end
-      return false, "unexpected end of stream: skipping " .. counted(n, "byte")
+      return false, "unexpected end of stream: skipping " .. String.counted(n, "byte")
     end
     left = left - #chunk
   end
@@ -463,19 +611,20 @@ local default_line_limit <const> = 1 << 20
 --- when that is not empty, so "a\nb\n" and "a\nb" are both two lines.
 --- A "\r" before the "\n" stays on its line, as [`String.lines`] keeps
 --- it; unlike [`String.lines`], text ending in "\n" has no empty last
---- line, and "" has no lines at all. A line longer than `max` bytes
---- (1 MiB by default) fails rather than grow without bound; a `max`
---- that is no integer of at least 1 raises. `reader` is not closed.
+--- line, and "" has no lines at all. A line longer than
+--- `max_bytes` bytes (1 MiB by default) fails rather than grow without
+--- bound; a `max_bytes` that is no integer of at least 1 raises.
+--- `reader` is not closed.
 ---
 ---     local reader = assert(Stream.open("log.txt"))
 ---     local lines = Stream.lines(reader)
 ---     for line in lines:each() do print(line) end
 ---     assert(lines:failure() == "", lines:failure())
 ---     assert(reader:close())
-function Stream.lines(reader: Stream.Reader, max?: integer): Stream.Lines
-  local limit = max or default_line_limit
+function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
+  local limit = max_bytes or default_line_limit
   if math.type(limit) ~= "integer" or limit < 1 then
-    error("stream: a line limit must be an integer of at least 1", 2)
+    error("stream: max_bytes must be an integer of at least 1", 2)
   end
   -- `chunk` is the last one read, given out from `at`; `parts` holds
   -- the pieces of a line no chunk has ended yet, `held` bytes of them,
@@ -492,7 +641,7 @@ function Stream.lines(reader: Stream.Reader, max?: integer): Stream.Lines
     chunk, at, parts, held = "", 1, {}, 0
     return nil, failed
   end
-  local too_long = "stream: a line is longer than " .. counted(limit, "byte")
+  local too_long = "stream: a line is longer than " .. String.counted(limit, "byte")
   local lines: Stream.Lines = {}
   lines.read = function(_self: Stream.Lines): string | nil, string
     if failed ~= "" then return nil, failed end
@@ -546,8 +695,8 @@ end
 --- Copies `reader` to `writer` until `reader`'s end of file, and
 --- returns how many bytes went across. Closes neither side: on failure
 --- the caller decides whether to `abort` `writer` or `close` it. To
---- cap a copy, copy `Stream.limit(reader, max + 1)` and compare the
---- count with `max`, which tells a source that ends at `max` from one
+--- cap a copy, copy `Stream.limit(reader, max_bytes + 1)` and compare the
+--- count with `max_bytes`, which tells a source that ends at it from one
 --- that goes on past it.
 function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): integer | nil, string
   local total = 0
@@ -561,6 +710,32 @@ function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): integer | ni
     local ok, wtrouble = writer:write(chunk)
     if not ok then return nil, wtrouble end
   end
+end
+
+--- Copies exactly `n` bytes of `reader` to `writer`, and no more of
+--- `reader` than that: for a body whose size a header states and a
+--- reader that holds more after it. Answers `true, ""`, or `false` and
+--- why: a `reader` that ends before `n` bytes (its size was not the
+--- stated one), or fails, or a `writer` that does. Closes neither side.
+---
+---     local ok, why = Stream.copy_n(reader, writer, size)
+---     if not ok then writer:abort() end
+function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer): boolean, string
+  local left = n
+  while left > 0 do
+    local want = left
+    if want > chunk_size then want = chunk_size end
+    local chunk, trouble = reader:read(want)
+    if chunk == nil then
+      if trouble ~= "" then return false, trouble end
+      return false, "unexpected end of stream before its stated size: wanted " ..
+        String.counted(n, "byte") .. ", got " .. tostring(n - left)
+    end
+    local ok, wtrouble = writer:write(chunk)
+    if not ok then return false, wtrouble end
+    left = left - #chunk
+  end
+  return true, ""
 end
 
 --- A Writer over an already-open descriptor. The descriptor is not
@@ -688,6 +863,10 @@ end
 --- -- `tee` it beside the Writer the body is really going to. Given a
 --- `key`, it is the HMAC under that key ([`Hash.hmac_hasher`]) that
 --- `digest` answers, not the plain digest.
+-- TODO: once Hash.Hasher's `update` answers `"", ""` (or a thin adapter
+-- stands over it), make a Hasher a Stream.Transform with `finish` as its
+-- `digest`, so [`Stream.run`] and [`transform_writer`] drive it and this
+-- Writer shrinks to that adapter.
 function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing | nil, string
   local feed: function(data: string)
   local finish: function(): string | nil, string
@@ -700,7 +879,7 @@ function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing
   else
     local made, trouble = Hash.hmac_hasher(algorithm, key)
     if made == nil then return nil, trouble end
-    local mac: Hash.Mac = made
+    local mac: Hash.Hasher = made
     feed = function(data: string) mac:update(data) end
     finish = function(): string | nil, string return mac:digest() end
   end
@@ -758,15 +937,15 @@ function Stream.tee(a: Stream.Writer, b: Stream.Writer): Stream.Writer
   return w
 end
 
---- A Writer that pipes each chunk written to it through an incremental
---- codec before passing it to `writer`; `close` flushes the codec's
+--- A Writer that pipes each chunk written to it through a
+--- [`Stream.Transform`] before passing it to `writer`; `close` flushes the codec's
 --- last bytes with `codec:finish` and then closes `writer`, or aborts
 --- `writer` when the codec or a write fails. `abort` aborts `writer`
 --- without finishing the codec. A decoder's held output is drained
 --- (`update("")` while `pending()`) after each write and before
 --- `finish`, so each write to `writer` stays bounded however far the
 --- input expands.
-function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Codec): Stream.Writer
+function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform): Stream.Writer
   local closed = false
   local failed: string
   local w: Stream.Writer = {}
@@ -780,7 +959,7 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Codec): St
         local ok, why = writer:write(out)
         if not ok then return false, why end
       end
-      if not codec:pending() then return true, "" end
+      if not holds_output(codec) then return true, "" end
       data = ""
     end
   end
@@ -826,6 +1005,44 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Codec): St
     return true, ""
   end
   return w
+end
+
+--- Drives `t` over the whole of `data` and answers everything it
+--- produces: `t:update(data)`, `update("")` while `t` holds output
+--- back, then `t:finish()`. Output that would pass `max_bytes`, when
+--- given, fails naming the bound, so a small input a decoder expands
+--- greatly cannot fill memory; a `max_bytes` that is not an integer of
+--- at least 0 raises. `t` is finished by it, or left unfinished by a
+--- failure, and is not reused.
+---
+---     local gz = assert(Compress.deflater("gzip"))
+---     local packed = assert(Stream.run(gz, text))
+function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): string | nil, string
+  if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
+    error("stream: max_bytes must be an integer of at least 0", 2)
+  end
+  local parts: {string} = {}
+  local total = 0
+  --- Keeps `out`, or answers false when it takes the total past the bound.
+  local function keep(out: string): boolean
+    total = total + #out
+    parts[#parts + 1] = out
+    return max_bytes == nil or total <= max_bytes
+  end
+  local function too_much(): nil, string
+    return nil, "output is larger than " .. String.counted(max_bytes, "byte")
+  end
+  local out, trouble = t:update(data)
+  while true do
+    if out == nil then return nil, trouble end
+    if not keep(out) then return too_much() end
+    if not holds_output(t) then break end
+    out, trouble = t:update("")
+  end
+  local last, finish_trouble = t:finish()
+  if last == nil then return nil, finish_trouble end
+  if not keep(last) then return too_much() end
+  return table.concat(parts), ""
 end
 
 return Stream

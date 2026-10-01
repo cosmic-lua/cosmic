@@ -16,6 +16,7 @@ local plural = require("build.plural")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local writer = require("build.writer")
+local String = require("cosmic.string")
 
 local log = Log.new("cosmic")
 
@@ -98,7 +99,7 @@ local function boot(root: string, argv: {integer:string},
       log:verdict("boot", false, checked_records_trouble)
       return 1
     end
-    if checked_records:sub(1, #records) ~= records then
+    if not String.starts_with(checked_records, records) then
       log:verdict("boot", false, "checked records do not begin with release records")
       return 1
     end

@@ -16,6 +16,7 @@ local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Time = require("cosmic.time")
 local Plural = require("cosmic_ci.plural")
+local String = require("cosmic.string")
 
 local record Orchestration
   stands: function(env: {string:string}): boolean
@@ -32,6 +33,7 @@ local record Orchestration
   suite_verdicts: function(env: {string:string}, name: string): string
   darwin_modules: function(text: string): {string}
   darwin_words: function(words: {string}, modules: {string}): {string} | nil
+  native_ran_every: function(text: string, code: integer): boolean
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -266,7 +268,7 @@ local function names_the_run(name: string): boolean
     if name == exact then return true end
   end
   for _, prefix in ipairs(RunNames.prefixes) do
-    if name:sub(1, #prefix) == prefix then return true end
+    if String.starts_with(name, prefix) then return true end
   end
   return false
 end
@@ -821,7 +823,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local candidate = assert(Fs.absolute(c.root))
   local destination = assert(Fs.absolute(diagnostics))
   assert(destination ~= candidate and
-    destination:sub(1, #candidate + 1) ~= candidate .. "/",
+    not String.starts_with(destination, candidate .. "/"),
     "snapshot path must be outside candidate checkout")
   local out = destination .. "/" .. label
   assert(not exists(out), "snapshot already exists: " .. out); mkdir(out)
@@ -962,7 +964,7 @@ local darwin_list <const> = "ci/darwin-tests.txt"
 function Orchestration.darwin_modules(text: string): {string}
   local modules: {string} = {}
   for line in text:gmatch("[^\n]+") do
-    local path = (line:gsub("#.*$", "")):match("^%s*(.-)%s*$")
+    local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then modules[#modules + 1] = path end
   end
   return modules
@@ -985,9 +987,22 @@ function Orchestration.darwin_words(words: {string}, modules: {string}): {string
   return out
 end
 
+--- Whether the native suite whose stdout is `text` and exit status
+--- `code` passed having run every test of the tree, none standing on a
+--- verdict, as after a core change or a moved harness epoch: then it ran
+--- each listed module on this leg already. Not where it ran a share
+--- (its summary names one) or chose no test at all.
+function Orchestration.native_ran_every(text: string, code: integer): boolean
+  local figures, status = SuiteOutput.read(text, code)
+  return status == "pass" and figures.stood == 0 and (figures.ran or 0) > 0 and
+    not (figures.sandbox or ""):find("shard", 1, true)
+end
+
 --- The darwin suite ([`darwin_words`]), on the macOS leg alone, on the
 --- tree `boot` built, in the native suite's environment, with a row of
---- its own, "darwin", which says the listed modules ran. A phase of its
+--- its own, "darwin", which says the listed modules ran -- or nothing,
+--- said on stderr, where the native suite ran every test already
+--- ([`native_ran_every`]). A phase of its
 --- own, after `local-boundary`: it writes the working database, which
 --- the boundary holds unchanged since the native suite, and ci.yml
 --- keeps the native suite's verdicts for the run behind in the queue
@@ -1004,6 +1019,16 @@ local function phase_darwin_suite(p: PlatformContext): integer
   local suite_words, values = Orchestration.suite_run()
   local words = Orchestration.darwin_words(suite_words, Orchestration.darwin_modules(listed))
   if words == nil then return 0 end
+  local native = p.local_diagnostics .. "/local-test"
+  if (Env.get("COSMIC_CI_SHARD") or "") == "" and exists(native .. ".out") and
+      exists(native .. ".status") then
+    local code = math.tointeger(tonumber((read(native .. ".status"):gsub("%s+$", ""))))
+    if code ~= nil and Orchestration.native_ran_every(read(native .. ".out"), code) then
+      Fs.put(Fs.stderr, "darwin suite: the native suite ran every test here, none " ..
+        "standing, so the listed modules ran on this leg already\n")
+      return 0
+    end
+  end
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   local argv: {string} = { p.root .. "/o/bin/cosmic" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end

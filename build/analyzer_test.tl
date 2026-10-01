@@ -1,5 +1,6 @@
 local teal = require("build.teal")
 local analyzer = require("build.analyzer")
+local Test = require("cosmic.test")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -1656,4 +1657,88 @@ local function test_a_parameter_shadows_a_helper_and_a_multi_name_local_is_whole
   }))
   assert(found[1].source:find("^local A <const>, B <const> = 1, 2\n\nfunction Example%.read"),
     found[1].source)
+end
+
+--- A `needs` declaration of one table, as the build reads it: the
+--- refusal, or "" when it reads.
+local function refusal_of(declaration: string): string
+  local got, trouble = declared(lines({
+    'local Test = require("cosmic.test")',
+    "Test.needs " .. declaration,
+  }))
+  if got == nil then return trouble end
+  return ""
+end
+
+--- Each field `Needs` has is one the build reads, taking what the type
+--- does, and the build knows no field more, so a call `needs` takes and
+--- a declaration the build reads are the same set. The build names the
+--- fields it knows when it refuses another.
+local function test_every_field_of_needs_is_one_the_build_reads()
+  local every: Test.Needs = {
+    reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,
+    standalone = true, nests = true, store = true, system = true, caches = {},
+  }
+  local flags: {string:boolean} = {}
+  local named: {string} = {}
+  for name, value in pairs(every as {string:any}) do
+    named[#named + 1] = name
+    flags[name] = value is boolean
+  end
+  table.sort(named)
+  for _, name in ipairs(named) do
+    -- Spelled as the field takes it, beside what it may stand beside.
+    local given = flags[name] and "true" or "{}"
+    local beside = (name == "standalone") and "lua = true, " or ""
+    local why = refusal_of("{ " .. beside .. name .. " = " .. given .. " }")
+    assert(why == "", name .. ": " .. why)
+    local other = flags[name] and "{}" or "true"
+    assert(refusal_of("{ " .. name .. " = " .. other .. " }"):find(name .. " takes", 1, true),
+      name .. " takes the other shape")
+  end
+  local unknown = refusal_of("{ reeds = {} }")
+  assert(unknown:find("it has " .. table.concat(named, ", "), 1, true), unknown)
+end
+
+--- A test reaches loopback alone (R1), and loopback is 127/8, written
+--- as a request names it (R2): a strict dotted quad `127.a.b.c` may be
+--- declared; `::1`, `localhost`, any other name or address, and any
+--- other spelling of one of 127/8 are refused, naming the rule.
+local function test_network_takes_loopback_addresses_alone()
+  for _, host in ipairs({ "127.0.0.1", "127.0.0.2", "127.255.255.255", "127.1.20.0" }) do
+    assert(refusal_of('{ network = { "' .. host .. '" } }') == "", host)
+  end
+  for _, host in ipairs({ "*", "0.0.0.0", "128.0.0.1", "10.0.0.1", "127.1", "127.0.1",
+    "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
+    "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::", "::1",
+    "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "localhost", "LOCALHOST",
+    "localhost.", "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
+    local refused = refusal_of('{ network = { "' .. host .. '" } }')
+    assert(refused:find(string.format("network %q: network takes loopback addresses " ..
+      "127.a.b.c only", host), 1, true) ~= nil, host .. ": " .. refused)
+  end
+  assert(refusal_of("{ network = true }"):find("network = true: network takes loopback " ..
+    "addresses", 1, true))
+end
+
+--- `lua` stands alone or beside what cannot start the program past its
+--- hold; beside `tool` or `store`, which key the whole program already,
+--- or `system` or a cache, whose host program or cached cosmic could
+--- start it unheld, it is refused, naming the field it meets.
+local function test_lua_is_refused_beside_what_starts_the_program_unheld()
+  assert(refusal_of("{ lua = true }") == "")
+  assert(refusal_of("{ lua = true, standalone = true }") == "")
+  assert(refusal_of('{ tool = true, store = true, system = true, caches = { "zig" } }') == "")
+  for name, field in pairs({ tool = "tool = true", store = "store = true",
+    system = "system = true", caches = 'caches = { "zig" }' }) do
+    local why = refusal_of("{ lua = true, " .. field .. " }")
+    assert(why:find("lua is refused beside " .. name, 1, true), why)
+  end
+end
+
+--- `standalone` widens what `lua` holds, so alone it is refused, naming
+--- `lua`.
+local function test_standalone_is_refused_without_lua()
+  local why = refusal_of("{ standalone = true }")
+  assert(why:find("standalone is refused without lua", 1, true), why)
 end

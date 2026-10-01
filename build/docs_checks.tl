@@ -36,7 +36,7 @@ function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle | ni
   if not made then
     return nil, made_trouble
   end
-  local db, open_trouble = Sqlite.open(scratch, false)
+  local db, open_trouble = Sqlite.open(scratch)
   local removed, remove_trouble = Fs.remove(scratch)
   if db == nil then
     return nil, open_trouble
@@ -203,7 +203,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     for _, line in ipairs(lines) do
       if private_member(line) then
         out[#out + 1] = label .. ": lists a member the module keeps to itself: " ..
-          line:match("^%s*(.-)%s*$")
+          String.trim(line)
       end
     end
     for _, line in ipairs(shown_prose(lines)) do

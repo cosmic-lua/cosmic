@@ -1048,7 +1048,7 @@ end
 local function program_at(path: string, core: string, meta: {string:string}, bytecode: string)
   local db_path = path .. ".db"
   local _, _ = Fs.remove(db_path)
-  local db = assert(Sqlite.open(db_path, true))
+  local db = assert(Sqlite.open(db_path, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
     "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
   local keys: {string} = {}

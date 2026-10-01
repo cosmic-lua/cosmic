@@ -79,20 +79,6 @@ function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
   return native.stop(), ""
 end
 
---- A copy of every line hit so far, without ending the collection or
---- needing the session `start` returned: unlike `stop`, this only
---- reads, so any caller may look in on a window it did not open,
---- while it is still running, without the session token's refusal
---- rules -- there is nothing here for a second caller to corrupt.
---- Empty when no collection is open.
---- @return Hits Every line hit so far
-function Coverage.snapshot(): Coverage.Hits
-  if active == nil then
-    return {}
-  end
-  return native.snapshot()
-end
-
 --- Every line of the core's own C a hit could land on, by the file's
 --- path in the cosmic repository, in the same form hits on it take:
 --- what C hits are counted out of. Every core cosmic ships and tests with is
@@ -103,17 +89,9 @@ function Coverage.native_lines(): Coverage.Hits
   return native.lines()
 end
 
---- The line each of the core's own C functions begins on, among
---- `native_lines`: a function was entered when a hit names its line.
---- Empty in a core without native coverage, like [`native_lines`].
---- @return Hits Every C function's first line, each true
-function Coverage.native_entries(): Coverage.Hits
-  return native.entries()
-end
-
---- Every one of the core's own C functions, by the line it begins on
---- ([`native_entries`]) and its name. Empty in a core without native
---- coverage.
+--- Every one of the core's own C functions, by the line it begins on --
+--- a function was entered when a hit names that line -- and its name.
+--- Empty in a core without native coverage.
 --- @return {Function} Every C function of the core
 function Coverage.native_functions(): {Coverage.Function}
   return native.functions()

@@ -781,10 +781,10 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
 end
 
---- A child starts on this process's memory rather than a copy of it,
---- but with a descriptor table of its own: the descriptors it closes and
---- moves to hand its program the ones asked for, and a later step that
---- fails, leave every one of this process's as it was.
+--- A child has a descriptor table of its own, though it starts on this
+--- process's memory on Linux: the descriptors closed and moved to hand
+--- its program the ones asked for, and a later step that fails, leave
+--- every one of this process's as it was.
 local function test_a_child_s_descriptors_are_its_own(tmp: string)
   local probe = probe_in(tmp)
   local held: {integer} = {}
@@ -808,6 +808,99 @@ local function test_a_child_s_descriptors_are_its_own(tmp: string)
   end
   assert(sys.fstat(report) ~= nil)
   sys.close(report)
+end
+
+--- A descriptor this process holds open across exec reaches a child
+--- only where the child is handed it: one below the highest handed and
+--- one above it are closed there, and one handed as its own number is
+--- open.
+local function test_a_child_is_handed_only_the_descriptors_asked_for(tmp: string)
+  local probe = probe_in(tmp)
+  local report = create(tmp .. "/report")
+  local below, handed, kept, above = 110, 120, 121, 130
+  for _, fd in ipairs({ below, handed, kept, above }) do
+    failed_with(sys.EBADF, sys.fd_flags(fd))
+    assert(sys.dup2(report, fd))
+    assert(not closed_on_exec(fd))
+  end
+  local pid = assert(process.spawn(probe, { probe, "fd-closed " .. below .. "; fd-closed " ..
+    above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
+    nil, nil, nil, nil, nil, false, { [handed] = report, [kept] = kept }))
+  local status = assert(process.waitpid(pid, false))
+  assert(status.code == 0, tostring(status.code))
+  assert(assert(sys.pread(report, 64, 0)) == "handed\nkept\n")
+  for _, fd in ipairs({ below, handed, kept, above, report }) do sys.close(fd) end
+end
+
+--- A program named by a relative path is found from the directory its
+--- child is given, absolute or relative, as exec in that directory
+--- finds it.
+local function test_a_relative_program_is_found_from_the_child_s_directory(tmp: string)
+  assert(sys.mkdir(tmp .. "/bin", 0x1c0))
+  assert(stand_in.place(probe_in(tmp), tmp .. "/bin/probe"))
+  local function status_of(path: string, cwd: string): integer
+    local pid = assert(process.spawn(path, { path, "exit 3" }, nil, cwd, nil, nil, nil, false))
+    return assert(process.waitpid(pid, false)).code
+  end
+  assert(status_of("probe", tmp .. "/bin") == 3)
+  assert(status_of("./probe", tmp .. "/bin") == 3)
+  assert(status_of("bin/probe", tmp) == 3)
+  local before = assert(sys.getcwd())
+  assert(sys.chdir(tmp))
+  -- Put the directory back before anything below can raise: every test
+  -- after this one runs in this same process.
+  local pid, trouble = process.spawn("../bin/probe", { "probe", "exit 3" }, nil, "bin", nil,
+    nil, nil, false)
+  sys.chdir(before)
+  assert(pid ~= nil, trouble)
+  assert(assert(process.waitpid(pid, false)).code == 3)
+end
+
+--- Two descriptors handed crosswise, each the other's number, reach the
+--- child each at the number asked: neither move overwrites the source
+--- the other reads.
+local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: string)
+  local probe = probe_in(tmp)
+  local first, second = 140, 141
+  local files: {integer: integer} = {}
+  for _, fd in ipairs({ first, second }) do
+    failed_with(sys.EBADF, sys.fd_flags(fd))
+    files[fd] = create(tmp .. "/" .. fd)
+    assert(sys.dup2(files[fd], fd))
+  end
+  local pid = assert(process.spawn(probe, { probe, "write-fd " .. first .. " first; write-fd " ..
+    second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
+  assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
+  for fd, file in pairs(files) do
+    sys.close(fd)
+    sys.close(file)
+  end
+end
+
+--- A child is put in a process group of its own only where asked.
+local function test_a_child_s_process_group_is_its_own_where_asked(tmp: string)
+  local probe = probe_in(tmp)
+  local own = assert(sys.getpgid(0))
+  for _, grouped in ipairs({ true, false }) do
+    local pid = assert(process.spawn(probe, { probe, "sleep 10000" }, nil, nil, nil, nil, nil,
+      grouped))
+    local group = assert(sys.getpgid(pid))
+    assert(sys.kill(pid, sys.SIGKILL))
+    assert(assert(process.waitpid(pid, false)).signal == sys.SIGKILL)
+    assert(group == (grouped and pid or own), tostring(group))
+  end
+end
+
+--- A program that cannot be executed fails the start with exec's own
+--- errno.
+local function test_a_start_fails_with_the_errno_exec_failed_with(tmp: string)
+  local plain = tmp .. "/plain"
+  sys.close(create(plain))
+  failed_with(sys.EACCES, process.spawn(plain, { plain }, nil, nil, nil, nil, nil, false))
+  failed_with(sys.ENOENT, process.spawn(tmp .. "/missing", { "missing" }, nil, nil, nil, nil,
+    nil, false))
 end
 
 --- Every signal is blocked while a child starts, so none runs a handler
@@ -1603,7 +1696,7 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   local kind, trouble = sys.flock_kind(fd)
   assert(kind == "apart" or kind == "shared", trouble)
   assert(sys.flock(fd, "exclusive"))
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   -- Asked once: a connection waits a minute for a lock by default.
   assert(db:exec("PRAGMA busy_timeout = 0"))
   local taken, why = db:exec("BEGIN IMMEDIATE")

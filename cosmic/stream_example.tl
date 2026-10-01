@@ -101,4 +101,65 @@ function Example.transform_writer()
   assert(text == "hello, world", text)
 end
 
+--- A Reader cut off after `n` bytes, however much it still has: here a
+--- prefix of a longer body. Closing the limit leaves the Reader open.
+function Example.limit()
+  local source = Stream.from_string("0123456789")
+  local head = Stream.limit(source, 4)
+  local text = assert(Stream.read_all(head))
+  print(text)
+  assert(text == "0123", text)
+  assert(head:close())
+  assert(Stream.read_all(source) == "456789", "the Reader keeps the rest")
+end
+
+--- A header read whole, or found short: [`read_up_to`] gathers what a
+--- Reader gives in pieces, and answers "" at a clean end of the stream.
+function Example.read_up_to()
+  local block, why = Stream.read_up_to(Stream.from_string("0123456789"), 4)
+  print(block)
+  assert(block == "0123", why)
+  local short = assert(Stream.read_up_to(Stream.from_string("012"), 4))
+  assert(short == "012", "a stream that ends first gives what it had")
+  local ended = assert(Stream.read_up_to(Stream.from_string(""), 4))
+  assert(ended == "", "a clean end is \"\"")
+end
+
+--- A body of a size a header stated, copied and no further: the Reader
+--- keeps what comes after it, and one that ends early fails.
+function Example.copy_n()
+  local source = Stream.from_string("body" .. "next header")
+  local out = Stream.collect()
+  assert(Stream.copy_n(source, out, 4))
+  print(out:result(), assert(Stream.read_all(source)))
+  assert(out:result() == "body")
+  local ok, why = Stream.copy_n(Stream.from_string("ab"), Stream.collect(), 4)
+  print(why)
+  assert(not ok and why:find("wanted 4 bytes, got 2", 1, true), why)
+end
+
+--- A Transform driven over a whole string: `run` feeds it, drains what
+--- it holds back and finishes it. A decoder's `max_bytes` bounds the
+--- output, so a small body that expands greatly fails instead of filling
+--- memory. Any table with `update` and `finish` is a Transform, such
+--- as this one that shouts.
+function Example.run()
+  local packed = assert(Stream.run(assert(Compress.deflater("gzip")), string.rep("a", 10000)))
+  local back = assert(Stream.run(assert(Compress.inflater("gzip")), packed, 10000))
+  assert(back == string.rep("a", 10000))
+  local out, why = Stream.run(assert(Compress.inflater("gzip")), packed, 100)
+  print(why)
+  assert(out == nil and why == "output is larger than 100 bytes", why)
+  local shouting: Stream.Transform = {}
+  shouting.update = function(_self: Stream.Transform, chunk: string): string, string
+    return chunk:upper(), ""
+  end
+  shouting.finish = function(_self: Stream.Transform): string, string
+    return "!", ""
+  end
+  local shouted = assert(Stream.run(shouting, "hello"))
+  print(shouted)
+  assert(shouted == "HELLO!", shouted)
+end
+
 return Example

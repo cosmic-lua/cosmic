@@ -420,7 +420,7 @@ local function carried_digest(database: string): string | nil, string
   if not written then
     trouble = write_trouble
   else
-    local db, open_trouble = Sqlite.open(path, false)
+    local db, open_trouble = Sqlite.open(path)
     if db == nil then
       trouble = open_trouble
     else
@@ -559,9 +559,9 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
     -- store's digest by its address: every fresh tree digests the whole
     -- carried database again (~0.25 s on a 4-core host, several times
     -- that on a loaded runner), the largest fixed cost of a `cosmic
-    -- test` a tool test starts in a checkout of its own --
-    -- build/shared_verdicts_tool_test.tl's cases start three or four
-    -- under a 10 s bound.
+    -- test` a tool test starts in a checkout of its own whose tests run
+    -- the program (build.test's `program_of` spares one whose tests
+    -- none do).
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.

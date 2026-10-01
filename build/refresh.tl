@@ -465,7 +465,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     if not written then
       return write_trouble
     end
-    local opened, open_trouble = Sqlite.open(path, true)
+    local opened, open_trouble = Sqlite.open(path, { writable = true })
     if opened == nil then
       return path .. ": " .. open_trouble
     end
@@ -549,7 +549,7 @@ local function run(argv: {integer:string}): integer
     log:complain("refresh: " .. why .. "; " .. usage)
     return finish(2, "usage: see `cosmic help refresh`")
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.refresh)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.refresh.spec)
   if parsed == nil then
     return refuse(parse_trouble)
   end

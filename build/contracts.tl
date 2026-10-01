@@ -127,6 +127,7 @@
 local ast = require("build.ast")
 local receivers = require("build.receivers")
 local type compiler = require("build.compiler")
+local String = require("cosmic.string")
 
 local type Node = ast.Node
 local type Type = receivers.Type
@@ -166,6 +167,18 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
+  ["build/zig.tl:open_writable"] =
+    "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
+    "whose Sqlite.open is (string, boolean) where the tree's is (string, " ..
+    "OpenOptions): no one declaration fits both, a typed local is refused " ..
+    "by the release (got record, expected boolean), and a record field " ..
+    "holding the function would only hide the same cast",
+  ["eval/check/notes.tl:open_writable"] =
+    "eval/check/notes runs this file on the release ci/cosmic-driver.pin " ..
+    "names, whose Sqlite.open is (string, boolean) where the tree's is " ..
+    "(string, OpenOptions): no one declaration fits both, a typed local is " ..
+    "refused by the release (got record, expected boolean), and a record " ..
+    "field holding the function would only hide the same cast",
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
@@ -216,12 +229,6 @@ local casts: {string: string} = {
   ["build/teal.tl:teal.load"] =
     "the one boundary where the vendored compiler's untyped chunk " ..
     "becomes its declared surface (build/compiler.d.tl)",
-  ["cosmic/archive.tl:wrap_tar"] =
-    "Tar.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
-  ["cosmic/archive.tl:wrap_zip"] =
-    "Zip.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
     "walk has just built to the spec",
@@ -1595,12 +1602,12 @@ local function stale(file: string, name: string, exemptions: {string: string},
   local prefix = file .. ":"
   local stubbed = "build/importer.tl:"
   for key in pairs(exemptions) do
-    if key:sub(1, #stubbed) == stubbed then
+    if String.starts_with(key, stubbed) then
       problems[#problems + 1] = string.format(
         "%s: contracts.%s names %s; no table may name a function of " ..
           "build/importer.tl, which a test's tree stubs",
         file, name, key)
-    elseif key:sub(1, #prefix) == prefix and not used[key] then
+    elseif String.starts_with(key, prefix) and not used[key] then
       problems[#problems + 1] = string.format(
         "%s: contracts.%s names %s, which no longer needs it; drop the entry",
         file, name, key)

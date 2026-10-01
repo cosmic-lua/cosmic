@@ -78,7 +78,12 @@ function VerifyCodesign.main(argv: {integer: string}): integer
     return 2
   end
   if parsed.set["--help"] or parsed.set["-h"] then
-    log:say(Flags.help(usage, spec, about))
+    -- TODO: once ci/cosmic-driver.pin names a release whose Flags.help
+    -- takes a Flags.Command, call it with `spec`, `about` and the words
+    -- of `usage` after the program's name. The pinned release, which
+    -- runs this script, takes the whole usage line and the spec, and
+    -- the tree's takes the command, so the layout is written out here.
+    log:say("usage: " .. usage .. "\n\n" .. about .. "\n\noptions:\n" .. Flags.options(spec))
     return 0
   end
   if #parsed.words ~= 1 then

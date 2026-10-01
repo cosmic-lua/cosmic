@@ -8,7 +8,6 @@
 local type compiler = require("build.compiler")
 local ast = require("build.ast")
 local String = require("cosmic.string")
-local Test = require("cosmic.test")
 local cache_names = require("build.cache_names")
 local scopes = require("build.scopes")
 
@@ -364,7 +363,7 @@ local function function_signature(lines: {string}, tokens: {compiler.Token},
   for at = first + 1, start - 1 do
     for _, comment in ipairs(tokens[at].comments or {}) do
       local line_no, column = comment.y, comment.x
-      for piece in (comment.text .. "\n"):gmatch("(.-)\n") do
+      for piece in String.lines(comment.text) do
         local line = head[line_no]
         if line ~= nil then
           head[line_no] = line:sub(1, column - 1) .. string.rep(" ", #piece) ..
@@ -744,7 +743,7 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
                                     export: string)
   local function under(entry: analyzer.DocEntry, root: string): boolean
     return entry.source_symbol == root
-      or entry.source_symbol:sub(1, #root + 1) == root .. "."
+      or String.starts_with(entry.source_symbol, root .. ".")
   end
   if surface ~= export then
     for _, entry in ipairs(entries) do
@@ -801,7 +800,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     by_source[source][#by_source[source] + 1] = entry
     if export ~= "" and source == export then
       entry.exported = true
-    elseif export ~= "" and source:sub(1, #dot) == dot then
+    elseif export ~= "" and String.starts_with(source, dot) then
       -- A method on a nested record (`Thing.Box:grow`) is the member
       -- `Box.grow`, as a record field and a use of it are spelled: the
       -- `:` says how it is called, not where it lives, just as
@@ -814,7 +813,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       end
       entry.symbol = member
       entry.exported = true
-    elseif export ~= "" and source:sub(1, #colon) == colon then
+    elseif export ~= "" and String.starts_with(source, colon) then
       entry.symbol = source:sub(#colon + 1)
       entry.exported = true
     end
@@ -1056,7 +1055,7 @@ end
 --- and the comment lines above it.
 local function own_text(code: string): string
   local kept: {string} = {}
-  for line in (code:gsub("%s*local%s*$", "") .. "\n"):gmatch("(.-)\n") do
+  for line in String.lines((code:gsub("%s*local%s*$", ""))) do
     kept[#kept + 1] = line
   end
   while #kept > 0 and (kept[#kept]:match("^%s*$") ~= nil
@@ -1267,9 +1266,66 @@ local function references_of(parsed: ast.Parsed): {analyzer.Reference}
 end
 
 --- What each field of a `needs` declaration takes: a list of string
---- literals ("list") or `true` or `false` ("flag"), as [`cosmic.test`]
---- holds a call's argument to it as it runs.
-local input_fields: {string:string} = Test.fields
+--- literals ("list") or `true` or `false` ("flag"): the fields of
+--- [`cosmic.test`]'s `Needs`, which build/analyzer_test.tl holds it to.
+local input_fields <const>: {string:string} = {
+  reads = "list", host = "list", env = "list", network = "list",
+  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", store = "flag",
+  system = "flag", caches = "list",
+}
+
+--- The rule a `network` declaration is held to, as a refusal names it.
+local LOOPBACK_ONLY <const> = "network takes loopback addresses 127.a.b.c only: no test " ..
+  "reaches another host, whose answer no key holds (::1 and localhost included), so one " ..
+  "that needs a service starts its own on 127.0.0.1"
+
+local ANY_HOST_REFUSAL <const> = "network = true: " .. LOOPBACK_ONLY
+
+--- Why `host` may not be declared in `network`, or "" when it may: a
+--- dotted quad of 127/8, `127.a.b.c`, each part decimal, 0 to 255,
+--- with no leading zero. Strict: a name a lookup might answer
+--- elsewhere, `localhost` or `::1`, a shortened or octal spelling,
+--- `0.0.0.0`, a range or `*` is none; nor is a spelling no request's
+--- host is (`127.0.0.1:8080`, whose port a request's host leaves out).
+local function network_trouble(host: string): string
+  local refused = string.format("network %q: %s", host, LOOPBACK_ONLY)
+  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+  if a ~= "127" then return refused end
+  for _, part in ipairs({ b, c, d }) do
+    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+      return refused
+    end
+  end
+  return ""
+end
+
+--- Why a declaration with `lua` and `standalone` set as given, beside
+--- `tool`, `store`, `system` and any cache (`caches`) as given, is
+--- refused, or "" when it is not: `lua` holds every process the tests
+--- start to what a key holds of the program (`Needs.lua` of cosmic.test), which a
+--- host program, or a cosmic a cache holds, could start the program
+--- past; `tool` and `store` key the whole program already; and
+--- `standalone` widens what `lua` holds, so it means nothing alone.
+local function lua_trouble(lua: boolean, standalone: boolean, tool: boolean, store: boolean,
+                           system: boolean, caches: boolean): string
+  if standalone and not lua then
+    return "standalone is refused without lua: it adds what `cosmic --standalone` " ..
+      "loads to what lua holds; declare lua = true beside it"
+  end
+  if not lua then return "" end
+  local beside: {string:boolean} = { tool = tool, store = store, system = system,
+    caches = caches }
+  for _, name in ipairs({ "tool", "store", "system", "caches" }) do
+    if beside[name] then
+      return "lua is refused beside " .. name .. ": " ..
+        ((name == "tool" or name == "store") and
+          "declare tool = true alone, whose key holds every module the program carries" or
+          "a host program, or a cosmic a cache holds, could start this program with no " ..
+          "hold on what it loads; declare tool = true in place of lua")
+    end
+  end
+  return ""
+end
 
 --- The fields `input_fields` names, sorted, as a message lists them.
 local input_field_order: {string} = {}
@@ -1443,8 +1499,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     seen[field] = true
     local given = item.value
     if field == "network" and given ~= nil and given.kind == "boolean" and given.tk == "true" then
-      -- Any host: what [`cosmic.test`] refuses, as its rule says.
-      return nil, where .. Test.any_host_refusal
+      return nil, where .. ANY_HOST_REFUSAL
     end
     if given ~= nil and given.kind == "boolean" and takes ~= "list" then
       local on = given.tk == "true"
@@ -1482,7 +1537,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         if field == "env" and text.conststr == "" then path_trouble = "an empty name" end
         if field == "network" then
           -- The rule's own words, which name the field and the host.
-          local refused = Test.network_trouble(text.conststr)
+          local refused = network_trouble(text.conststr)
           if refused ~= "" then return nil, at(entry) .. refused end
         end
         if field == "caches" and cache_names.names[text.conststr] == nil then
@@ -1514,7 +1569,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       return nil, where .. field .. " takes " .. wanted .. ", written out"
     end
   end
-  local refused = Test.lua_trouble(out.lua, out.standalone, out.tool, out.store, out.system,
+  local refused = lua_trouble(out.lua, out.standalone, out.tool, out.store, out.system,
     #out.caches > 0)
   if refused ~= "" then return nil, at(found) .. refused end
   return out, ""

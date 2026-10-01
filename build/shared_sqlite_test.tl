@@ -6,6 +6,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local shared_sqlite = require("build.shared_sqlite")
+local String = require("cosmic.string")
 
 --- A `prepare` that makes one table, as each cache makes its own.
 local function prepare(db: Sqlite.Handle): boolean, string
@@ -55,7 +56,7 @@ local function test_a_corrupt_cache_is_set_aside_and_started_afresh(tmp: string)
   assert(Fs.write(path, string.rep("\xff", 8192)))
   local db, trouble = shared_sqlite.open(path, prepare)
   assert(db == nil and shared_sqlite.corrupt(trouble), trouble)
-  assert(trouble:sub(1, #path + 2) == path .. ": ", trouble)
+  assert(String.starts_with(trouble, path .. ": "), trouble)
   -- What another run left beside it, written after the refused open,
   -- whose close may remove a log and index it finds.
   assert(Fs.write(path .. "-wal", "log"))
@@ -86,7 +87,7 @@ end
 --- holder lets go.
 local function held_open(path: string, statements: {string},
                          wait_ms: integer): integer, string
-  local holder = assert(Sqlite.open(path, true))
+  local holder = assert(Sqlite.open(path, { writable = true }))
   assert(holder:exec("CREATE TABLE held (x)"))
   for _, statement in ipairs(statements) do assert(holder:exec(statement)) end
   local started = Time.monotonic_ns()

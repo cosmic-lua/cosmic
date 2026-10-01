@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local flow = require("build.flow")
+local String = require("cosmic.string")
 
 --- The workflows and actions, and the programs and pins they name.
 Test.needs{
@@ -524,7 +525,7 @@ end
 local function holds(sparse: {string} | nil, path: string): boolean
   if sparse == nil then return true end
   for _, prefix in ipairs(sparse) do
-    if path == prefix or path:sub(1, #prefix + 1) == prefix .. "/" then return true end
+    if path == prefix or String.starts_with(path, prefix .. "/") then return true end
   end
   return false
 end
@@ -583,8 +584,8 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
       if here ~= "" then
         local present = false
         for _, prefix in ipairs(walk.sparse) do
-          if here == prefix or here:sub(1, #prefix + 1) == prefix .. "/"
-              or prefix:sub(1, #here + 1) == here .. "/" then
+          if here == prefix or String.starts_with(here, prefix .. "/")
+              or String.starts_with(prefix, here .. "/") then
             present = true
           end
         end
@@ -1102,11 +1103,11 @@ local function step_running(steps: {{string: any}}, text: string): {string: any}
 end
 
 --- What `names` hashes as the compiler a branch's compiles were made
---- by: the build's own modules, cosmic.removed, and the Teal compiler's
+--- by: the build's own modules and the Teal compiler's
 --- and Lua's pins and patches, as the compiler's identity holds them
 --- (build.work's `compiler_identity`), and the rest of build/ beside.
 local COMPILER_HASH <const> = "${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', " ..
-  "'cosmic/removed.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}"
+  "'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}"
 
 --- A branch's push saves its compiles for its own later pushes, where
 --- its builds compiled more than a few dozen modules the entry it
@@ -2369,4 +2370,27 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
   end
   assert(seen.portable and seen.fixtures and seen.attest and seen.upload,
     "a full run's leg misses a step of the product's")
+end
+
+--- The vendor part of the zig build cache's key hashes the vendored
+--- trees and their records, but not the applier, [`build/patch.tl`],
+--- which names each patched tree by the bytes it writes: an edit to it
+--- that writes the same trees moves no object's path, so it must not
+--- move the key and send main's next run to a cold cache (main
+--- restores no other vendor part's entry).
+local function test_the_vendor_part_hashes_the_trees_and_records_but_not_the_applier()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local named: {string: any} = nil
+  for _, step in ipairs(platform.steps as {{string: any}}) do
+    if step.id == "names" then named = step end
+  end
+  assert(named ~= nil, "no step names the zig build cache")
+  local vendor = (named.run as string):match("vendor=zig%-build%-.-hashFiles%((.-)%) }}")
+  assert(vendor ~= nil, "no vendor part: " .. tostring(named.run))
+  for _, wanted in ipairs({ "'vendor/**'", "'patch/**'", "'build.zig'", "'build/zig.tl'" }) do
+    assert(vendor:find(wanted, 1, true), "the vendor part hashes no " .. wanted .. ": " .. vendor)
+  end
+  assert(not vendor:find("build/patch.tl", 1, true),
+    "the vendor part hashes the applier, whose edits write the same trees: " .. vendor)
 end

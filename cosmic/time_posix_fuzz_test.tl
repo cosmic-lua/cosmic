@@ -1,7 +1,7 @@
 --- Fuzz properties for [`cosmic.time`]'s POSIX TZ string reader, which
---- reads `TZ` and every TZif file's footer: `zone_from_posix` is total
---- -- whatever text it is handed, it answers a zone or a failure and
---- never raises, and a zone it answers names every moment without
+--- reads `TZ` and every TZif file's footer: `local_zone` with a `tz` is
+--- total -- whatever text it is handed, it answers a zone or a failure
+--- and never raises, and a zone it answers names every moment without
 --- raising -- and a string written from drawn offsets and rules reads
 --- back as a zone that is only ever in standard or daylight saving
 --- time, and reads every local time it names back as the moment it came
@@ -30,7 +30,7 @@ do
       samples[#samples + 1] = footer
     end
   end
-  for _, extra in ipairs({ "EST5EDT", "EST5EDT4,0/0,J365/25", "AAA0BBB,J60/0,300/167",
+  for _, extra in ipairs({ "AAA5BBB", "EST5EDT4,0/0,J365/25", "AAA0BBB,J60/0,300/167",
       "AAA-24BBB24,M3.2.0/-167,M11.1.0/167", "<+0330>-3:30" }) do
     samples[#samples + 1] = extra
   end
@@ -41,8 +41,8 @@ local PROBES <const> = { math.mininteger, math.maxinteger, 0, -1, 1790309361 * N
   1772953200 * NS, 1793512800 * NS, -2208988800 * NS, 4107542400 * NS }
 
 local function total(tz: string): boolean, string
-  local ok, zone, why = pcall(Time.zone_from_posix, tz)
-  if not ok then return false, "zone_from_posix raised: " .. tostring(zone) end
+  local ok, zone, why = pcall(Time.local_zone, { tz = tz })
+  if not ok then return false, "local_zone raised: " .. tostring(zone) end
   if zone == nil then
     Fuzz.label("refused")
     if why == "" then return false, "refused without a reason" end
@@ -125,7 +125,7 @@ end
 local function reads_back(input: string): boolean, string
   local tz, std, dst = input:match("^([^\0]*)\0([^\0]*)\0([^\0]*)$")
   if tz == nil then return false, "not an input this property draws" end
-  local zone, why = Time.zone_from_posix(tz)
+  local zone, why = Time.local_zone({ tz = tz })
   if zone == nil then return false, tz .. " was refused: " .. why end
   Fuzz.label("read")
   local offsets = { [math.tointeger(std)] = true, [math.tointeger(dst)] = true }
@@ -137,7 +137,7 @@ local function reads_back(input: string): boolean, string
     if c.dst then Fuzz.label("daylight saving time") end
     local back, back_why = Time.from_civil(c, zone)
     if back ~= ns then
-      return false, ("%s: %s read back as %s: %s"):format(tz, Time.format_rfc3339(ns, { zone = zone }),
+      return false, ("%s: %s read back as %s: %s"):format(tz, Time.format_rfc3339(ns, zone),
         tostring(back), back_why)
     end
   end

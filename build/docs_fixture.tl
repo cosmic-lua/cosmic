@@ -70,7 +70,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
     modules = {}, tool = "", refused = {}, compiled = 0, cached = 0, shared = 0,
   }, nil, link_index.none))
   assert(db:close())
-  return (assert(Sqlite.open(path, false)))
+  return (assert(Sqlite.open(path)))
 end
 
 return docs_fixture

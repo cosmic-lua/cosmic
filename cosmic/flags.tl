@@ -7,7 +7,7 @@
 ---
 --- A spec may describe its options rather than only name them -- `{
 --- ["--jobs"] = { value = "n", about = "run n at once" } }` -- and
---- [`Flags.help`] writes a program's help from it. [`Flags.dispatch`] reads a
+--- [`Flags.help`] writes a command's help from it. [`Flags.dispatch`] reads a
 --- command first -- `prog build --jobs 4` -- parses the rest with that
 --- command's own spec, and answers `--help` from the same descriptions.
 
@@ -266,45 +266,44 @@ function Flags.options(spec: {string:boolean | Flags.Option}): string
   return table.concat(option_lines(spec), "\n")
 end
 
---- A program's help, written from its spec: the usage line, `about`
---- when given, and each option the spec names with its value's name and
---- what it does, as a [`Flags.Option`] describes it: one named `false`
---- is listed bare, and one named `true` with "<value>". Columns are
---- aligned by characters, not bytes. It ends without a newline.
+--- A command's help, written from its record: the usage line, `about`
+--- when given, and each option the command's `spec` names with its
+--- value's name and what it does, as a [`Flags.Option`] describes it:
+--- one named `false` is listed bare, and one named `true` with
+--- "<value>". Columns are aligned by characters, not bytes. `run` is not
+--- read, so a program with one command, or a tool that runs its command
+--- itself, describes it the way [`Flags.dispatch`] describes each of its
+--- own. It ends without a newline.
 ---
----     usage: prog [options] <file>...
+---     usage: prog count [options] <file>...
 ---
 ---     Counts the lines of each file.
 ---
 ---     options:
 ---       --jobs <n>  run n at once
 ---       -v          say more
---- @param usage string What follows "usage: " -- the program and its words
---- @param spec {string:boolean|Option} The options it takes
---- @param about string | nil One line on what it does
+--- @param command Command The command to describe
+--- @param name string What the usage line calls it: the program, and the
+---   command's own word after it when it has one ("prog count"); not
+---   empty, or this raises
 --- @return string The help
-function Flags.help(usage: string, spec: {string:boolean | Flags.Option},
-    about?: string): string
-  local parts: {string} = { "usage: " .. usage }
-  if about ~= nil and about ~= "" then
-    parts[#parts + 1] = "\n" .. about
+function Flags.help(command: Flags.Command, name: string): string
+  if name == "" then
+    error("flags: help needs a name for the usage line", 2)
   end
-  if next(spec) ~= nil then
-    parts[#parts + 1] = "\noptions:\n" .. Flags.options(spec)
-  end
-  return table.concat(parts, "\n")
-end
-
---- The help of one command of `program`.
-local function command_help(program: string, name: string, command: Flags.Command): string
   local spec = command.spec or {}
   local usage = command.usage
   if usage == nil then
     usage = next(spec) ~= nil and "[options]" or ""
   end
-  local line = program .. " " .. name
-  if usage ~= "" then line = line .. " " .. usage end
-  return Flags.help(line, spec, command.about)
+  local parts: {string} = { "usage: " .. (usage ~= "" and name .. " " .. usage or name) }
+  if command.about ~= nil and command.about ~= "" then
+    parts[#parts + 1] = "\n" .. command.about
+  end
+  if next(spec) ~= nil then
+    parts[#parts + 1] = "\noptions:\n" .. Flags.options(spec)
+  end
+  return table.concat(parts, "\n")
 end
 
 --- The help of `program` as a whole: its commands, each with its about.
@@ -337,10 +336,18 @@ local function commands_help(program: string, commands: {string:Flags.Command}):
   return table.concat(lines, "\n")
 end
 
---- Whether the words after a command, from `slot` up to a "--", ask for
---- its help: "--help" or "-h", when its spec does not name them.
-local function asks_help(argv: {integer:string}, slot: integer,
+--- Whether the words from `from` on ask for a command's help: "--help"
+--- or "-h" before any "--", when `spec` does not name it -- even where
+--- an option's value would go, which [`Flags.parse`] refuses anyway. For
+--- a program that reads its own line, as [`Flags.dispatch`] does not:
+--- its refusals and its help are then the same rule's.
+--- @param argv {integer:string} The command line
+--- @param from integer The first slot to read
+--- @param spec {string:boolean|Option} The options the command names
+--- @return boolean Whether help was asked for
+function Flags.asks_help(argv: {integer:string}, from: integer,
     spec: {string:boolean | Flags.Option}): boolean
+  local slot = from
   while argv[slot] ~= nil and argv[slot] ~= "--" do
     local word = argv[slot]
     if (word == "--help" or word == "-h") and spec[word] == nil then
@@ -404,7 +411,7 @@ function Flags.dispatch(argv: {integer:string}, from: integer,
     elseif commands[asked] == nil then
       return nil, "no such command: " .. asked
     end
-    return { code = 0, help = command_help(program, asked, commands[asked]) }, ""
+    return { code = 0, help = Flags.help(commands[asked], program .. " " .. asked) }, ""
   end
   if name == nil then
     local names: {string} = {}
@@ -417,8 +424,8 @@ function Flags.dispatch(argv: {integer:string}, from: integer,
     return nil, "no such command: " .. name
   end
   local spec = command.spec or {}
-  if asks_help(argv, from + 1, spec) then
-    return { code = 0, help = command_help(program, name, command) }, ""
+  if Flags.asks_help(argv, from + 1, spec) then
+    return { code = 0, help = Flags.help(command, program .. " " .. name) }, ""
   end
   local parsed, why = Flags.parse(argv, from + 1, spec)
   if parsed == nil then

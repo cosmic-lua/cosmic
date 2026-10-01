@@ -58,7 +58,7 @@ end
 --- The signature a projection at `path` carries in its own `meta`
 --- table, or "" when it has none.
 local function projected(path: string): string
-  local db = assert(Sqlite.open(path, false))
+  local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'projected'"))
   assert(db:close())
@@ -116,7 +116,7 @@ local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
   local older = assert(writer.signature(handle, result, "an older binary"))
   assert(older ~= projected(tmp .. "/out.db"), "the binary must be part of the signature")
 
-  local db = assert(Sqlite.open(tmp .. "/out.db", true))
+  local db = assert(Sqlite.open(tmp .. "/out.db", { writable = true }))
   assert(Sqlite.run(db, "UPDATE meta SET value = ?1 WHERE key = 'projected'",
     { { text = older } }))
   assert(db:exec("INSERT INTO meta (key, value) VALUES ('older', 'x')"))
@@ -124,7 +124,7 @@ local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
 
   assert(writer.write_result(handle, tmp .. "/out.db", result))
   assert(work.close(handle))
-  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local out = assert(Sqlite.open(tmp .. "/out.db"))
   local rows = assert(Sqlite.text_rows(out, "SELECT key FROM meta WHERE key = 'older'"))
   assert(out:close())
   assert(#rows == 0, "a file another binary wrote must be rewritten")
@@ -145,7 +145,7 @@ local function test_a_declaration_ships_its_docs(tmp: string)
   }, "\n")))
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   assert(work.close(handle))
-  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local out = assert(Sqlite.open(tmp .. "/out.db"))
   local rows = assert(Sqlite.text_rows(out,
     "SELECT text, file, line FROM docs WHERE module = 'clock' AND symbol = 'now'"))
   assert(out:close())
@@ -200,7 +200,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
   assert(work.close(handle))
   -- A bill of materials, as cosmic's own tree's projection holds one.
-  local whole_db = assert(Sqlite.open(tmp .. "/whole.db", true))
+  local whole_db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
   assert(whole_db:exec("INSERT INTO components VALUES ('zlib', 'library', '1.3', 'Zlib', " ..
     "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
     "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10)); " ..
@@ -212,7 +212,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "the carried database is a function of the projection")
 
   local function rows(path: string, sql: string): {{string}}
-    local db = assert(Sqlite.open(path, false))
+    local db = assert(Sqlite.open(path))
     local found = assert(Sqlite.text_rows(db, sql))
     assert(db:close())
     return found
@@ -301,7 +301,7 @@ end
 local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   assert(work.close(handle))
-  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local out = assert(Sqlite.open(tmp .. "/out.db"))
   local columns = assert(Sqlite.text_rows(out,
     "SELECT name FROM pragma_table_info('modules') WHERE name = 'lua'"))
   local rows = assert(Sqlite.text_rows(out,
@@ -326,7 +326,7 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   assert(writer.write_result(handle, out, result))
   assert(work.close(handle))
   assert(projected(out) ~= before, "new zones sign a new projection")
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data), ',' ORDER BY rowid) " ..
     "FROM zoneinfo"))
@@ -334,7 +334,7 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   assert(rows[1][1] == "A/Zone blob 6,Test/Zone blob 9", rows[1][1])
   -- And the tool built from the projection carries them too.
   assert(writer.carried(out, tmp .. "/carried.db"))
-  local carried = assert(Sqlite.open(tmp .. "/carried.db", false))
+  local carried = assert(Sqlite.open(tmp .. "/carried.db"))
   local kept = assert(Sqlite.text_rows(carried,
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
   assert(carried:close())
@@ -348,7 +348,7 @@ end
 --- from. A dropped module's rows go even so.
 local function test_the_carried_docs_are_the_public_standard_library_s(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, true))
+  local db = assert(Sqlite.open(whole, { writable = true }))
   for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
   for _, statement in ipairs({
@@ -395,7 +395,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   end
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
-  local out = assert(Sqlite.open(tmp .. "/carried.db", false))
+  local out = assert(Sqlite.open(tmp .. "/carried.db"))
   local function column(sql: string): string
     local found = assert(Sqlite.text_rows(out,
       "SELECT coalesce(group_concat(v, ' '), '') FROM (" .. sql .. ")"))
@@ -427,7 +427,7 @@ end
 --- a guide about the runtime's own construction is left to the tree.
 local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, true))
+  local db = assert(Sqlite.open(whole, { writable = true }))
   for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
   for _, statement in ipairs({
@@ -445,7 +445,7 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   end
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
-  local out = assert(Sqlite.open(tmp .. "/carried.db", false))
+  local out = assert(Sqlite.open(tmp .. "/carried.db"))
   local found = assert(Sqlite.text_rows(out,
     "SELECT coalesce(group_concat(module || '|' || text, ' '), '') FROM docs"))
   assert(out:close())

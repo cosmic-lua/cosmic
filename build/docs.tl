@@ -287,7 +287,7 @@ local function pieces_of(head: string): {{string}}
     lines = {}
     code = ""
   end
-  for line in (head .. "\n"):gmatch("(.-)\n") do
+  for line in String.lines(head) do
     local comment = line:match("^%-%-") ~= nil
     if line ~= "" and line:match("^%s") == nil and not closes(line) then
       if code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
@@ -710,7 +710,7 @@ end
 local function plain(word: string): string
   local lower = word:lower()
   for _, ending in ipairs({ "ing", "ed", "es", "s" }) do
-    if #lower >= #ending + 3 and lower:sub(-#ending) == ending then
+    if #lower >= #ending + 3 and String.ends_with(lower, ending) then
       return lower:sub(1, -#ending - 1)
     end
   end
@@ -933,7 +933,7 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
     -- or read (a directory, a file that is not a database, one a build
     -- is rewriting) is left out, so help and docs still answer from the
     -- binary's own databases rather than failing on a stale output.
-    local own, _ = Sqlite.open("o/cosmic.db", false)
+    local own, _ = Sqlite.open("o/cosmic.db")
     if own ~= nil then
       local readable, _ = has_docs(own)
       if readable == nil then
@@ -1046,7 +1046,7 @@ local function used_as(view: docs.View, entry: docs.Entry): string | nil, string
     view.value_records[entry.module] = cached
   end
   local prefix = cached .. "."
-  if cached ~= "" and entry.source_symbol:sub(1, #prefix) == prefix then
+  if cached ~= "" and String.starts_with(entry.source_symbol, prefix) then
     return (entry.source_symbol:sub(#prefix + 1):gsub(":", ".")), ""
   end
   return nil
@@ -1206,12 +1206,12 @@ end
 --- as " phrase " and never inside a longer word.
 local function tokens_of(written: string): string
   local spaced = written:lower():gsub("[^%w]+", " ")
-  return " " .. spaced:match("^%s*(.-)%s*$") .. " "
+  return " " .. String.trim(spaced) .. " "
 end
 
 --- The verbs whose symbol, prose and options together carry every word
 --- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
---- and a verb's options are data ([`Cli.options`]), so what one does is
+--- and a verb's options are data (a `spec` of [`Cli.verbs`]), so what one does is
 --- matched here instead, against the options of the binary answering,
 --- as `render` shows them. Each word is a phrase, as [`fts_query`] quotes
 --- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
@@ -1229,7 +1229,9 @@ local function by_options(view: docs.View, query: string,
     return {}
   end
   local names: {string} = {}
-  for verb in pairs(Cli.options) do names[#names + 1] = "Cli." .. verb end
+  for verb, command in pairs(Cli.verbs) do
+    if command.spec ~= nil then names[#names + 1] = "Cli." .. verb end
+  end
   table.sort(names)
   local fields, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -1245,7 +1247,7 @@ local function by_options(view: docs.View, query: string,
     local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
     if verb ~= nil and not held[entry.module .. "\n" .. entry.symbol] then
       local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
-        entry.text .. "\n" .. Flags.options(Cli.options[verb]))
+        entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec))
       local all = true
       for _, phrase in ipairs(wanted) do
         if not spoken:find(phrase, 1, true) then all = false end
@@ -1450,7 +1452,7 @@ end
 --- up to the first `.`, `?` or `!` that a space or the end follows,
 --- outside backticks and not closing "e.g" or "i.e".
 local function first_sentence(documented: string): string
-  local trimmed = link_text.unlinked(documented):match("^%s*(.-)%s*$")
+  local trimmed = String.trim(link_text.unlinked(documented))
   local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
   local quoted = false
   for at = 1, #paragraph do
@@ -2146,13 +2148,14 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   end
   if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
-  -- A verb's options are data, [`Cli.options`], not prose: shown under
+  -- A verb's options are data, a `spec` of [`Cli.verbs`], not prose: shown under
   -- its field as `cosmic help <verb>` shows them, and searched by
   -- [`by_options`].
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
-  if verb ~= nil and Cli.options[verb] ~= nil then
+  local command = verb ~= nil and Cli.verbs[verb] or nil
+  if command ~= nil and command.spec ~= nil then
     lines[#lines + 1] = "  options:"
-    for line in String.lines(Flags.options(Cli.options[verb])) do
+    for line in String.lines(Flags.options(command.spec)) do
       lines[#lines + 1] = "  " .. line
     end
   end

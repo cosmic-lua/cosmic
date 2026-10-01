@@ -76,10 +76,10 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "9-757b1277" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "10-06977640" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "55c6260541c8f3be6caf3f77121aadb47636a8f26308e3b0b089e7b193522176",
+  ["build.artifact"] = "ab180fe0e9efe92df1cce055664fd33436a535b1db782b53c2dc9fa57039fdea",
 
   ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
 
@@ -91,7 +91,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "4942e488c251af85703efc977c9e33260b199134d39316c3b9a5579dcaff7830",
 
-  ["build.declared_key"] = "c6166fb0527d5fcfa0ccd502f42ad1525faa3b88d52e91ade1879fb8679e8693",
+  ["build.declared_key"] = "215d61b911959fac3ba9134dcf97201cc149dbe91b6ca5e9e1b10a1a51b96c2c",
 
   ["build.digest"] = "dccca5b63f2992d4d23213450142bdd05eee403ebaf3a4e0acf7437da72558f0",
 
@@ -99,19 +99,19 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
-  ["build.plural"] = "52aa9695f4dffc58d017a83027ef65807b8d22b794b6d286a82ab70009250e69",
+  ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
-  ["build.shared_sqlite"] = "9750c85b5db5419e925d8a8af9552c60054872486a5e37ea762ee3c4862536d2",
+  ["build.shared_sqlite"] = "dc49cbae1236b27517932e589f613f88c5b6fde0eb3e51bfcb911988fea40db1",
 
   ["build.shared_verdicts"] = "ea3d41711f22f34b782afb89ae40abb12729f01f76614951e9e65c6aa700f67f",
 
-  ["build.test"] = "c2ab362cdfc944084af8f03d15d0674be383cd37b176281f2d7fadb566425691",
+  ["build.test"] = "1435f9dd667581bd85ddded90dd9c16364c035b86a1b915b93fc2717a91af20c",
 
-  ["build.test_inputs"] = "c17fa9cc8ac35e4785118830e365e60d4916b706976049990f3827d7b3e90bbd",
+  ["build.test_inputs"] = "b3027734e4e45cf19d64a6aa4f5c73da9d3e6963543beebfa27b7fac2b756de5",
 
-  ["build.test_sandbox"] = "453f3828508b60b2acf0e20351c5e10990a8ffea899aebdb94f5756451a07f54",
+  ["build.test_sandbox"] = "ed564b7f6dd86a633143ff7c75e906e7ab9c3d095efb4cdbdc08d9a13e301314",
 
-  ["build.test_worker"] = "57249c719262d3016dc13b8ba53d35a3bc6c8798a029d9472108889ade765574",
+  ["build.test_worker"] = "679a38e0323ee813b103a7592d76f314b7d0b1ba74bef4a336e86737706093c7",
 
   ["build.this_program"] = "8de7976beaec4a4367f0a4af8cd2162df5f587891cbad1b94ecc51a28de203eb",
 
@@ -121,7 +121,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.child"] = "f380a2800378c01c6288083eb3bba9628f981f5b729f92bf4eda3d3d88a6b961",
 
-  ["cosmic.coverage"] = "0fd55d11c4562209364c73b81a1c02b7808d3022aae2895423385753ed6c7d59",
+  ["cosmic.coverage"] = "42b4376d57c969edc7894363b20410fcc1d1cacda4f042a8fe3f4d05e91d6e84",
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
@@ -129,13 +129,11 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "489cf0b96c5294aee2aee1de5b3c884bc489bdfecd90b822c5b383ebf1d23cc7",
 
-  ["cosmic.removed"] = "833239bd180dc5b7fa6d59e6be8bd78b2120c1c4135812676e29fdd400b652d5",
+  ["cosmic.sqlite"] = "564ba342d5a754c2d506295754ff08f8319744006d3ffc9b3b27016750d5ffcf",
 
-  ["cosmic.sqlite"] = "82d676b467d4922f82441c9e753116850dbfafb2ebc20fa5b1a6b7029b0a97c0",
+  ["cosmic.string"] = "7f7dfc84c61efeb1c11838e30de81a1e50e4014533d80c8409a31db05ce68c1c",
 
-  ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
-
-  ["cosmic.test"] = "577bc17543910d9c6abc7b0ce498c8a80646c712699a00622e3c448fe0f840bf",
+  ["cosmic.test"] = "fdbcb69647b9756c2cefa2e54fde6ca74695ba37dfc9e4868cfc12b2bb3119d2",
 
 }
 
@@ -150,8 +148,6 @@ harness_epoch.library = {
     "the worker's report",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running",
-  ["cosmic.removed"] = "what a test that reaches for a removed global is told, which " ..
-    "the core loads in any worker",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of
   -- `library`, once build.shared_sqlite gives build.declared_key's
   -- `program`, build.shared_verdicts and build.bind what they read and
@@ -159,8 +155,11 @@ harness_epoch.library = {
   -- and it reach no cosmic.sqlite.
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
-  ["cosmic.string"] = "the launcher's template, which a key holds, is split into lines " ..
-    "through it (`build.launcher`)",
+  ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
+    "it: the launcher's template (`build.launcher`), the runtime identity " ..
+    "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
+    "header (`build.artifact`), cache set-aside names (`build.shared_sqlite`) and " ..
+    "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",
 }
@@ -174,6 +173,7 @@ harness_epoch.retired = {
   "6",
   "7",
   "072f7458",
+  "757b1277",
 }
 
 return harness_epoch

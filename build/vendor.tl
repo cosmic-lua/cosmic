@@ -41,6 +41,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 local record Vendor
   record Pin
@@ -189,7 +190,7 @@ function Vendor.kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string}
   local strip = plain(pin.strip)
   for _, entry in ipairs(entries) do
     local path = plain(entry.path)
-    if entry.kind == "file" and path:sub(1, #strip) == strip then
+    if entry.kind == "file" and String.starts_with(path, strip) then
       local under = path:sub(#strip + 1)
       if under ~= "" and matches(pin.keep, under, used) and not matches(pin.drop, under) then
         out[entry.path] = under
@@ -404,7 +405,12 @@ function Vendor.main(argv: {integer:string}): integer
     return 2
   end
   if parsed.set["--help"] or parsed.set["-h"] then
-    log:say(Flags.help(usage, spec, about))
+    -- TODO: once ci/cosmic-driver.pin names a release whose Flags.help
+    -- takes a Flags.Command, call it with `spec`, `about` and the words
+    -- of `usage` after the program's name. The pinned release, which
+    -- runs this script, takes the whole usage line and the spec, and
+    -- the tree's takes the command, so the layout is written out here.
+    log:say("usage: " .. usage .. "\n\n" .. about .. "\n\noptions:\n" .. Flags.options(spec))
     return 0
   end
   local words = parsed.words

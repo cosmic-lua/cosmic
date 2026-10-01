@@ -1,7 +1,7 @@
 --- Small text operations a program otherwise writes by hand: splitting
---- on a separator, iterating over lines, trimming, and testing a prefix
---- or suffix. Every separator, prefix and suffix is plain text, never a
---- Lua pattern, so a `.` or `%` in one means itself.
+--- on a separator, iterating over lines, trimming, testing a prefix or
+--- suffix, and counting a noun. Every separator, prefix and suffix is plain
+--- text, never a Lua pattern, so a `.` or `%` in one means itself.
 ---
 ---     for line in String.lines("a\n\nb") do print(line) end -- a, "", b
 
@@ -70,6 +70,18 @@ end
 --- @return boolean True when it does
 function String.ends_with(text: string, suffix: string): boolean
   return suffix == "" or text:sub(-#suffix) == suffix
+end
+
+--- `n` and `singular` as a count of things, "1 entry" or "2 entries": the
+--- noun is `several` unless `n` is 1, and `several` is `singular` with an
+--- `s` when not given. Only 1 takes the singular, so "0 entries" and
+--- "-1 entries" are plural.
+--- @param n integer The count to write
+--- @param singular string The noun for one
+--- @param several string | nil The noun for any other count; `singular` and an "s" when nil
+--- @return string The count, a space and the noun
+function String.counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
 end
 
 return String

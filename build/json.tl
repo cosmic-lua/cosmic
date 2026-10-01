@@ -31,6 +31,7 @@ local json_query = require("build.json_query")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
+local String = require("cosmic.string")
 
 --- The `cosmic json` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -69,7 +70,7 @@ local record verb
   end
 end
 
-local spec = Cli.options.json
+local spec = Cli.verbs.json.spec
 
 local usage = "cosmic json [--flat | --exists | --keys | --shape | --compact | -r] [--] [<path>] [<file>|-]" ..
   "; a file whose name begins with . $ or [ is written ./name, or follows --"
@@ -261,7 +262,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     -- once per match above it (`$..a` over nested `a`s, `$..*`).
     local covered: string | nil
     for _, match in ipairs(matches) do
-      if covered ~= nil and match.path:sub(1, #covered) == covered
+      if covered ~= nil and String.starts_with(match.path, covered)
         and match.path:find("^[.%[]", #covered + 1) then
         goto next_match
       end

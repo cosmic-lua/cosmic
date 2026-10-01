@@ -115,7 +115,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   -- row made here replaces the one that led astray.
   local analyzer_hash = rows:match("\n([0-9a-f]+)\t1\tbuild%.ast\n")
   assert(analyzer_hash ~= nil, rows)
-  local cache = assert(Sqlite.open(path, true))
+  local cache = assert(Sqlite.open(path, { writable = true }))
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET requires = 'build.ast\n' " ..
     "WHERE analyzer = ?1 AND source_hash = ?2", { { text = named }, { text = analyzer_hash } }))
   assert(cache:close())
@@ -155,7 +155,7 @@ local function test_a_taken_analyzer_the_parse_moves_is_parsed_afresh(tmp: strin
   assert(having_named ~= lacking_named)
   local analyzer_hash = lacking_rows:match("\n([0-9a-f]+)\t3\tbuild%.extra\n")
   assert(analyzer_hash ~= nil, lacking_rows)
-  local cache = assert(Sqlite.open(path, true))
+  local cache = assert(Sqlite.open(path, { writable = true }))
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET requires = 'build.ast\nbuild.thing\n' " ..
     "WHERE analyzer = ?1 AND source_hash = ?2",
     { { text = lacking_named }, { text = analyzer_hash } }))

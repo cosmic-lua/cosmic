@@ -1,5 +1,6 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 local Verdicts = require("cosmic_ci.verdicts")
 
 local s <const> = 1000000000
@@ -10,7 +11,7 @@ local s <const> = 1000000000
 --- a row of an older format's table (`verdicts_v3`) used long before;
 --- and a table of another shape beside them.
 local function cache(path: string, used: {integer})
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(SqliteOpen.writable(path))
   assert(Sqlite.text_rows(db, "PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
     "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
@@ -58,7 +59,7 @@ local function test_a_trim_keeps_only_what_the_run_reached(tmp: string)
   local path = tmp .. "/verdicts.db"
   cache(path, { 100, 100, 100, 999, 1000, 1001 })
   -- As the cache's bound does: rows deleted, their pages kept free.
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(SqliteOpen.writable(path))
   assert(Sqlite.run(db, "DELETE FROM declared_v1 WHERE key IN ('k2', 'k3')"))
   assert(db:close())
   assert(freelist(path) > 0, "the fixture freed no page")
@@ -146,7 +147,7 @@ local function test_a_table_without_its_use_is_kept_whole_and_said_so(tmp: strin
   local code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
   assert(code == 0 and err == unstamped(path), err)
   assert(out:find("kept 2 used since 1000, removed 2", 1, true) ~= nil, out)
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(SqliteOpen.writable(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT key FROM declared_v9"))
   assert(#rows == 1 and rows[1][1] == "other", "the table was not kept whole")
   assert(db:exec("DROP TABLE declared_v9"))
@@ -174,7 +175,7 @@ local function test_the_command_names_the_rows_it_keeps_by_a_digest(tmp: string)
   cache(first .. "/verdicts.db", { 100, 1001, 1002 })
   -- The same rows, used later, in a file that held and lost more.
   cache(again .. "/verdicts.db", { 100, 1600, 1700, 1800 })
-  local db = assert(Sqlite.open(again .. "/verdicts.db", true))
+  local db = assert(SqliteOpen.writable(again .. "/verdicts.db"))
   assert(Sqlite.run(db, "DELETE FROM declared_v1 WHERE key = 'k4'"))
   assert(db:close())
   cache(other .. "/verdicts.db", { 100, 1001, 1002, 1003 })
@@ -260,7 +261,7 @@ local function test_a_merge_adds_the_rows_ahead_as_a_union(tmp: string)
   cache(ours .. "/verdicts.db", { 500, 600 })
   cache(ahead .. "/verdicts.db", { 700, 800, 900 })
   -- Ahead's k1 is another test's, which must not replace ours.
-  local db = assert(Sqlite.open(ahead .. "/verdicts.db", true))
+  local db = assert(SqliteOpen.writable(ahead .. "/verdicts.db"))
   assert(Sqlite.run(db, "UPDATE declared_v1 SET test = 'ahead.tl' WHERE key = 'k1'"))
   assert(Sqlite.run(db, "INSERT INTO declared_v9 VALUES ('theirs')"))
   assert(db:close())
@@ -297,7 +298,7 @@ local function test_a_merge_makes_what_is_missing_and_leaves_another_shape(tmp: 
   assert(#indexes == 1, "the index was not made")
   assert(db:close())
 
-  db = assert(Sqlite.open(ahead .. "/checked.db", true))
+  db = assert(SqliteOpen.writable(ahead .. "/checked.db"))
   assert(db:exec("CREATE TABLE declared_v7 (key TEXT, x INTEGER); INSERT INTO declared_v7 VALUES ('a', 1); " ..
     "ALTER TABLE declared_v1 ADD COLUMN extra TEXT; INSERT INTO declared_v1 (key, test, hits, elapsed_ns, " ..
     "used_ns, origin) VALUES ('k9', 't', x'00', 1, 1, 'o')"))
@@ -334,7 +335,7 @@ end
 --- digest of a closure store's bytes by its address, one row used at
 --- each of `used` (in seconds), addressed `a<i>`.
 local function stores(path: string, used: {integer})
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(SqliteOpen.writable(path))
   assert(db:exec("CREATE TABLE stores_v1 (address TEXT PRIMARY KEY, digest TEXT NOT NULL, " ..
     "used_ns INTEGER NOT NULL); CREATE INDEX stores_v1_by_use ON stores_v1 (used_ns)"))
   for i, at in ipairs(used) do
@@ -376,7 +377,7 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
     addresses(ours .. "/verdicts.db"))
   -- A digest the run ahead kept for an address ours holds otherwise is
   -- warned of, and ours kept.
-  local db = assert(Sqlite.open(ahead .. "/verdicts.db", true))
+  local db = assert(SqliteOpen.writable(ahead .. "/verdicts.db"))
   assert(db:exec("UPDATE stores_v1 SET digest = 'e' WHERE address = 'a2'"))
   assert(db:close())
   code, out, err = Verdicts.merge({ ahead }, env)
