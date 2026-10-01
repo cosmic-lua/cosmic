@@ -603,12 +603,18 @@ local function keeps_every_comment(input: string): boolean, string
   return true, ""
 end
 
+--- The most inputs a run draws: on the checked core one input costs
+--- about 0.1 s, so the nightly 10000 would take most of the 1200 s a
+--- test is given, and of the hour the whole fuzz job has.
+local MAX_ITERS <const> = 2000
+
 local function test_fix_writes_the_same_program_or_refuses_by_name(tmp: string)
   Fuzz.run({
     name = "fix renders",
     dir = tmp,
     gen = program,
     check = writes_the_same_program,
+    max_iters = MAX_ITERS,
     requires = { "parsed", "rendered", "changed" },
     shares = { parsed = 0.9, rendered = 0.9 },
   })
@@ -620,6 +626,7 @@ local function test_fix_keeps_every_comment(tmp: string)
     dir = tmp,
     gen = program,
     check = keeps_every_comment,
+    max_iters = MAX_ITERS,
     requires = { "parsed", "rendered", "commented" },
     shares = { parsed = 0.9, rendered = 0.9, commented = 0.5 },
   })
