@@ -46,7 +46,7 @@ function spill.sites(text: string): spill.Sites
   local found: spill.Sites = {}
   for line in String.lines(text) do
     local file, y, x, rest = line:match("^(.-):(%d+):(%d+): (.*)$")
-    if file ~= nil and rest:sub(1, #spill.message) == spill.message then
+    if file ~= nil and String.starts_with(rest, spill.message) then
       local at = found[file]
       if at == nil then
         at = {}

@@ -64,6 +64,7 @@ local confine = require("build.confine")
 local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
 local hashing = require("build.digest")
+local String = require("cosmic.string")
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
@@ -480,7 +481,7 @@ end
 local function beneath(path: string, dir: string): string | nil
   if path == dir then return "" end
   if dir == "/" then return path:sub(1, 1) == "/" and path or nil end
-  if path:sub(1, #dir + 1) == dir .. "/" then return path:sub(#dir + 1) end
+  if String.starts_with(path, dir .. "/") then return path:sub(#dir + 1) end
   return nil
 end
 

@@ -13,13 +13,7 @@ local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
-
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
+local String = require("cosmic.string")
 
 local record Zip
   --- A zip's entry: a [`Stream.ArchiveEntry`] that also says how its body
@@ -333,8 +327,8 @@ Checked_methods.read = function(self: Checked, max: integer): string | nil, stri
     if trouble ~= "" then
       self.failed = trouble
     elseif self.seen ~= self.size then
-      self.failed = "zip: size mismatch: " .. counted(self.seen, "byte") .. ", recorded " ..
-        counted(self.size, "byte")
+      self.failed = "zip: size mismatch: " .. String.counted(self.seen, "byte") .. ", recorded " ..
+        String.counted(self.size, "byte")
     elseif (self.state or 0) ~= self.crc then
       self.failed = "zip: crc32 mismatch"
     else
@@ -345,7 +339,7 @@ Checked_methods.read = function(self: Checked, max: integer): string | nil, stri
   local seen = self.seen + #chunk
   self.seen = seen
   if seen > self.size then
-    self.failed = "zip: entry is larger than its recorded size of " .. counted(self.size, "byte")
+    self.failed = "zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte")
     return nil, self.failed
   end
   self.state = Compress.crc32(chunk, self.state)
@@ -515,7 +509,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   local cd_offset = c.start
   if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
     return nil, "zip: entry " .. name .. " (offset " ..
-      tostring(local_offset) .. ", " .. counted(csize, "compressed byte") .. ") runs past " ..
+      tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
       "the start of the central directory at " .. tostring(cd_offset)
   end
   if bare and kind ~= "symlink" then return CHECKED, "" end
@@ -579,10 +573,10 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   if cd_offset < 0 or cd_size < 0 or cd_offset + cd_size > cd_limit or
       cd_offset + cd_size < cd_offset then
     return nil, "zip: central directory (offset " .. tostring(cd_offset) .. ", " ..
-      counted(cd_size, "byte") .. ") lies outside the file"
+      String.counted(cd_size, "byte") .. ") lies outside the file"
   end
   if total < 0 or total > cd_size // 46 then
-    return nil, "zip: " .. counted(total, "entry", "entries") .. " cannot fit a " .. tostring(cd_size) ..
+    return nil, "zip: " .. String.counted(total, "entry", "entries") .. " cannot fit a " .. tostring(cd_size) ..
       "-byte central directory"
   end
 
@@ -618,7 +612,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     end
   end
   if count ~= total then
-    return nil, "zip: central directory holds " .. counted(count, "entry", "entries") ..
+    return nil, "zip: central directory holds " .. String.counted(count, "entry", "entries") ..
       ", but the end record says " .. tostring(total)
   end
 
@@ -864,8 +858,8 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
       if not ok then return false, trouble end
     end
     if hint ~= nil and hint ~= done.usize then
-      return sink:fail("zip: " .. path .. ": body is " .. counted(done.usize, "byte") .. ", not " ..
-        counted(hint, "byte"))
+      return sink:fail("zip: " .. path .. ": body is " .. String.counted(done.usize, "byte") .. ", not " ..
+        String.counted(hint, "byte"))
     end
     if wide then
       return put(DESCRIPTOR_SIG .. string.pack("<I4I8I8", done.crc, done.csize, done.usize))

@@ -31,6 +31,7 @@
 --- one back.
 
 local Json = require("cosmic.json")
+local String = require("cosmic.string")
 
 local record flow
   --- A value in the text: an object, an array, or a scalar.
@@ -527,7 +528,7 @@ function flow.parse(text: string): flow.Doc | nil, string
     return ""
   end)
   if not ok then
-    if raised is string and raised:sub(1, #FAILURE) == FAILURE then
+    if raised is string and String.starts_with(raised, FAILURE) then
       return nil, raised:sub(#FAILURE + 1)
     end
     error(raised, 0)

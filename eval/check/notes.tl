@@ -15,6 +15,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 
 local record Notes
   --- How many tests and examples passed.
@@ -51,7 +52,7 @@ function Notes.built_notes(output: string): boolean
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
       for name in wrote:gmatch("[^,]+") do
-        if name:match("^%s*(.-)%s*$") == "o/bin/notes" then
+        if String.trim(name) == "o/bin/notes" then
           return true
         end
       end

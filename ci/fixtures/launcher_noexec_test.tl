@@ -5,6 +5,7 @@ local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
 local Runner = require("cosmic_ci.runner")
+local String = require("cosmic.string")
 
 local Test = require("cosmic.test")
 
@@ -63,7 +64,7 @@ local function test_launcher_noexec(tmp: string)
               "Permission denied here usually means a noexec cache filesystem\n"
             assert(diagnostic ==
               "cosmic portable: verified core cannot execute on the cache filesystem\n" or
-              diagnostic:sub(-#refused) == refused, diagnostic)
+              String.ends_with(diagnostic, refused), diagnostic)
           end
           return true
         end)

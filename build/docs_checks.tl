@@ -203,7 +203,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     for _, line in ipairs(lines) do
       if private_member(line) then
         out[#out + 1] = label .. ": lists a member the module keeps to itself: " ..
-          line:match("^%s*(.-)%s*$")
+          String.trim(line)
       end
     end
     for _, line in ipairs(shown_prose(lines)) do

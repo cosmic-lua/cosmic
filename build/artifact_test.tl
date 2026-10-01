@@ -7,6 +7,7 @@
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
 local fixture = require("build.core_image_fixture")
+local String = require("cosmic.string")
 
 local records = table.concat({
   "1\t1\trelease\tx86\tLinux\tx86_64",
@@ -78,7 +79,7 @@ local function test_programs_share_the_prefix_and_have_distinct_suffixes()
   local db_two = "SQLite format 3\0two database"
   local one = assert(artifact.program(prefix, db_one))
   local two = assert(artifact.program(prefix, db_two))
-  assert(one:sub(1, #prefix) == prefix and two:sub(1, #prefix) == prefix)
+  assert(String.starts_with(one, prefix) and String.starts_with(two, prefix))
   assert(one:sub(#prefix + 1) ~= two:sub(#prefix + 1))
   assert(one:sub(-48, -41) == "CosmicT1")
   local version, length, manifest_offset, manifest_length,

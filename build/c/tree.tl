@@ -39,6 +39,8 @@
 --- read a line's text, and clang keeps it stable where the text form is
 --- only meant for people to read.
 
+local String = require("cosmic.string")
+
 local record tree
   --- One node of the dump.
   record Node
@@ -82,7 +84,7 @@ local function normalized(file: string, root: string): string
   while file:sub(1, 2) == "./" do
     file = file:sub(3)
   end
-  if root ~= nil and file:sub(1, #root + 1) == root .. "/" then
+  if root ~= nil and String.starts_with(file, root .. "/") then
     file = file:sub(#root + 2)
   end
   return file

@@ -8,6 +8,7 @@
 
 local Fuzz = require("build.fuzz")
 local link_text = require("build.link_text")
+local String = require("cosmic.string")
 
 --- Pieces of text that reach each part of the parser: every form a
 --- link takes, and what hides or breaks one.
@@ -45,7 +46,7 @@ local FORMS <const>: {string: boolean} = {
 local function parse_holds(input: string): boolean, string
   local found = link_text.parse(input)
   local lines: {string} = {}
-  for line in (input .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  for line in String.lines(input) do lines[#lines + 1] = line end
   if #found == 0 then
     Fuzz.label("none")
   end
@@ -63,7 +64,7 @@ local function parse_holds(input: string): boolean, string
     if link.target == "" then return false, "an empty target" end
   end
   local shown: {string} = {}
-  for line in (link_text.without_code(input) .. "\n"):gmatch("([^\n]*)\n") do shown[#shown + 1] = line end
+  for line in String.lines(link_text.without_code(input)) do shown[#shown + 1] = line end
   if #shown ~= #lines then return false, "without_code made " .. #lines .. " lines " .. #shown end
   for number, line in ipairs(shown) do
     local was = lines[number]

@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local State = require("cosmic_ci.state")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
+local String = require("cosmic.string")
 
 local record Fuzz
   --- One fuzz run: the checkout it runs in, the runner's scratch, the
@@ -48,7 +49,7 @@ function Fuzz.discover(root: string): {string}
   local tests: {string} = {}
   for _, entry in ipairs(found) do
     local name = Fs.basename(entry)
-    if #name >= #suffix and name:sub(-#suffix) == suffix then
+    if String.ends_with(name, suffix) then
       tests[#tests + 1] = "./" .. entry
     end
   end

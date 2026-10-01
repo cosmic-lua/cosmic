@@ -10,13 +10,7 @@ local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
-
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
+local String = require("cosmic.string")
 
 local record Archive
   --- One entry of an archive, whichever format it came from: the
@@ -504,7 +498,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if wanted then
         if entries_left ~= nil then
           if entries_left <= 0 then
-            return bail("archive: more than " .. counted(opts.max_entries, "entry", "entries") ..
+            return bail("archive: more than " .. String.counted(opts.max_entries, "entry", "entries") ..
               " to extract")
           end
           entries_left = entries_left - 1

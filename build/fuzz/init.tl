@@ -45,6 +45,7 @@ local Rand = require("cosmic.rand")
 local plural = require("build.plural")
 local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
+local String = require("cosmic.string")
 
 --- The instruction budget, handed to this module only when it loads from
 --- the binary's own tree (core/store.c's `raw_modules`). It shares the
@@ -209,7 +210,7 @@ local function attempt(check: function(string): boolean, string, input: string,
   if arm then arm() end
   if not ok then
     local raised = tostring(held)
-    if raised:sub(-#BUDGET_MESSAGE) == BUDGET_MESSAGE then
+    if String.ends_with(raised, BUDGET_MESSAGE) then
       return false, ("spent its budget of %d VM instructions"):format(budget)
     end
     return false, "raised: " .. raised

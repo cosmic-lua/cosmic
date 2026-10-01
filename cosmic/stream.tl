@@ -19,18 +19,12 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 -- The raw declaration holds the interface. A declaration may require only
 -- declarations, and Teal's interface conformance is nominal: the raw
 -- Stream must say `is Transform` where it is declared.
 local type raw_compress = require("cosmic.internal.compress")
-
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
 
 local record Stream
   interface Reader
@@ -516,7 +510,7 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, str
   local data, trouble = Stream.read_up_to(reader, n)
   if data == nil then return nil, trouble end
   if #data < n then
-    return nil, "unexpected end of stream: wanted " .. counted(n, "byte") ..
+    return nil, "unexpected end of stream: wanted " .. String.counted(n, "byte") ..
       ", got " .. tostring(#data)
   end
   return data, ""
@@ -535,7 +529,7 @@ function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
     local chunk, trouble = reader:read(want)
     if chunk == nil then
       if trouble ~= "" then return false, trouble end
-      return false, "unexpected end of stream: skipping " .. counted(n, "byte")
+      return false, "unexpected end of stream: skipping " .. String.counted(n, "byte")
     end
     left = left - #chunk
   end
@@ -640,7 +634,7 @@ function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
     chunk, at, parts, held = "", 1, {}, 0
     return nil, failed
   end
-  local too_long = "stream: a line is longer than " .. counted(limit, "byte")
+  local too_long = "stream: a line is longer than " .. String.counted(limit, "byte")
   local lines: Stream.Lines = {}
   lines.read = function(_self: Stream.Lines): string | nil, string
     if failed ~= "" then return nil, failed end
@@ -728,7 +722,7 @@ function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer)
     if chunk == nil then
       if trouble ~= "" then return false, trouble end
       return false, "unexpected end of stream before its stated size: wanted " ..
-        counted(n, "byte") .. ", got " .. tostring(n - left)
+        String.counted(n, "byte") .. ", got " .. tostring(n - left)
     end
     local ok, wtrouble = writer:write(chunk)
     if not ok then return false, wtrouble end
@@ -1029,7 +1023,7 @@ function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): str
     return max_bytes == nil or total <= max_bytes
   end
   local function too_much(): nil, string
-    return nil, "output is larger than " .. counted(max_bytes, "byte")
+    return nil, "output is larger than " .. String.counted(max_bytes, "byte")
   end
   local out, trouble = t:update(data)
   while true do

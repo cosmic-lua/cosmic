@@ -364,7 +364,7 @@ local function function_signature(lines: {string}, tokens: {compiler.Token},
   for at = first + 1, start - 1 do
     for _, comment in ipairs(tokens[at].comments or {}) do
       local line_no, column = comment.y, comment.x
-      for piece in (comment.text .. "\n"):gmatch("(.-)\n") do
+      for piece in String.lines(comment.text) do
         local line = head[line_no]
         if line ~= nil then
           head[line_no] = line:sub(1, column - 1) .. string.rep(" ", #piece) ..
@@ -744,7 +744,7 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
                                     export: string)
   local function under(entry: analyzer.DocEntry, root: string): boolean
     return entry.source_symbol == root
-      or entry.source_symbol:sub(1, #root + 1) == root .. "."
+      or String.starts_with(entry.source_symbol, root .. ".")
   end
   if surface ~= export then
     for _, entry in ipairs(entries) do
@@ -801,7 +801,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     by_source[source][#by_source[source] + 1] = entry
     if export ~= "" and source == export then
       entry.exported = true
-    elseif export ~= "" and source:sub(1, #dot) == dot then
+    elseif export ~= "" and String.starts_with(source, dot) then
       -- A method on a nested record (`Thing.Box:grow`) is the member
       -- `Box.grow`, as a record field and a use of it are spelled: the
       -- `:` says how it is called, not where it lives, just as
@@ -814,7 +814,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       end
       entry.symbol = member
       entry.exported = true
-    elseif export ~= "" and source:sub(1, #colon) == colon then
+    elseif export ~= "" and String.starts_with(source, colon) then
       entry.symbol = source:sub(#colon + 1)
       entry.exported = true
     end
@@ -1056,7 +1056,7 @@ end
 --- and the comment lines above it.
 local function own_text(code: string): string
   local kept: {string} = {}
-  for line in (code:gsub("%s*local%s*$", "") .. "\n"):gmatch("(.-)\n") do
+  for line in String.lines((code:gsub("%s*local%s*$", ""))) do
     kept[#kept + 1] = line
   end
   while #kept > 0 and (kept[#kept]:match("^%s*$") ~= nil

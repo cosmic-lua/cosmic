@@ -17,6 +17,7 @@ local Hash = require("cosmic.hash")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Plural = require("cosmic_ci.plural")
+local String = require("cosmic.string")
 
 local record CacheTrim
   --- What a trim left, and what it found.
@@ -87,7 +88,7 @@ function CacheTrim.remove_set_aside(path: string): {string}
   local removed: {string} = {}
   local listed, _ = Fs.list(dir)
   for _, entry in ipairs(listed or {}) do
-    if entry:sub(1, #prefix) == prefix and (Fs.remove(dir .. "/" .. entry)) then
+    if String.starts_with(entry, prefix) and (Fs.remove(dir .. "/" .. entry)) then
       removed[#removed + 1] = dir .. "/" .. entry
     end
   end

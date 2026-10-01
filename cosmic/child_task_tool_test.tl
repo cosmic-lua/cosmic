@@ -160,7 +160,10 @@ end
 
 --- Every child cosmic.child starts here has the core's exit watch: a
 --- platform that has one gives it, rather than leaving the waits to
---- look for each exit in turn.
+--- look for each exit in turn. Each child runs until its stdin closes,
+--- so it is alive when the watch is asked for: a watch asked for after
+--- a child has exited may be refused (ESRCH, on Darwin, where a kqueue
+--- cannot watch an exited child), which the next test holds apart.
 local function test_every_child_started_here_has_an_exit_watch()
   local given, refused = 0, ""
   local module = reloaded(function(copy: {string: any})
@@ -173,10 +176,47 @@ local function test_every_child_started_here_has_an_exit_watch()
   end)
   Poll.run(function()
     for _ = 1, 3 do
-      assert(assert(module.run(lua(""))).ok)
+      local h <close> = assert(module.start(lua(
+        'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end',
+        { stdin = "pipe", process_group = false })))
+      assert(h:close_stdin())
+      assert(assert(h:wait()).ok)
     end
   end)
   assert(given == 3, "an exit watch was given for " .. given .. " of 3 children: " .. refused)
+end
+
+--- A child that has exited by the time its watch is asked for is waited
+--- for as any other: a `run` or a `wait` answers its status, whether the
+--- watch was refused, as a Darwin kqueue refuses one (ESRCH, "No such
+--- process"), or not given at all. Here the watch is asked for after the
+--- core's own, opened beside it, says the child has exited, and then
+--- refused, which is what a child that exits at once meets on Darwin
+--- when it wins the race against the start; `lua("")` is such a child.
+local function test_a_child_that_exited_before_its_watch_was_asked_for_is_waited_for()
+  local asked = 0
+  local module = reloaded(function(copy: {string: any})
+    local watch = copy.exit_watch as function(integer): integer, string, integer -- cast: the raw table's `exit_watch`
+    copy.exit_watch = function(pid: integer): integer, string, integer
+      asked = asked + 1
+      local fd, _, _ = watch(pid)
+      if fd ~= nil then
+        assert(assert(sys.poll({ fd }, { sys.POLLIN }, 30000))[1] & sys.POLLIN ~= 0,
+          "the child did not exit")
+        assert(sys.close(fd))
+      end
+      return nil, "No such process", sys.ESRCH
+    end
+  end)
+  Poll.run(function()
+    for _ = 1, 3 do
+      local r = assert(module.run(lua('require("cosmic.proc").exit(3)')))
+      assert(not r.ok and r.code == 3, tostring(r.code))
+    end
+    local h <close> = assert(module.start(lua("")))
+    assert(assert(h:wait(30000)).ok)
+  end)
+  assert(asked == 4, "an exit watch was asked for " .. asked .. " times, not 4")
 end
 
 --- A wait with a timeout ends the child at it, the other task ticking

@@ -7,6 +7,7 @@ local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
 local links = require("build.links")
 local teal = require("build.teal")
+local String = require("cosmic.string")
 
 --- The docs fixture builds its database with the tree's own code.
 Test.needs{ reads = { "core" } }
@@ -275,7 +276,7 @@ local function world(files: {string: string}, symbols?: {string: {string}},
     read = function(path: string): string | nil return files[path] end,
     real = function(path: string): string | nil
       for from, to in pairs(links_to or {}) do
-        if path == from or path:sub(1, #from + 1) == from .. "/" then
+        if path == from or String.starts_with(path, from .. "/") then
           return to .. path:sub(#from + 1)
         end
       end

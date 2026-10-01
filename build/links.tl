@@ -86,6 +86,7 @@ local link_text = require("build.link_text")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local type compiler = require("build.compiler")
+local String = require("cosmic.string")
 
 local record links
   --- What a file declares, for resolution where a comment on a line
@@ -247,7 +248,7 @@ local definition_line = "^%[(`+[^`]+`+)%]:[ \t]+(%S+)[ \t]*$"
 --- lines and all; the block is "" when there is none.
 local function split_definitions(text: string): string, string
   local lines: {string} = {}
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  for line in String.lines(text) do lines[#lines + 1] = line end
   if lines[#lines] == "" then lines[#lines] = nil end
   local last = #lines
   while last > 0 and lines[last]:match("^%s*$") ~= nil do last = last - 1 end
@@ -326,7 +327,7 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
     local spans = link_text.plain_spans(block.text)
     local block_lines: {string} = {}
     if kind == "c" and #spans > 0 then
-      for line in (block.text .. "\n"):gmatch("([^\n]*)\n") do block_lines[#block_lines + 1] = line end
+      for line in String.lines(block.text) do block_lines[#block_lines + 1] = line end
     end
     for _, span in ipairs(spans) do
       local key = link_text.label_key(span.written)

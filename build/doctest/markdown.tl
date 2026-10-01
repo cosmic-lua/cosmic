@@ -188,7 +188,7 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
       if not closed then
         return nil, "line " .. open_line .. ": a fenced code block never closes"
       end
-      local trimmed = fence.info:match("^%s*(.-)%s*$") or ""
+      local trimmed = String.trim(fence.info)
       local tag, tag_trouble = parse_tag(trimmed)
       if tag == nil then
         return nil, "line " .. open_line .. ": " .. tag_trouble

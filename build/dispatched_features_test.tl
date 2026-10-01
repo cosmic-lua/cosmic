@@ -17,6 +17,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local declared_key = require("build.declared_key")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 --- Every tree build.zig compiles C from: the core's own, the vendored
 --- libraries' and the patches it applies to them, and build.zig itself,
@@ -197,7 +198,7 @@ end
 local function test_asking_keeps_what_a_line_at_a_time_would()
   local function by_line(text: string): {string}
     local lines: {string} = {}
-    for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    for line in String.lines(text) do lines[#lines + 1] = line end
     local kept: {integer:boolean} = {}
     for i, line in ipairs(lines) do
       if asks(line) then

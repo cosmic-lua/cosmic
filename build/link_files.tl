@@ -100,7 +100,7 @@ end
 --- The lines of `body`, split at each line break.
 local function split_lines(body: string): {string}
   local out: {string} = {}
-  for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(body) do
     out[#out + 1] = line
   end
   return out
@@ -150,7 +150,7 @@ local function zig_comments(source: string): {link_text.Comment}
   local out: {link_text.Comment} = {}
   local number = 0
   local line_start = 1
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(source) do
     number = number + 1
     local this_start = line_start
     line_start = line_start + #line + 1
@@ -208,7 +208,7 @@ end
 -- compiles only the checked files, and only in cosmic's own tree).
 local function declared_c(source: string): link_text.Declared
   local out: link_text.Declared = { names = {}, aliases = {} }
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(source) do
     local fn_name = line:match("^[%a_][%w_ %*]-([%a_][%w_]*) %(")
     if fn_name ~= nil then out.names[fn_name] = true end
     local macro = line:match("^%s*#%s*define%s+([%a_][%w_]*)")
@@ -241,7 +241,7 @@ end
 local function module_level_zig(source: string): {string: boolean}
   local top: {string: boolean} = {}
   local inner: {string: boolean} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(source) do
     for _, word in ipairs({ "fn", "const", "var" }) do
       local declared = line:match("^[%a ]-%f[%w_]" .. word .. "%s+([%a_][%w_]*)")
       if declared ~= nil then

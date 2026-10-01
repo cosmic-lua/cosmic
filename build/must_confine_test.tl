@@ -12,6 +12,7 @@ local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
 local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 --- What these tests start is this very program, which runs the
 --- tool's own modules besides the closure's, in a root of its own
@@ -213,7 +214,7 @@ end
     "could not be applied: Operation not permitted (EPERM)"
   assert(failure(text, "test_passed_over") == refused, text)
   local raised = assert(failure(text, "test_raised_too"))
-  assert(raised:sub(1, #refused + 12) == refused .. "; and then: " and
+  assert(String.starts_with(raised, refused .. "; and then: ") and
     raised:find("its own failure$"), text)
   assert(assert(failure(text, "test_too_many")):find("^must_confine: bin/probe could not start " ..
     "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
