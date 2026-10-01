@@ -2030,8 +2030,10 @@ local type Value = string | boolean
 --- `github.event_name` and `github.ref`, `==`, `!=`, `!`, `&&`, `||` and
 --- parentheses. As GitHub's docs ("Operators") say, '' and false are
 --- falsy, and `a && b` and `a || b` answer an operand, not a boolean.
---- It compares strings exactly, where GitHub ignores case; no switch
---- tells two values apart by case alone.
+--- It compares two strings ignoring case, as GitHub does, so a
+--- literal cased otherwise than the value it names answers as it would
+--- there; a comparison of a string with a boolean, which GitHub coerces
+--- to numbers, it refuses.
 local function evaluate(text: string, leg: {string: string}, event: string, ref: string): Value
   local inner = assert(text:match("^%${{ (.*) }}$"), "not an expression: " .. text)
   local tokens: {string} = {}
@@ -2079,8 +2081,11 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
     if op == "==" or op == "!=" then
       i = i + 1
       local right = primary()
-      if op == "==" then return left == right end
-      return left ~= right
+      assert(left is string and right is string,
+        "a comparison of other than two strings this test cannot answer: " .. inner)
+      local same = left:lower() == right:lower()
+      if op == "==" then return same end
+      return not same
     end
     return left
   end
@@ -2121,6 +2126,10 @@ local function test_an_expression_evaluates_as_github_says()
   assert(e("!(github.event_name == 'push') && 'a' || 'b'", "schedule") == "a")
   assert(e("matrix.image && '1' || '0'", "push") == "0", "an empty value is truthy")
   assert(e("github.ref == 'refs/heads/main'", "push") == true)
+  assert(e("github.event_name == 'Merge_Group' && 'a' || 'b'", "merge_group") == "a",
+    "a comparison of strings minds their case")
+  assert(e("github.event_name != 'MERGE_GROUP' && 'a' || 'b'", "merge_group") == "b",
+    "a comparison of strings minds their case")
 end
 
 --- The run of each event a test below asks after, with the ref it runs
