@@ -12,6 +12,7 @@ local importer = require("build.importer")
 local compilation = require("build.compilation")
 local receivers = require("build.receivers")
 local type Compiler = require("build.compiler")
+local type _ = require("build.test_inputs")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -1347,7 +1348,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     assert(covered[name] or name:match("^cosmic%.") ~= nil,
       name .. " is the analyzer's but not in the compiler's identity")
   end
-  for _, name in ipairs({ "build.compilation", "build.derivation", "build.teal", "build.contracts",
+  for _, name in ipairs({ "build.compilation", "build.derivation", "build.module", "build.teal", "build.contracts",
                           "build.receivers", "build.tree", "build.analysis_schema",
                           "build.cache_names", "build.ast.match" }) do
     assert(covered[name], name .. " is not in the compiler's identity: " ..
@@ -1760,4 +1761,24 @@ local function test_diagnostic_rendering_cannot_change_acceptance()
   end
   assert(calls == 1, "successful compilation consulted diagnostic presentation")
   work.close(handle)
+end
+
+--- A shared record must not bring code generation into a position or
+--- input-declaration reader's import closure.
+local function test_the_module_shape_does_not_reach_compilation()
+  local seen: {string:boolean} = {}
+  local pending: {string} = { "build.positions", "build.test_inputs" }
+  while #pending > 0 do
+    local name = table.remove(pending)
+    if not seen[name] then
+      seen[name] = true
+      for _, required in ipairs((assert(Store.requires(name)))) do
+        pending[#pending + 1] = required
+      end
+    end
+  end
+  assert(seen["build.module"], "position and input readers lost their shared module shape")
+  for _, name in ipairs({ "build.compilation", "build.contracts", "build.receivers" }) do
+    assert(not seen[name], "the shared module shape pulled in " .. name)
+  end
 end

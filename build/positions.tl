@@ -10,14 +10,14 @@
 --- each file directly in one is a flat module of its own, public by
 --- construction, as [`cosmic/fs.tl`] is. See [`positions.check`].
 ---
---- The module shape comes from [`build.compilation`]; this check is a
+--- The module shape comes from [`build.module`]; this check is a
 --- whole-plan gate, outside the identity of a cached compile.
 
 local Fs = require("cosmic.fs")
-local type compilation = require("build.compilation")
+local type Module = require("build.module")
 
 local record positions
-  Module: compilation.Module
+  Module: Module
 end
 
 --- The file's own name, with no directory in front of it.
