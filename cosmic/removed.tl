@@ -157,6 +157,8 @@ local module: Module = {
   },
   members = {
     ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
+    ["cosmic.hash.Mac"] = "use Hash.Hasher, which Hash.hmac_hasher answers as " ..
+      "Hash.hasher does (" .. hash .. ")",
     ["cosmic.json.lines"] = "use Stream.lines(reader) and Json.decode(line) on each " ..
       "line it reads, skipping a blank one (" .. stream .. "; " .. json .. ")",
     ["cosmic.json.Lines"] = "use Stream.Lines, what Stream.lines(reader) answers, " ..
