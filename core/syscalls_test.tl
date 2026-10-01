@@ -1339,13 +1339,30 @@ end
 --- limit is raised for them first where it is lower (1024 under
 --- systemd's default, 256 on macOS), and put back after; a hard limit
 --- too low to raise it to fails the test.
+--- Closes `fds` and puts RLIMIT_NOFILE's `limits` back when it leaves
+--- scope, so a failed assertion leaves neither behind for the next test.
+local record Restored
+  fds: {integer}
+  limits: sys.Limits
+  metamethod __close: function(Restored)
+end
+
+local restored_mt: metatable<Restored> = {
+  __close = function(r: Restored)
+    for _, fd in ipairs(r.fds) do sys.close(fd) end
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, r.limits.soft, r.limits.hard))
+  end,
+}
+
 local function test_poll_watches_past_a_thousand_descriptors()
   local wanted <const> = 1100
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  local held <close> = setmetatable({ fds = {}, limits = limits } as Restored, restored_mt)
   -- Room for the copies beside whatever the worker holds open already.
   local room = math.min(wanted + 256, limits.hard)
   if limits.soft < room then assert(sys.setrlimit(sys.RLIMIT_NOFILE, room, limits.hard)) end
   local ends = assert(process.pipe())
+  held.fds[1], held.fds[2] = ends.reader, ends.writer
   assert(sys.write(ends.writer, "x") == 1)
   local fds: {integer} = {}
   local events: {integer} = {}
@@ -1355,20 +1372,15 @@ local function test_poll_watches_past_a_thousand_descriptors()
     copy, trouble = sys.dup(ends.reader)
     if copy == nil then break end
     fds[#fds + 1] = copy
+    held.fds[#held.fds + 1] = copy
     events[#events + 1] = sys.POLLIN
   end
-  local copies = #fds
+  assert(#fds == wanted, #fds .. " copies under a hard limit of " .. limits.hard ..
+    ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
-  local revents, failure: {integer}, string
-  if copies == wanted then revents, failure = sys.poll(fds, events, 0) end
-  for i = 1, copies do sys.close(fds[i]) end
-  sys.close(ends.reader)
-  sys.close(ends.writer)
-  assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
-  assert(copies == wanted, copies .. " copies under a hard limit of " .. limits.hard ..
-    ": " .. tostring(trouble))
+  local revents, failure = sys.poll(fds, events, 0)
   assert(revents ~= nil, failure)
   assert(#revents == wanted + 1, "one answer per descriptor, not " .. #revents)
   for i = 1, wanted do

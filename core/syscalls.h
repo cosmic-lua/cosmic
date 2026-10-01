@@ -410,8 +410,11 @@ COSMIC_SYSCALL(getgid, 0);
 /*
  * --- The supplementary groups the process runs with, in the order the
  * --- system keeps them, which may or may not hold the effective group
- * --- (macOS's does, first; Linux's does where it was given one). EINVAL
- * --- where the list grew between the call's two looks at it.
+ * --- (macOS's does, first; Linux's does where it was given one). On
+ * --- macOS they are the user's groups as directory services lists them,
+ * --- which may be more than NGROUPS_MAX and do not follow a change
+ * --- setgroups made. EINVAL where the list grew between the call's two
+ * --- looks at it.
  * ---@return {integer}|nil groups each group's identifier, or nil on failure
  * ---@return string error what went wrong, when groups is nil
  * ---@return integer errno the error number, when groups is nil
@@ -439,7 +442,7 @@ COSMIC_SYSCALL(umask, 1);
 /*
  * --- A resource's limits, as `getrlimit` answers them and `setrlimit`
  * --- takes them. `math.maxinteger` stands for no limit (RLIM_INFINITY) on
- * --- every system, and a limit past it is answered as none.
+ * --- every system, and a limit at or past it is answered as none.
  * ---@class Limits
  * ---@field soft integer the limit the system holds the process to
  * ---@field hard integer the most the soft limit may be raised to

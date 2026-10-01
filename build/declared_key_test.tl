@@ -538,8 +538,8 @@ end
 --- and the supplementary groups the bindings answer, each group once,
 --- in any order the system lists them; a worker run as a user of its
 --- own is keyed by its group alone. Where there is one, its lines are
---- the key's and these move nothing, so a Linux key holds what it held
---- before they were read.
+--- the key's and these move nothing, so a Linux key holds its status
+--- file's lines alone.
 local function test_the_groups_key_a_host_with_no_status(tmp: string)
   assert(Fs.write(tmp .. "/status", "Name:\tx\nUid:\t1\t1\t1\t1\nGid:\t1\t1\t1\t1\n" ..
     "Groups:\t1 20 \n"))

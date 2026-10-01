@@ -262,9 +262,9 @@ COSMIC_SYSCALL(umask, 1) {
 }
 
 /* A limit as Lua holds it: none (RLIM_INFINITY, all ones on Linux, which
- * no integer holds) as math.maxinteger, which is RLIM_INFINITY on macOS.
- * A finite limit past it, which Linux alone could hold, is answered as
- * none too: no system lets RLIMIT_NOFILE reach one. */
+ * no integer holds) as math.maxinteger, the largest integer Lua holds and
+ * RLIM_INFINITY itself on macOS. A finite limit at or past it, which only
+ * Linux can hold, reads as none too, since no integer tells it apart. */
 static lua_Integer limit_value (rlim_t limit) {
   if (limit == RLIM_INFINITY || limit >= (rlim_t)LUA_MAXINTEGER) return LUA_MAXINTEGER;
   return (lua_Integer)limit;
@@ -2332,6 +2332,15 @@ COSMIC_SYSCALL(spawn, 10) {
   /* Move both ends clear of every descriptor the child is handed, so
    * closed parent stdio cannot make a pipe end collide with the
    * remapping below. */
+  /* TODO: a soft RLIMIT_NOFILE below about 300 refuses every relaunch
+   * of this program with a bare EINVAL: a relaunch hands the child
+   * descriptor 255 (cosmic/proc.tl's CORE_FD), so these ends, and the
+   * descriptors the child moves above its own (the pinned and confining
+   * ones, and [`raise_descriptor`]'s), go to 257 and up, which F_DUPFD refuses past the soft limit (EINVAL at it,
+   * EMFILE just under it) -- as at macOS's default `ulimit -n` of 256.
+   * Raise the soft limit toward the hard one at the start of a process
+   * that relaunches, as Go's runtime does, through sys.setrlimit; or at
+   * least fail naming the descriptor past RLIMIT_NOFILE's soft limit. */
   int promote_error = 0;
   int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
   if (status_read < 0) promote_error = errno;
