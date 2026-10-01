@@ -241,3 +241,17 @@ local function test_return_types_end_before_the_next_parameter()
   assert(#assert(result).syntax_errors == 0 and #result.type_errors == 0,
     tostring((result.type_errors[1] or result.syntax_errors[1] or {}).msg))
 end
+
+--- A test whose import closure does not hold [`cosmic.removed`] is not
+--- told what the catalog says: build.teal names it by no `require` a
+--- parse records, so no closure that reaches build.teal holds it, and
+--- the worker refuses it to this one. Its key leaves the catalog out, so
+--- an edit there must change nothing such a test sees; a refusal's
+--- replacement is quoted only where the test requires the catalog
+--- (build/teal_catalog_test.tl).
+local function test_a_refusal_quotes_no_catalog_this_test_does_not_hold()
+  assert(teal.replacement("unknown variable: os", "return os.getenv('HOME')\n", 1, 8) == nil)
+  assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash",
+    'local Hash = require("cosmic.hash")\nreturn Hash.hex\n', 2, 13) == nil)
+  assert(package.loaded["cosmic.removed"] == nil)
+end

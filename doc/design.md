@@ -559,9 +559,9 @@ when the C core's inputs differ, only zig can build it, so the tool
 runs `bin/zig build boot` and re-enters the command, or, under
 `COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries
 two identities: the compiler it is, over the build's own modules a compile or a parse runs to
-decide what it stores ([`build.work`]'s `compiler_identity`),
-[`cosmic.removed`] (the names the checker is stripped of) and the Teal
-compiler's and Lua's pins and patches, which every module key
+decide what it stores ([`build.work`]'s `compiler_identity`), among
+them build.teal, which names the globals the checker is stripped of,
+and the Teal compiler's and Lua's pins and patches, which every module key
 carries; and the runtime it is, over its host image and the same
 pins, which every test verdict carries. the standard library the
 importer runs on is in neither, so an edit there reaches what
@@ -1089,7 +1089,6 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.sqlite`]: ../cosmic/internal/sqlite.d.tl
 [`cosmic.internal.store`]: ../cosmic/internal/store.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
-[`cosmic.removed`]: ../cosmic/removed.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h

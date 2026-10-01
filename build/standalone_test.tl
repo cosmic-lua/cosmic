@@ -9,6 +9,11 @@ local standalone = require("build.standalone")
 -- so the store the worker is held to answers it.
 local type _ = require("cosmic.zip")
 local type _json = require("cosmic.json")
+-- What a refusal says to write instead is [`cosmic.removed`]'s, which
+-- build.teal loads by no `require` a parse records: required here, it
+-- is in this test's closure, which the worker lets it load and its key
+-- holds.
+local _ = require("cosmic.removed")
 
 --- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
