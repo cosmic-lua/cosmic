@@ -1,10 +1,10 @@
 --- The queries `cosmic json` and `cosmic sql --at` make of a decoded JSON
 --- document: a path or a pattern read from text ([`parse_path`],
---- [`parse_pattern`]), the values a pattern matches ([`select`]), every
---- leaf as a `path = value` line ([`flatten`], [`flat_line`]) and a
---- document's shape at a glance ([`describe`]). A path is spelled as
---- [`child_path`] spells it, which is how `cosmic.json`'s own messages
---- name where a value is.
+--- [`parse_pattern`]), the value at a path ([`get`], [`entries`],
+--- [`items`]), the values a pattern matches ([`select`]), every leaf as a
+--- `path = value` line ([`flatten`], [`flat_line`]) and a document's shape
+--- at a glance ([`describe`]). A path is spelled as [`child_path`] spells
+--- it, which is how [`Json.encode`]'s own messages name where a value is.
 
 local Json = require("cosmic.json")
 
@@ -80,6 +80,171 @@ function json_query.child_path(path: string, step: string | integer): string
     return path .. "[" .. Json.quote(step) .. "]"
   end
   return path .. "[" .. step .. "]"
+end
+
+--- What `v` is, for a message: JSON's name for it, with a table of neither
+--- shape named for what is wrong with it.
+local function shape_kind(v: any): string
+  if v == nil or rawequal(v, Json.null) then
+    return "null"
+  end
+  if v is {any:any} then
+    local layout = Json.layout(v)
+    if layout == "mixed" then
+      return MIXED
+    elseif layout == "hole" then
+      return "array with a hole"
+    end
+    return layout
+  end
+  return type(v)
+end
+
+--- Where `descend` got to: the value, the message ("" on success) and
+--- the path reached.
+local record Reached
+  value: any
+  err: string
+  at: string
+end
+
+--- `get`'s walk, shared with `entries` and `items`. A failure names the
+--- value at fault, and `at` is the path of the value reached. A string
+--- step on an unmarked table with no array part is indexed directly, so
+--- a lookup in a large decoded object is not a scan of it; the scan
+--- that names what is wrong runs only for a failure.
+local function descend(value: any, path: {string | integer}): Reached
+  local steps = 0
+  local loose: any = path
+  if loose is {any:any} then
+    for _ in pairs(loose) do steps = steps + 1 end
+  end
+  if steps ~= rawlen(path) then
+    error("json: a path must be a sequence, with no nil hole in it", 3)
+  end
+  local at = "$"
+  local here = value
+  for _, step in ipairs(path) do
+    local step_value: any = step
+    if step_value is integer then
+      if not (here is {any:any}) or Json.layout(here) ~= "array" then
+        return { err = at .. ": expected an array to look up " .. json_query.child_path("", step_value)
+          .. ", got " .. shape_kind(here), at = at }
+      end
+      local size = rawlen(here)
+      if step_value > size and Json.is_array(here) then
+        -- A decoded array with holes: `rawlen` is any border of it.
+        size = Json.members(here).extent
+      end
+      if step_value < 1 or step_value > size then
+        return { err = at .. ": index " .. step_value .. " out of range, the array has " .. size, at = at }
+      end
+      here = here[step_value]
+    elseif step_value is string then
+      local found: any
+      if here is {any:any} and rawlen(here) == 0 and not Json.is_array(here) then
+        found = here[step_value]
+      elseif not (here is {any:any}) or Json.layout(here) ~= "object" then
+        return { err = at .. ": expected an object to look up " .. Json.quote(step_value)
+          .. ", got " .. shape_kind(here), at = at }
+      else
+        found = here[step_value]
+      end
+      if found == nil then
+        if here is {any:any} and Json.layout(here) ~= "object" then
+          return { err = at .. ": expected an object to look up " .. Json.quote(step_value)
+            .. ", got " .. shape_kind(here), at = at }
+        end
+        return { err = at .. ": no key " .. Json.quote(step_value), at = at }
+      end
+      here = found
+    else
+      local what = math.type(step_value) or type(step_value)
+      error("json: a path step must be a string or an integer, got " .. what, 3)
+    end
+    at = json_query.child_path(at, step)
+  end
+  return { value = here, err = "", at = at }
+end
+
+--- The value at `path` under `value`, and "". A string step is an
+--- object's key and an integer step an array's index, counted from 1
+--- as Lua counts and as `encode`'s messages do:
+--- `{ "users", 3, "name" }` is `$.users[3].name`. An empty path is
+--- `value` itself. nil and a message naming the path reached, in that
+--- style, when a key is missing, a step meets a value that is not an
+--- object or array as the step needs (by the rules `entries` and
+--- `items` apply), or an index is out of range:
+--- `$.users[5]: index out of range, the array has 3`. [`Json.null`] is a
+--- value like any other at the end of the path, and reaching through
+--- it is an error: `$.a: expected an object, got null`. A key whose
+--- value decoded to nil (a `null` without `null_value`) is missing, as
+--- an array's hole is nil with an empty message; decode with
+--- `null_value = Json.null` to tell them from an absent key. A path with
+--- a nil hole in it raises. Test the
+--- message, not the value: a leaf of `false` or `nil` answers
+--- `false, ""` or `nil, ""`. A step that is neither a string nor an
+--- integer (a float such as `1.0` too) raises.
+---
+---     local doc = assert(Json.decode('{"rows": [{"id": "a"}]}'))
+---     local id, err = json_query.get(doc, { "rows", 1, "id" })
+---     assert(err == "" and id == "a")
+function json_query.get(value: any, path: {string | integer}): any | nil, string
+  local reached = descend(value, path)
+  if reached.err ~= "" then
+    return nil, reached.err
+  end
+  return reached.value, ""
+end
+
+--- The object `value` is, or the one at `path` under it as `get` finds
+--- it, as a map to loop over with `pairs`, and "". nil and a message
+--- when it is anything else, naming the path when one is given
+--- (`$.a: expected a JSON object, got array`). An empty table that no
+--- [`Json.array`] mark or decoded `[]` made an array is an object, as
+--- `encode` writes it.
+function json_query.entries(value: any, path?: {string | integer}): {string:any} | nil, string
+  local at = ""
+  local here = value
+  if path ~= nil then
+    local reached = descend(value, path)
+    if reached.err ~= "" then
+      return nil, reached.err
+    end
+    here = reached.value
+    at = reached.at .. ": "
+  end
+  if here is {string:any} and Json.layout(here) == "object" then
+    return here, ""
+  end
+  return nil, at .. "expected a JSON object, got " .. shape_kind(here)
+end
+
+--- The array `value` is, or the one at `path` under it as `get` finds
+--- it, as a list to loop over with `ipairs`, and "". nil and a message
+--- when it is anything else, naming the path when one is given. A
+--- table counts as an array when it carries the mark ([`Json.is_array`])
+--- or has integer keys from 1 up and no others; an unmarked empty
+--- table is an object, so it fails here, as `encode` writes it `{}`.
+---
+---     for _, row in ipairs((assert(json_query.items(doc, { "rows" })))) do
+---       print(row)
+---     end
+function json_query.items(value: any, path?: {string | integer}): {any} | nil, string
+  local at = ""
+  local here = value
+  if path ~= nil then
+    local reached = descend(value, path)
+    if reached.err ~= "" then
+      return nil, reached.err
+    end
+    here = reached.value
+    at = reached.at .. ": "
+  end
+  if here is {any} and Json.layout(here) == "array" then
+    return here, ""
+  end
+  return nil, at .. "expected a JSON array, got " .. shape_kind(here)
 end
 
 --- Four hex digits' value; the caller has matched them.
@@ -245,7 +410,7 @@ end
 
 --- The steps of a path written as [`child_path`] spells one, for a
 --- caller that takes a path as text (`cosmic json`): the steps for
---- [`Json.get`], and "", or nil and a message naming the column where
+--- [`json_query.get`], and "", or nil and a message naming the column where
 --- the text stopped being a path. `$` is the document and may start
 --- the text; then each step is `.name` (a key, up to the next `.` or
 --- `[`), `[3]` (an array index, counted from 1 as `get` counts) or

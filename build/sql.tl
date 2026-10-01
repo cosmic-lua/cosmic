@@ -26,7 +26,7 @@
 ---
 --- `--from <file|->` asks the same of a data file instead of a database.
 --- Each `--from` is loaded as a table of an in-memory database
---- ([`cosmic.dataset`] says how: the columns, how a value is stored, the
+--- ([`build.dataset`] says how: the columns, how a value is stored, the
 --- `_json` column), and the statement runs on that, under the same
 --- read-only guard, with the same rows and verdict. `--as <format>`,
 --- `--at '<path>'` and `--raw` belong to the `--from` they follow. With
@@ -36,7 +36,6 @@
 --- is built from the data alone, so nothing under o/ is read.
 
 local Cli = require("cosmic.cli")
-local Dataset = require("cosmic.dataset")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -45,6 +44,7 @@ local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local bare = require("build.bare")
 local clock = require("build.clock")
+local dataset = require("build.dataset")
 local json_query = require("build.json_query")
 local verdicts = require("build.verdict")
 local verb_spec = require("build.verb_spec")
@@ -85,7 +85,7 @@ local record sql
     label: string
     --- The table's name.
     table: string
-    --- The format's name, as [`Dataset.read`] takes it.
+    --- The format's name, as [`dataset.read`] takes it.
     format: string
     --- Where in the document the rows are; nil for all of it.
     at: {string | integer}
@@ -468,8 +468,8 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
       end
       given[#inputs] = true
       if name == "--as" then
-        if Dataset.about(value) == nil then
-          return nil, "no format " .. value .. " (known: " .. table.concat(Dataset.names(), ", ") .. ")"
+        if dataset.about(value) == nil then
+          return nil, "no format " .. value .. " (known: " .. table.concat(dataset.names(), ", ") .. ")"
         end
         input.format = value
       else
@@ -485,9 +485,9 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
     if input.format == "" then
       if input.path == nil then
         return nil, "standard input has no extension to read a format from; " ..
-          "give --as (" .. table.concat(Dataset.names(), ", ") .. ") after its --from -"
+          "give --as (" .. table.concat(dataset.names(), ", ") .. ") after its --from -"
       end
-      local format, why = Dataset.format_of(input.path)
+      local format, why = dataset.format_of(input.path)
       if format == nil then
         return nil, input.label .. ": " .. why .. "; or give --as after its --from"
       end
@@ -505,7 +505,7 @@ end
 
 --- Loaded tables' names of columns, for a hint: one table's columns as
 --- "a, b, c", several as "t: a, b; u: c".
-local function column_lists(tables: {Dataset.Table}): string
+local function column_lists(tables: {dataset.Table}): string
   if #tables == 1 then
     return plain(table.concat(tables[1].columns, ", "))
   end
@@ -519,7 +519,7 @@ end
 --- SQLite's `trouble` with what would have helped appended: the columns
 --- there are after `no such column`, the tables after `no such table`.
 --- Anything else as it was.
-local function hinted(trouble: string, tables: {Dataset.Table}): string
+local function hinted(trouble: string, tables: {dataset.Table}): string
   if trouble:find("^no such column") then
     return trouble .. "; columns: " .. column_lists(tables)
   elseif trouble:find("^no such table") then
@@ -537,7 +537,7 @@ end
 --- SQLite types stored in it (`integer`, `real`, `text`, `null`, joined
 --- by `|`; none for a table without rows), and the first row as JSON,
 --- cut at 200 bytes. Nil and why when SQLite fails.
-local function describe(db: Sqlite.Handle, tables: {Dataset.Table}): {string} | nil, string
+local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | nil, string
   local lines: {string} = {}
   for _, each in ipairs(tables) do
     lines[#lines + 1] = each.name .. ": " .. each.count .. (each.count == 1 and " row" or " rows")
@@ -631,7 +631,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     verdict(false, source)
     return 1
   end
-  local tables: {Dataset.Table} = {}
+  local tables: {dataset.Table} = {}
   for _, input in ipairs(inputs) do
     local text: string | nil
     local read_trouble: string
@@ -644,11 +644,11 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
       -- A file's failure already names the file; standard input's does not.
       return fail(input.path == nil and input.label .. ": " .. read_trouble or read_trouble)
     end
-    local rows, format_trouble = Dataset.read(input.format, text, { at = input.at, raw = input.raw })
+    local rows, format_trouble = dataset.read(input.format, text, { at = input.at, raw = input.raw })
     if rows == nil then
       return fail(input.label .. ": " .. format_trouble)
     end
-    local loaded, load_trouble = Dataset.load(db, input.table, rows, { columns = rows.columns })
+    local loaded, load_trouble = dataset.load(db, input.table, rows)
     if loaded == nil then
       return fail(input.label .. ": " .. load_trouble)
     end

@@ -1,10 +1,10 @@
---- Fuzz properties for [`cosmic.dataset`], whose readers take a data file's
+--- Fuzz properties for [`build.dataset`], whose readers take a data file's
 --- bytes and whose loader takes any keys: reading is total on any text,
 --- and a row loaded is a row read back through `_json`, whatever its keys
 --- (dots, quotes, case twins, the empty key, `_json` itself).
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
-local Dataset = require("cosmic.dataset")
+local dataset = require("build.dataset")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
@@ -42,9 +42,9 @@ local function gen_rows(src: Fuzz.Source): string
   return Fuzz.pack(fields)
 end
 
-local function rows_from(input: string): {Dataset.Row}
+local function rows_from(input: string): {dataset.Row}
   local fields = Fuzz.unpack(input)
-  local rows: {Dataset.Row} = {}
+  local rows: {dataset.Row} = {}
   for at = 1, #fields - 2, 3 do
     if fields[at] == "r" then
       rows[#rows + 1] = {}
@@ -66,7 +66,7 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
     check = function(input: string): boolean, string
       local rows = rows_from(input)
       local db = assert(Sqlite.memory())
-      local ok, made, why = pcall(Dataset.load, db, "t", rows)
+      local ok, made, why = pcall(dataset.load, db, "t", rows)
       if not ok then return false, "raised: " .. tostring(made) end
       if made == nil then
         -- A key that is not UTF-8 (which no decoder makes) cannot be
@@ -148,7 +148,7 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
     shares = { read = 0.15, refused = 0.15 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local ok, rows, why = pcall(Dataset.read, fields[1], fields[2])
+      local ok, rows, why = pcall(dataset.read, fields[1], fields[2])
       if not ok then return false, "raised: " .. tostring(rows) end
       if rows == nil then
         Fuzz.label("refused")
@@ -157,7 +157,7 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
       end
       Fuzz.label("read")
       local db = assert(Sqlite.memory())
-      local loaded, trouble = Dataset.load(db, "t", rows)
+      local loaded, trouble = dataset.load(db, "t", rows)
       if loaded == nil then return false, "rows read but not loaded: " .. trouble end
       if loaded.count ~= #rows then return false, "counted " .. loaded.count .. " of " .. #rows end
       return true, ""
@@ -165,7 +165,7 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
   })
 end
 
---- What [`Dataset.load`] stores for `value`, as the cell a query reads.
+--- What [`dataset.load`] stores for `value`, as the cell a query reads.
 local function expected_cell(value: any): Sqlite.Cell
   if value == nil or value == Json.null then return { kind = "null" } end
   if value is boolean then return { kind = "integer", integer = value and 1 or 0 } end
@@ -187,7 +187,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
     check = function(input: string): boolean, string
       local rows = rows_from(input)
       local db = assert(Sqlite.memory())
-      local made = Dataset.load(db, "t", rows)
+      local made = dataset.load(db, "t", rows)
       if made == nil then return true, "" end
       local column_of: {string:string} = {}
       -- The last column is the row's own `_json`, no key's.

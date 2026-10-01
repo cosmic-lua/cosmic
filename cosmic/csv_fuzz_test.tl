@@ -1,6 +1,6 @@
 --- Fuzz properties for [`cosmic.csv`], which reads untrusted bytes: what
---- `encode` writes `parse` reads back, in any of the delimiters; `parse`
---- and `rows` are total on any bytes, and what they read is a fixed point
+--- the writer below writes `parse` reads back, in any of the delimiters;
+--- `parse` and `table` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
 --- refused naming the line and column it was put at.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -9,6 +9,46 @@ local Csv = require("cosmic.csv")
 local Fuzz = require("build.fuzz")
 
 local DELIMITERS <const> = { ",", "\t", ";", "|" }
+
+local BOM <const> = "\xEF\xBB\xBF"
+
+--- One field as it is written: quoted when it holds the delimiter, a
+--- quote or a line break, begins with what a reader would drop as a byte
+--- order mark, or is the empty only field of its record.
+local function field_text(field: string, delimiter: string, only: boolean): string
+  if field:find(delimiter, 1, true) or field:find('[\r\n"]') or field:sub(1, 3) == BOM or
+      (only and field == "") then
+    return '"' .. field:gsub('"', '""') .. '"'
+  end
+  return field
+end
+
+--- `records` as text, one per line ended by LF, that `parse` reads back
+--- as they were; nil and why when a record has no fields, which text
+--- cannot hold.
+local function encode(records: {{string}}, delimiter: string): string | nil, string
+  local lines: {string} = {}
+  for number, record in ipairs(records) do
+    if #record == 0 then
+      return nil, "record " .. number .. " has no fields"
+    end
+    local parts: {string} = {}
+    for index, field in ipairs(record) do
+      parts[index] = field_text(field, delimiter, #record == 1)
+    end
+    lines[number] = table.concat(parts, delimiter) .. "\n"
+  end
+  return table.concat(lines), ""
+end
+
+--- The rows [`Csv.table`] reads, or nil and why.
+local function rows_of(text: string, opts?: Csv.Options): {{string:string}} | nil, string
+  local made, why = Csv.table(text, opts)
+  if made == nil then
+    return nil, why
+  end
+  return made.rows, ""
+end
 
 --- Fields that need care, drawn more often than chance would.
 local FIELDS <const> = { "", "a", "1", " ", "a b", ",", "\t", ";", '"', '""', 'a"b', "\n", "\r\n", "\r", "a\nb",
@@ -72,7 +112,7 @@ local function same(a: {{string}}, b: {{string}}): boolean
 end
 
 -- Whatever the fields hold, parse(encode(records)) is the records.
-local function test_what_encode_writes_parse_reads_back(tmp: string)
+local function test_what_is_written_parse_reads_back(tmp: string)
   Fuzz.run({
     name = "csv round trip",
     dir = tmp,
@@ -81,7 +121,7 @@ local function test_what_encode_writes_parse_reads_back(tmp: string)
     shares = { quoted = 0.3, multiline = 0.1 },
     check = function(input: string): boolean, string
       local delimiter, records = records_from(input)
-      local text, why = Csv.encode(records, { delimiter = delimiter })
+      local text, why = encode(records, delimiter)
       if text == nil then return false, "encode refused: " .. why end
       local back, trouble = Csv.parse(text, { delimiter = delimiter })
       if back == nil then return false, "parse refused its own text: " .. trouble end
@@ -121,8 +161,8 @@ local function gen_text(src: Fuzz.Source): string
 end
 
 -- Any bytes are records or a message that names a place, never a raise;
--- what is read writes and reads back the same; `rows` agrees with `parse`.
-local function test_parse_and_rows_are_total_on_any_bytes(tmp: string)
+-- what is read writes and reads back the same; `table` agrees with `parse`.
+local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
   Fuzz.run({
     name = "csv total",
     dir = tmp,
@@ -134,21 +174,21 @@ local function test_parse_and_rows_are_total_on_any_bytes(tmp: string)
       local options: Csv.Options = { delimiter = fields[1] }
       local ok, records, why = pcall(Csv.parse, fields[2], options)
       if not ok then return false, "parse raised: " .. tostring(records) end
-      local rows_ok, rows, rows_why = pcall(Csv.rows, fields[2], options)
-      if not rows_ok then return false, "rows raised: " .. tostring(rows) end
+      local rows_ok, rows, rows_why = pcall(rows_of, fields[2], options)
+      if not rows_ok then return false, "table raised: " .. tostring(rows) end
       if records == nil then
         Fuzz.label("refused")
         if not why:find("line %d+, column %d+") then return false, "no place in: " .. why end
-        if rows ~= nil then return false, "rows read what parse refused" end
+        if rows ~= nil then return false, "table read what parse refused" end
         return true, ""
       end
       Fuzz.label("read")
-      local text = assert(Csv.encode(records, options))
+      local text = assert(encode(records, fields[1]))
       local again = Csv.parse(text, options)
       if again == nil or not same(again, records) then return false, "not a fixed point: " .. text end
       if rows == nil then
         Fuzz.label("ragged")
-        if not rows_why:find("^line %d+, column 1: the record has ") then return false, "rows said: " .. rows_why end
+        if not rows_why:find("^line %d+, column 1: the record has ") then return false, "table said: " .. rows_why end
       elseif (records[1] == nil or #records[1] > 1) and #rows ~= math.max(#records - 1, 0) then
         return false, #rows .. " rows for " .. #records .. " records"
       end
@@ -197,7 +237,7 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       local text = table.concat(out, "\n") .. "\n"
       if kind == 3 then
         Fuzz.label("ragged")
-        local rows, why = Csv.rows("h1,h2\n" .. text)
+        local rows, why = rows_of("h1,h2\n" .. text)
         local expected = "line " .. (where + 1) .. ", column 1: the record has 3 fields, the header 2"
         if rows ~= nil or why ~= expected then return false, "rows said " .. tostring(why) .. ", not " .. expected end
         local records = Csv.parse("h1,h2\n" .. text)
@@ -242,8 +282,8 @@ local function test_a_one_column_file_reads_back_its_rows(tmp: string)
       local values = Fuzz.unpack(input)
       local records: {{string}} = { { "h" } }
       for _, value in ipairs(values) do records[#records + 1] = { value } end
-      local text = assert(Csv.encode(records))
-      local rows, why = Csv.rows(text)
+      local text = assert(encode(records, ","))
+      local rows, why = rows_of(text)
       if rows == nil then return false, "rows refused its own text: " .. why end
       if #rows ~= #values then return false, #rows .. " rows for " .. #values .. " in " .. text end
       for index, value in ipairs(values) do
@@ -283,13 +323,13 @@ local function test_blank_lines_count_by_the_headers_width(tmp: string)
         if line ~= "" then last = index else blanks = blanks + 1 end
       end
       local text = "h\n" .. table.concat(lines, "\n") .. (#lines > 0 and "\n" or "")
-      local rows = Csv.rows(text)
+      local rows = rows_of(text)
       if rows == nil or #rows ~= last then return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. last end
       if last > 0 and blanks - (#lines - last) > 0 then Fuzz.label("interior") end
       if #lines > last then Fuzz.label("trailing") end
       local wide: {string} = {}
       for index, line in ipairs(lines) do wide[index] = line == "" and "" or "x,y" end
-      local two = Csv.rows("h,g\n" .. table.concat(wide, "\n") .. (#lines > 0 and "\n" or ""))
+      local two = rows_of("h,g\n" .. table.concat(wide, "\n") .. (#lines > 0 and "\n" or ""))
       if two == nil or #two ~= #lines - blanks then return false, "two columns did not skip the blanks" end
       Fuzz.label("wide")
       return true, ""

@@ -53,6 +53,11 @@ local record Module
   -- `indent` (`pretty` indents two spaces), `ascii` (no replacement),
   -- `nan_as_null` (write Json.null for the number) and `sparse_as_null`
   -- (put Json.null where the hole is, as decode's `null_value` does).
+  -- TODO: a whole module that left the library (cosmic.dataset, now
+  -- build.dataset) has no entry: `members` names a member of a module
+  -- that still loads, and a `require` of a module that is gone says only
+  -- that it is not found. Key an entry by module name once the loader's
+  -- error can look one up.
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as [`core/surface.c`] does for a
@@ -87,6 +92,7 @@ local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
 local json <const> = 'local Json = require("cosmic.json")'
+local csv <const> = 'local Csv = require("cosmic.csv")'
 local sys <const> = 'local sys = require("cosmic.sys")'
 local module: Module = {
   fields = {
@@ -166,8 +172,8 @@ local module: Module = {
     ["cosmic.json.encode_lines"] = "use Json.encode(value) for each value, joined by " ..
       "\"\\n\" and ended by one (" .. json .. ")",
     ["cosmic.json.parse_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "and `cosmic sql --at` call; a script's path is a list of keys and indexes, " ..
-      "`{ \"users\", 1, \"name\" }` for `$.users[1].name`, which Json.get takes (" .. json .. ")",
+      "and `cosmic sql --at` call; a script indexes the value Json.decode answers " ..
+      "directly, `doc.users[1].name` for `$.users[1].name` (" .. json .. ")",
     ["cosmic.json.parse_pattern"] = "moved to build.json_query, which only `cosmic json` " ..
       "calls; `cosmic json '$..id' file` lists the values a pattern matches",
     ["cosmic.json.spell_pattern"] = "moved to build.json_query, which only `cosmic json` calls",
@@ -183,6 +189,18 @@ local module: Module = {
     ["cosmic.json.child_path"] = "moved to build.json_query, which only `cosmic json` " ..
       "calls; spell a path by concatenating its steps, Json.quote(key) for a key that is no word (" ..
       json .. ")",
+    ["cosmic.json.get"] = "moved to build.json_query, which only `cosmic json` and " ..
+      "`cosmic sql --at` call; a script indexes the table Json.decode_object or " ..
+      "Json.decode_array answers directly, `doc.users[1].name`, and finds a missing " ..
+      "key as nil (" .. json .. ")",
+    ["cosmic.json.entries"] = "moved to build.json_query, which only `cosmic json` and " ..
+      "`cosmic sql --at` call; Json.decode_object answers the outermost object as a " ..
+      "map to loop over with pairs, and `value is {string: any}` narrows a field (" ..
+      json .. ")",
+    ["cosmic.json.items"] = "moved to build.json_query, which only `cosmic json` and " ..
+      "`cosmic sql --at` call; Json.decode_array answers the outermost array as a " ..
+      "list to loop over with ipairs, and `value is {any}` narrows a field (" ..
+      json .. ")",
     ["cosmic.json.Step"] = "moved to build.json_query, with parse_pattern, which only " ..
       "`cosmic json` calls",
     ["cosmic.json.StepKind"] = "moved to build.json_query, with parse_pattern, which only " ..
@@ -193,6 +211,11 @@ local module: Module = {
       "which only `cosmic json` calls",
     ["cosmic.json.DescribeOptions"] = "moved to build.json_query, with describe, which " ..
       "only `cosmic json` calls",
+    ["cosmic.csv.rows"] = "use Csv.table(text, opts) and its rows field, the table per record " ..
+      "that Csv.rows answered (" .. csv .. ")",
+    ["cosmic.csv.encode"] = "write each record's fields joined by the delimiter, a field that " ..
+      "holds the delimiter, a quote or a line break in quotes with each quote doubled, " ..
+      "and a line feed after the record; there is no writer in the library",
     ["cosmic.codec.encoder"] = streamed,
     ["cosmic.codec.decoder"] = streamed,
     ["cosmic.codec.Coder"] = streamed,

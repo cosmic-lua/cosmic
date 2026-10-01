@@ -56,16 +56,17 @@ function Example.array()
   assert(Json.encode(Json.array()) == "[]")
 end
 
---- Explore a document whose shape is not known: `get` reaches one
---- value, and `entries` and `items` narrow an object or an array so
---- `pairs` and `ipairs` need no cast.
+--- Explore a document whose shape is not known: [`decode_object`] checks
+--- the outermost value, and `is` narrows what a key holds before a
+--- loop reads it, so `pairs` and `ipairs` need no cast.
 function Example.explore()
-  local doc = assert(Json.decode('{"rows": [{"id": "a", "n": 1}, {"id": "b"}], "ok": true}'))
-  assert(Json.get(doc, { "rows", 2, "id" }) == "b")
-  local _, why = Json.get(doc, { "rows", 3 })
-  print(why)
-  for _, row in ipairs((assert(Json.items(doc, { "rows" })))) do
-    for key in pairs((assert(Json.entries(row)))) do print(key) end
+  local doc = assert(Json.decode_object('{"rows": [{"id": "a", "n": 1}, {"id": "b"}], "ok": true}'))
+  local rows = doc.rows
+  assert(rows is {any} and Json.is_array(rows))
+  assert(rows[3] == nil)
+  for _, row in ipairs(rows) do
+    assert(row is {string:any})
+    for key in pairs(row) do print(key) end
   end
 end
 
