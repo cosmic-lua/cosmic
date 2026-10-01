@@ -4,15 +4,30 @@
 -- failure.
 
 local record compress
-  record Stream
+  -- The incremental transform [`cosmic.stream`] names Stream.Transform,
+  -- declared here because a declaration may require only declarations,
+  -- and Teal's interface conformance is nominal: the Stream below must
+  -- say `is Transform` where it is declared. cosmic/stream.tl documents
+  -- the contract.
+  interface Transform
+    -- Feeds a chunk; the output that is ready, possibly "".
+    update: function(Transform, chunk: string): string | nil, string
+    -- Ends the input; what is left, or nil and why.
+    finish: function(Transform): string | nil, string
+    -- Present only on a Transform that can hold output back: whether
+    -- `update("")` has more to give.
+    pending: function(Transform): boolean
+  end
+
+  record Stream is Transform
     userdata
 
-    -- Feeds a chunk, returning at most `max` bytes of output (a
+    -- Feeds a chunk, returning at most `max_bytes` bytes of output (a
     -- decoder's default 1 MiB; an encoder returns everything). nil,
     -- error on corrupt data; the stream is finished after an error, and
-    -- after a raise inside the call (out of memory). Raises when `max`
-    -- is not positive, and on a finished stream.
-    update: function(Stream, chunk: string, max?: integer): string | nil, string
+    -- after a raise inside the call (out of memory). Raises when
+    -- `max_bytes` is not positive, and on a finished stream.
+    update: function(Stream, chunk: string, max_bytes?: integer): string | nil, string
     -- No more input: returns the remaining output, which for a decoder
     -- is only what follows its drained output (in practice ""). Raises
     -- while [`pending()`] is true, and on a finished stream. For a
@@ -35,8 +50,8 @@ local record compress
   -- deflater also on a level outside 0 to 10.
   inflater: function(format: string): Stream | nil, string
   deflater: function(format: string, level?: integer): Stream | nil, string
-  -- Raises when `memlimit` is not positive.
-  xz_decoder: function(memlimit?: integer): Stream | nil, string
+  -- Raises when `max_memory` is not positive.
+  xz_decoder: function(max_memory?: integer): Stream | nil, string
   bz2_decoder: function(): Stream | nil, string
   -- Raises when `crc` is outside 0 to 0xffffffff.
   crc32: function(data: string, crc?: integer): integer
