@@ -273,14 +273,16 @@ exit 0
 
 [`Child.start`] hands back a running child instead, and [`Child.wait_any`]
 waits for the first of several to finish. When its timeout passes first it
-answers `nil` and `""`: nothing finished, and nothing failed. A reason other
-than `""` is a failure to report, never a message to read for its meaning.
+answers `nil` and [`Poll.TIMEOUT`]: nothing finished, and nothing failed. Any
+other reason beside a `nil` is a failure to report, never a message to read
+for its meaning.
 The child's own `wait` then waits for it to finish, and answers how it
 ended.
 
 ```teal
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
+local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
@@ -294,7 +296,7 @@ local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local sleeper <close> = assert(Child.start(argv, { env = env, fds = relaunch.fds }))
 local done, trouble = Child.wait_any({ sleeper }, Time.ms(10))
-if done == nil and trouble ~= "" then error(trouble) end
+if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
 print(done == nil and "still running" or "finished")
 local ended = assert(sleeper:wait())
 print("exit " .. tostring(ended.code))
@@ -344,4 +346,5 @@ for a variable that holds floats. A function declared `: number` may still
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
+[`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl

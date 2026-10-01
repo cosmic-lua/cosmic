@@ -56,6 +56,8 @@
 ---    deadline passed), a count or a field the caller reads, or a
 ---    structured record standing where the value would. A reason
 ---    reached any other way (`select(2, f())`) drops the slot, rule 1.
+---    A reason may also be compared with [`Poll.TIMEOUT`] and
+---    [`Poll.CANCELLED`], the words every wait answers.
 --- 7. No escape hatch in the type layer, doc/design.md's fourth
 ---    principle: a cast (`e as T`) tells the checker what it could not
 ---    prove, so none is written but in a function `casts`
@@ -868,9 +870,15 @@ local function unwrapped(n: Node | nil): Node | nil
   return nil
 end
 
---- Whether `n` is what a reason may be compared with: `""` or `nil`.
+--- Whether `n` is what a reason may be compared with: `""` or `nil`, or
+--- one of the two words every wait answers, [`Poll.TIMEOUT`] and
+--- [`Poll.CANCELLED`], which a caller tells a deadline or a cancel from
+--- a failure by.
 local function neutral(n: Node): boolean
-  return n.kind == "nil" or (n.kind == "string" and n.conststr == "")
+  if n.kind == "nil" or (n.kind == "string" and n.conststr == "") then return true end
+  local how, member = n.op, n.e2
+  return n.kind == "op" and how ~= nil and how.op == "." and is_name(n.e1, "Poll")
+    and member ~= nil and (member.tk == "TIMEOUT" or member.tk == "CANCELLED")
 end
 
 local comparing: {string: boolean} = {

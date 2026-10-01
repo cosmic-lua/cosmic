@@ -53,9 +53,9 @@ local function test_a_write_waits_while_the_peer_does_not_read(tmp: string)
   local client, accepted = p.client, p.accepted
   client.timeout_ns = Time.ms(50)
   local ok, why = client:write(string.rep("x", 16 * 1024 * 1024))
-  assert(not ok and why == "timed out", why)
+  assert(not ok and why == Poll.TIMEOUT, why)
   local again, sticky = client:write("more")
-  assert(not again and sticky == "timed out", sticky)
+  assert(not again and sticky == Poll.TIMEOUT, sticky)
   local got = assert(accepted:read(10))
   assert(got == string.rep("x", #got) and #got <= 10)
 end
@@ -69,7 +69,7 @@ local function test_a_read_that_times_out_leaves_the_connection_usable(tmp: stri
   local accepted <close> = assert(server:accept())
   assert(accepted.timeout_ns == Time.ms(20))
   local data, why = accepted:read()
-  assert(data == nil and why == "timed out", why)
+  assert(data == nil and why == Poll.TIMEOUT, why)
   assert(accepted:write("still here"))
   assert(assert(client:read()) == "still here")
   assert(client:write("late"))
@@ -99,26 +99,26 @@ local function test_a_timeout_waits_the_nanoseconds_it_is_given(tmp: string)
   end
   local began = Time.monotonic_ns()
   local data, why = p.accepted:read()
-  assert(data == nil and why == "timed out", why)
+  assert(data == nil and why == Poll.TIMEOUT, why)
   bounded(Time.monotonic_ns() - began, "a read")
   began = Time.monotonic_ns()
   local conn, accept_why = p.server:accept(Time.ms(100))
-  assert(conn == nil and accept_why == "timed out", accept_why)
+  assert(conn == nil and accept_why == Poll.TIMEOUT, accept_why)
   bounded(Time.monotonic_ns() - began, "an accept")
   Poll.run(function()
     local at = Time.monotonic_ns()
     local got, got_why = p.accepted:read()
-    assert(got == nil and got_why == "timed out", got_why)
+    assert(got == nil and got_why == Poll.TIMEOUT, got_why)
     bounded(Time.monotonic_ns() - at, "a read in a run")
     at = Time.monotonic_ns()
     local taken, taken_why = p.server:accept(Time.ms(100))
-    assert(taken == nil and taken_why == "timed out", taken_why)
+    assert(taken == nil and taken_why == Poll.TIMEOUT, taken_why)
     bounded(Time.monotonic_ns() - at, "an accept in a run")
   end)
   -- A nanosecond rounds up to a wait of a millisecond, which ends.
   p.accepted.timeout_ns = 1
   local brief, brief_why = p.accepted:read()
-  assert(brief == nil and brief_why == "timed out", brief_why)
+  assert(brief == nil and brief_why == Poll.TIMEOUT, brief_why)
 end
 
 --- A Writer that a wrapper closes ends only what is sent: the answer is
@@ -187,10 +187,10 @@ end
 local function test_accept_with_no_one_connecting_times_out(tmp: string)
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Time.seconds(60) }))
   local conn, why = server:accept(Time.ms(20))
-  assert(conn == nil and why == "timed out", why)
+  assert(conn == nil and why == Poll.TIMEOUT, why)
   server.timeout_ns = 0
   conn, why = server:accept()
-  assert(conn == nil and why == "timed out", why)
+  assert(conn == nil and why == Poll.TIMEOUT, why)
 end
 
 --- A signal a guard catches ends a wait at once, as it ends
@@ -759,16 +759,16 @@ local function test_in_a_run_a_write_waits_while_another_task_drains(tmp: string
   assert(got == size, "got " .. got .. " of " .. size .. " bytes")
 end
 
---- In a task, a wait past its timeout fails "timed out", as it does out
+--- In a task, a wait past its timeout fails with Poll.TIMEOUT, as it does out
 --- of one.
 local function test_in_a_run_waits_time_out_as_they_do_out_of_one(tmp: string)
   local p <close> = pair(tmp)
   Poll.run(function()
     local conn, why = p.server:accept(Time.ms(10))
-    assert(conn == nil and why == "timed out", why)
+    assert(conn == nil and why == Poll.TIMEOUT, why)
     p.accepted.timeout_ns = Time.ms(10)
     local data, read_why = p.accepted:read()
-    assert(data == nil and read_why == "timed out", read_why)
+    assert(data == nil and read_why == Poll.TIMEOUT, read_why)
   end)
 end
 

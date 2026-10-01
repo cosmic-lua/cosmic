@@ -384,6 +384,16 @@ local function test_a_reason_compared_with_anything_but_empty_is_flagged()
   allows(bound .. "use(v, TIMEOUT, err == nil, nil ~= err, err ~= '')")
 end
 
+--- The two words every wait answers are what a reason may be compared
+--- with: a caller tells a deadline or a cancel from a failure by them.
+local function test_a_reason_compared_with_the_shared_wait_words_is_allowed()
+  local read = "a failure's reason is read for what it says"
+  local bound = "local Poll = { TIMEOUT = 'timed out', CANCELLED = 'cancelled', OTHER = 'x' }\n" ..
+    "local v, err = get()\n"
+  allows(bound .. "use(v, err == Poll.TIMEOUT, Poll.CANCELLED ~= err)")
+  flags(bound .. "use(v, err == Poll.OTHER)", read)
+end
+
 --- What only wraps a name reads the name.
 local function test_a_reason_read_through_a_wrapper_is_flagged()
   local read = "a failure's reason is read for what it says"

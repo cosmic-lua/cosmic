@@ -33,7 +33,7 @@ these were taken up front and are not reopened per PR.
   `cosmic docs <word>` a page. replacing them means teaching the docs verb to
   index another source; the gain is cosmetic and the change is the tool's,
   not the library's. not in this plan.
-- **the two redesigns are in.** `Poll.wait` with [`Stream.from_fd`] over it, and
+- **the two redesigns are in.** [`Poll.wait`] with [`Stream.from_fd`] over it, and
   a shape derived from a Teal record, are the last PRs. each may end by
   landing a smaller form than this document sketches, with the rest named in
   the roadmap, but each is attempted.
@@ -232,12 +232,21 @@ out"` becomes it, [`Poll.ready`] on expiry answers `nil, Poll.TIMEOUT` as
 name, level)` is exported and replaces the four validators (poll.tl:370,
 net.tl:346, :830, child.tl inline at :993, :1074, :1302, :1551). the six
 "in a task or not" branches (net.tl:373, :598, :630; child.tl:581, :1625,
-:997) become calls to `Poll.wait`. [`Poll.delay`] is the sleep in child.tl:590
-and :1632.
+:997) become calls to [`Poll.wait`]. [`Poll.delay`] is the sleep in child.tl:590
+and :1632. what landed: [`Poll.wait`] falls through outside a task (and where
+a task cannot yield), but not in a killed task's `<close>` handler, where every
+wait still raises (`poll_test.tl` holds it); [`Poll.delay`] and
+[`Poll.ready`] stay task-only for the same reason, so child's three branches
+and net's three (`waited`, `connection`, `locked`, whose waits outside a task
+end at a caught [`Child.guard`] signal, which only the core's socket waits and
+[`sys.flock`] see) remain, each with a `TODO:` naming what it waits on.
+the [`Child.wait_any`] exemption in [`build/contracts.tl`] stays too: it is for
+the handle answered beside a group's lingering-member trouble, not for the
+timeout.
 
 **PR 11 `stream: a descriptor reader and writer that wait`** (after PR
 10). `Stream.from_fd(fd, opts?)` and `Stream.to_fd(fd, opts?)` take `{
-timeout_ns, nonblocking }` and wait through `Poll.wait`; a read or write that
+timeout_ns, nonblocking }` and wait through [`Poll.wait`]; a read or write that
 expires fails with [`Poll.TIMEOUT`], and a write writes whole, so the four
 partial-write loops (fs.tl:71, net.tl:431, child.tl:644, :898) become one.
 [`Net.Conn.read`]/`write` and child's `pipe_reader`/`feed_writer` are that
@@ -382,6 +391,7 @@ description.
 [`build/sql.tl`]: ../../build/sql.tl
 [`build/test.tl`]: ../../build/test.tl
 [`Cell.kind`]: ../../cosmic/sqlite.tl
+[`Child.guard`]: ../../cosmic/child.tl
 [`Child.Options.stdin`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`Civil.nanosecond`]: ../../cosmic/time.tl
@@ -448,6 +458,7 @@ description.
 [`Poll.ready`]: ../../cosmic/poll.tl
 [`Poll.run`]: ../../cosmic/poll.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
+[`Poll.wait`]: ../../cosmic/poll.tl
 [`Proc.arguments`]: ../../cosmic/proc.tl
 [`Proc.relaunch`]: ../../cosmic/proc.tl
 [`ServeSpec.workers`]: ../../cosmic/net.tl
@@ -471,6 +482,7 @@ description.
 [`Stream.transform_writer`]: ../../cosmic/stream.tl
 [`Stream.Transform`]: ../../cosmic/stream.tl
 [`String.trim`]: ../../cosmic/string.tl
+[`sys.flock`]: ../../core/syscalls.h
 [`sys.poll`]: ../../core/syscalls.h
 [`Tar.Writer`]: ../../cosmic/tar.tl
 [`Test.any_host_refusal`]: ../../cosmic/test.tl

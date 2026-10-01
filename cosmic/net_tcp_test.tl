@@ -75,7 +75,7 @@ local function test_a_connection_to_a_full_backlog_times_out_or_is_interrupted()
     held[#held + 1] = conn
   end
   local at = "127.0.0.1:" .. server.address.port .. ": "
-  assert(why == at .. "timed out", why)
+  assert(why == at .. Poll.TIMEOUT, why)
   local guard = assert(Child.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local conn, interrupted = Net.connect(server.address)
@@ -124,7 +124,7 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
     assert(filling:join())
   end)
   for _, conn in ipairs(held) do assert(conn:close()) end
-  assert(why == "127.0.0.1:" .. server.address.port .. ": timed out", why)
+  assert(why == "127.0.0.1:" .. server.address.port .. ": " .. Poll.TIMEOUT, why)
   assert(ticks_at_end > 0, "no other task ran while a connection waited")
   local port = server.address.port
   assert(server:close())

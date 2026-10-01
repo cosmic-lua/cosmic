@@ -555,7 +555,7 @@ local function test_wait_any_returns_the_first_to_finish()
   local r = assert(fast:wait())
   assert(r.ok and r.stdout == "quick")
   local none, trouble = Child.wait_any({ slow }, 0)
-  assert(none == nil and trouble == "")
+  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
   assert(slow:close())
 end
 
@@ -573,14 +573,14 @@ local function test_a_wait_refuses_a_timeout_out_of_range()
   local h <close> = assert(Child.start(lua(sleep(5000))))
   for _, bad in ipairs({ -1, math.mininteger, Poll.MOST_NS + 1 }) do
     local message = raised(function() local _, _ = h:wait(bad) end)
-    assert(message:find("timeout_ns is out of range", 1, true), message)
+    assert(message:find("timeout_ns must be nil or an integer from 0 to", 1, true), message)
   end
   -- The handle is untouched by the refusals: a zero timeout ends it.
   local r = assert(h:wait(0))
   assert(r.timed_out)
   -- A settled handle refuses one too, rather than answering its Result.
   local message = raised(function() local _, _ = h:wait(-1) end)
-  assert(message:find("timeout_ns is out of range", 1, true), message)
+  assert(message:find("timeout_ns must be nil or an integer from 0 to", 1, true), message)
   local quick <close> = assert(Child.start(lua("return 3")))
   r = assert(quick:wait(Time.seconds(10)))
   assert(r.code == 3 and not r.timed_out)
@@ -593,10 +593,10 @@ local function test_wait_any_refuses_a_timeout_out_of_range()
   local slow <close> = assert(Child.start(lua(sleep(5000))))
   for _, bad in ipairs({ -1, math.mininteger, Poll.MOST_NS + 1 }) do
     local message = raised(function() local _, _ = Child.wait_any({ slow }, bad) end)
-    assert(message:find("timeout_ns is out of range", 1, true), message)
+    assert(message:find("timeout_ns must be nil or an integer from 0 to", 1, true), message)
   end
   local none, trouble = Child.wait_any({ slow }, 0)
-  assert(none == nil and trouble == "", trouble)
+  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
   local quick <close> = assert(Child.start(lua("")))
   local first = assert(Child.wait_any({ slow, quick }))
   assert(first == quick)
@@ -639,9 +639,9 @@ local function test_a_timeout_ends_a_child_after_the_nanoseconds_it_says()
   began = Time.monotonic_ns()
   local none, trouble = Child.wait_any({ slow }, Time.ms(100))
   took = Time.monotonic_ns() - began
-  assert(none == nil and trouble == "", trouble)
+  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
   assert(took >= Time.ms(90) and took < Time.seconds(20), tostring(took // Time.ms(1)) .. " ms")
   -- A nanosecond is a wait that ends, as zero is a look.
   none, trouble = Child.wait_any({ slow }, 1)
-  assert(none == nil and trouble == "", trouble)
+  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
 end

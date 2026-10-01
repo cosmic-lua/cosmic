@@ -16,6 +16,7 @@ local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
@@ -233,7 +234,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
         if result ~= nil and result.ok and result.stdout ~= nil then
           out[file_of[handle]] = todos.parse_blame(result.stdout)
         end
-      elseif (done == nil and trouble ~= "") or now >= deadline_of[handle] then
+      elseif (done == nil and trouble ~= Poll.TIMEOUT) or now >= deadline_of[handle] then
         -- Supervision failed, or git ran past its time: the file's
         -- TODOs are listed unblamed.
         local _, _ = handle:close()

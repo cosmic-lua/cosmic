@@ -533,6 +533,17 @@ end
 --- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(handles: {Handle}, timeout_ns: integer, writable?: integer,
     cancellable?: boolean, signalled?: boolean): boolean, string
+  -- TODO: wait through Poll.delay and Poll.ready alone, here and in
+  -- Child.end_strays's sleep, once it is decided how they answer where
+  -- no task can wait. (a) They go on, holding the thread, outside a run
+  -- and in the `<close>` handler of a task being killed, as Poll.wait
+  -- does outside a run: this module's cleanup, which must wait there,
+  -- loses its thread-held branches, and poll_test's
+  -- test_waiting_outside_a_task_raises and
+  -- test_kill_raises_what_a_close_handler_raises and net_serve_test's
+  -- test_a_killed_protocols_close_cannot_wait, which hold those waits
+  -- to raising, break with it. (b) They stay task-only, and the
+  -- branches here stay.
   local fds: {integer} = {}
   local events: {integer} = {}
   local owners: {Handle} = {}
@@ -593,12 +604,14 @@ local function pump(handles: {Handle}, timeout_ns: integer, writable?: integer,
   end
   local revents: {integer}
   if in_run then
-    local answers, cancelled: {integer}, string
+    local answers, why: {integer}, string
     local function look()
-      answers, cancelled = Poll.ready(fds, events, timeout_ns >= 0 and timeout_ns or nil)
+      answers, why = Poll.ready(fds, events, timeout_ns >= 0 and timeout_ns or nil)
     end
     if cancellable then look() else Poll.shielded(look) end
-    if answers == nil then return false, cancelled end
+    -- A wait that ran out of time found nothing: no stream moved.
+    if answers == nil and why == Poll.TIMEOUT then return false, "" end
+    if answers == nil then return false, why end
     revents = answers
   else
     -- Rounded up: a wait with time left polls for at least a millisecond.
@@ -992,9 +1005,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   end
 
   function h:wait(timeout_ns?: integer): Result | nil, string
-    if timeout_ns ~= nil and (timeout_ns < 0 or timeout_ns > Poll.MOST_NS) then
-      error("timeout_ns is out of range", 2)
-    end
+    Poll.checked_ns(timeout_ns, "timeout_ns", 2)
     if self._result then return self._result, "" end
     if timeout_ns == nil and active == nil and not self._streams and
         not self._input_fd and not through_run() then
@@ -1073,10 +1084,7 @@ local function make_guard(): Guard
 
   function g:wait(timeout_ns?: integer): integer, string
     if not Poll.in_task() then error("g:wait waits in a task of Poll.run", 2) end
-    if timeout_ns ~= nil and (math.type(timeout_ns) ~= "integer" or timeout_ns < 0 or
-        timeout_ns > Poll.MOST_NS) then
-      error("timeout_ns must be an integer from 0 to " .. Poll.MOST_NS, 2)
-    end
+    Poll.checked_ns(timeout_ns, "timeout_ns", 2)
     local deadline: integer
     if timeout_ns ~= nil then deadline = now() + timeout_ns end
     while true do
@@ -1301,9 +1309,7 @@ local function validate(argv: {string}, opts: Options)
   if opts.capture_limit ~= nil and (opts.capture_limit < 1 or opts.capture_limit > INT_MAX) then
     error("capture_limit is out of range", 3)
   end
-  if opts.timeout_ns ~= nil and (opts.timeout_ns < 0 or opts.timeout_ns > Poll.MOST_NS) then
-    error("timeout_ns is out of range", 3)
-  end
+  Poll.checked_ns(opts.timeout_ns, "timeout_ns", 3)
   if opts.sandbox ~= nil and opts.sandbox.unveil ~= nil then
     local unveil = opts.sandbox.unveil
     for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do
@@ -1561,11 +1567,11 @@ end
 
 --- Waits for the first of several handles to finish, servicing every
 --- one's streams meanwhile, and returns it settled: its `wait()` answers
---- at once. Nil and "" when `timeout_ns` passes first -- no handle
---- finished, and nothing failed -- and the handles are left running:
---- a timeout is `done == nil and trouble == ""`, so test `done` itself.
---- `assert` on this answer raises at a timeout, with an empty message.
---- In a task of [`Poll.run`] that is cancelled, it answers nil and
+--- at once. Nil and [`Poll.TIMEOUT`] when `timeout_ns` passes first --
+--- no handle finished, and nothing failed -- and the handles are left
+--- running: a timeout is `done == nil and trouble == Poll.TIMEOUT`, and
+--- any other trouble beside a nil `done` is a failure. In a task of
+--- [`Poll.run`] that is cancelled, it answers nil and
 --- [`Poll.CANCELLED`], the handles left running too. A `timeout_ns`
 --- below 0 or past [`Poll.MOST_NS`] raises.
 function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle | nil, string
@@ -1574,9 +1580,7 @@ function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle | nil, 
   -- build/test.tl reads the trouble beside the handle's result today, and
   -- build.contracts exempts this pair from the error-slot rules until then.
   if #handles == 0 then error("no handles to wait for", 2) end
-  if timeout_ns ~= nil and (timeout_ns < 0 or timeout_ns > Poll.MOST_NS) then
-    error("timeout_ns is out of range", 2)
-  end
+  Poll.checked_ns(timeout_ns, "timeout_ns", 2)
   local deadline = timeout_ns ~= nil and now() + timeout_ns or nil
   while true do
     for _, h in ipairs(handles) do
@@ -1589,7 +1593,7 @@ function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle | nil, 
       if trouble ~= "" then return nil, trouble end
     end
     local left = slice(deadline, handles)
-    if left == nil then return nil, "" end
+    if left == nil then return nil, Poll.TIMEOUT end
     local _, cancelled = pump(handles, left, nil, true)
     if cancelled ~= "" then return nil, cancelled end
   end

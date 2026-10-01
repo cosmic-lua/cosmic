@@ -35,6 +35,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local gen_syscalls = require("build.gen_syscalls")
 local caches = require("build.caches")
@@ -317,7 +318,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       if #running > 0 then
         local done, trouble = Child.wait_any(running, Time.seconds(120))
         if done == nil then
-          if trouble == "" then trouble = "clang gave no answer in 120 seconds" end
+          if trouble == Poll.TIMEOUT then trouble = "clang gave no answer in 120 seconds" end
           for _, handle in ipairs(running) do
             local _, _ = handle:close()
             outcomes[which[handle]] = { file = files[which[handle]], trouble = trouble }
