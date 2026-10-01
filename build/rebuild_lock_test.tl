@@ -1,5 +1,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Poll = require("cosmic.poll")
+local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local rebuild_lock = require("build.rebuild_lock")
 
@@ -22,7 +24,7 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(sys.flock(other, "exclusive"))
   local taken, trouble = rebuild_lock.take(root, 0)
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
-  taken, trouble = rebuild_lock.take(root, 50)
+  taken, trouble = rebuild_lock.take(root, Time.ms(50))
   assert(taken == "busy", tostring(taken) .. " " .. trouble)
   assert(sys.close(other))
   taken, trouble = rebuild_lock.take(root, 0)
@@ -55,8 +57,8 @@ end
 --- and one past a C int.
 local function test_a_wait_out_of_range_raises(tmp: string)
   local root = tree(tmp)
-  for _, wait_ms in ipairs({ -1, 0x80000000 }) do
-    local ok, err = pcall(rebuild_lock.take, root, wait_ms)
+  for _, wait_ns in ipairs({ -1, Poll.MOST_NS + 1 }) do
+    local ok, err = pcall(rebuild_lock.take, root, wait_ns)
     assert(not ok and tostring(err):find("rebuild_lock.take: the wait is out of range", 1, true),
       tostring(err))
   end

@@ -37,8 +37,8 @@ if not db:exec("BEGIN IMMEDIATE") then
   return
 end
 print("held")
-local hold_ms = %d
-if hold_ms < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ms * 1000000) end
+local hold_ns = %d
+if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ns) end
 ]]
 
 --- The same, as this tool does.
@@ -48,8 +48,8 @@ local Time = require("cosmic.time")
 local taken = require("build.rebuild_lock").take(%q, 0)
 print(taken)
 if taken ~= "held" then return end
-local hold_ms = %d
-if hold_ms < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ms * 1000000) end
+local hold_ns = %d
+if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ns) end
 ]]
 
 --- Asks once for the flock of the lock file of the tree at `%q`, as a
@@ -61,10 +61,10 @@ print(sys.flock(fd, "exclusive") and "taken" or "refused")
 ]]
 
 --- A process of this program running `script` against the tree at
---- `root`, holding what it takes for `hold_ms` (until its standard input
+--- `root`, holding what it takes for `hold_ns` (until its standard input
 --- ends, by default), and the first line it printed.
-local function start(script: string, root: string, hold_ms?: integer): Child.Handle, string
-  local started = this_program.program({ "-e", script:format(root, hold_ms or -1) },
+local function start(script: string, root: string, hold_ns?: integer): Child.Handle, string
+  local started = this_program.program({ "-e", script:format(root, hold_ns or -1) },
     { stdin = "pipe", stdout = "stream" })
   local child = assert(Child.start(started.argv, started.options))
   local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read()
@@ -75,7 +75,7 @@ end
 --- Lets `child` go and waits for it to exit.
 local function finish(child: Child.Handle)
   assert(child:close_stdin())
-  local result = assert(child:wait(30000))
+  local result = assert(child:wait(Time.seconds(30)))
   assert(result.ok, result.stderr)
 end
 
@@ -140,25 +140,25 @@ end
 local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
   local root = tree(tmp)
   for _, script in ipairs({ old_tool, new_tool }) do
-    local holder, said = start(script, root, 1000)
+    local holder, said = start(script, root, Time.seconds(1))
     assert(said == "held", said)
     local started_ns = Time.monotonic_ns()
-    local taken, trouble = rebuild_lock.take(root, 30000)
-    local waited_ms = (Time.monotonic_ns() - started_ns) // 1000000
+    local taken, trouble = rebuild_lock.take(root, Time.seconds(30))
+    local waited_ns = Time.monotonic_ns() - started_ns
     rebuild_lock.release()
     finish(holder)
     assert(taken == "held", tostring(taken) .. " " .. trouble)
-    assert(waited_ms >= 100, "took a held lock after " .. tostring(waited_ms) .. " ms")
+    assert(waited_ns >= Time.ms(100), "took a held lock after " .. tostring(waited_ns // Time.ms(1)) .. " ms")
   end
 end
 
 --- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
 --- and answers true once it has.
 local function await(what: string, holds: function(): boolean): boolean
-  local deadline = Time.monotonic_ns() + 20 * 1000000000
+  local deadline = Time.monotonic_ns() + Time.seconds(20)
   while not holds() do
     assert(Time.monotonic_ns() < deadline, "gave up waiting for " .. what)
-    assert(sys.nanosleep(20 * 1000000))
+    assert(sys.nanosleep(Time.ms(20)))
   end
   return true
 end
@@ -192,7 +192,7 @@ local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string
   local root = tree(tmp)
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local write = start_handed(root, "write", tmp .. "/write.out")
-  local written, write_trouble = write:wait(20000)
+  local written, write_trouble = write:wait(Time.seconds(20))
   local test_run = start_handed(root, "test", tmp .. "/test.out")
   local ok, failure = pcall(await, "the test run to wait", function(): boolean
     local text = Fs.read(tmp .. "/test.out") or ""
@@ -200,7 +200,7 @@ local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string
   end)
   local running, _ = test_run:try_wait()
   rebuild_lock.release()
-  local ran = assert(test_run:wait(20000))
+  local ran = assert(test_run:wait(Time.seconds(20)))
   local write_text = tostring((Fs.read(tmp .. "/write.out")))
   local test_text = tostring((Fs.read(tmp .. "/test.out")))
   assert(written ~= nil and written.ok, tostring(write_trouble) .. "\n" .. write_text)

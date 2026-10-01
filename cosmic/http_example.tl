@@ -1,7 +1,7 @@
 --- Worked examples for [`cosmic.http`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table. A test has no network,
---- so each one answers from [`Options.script`], a canned reply; a real
+--- so each one answers from [`Http.Options.script`], a canned reply; a real
 --- call leaves `script` out.
 
 local Compress = require("cosmic.compress")

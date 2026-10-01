@@ -80,7 +80,7 @@ local function build(root: string, env: {string:string}, fails?: boolean): strin
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ms = 60000,
+    process_group = true, timeout_ns = Time.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -310,7 +310,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
     handles[index] = assert(Child.start(started.argv, started.options))
   end
   for index, handle in ipairs(handles) do
-    local result, trouble = handle:wait(60000)
+    local result, trouble = handle:wait(Time.seconds(60))
     assert(Fs.close(outputs[index]))
     local text = assert(Fs.read(tmp .. "/" .. (index == 1 and "one" or "two") .. ".out"))
     assert(result ~= nil and result.ok, tostring(trouble) .. text)
@@ -357,7 +357,7 @@ return 0
   local waited = 0
   while Fs.exists(held) ~= true do
     assert(waited < 10000, "the holder never took the lock")
-    assert(Time.sleep_ns(10 * 1000000))
+    assert(Time.sleep_ns(Time.ms(10)))
     waited = waited + 10
   end
   local cache, trouble = shared_compiles.open(path)
@@ -365,6 +365,6 @@ return 0
   local rows = assert(Sqlite.text_rows(cache.db, "PRAGMA journal_mode"))
   assert(rows[1][1] == "wal", rows[1][1])
   shared_compiles.close(cache)
-  local result, wait_trouble = handle:wait(10000)
+  local result, wait_trouble = handle:wait(Time.seconds(10))
   assert(result ~= nil and result.ok, tostring(wait_trouble))
 end

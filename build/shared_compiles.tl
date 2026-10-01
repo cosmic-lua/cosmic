@@ -108,7 +108,7 @@ local variable <const> = "COSMIC_BUILD_CACHE"
 local kept_bytes <const> = 256 * 1024 * 1024
 
 --- How long a row no build uses is kept: thirty days.
-local kept_ns <const> = 30 * 24 * 3600 * 1000000000
+local kept_ns <const> = Time.hours(30 * 24)
 
 --- The table rows are in, named by the format's version, which any
 --- change to the table's shape or to what a row holds bumps. A later

@@ -7,6 +7,7 @@
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local ZigFetch = require("build.zig_fetch")
 
 local function test_a_failed_install_leaves_no_scratch_directory(tmp: string)
@@ -44,22 +45,22 @@ end
 --- A stand-in for Http.download that answers `replies[url]` in turn --
 --- "ok" writes the file -- and records each call, the options it was
 --- given (in `seen`, when passed) and each pause. Its clock moves only
---- by the pauses and by `per_call_ms` a download.
+--- by the pauses and by `per_call_ns` a download.
 local function scripted(replies: {string:{string}}, calls: {string},
-    sleeps: {integer}, per_call_ms?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
+    sleeps: {integer}, per_call_ns?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
   local served: {string:integer} = {}
   local clock = 0
   return {
     download = function(url: string, path: string, opts: Http.Options): boolean, string
       assert(opts.sha256 == "abc")
-      assert(opts.connect_timeout_ms > 0 and opts.low_speed_bytes >= 1024 and
-        opts.low_speed_seconds > 0, "an attempt has no stall guard")
+      assert(opts.connect_timeout_ns > 0 and opts.low_speed_bytes >= 1024 and
+        opts.low_speed_ns > 0, "an attempt has no stall guard")
       assert(Fs.exists(path) == false, "an attempt started over an earlier file")
       calls[#calls + 1] = url
       if seen ~= nil then
         seen[#seen + 1] = opts
       end
-      clock = clock + (per_call_ms or 0)
+      clock = clock + (per_call_ns or 0)
       served[url] = (served[url] or 0) + 1
       local reply = replies[url][served[url]] or replies[url][#replies[url]]
       if reply == "ok" then
@@ -68,9 +69,9 @@ local function scripted(replies: {string:{string}}, calls: {string},
       end
       return false, reply
     end,
-    sleep = function(ms: integer)
-      sleeps[#sleeps + 1] = ms
-      clock = clock + ms
+    sleep = function(ns: integer)
+      sleeps[#sleeps + 1] = ns
+      clock = clock + ns
     end,
     now = function(): integer
       return clock
@@ -150,19 +151,24 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tm
     scripted({
       ["http://mirror"] = { "timed out" },
       ["http://fallback"] = { "stalled" },
-    }, calls, sleeps, 5 * 60 * 1000, seen))
+    }, calls, sleeps, Time.minutes(5), seen))
   assert(not ok)
   assert(table.concat(calls, " ") ==
     "http://mirror http://fallback http://mirror http://fallback http://fallback",
     table.concat(calls, " "))
   -- The first mirror attempt gets the whole 3 minutes; the second, 10
   -- minutes and a 2 s pause in, the 118 s left.
-  assert(seen[1].timeout_ms == 3 * 60 * 1000, tostring(seen[1].timeout_ms))
-  assert(seen[3].timeout_ms == 118 * 1000, tostring(seen[3].timeout_ms))
+  assert(seen[1].timeout_ns == Time.minutes(3), tostring(seen[1].timeout_ns))
+  assert(seen[3].timeout_ns == Time.seconds(118), tostring(seen[3].timeout_ns))
+  -- The pinned release reads the same limits in milliseconds and seconds.
+  local pinned = seen[3] as {string:integer}
+  assert(pinned.timeout_ms == 118 * 1000 and pinned.connect_timeout_ms == 10 * 1000, tostring(pinned.timeout_ms))
+  assert(pinned.low_speed_seconds == 20, tostring(pinned.low_speed_seconds))
   assert(seen[1].low_speed_bytes == 64 * 1024)
   for _, i in ipairs({ 2, 4, 5 }) do
-    assert(seen[i].timeout_ms == nil, "the fallback has a ceiling")
-    assert(seen[i].low_speed_bytes == 1024 and seen[i].low_speed_seconds == 60)
+    assert(seen[i].timeout_ns == nil and (seen[i] as {string:integer}).timeout_ms == nil,
+      "the fallback has a ceiling")
+    assert(seen[i].low_speed_bytes == 1024 and seen[i].low_speed_ns == Time.seconds(60))
   end
   assert(trouble:find("mirrors out of time; every source failed after 5 attempts", 1, true) ~= nil,
     trouble)

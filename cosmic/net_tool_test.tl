@@ -12,6 +12,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
+local Time = require("cosmic.time")
 
 --- The program itself, which the test starts, running a file `--standalone`
 --- (`standalone`).
@@ -41,7 +42,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ "--standalone", script, tmp },
-    { stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.signal ~= sys.SIGPIPE, "the write ended the process with SIGPIPE")
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
@@ -57,12 +58,12 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard(tmp: string
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
     serve = function(conn: Net.Conn)
-      local started = this_program.program({ "-e", "return 6" }, { timeout_ms = 30000 })
+      local started = this_program.program({ "-e", "return 6" }, { timeout_ns = Time.seconds(30) })
       local r, why = Child.run(started.argv, started.options)
       assert(conn:write((r ~= nil and tostring(r.code) or why) .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 30000 }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Time.seconds(30) }))
       answer = assert(Stream.lines(conn):read())
       server:stop()
     end,
@@ -74,7 +75,7 @@ end
 --- process of this program's own, and answers how it ended.
 local function run_script(tmp: string, script: string): Child.Result
   local started = this_program.program({ "--standalone", script, tmp },
-    { stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   return (assert(Child.run(started.argv, started.options)))
 end
 
@@ -114,6 +115,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 return function(argv: {string}): integer
   local started = false
   assert(Net.serve{
@@ -121,13 +123,13 @@ return function(argv: {string}): integer
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
       started = true
-      assert(Poll.delay(100))
+      assert(Poll.delay(Time.ms(100)))
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 5000 }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Time.seconds(5) }))
       assert(conn:write("slow\n"))
-      while not started do assert(Poll.delay(1)) end
+      while not started do assert(Poll.delay(Time.ms(1))) end
       server:stop()
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
       local answer = assert(Stream.lines(conn):read())

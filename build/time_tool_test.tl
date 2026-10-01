@@ -7,6 +7,7 @@
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -21,7 +22,7 @@ local function cosmic(dir: string, words: {string}, tz?: string): Ran
   local env = this_program.environment()
   env.TZ = tz or "Asia/Tokyo"
   local started = this_program.program(words, {
-    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }

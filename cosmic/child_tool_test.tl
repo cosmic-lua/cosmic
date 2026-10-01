@@ -75,7 +75,7 @@ local SYS <const> = 'local sys = require("cosmic.sys") '
 
 --- A chunk's statement that sleeps `ms` milliseconds.
 local function sleep(ms: integer): string
-  return 'require("cosmic.time").sleep_ns(' .. tostring(ms) .. ' * 1000000) '
+  return 'require("cosmic.time").sleep_ns(require("cosmic.time").ms(' .. tostring(ms) .. ')) '
 end
 
 --- A prefix for a chunk that starts a descendant: `again(chunk, opts)`
@@ -101,7 +101,7 @@ end
 --- (build.sandbox_skip).
 local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
   local r = assert(Child.run(lua(sleep(100000), nil,
-    { timeout_ms = 200, process_group = false })))
+    { timeout_ns = Time.ms(200), process_group = false })))
   assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
   local reads = confine.itself()
   reads[#reads + 1] = "/proc"
@@ -110,7 +110,7 @@ local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
   -- none of what it unveils.
   reads[#reads + 1] = tmp
   local sandboxed, trouble = Child.run(lua(sleep(100000), nil,
-    { cwd = tmp, timeout_ms = 200, sandbox = { unveil = { reads = reads }, offline = true } }))
+    { cwd = tmp, timeout_ns = Time.ms(200), sandbox = { unveil = { reads = reads }, offline = true } }))
   if sandboxed == nil then
     sandbox_skip.refused("no sandbox for the child: " .. tostring(trouble))
     return
@@ -186,25 +186,25 @@ end
   -- The driver is a nested cosmic that compiles its fixture before it
   -- spawns anything; on the checked core, on a loaded runner, that has
   -- taken more than 3 s. The wait ends as soon as it is ready.
-  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + Time.seconds(30)
   while (not path_exists(ready) or Fs.read(ready) ~= "ready") and
       Time.monotonic_ns() < deadline do
-    Time.sleep_ns(10 * 1000 * 1000)
+    Time.sleep_ns(Time.ms(10))
   end
   assert(path_exists(ready) and Fs.read(ready) == "ready",
     "driver did not report readiness; log=" .. (Fs.read(diagnostic) or "<none>"))
   local descendant = assert(host_pid(driver.pid, assert(math.tointeger((assert(tonumber(
     assert(Fs.read(descendant_path)):match("%d+"))))))))
   assert(driver:stop(sys.SIGTERM))
-  local stopped = assert(driver:wait(2000))
+  local stopped = assert(driver:wait(Time.seconds(2)))
   assert(Fs.close(fd))
   assert(stopped.signal == sys.SIGTERM,
     "driver cancellation result code=" .. tostring(stopped.code) ..
     " signal=" .. tostring(stopped.signal) .. " log=" ..
     (Fs.read(diagnostic) or "<none>"))
-  local gone_by = Time.monotonic_ns() + 1000 * 1000 * 1000
+  local gone_by = Time.monotonic_ns() + Time.seconds(1)
   while sys.kill(descendant, 0) and Time.monotonic_ns() < gone_by do
-    Time.sleep_ns(10 * 1000 * 1000)
+    Time.sleep_ns(Time.ms(10))
   end
   assert(not sys.kill(descendant, 0))
 end
@@ -240,7 +240,7 @@ return function(): integer
 end
 ]]))
   local started = this_program.program({ script }, { cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.signal == nil and r.ok, "ended by signal " .. tostring(r.signal) .. ": " ..
     tostring(r.stderr))
@@ -317,10 +317,10 @@ return function(argv: {string}): integer
     -- elsewhere, half a second is ample for `return 3`.
     local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
     local on_proc = Fs.read(stat_path) ~= nil
-    local by = Time.monotonic_ns() + (on_proc and 5000 or 500) * 1000 * 1000
+    local by = Time.monotonic_ns() + (on_proc and Time.seconds(5) or Time.ms(500))
     local zombie = false
     while not zombie and Time.monotonic_ns() < by do
-      Time.sleep_ns(20 * 1000 * 1000)
+      Time.sleep_ns(Time.ms(20))
       local stat = Fs.read(stat_path)
       zombie = stat ~= nil and stat:match("^%d+ %b() Z") ~= nil
     end
@@ -344,7 +344,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ms = 30000 })
+    { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local cancelled = "true cancelled by signal " .. tostring(sys.SIGTERM)
   local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
@@ -379,7 +379,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ms = 30000 })
+    { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))
@@ -414,7 +414,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ms = 30000 })
+    { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))
@@ -449,7 +449,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ms = 30000 })
+    { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))
@@ -483,7 +483,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ms = 30000 })
+    { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
@@ -512,7 +512,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ms = 30000 })
+    { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local got = Fs.read(report)
   assert(got == tostring(sys.SIGTERM) .. "|0", tostring(got) .. " " .. tostring(r.stderr))
@@ -532,6 +532,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string): {string}
   local words = { table.unpack(relaunch.argv) }
@@ -542,7 +543,7 @@ end
 return function(argv: {string}): integer
   local answers: {string} = {}
   local guard = assert(Child.guard())
-  local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ms = 30000 }
+  local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ns = Time.seconds(30) }
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
     "assert(sys.kill(" .. tostring(sys.getpid()) .. ", sys.SIGTERM)) " ..
     "require('cosmic.time').sleep_ns(30000000000)"), options)
@@ -556,7 +557,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ fixture, report },
-    { stderr = "capture", timeout_ms = 60000 })
+    { stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))

@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Images = require("cosmic_ci.images")
+local PinTime = require("cosmic_ci.pin_time")
 local Proc = require("cosmic.proc")
 
 local function words(list: {string}): string
@@ -207,8 +208,8 @@ local function driver(tmp: string, command: string,
   assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")),
     project })).ok)
   return (assert(Child.run({ assert(Proc.executable()),
-    project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = env,
-    stdout = "capture", stderr = "capture", timeout_ms = 60000 })))
+    project .. "/cosmic_ci/driver.tl", command }, PinTime.options({ cwd = project, env = env,
+    stdout = "capture", stderr = "capture" }, 60000))))
 end
 
 local function test_driver_runs_both_commands(tmp: string)

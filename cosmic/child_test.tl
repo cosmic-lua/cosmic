@@ -11,6 +11,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 
 --- A bare name is not looked for on PATH, and the failure says so and
 --- names what finds it; a path that is not there gets no such hint.
@@ -56,7 +57,7 @@ local function test_a_refused_option_names_the_caller_s_line()
   for _, opts in ipairs({
     { stdout = "bad" } as Child.Options,
     { cwd = "/tmp\0bad" } as Child.Options,
-    { timeout_ms = -1 } as Child.Options,
+    { timeout_ns = -1 } as Child.Options,
   }) do
     local ok, why: boolean, any = pcall(function()
       local _, _ = Child.run({ "/bin/sh" }, opts)
@@ -131,17 +132,17 @@ local function test_guard_wait_takes_a_signal_in_a_task()
   Poll.run(function()
     local function waiter(g: Child.Guard, name: string): Poll.Task
       return Poll.spawn(function()
-        local signal, why = g:wait(5000)
+        local signal, why = g:wait(Time.seconds(5))
         got[#got + 1] = name .. "=" .. tostring(signal) .. why
       end)
     end
     local a = waiter(outer, "outer")
     local b = waiter(inner, "inner")
-    assert(Poll.delay(10))
+    assert(Poll.delay(Time.ms(10)))
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     assert(a:join())
     assert(b:join())
-    local signal, why = inner:wait(10)
+    local signal, why = inner:wait(Time.ms(10))
     got[#got + 1] = tostring(signal) .. " " .. why
   end)
   table.sort(got)
@@ -162,14 +163,14 @@ local function test_a_guard_s_wait_ends_when_it_closes_under_another()
   local got: {string} = {}
   Poll.run(function()
     local on_inner = Poll.spawn(function()
-      local signal, why = inner:wait(5000)
+      local signal, why = inner:wait(Time.seconds(5))
       got[#got + 1] = "inner=" .. tostring(signal) .. " " .. why
     end)
     local on_outer = Poll.spawn(function()
-      local signal, why = outer:wait(100)
+      local signal, why = outer:wait(Time.ms(100))
       got[#got + 1] = "outer=" .. tostring(signal) .. " " .. why
     end)
-    assert(Poll.delay(10))
+    assert(Poll.delay(Time.ms(10)))
     assert(inner:close())
     assert(on_inner:join())
     assert(on_outer:join())

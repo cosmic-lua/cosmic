@@ -61,7 +61,7 @@ jq -r "$4" "$file"
 --- Whether the system has a jq to answer the filters through.
 local function has_jq(): boolean
   local result = Child.run({ "/bin/sh", "-c", "command -v jq" }, { stdout = "capture", stderr = "capture",
-    timeout_ms = 30000 })
+    timeout_ns = Time.seconds(30) })
   return result ~= nil and result.code == 0
 end
 
@@ -115,7 +115,7 @@ local function find(tmp: string, lookups: {string}, listing: {string: string}, f
     REPOSITORY = "o/r", SHA = SHA, LEGS = "a b", WAIT_SECONDS = "0", TRIES = "3",
   }
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "find" }, { env = env, cwd = dir,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   return Fs.read(dir .. "/output") or "", Fs.read(dir .. "/calls") or "", result.code,
     (result.stdout or "") .. (result.stderr or "")
 end
@@ -232,7 +232,7 @@ local function stage(tmp: string, env: {string: string}, marker: boolean, marker
   local full: {string: string} = { PATH = Env.get("PATH") or "/usr/bin:/bin", RUNNER_TEMP = temp }
   for name, value in pairs(env) do full[name] = value end
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "stage" }, { env = full, cwd = temp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
   return temp .. "/seed", Fs.read(temp .. "/seed/seed.keys") or ""
 end
@@ -305,7 +305,7 @@ end
 local function unpacked(seed: string, dir: string): string
   assert(Fs.mkdirs(dir))
   local result = assert(Child.run({ "/bin/sh", "-c", 'tar -xf "$1" -C "$2"', "sh", zig_tar(seed), dir },
-    { stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
   return dir .. "/zig-build/zig-project/o/abc/build"
 end
@@ -410,7 +410,7 @@ local function ahead(tmp: string, base: string, answers: {string}, listing: {str
   }
   for name, value in pairs(extra or {}) do env[name] = value end
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "ahead" }, { env = env, cwd = cwd or dir,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   return Fs.read(dir .. "/output") or "", Fs.read(dir .. "/calls") or "", result.code,
     (result.stdout or "") .. (result.stderr or "")
 end
@@ -550,13 +550,13 @@ end
 --- One that leaves it, or whose base it lacks, asks as ever.
 local function test_a_change_that_moves_the_harness_takes_nothing(tmp: string)
   local has_git = Child.run({ "/bin/sh", "-c", "command -v git" }, { stdout = "capture", stderr = "capture",
-    timeout_ms = 30000 })
+    timeout_ns = Time.seconds(30) })
   if not has_jq() or has_git == nil or has_git.code ~= 0 then return end
   local repo = tmp .. "/repo"
   assert(Fs.mkdirs(repo .. "/build"))
   local function git(...: string): string
     local result = assert(Child.run({ "/usr/bin/env", "git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", repo, ... },
-      { stdout = "capture", stderr = "capture", timeout_ms = 30000,
+      { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
         env = { PATH = Env.get("PATH") or "/usr/bin:/bin", HOME = tmp, GIT_CONFIG_NOSYSTEM = "1" } }))
     assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
     return ((result.stdout or ""):gsub("%s+$", ""))
@@ -676,7 +676,7 @@ local function read_keys(tmp: string, ci: {string: {string: any}}, leg: string, 
   assert(not script:find("${{", 1, true), "the key read holds an expression the test gives no value: " .. script)
   local result = assert(Child.run({ "/bin/sh", "-e", "-c", script }, {
     env = { PATH = Env.get("PATH") or "/usr/bin:/bin", RUNNER_TEMP = dir, GITHUB_OUTPUT = dir .. "/output" },
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
   return Fs.read(dir .. "/output") or ""
 end

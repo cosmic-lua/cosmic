@@ -8,6 +8,7 @@ local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
+local PinTime = require("cosmic_ci.pin_time")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
 local RunNames = require("cosmic_ci.run_names")
@@ -122,8 +123,8 @@ local function git(root: string, words: {string}): string | nil, string
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local env = Env.all()
   env.GIT_TERMINAL_PROMPT = "0"
-  local result, trouble = Child.run(argv, { env = env, stdout = "capture",
-    stderr = "capture", timeout_ms = git_timeout_ms })
+  local result, trouble = Child.run(argv, PinTime.options({ env = env, stdout = "capture",
+    stderr = "capture" }, git_timeout_ms))
   if result == nil then return nil, "git " .. words[1] .. ": " .. trouble end
   if result.timed_out then
     return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ms // 1000) .. " s"

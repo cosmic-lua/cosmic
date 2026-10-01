@@ -25,6 +25,7 @@ local Hash = require("cosmic.hash")
 -- mode falls back to requiring it by name, which only boot's own
 -- preload answers.
 local type raw_http = require("cosmic.internal.http")
+local Time = require("cosmic.time")
 
 local extra: any = select(2, ...)
 local http: raw_http
@@ -57,12 +58,15 @@ local record Http
   --- body's `write` or `finish` that must wait. The signal stays the
   --- guard's to read.
   ---
-  --- A connection not made within `connect_timeout_ms` (default
-  --- 30000) fails, and so does a transfer that moves fewer than
-  --- `low_speed_bytes` (default 1) per second for `low_speed_seconds`
-  --- (default 60) straight; 0 turns either check off. `timeout_ms`
-  --- bounds the whole request and has no default. `sha256` is read
-  --- only by [`Http.download`], and `body_size` only by [`Http.upload`].
+  --- A connection not made within `connect_timeout_ns` (default 30
+  --- seconds) fails, and so does a transfer that moves fewer than
+  --- `low_speed_bytes` (default 1) per second for `low_speed_ns`
+  --- (default 60 seconds) straight; 0 turns either check off.
+  --- `timeout_ns` bounds the whole request and has no default. The
+  --- transfer counts them in milliseconds, and `low_speed_ns` in whole
+  --- seconds, each rounded up, so no span but 0 is read as none.
+  --- `sha256` is read only by [`Http.download`], and `body_size` only
+  --- by [`Http.upload`].
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
@@ -75,12 +79,42 @@ local record Http
   --- for it, naming the option: a value of the wrong Lua type (the
   --- integers take no numeric strings), a number with a fraction, or
   --- one out of range. Every integer must be at least 0;
-  --- `max_redirects` is at most 32767 and `low_speed_seconds` at most
-  --- 65535. A value of the right shape that cannot be sent as given
+  --- `max_redirects` is at most 32767 and `low_speed_ns` at most
+  --- 65535 seconds. A value of the right shape that cannot be sent as given
   --- is data, returned as `nil, err`: a method that is no HTTP token,
   --- a header name or value holding CR, LF or NUL (or a name that is
   --- empty or holds ':'), a URL holding NUL or one curl rejects.
-  record Options is raw_http.Options
+  record Options
+    --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
+    method: string
+    --- Request headers, name to value.
+    headers: {string:string}
+    --- The request body, sent whole; [`Http.upload`] takes `body_size` instead.
+    body: string
+    --- [`Http.upload`] only: how long the body `write` will send, as its
+    --- Content-Length; the body goes chunked when it is not given.
+    body_size: integer
+    --- Whether to follow redirects; true by default.
+    follow: boolean
+    --- The most redirects followed, 10 by default.
+    max_redirects: integer
+    --- The schemes a redirect may lead to, "http" and "https" by default.
+    redirect_protocols: {string}
+    --- How long connecting may take, in nanoseconds; 30 seconds by default.
+    connect_timeout_ns: integer
+    --- How long the whole request may take, in nanoseconds; no limit by default.
+    timeout_ns: integer
+    --- The transfer rate, in bytes per second, under which a request
+    --- is too slow; 1 by default and 0 turns the check off.
+    low_speed_bytes: integer
+    --- How long it may stay under `low_speed_bytes`, in nanoseconds; 60
+    --- seconds by default.
+    low_speed_ns: integer
+    --- Whether curl logs the transfer to standard error.
+    verbose: boolean
+    --- Tests only: canned replies, one per connection, in place of the
+    --- network. Every entry must be a string.
+    script: {string}
     --- Http.download only: the expected sha256 and sha512, as hex. Each
     --- given is computed while the body is written and must match, or the
     --- download fails naming the algorithm, the digest wanted and the one
@@ -154,6 +188,9 @@ local record Http
   end
 end
 
+local MS <const> = Time.ms(1)
+local SECOND <const> = Time.seconds(1)
+
 local response_mt: metatable<Http.Response> = {
   __close = function(self: Http.Response)
     local _, _ = self:close()
@@ -184,12 +221,50 @@ local function respond(handle: raw_http.Handle): Http.Response
   return response
 end
 
+--- `ns` as the count of `unit` nanoseconds the raw module takes, rounded
+--- up so that a span above 0 is never the 0 that curl reads as no limit;
+--- nil stays nil, the raw module's default. Raises, naming `name` as the
+--- raw module's own refusals do, for what is no integer from 0 to
+--- `most_ns`.
+local function counted(ns: integer | nil, unit: integer, most_ns: integer,
+    name: string): integer | nil
+  if ns == nil then return nil end
+  if math.type(ns) ~= "integer" then
+    error(("opts.%s must be an integer"):format(name), 4)
+  end
+  if ns < 0 or ns > most_ns then
+    error(("opts.%s must be between 0 and %d"):format(name, most_ns), 4)
+  end
+  return Time.ceil(ns, unit)
+end
+
+--- `opts` as the raw module reads them: its spans in the milliseconds
+--- (and, for `low_speed_ns`, the seconds) it counts them in.
+local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
+  if opts == nil then return nil end
+  return {
+    method = opts.method,
+    headers = opts.headers,
+    body = opts.body,
+    body_size = opts.body_size,
+    follow = opts.follow,
+    max_redirects = opts.max_redirects,
+    redirect_protocols = opts.redirect_protocols,
+    connect_timeout_ms = counted(opts.connect_timeout_ns, MS, math.maxinteger, "connect_timeout_ns"),
+    timeout_ms = counted(opts.timeout_ns, MS, math.maxinteger, "timeout_ns"),
+    low_speed_bytes = opts.low_speed_bytes,
+    low_speed_seconds = counted(opts.low_speed_ns, SECOND, 65535 * SECOND, "low_speed_ns"),
+    verbose = opts.verbose,
+    script = opts.script,
+  }
+end
+
 --- Opens `url`, blocking until the final response's headers arrive.
 --- The body is not read yet -- call `response:read(max)` until it
 --- returns `nil, ""` for a clean end, or use [`Http.get`] to read it
 --- all at once.
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
-  local handle, trouble = http.open(url, opts)
+  local handle, trouble = http.open(url, raw_options(opts))
   if handle == nil then
     return nil, trouble
   end
@@ -221,7 +296,7 @@ function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, strin
   -- CURLOPT_SEEKFUNCTION that rewinds to it, once a caller must upload
   -- through such a redirect; curl answers "necessary data rewind was not
   -- possible" for one today.
-  local started, trouble = http.start(url, opts)
+  local started, trouble = http.start(url, raw_options(opts))
   if started == nil then
     return nil, trouble
   end

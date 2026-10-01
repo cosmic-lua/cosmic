@@ -33,7 +33,7 @@
 ---   `key_code`: build.test, and this module's closure and
 ---   build.shared_verdicts'), none of which a key holds by what it is
 ---   -- COSMIC_TEST_HARNESS_EPOCH, for a test alone, stands in for a
----   bump -- and the timeout its worker runs under (`timeout_ms`);
+---   bump -- and the timeout its worker runs under (`timeout_ns`);
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark
@@ -221,8 +221,8 @@ local record declared_key
     --- the code every worker runs, the tree's or not, and for the code
     --- that computes this key.
     epoch: string
-    --- The timeout its worker runs under, in milliseconds.
-    timeout_ms: integer
+    --- The timeout its worker runs under, in nanoseconds.
+    timeout_ns: integer
     --- The program a test that runs this program runs
     --- ([`program_identity`]): o/bin/cosmic, or o/sanitized's, or a
     --- portable cosmic, whichever is running.
@@ -836,7 +836,7 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("runtime", spec.runtime, ""),
     part("compiler", spec.compiler, ""),
     part("epoch", spec.epoch, ""),
-    part("timeout", tostring(spec.timeout_ms), ""),
+    part("timeout", tostring(spec.timeout_ns), ""),
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }

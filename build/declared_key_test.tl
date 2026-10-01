@@ -16,6 +16,7 @@ local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 local type positions = require("build.positions")
+local Time = require("cosmic.time")
 
 --- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
@@ -50,7 +51,7 @@ local function spec(env?: {string:string}): declared_key.Spec
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
     runtime = "runtime sandboxed", compiler = "compiler", host = "host",
-    epoch = "1-00000000", timeout_ms = 30000,
+    epoch = "1-00000000", timeout_ns = Time.seconds(30),
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
   }
@@ -213,7 +214,7 @@ local function test_each_input_moves_it(tmp: string)
   s.epoch = "1-3f9c2a1b"
   differs("another bump's token", s)
   s = spec()
-  s.timeout_ms = 60000
+  s.timeout_ns = Time.seconds(60)
   differs("the timeout its worker runs under", s)
   -- A worker that may run the program undeclared keys it as declared.
   s = spec()
@@ -340,7 +341,7 @@ local function full_spec(hostdir: string): declared_key.Spec
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
-    runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ms = 30000,
+    runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ns = Time.seconds(30),
     program = "program", host = "host", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
@@ -367,7 +368,7 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     id = append("id"), module_key = append("module_key"), runtime = append("runtime"),
     compiler = append("compiler"), host = append("host"),
     epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch .. "0" end },
-    timeout_ms = { change = function(s: declared_key.Spec) s.timeout_ms = s.timeout_ms + 1000 end },
+    timeout_ns = { change = function(s: declared_key.Spec) s.timeout_ns = s.timeout_ns + Time.seconds(1) end },
     launcher = append("launcher"), declaration = append("declaration"),
     -- Keyed only for an unsandboxed worker, which sees the tree there.
     tree = append("tree"),

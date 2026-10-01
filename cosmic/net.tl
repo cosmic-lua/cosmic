@@ -21,7 +21,7 @@
 --- wraps.
 ---
 --- Every wait -- to connect, to accept, to read, to write -- lasts at
---- most the object's `timeout_ms` (no limit by default), failing with
+--- most the object's `timeout_ns` (no limit by default), failing with
 --- "timed out", and ends with "interrupted", within a tenth of a second,
 --- when the innermost open [`Child.guard`] catches SIGINT or SIGTERM, as
 --- [`cosmic.http`]'s do.
@@ -47,6 +47,7 @@ local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local errors = require("cosmic.internal.errors")
 
 --- The raw module behind this one lives under the reserved
@@ -126,25 +127,25 @@ local record Net
     --- `reclaim`. A "tcp" address raises: a port holds no file to take
     --- over.
     reclaim: boolean
-    --- How long `accept` waits, in milliseconds, from 0; nil for no
+    --- How long `accept` waits, in nanoseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
-    timeout_ms: integer
+    timeout_ns: integer
     --- How many connections may wait to be accepted (64 by default).
     --- A unix connection past it fails at once rather than waiting (see
-    --- [`ConnectOptions.timeout_ms`]).
+    --- [`ConnectOptions.timeout_ns`]).
     backlog: integer
   end
 
   record ConnectOptions
     --- How long connecting, and then any one read or write, waits, in
-    --- milliseconds, from 0; nil for no limit. A TCP connection is
+    --- nanoseconds, from 0; nil for no limit. A TCP connection is
     --- waited on until made or refused. Connecting to a unix one waits
     --- for nothing: a listener whose backlog is full fails it at once,
     --- "Resource temporarily unavailable (the listener is busy: its
     --- backlog is full)" on Linux and "Connection refused" on macOS,
     --- which cannot tell a busy listener from none. A caller that would
     --- wait for room connects again.
-    timeout_ms: integer
+    timeout_ns: integer
   end
 
   --- A socket listening at an address, answered by [`Net.listen`].
@@ -152,11 +153,11 @@ local record Net
     --- Where it listens.
     address: Address
     --- How long `accept` waits by default; nil for no limit.
-    timeout_ms: integer
-    --- The next connection, waiting for one as long as `timeout_ms`
+    timeout_ns: integer
+    --- The next connection, waiting for one as long as `timeout_ns`
     --- (this call's, or the listener's); nil and "timed out",
     --- "interrupted", "cancelled" (in a task of [`Poll.run`]), or why not.
-    accept: function(Listener, timeout_ms?: integer): Conn | nil, string
+    accept: function(Listener, timeout_ns?: integer): Conn | nil, string
     --- Stops listening. A unix listener removes its socket file too,
     --- unless another file has taken the name since. Safe to call more
     --- than once.
@@ -169,7 +170,7 @@ local record Net
   --- it.
   record Conn is Stream.Reader, Stream.Writer
     --- How long a `read` or a `write` waits, from 0; nil for no limit.
-    timeout_ms: integer
+    timeout_ns: integer
     --- What has arrived, at most `max` bytes (64 KiB by default), once
     --- something has; nil and "" once the peer has ended what it sends.
     --- nil and "timed out", "interrupted" or "cancelled" (in a task of
@@ -233,20 +234,20 @@ local record Net
       --- At the limit no listener accepts: a connection that comes waits
       --- in its listener's backlog until one open closes, and a unix one
       --- past the backlog fails at once (see
-      --- [`ConnectOptions.timeout_ms`]). With
+      --- [`ConnectOptions.timeout_ns`]). With
       --- [`ServeSpec.workers`], each worker's limit: a connection one
       --- worker at its limit leaves waiting is taken by another.
       connections: integer
     end
     --- Bounds on what the server takes on; nil for none.
     limits: Limits
-    --- Each connection's `timeout_ms`: how long any one read or write of
+    --- Each connection's `timeout_ns`: how long any one read or write of
     --- it waits, from 0; nil for no limit.
-    timeout_ms: integer
+    timeout_ns: integer
     --- On stopping, how long open connections have to finish, from 0,
     --- before they are closed and their tasks killed
     --- ([`Poll.Task.kill`]); nil to wait for every one.
-    grace_ms: integer
+    grace_ns: integer
     --- Called once every listener listens, in a task of the server's
     --- run, with where each listens -- a port the kernel chose for one
     --- at port 0 included -- in the order of `listeners`, and the
@@ -279,7 +280,7 @@ local record Net
     --- a client that comes after is refused -- and sends each worker
     --- SIGTERM, which a worker stops on as a server in one process
     --- does. A second signal is sent on to each worker, ending its
-    --- grace. A worker still running `grace_ms` and a second more after
+    --- grace. A worker still running `grace_ns` and a second more after
     --- the stop is sent SIGKILL. [`Net.serve`] returns once every worker
     --- has exited.
     ---
@@ -288,7 +289,7 @@ local record Net
     --- the server stops, and [`Net.serve`] returns false, "every worker
     --- exited before the server stopped". A worker whose supervisor is
     --- gone -- ended any way, SIGKILL included, which closes its end of
-    --- the lifeline -- stops as at SIGTERM, and, where `grace_ms` bounds
+    --- the lifeline -- stops as at SIGTERM, and, where `grace_ns` bounds
     --- its drain, exits, status 1, if it is still draining a second
     --- past it.
     ---
@@ -320,7 +321,7 @@ local record Net
     addresses: {Address}
     --- Stops the server, from any task of its run: every listener is
     --- closed at once, and [`Net.serve`] returns once every task of its
-    --- run has ended, the connections still open after `grace_ms`
+    --- run has ended, the connections still open after `grace_ns`
     --- closed and their tasks killed. Stopping a server that is stopping
     --- does nothing.
     stop: function(Server)
@@ -329,7 +330,7 @@ end
 
 local DEFAULT_READ <const> = 64 * 1024
 local DEFAULT_BACKLOG <const> = 64
-local MOST_MS <const> = 0x7fffffff
+local MS <const> = Time.ms(1)
 
 --- The address of the socket file at `path`.
 function Net.unix(path: string): Net.Address
@@ -341,13 +342,14 @@ function Net.tcp(host: string, port: integer): Net.Address
   return { kind = "tcp", host = host, port = port }
 end
 
---- `timeout_ms` as the raw calls take it, raising on one no wait can
---- last, so a field set wrong is named where it is read.
-local function milliseconds(timeout_ms: integer | nil): integer
-  if timeout_ms == nil then return -1 end
-  assert(math.type(timeout_ms) == "integer" and timeout_ms >= 0 and timeout_ms <= MOST_MS,
-    "timeout_ms must be nil or a whole number of milliseconds from 0 to " .. MOST_MS)
-  return timeout_ms
+--- `timeout_ns` as the raw calls take it, in milliseconds, rounded up so
+--- a timeout of any length is never none, or -1 for no limit; raising on
+--- one no wait can last, so a field set wrong is named where it is read.
+local function milliseconds(timeout_ns: integer | nil): integer
+  if timeout_ns == nil then return -1 end
+  assert(math.type(timeout_ns) == "integer" and timeout_ns >= 0 and timeout_ns <= Poll.MOST_NS,
+    "timeout_ns must be nil or a whole number of nanoseconds from 0 to " .. Poll.MOST_NS)
+  return Time.ceil(timeout_ns, MS)
 end
 
 --- What a failed call says: its own words for a deadline or a signal,
@@ -370,14 +372,14 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
   return trouble
 end
 
-local function waited(fd: integer, writable: boolean, timeout_ms: integer | nil): boolean, string
-  local ms = milliseconds(timeout_ms)
+local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
+  local ms = milliseconds(timeout_ns)
   if Poll.in_task() then
     local ready, why: boolean, string
     if writable then
-      ready, why = Poll.writable(fd, timeout_ms)
+      ready, why = Poll.writable(fd, timeout_ns)
     else
-      ready, why = Poll.readable(fd, timeout_ms)
+      ready, why = Poll.readable(fd, timeout_ns)
     end
     if ready then return true, "" end
     -- Poll.TIMEOUT is this module's own "timed out", which
@@ -398,7 +400,7 @@ local conn_mt: metatable<Net.Conn> = {
 }
 
 --- The connection over `socket`.
-local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): Net.Conn
+local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): Net.Conn
   local fd = socket:fd()
   local open = true
   -- Each direction's sticky failure: once a read or a write fails for
@@ -406,7 +408,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
   local read_failure, write_failure = "", ""
   local conn: Net.Conn
   conn = {
-    timeout_ms = timeout_ms,
+    timeout_ns = timeout_ns,
     read = function(_self: Net.Conn, max?: integer): string | nil, string
       assert(max == nil or max > 0, "max must be positive")
       if not open then return nil, "connection is closed" end
@@ -421,7 +423,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
         end
         -- Nothing was taken: a deadline or a signal leaves the next
         -- read to try again.
-        local ready, waiting = waited(fd, false, conn.timeout_ms)
+        local ready, waiting = waited(fd, false, conn.timeout_ns)
         if not ready then return nil, waiting end
         -- Another task may have closed the connection while this one
         -- waited in a run, and its descriptor gone to another socket.
@@ -440,7 +442,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): N
           write_failure = why
           return false, why
         else
-          local ready, waiting = waited(fd, true, conn.timeout_ms)
+          local ready, waiting = waited(fd, true, conn.timeout_ns)
           if not ready then
             write_failure = waiting
             return false, waiting
@@ -526,21 +528,21 @@ local listener_mt: metatable<Net.Listener> = {
 
 --- The listener over `socket`, at `address`.
 local function new_listener(socket: raw_socket.Socket, address: Net.Address,
-    timeout_ms: integer | nil): Opened
+    timeout_ns: integer | nil): Opened
   local fd = socket:fd()
   local open = true
   local listener: Net.Listener
   listener = {
     address = address,
-    timeout_ms = timeout_ms,
-    accept = function(_self: Net.Listener, wait_ms?: integer): Net.Conn | nil, string
+    timeout_ns = timeout_ns,
+    accept = function(_self: Net.Listener, wait_ns?: integer): Net.Conn | nil, string
       if not open then return nil, "listener is closed" end
-      wait_ms = wait_ms or listener.timeout_ms
+      wait_ns = wait_ns or listener.timeout_ns
       while true do
         local connection, why, errno = raw.accept(fd)
-        if connection ~= nil then return new_conn(connection, listener.timeout_ms), "" end
+        if connection ~= nil then return new_conn(connection, listener.timeout_ns), "" end
         if errno ~= raw.EAGAIN then return nil, why end
-        local ready, waiting = waited(fd, false, wait_ms)
+        local ready, waiting = waited(fd, false, wait_ns)
         if not ready then return nil, waiting end
         if not open then return nil, "listener is closed" end
       end
@@ -560,13 +562,6 @@ end
 --- `address` as the raw table reads one.
 local function raw_address(address: Net.Address): raw_socket.Address
   return { kind = address.kind, path = address.path, host = address.host, port = address.port }
-end
-
---- The monotonic clock, in milliseconds.
-local function now_ms(): integer
-  local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
-  if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble) end
-  return reading // 1000000
 end
 
 --- What [`connection`] made: the socket, or, where there is none, what
@@ -592,11 +587,11 @@ local connecting_mt: metatable<Connecting> = {
   end,
 }
 
---- A socket connected to `address`, waiting at most `timeout_ms`: in a
+--- A socket connected to `address`, waiting at most `timeout_ns`: in a
 --- task of [`Poll.run`], through the run; anywhere else, holding the
 --- thread.
-local function connection(address: Net.Address, timeout_ms: integer | nil): Attempt
-  local ms = milliseconds(timeout_ms)
+local function connection(address: Net.Address, timeout_ns: integer | nil): Attempt
+  local ms = milliseconds(timeout_ns)
   if not Poll.in_task() then
     local socket, trouble, errno = raw.connect(raw_address(address), ms)
     return { socket = socket, trouble = trouble, errno = errno }
@@ -605,7 +600,7 @@ local function connection(address: Net.Address, timeout_ms: integer | nil): Atte
   if socket == nil then return { trouble = trouble, errno = errno } end
   local holder: Connecting = { socket = socket }
   local held <close> = setmetatable(holder, connecting_mt)
-  local ready, why = Poll.writable(socket:fd(), timeout_ms)
+  local ready, why = Poll.writable(socket:fd(), timeout_ns)
   if not ready then return { trouble = why, errno = 0 } end
   local made, refused, number = raw.connected(socket:fd())
   if not made then return { trouble = refused, errno = number } end
@@ -616,35 +611,35 @@ end
 --- How long `reclaim` waits for another's lock, which each holds for
 --- two binds with a unix connect and an unlink between, none of which
 --- waits: far past that, the holder is stuck.
-local LOCK_MS <const> = 10000
+local LOCK_NS <const> = Time.seconds(10)
 
 --- The longest a reclaim in a task sleeps before it asks for another's
 --- lock again, as core's `flock` does out of one.
-local LOCK_PAUSE_MS <const> = 100
+local LOCK_PAUSE_NS <const> = Time.ms(100)
 
 --- An exclusive lock on the file `fd` is open on, waiting at most
---- LOCK_MS for another's: in a task of [`Poll.run`], through the run,
+--- LOCK_NS for another's: in a task of [`Poll.run`], through the run,
 --- since the task holding the other may be one of this run's, which a
 --- wait holding the thread would keep from releasing it; anywhere
 --- else, holding the thread. False and why not otherwise.
 local function locked(fd: integer): boolean, string
   if not Poll.in_task() then
-    local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
+    local ok, trouble, errno = sys.flock(fd, "exclusive", Time.ceil(LOCK_NS, MS))
     if not ok then return false, said(trouble, errno) end
     return true, ""
   end
-  local deadline = now_ms() + LOCK_MS
-  local pause = 1
+  local deadline = Time.monotonic_ns() + LOCK_NS
+  local pause = MS
   while true do
     -- Asked once, which answers "timed out" where another holds the
     -- lock, or "interrupted" where a guard has caught a signal.
     local ok, trouble, errno = sys.flock(fd, "exclusive", 0)
     if ok then return true, "" end
-    local left = deadline - now_ms()
+    local left = deadline - Time.monotonic_ns()
     if errno ~= raw.ETIMEDOUT or left <= 0 then return false, said(trouble, errno) end
     local paused, why = Poll.delay(math.min(pause, left))
     if not paused then return false, why end
-    pause = math.min(pause * 2, LOCK_PAUSE_MS)
+    pause = math.min(pause * 2, LOCK_PAUSE_NS)
   end
 end
 
@@ -708,7 +703,7 @@ end
 
 --- A unix listener at `address`; with `reclaim`, taking over a socket
 --- file left behind, under the lock the caller holds.
-local function listened(address: Net.Address, backlog: integer, timeout_ms: integer | nil,
+local function listened(address: Net.Address, backlog: integer, timeout_ns: integer | nil,
     reclaim: boolean): Opened | nil, string
   local socket, trouble, errno = raw.listen(raw_address(address), backlog)
   if socket == nil and errno == raw.EADDRINUSE and reclaim then
@@ -723,7 +718,7 @@ local function listened(address: Net.Address, backlog: integer, timeout_ms: inte
     if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
   end
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
-  return new_listener(socket, { kind = address.kind, path = address.path }, timeout_ms), ""
+  return new_listener(socket, { kind = address.kind, path = address.path }, timeout_ns), ""
 end
 
 --- What [`Net.listen`] opens, with its descriptor; it raises at `level`
@@ -732,7 +727,7 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
     level: integer): Opened | nil, string
   local backlog = opts.backlog or DEFAULT_BACKLOG
   if backlog < 1 then error("backlog must be at least 1", level + 1) end
-  milliseconds(opts.timeout_ms)
+  milliseconds(opts.timeout_ns)
   if address.kind == "tcp" then
     assert(not opts.reclaim, "reclaim takes a unix address")
     local socket, trouble, errno = raw.listen(raw_address(address), backlog)
@@ -742,16 +737,16 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
       local _, _ = socket:close()
       return nil, named(address) .. ": " .. why
     end
-    return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ms), ""
+    return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ns), ""
   end
-  if not opts.reclaim then return listened(address, backlog, opts.timeout_ms, false) end
+  if not opts.reclaim then return listened(address, backlog, opts.timeout_ns, false) end
   if address.path == "" then
     error("bad argument #1 to 'listen' (path must not be empty)", level + 1)
   end
   if address.path:sub(-1) == "/" then return nil, named(address) .. ": Is a directory" end
   local lock <close>, locking = reclaim_lock(address)
   if lock == nil then return nil, locking end
-  return listened(address, backlog, opts.timeout_ms, true)
+  return listened(address, backlog, opts.timeout_ns, true)
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
@@ -772,19 +767,19 @@ end
 --- Connects to `address`. A unix one fails "No such file or directory"
 --- where there is no socket file and "Connection refused" where nothing
 --- listens at it, and fails at once at a listener whose backlog is
---- full (see [`ConnectOptions.timeout_ms`]). A TCP one waits
+--- full (see [`ConnectOptions.timeout_ns`]). A TCP one waits
 --- for the connection to be made, and fails "Connection refused" where
 --- nothing listens at the port.
 --- A unix path too long to connect to whole is connected to from its
 --- directory, and raises where the process cannot return to its working
 --- directory after.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
-  local timeout_ms = opts ~= nil and opts.timeout_ms or nil
-  local attempt = connection(address, timeout_ms)
+  local timeout_ns = opts ~= nil and opts.timeout_ns or nil
+  local attempt = connection(address, timeout_ns)
   if attempt.socket == nil then
     return nil, named(address) .. ": " .. said(attempt.trouble, attempt.errno, address)
   end
-  return new_conn(attempt.socket, timeout_ms), ""
+  return new_conn(attempt.socket, timeout_ns), ""
 end
 
 local pair_mt: metatable<Net.Pair> = {
@@ -796,7 +791,7 @@ local pair_mt: metatable<Net.Pair> = {
 
 --- Two connections to each other and to nothing else: for plumbing
 --- within a process -- a task of [`Poll.run`] at each end -- and for
---- tests. Each waits with no limit until its `timeout_ms` is set.
+--- tests. Each waits with no limit until its `timeout_ns` is set.
 function Net.pair(): Net.Pair | nil, string
   local ends, trouble = raw.pair()
   if ends == nil then return nil, trouble end
@@ -808,7 +803,7 @@ end
 --- The fields a [`Net.ServeSpec`] may hold, so a misspelt one raises
 --- rather than being ignored.
 local SPEC_FIELDS <const>: {string: boolean} = {
-  listeners = true, serve = true, limits = true, timeout_ms = true, grace_ms = true,
+  listeners = true, serve = true, limits = true, timeout_ns = true, grace_ns = true,
   on_ready = true, on_error = true, workers = true,
 }
 
@@ -826,10 +821,10 @@ local function spec_error(field: string, must: string)
   error("Net.serve: spec." .. field .. " must be " .. must, 4)
 end
 
---- Why `ms` is no number of milliseconds a wait can last, or "".
-local function ms_trouble(ms: any): string
-  if ms == nil or (ms is integer and ms >= 0 and ms <= MOST_MS) then return "" end
-  return "nil or an integer from 0 to " .. MOST_MS
+--- Why `ns` is no number of nanoseconds a wait can last, or "".
+local function ns_trouble(ns: any): string
+  if ns == nil or (ns is integer and ns >= 0 and ns <= Poll.MOST_NS) then return "" end
+  return "nil or an integer from 0 to " .. Poll.MOST_NS
 end
 
 --- Why `address` is no [`Net.Address`] a listener can take, or "".
@@ -882,8 +877,8 @@ local function checked_spec(spec: any)
       end
     end
   end
-  for _, field in ipairs({ "timeout_ms", "grace_ms" }) do
-    local trouble = ms_trouble(spec[field])
+  for _, field in ipairs({ "timeout_ns", "grace_ns" }) do
+    local trouble = ns_trouble(spec[field])
     if trouble ~= "" then spec_error(field, trouble) end
   end
   for _, field in ipairs({ "on_ready", "on_error" }) do
@@ -967,7 +962,7 @@ local serving_mt: metatable<Serving> = {
 --- How long a listener waits after an accept failed -- out of
 --- descriptors, say -- before it tries again, so a failure that lasts is
 --- not retried, and reported, without pause.
-local ACCEPT_PAUSE_MS <const> = 100
+local ACCEPT_PAUSE_NS <const> = Time.ms(100)
 
 --- Gives `trouble` to `spec`'s [`ServeSpec.on_error`], or stderr.
 local function reported(spec: Net.ServeSpec, trouble: string)
@@ -994,7 +989,7 @@ local resume_accepting: function(s: Serving)
 --- is done with it.
 local function serve_conn(s: Serving, conn: Net.Conn)
   s.open = s.open + 1
-  conn.timeout_ms = s.spec.timeout_ms
+  conn.timeout_ns = s.spec.timeout_ns
   local task: Poll.Task
   task = Poll.spawn(function()
     local held <close> = conn
@@ -1028,7 +1023,7 @@ local function accept_loop(s: Serving, a: Accepting)
         a.failing = errno
         report(s, "accepting at " .. named(a.listener.address) .. ": " .. why)
       end
-      local _, _ = Poll.delay(ACCEPT_PAUSE_MS)
+      local _, _ = Poll.delay(ACCEPT_PAUSE_NS)
     end
   end
   a.task = nil
@@ -1042,19 +1037,19 @@ resume_accepting = function(s: Serving)
 end
 
 --- Waits for every connection open to finish. The tasks of those left
---- once `grace_ms` has passed, or a signal has ended the grace, are
+--- once `grace_ns` has passed, or a signal has ended the grace, are
 --- killed where they wait, their connections closed first.
 local function drain(s: Serving)
   if not s.hurried then
-    local grace = s.spec.grace_ms
-    local deadline = grace ~= nil and now_ms() + grace or nil
+    local grace = s.spec.grace_ns
+    local deadline = grace ~= nil and Time.monotonic_ns() + grace or nil
     -- A task of its own, so a signal can end the grace by cancelling it.
     s.grace = Poll.spawn(function()
       while true do
         local task = next(s.conns)
         if task == nil then return end
         local left: integer = nil
-        if deadline ~= nil then left = math.max(deadline - now_ms(), 0) end
+        if deadline ~= nil then left = math.max(deadline - Time.monotonic_ns(), 0) end
         local ended, _ = task:join(left)
         if not ended then return end
       end
@@ -1106,11 +1101,11 @@ local function watch(s: Serving)
   end
 end
 
---- How long past `grace_ms` a stopped worker has to exit before it is
+--- How long past `grace_ns` a stopped worker has to exit before it is
 --- ended -- sent SIGKILL by its supervisor, or, where the supervisor is
---- gone, exiting itself: its drain ends at `grace_ms`, unless a
+--- gone, exiting itself: its drain ends at `grace_ns`, unless a
 --- protocol holds the thread, and it then exits.
-local KILL_MARGIN_MS <const> = 1000
+local KILL_MARGIN_NS <const> = Time.seconds(1)
 
 --- What a worker is handed, as COSMIC_NET_WORKER names it past the
 --- supervisor's pid: the descriptor whose peer the supervisor holds,
@@ -1161,24 +1156,26 @@ end
 
 --- Stops a worker's server once its supervisor is gone -- the other end
 --- of `s.lifeline` closed, by its exit or its death -- as a signal
---- would; and, where `grace_ms` bounds the drain, exits the process
---- once the drain has run KILL_MARGIN_MS past it, as the supervisor
+--- would; and, where `grace_ns` bounds the drain, exits the process
+--- once the drain has run KILL_MARGIN_NS past it, as the supervisor
 --- would have killed it.
 local function watch_supervisor(s: Serving)
   local gone, _ = Poll.readable(s.lifeline)
   if not gone then return end
   stop(s)
-  local grace = s.spec.grace_ms
+  local grace = s.spec.grace_ns
   if grace == nil then return end
-  -- Over more than one delay where `grace` is near MOST_MS, the most
+  -- Over more than one delay where `grace` is near Poll.MOST_NS, the most
   -- one takes.
-  local deadline = now_ms() + grace + KILL_MARGIN_MS
+  local deadline = Time.monotonic_ns() + grace + KILL_MARGIN_NS
   repeat
-    local outlasted, _ = Poll.delay(math.min(math.max(deadline - now_ms(), 0), MOST_MS))
+    local outlasted, _ = Poll.delay(math.min(math.max(deadline - Time.monotonic_ns(), 0),
+      Poll.MOST_NS))
     if not outlasted then return end
-  until now_ms() >= deadline
+  until Time.monotonic_ns() >= deadline
   local _, _ = Fs.put(Fs.stderr, "Net.serve: the supervisor is gone, and connections are " ..
-    "still open " .. KILL_MARGIN_MS .. " ms past grace_ms: exiting\n")
+    "still open " .. Time.format_duration({ ns = KILL_MARGIN_NS }) ..
+    " past grace_ns: exiting\n")
   Proc.exit(1)
 end
 
@@ -1220,7 +1217,7 @@ local function serving(spec: Net.ServeSpec, handed: Handed | nil): boolean, stri
   end
   if not s.stopping then
     s.waiter = Poll.spawn(function()
-      while not s.stopping do local _, _ = Poll.delay(MOST_MS) end
+      while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
     end)
     local _, _ = s.waiter:join()
   end
@@ -1331,8 +1328,8 @@ local function reap(s: Supervising)
       trouble = "worker " .. pid .. ": " .. why
       local _, _ = handle:close()
     elseif answer.finished and s.killing and answer.result.signal == sys.SIGKILL then
-      trouble = "worker " .. pid .. " was still running " .. KILL_MARGIN_MS ..
-        " ms past grace_ms after the stop, and was killed"
+      trouble = "worker " .. pid .. " was still running " ..
+        Time.format_duration({ ns = KILL_MARGIN_NS }) .. " past grace_ns after the stop, and was killed"
     elseif answer.finished and not s.stopping then
       trouble = "worker " .. pid .. " " .. ended(answer.result)
     end
@@ -1345,13 +1342,13 @@ local function reap(s: Supervising)
 end
 
 --- Waits through the run for the first of the workers still running to
---- exit, at most `timeout_ms` milliseconds (no limit when nil), or for
+--- exit, at most `timeout_ns` nanoseconds (no limit when nil), or for
 --- the task to be cancelled. A worker whose settling failed -- its group
 --- would not empty -- is reported and passed over, as [`reap`] does.
-local function await_worker(s: Supervising, timeout_ms?: integer)
+local function await_worker(s: Supervising, timeout_ns?: integer)
   local handles: {Child.Handle} = {}
   for _, handle in pairs(s.workers) do handles[#handles + 1] = handle end
-  local done, trouble = Child.wait_any(handles, timeout_ms)
+  local done, trouble = Child.wait_any(handles, timeout_ns)
   if done ~= nil and trouble ~= "" and s.workers[done.pid] == done then
     s.workers[done.pid] = nil
     s.running = s.running - 1
@@ -1389,22 +1386,22 @@ local function watch_supervising(s: Supervising)
 end
 
 --- Waits for every worker to exit once `s` has stopped, sending SIGKILL
---- to those still running `grace_ms` and KILL_MARGIN_MS after.
+--- to those still running `grace_ns` and KILL_MARGIN_NS after.
 local function wind_down(s: Supervising)
-  local grace = s.spec.grace_ms
-  local deadline = grace ~= nil and now_ms() + grace + KILL_MARGIN_MS or nil
+  local grace = s.spec.grace_ns
+  local deadline = grace ~= nil and Time.monotonic_ns() + grace + KILL_MARGIN_NS or nil
   while true do
     reap(s)
     if s.running == 0 then return end
-    if deadline ~= nil and not s.killing and now_ms() >= deadline then
+    if deadline ~= nil and not s.killing and Time.monotonic_ns() >= deadline then
       s.killing = true
       signal_workers(s, sys.SIGKILL)
     end
-    -- Held to what a wait takes: `grace_ms` may be MOST_MS, and the
+    -- Held to what a wait takes: `grace_ns` may be Poll.MOST_NS, and the
     -- margin past it then runs out over a second wait.
     local left: integer
     if deadline ~= nil and not s.killing then
-      left = math.min(math.max(deadline - now_ms(), 0), MOST_MS)
+      left = math.min(math.max(deadline - Time.monotonic_ns(), 0), Poll.MOST_NS)
     end
     await_worker(s, left)
   end
@@ -1487,7 +1484,7 @@ local function supervising(spec: Net.ServeSpec): boolean, string
   if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
   if not s.stopping then
     s.waiter = Poll.spawn(function()
-      while not s.stopping do local _, _ = Poll.delay(MOST_MS) end
+      while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
     end)
     local _, _ = s.waiter:join()
   end
@@ -1561,7 +1558,7 @@ end
 ---
 --- One connection's failure is its own: what its protocol raises is
 --- given to [`ServeSpec.on_error`], the connection is closed, and the
---- rest are served on. A connection still open `grace_ms` after the
+--- rest are served on. A connection still open `grace_ns` after the
 --- stop is closed, and its task killed where it waits
 --- ([`Poll.Task.kill`]): the protocol is not resumed, but its `<close>`
 --- variables are closed -- where a read or write of the connection
@@ -1578,7 +1575,7 @@ end
 ---
 --- SIGINT and SIGTERM stop the server as [`Server.stop`] does: it holds
 --- a [`Child.guard`] for its run, and the first signal of either kind
---- stops it. One more while it drains ends `grace_ms` at once, the
+--- stops it. One more while it drains ends `grace_ns` at once, the
 --- connections still open killed and closed. Where a signal stopped
 --- it, the guard is released, not closed, so Net.serve returns true
 --- without the signal delivered again; a caller that would know of it,
