@@ -79,19 +79,19 @@ local function test_the_removed_shape_members_name_into_and_one_of()
   assert(Removed.members["cosmic.shape.Failure"] ~= nil)
 end
 
---- A program that called a [`cosmic.test`] validator is told it moved into
---- build.analyzer, and one that read the collector's window in place is
---- told the module that has it, which does.
-local function test_the_moved_test_and_coverage_members_name_their_new_home()
+--- A program that called a [`cosmic.test`] validator is told to declare
+--- [`Test.needs`] and let the build refuse a bad one, and one that read the
+--- collector's window in place is told the module that has it, which does.
+local function test_the_removed_test_and_coverage_members_say_what_to_do_instead()
   for _, member in ipairs({ "fields", "any_host_refusal", "network_trouble", "lua_trouble" }) do
     local instead = Removed.members["cosmic.test." .. member]
-    assert(instead ~= nil and instead:find("build.analyzer", 1, true), member)
+    assert(instead ~= nil and instead:find("Test.needs", 1, true), member)
   end
   for _, member in ipairs({ "snapshot", "native_entries" }) do
     local instead = Removed.members["cosmic.coverage." .. member]
     assert(instead ~= nil and instead:find("build.coverage_hits", 1, true), member)
-    assert((coverage_hits as {string:any})[member] ~= nil, member)
   end
+  assert(coverage_hits.snapshot ~= nil and coverage_hits.native_entries ~= nil)
 end
 
 --- Every replaced argument is keyed by a `cosmic.*` module that loads,

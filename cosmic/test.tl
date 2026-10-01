@@ -224,11 +224,12 @@ local called_at: string = nil
 
 --- Why `value`, handed to `needs`, is no [`Needs`], or "" when it is one.
 --
--- TODO: write this as a cosmic.shape spec over [`Needs`] once cosmic.shape,
--- and the cosmic.json it requires, may be in the harness (build/harness_epoch.tl's
--- `library`) without every edit to either moving each worker's key: its
--- messages (`$.reads: expected list, got string`) would also differ from
--- the ones cosmic/test_tool_test.tl holds.
+-- TODO: write this as a cosmic.shape spec over [`Needs`] once cosmic.shape and
+-- the cosmic.json it requires may be in the harness: each would join
+-- build/harness_epoch.tl's `library`, and every edit to either would cost an
+-- acknowledged digest line there and possibly an epoch bump. The messages
+-- (`$.reads: expected list, got string`) would also differ from the ones
+-- cosmic/test_tool_test.tl holds.
 local function trouble_of(value: any): string
   if not value is {any:any} then
     return "takes a table, got " .. type(value)

@@ -257,22 +257,6 @@ local module: Module = {
     ["cosmic.sys.Relaunch"] = "use Proc.Relaunch, what Proc.relaunch() answers (" ..
       proc .. ")",
     ["cosmic.sys.digest"] = "use Hash.digest(algorithm, data) (" .. hash .. ")",
-    ["cosmic.test.fields"] = "moved into build.analyzer, which holds a `needs` " ..
-      "declaration read from the source to it, and exports nothing of it; `needs` takes " ..
-      "the table `Test.Needs` describes",
-    ["cosmic.test.any_host_refusal"] = "moved into build.analyzer, which refuses " ..
-      "`network = true` before the module runs, and exports nothing of it",
-    ["cosmic.test.network_trouble"] = "moved into build.analyzer, which refuses a `network` " ..
-      "that is no loopback address 127.a.b.c before the module runs, and exports nothing " ..
-      "of it",
-    ["cosmic.test.lua_trouble"] = "moved into build.analyzer, which refuses a `lua` beside " ..
-      "what starts the program unheld before the module runs, and exports nothing of it",
-    ["cosmic.coverage.snapshot"] = "moved to build.coverage_hits, which only the " ..
-      "collector's own tests call; a program's hits are what Coverage.stop(session) " ..
-      "answers",
-    ["cosmic.coverage.native_entries"] = "moved to build.coverage_hits, which only the " ..
-      "collector's own tests call; a program reads each C function's first line from " ..
-      "Coverage.native_functions()",
     ["cosmic.sys.hmac"] = "use Hash.hmac(algorithm, key, data) (" .. hash .. ")",
     ["cosmic.sys.utimens"] = "use sys.utimensat(path, atime_s, atime_ns, mtime_s, " ..
       "mtime_ns), which takes each time as seconds and nanoseconds and leaves one " ..
@@ -290,6 +274,18 @@ local module: Module = {
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.last_insert_rowid"] = "use db:last_insert_rowid(), the method on " ..
       "the handle Sqlite.open answers (" .. sqlite .. ")",
+    ["cosmic.coverage.snapshot"] = "a program's hits are what Coverage.stop(session) answers; " ..
+      "a test reads the open window through build.coverage_hits",
+    ["cosmic.coverage.native_entries"] = "read each C function's first line from " ..
+      "Coverage.native_functions(); a test reads them through build.coverage_hits",
+    ["cosmic.test.fields"] = "the build checks a `needs` declaration's fields; declare " ..
+      "needs with Test.needs { ... } and let `cosmic test` refuse a bad one",
+    ["cosmic.test.any_host_refusal"] = "the build refuses `network = true`; declare " ..
+      "loopback addresses 127.a.b.c in Test.needs and let `cosmic test` refuse a bad one",
+    ["cosmic.test.network_trouble"] = "the build refuses a `network` that is no loopback " ..
+      "address 127.a.b.c; declare it in Test.needs and let `cosmic test` check it",
+    ["cosmic.test.lua_trouble"] = "the build refuses a `lua` beside tool, store, system or " ..
+      "caches; declare needs and let `cosmic test` refuse a bad one",
   },
   -- TODO: a call that still passes Sqlite.open's old third argument gets
   -- only the arity error (`wrong number of arguments ... at most 2`), with
