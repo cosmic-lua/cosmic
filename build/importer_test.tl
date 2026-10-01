@@ -9,6 +9,10 @@ local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
 local importer = require("build.importer")
+local compilation = require("build.compilation")
+local receivers = require("build.receivers")
+local type Compiler = require("build.compiler")
+local type _ = require("build.test_inputs")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -642,7 +646,7 @@ end
 --- database is fresh or has parsed the tree before -- a boot on an empty
 --- `o/` must key its modules exactly as a warm one does, or the two
 --- ship different databases. A helper only build.importer requires is
---- not in it: the importer's own requires are not followed.
+--- not in it: the importer is outside the semantic closure.
 local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-fresh-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -925,7 +929,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     end,
   }
   local modules = assert(importer.analyzer_modules(binary))
-  assert(table.concat(modules, " ") == "build.importer build.analyzer build.ast build.thing",
+  assert(table.concat(modules, " ") == "build.analyzer build.ast build.thing",
     table.concat(modules, " "))
   local tool = importer.analyzer_identity(binary)
   assert(not tool:find("^binary "), tool)
@@ -1217,6 +1221,8 @@ local function identity_fixture(case: string): string
     ["build/importer.tl"] = module_requiring({ "build.analysis_schema", "build.analyzer",
       "build.teal", "build.contracts", "build.receivers", "build.tree", "build.work",
       "build.positions", "build.symbols", "build.caches" }),
+    ["build/compilation.tl"] = module_requiring({ "build.analyzer", "build.teal" }),
+    ["build/derivation.tl"] = module_requiring({ "build.analyzer", "build.analysis_schema" }),
     ["build/analysis_schema.tl"] = module_requiring({}),
     ["build/analyzer.tl"] = module_requiring({ "build.ast", "build.cache_names" }),
     ["build/ast.tl"] = module_requiring({}),
@@ -1273,7 +1279,7 @@ local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   local root = identity_fixture("identity-leaves-out")
   local original = identities_of(root)
   assert(identities_of(root)[1] == original[1], "a second open moved the identity")
-  for _, path in ipairs({ "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
+  for _, path in ipairs({ "build/importer.tl", "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
                           "build/symbols.tl", "build/caches.tl", "build/zig.tl",
                           "cosmic/fs.tl", "cosmic/removed.tl" }) do
     edit(root, path)
@@ -1292,7 +1298,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
   local seen: {string:string} = {}
   local original = identities_of(root)
   seen[original[1]] = "the original tree"
-  for _, path in ipairs({ "build/importer.tl", "build/teal.tl", "build/teal_helper.tl",
+  for _, path in ipairs({ "build/compilation.tl", "build/derivation.tl", "build/teal.tl", "build/teal_helper.tl",
                           "build/contracts.tl", "build/receivers.tl", "build/tree.tl",
                           "build/analysis_schema.tl", "build/analyzer.tl",
                           "build/cache_names.tl", "build/ast.tl",
@@ -1314,8 +1320,8 @@ end
 --- one of them requires is in it too, or is the standard library the
 --- compile runs on.
 ---
---- build.importer's own requires are not followed, so each is in the
---- set or named below with the reason it is not; a new require of it
+--- build.importer is outside the set, but every module it calls is in
+--- the set or named below with the reason it is not; a new require of it
 --- fails here until it is one or the other. Every module of the
 --- analyzer's but the standard library's is the compiler's too, since
 --- the analyzer's identity starts from the compiler's.
@@ -1342,7 +1348,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     assert(covered[name] or name:match("^cosmic%.") ~= nil,
       name .. " is the analyzer's but not in the compiler's identity")
   end
-  for _, name in ipairs({ "build.importer", "build.teal", "build.contracts",
+  for _, name in ipairs({ "build.compilation", "build.derivation", "build.module", "build.teal", "build.contracts",
                           "build.receivers", "build.tree", "build.analysis_schema",
                           "build.cache_names", "build.ast.match" }) do
     assert(covered[name], name .. " is not in the compiler's identity: " ..
@@ -1359,9 +1365,12 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.symbols"] = "names what the projection documents in a refusal's hint, " ..
       "which no compile keeps",
   }
+  assert(not covered["build.importer"], "cache coordination and diagnostics entered compiler identity")
   local used: {string:boolean} = {}
   local missing: {string} = {}
-  for _, name in ipairs(modules) do
+  local checked: {string} = { "build.importer" }
+  for _, name in ipairs(modules) do checked[#checked + 1] = name end
+  for _, name in ipairs(checked) do
     local file = tree_file_of(name)
     assert(file ~= nil, name .. " is in the compiler's identity but is no module of the tree's")
     local source = assert(Fs.read(file))
@@ -1427,6 +1436,7 @@ local function test_the_writer_modules_are_closed_under_require()
   --- What build.writer's closure reaches that neither identity holds,
   --- and why no projection's bytes turn on it.
   local neither: {string:string} = {
+    ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
   }
@@ -1468,18 +1478,17 @@ end
 --- the tree's that one of them requires, as a parse of its source finds
 --- it, is in it too -- including a module only reached through another
 --- ([`build.ast.match`]), and never one the importer alone reaches
---- ([`build.test`]). The importer's own requires are the exception -- it
---- is in the set for its derive and parse, not for the rest of the build
---- it also runs. A declaration of a C binding (`cosmic.internal.*`) is
+--- ([`build.test`]). No semantic module has an exception. The importer
+--- coordinates them from outside the closure. A declaration of a C binding (`cosmic.internal.*`) is
 --- types over the core, not analysis.
 local function test_the_analyzer_modules_are_closed_under_require()
   local ast = require("build.ast")
   local modules = assert(importer.analyzer_modules())
   local listed: {string:boolean} = {}
   for _, name in ipairs(modules) do listed[name] = true end
-  assert(listed["build.importer"] and listed["build.ast.match"] and
+  assert(listed["build.derivation"] and listed["build.ast.match"] and
     listed["cosmic.string"], table.concat(modules, ", "))
-  assert(not listed["build.test"] and not listed["build.receivers"],
+  assert(not listed["build.importer"] and not listed["build.test"] and not listed["build.receivers"],
     table.concat(modules, ", "))
   -- The source analyzer is in the set; the privacy-by-position check,
   -- which only the importer calls, is not.
@@ -1499,7 +1508,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     assert(file ~= nil, name .. " is listed but is no module of the tree's")
     assert(Store.source(name) ~= nil, name .. " has no source in the running binary, " ..
       "so the analyzer could only be named by the whole binary")
-    if name ~= "build.importer" then
+    do
       local source = assert(Fs.read(file))
       local parsed = assert(ast.parse(assert(built), source, file))
       for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
@@ -1720,4 +1729,56 @@ local function test_the_reference_sweep_reads_compiled_once()
   local said = table.concat(details, "; ")
   assert(not said:find("IN-OPERATOR", 1, true), said)
   assert(said:find("LIST SUBQUERY", 1, true), said)
+end
+
+--- Refusal belongs to the compiler's semantic boundary, even when its
+--- diagnostic presenter supplies no text. A successful compile never
+--- calls the presenter, so its words cannot reject an accepted source.
+local function test_diagnostic_rendering_cannot_change_acceptance()
+  local root = assert(write_fixture("presentation", {
+    ["good.tl"] = "return 1\n",
+    ["bad.tl"] = "local unused = 1\nreturn 1\n",
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  assert(importer.derive(handle, false, built))
+  local modules = assert(compilation.collect(handle.db))
+  local calls = 0
+  local function render(_file: string, _source: string, _result: Compiler.Result): string
+    calls = calls + 1
+    return ""
+  end
+  for _, m in ipairs(modules) do
+    local env = assert(teal.environment_for(built, handle.db, handle.root))
+    local typed = receivers.install(env)
+    local made, trouble = compilation.generate(m, built, env, typed, false, true, render)
+    if m.path == "bad" then
+      assert(made == nil and trouble:find("the compiler refused it", 1, true) ~= nil,
+        "an empty diagnostic accepted a warning")
+    else
+      assert(made ~= nil, trouble)
+    end
+  end
+  assert(calls == 1, "successful compilation consulted diagnostic presentation")
+  work.close(handle)
+end
+
+--- A shared record must not bring code generation into a position or
+--- input-declaration reader's import closure.
+local function test_the_module_shape_does_not_reach_compilation()
+  local seen: {string:boolean} = {}
+  local pending: {string} = { "build.positions", "build.test_inputs" }
+  while #pending > 0 do
+    local name = table.remove(pending)
+    if not seen[name] then
+      seen[name] = true
+      for _, required in ipairs((assert(Store.requires(name)))) do
+        pending[#pending + 1] = required
+      end
+    end
+  end
+  assert(seen["build.module"], "position and input readers lost their shared module shape")
+  for _, name in ipairs({ "build.compilation", "build.contracts", "build.receivers" }) do
+    assert(not seen[name], "the shared module shape pulled in " .. name)
+  end
 end
