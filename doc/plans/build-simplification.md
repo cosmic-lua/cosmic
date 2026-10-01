@@ -69,9 +69,9 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
 | 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merged | a6d458c9; final and queue CI green; independent approval |
-| 2. Writer identity boundary | pending | validating | based on merged a6d458c9; independent review active |
-| 3. Build phase and cleanup ownership | pending | planned | depends on 1–2 |
-| 4. Reporting outside the acknowledged runner | pending | planned | preserve existing trust model |
+| 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | CI | reviewed tree f0f7129; 70 tests and 7 fixed points pass |
+| 3. Build phase and cleanup ownership | pending | locally approved | c70ce491; 76 tests and 7 fixed points pass; rebase after 2 |
+| 4. Reporting outside the acknowledged runner | pending | implementing | preserve existing trust model; prepared from step 3 candidate |
 | 5a. Bootstrap lock ownership preparation | pending | planned | old-pin compatible; retain SQL lock |
 | 5b. Zig scratch lifecycle preparation | pending | planned | only if independently useful |
 | 5c. Patch scratch lifecycle preparation | pending | planned | only if independently useful |
@@ -436,3 +436,32 @@ changes the design, update this plan before proceeding and explain the decision.
 - 2026-10-01: step 6 preflight narrowed extraction to duplicate cache names and
   a separate phase-recording PR. Restore/save policy remains visible because
   its apparent duplication encodes important platform/queue distinctions.
+
+- 2026-10-01: step 2 locally complete and independently approved at ef7fe613,
+  tree f0f7129af92e6c01d57cea9001291e36ac80f209. Independent fresh boot
+  reused 492 parses and 478 compiles, 70 focused tests passed, warm repeat
+  922 ms with zero compiles/reads. Seven exact-commit fixed points passed in
+  190.456 s. Independent products and both projections were byte-identical.
+  No new TODOs. Remote publication was blocked when GitHub create_tree returned
+  'user rejected MCP tool call'; do not retry without clarification. This update
+  is prepared locally while external writes are paused.
+- 2026-10-01: step 3 prepared locally at c70ce491 on step 2 candidate ef7fe613.
+  Seventy-six focused tests and seven exact fixed points passed; full-tree
+  check has zero findings. Independent adversarial review is underway. It must
+  rebase onto the actual merged step 2 before publication. Full-suite local
+  limits include timeout and Unix-socket EPERM independently reproduced without
+  cosmic; remote checks remain required.
+
+- 2026-10-01: step 3 independently approved at c70ce491, tree
+  ed01d73c6e239a7e46d6abd8ee64c2164bdbde32. Reviewer fresh boot reused
+  492 parses/478 compiles; 76 tests passed and warm repeat stood all 76 in
+  1.055 s. Whole-tree632files zero findings and allDB integrity checks passed.
+  No outstanding local review blockers in steps 2 or 3. External writes remain
+  paused pending clarification of GitHub's rejected publication call.
+
+- 2026-10-01 23:08 UTC: user explicitly authorized resuming after clarification
+  of Git tree publication. Step 2 is open as #2531 at remote commit
+  6dcd015a3ef2aa3a9d3fce4f3595591e8ff19dfb, exact reviewed tree f0f7129.
+  Step 4 preparation has started from the locally approved step 3 candidate.
+  Step 5 inventory is being rechecked against main's newer time/stream/fs APIs
+  and an actually published release. Prior publication block is resolved.
