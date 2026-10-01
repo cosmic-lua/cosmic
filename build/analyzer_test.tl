@@ -1345,6 +1345,7 @@ local function test_a_malformed_needs_call_is_refused()
     { 'Test.needs { lua = true, tool = true }', "fixture_test.tl:3: test.needs: lua is refused beside tool" },
     { 'Test.needs { lua = true, system = true }', "lua is refused beside system: a host program" },
     { 'Test.needs { lua = true, caches = { "zig" } }', "lua is refused beside caches" },
+    { 'Test.needs { standalone = true }', "standalone is refused without lua" },
     -- A host path names a file, or /proc.
     { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
       "files, or /proc: declare the files the tests read" },

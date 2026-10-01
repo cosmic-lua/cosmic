@@ -15,6 +15,7 @@ local fixture = require("build.core_image_fixture")
 local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
+local type positions = require("build.positions")
 
 --- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
@@ -122,6 +123,46 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
   local tool_before = key_of(tmp, s)
   s.program = "another program"
   assert(key_of(tmp, s) ~= tool_before)
+end
+
+--- A module that declares `lua` alone is keyed without what `cosmic
+--- --standalone` loads beyond `-e` (build.test_inputs' `standalone_loads`):
+--- an edit to the checker, build/teal.tl, leaves its key, while it moves
+--- the key of one that declares `standalone` beside it, and an edit to
+--- what `-e` loads moves both.
+local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: string)
+  tree(tmp)
+  local by_path: {string:positions.Module} = {}
+  for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
+    for _, name in ipairs(list) do
+      local file = name:gsub("%.", "/") .. ".tl"
+      assert(Fs.mkdirs(tmp .. "/" .. file:match("^(.*)/")))
+      assert(Fs.write(tmp .. "/" .. file, "return {} -- " .. name .. "\n"))
+      by_path[name] = { path = name, file = file, kind = "lib", requires = {}, tests = {} }
+    end
+  end
+  local function key_declaring(standalone: boolean): string
+    local declared: analyzer.Declared = { line = 1, reads = {}, host = {}, env = {},
+      network = {}, tool = false, lua = true, standalone = standalone, nests = false,
+      store = false, system = false, caches = {} }
+    local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
+      kind = "test", requires = { "suite.lib" }, tests = { "test_t" }, inputs = declared }
+    by_path[m.path] = m
+    by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
+      requires = {}, tests = {} }
+    local s = spec()
+    s.effective = test_inputs.effective(m, by_path, {})
+    s.declaration = test_inputs.canonical(declared)
+    return key_of(tmp, s)
+  end
+  local chunk, both = key_declaring(false), key_declaring(true)
+  assert(chunk ~= both)
+  assert(Fs.write(tmp .. "/build/teal.tl", "return {} -- the checker, edited\n"))
+  assert(key_declaring(false) == chunk, "a checker edit moved a chunk module's key")
+  local both_after = key_declaring(true)
+  assert(both_after ~= both, "a checker edit left a standalone module's key")
+  assert(Fs.write(tmp .. "/build/dispatch.tl", "return {} -- dispatch, edited\n"))
+  assert(key_declaring(false) ~= chunk and key_declaring(true) ~= both_after)
 end
 
 --- Each thing it is a digest of moves it: a declared file's contents,
@@ -291,7 +332,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
     env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    tool = true, lua = true, nests = true, store = true, system = true,
+    tool = true, lua = true, standalone = true, nests = true, store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
     variables = { "DECLARED", "H" }, named = { H = true },
     spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
@@ -380,6 +421,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
         "and `closure_store`: every process it starts is held to that closure " ..
         "(build.test_worker's `hold_children`)",
+      standalone = declaration .. ", and what it adds to the closure beside `lua` " ..
+        "(`standalone_loads`) by `files` and `closure_store`",
       nests = declaration .. ", and, where the module does not declare `tool`, " ..
         "`runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",

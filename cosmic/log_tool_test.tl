@@ -7,8 +7,9 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
---- The program itself, which its tests start.
-Test.needs{ lua = true }
+--- The program itself, which its tests start to run a file `--standalone`
+--- (`standalone`).
+Test.needs{ lua = true, standalone = true }
 
 --- Runs `body` as a standalone script and answers what it wrote.
 local function run(tmp: string, body: string): string, string

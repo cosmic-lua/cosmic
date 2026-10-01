@@ -58,6 +58,10 @@ local record test_inputs
     --- Whether it starts this program only to run Lua in it
     --- ([`cosmic.test`]'s `lua`): its closure holds `lua_loads` too.
     lua: boolean
+    --- Whether, declaring `lua`, it runs a file `--standalone` too
+    --- ([`cosmic.test`]'s `standalone`): its closure holds
+    --- `standalone_loads` as well.
+    standalone: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
     nests: boolean
@@ -86,7 +90,9 @@ local record test_inputs
   end
 
   lua_loads: {string}
+  standalone_loads: {string}
   loaded_beside: {string:{string}}
+  compiler_sought: function(closure: {string}, lua: boolean): {string}
 end
 
 --- The variables every test may read undeclared, which a sandboxed
@@ -100,44 +106,70 @@ local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_
 for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
 --- The modules of the tree a process of this program runs before the
---- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`), or
---- the file `cosmic --standalone` checks and runs ([`build.standalone`]),
---- and nothing else of the tree: cosmic's main, the lean ways dispatch
---- takes to each, and the checker standalone types a file with
---- ([`build.teal`], which loads the compiler beside it: `loaded_beside`),
---- with what each requires at its top level. A module that declares
---- `lua` ([`cosmic.test`]) holds them in its closure, as if it required
---- each at its top level, though not what each requires only inside a
---- function it does not call on those ways -- dispatch requires every
---- verb's modules so -- so its key holds each by what it is, and every
---- process its tests start is held to that closure (core/store.c's
---- `hold_children`). A module added to those ways is refused to such a
---- process, naming `lua`, until it is added here;
---- build/lua_children_test.tl holds a `-e` child and a standalone one to
---- loading no more. A standalone file that requires a module of the
+--- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`),
+--- and nothing else of the tree: cosmic's main and the lean way dispatch
+--- takes to `-e`, with what each requires at its top level. A module
+--- that declares `lua` ([`cosmic.test`]) holds them in its closure, as
+--- if it required each at its top level, though not what each requires
+--- only inside a function it does not call on that way -- dispatch
+--- requires every verb's modules so -- so its key holds each by what it
+--- is, and every process its tests start is held to that closure
+--- (core/store.c's `hold_children`). A module added to that way is
+--- refused to such a process, naming `lua`, until it is added here;
+--- build/lua_children_test.tl holds a `-e` child to loading no more.
+test_inputs.lua_loads = {
+  "build.dispatch", "build.exit_status", "build.help_source", "build.verdict",
+  "cmd.cosmic.main", "cosmic.env", "cosmic.fs", "cosmic.log",
+}
+
+--- What `cosmic --standalone` loads beyond `lua_loads` before the file
+--- it checks and runs does ([`build.standalone`]): the checker it types
+--- the file with ([`build.teal`], which loads the compiler beside it:
+--- `loaded_beside`), with what each requires at its top level. A module
+--- that declares `standalone` beside `lua` ([`cosmic.test`]) holds them
+--- in its closure as it holds `lua_loads`; one that declares `lua` alone
+--- does not, so an edit to the checker runs its tests no more, and a
+--- child of it that runs a file standalone is refused, naming
+--- `standalone`. build/lua_standalone_test.tl holds a standalone child
+--- to loading no more. A standalone file that requires a module of the
 --- standard library is typed from its declaration too, which the test
 --- module holds by requiring that module at its top level.
--- TODO: key a module whose children only run `-e` by that way alone:
--- today every `lua` module holds standalone's way too (build.teal, the
--- compiler, cosmic.sqlite and the rest), so an edit to one of those runs
--- cosmic/child_lua_test.tl again though no child of it loads them. The
--- fix is a second set, chosen by what the module declares (`lua =
--- "chunk"` against `lua = "standalone"` in cosmic.test's `needs`), with
--- the hold narrowed to match.
-test_inputs.lua_loads = {
+test_inputs.standalone_loads = {
   "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
-  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.dispatch",
-  "build.exit_status", "build.help_source", "build.standalone", "build.teal", "build.verdict",
-  "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
-  "cosmic.sqlite", "cosmic.store",
+  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.standalone",
+  "build.teal", "cosmic.codec", "cosmic.hash", "cosmic.sqlite", "cosmic.store",
 }
+
+--- The names of `closure`, the import closure of a module that declares
+--- `lua` as `lua` says, among which a reader of the compiler's identity
+--- is sought ([`build.key_parts`]' `reads_compiler`), for its key and
+--- for the `meta` rows its worker, and every process its tests start,
+--- may read: every one of them but `lua_loads` and `standalone_loads`
+--- where it declares `lua`. Neither way reads it before its chunk or
+--- file runs, and [`build.dispatch`], which does, does so only past
+--- requiring build.importer, a reader itself: so a closure that lets a
+--- process reach that read holds a reader the search finds anyway, and
+--- an edit to the compiler, which moves its identity, runs a test that
+--- only runs Lua in a child no more than one that runs none.
+function test_inputs.compiler_sought(closure: {string}, lua: boolean): {string}
+  if not lua then return closure end
+  local added: {string:boolean} = {}
+  for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
+    for _, name in ipairs(list) do added[name] = true end
+  end
+  local out: {string} = {}
+  for _, name in ipairs(closure) do
+    if not added[name] then out[#out + 1] = name end
+  end
+  return out
+end
 
 --- Modules a module loads by other means than `require`, by that
 --- module: build.teal loads the compiler as bytecode
 --- (`Store.bytecode("vendor.tl")`), which no parse follows. A closure
 --- store carries each beside the module that loads it
 --- ([`build.closure_store`]'s `loaded_beside`, which
---- build/lua_children_test.tl holds to this), and a process a `lua`
+--- build/lua_standalone_test.tl holds to this), and a process a `lua`
 --- module's tests start may load it where the closure holds that module
 --- ([`build.test_worker`]'s `hold_children`).
 test_inputs.loaded_beside = { ["build.teal"] = { "vendor.tl" } }
@@ -193,12 +225,13 @@ local function closure(m: Module, by_path: {string:Module},
       end
     end
   end
-  -- Each of `lua_loads`, for a module that declares `lua`, as a module
-  -- it requires whose own requires it does not follow: each one's
-  -- top-level requires are among them.
+  -- Each of `lua_loads`, for a module that declares `lua`, and of
+  -- `standalone_loads`, for one that declares `standalone` beside it, as
+  -- a module it requires whose own requires it does not follow: each
+  -- one's top-level requires are among them.
   local declared: analyzer.Declared = m.inputs
-  if declared ~= nil and declared.lua then
-    for _, name in ipairs(test_inputs.lua_loads) do
+  local function hold(loads: {string})
+    for _, name in ipairs(loads) do
       local other = by_path[name]
       if other ~= nil and not seen[name] then
         seen[name] = true
@@ -206,6 +239,10 @@ local function closure(m: Module, by_path: {string:Module},
         names[#names + 1] = name
       end
     end
+  end
+  if declared ~= nil and declared.lua then
+    hold(test_inputs.lua_loads)
+    if declared.standalone then hold(test_inputs.standalone_loads) end
   end
   table.sort(files)
   table.sort(names)
@@ -238,7 +275,8 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, nests = false, store = false, system = false, caches = {},
+    tool = false, lua = false, standalone = false, nests = false, store = false,
+    system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations)
@@ -271,6 +309,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.tool, out.store = declared.tool, declared.store
     out.lua = declared.lua == true
+    out.standalone = declared.standalone == true
     out.nests = declared.nests == true
     out.system = declared.system == true
     -- A cache is declared with the variables that locate it.
@@ -439,6 +478,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   list("network", declared.network)
   if declared.tool then lines[#lines + 1] = "tool true" end
   if declared.lua then lines[#lines + 1] = "lua true" end
+  if declared.standalone then lines[#lines + 1] = "standalone true" end
   if declared.nests then lines[#lines + 1] = "nests true" end
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
@@ -452,7 +492,9 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
   if needs == nil then return nil end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = needs.network or {},
-    tool = needs.tool == true, lua = needs.lua == true, nests = needs.nests == true, store = needs.store == true, system = needs.system == true,
+    tool = needs.tool == true, lua = needs.lua == true,
+    standalone = needs.standalone == true, nests = needs.nests == true,
+    store = needs.store == true, system = needs.system == true,
     caches = needs.caches or {} }
 end
 
