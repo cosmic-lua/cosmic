@@ -1,4 +1,5 @@
 local Removed = require("cosmic.removed")
+local coverage_hits = require("build.coverage_hits")
 
 --- Every module [`Removed.members`] names a member of, required by a
 --- literal name so the test's import closure holds each: a `require`
@@ -8,6 +9,7 @@ local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
   ["cosmic.cli"] = require("cosmic.cli"),
   ["cosmic.codec"] = require("cosmic.codec"),
+  ["cosmic.coverage"] = require("cosmic.coverage"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.json"] = require("cosmic.json"),
   ["cosmic.shape"] = require("cosmic.shape"),
@@ -15,6 +17,7 @@ local modules <const>: {string:any} = {
   ["cosmic.stream"] = require("cosmic.stream"),
   ["cosmic.sys"] = require("cosmic.sys"),
   ["cosmic.tar"] = require("cosmic.tar"),
+  ["cosmic.test"] = require("cosmic.test"),
   ["cosmic.time"] = require("cosmic.time"),
   ["cosmic.zip"] = require("cosmic.zip"),
 }
@@ -76,6 +79,21 @@ local function test_the_removed_shape_members_name_into_and_one_of()
   local either = Removed.members["cosmic.shape.either"]
   assert(either ~= nil and either:find("Shape.one_of", 1, true) and either:find("Shape.into", 1, true), either)
   assert(Removed.members["cosmic.shape.Failure"] ~= nil)
+end
+
+--- A program that called a [`cosmic.test`] validator is told to declare
+--- [`Test.needs`] and let the build refuse a bad one, and one that read the
+--- collector's window in place is told the module that has it, which does.
+local function test_the_removed_test_and_coverage_members_say_what_to_do_instead()
+  for _, member in ipairs({ "fields", "any_host_refusal", "network_trouble", "lua_trouble" }) do
+    local instead = Removed.members["cosmic.test." .. member]
+    assert(instead ~= nil and instead:find("Test.needs", 1, true), member)
+  end
+  for _, member in ipairs({ "snapshot", "native_entries" }) do
+    local instead = Removed.members["cosmic.coverage." .. member]
+    assert(instead ~= nil and instead:find("build.coverage_hits", 1, true), member)
+  end
+  assert(coverage_hits.snapshot ~= nil and coverage_hits.native_entries ~= nil)
 end
 
 --- Every replaced argument is keyed by a `cosmic.*` module that loads,

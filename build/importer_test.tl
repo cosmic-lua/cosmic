@@ -1429,8 +1429,6 @@ local function test_the_writer_modules_are_closed_under_require()
   local neither: {string:string} = {
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
-    ["cosmic.test"] = "build.analyzer reads a test's `Test.needs` by its fields " ..
-      "in a parse, which reaches a projection only as the rows the parse stores",
   }
   local reached: {string:boolean} = {}
   local stack: {string} = { "build.writer" }
