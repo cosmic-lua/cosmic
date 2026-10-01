@@ -146,7 +146,7 @@ local function test_an_error_ends_the_run_and_closes_the_rest()
     assert(Poll.delay(0))
     error("broken", 0)
   end)
-  assert(not ok and err == "broken", tostring(err))
+  assert(not ok and tostring(err):find("broken\nstack traceback:", 1, true) == 1, tostring(err))
   assert(closed, "the waiting task's <close> variable was not closed")
   local ran = false
   Poll.run(function() ran = true end)
@@ -276,7 +276,8 @@ local function test_a_spawned_task_error_ends_the_run()
     assert(failing:join())
     error("main went on")
   end)
-  assert(not ok and err == "spawned broke", tostring(err))
+  assert(not ok and tostring(err):find("spawned broke\nstack traceback:", 1, true) == 1,
+    tostring(err))
 end
 
 --- A cancel lands wherever the task is: not yet started, cancelling
@@ -814,4 +815,99 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
     sys.close(readers[i])
     sys.close(writers[i])
   end
+end
+
+--- The error a task raises ends the run with the task's own stack
+--- beneath it, down to the function that raised; an error that is no
+--- string ends it as it was raised.
+local function test_a_task_error_carries_the_task_s_stack()
+  local function deep_in_the_task()
+    error("deep trouble", 0)
+  end
+  local ok, err: boolean, any = pcall(Poll.run, function()
+    local failing = Poll.spawn(function()
+      assert(Poll.delay(0))
+      deep_in_the_task()
+    end)
+    assert(failing:join())
+  end)
+  local text = tostring(err)
+  assert(not ok and text:find("deep trouble\nstack traceback:", 1, true) == 1, text)
+  assert(text:find("deep_in_the_task", 1, true) ~= nil, text)
+  local raised = {}
+  local again, value: boolean, any = pcall(Poll.run, function() error(raised) end)
+  assert(not again and rawequal(value, raised), tostring(value))
+end
+
+--- A cancel answers none of a shielded task's waits, which each wait
+--- for what they wait for while the other tasks run; the first wait
+--- after the shield answers CANCELLED. Shields nest, and one left by a
+--- raise is let go.
+local function test_a_shielded_wait_outlasts_a_cancel()
+  local seen: {string} = {}
+  Poll.run(function()
+    local ticks = 0
+    local ticker = Poll.spawn(function()
+      while Poll.delay(1) do ticks = ticks + 1 end
+    end)
+    local shielded = Poll.spawn(function()
+      Poll.shielded(function()
+        local ok, why = Poll.delay(30)
+        seen[#seen + 1] = "delay " .. tostring(ok) .. why
+        Poll.shielded(function()
+          ok, why = Poll.delay(0)
+          seen[#seen + 1] = "nested " .. tostring(ok) .. why
+        end)
+        ok, why = Poll.delay(0)
+        seen[#seen + 1] = "after nested " .. tostring(ok) .. why
+      end)
+      raises(function() Poll.shielded(function() error("inside", 0) end) end, "inside")
+      local ok, why = Poll.delay(30)
+      seen[#seen + 1] = "after " .. tostring(ok) .. " " .. why
+    end)
+    assert(Poll.delay(0))
+    shielded:cancel()
+    local before = ticks
+    assert(shielded:join())
+    assert(ticks > before, "nothing else ran while the shielded task waited")
+    ticker:cancel()
+  end)
+  assert(table.concat(seen, ", ") ==
+    "delay true, nested true, after nested true, after false " .. Poll.CANCELLED,
+    table.concat(seen, ", "))
+end
+
+--- A kill still ends a shielded task where it waits, and a failed run
+--- still closes one; shielding outside a task, or no function, raises.
+local function test_a_shielded_task_is_killed_and_closed()
+  local closed = 0
+  local closer_mt: metatable<Closer> = { __close = function() closed = closed + 1 end }
+  Poll.run(function()
+    local victim = Poll.spawn(function()
+      Poll.shielded(function()
+        local _ <close> = setmetatable({} as Closer, closer_mt)
+        local _, _ = Poll.delay(3600 * 1000)
+      end)
+    end)
+    assert(Poll.delay(0))
+    victim:cancel()
+    victim:kill()
+    local ok, why = victim:join()
+    assert(not ok and why == Poll.CANCELLED, why)
+    raises(function() Poll.shielded(nil) end, "Poll.shielded takes a function")
+  end)
+  assert(closed == 1, closed .. " closed")
+  local ok, err: boolean, any = pcall(Poll.run, function()
+    Poll.spawn(function()
+      Poll.shielded(function()
+        local _ <close> = setmetatable({} as Closer, closer_mt)
+        local _, _ = Poll.delay(3600 * 1000)
+      end)
+    end)
+    assert(Poll.delay(0))
+    error("torn down", 0)
+  end)
+  assert(not ok and tostring(err):find("torn down", 1, true) == 1, tostring(err))
+  assert(closed == 2, closed .. " closed")
+  raises(function() Poll.shielded(function() end) end, "Poll.shielded outside Poll.run")
 end

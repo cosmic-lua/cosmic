@@ -1009,6 +1009,61 @@ local function test_getuid_owns_what_the_process_creates(tmp: string)
   assert(st.uid == sys.getuid(), tostring(st.uid) .. " " .. tostring(sys.getuid()))
 end
 
+--- The real group and the supplementary groups are those Linux's
+--- /proc/self/status lists (its Gid line's first, its Groups line, each
+--- in its own order); where there is no such file, each is at least an
+--- id.
+local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with()
+  local gid = sys.getgid()
+  local groups = assert(sys.getgroups())
+  assert(math.type(gid) == "integer" and gid >= 0, tostring(gid))
+  for _, group in ipairs(groups) do
+    assert(math.type(group) == "integer" and group >= 0, tostring(group))
+  end
+  local status = read_file("/proc/self/status")
+  if status == "" then return end
+  assert(status:match("\nGid:%s+(%d+)") == tostring(gid), status)
+  local listed: {string} = {}
+  for group in (status:match("\nGroups:([^\n]*)") or ""):gmatch("%d+") do
+    listed[#listed + 1] = group
+  end
+  local answered: {string} = {}
+  for i, group in ipairs(groups) do answered[i] = tostring(group) end
+  assert(table.concat(answered, " ") == table.concat(listed, " "),
+    table.concat(answered, " ") .. " | " .. table.concat(listed, " "))
+end
+
+--- `setrlimit` holds the process to a soft limit `getrlimit` then
+--- answers, which it can raise again to the hard one; it refuses a soft
+--- limit above a finite hard one, and a negative limit, a resource past
+--- an int or not a resource at all. Where the hard one is none, as
+--- macOS's RLIMIT_NOFILE's is, a soft one of none is the system's to
+--- refuse or to bound (macOS may do either), so it is only given back.
+local function test_setrlimit_holds_the_process_to_what_getrlimit_answers()
+  local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  assert(limits.soft > 0 and limits.soft <= limits.hard, limits.soft .. " " .. limits.hard)
+  local lower = limits.soft - 1
+  assert(sys.setrlimit(sys.RLIMIT_NOFILE, lower, limits.hard))
+  local lowered = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  assert(lowered.soft == lower and lowered.hard == limits.hard, lowered.soft .. " " .. lowered.hard)
+  assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
+  assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft)
+  if limits.hard ~= math.maxinteger then
+    failed_with(sys.EINVAL, sys.setrlimit(sys.RLIMIT_NOFILE, limits.hard + 1, limits.hard))
+    assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft, "a refusal moved it")
+  else
+    local unbounded, why, errno = sys.setrlimit(sys.RLIMIT_NOFILE, math.maxinteger, limits.hard)
+    assert(unbounded or errno == sys.EINVAL, why)
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
+  end
+  failed_with(sys.EINVAL, sys.getrlimit(99999))
+  failed_with(sys.EINVAL, sys.setrlimit(99999, 1, 1))
+  raises(sys.setrlimit, sys.RLIMIT_NOFILE, -1, limits.hard)
+  raises(sys.setrlimit, sys.RLIMIT_NOFILE, limits.soft, -1)
+  raises(sys.getrlimit, (1 << 32) + sys.RLIMIT_NOFILE)
+  raises(sys.setrlimit, (1 << 32) + sys.RLIMIT_NOFILE, limits.soft, limits.hard)
+end
+
 local function test_clocks_read_and_the_monotonic_one_advances()
   assert(assert(sys.clock_gettime(sys.CLOCK_REALTIME)) > 0)
   local before = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
@@ -1282,45 +1337,59 @@ end
 
 --- `poll` watches as many descriptors as the kernel lets a process
 --- watch, past the 1024 it was once held to, and -1 is left unwatched.
---- The first entries are distinct descriptors, copies of one pipe's
---- reading end, since a descriptor given more than once goes to the
---- kernel once; the rest give that end again, and answer too. Where
---- RLIMIT_NOFILE's soft limit is lower (1024 under systemd's default,
---- 256 on macOS), the copies stop short of it, and so does the count
---- the kernel is given.
+--- Each is a distinct copy of one pipe's reading end, since a descriptor
+--- given more than once goes to the kernel once. RLIMIT_NOFILE's soft
+--- limit is raised for them first where it is lower (1024 under
+--- systemd's default, 256 on macOS), and put back after; a hard limit
+--- too low to raise it to fails the test.
+--- Closes `fds` and puts RLIMIT_NOFILE's `limits` back when it leaves
+--- scope, so a failed assertion leaves neither behind for the next test.
+local record Restored
+  fds: {integer}
+  limits: sys.Limits
+  metamethod __close: function(Restored)
+end
+
+local restored_mt: metatable<Restored> = {
+  __close = function(r: Restored)
+    for _, fd in ipairs(r.fds) do sys.close(fd) end
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, r.limits.soft, r.limits.hard))
+  end,
+}
+
 local function test_poll_watches_past_a_thousand_descriptors()
+  local wanted <const> = 1100
+  local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  local held <close> = setmetatable({ fds = {}, limits = limits } as Restored, restored_mt)
+  -- Room for the copies beside whatever the worker holds open already.
+  local room = math.min(wanted + 256, limits.hard)
+  if limits.soft < room then assert(sys.setrlimit(sys.RLIMIT_NOFILE, room, limits.hard)) end
   local ends = assert(process.pipe())
+  held.fds[1], held.fds[2] = ends.reader, ends.writer
   assert(sys.write(ends.writer, "x") == 1)
-  local fds: {integer} = { ends.reader }
-  local events: {integer} = { sys.POLLIN }
-  local copies = 0
-  while #fds < 1100 do
-    local copy = sys.dup(ends.reader)
+  local fds: {integer} = {}
+  local events: {integer} = {}
+  local trouble: string
+  while #fds < wanted do
+    local copy: integer
+    copy, trouble = sys.dup(ends.reader)
     if copy == nil then break end
     fds[#fds + 1] = copy
-    events[#events + 1] = sys.POLLIN
-    copies = copies + 1
-  end
-  while #fds < 1100 do
-    fds[#fds + 1] = ends.reader
+    held.fds[#held.fds + 1] = copy
     events[#events + 1] = sys.POLLIN
   end
+  assert(#fds == wanted, #fds .. " copies under a hard limit of " .. limits.hard ..
+    ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
-  -- TODO: raise RLIMIT_NOFILE's soft limit past 1101 first, once
-  -- cosmic.sys carries getrlimit and setrlimit, so a host with a low one
-  -- gives the kernel past 1024 descriptors too.
-  local revents, trouble = sys.poll(fds, events, 0)
-  for i = 2, copies + 1 do sys.close(fds[i]) end
-  sys.close(ends.reader)
-  sys.close(ends.writer)
-  assert(revents ~= nil, trouble)
-  assert(#revents == 1101, "one answer per descriptor, not " .. #revents)
-  for i = 1, 1100 do
+  local revents, failure = sys.poll(fds, events, 0)
+  assert(revents ~= nil, failure)
+  assert(#revents == wanted + 1, "one answer per descriptor, not " .. #revents)
+  for i = 1, wanted do
     assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
   end
-  assert(revents[1101] == 0, "an unwatched descriptor answered " .. revents[1101])
+  assert(revents[wanted + 1] == 0, "an unwatched descriptor answered " .. revents[wanted + 1])
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32

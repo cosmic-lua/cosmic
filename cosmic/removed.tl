@@ -193,6 +193,8 @@ local module: Module = {
       "mtime_ns), which takes each time as seconds and nanoseconds and leaves one " ..
       "whose seconds are nil as it is (" .. sys .. "), or Fs.set_mtime(path, " ..
       "seconds, ns) (" .. fs .. ")",
+    ["cosmic.sys.EBUSY"] = "compare sys.errno_name(errno) with \"EBUSY\", the errno's " ..
+      "name on every system (" .. sys .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..

@@ -16,6 +16,7 @@
 #include <signal.h>
 #include <stdatomic.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #if defined(__linux__)
@@ -147,6 +148,27 @@ COSMIC_SYSCALL(getuid, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(getgid, 0) {
+  lua_pushinteger(L, (lua_Integer)getgid());
+  return 1;
+}
+
+COSMIC_SYSCALL(getgroups, 0) {
+  int count = getgroups(0, NULL);
+  if (count < 0) return cosmic_fail(L, errno);
+  /* A block Lua owns, so a refused allocation after it leaks nothing.
+   * A size of 0 would ask the count again, not list none. */
+  gid_t *groups = lua_newuserdatauv(L, (size_t)count * sizeof *groups, 0);
+  int listed = count > 0 ? getgroups(count, groups) : 0;
+  if (listed < 0) return cosmic_fail(L, errno);
+  lua_createtable(L, listed, 0);
+  for (int i = 0; i < listed; i++) {
+    lua_pushinteger(L, (lua_Integer)groups[i]);
+    lua_rawseti(L, -2, i + 1);
+  }
+  return 1;
+}
+
 COSMIC_SYSCALL(dumpable, 1) {
 #if defined(__linux__)
   if (!lua_isnoneornil(L, 1)) {
@@ -237,6 +259,41 @@ COSMIC_SYSCALL(umask, 1) {
   luaL_argcheck(L, mask >= 0 && mask <= 0777, 1, "the mask is not permission bits");
   lua_pushinteger(L, (lua_Integer)umask((mode_t)mask));
   return 1;
+}
+
+/* A limit as Lua holds it: none (RLIM_INFINITY, all ones on Linux, which
+ * no integer holds) as math.maxinteger, the largest integer Lua holds and
+ * RLIM_INFINITY itself on macOS. A finite limit at or past it, which only
+ * Linux can hold, reads as none too, since no integer tells it apart. */
+static lua_Integer limit_value (rlim_t limit) {
+  if (limit == RLIM_INFINITY || limit >= (rlim_t)LUA_MAXINTEGER) return LUA_MAXINTEGER;
+  return (lua_Integer)limit;
+}
+
+/* The limit argument `index` gives, math.maxinteger for none. */
+static rlim_t check_limit (lua_State *L, int index) {
+  lua_Integer value = luaL_checkinteger(L, index);
+  luaL_argcheck(L, value >= 0, index, "a limit is not negative");
+  return value == LUA_MAXINTEGER ? RLIM_INFINITY : (rlim_t)value;
+}
+
+COSMIC_SYSCALL(getrlimit, 1) {
+  int resource = cosmic_checkint(L, 1);
+  struct rlimit limits;
+  if (getrlimit(resource, &limits) != 0) return cosmic_fail(L, errno);
+  lua_createtable(L, 0, 2);
+  lua_pushinteger(L, limit_value(limits.rlim_cur));
+  lua_setfield(L, -2, "soft");
+  lua_pushinteger(L, limit_value(limits.rlim_max));
+  lua_setfield(L, -2, "hard");
+  return 1;
+}
+
+COSMIC_SYSCALL(setrlimit, 3) {
+  int resource = cosmic_checkint(L, 1);
+  struct rlimit limits = { .rlim_cur = check_limit(L, 2), .rlim_max = check_limit(L, 3) };
+  if (setrlimit(resource, &limits) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
 }
 
 static const char *plain_string (lua_State *L, int index, const char *what) {
@@ -2275,6 +2332,15 @@ COSMIC_SYSCALL(spawn, 10) {
   /* Move both ends clear of every descriptor the child is handed, so
    * closed parent stdio cannot make a pipe end collide with the
    * remapping below. */
+  /* TODO: a soft RLIMIT_NOFILE below about 300 refuses every relaunch
+   * of this program with a bare EINVAL: a relaunch hands the child
+   * descriptor 255 (cosmic/proc.tl's CORE_FD), so these ends, and the
+   * descriptors the child moves above its own (the pinned and confining
+   * ones, and [`raise_descriptor`]'s), go to 257 and up, which F_DUPFD refuses past the soft limit (EINVAL at it,
+   * EMFILE just under it) -- as at macOS's default `ulimit -n` of 256.
+   * Raise the soft limit toward the hard one at the start of a process
+   * that relaunches, as Go's runtime does, through sys.setrlimit; or at
+   * least fail naming the descriptor past RLIMIT_NOFILE's soft limit. */
   int promote_error = 0;
   int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
   if (status_read < 0) promote_error = errno;
