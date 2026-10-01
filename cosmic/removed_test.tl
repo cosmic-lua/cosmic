@@ -131,6 +131,17 @@ local function test_the_sqlite_options_name_each_old_boolean_call()
     and instead:find("nothing for `false`", 1, true), instead)
 end
 
+--- A program that made a raw pipe for a child's stdin is told to use
+--- `stdin = "stream"` and `h.stdin_stream`, never the `"pipe"` mode.
+local function test_the_removed_raw_pipe_names_the_stdin_stream()
+  for _, member in ipairs({ "pipe", "Pipe", "ignore_sigpipe" }) do
+    local instead = Removed.members["cosmic.sys." .. member]
+    assert(instead ~= nil and instead:find('stdin = "stream"', 1, true) and
+      not instead:find('"pipe"', 1, true), member)
+  end
+  assert(Removed.members["cosmic.sys.pipe"]:find("h.stdin_stream", 1, true))
+end
+
 --- A program that called a removed calendar function or type is told what
 --- replaced it: `between` for the two counts, `local_zone` for a TZ string,
 --- `Duration` and `AddOptions` for the records.

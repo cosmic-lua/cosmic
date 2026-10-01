@@ -260,27 +260,32 @@ function Prerelease.publish_context(env: {string:string}): Prerelease.Publish
 end
 
 --- Runs gh with `args`, stdin empty, its stderr this process's. Its
---- stdout is captured when `stdout` is "capture", else "inherit" or
---- "null". The result, whatever gh answered.
-local function gh_run(p: Prerelease.Publish, args: {string}, stdout: string): Child.Result
+--- stdout is captured when `capture`, else this process's. The result,
+--- whatever gh answered.
+local function gh_run(p: Prerelease.Publish, args: {string}, capture: boolean): Child.Result
   local argv: {string} = { p.gh }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local result, trouble = Child.run(argv, { env = p.env, stdin = "null",
-    stdout = stdout, capture_limit = capture_limit })
+  local options: Child.Options = { env = p.env, stdin = "null", capture_limit = capture_limit }
+  -- A branch for each mode, which a literal in the field's own type
+  -- names, rather than a mode chosen in a `string`: the release this
+  -- tree's tests run on takes `stdout` as a string, and the tree's own
+  -- as an enum.
+  if capture then options.stdout = "capture" else options.stdout = "inherit" end
+  local result, trouble = Child.run(argv, options)
   assert(result ~= nil, "gh " .. args[1] .. ": " .. trouble)
   assert(not result.truncated, "gh " .. args[1] .. ": output past the capture limit")
   return result
 end
 
 --- Runs gh with `args`, which must succeed; its stdout, when captured.
-local function gh(p: Prerelease.Publish, args: {string}, stdout?: string): string
-  local result = gh_run(p, args, stdout or "inherit")
+local function gh(p: Prerelease.Publish, args: {string}, capture?: boolean): string
+  local result = gh_run(p, args, capture or false)
   assert(result.ok, "gh " .. table.concat(args, " ") .. " failed")
   return result.stdout or ""
 end
 
 local function gh_object(p: Prerelease.Publish, args: {string}): {string:any}
-  local text = gh(p, args, "capture")
+  local text = gh(p, args, true)
   local value, why = Json.decode_object(text)
   assert(value ~= nil, "gh " .. table.concat(args, " ") .. ": no JSON object: " .. why)
   return value
@@ -290,7 +295,7 @@ end
 --- an HTTP 404 and nothing else. Every other failure, a transport error
 --- or another status, raises, so it can never lead to creating anything.
 local function api_probe(p: Prerelease.Publish, endpoint: string): boolean
-  local result = gh_run(p, { "api", "--include", endpoint }, "capture")
+  local result = gh_run(p, { "api", "--include", endpoint }, true)
   if result.ok then return true end
   local status = Prerelease.http_status(result.stdout or "")
   assert(status == "404", "gh api " .. endpoint .. " failed (HTTP status " ..
@@ -365,7 +370,7 @@ local function ensure_tag(p: Prerelease.Publish): boolean
   if not api_probe(p, "repos/" .. p.repository .. "/git/ref/tags/" .. tag) then
     local made = gh_run(p, { "api", "--include", "--method", "POST",
       "repos/" .. p.repository .. "/git/refs", "-f", "ref=refs/tags/" .. tag,
-      "-f", "sha=" .. p.commit }, "capture")
+      "-f", "sha=" .. p.commit }, true)
     if not made.ok then
       local status = Prerelease.http_status(made.stdout or "")
       local body = made.stdout or ""
@@ -447,7 +452,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   -- The get-by-tag endpoint only promises published releases. Listing
   -- releases with authentication also finds an interrupted draft.
   local ids = Prerelease.release_ids(gh(p, { "api", "--paginate", "--slurp", "--method", "GET",
-    "repos/" .. p.repository .. "/releases?per_page=100" }, "capture"), tag)
+    "repos/" .. p.repository .. "/releases?per_page=100" }, true), tag)
   assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
   if #ids == 1 then
     verify_tag(p)

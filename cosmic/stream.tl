@@ -18,8 +18,10 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local sys = require("cosmic.sys")
+local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
+local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 
 -- The raw declaration holds the interface. A declaration may require only
 -- declarations, and Teal's interface conformance is nominal: the raw
@@ -48,6 +50,47 @@ local record Stream
     --- Discards what was written, where that means anything. Safe to
     --- call more than once.
     abort: function(Writer): boolean, string
+  end
+
+  --- How [`Stream.from_fd`] and [`Stream.to_fd`] wait for a descriptor
+  --- that has nothing to read or no room to write. `timeout_ns` and
+  --- `wait` need `nonblocking`: a blocking descriptor cannot be
+  --- waited on in pieces, so asking for either raises.
+  record FdOptions
+    --- That the descriptor is in non-blocking mode (the caller set
+    --- `O_NONBLOCK`): a read that finds nothing, or a write that finds
+    --- no room, waits for the descriptor instead of failing, through
+    --- [`Poll.wait`], so in a task of [`Poll.run`] the other tasks run
+    --- meanwhile.
+    nonblocking: boolean
+    --- The longest one `read` or one `write` waits in all, in
+    --- nanoseconds, from its call; nil for no limit. A call that runs
+    --- out of it fails with [`Poll.TIMEOUT`], and the stream stays
+    --- usable: a read took nothing, and a write says how much it wrote
+    --- (`written` of [`Stream.FdWriter`]). A value outside what [`Poll.checked_ns`]
+    --- allows raises.
+    timeout_ns: integer
+    --- Waits in place of [`Poll.wait`], for a caller that waits on more
+    --- than this descriptor (a supervisor servicing other pipes
+    --- meanwhile). It is called with the descriptor, the events wanted
+    --- ([`sys.POLLIN`] or [`sys.POLLOUT`]) and the time left in
+    --- nanoseconds, nil for no limit, and answers true once the
+    --- descriptor may be ready (the read or write tries again, and
+    --- waits again if it was not), or false and why: [`Poll.TIMEOUT`]
+    --- or [`Poll.CANCELLED`] end the call and leave the stream usable,
+    --- any other why ends the stream for good.
+    wait: function(integer, integer, integer | nil): boolean, string
+  end
+
+  --- What [`Stream.to_fd`] answers: a Writer that counts what the
+  --- descriptor took.
+  record FdWriter is Writer
+    --- How many bytes the descriptor has taken from this Writer in all,
+    --- those of a write that then failed included: after a write that
+    --- fails with [`Poll.TIMEOUT`], the difference from before it is
+    --- how much of that write went, and `data:sub(went + 1)` what is
+    --- left to write.
+    written: function(FdWriter): integer
   end
 
   --- An in-memory Writer that also hands back everything written to it.
@@ -265,7 +308,36 @@ function Stream.from_string(s: string): Stream.Reader
   return r
 end
 
-local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
+--- `opts` as [`Stream.from_fd`] and [`Stream.to_fd`] take them, checked,
+--- raising at `level` above the caller of this function's caller.
+local function fd_options(opts: Stream.FdOptions | nil, level: integer): Stream.FdOptions
+  if opts == nil then return {} end
+  Poll.checked_ns(opts.timeout_ns, "timeout_ns", level + 1)
+  if (opts.timeout_ns ~= nil or opts.wait ~= nil) and not opts.nonblocking then
+    error("timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
+      "cannot be waited on in pieces", level + 1)
+  end
+  -- A copy, so a field set after this check cannot go past it.
+  return { nonblocking = opts.nonblocking, timeout_ns = opts.timeout_ns, wait = opts.wait }
+end
+
+--- Waits for `fd` to have `events` until `deadline` (nil for no limit),
+--- through the caller's `wait` or [`Poll.wait`].
+local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
+    deadline: integer | nil): boolean, string
+  local left: integer = nil
+  if deadline ~= nil then left = math.max(deadline - Time.monotonic_ns(), 0) end
+  if opts.wait ~= nil then return opts.wait(fd, events, left) end
+  return Poll.wait(fd, events, left)
+end
+
+--- Whether a failed wait leaves its stream as it was: a deadline or a
+--- cancelled task took nothing, so the call may be made again.
+local function resumable(why: string): boolean
+  return why == Poll.TIMEOUT or why == Poll.CANCELLED
+end
+
+local function make_fd_reader(fd: integer, owned: boolean, opts: Stream.FdOptions): Stream.Reader
   -- `ended` is a clean end of file (reads keep answering it); `closed`
   -- is an explicit close (reads fail); `failed` is a sticky error.
   local ended = false
@@ -282,17 +354,27 @@ local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
     if failed then return nil, failed end
     if closed then return nil, closed_message end
     if ended then return nil, "" end
-    local data, trouble = Fs.take(fd, max or chunk_size)
-    if data == nil then
-      failed = trouble ~= "" and trouble or "stream: read failed"
-      return nil, failed
+    local deadline: integer = nil
+    if opts.timeout_ns ~= nil then deadline = Time.monotonic_ns() + opts.timeout_ns end
+    while true do
+      local data, trouble, errno = sys.read(fd, max or chunk_size)
+      if data ~= nil then
+        if #data > 0 then return data, "" end
+        ended = true
+        local _, _ = release()
+        return nil, ""
+      end
+      if not (opts.nonblocking and (errno == sys.EAGAIN or errno == sys.EINTR)) then
+        failed = trouble ~= "" and trouble or "stream: read failed"
+        return nil, failed
+      end
+      local ready, why = wait_for(fd, sys.POLLIN, opts, deadline)
+      if not ready then
+        if resumable(why) then return nil, why end
+        failed = why
+        return nil, failed
+      end
     end
-    if #data == 0 then
-      ended = true
-      local _, _ = release()
-      return nil, ""
-    end
-    return data, ""
   end
   r.close = function(_self: Stream.Reader): boolean, string
     if closed then return true, "" end
@@ -337,8 +419,18 @@ end
 --- closed at end of file or by `close`; use [`Stream.open`] for a
 --- Reader that owns the file it reads. Over a regular file the Reader
 --- can `skip`.
-function Stream.from_fd(fd: integer): Stream.Reader
-  return make_fd_reader(fd, false)
+---
+--- Over a descriptor in non-blocking mode, `opts.nonblocking` makes a
+--- read that finds nothing wait for data, as [`Stream.FdOptions`] says,
+--- and `opts.timeout_ns` bounds that wait: the read then fails with
+--- [`Poll.TIMEOUT`], and may be called again. A deadline or a cancelled
+--- task is the one failure that is not sticky.
+---
+---     local r = Stream.from_fd(fd, { nonblocking = true, timeout_ns = Time.ms(50) })
+---     local chunk, why = r:read()
+---     if chunk == nil and why == Poll.TIMEOUT then print("nothing for 50 ms") end
+function Stream.from_fd(fd: integer, opts?: Stream.FdOptions): Stream.Reader
+  return make_fd_reader(fd, false, fd_options(opts, 2))
 end
 
 --- A Reader over a file at `path`, which it closes at end of file or
@@ -347,7 +439,7 @@ end
 function Stream.open(path: string): Stream.Reader | nil, string
   local fd, trouble = Fs.open_read(path)
   if fd == nil then return nil, trouble end
-  return make_fd_reader(fd, true), ""
+  return make_fd_reader(fd, true, {}), ""
 end
 
 --- Whether `t` holds output back, which `update("")` gives out; a
@@ -740,13 +832,72 @@ end
 
 --- A Writer over an already-open descriptor. The descriptor is not
 --- closed by this Writer's `close`; `abort` cannot take back what
---- already reached it.
-function Stream.to_fd(fd: integer): Stream.Writer
+--- already reached it. A `write` goes out whole: it writes until every
+--- byte has gone, or fails. A failure is sticky, every later write
+--- answering it, but for a deadline or a cancelled task, which leave
+--- the Writer as it was, and for no room on a descriptor not declared
+--- `nonblocking`, which a later write may find. A write a signal
+--- interrupts is tried again.
+---
+--- Over a descriptor in non-blocking mode, `opts.nonblocking` makes a
+--- write that finds no room wait for it, as [`Stream.FdOptions`] says,
+--- and `opts.timeout_ns` bounds the whole call: it fails with
+--- [`Poll.TIMEOUT`] having written part of `data`, which `written`
+--- counts, so the caller can write the rest, or give up knowing how
+--- much of it went.
+---
+---     local w = Stream.to_fd(fd, { nonblocking = true, timeout_ns = Time.seconds(5) })
+---     local ok, why = w:write(body)
+---     if not ok and why == Poll.TIMEOUT then print(w:written() .. " bytes went") end
+function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
+  local options = fd_options(opts, 2)
   local closed = false
-  local w: Stream.Writer = {}
+  local failed: string
+  local went = 0
+  local w: Stream.FdWriter = {}
   w.write = function(_self: Stream.Writer, data: string): boolean, string
     if closed then return false, closed_message end
-    return Fs.put(fd, data)
+    if failed then return false, failed end
+    local deadline: integer = nil
+    if options.timeout_ns ~= nil then deadline = Time.monotonic_ns() + options.timeout_ns end
+    local at = 0
+    while at < #data do
+      -- Handed in pieces, so a body of any size is not copied whole
+      -- each time a descriptor that takes it in parts takes one.
+      local piece = data
+      if #data > chunk_size then piece = data:sub(at + 1, at + chunk_size)
+      elseif at > 0 then piece = data:sub(at + 1) end
+      local put, trouble, errno = sys.write(fd, piece)
+      if put ~= nil then
+        if put == 0 then
+          failed = "write made no progress"
+          return false, failed
+        end
+        at = at + put
+        went = went + put
+      elseif options.nonblocking and (errno == sys.EAGAIN or errno == sys.EINTR) then
+        local ready, why = wait_for(fd, sys.POLLOUT, options, deadline)
+        if not ready then
+          if resumable(why) then return false, why end
+          failed = why
+          return false, failed
+        end
+      elseif errno == sys.EINTR then
+        -- A blocking write a signal interrupted before it took a byte
+        -- is tried again; one that took some has returned them.
+      elseif errno == sys.EAGAIN then
+        -- A descriptor the caller made non-blocking without saying so:
+        -- no room now, which a later write may find.
+        return false, trouble
+      else
+        failed = trouble
+        return false, failed
+      end
+    end
+    return true, ""
+  end
+  w.written = function(_self: Stream.FdWriter): integer
+    return went
   end
   w.close = function(_self: Stream.Writer): boolean, string
     closed = true

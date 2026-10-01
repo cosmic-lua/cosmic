@@ -65,7 +65,7 @@ print(sys.flock(fd, "exclusive") and "taken" or "refused")
 --- ends, by default), and the first line it printed.
 local function start(script: string, root: string, hold_ns?: integer): Child.Handle, string
   local started = this_program.program({ "-e", script:format(root, hold_ns or -1) },
-    { stdin = "pipe", stdout = "stream" })
+    { stdin = "stream", stdout = "stream" })
   local child = assert(Child.start(started.argv, started.options))
   local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read()
   assert(line ~= nil, trouble)
@@ -74,7 +74,7 @@ end
 
 --- Lets `child` go and waits for it to exit.
 local function finish(child: Child.Handle)
-  assert(child:close_stdin())
+  assert(assert(child.stdin_stream):close())
   local result = assert(child:wait(Time.seconds(30)))
   assert(result.ok, result.stderr)
 end

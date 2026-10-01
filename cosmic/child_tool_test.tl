@@ -209,16 +209,15 @@ end
   assert(not sys.kill(descendant, 0))
 end
 
---- A caller writing to a `stdin = "pipe"` child that has gone gets
+--- A caller writing to a `stdin = "stream"` child that has gone gets
 --- EPIPE, not SIGPIPE: the write fails and this process lives on. Run
 --- in a relaunched process, since one that already ignores SIGPIPE (a
 --- test runner that fed some child `input`) has no case to show.
-local function test_writing_to_a_gone_stdin_pipe_fails_instead_of_ending(tmp: string)
+local function test_writing_to_a_gone_stdin_stream_fails_instead_of_ending(tmp: string)
   if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
   local script = tmp .. "/writes.tl"
   assert(Fs.write(script, [[
 local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 return function(): integer
   -- The child closes its end of the pipe and lingers; writing a chunk
@@ -227,11 +226,12 @@ return function(): integer
   local argv = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = "require('cosmic.sys').close(0) require('cosmic.time').sleep_ns(5000000000)"
-  local h = assert(Child.start(argv, { stdin = "pipe", env = relaunch.env, fds = relaunch.fds }))
+  local h = assert(Child.start(argv, { stdin = "stream", env = relaunch.env, fds = relaunch.fds }))
+  local stdin = assert(h.stdin_stream)
   local chunk = string.rep("x", 1 << 20)
   local ok, trouble = true, ""
   for _ = 1, 8 do
-    ok, trouble = Fs.put(h.stdin as integer, chunk)
+    ok, trouble = stdin:write(chunk)
     if not ok then break end
   end
   print(tostring(ok) .. " " .. trouble)

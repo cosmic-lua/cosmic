@@ -271,14 +271,24 @@ local function test_more_descriptors_by_number(tmp: string)
   assert(assert(Fs.read(path)) == "five")
 end
 
-local function test_stdin_pipe_belongs_to_the_caller()
-  local h = assert(Child.start(lua(CAT, nil, { stdin = "pipe", stdout = "capture" })))
-  assert(h.stdin ~= nil)
-  assert(Fs.put(h.stdin as integer, "typed"))
-  assert(h:close_stdin())
-  assert(not h:close_stdin())
+--- The caller's stdin stream, with the output captured for the Result.
+local function test_stdin_stream_belongs_to_the_caller()
+  local h = assert(Child.start(lua(CAT, nil, { stdin = "stream", stdout = "capture" })))
+  local stdin = assert(h.stdin_stream)
+  assert(stdin:write("typed"))
+  assert(stdin:close())
+  assert(stdin:close())
   local r = assert(h:wait(Time.seconds(5)))
   assert(r.ok and r.stdout == "typed")
+end
+
+--- A start with `stdin = "pipe"` raises, and the message names the
+--- stream and `input` to use instead.
+local function test_a_stdin_pipe_names_the_stream_to_use()
+  local ok, trouble = pcall(Child.start, { "/bin/sh" }, { stdin = "pipe" } as Child.Options)
+  assert(not ok and tostring(trouble):find('"stream"', 1, true) ~= nil and
+    tostring(trouble):find("stdin_stream", 1, true) ~= nil, tostring(trouble))
+  assert(not pcall(Child.run, { "/bin/sh" }, { stdin = "pipe" } as Child.Options))
 end
 
 local function read_all(reader: Stream.Reader): string
@@ -294,7 +304,7 @@ local function test_streams_are_read_and_written_while_the_child_runs()
     'Fs.put(1, "second-" .. x)', nil, { stdin = "stream", stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
   local stdin = assert(h.stdin_stream)
-  assert(h.stdin == nil and h.stderr_stream == nil)
+  assert(h.stderr_stream == nil)
   assert(assert(stdout:read()) == "first")
   assert(stdin:write("go\n"))
   assert(stdin:close())

@@ -77,7 +77,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     local fds: {integer:integer | string} = { [3] = 1, [4] = "capture" }
     local sandbox: Child.Sandbox = { offline = true }
     -- Every field of [`Child.Options`], so one the copy drops fails.
-    local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "pipe", input = "bytes",
+    local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "stream", input = "bytes",
       stdout = "capture", stderr = "stdout", fds = fds, capture_limit = 9,
       process_group = true, timeout_ns = Time.ms(5), sandbox = sandbox }
     local opts = this_program.program({}, given).options
@@ -88,7 +88,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
       opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
     assert(opts.fds[3] == 1 and opts.fds[4] == "capture" and opts.fds[254] == 7 and
       opts.fds[255] == 8)
-    assert(opts.cwd == "/somewhere" and opts.stdin == "pipe" and opts.stdout == "capture" and
+    assert(opts.cwd == "/somewhere" and opts.stdin == "stream" and opts.stdout == "capture" and
       opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
       opts.timeout_ns == Time.ms(5) and opts.sandbox == sandbox)
     assert(given.env == env and given.fds == fds)

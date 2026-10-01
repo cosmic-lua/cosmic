@@ -262,6 +262,27 @@ become an enum beside the integer. child's end-of-life chain (`terminate`,
 deadline_ns)` with one caller, removing the double pcall in `run`
 (child.tl:1697). [`Fs.read`] and `copy_bytes` (fs.tl:626) read through
 [`Stream.copy`]; [`Stream.read_all`] is the one read-to-end loop.
+what landed: [`Stream.from_fd`] and [`Stream.to_fd`] take `{ nonblocking,
+timeout_ns, wait }` (`timeout_ns` and `wait` need `nonblocking`: a blocking
+descriptor cannot be waited on in pieces); a write goes out whole and fails
+with [`Poll.TIMEOUT`] having said how much went through the Writer's
+`written()`, as a reason carries no count; `wait` replaces [`Poll.wait`] for a
+caller that services other descriptors meanwhile. Child's stdin stream is
+[`Stream.to_fd`] over the pipe with that `wait` (`feed_writer`'s loop, and
+`pump`'s `writable` argument, are gone), `pump` is a list of `{ fd, events,
+owner, kind }` entries with one service per kind, the end-of-life chain is
+`end_child(h)` (no `deadline_ns`: every caller wants the grace
+period, and a wait that is not a wait for the exit is another loop) under a
+safety net, `end_or_kill`, that SIGKILLs and reaps where the ending raises, `"pipe"`
+and `close_stdin` are gone, and the three options are enums beside the
+integer. Left, each a `TODO:`: a streamed output stays a queue read by
+`pipe_reader`, since handing the caller [`Stream.from_fd`] over the bare pipe
+ends the service of one output while another is read (the full-stderr and
+full-stdout tests); [`Net.Conn`]'s `read`/`write` stay (net.tl's `waited`);
+[`Fs.read`] and `copy_bytes` stay, as [`cosmic.fs`] is a harness module that
+may not require [`cosmic.stream`]. So the write-whole loops
+are not one: `Fs.write_all` (behind [`Fs.put`] and [`Fs.write`]),
+[`Stream.to_fd`], net's [`Conn.write`] and child's `input` service remain.
 
 **PR 12 `net: one address, no supervisor`** (after PR 11).
 `raw_socket.Address` is [`Net.Address`] (the four fields net.tl:561 copies
@@ -403,6 +424,7 @@ description.
 [`Compress.deflate`]: ../../cosmic/compress.tl
 [`Compress.inflate`]: ../../cosmic/compress.tl
 [`Compress.Stream`]: ../../cosmic/compress.tl
+[`Conn.write`]: ../../cosmic/net.tl
 [`Conn:peer`]: ../../cosmic/net.tl
 [`Conn:writer`]: ../../cosmic/net.tl
 [`core/allocation_test.tl`]: ../../core/allocation_test.tl
@@ -411,6 +433,7 @@ description.
 [`cosmic.csv`]: ../../cosmic/csv.tl
 [`cosmic.entrypoint`]: ../../cosmic/entrypoint.tl
 [`cosmic.errno`]: ../../cosmic/errno.tl
+[`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.http`]: ../../cosmic/http.tl
 [`cosmic.internal.http`]: ../../cosmic/internal/http.d.tl
 [`cosmic.internal.store`]: ../../cosmic/internal/store.d.tl
@@ -433,6 +456,7 @@ description.
 [`Flags.help`]: ../../cosmic/flags.tl
 [`Flags.Parsed`]: ../../cosmic/flags.tl
 [`Fs.cache_path`]: ../../cosmic/fs.tl
+[`Fs.put`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.truncate`]: ../../cosmic/fs.tl
 [`Fs.walk`]: ../../cosmic/fs.tl
@@ -446,6 +470,7 @@ description.
 [`ListenOptions.reclaim`]: ../../cosmic/net.tl
 [`Net.Address`]: ../../cosmic/net.tl
 [`Net.Conn.read`]: ../../cosmic/net.tl
+[`Net.Conn`]: ../../cosmic/net.tl
 [`Net.pair`]: ../../cosmic/net.tl
 [`Net.serve`]: ../../cosmic/net.tl
 [`Net.tcp`]: ../../cosmic/net.tl
@@ -479,6 +504,7 @@ description.
 [`Stream.hashing`]: ../../cosmic/stream.tl
 [`Stream.read_all`]: ../../cosmic/stream.tl
 [`Stream.tee`]: ../../cosmic/stream.tl
+[`Stream.to_fd`]: ../../cosmic/stream.tl
 [`Stream.transform_writer`]: ../../cosmic/stream.tl
 [`Stream.Transform`]: ../../cosmic/stream.tl
 [`String.trim`]: ../../cosmic/string.tl
