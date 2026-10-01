@@ -1201,7 +1201,8 @@ local record Recording
   epoch: string
   timeout_ns: integer
   --- The program a test that runs this program runs
-  --- ([`declared_key.program_identity`]).
+  --- ([`declared_key.program_identity`]), worked out once a key needs
+  --- it ([`program_of`]).
   program: string
   --- The digest of the code that writes a closure store ([`Harness`]),
   --- and the set of the modules of the tree the binary carries, which
@@ -1425,6 +1426,18 @@ end
 --- (defined with the stores, below).
 local store_digest: function(rec: Recording, m: importer.Module): string | nil, string
 
+--- The program a test that runs this program runs
+--- ([`Recording.program`]), worked out the first time a key holds it.
+--- Digesting the program reads every row its database carries, some
+--- 0.2 s, which a run none of whose tests runs it need not spend.
+local function program_of(rec: Recording): string
+  if rec.program == nil then
+    rec.tool = rec.tool or confine.itself()
+    rec.program = declared_key.program_identity(rec.digests, rec.tool)
+  end
+  return rec.program
+end
+
 --- A sandboxed test's key, over its declared inputs as they are now
 --- ([`build.declared_key`]): nil for one that reads a link out of the
 --- tree, which no key holds, said once in `rec.unkeyed`.
@@ -1445,6 +1458,7 @@ local store_digest: function(rec: Recording, m: importer.Module): string | nil, 
 -- checkout gave it, and stands on a sibling's verdict where they differ.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
+  local runs_tool = tool_use(rec, m) == "allowed"
   local store, store_trouble = store_digest(rec, m)
   if store == nil and store_trouble ~= "" then
     rec.unkeyed[m.path] = store_trouble
@@ -1456,10 +1470,12 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     host = rec.sandbox and test_sandbox.worker_user(effective) ~= nil and rec.worker_host or
       rec.host,
     system = rec.system,
-    epoch = rec.epoch, timeout_ns = rec.timeout_ns, program = rec.program,
+    epoch = rec.epoch, timeout_ns = rec.timeout_ns,
+    -- Held only where the key holds the program ([`declared_key.compute`]).
+    program = (effective.tool or runs_tool) and program_of(rec) or nil,
     launcher = rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
-    environment = view_of(rec, m), runs_tool = tool_use(rec, m) == "allowed",
+    environment = view_of(rec, m), runs_tool = runs_tool,
     closure_store = store,
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
     tree = not rec.sandbox and rec.root or nil,
@@ -2889,7 +2905,6 @@ local function run(argv: {integer:string}): integer
   end
   rec.system = declared_key.system_identity(rec.digests, nil, holds_system)
   rec.tool = rec.tool or confine.itself()
-  rec.program = declared_key.program_identity(rec.digests, rec.tool)
   -- The runtime identity holds the core an artifact selects, not the
   -- launcher and manifest that selected it, which a test that does
   -- not run the program is keyed by nowhere else.
@@ -2965,8 +2980,8 @@ local function run(argv: {integer:string}): integer
     for _, m in ipairs(selected_modules) do
       if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end
     end
-    if runs_tool and rec.program ~= nil then
-      parts[#parts + 1] = { "program", rec.program:sub(1, 12) }
+    if runs_tool then
+      parts[#parts + 1] = { "program", program_of(rec):sub(1, 12) }
     end
     rec.owed.parts = shared_verdicts.named(parts)
   end
