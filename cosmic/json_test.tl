@@ -741,10 +741,32 @@ local function test_members_lists_what_a_walk_visits()
   local array = Json.members({ "x", "y" })
   assert(array.layout == "array" and #array.keys == 0 and array.extent == 2, "no key list for an array")
   local holed = Json.members(decoded("[1, null, null, 4, null]") as {any: any})
-  assert(holed.layout == "array" and #holed.keys == 0 and holed.extent == 4, "a decoded array's extent")
+  assert(holed.layout == "array" and holed.extent == 4, "a decoded array's extent")
+  assert(#holed.keys == 0, "a marked array's keys are listed only when asked")
+  local holed_keys = Json.members(decoded("[1, null, null, 4, null]") as {any: any}, true).keys
+  assert(#holed_keys == 2 and holed_keys[1] == 1 and holed_keys[2] == 4, "a marked array's keys, past a gap")
+  local dense = Json.members(decoded("[1, 2]") as {any: any})
+  assert(#dense.keys == 0 and dense.extent == 2, "a marked array with no gap lists no keys")
   local mixed = Json.members({ 1, a = 2 })
   assert(mixed.layout == "mixed" and #mixed.keys == 0 and mixed.extent == 0)
   assert(Json.members(Json.array()).extent == 0)
+  -- A marked array that holds a key no array has is mixed, as `encode`
+  -- refuses it, and only a request for gaps lists a gap's keys.
+  for _, stray in ipairs({ "x", 0, -1, 1.5, true } as {any}) do
+    local odd: {any: any} = Json.array({ 1 }) as {any: any}
+    odd[stray] = 2
+    local m = Json.members(odd)
+    assert(m.layout == "mixed" and #m.keys == 0 and m.extent == 0, tostring(stray))
+  end
+  assert(#Json.members(decoded("[1, null, 3]") as {any: any}).keys == 0, "no gap keys unless asked")
+  assert(#Json.members(decoded("[1, null, 3]") as {any: any}, true).keys == 2)
+  -- `rawlen` of this table is 3, and its keys are as many, but 5 lies past it.
+  local bordered: {any: any} = { 1, 2, 3 }
+  bordered[2] = nil
+  bordered[5] = 5
+  assert(Json.layout(bordered) == "hole", "a border is not the extent")
+  local far = Json.members(Json.array({ [1 << 40] = 7 } as {any}) as {any: any}, true)
+  assert(far.layout == "array" and far.extent == 1 << 40 and #far.keys == 1)
 end
 
 --- A lookup in a large decoded array is direct, not a scan of it: a scan

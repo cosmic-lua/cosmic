@@ -198,17 +198,6 @@ local function test_one_of_admits_only_its_values()
   assert(not pcall(Shape.one_of))
 end
 
-local function test_either_takes_the_first_choice_that_fits()
-  local names = Shape.either(Shape.string, Shape.list(Shape.string))
-  local one: string = must(Shape.into("a", names))
-  assert(one == "a")
-  local many: {string} = must(Shape.into({ "a", "b" }, names))
-  assert(many[2] == "b")
-  fails(true, names, "$: expected string or list, got boolean")
-  -- A choice that failed inside the value says more than the union does.
-  fails({ "a", 2 }, names, "$[2]: expected string, got integer")
-end
-
 local function test_any_passes_the_value_through()
   local t = {}
   local v: any = must(Shape.into({ x = t }, Shape.record({ x = Shape.any })))
@@ -233,34 +222,13 @@ end
 local function test_a_spec_not_built_here_raises()
   assert(not pcall(Shape.into, {}, {} as Shape.Spec))
   assert(not pcall(Shape.list, "string" as Shape.Spec))
-  assert(not pcall(Shape.record, { a = { kind = "strig" } as Shape.Spec }))
-  assert(not pcall(Shape.either))
+  assert(not pcall(Shape.record, { a = { kind = "strig" } as any as Shape.Spec }))
 end
 
---- Each failure `failures` lists, as its message, checked to start
---- with its path and to hold `into`'s reason.
-local function all_fail(value: any, spec: Shape.Spec): {string}
-  local v, err: any, string = Shape.into(value, spec)
-  assert(v == nil, "expected a failure")
-  local messages: {string} = {}
-  local held = false
-  for i, f in ipairs(Shape.failures(value, spec)) do
-    assert(f.message:sub(1, #f.path + 2) == f.path .. ": ", f.message)
-    messages[i] = f.message
-    held = held or f.message == err
-  end
-  assert(held, "into's reason is not among the failures: " .. err)
-  return messages
-end
-
-local function same(got: {string}, want: {string})
-  local g, w = table.concat(got, "\n"), table.concat(want, "\n")
-  assert(g == w, ("wanted\n%s\ngot\n%s"):format(w, g))
-end
-
--- A config file's author sees every mistake at once, in the order the
--- walk meets them, while `into` still answers only the first.
-local function test_failures_names_every_value_that_does_not_fit()
+-- `into` answers one failure and not the others: a config with several
+-- mistakes reports the first in the walk's order, a record's fields in
+-- byte order and a list's elements by index.
+local function test_into_answers_only_the_first_of_several_failures()
   local spec = Shape.record({
     host = Shape.string,
     port = Shape.integer,
@@ -273,91 +241,85 @@ local function test_failures_names_every_value_that_does_not_fit()
     rows = { { id = 1 }, { id = "b" }, { id = true } },
     tags = { b = 1, a = "x", c = true },
   }
-  same(all_fail(value, spec), {
-    "$.host: expected string, got nothing",
-    '$.level: expected one of "debug", "info", got "warn"',
-    "$.port: expected integer, got string",
-    "$.rows[1].id: expected string, got integer",
-    "$.rows[3].id: expected string, got boolean",
-    "$.tags.a: expected boolean, got string",
-    "$.tags.b: expected boolean, got integer",
-  })
   fails(value, spec, "$.host: expected string, got nothing")
-  assert(Shape.failures(value, spec)[3].path == "$.port")
+  value.host = "h"
+  fails(value, spec, '$.level: expected one of "debug", "info", got "warn"')
+  value.level = "info"
+  fails(value, spec, "$.port: expected integer, got string")
+  value.port = 8080
+  fails(value, spec, "$.rows[1].id: expected string, got integer")
+  value.rows = { { id = "a" } }
+  fails(value, spec, "$.tags.a: expected boolean, got string")
 end
 
-local function test_failures_is_empty_when_the_value_fits()
-  assert(#Shape.failures({ host = "h", port = 1.0 }, SERVER) == 0)
-  assert(not pcall(Shape.failures, {}, {} as Shape.Spec))
-end
-
--- A value that fails where it stands is one failure, a run of holes
--- is one, and an either answers the choice that got inside the value.
-local function test_failures_keeps_each_failure_to_one_per_value()
-  same(all_fail("text", SERVER), { "$: expected record, got string" })
-  same(all_fail({ [2] = "b", [3] = 3, [6] = "f" }, Shape.list(Shape.string)), {
-    "$[1]: expected string, got nothing",
-    "$[3]: expected string, got integer",
-    "$[4]: expected string, got nothing",
-  })
-  same(all_fail({ [1 << 40] = 1 }, Shape.list(Shape.string)), {
-    "$[1]: expected string, got nothing",
-    ("$[%d]: expected string, got integer"):format(1 << 40),
-  })
-  local names = Shape.either(Shape.string, Shape.list(Shape.string))
-  same(all_fail({ 1, "b", 3 }, names), {
-    "$[1]: expected string, got integer",
-    "$[3]: expected string, got integer",
-  })
-  same(all_fail(true, names), { "$: expected string or list, got boolean" })
-end
-
--- A key a map or list refuses fails it where it stands: every such key
--- is listed, in an order no address decides, and its values are not
--- looked at, so an `either` over it tries its next choice just as
--- `into` does.
-local function test_failures_lists_every_refused_key_and_no_value()
+-- A key a list, map or record refuses fails it where it stands, whatever
+-- its values, and the least such key in an order no address decides is
+-- the one named.
+local function test_a_refused_key_is_named_before_any_value_is_looked_at()
   local bad: {any: any} = { a = 1, [{}] = true, [print] = true, [true] = 1, [10] = 1, [2] = 1, [1.5] = 1 }
-  same(all_fail(bad, Shape.map(Shape.string)), {
-    "$: expected map, got the float key 1.5",
-    "$: expected map, got the integer key 2",
-    "$: expected map, got the integer key 10",
-    "$: expected map, got the boolean key true",
-    "$: expected map, got a function key",
-    "$: expected map, got a table key",
-  })
-  same(all_fail({ "a", x = 1, [0] = 2 }, Shape.list(Shape.integer)), {
-    "$: expected list, got the integer key 0",
-    '$: expected list, got the string key "x"',
-  })
-  local either = Shape.either(Shape.map(Shape.string), Shape.record({ a = Shape.string }))
-  same(all_fail({ a = 1, [2] = "b" }, either), { "$.a: expected string, got integer" })
-  fails({ a = 1, [2] = "b" }, either, "$.a: expected string, got integer")
-  -- With no choice that gets inside, both answer the union, whichever
-  -- key `next` reaches first.
-  local loose = Shape.either(Shape.map(Shape.string), Shape.string)
-  same(all_fail({ a = 1, [2] = "b" }, loose), { "$: expected map or string, got table" })
-  fails({ a = 1, [2] = "b" }, loose, "$: expected map or string, got table")
+  fails(bad, Shape.map(Shape.string), "$: expected map, got the float key 1.5")
+  fails({ a = 1, [10] = 1, [2] = 1 }, Shape.map(Shape.string), "$: expected map, got the integer key 2")
+  local scalar_and_function: {any: any} = { [true] = 1, [print] = 1, a = 1 }
+  fails(scalar_and_function, Shape.map(Shape.string), "$: expected map, got the boolean key true")
+  local function_only: {any: any} = { [print] = 1, a = 1 }
+  fails(function_only, Shape.map(Shape.string), "$: expected map, got a function key")
   fails({ [{}] = 1 }, Shape.map(Shape.string), "$: expected map, got a table key")
+  fails({ "a", x = 1, [0] = 2 }, Shape.list(Shape.integer), "$: expected list, got the integer key 0")
+  fails({ "a", x = 1 }, Shape.list(Shape.integer), '$: expected list, got the string key "x"')
+  local strict = Shape.strict_record({ host = Shape.string, port = Shape.integer })
+  fails({ prot = 1, hots = "h", port = "x", zone = true }, strict, "$.hots: unknown key")
+  fails({ prot = 1, [2] = true, [1] = true }, strict, "$: expected record, got the integer key 1")
+  fails({ nested = { prot = 1, a = 2 } },
+    Shape.record({ nested = Shape.strict_record({ port = Shape.optional(Shape.integer) }) }),
+    "$.nested.a: unknown key")
 end
 
--- A strict record lists every key it does not name, in byte order, and
--- none of its fields; a key that is not a string is refused where the
--- record stands, before any unknown name.
-local function test_failures_lists_every_unknown_key_of_a_strict_record()
-  local spec = Shape.strict_record({ host = Shape.string, port = Shape.integer })
-  same(all_fail({ prot = 1, hots = "h", port = "x", zone = true }, spec), {
-    "$.hots: unknown key",
-    "$.prot: unknown key",
-    "$.zone: unknown key",
-  })
-  same(all_fail({ prot = 1, [2] = true, [1] = true }, spec), {
-    "$: expected record, got the integer key 1",
-    "$: expected record, got the integer key 2",
-  })
-  same(all_fail({ nested = { prot = 1, a = 2 } }, Shape.record({
-    nested = Shape.strict_record({ port = Shape.optional(Shape.integer) }),
-  })), { "$.nested.a: unknown key", "$.nested.prot: unknown key" })
+-- A hole is a missing element however the table came by it: a marked
+-- array that dropped a null, an unmarked table with a gap, and a table
+-- whose length is a border short of its highest index.
+local function test_a_hole_is_a_missing_element_in_every_table_that_has_one()
+  local optional = Shape.list(Shape.optional(Shape.integer))
+  local required = Shape.list(Shape.integer)
+  local decoded = must(Json.decode("[1, null, null, 4, null]"))
+  local l: {integer} = must(Shape.into(decoded, optional))
+  assert(l[1] == 1 and l[2] == nil and l[4] == 4 and #l ~= 5)
+  fails(decoded, required, "$[2]: expected integer, got nothing")
+  -- Keys 1, 3 and 5, with 3 a border of the table.
+  local gappy: {any: any} = { 1, 2, 3 }
+  gappy[2] = nil
+  gappy[5] = 5
+  fails(gappy, required, "$[2]: expected integer, got nothing")
+  local g: {integer} = must(Shape.into(gappy, optional))
+  assert(g[1] == 1 and g[3] == 3 and g[5] == 5)
+  -- A marked array with one far index is walked by its keys.
+  local far: {integer} = must(Shape.into(Json.array({ [1 << 40] = 7 } as {any}), optional))
+  assert(far[1 << 40] == 7)
+  fails(Json.array({ [1 << 40] = 7 } as {any}), required, "$[1]: expected integer, got nothing")
+end
+
+-- A marked array holding a key that is no positive index is refused as
+-- an unmarked table is, and nothing it holds is dropped silently.
+local function test_a_marked_array_with_a_stray_key_is_refused()
+  local optional = Shape.list(Shape.optional(Shape.integer))
+  local function marked(key: any): {any: any}
+    local t: {any: any} = Json.array({ 1 }) as {any: any}
+    t[key] = 2
+    return t
+  end
+  fails(marked("x"), optional, '$: expected list, got the string key "x"')
+  fails(marked(0), optional, "$: expected list, got the integer key 0")
+  fails(marked(-3), optional, "$: expected list, got the integer key -3")
+  fails(marked(1.5), optional, "$: expected list, got the float key 1.5")
+  fails(marked(true), optional, "$: expected list, got the boolean key true")
+end
+
+-- A Spec the module did not build raises, wherever the walk meets it.
+local function test_a_nested_spec_of_unknown_kind_raises_when_met()
+  local broken: {string: any} = { kind = "strig", optional = false }
+  local nested: Shape.Spec = { kind = "list", optional = false, of = broken as Shape.Spec }
+  local ok, err = pcall(Shape.into, { "a" }, nested)
+  assert(not ok and tostring(err):find('a Spec of unknown kind "strig"', 1, true), tostring(err))
+  assert(not pcall(Shape.into, {}, broken as Shape.Spec))
 end
 
 local function test_decode_into_answers_a_record_from_text()
