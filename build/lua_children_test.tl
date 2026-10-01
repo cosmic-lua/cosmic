@@ -1,15 +1,16 @@
---- What a module that declares `lua` ([`cosmic.test`]) starts: this
---- program running a chunk, held to the module's import closure and
---- what `cosmic -e` loads (build/test_inputs.tl's `lua_loads`), whatever
---- environment it is given, and each process it starts in turn -- so a
---- child that reaches for any other module of the program, or runs a
---- verb, fails, naming `lua`, rather than running what no key of its
---- test holds.
+--- What a module that declares `lua` ([`cosmic.test`]) alone starts:
+--- this program running a chunk, held to the module's import closure
+--- and what `cosmic -e` loads (build/test_inputs.tl's `lua_loads`),
+--- whatever environment it is given, and each process it starts in turn
+--- -- so a child that reaches for any other module of the program, runs
+--- a verb, or runs a file `--standalone`, fails, naming `lua`, rather
+--- than running what no key of its test holds. build/lua_standalone_test.tl
+--- holds what one that declares `standalone` beside it starts.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
-local closure_store = require("build.closure_store")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
 
@@ -93,36 +94,33 @@ return failed == 3 and 0 or 1
   assert(ok, out .. err)
 end
 
---- A Teal file runs standalone, checked by the compiler, which build.teal
---- loads beside it (`loaded_beside`): typed against a module of the
---- standard library the test module requires, and running it. One that
---- requires a module outside the closure is refused: the checker, which
---- types it from rows the hold does not let through, finds no such module.
-local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
-  local good = tmp .. "/good.tl"
-  assert(Fs.write(good, "local Child = require(\"cosmic.child\")\n" ..
-    "local ok = type(Child.run) == \"function\"\n" ..
-    "return function(argv: {integer:string}): integer\n" ..
-    "  print(ok, argv[1])\n  return 0\nend\n"))
-  local ok, out, err = run({ "--standalone", good, "word" })
-  assert(ok and out == "true\tword\n", out .. err)
-  local bad = tmp .. "/bad.tl"
-  assert(Fs.write(bad, "local Zip = require(\"cosmic.zip\")\nprint(Zip ~= nil)\n"))
-  ok, out, err = run({ "--standalone", bad })
-  assert(not ok and err:find("module not found: 'cosmic.zip'", 1, true), out .. err)
+--- A file run `--standalone` is refused, naming `standalone`: the
+--- checker it loads is none of `lua_loads`, so a module that declares
+--- `lua` alone is keyed without it, and its child may not load it.
+local function test_a_standalone_file_is_refused_without_standalone(tmp: string)
+  local file = tmp .. "/file.tl"
+  assert(Fs.write(file, "print('ran')\n"))
+  local ok, out, err = run({ "--standalone", file })
+  assert(not ok and out == "", out .. err)
+  assert(err:find(REFUSED, 1, true) and err:find("declare standalone = true beside lua", 1,
+    true), err)
 end
 
---- What a closure store carries beside a module is what a held process
---- may load beside it.
-local function test_what_a_store_carries_beside_a_module_a_child_may_load()
-  local function flat(by: {string:{string}}): string
-    local lines: {string} = {}
-    for name, besides in pairs(by) do
-      lines[#lines + 1] = name .. "=" .. table.concat(besides, ",")
-    end
-    table.sort(lines)
-    return table.concat(lines, " ")
+--- The compiler's identity is refused to a child whose module's closure
+--- holds no reader of it beyond what `lua` adds (build.test_inputs'
+--- `compiler_sought`), as its key leaves it out: build.dispatch, which
+--- reads it, is among `lua_loads` here, so a read the key does not hold
+--- fails rather than being answered, here as in the child. A row every
+--- key holds still reads.
+local function test_the_compilers_identity_is_refused_to_a_child()
+  local read, why = pcall(Store.meta, "compiler")
+  assert(not read and tostring(why):find("Store.meta of \"compiler\" is held", 1, true),
+    tostring(why))
+  for _, row in ipairs({ "compiler", "compiled_by" }) do
+    local ok, out, err = run({ "-e", "print(require('cosmic.store').meta('" .. row .. "'))" })
+    assert(not ok and out == "" and err:find(REFUSED, 1, true) and
+      err:find("does not hold that row", 1, true), row .. ": " .. out .. err)
   end
-  assert(flat(closure_store.loaded_beside) == flat(test_inputs.loaded_beside),
-    flat(closure_store.loaded_beside))
+  local ok, out, err = run({ "-e", "print(require('cosmic.store').meta('main'))" })
+  assert(ok and out == "cmd.cosmic.main\n", out .. err)
 end

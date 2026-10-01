@@ -1,6 +1,7 @@
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local test_inputs = require("build.test_inputs")
+local key_parts = require("build.key_parts")
 local type analyzer = require("build.analyzer")
 local type declared_inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -19,7 +20,8 @@ end
 local function declaring(fields: analyzer.Declared): analyzer.Declared
   return { line = 1, reads = fields.reads or {}, host = fields.host or {},
     env = fields.env or {}, network = fields.network or {},
-    tool = fields.tool == true, lua = fields.lua == true, store = fields.store == true }
+    tool = fields.tool == true, lua = fields.lua == true,
+    standalone = fields.standalone == true, store = fields.store == true }
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
@@ -223,6 +225,9 @@ local function test_canonical_text_names_one_declaration()
   assert(of({ tool = true }) == test_inputs.canonical(declaring({ tool = true })))
   assert(of({ lua = true }) == "lua true" and
     of({ lua = true }) == test_inputs.canonical(declaring({ lua = true })))
+  assert(of({ lua = true, standalone = true }) == "lua true\nstandalone true" and
+    of({ lua = true, standalone = true }) ==
+      test_inputs.canonical(declaring({ lua = true, standalone = true })))
 end
 
 --- A module that declares `lua` holds in its closure each module of the
@@ -252,4 +257,52 @@ local function test_a_lua_closure_holds_what_e_loads_and_no_more()
   for name, one in pairs(by_path) do plain_by_path[name] = plain_by_path[name] or one end
   local without = table.concat(test_inputs.modules(plain, plain_by_path, staged), " ")
   assert(not without:find("build.dispatch", 1, true), without)
+end
+
+--- A module that declares `lua` alone holds none of what `cosmic
+--- --standalone` loads beyond `-e` (`standalone_loads`): an edit to the
+--- checker runs its tests no more, and its children may not load it.
+--- One that declares `standalone` beside it holds each of them too.
+local function test_only_a_standalone_closure_holds_what_standalone_loads()
+  local function names_of(declared: analyzer.Declared): {string:boolean}, test_inputs.Effective
+    local m, by_path = tree(declared)
+    for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
+      for _, name in ipairs(list) do
+        by_path[name] = module(name, name:gsub("%.", "/") .. ".tl", {})
+      end
+    end
+    local held: {string:boolean} = {}
+    for _, name in ipairs(test_inputs.modules(m, by_path, staged)) do held[name] = true end
+    return held, test_inputs.effective(m, by_path, staged)
+  end
+  local chunk, chunk_effective = names_of(declaring({ lua = true }))
+  local both, both_effective = names_of(declaring({ lua = true, standalone = true }))
+  for _, name in ipairs(test_inputs.lua_loads) do assert(chunk[name] and both[name], name) end
+  for _, name in ipairs(test_inputs.standalone_loads) do
+    assert(not chunk[name], name .. " is held by a module that declares lua alone")
+    assert(both[name], name)
+  end
+  assert(not chunk_effective.files["build/teal.tl"] and both_effective.files["build/teal.tl"])
+  assert(not chunk_effective.standalone and both_effective.standalone)
+  -- No module is on both ways' lists: each is held by the narrowest.
+  local on_e: {string:boolean} = {}
+  for _, name in ipairs(test_inputs.lua_loads) do on_e[name] = true end
+  for _, name in ipairs(test_inputs.standalone_loads) do assert(not on_e[name], name) end
+end
+
+--- What `lua` adds to a closure is no reader of the compiler's identity
+--- (`compiler_sought`): build.dispatch, which reads it past requiring
+--- build.importer, does not key a module that declares `lua` by the
+--- compiler's identity, so an edit to the compiler runs it no more; a
+--- reader of its own closure, build.importer, still does, and a module
+--- that does not declare `lua` is sought whole.
+local function test_what_lua_adds_reads_no_compiler()
+  local closure = { "lib.thing_test" }
+  for _, name in ipairs(test_inputs.lua_loads) do closure[#closure + 1] = name end
+  for _, name in ipairs(test_inputs.standalone_loads) do closure[#closure + 1] = name end
+  assert(key_parts.reads_compiler(closure), "build.dispatch reads it")
+  assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
+  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
+  closure[#closure + 1] = "build.importer"
+  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
 end

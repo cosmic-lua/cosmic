@@ -459,14 +459,17 @@ local compiler_meta <const>: {string} = { "compiled_by", "compiler" }
 local writer_meta <const> = "writer"
 
 --- The set of the `meta` rows a held worker whose import closure is
---- the set `closure` reads (`held_meta`, `compiler_meta`, `writer_meta`).
-local function meta_keys(closure: {string:boolean}): {string:boolean}
+--- the set `closure` reads (`held_meta`, `compiler_meta`, `writer_meta`),
+--- `lua` saying whether its module declares `lua`: the compiler's
+--- identity only where `closure` holds a reader beyond what `lua` adds
+--- ([`test_inputs.compiler_sought`]), as its key holds it.
+local function meta_keys(closure: {string:boolean}, lua: boolean): {string:boolean}
   local keys: {string:boolean} = {}
   for _, key in ipairs(held_meta) do keys[key] = true end
   if closure["build.writer"] then keys[writer_meta] = true end
   local names: {string} = {}
   for name in pairs(closure) do names[#names + 1] = name end
-  if reads_compiler(names) then
+  if reads_compiler(test_inputs.compiler_sought(names, lua)) then
     for _, key in ipairs(compiler_meta) do keys[key] = true end
   end
   return keys
@@ -505,7 +508,7 @@ end
 --- row reaches only a database the test attached itself, keyed by what
 --- it declares it reads, and raises when none answers it.
 local function hold_store(module_path: string, closure: {string:boolean},
-                          tree: {string:boolean}, declared: {string:boolean})
+                          tree: {string:boolean}, declared: {string:boolean}, lua: boolean)
   local names: {string:boolean} = {}
   for _, set in ipairs({ tree, declared }) do
     for name in pairs(set) do
@@ -519,11 +522,12 @@ local function hold_store(module_path: string, closure: {string:boolean},
     module_path, module_path), string.format("a handle reads every module's rows, and " ..
     "%s's verdict is keyed by what the store holds of its import closure alone. " ..
     "Declare store = true in its Test.needs to read them, at the cost of running its " ..
-    "tests again on every edit to the tree", module_path), meta_keys(closure),
+    "tests again on every edit to the tree", module_path), meta_keys(closure, lua),
     string.format("%s's verdict is keyed by what the store holds of its import closure " ..
     "alone and by the runtime, and neither holds that row -- nor the compiler's " ..
     "identity, unless the closure holds a module build/key_parts.tl's " ..
-    "`compiler_readers` names, nor the writer's, unless it holds build.writer. " ..
+    "`compiler_readers` names beyond what lua adds, nor the writer's, unless it holds " ..
+    "build.writer. " ..
     "Declare store = true in its Test.needs to read it, at the cost of running its " ..
     "tests again on every edit to the tree", module_path))
 end
@@ -533,7 +537,8 @@ end
 --- start -- as [`hold_store`] holds this one, whatever environment each
 --- is given (core/store.c's [`hold_children`]): on every module and
 --- declaration the program carries but those of `closure`, the set of
---- the names its import closure holds, `lua_loads` among them
+--- the names its import closure holds, `lua_loads` among them, and
+--- `standalone_loads` where it declares `standalone` too
 --- ([`build.test_inputs`]), what those load beside them (its
 --- `loaded_beside`, which their closure store carries), and
 --- [`cosmic.removed`]; with the `meta` rows
@@ -553,7 +558,7 @@ local function hold_children(module_path: string, closure: {string:boolean})
   end
   table.sort(names)
   local keys: {string} = {}
-  for key in pairs(meta_keys(closure)) do keys[#keys + 1] = key end
+  for key in pairs(meta_keys(closure, true)) do keys[#keys + 1] = key end
   table.sort(keys)
   store.hold_children(module_path .. " " .. table.concat(keys, ",") .. " " ..
     table.concat(names, " "))
@@ -820,7 +825,7 @@ function worker.run(argv: {integer:string}): integer
     end
     held = hold_requires(module_path, closure, tree)
     if not open then
-      hold = function() hold_store(module_path, closure, tree, declared) end
+      hold = function() hold_store(module_path, closure, tree, declared, lua) end
     end
     if lua then hold_children(module_path, closure) end
   elseif lua then

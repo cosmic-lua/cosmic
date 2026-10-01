@@ -1373,10 +1373,12 @@ end
 --- Whether a worker of `m`'s tests can read the compiler's identity,
 --- which it reads from the running tool ([`declared_key.reads_compiler`]):
 --- not one given the whole projection, which carries its own and is
---- keyed by its contents.
+--- keyed by its contents; nor one whose closure holds a reader only by
+--- what `lua` adds to it ([`test_inputs.compiler_sought`]).
 local function reads_compiler(rec: Recording, m: importer.Module): boolean
   if rec.stores[m.path] == nil then return false end
-  return declared_key.reads_compiler(rec.closures[m.path] or {})
+  return declared_key.reads_compiler(test_inputs.compiler_sought(rec.closures[m.path] or {},
+    rec.effective[m.path].lua))
 end
 
 --- The digest of the store `m`'s workers are given, which its key holds

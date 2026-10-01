@@ -10,9 +10,10 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
---- The program itself, which the test and the supervisor start, and a
---- TCP listener on the worker's own loopback.
-Test.needs{ lua = true, network = { "127.0.0.1" } }
+--- The program itself, which the test and the supervisor start (a file
+--- `--standalone` among them: `standalone`), and a TCP listener on the
+--- worker's own loopback.
+Test.needs{ lua = true, standalone = true, network = { "127.0.0.1" } }
 
 --- Answers each line with itself, the pid of the worker answering, and
 --- what the worker and a child it starts find of COSMIC_NET_WORKER;
