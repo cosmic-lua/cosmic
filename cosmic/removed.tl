@@ -53,6 +53,11 @@ local record Module
   -- `indent` (`pretty` indents two spaces), `ascii` (no replacement),
   -- `nan_as_null` (write Json.null for the number) and `sparse_as_null`
   -- (put Json.null where the hole is, as decode's `null_value` does).
+  -- Likewise for what cosmic.time's records lost: `Civil.nanosecond` and
+  -- `Duration.nanoseconds` (both `ns` now), and the `zone` field of
+  -- FormatOptions and AddOptions (the zone is an argument, right after the
+  -- data: `format_rfc3339(ns, zone, opts)`, `add_calendar(ns, duration,
+  -- zone, opts)`).
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as [`core/surface.c`] does for a
@@ -131,8 +136,8 @@ local module: Module = {
     ["os.difftime"] = "subtract two Time.now_ns() readings (" .. time .. ")",
     ["os.date"] = "use Time.civil(Time.now_ns(), zone) for the calendar's " ..
       "fields -- UTC's without a zone, local time with Time.local_zone(), " ..
-      "or Time.zone(\"Europe/Paris\")'s -- or Time.format_rfc3339(ns, " ..
-      "{ zone = zone }) for text; there is no strftime (" .. time .. ")",
+      "or Time.zone(\"Europe/Paris\")'s -- or Time.format_rfc3339(ns, zone) " ..
+      "for text; there is no strftime (" .. time .. ")",
     ["os.remove"] = "use Fs.remove(path) (" .. fs .. ")",
     ["os.rename"] = "use Fs.rename(from, to) (" .. fs .. ")",
     ["os.tmpname"] = "use Fs.mkdtemp(prefix), which makes a private " ..
@@ -258,6 +263,23 @@ local module: Module = {
       "seconds, ns) (" .. fs .. ")",
     ["cosmic.sys.EBUSY"] = "compare sys.errno_name(errno) with \"EBUSY\", the errno's " ..
       "name on every system (" .. sys .. ")",
+    ["cosmic.time.Change"] = "use Time.Duration, which Time.add_calendar takes: " ..
+      "years, months, days and an exact part in `ns` (" .. time .. ")",
+    ["cosmic.time.CivilOptions"] = "use Time.AddOptions, the one record Time.from_civil " ..
+      "and Time.add_calendar take (" .. time .. ")",
+    ["cosmic.time.days_between"] = "use Time.between(from, to, zone), whose Duration " ..
+      "holds the whole years, months and days between two moments; the days between " ..
+      "two dates alone are (Time.parse_date(Time.format_date(to, zone)) - " ..
+      "Time.parse_date(Time.format_date(from, zone))) // Time.hours(24) (" .. time .. ")",
+    ["cosmic.time.months_between"] = "use Time.between(from, to, zone): its years * 12 " ..
+      "+ months are the whole months (" .. time .. ")",
+    ["cosmic.time.parse_input"] = "moved to build.time, which only `cosmic time` calls; " ..
+      "`cosmic time convert <text>` reads what a person typed, and a script reads " ..
+      "RFC 3339 with Time.parse_rfc3339_zoned, a date with Time.parse_date(text, zone) and " ..
+      "a local time with Time.from_civil(fields, zone, opts) (" .. time .. ")",
+    ["cosmic.time.zone_from_posix"] = "use Time.local_zone({ tz = tz }), which reads a " ..
+      "POSIX TZ string when the binary carries no zone of that name; Time.zone(name) " ..
+      "answers one it does (" .. time .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..

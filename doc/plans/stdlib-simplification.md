@@ -21,8 +21,8 @@ these were taken up front and are not reopened per PR.
   binary.
 - **time is nanoseconds everywhere.** every parameter, field and constant that
   holds a span or an instant is an integer of nanoseconds, suffixed `_ns` where
-  the name needs a unit; [`cosmic.time`] gains constructors (`Time.ms`,
-  `Time.seconds`, `Time.minutes`) so a caller writes `h:wait(Time.seconds(5))`
+  the name needs a unit; [`cosmic.time`] gains constructors ([`Time.ms`],
+  [`Time.seconds`], [`Time.minutes`]) so a caller writes `h:wait(Time.seconds(5))`
   rather than a literal with nine zeros. a span the calendar measures
   (years, months, days and a remainder) is [`Time.Duration`], a record. a
   full duration record for every timeout was considered and left for the
@@ -207,7 +207,7 @@ applied: `timeout_ms` (243 sites), `grace_ms`, `wait_ms`, `now_ms`,
 `connect_timeout_ms`, `low_speed_seconds`, `Poll.delay(ms)`, `LOCK_MS` and
 every `*_ms` constant become `_ns` (or lose the suffix where the name is a
 span already: `Poll.delay(ns)`, `ConnectOptions.timeout`), through
-`Time.ms`/`Time.seconds` at each literal. the C-declared
+[`Time.ms`]/[`Time.seconds`] at each literal. the C-declared
 [`cosmic.internal.http`] options keep milliseconds and seconds; [`cosmic.http`]
 converts at the one boundary. the 33 hand conversions in `build/` and
 `cosmic/` go. `now_ms` in poll.tl:197 and net.tl:566 become
@@ -469,7 +469,10 @@ description.
 [`Time.civil`]: ../../cosmic/time.tl
 [`Time.Duration`]: ../../cosmic/time.tl
 [`Time.from_civil`]: ../../cosmic/time.tl
+[`Time.minutes`]: ../../cosmic/time.tl
 [`Time.monotonic_ns`]: ../../cosmic/time.tl
+[`Time.ms`]: ../../cosmic/time.tl
+[`Time.seconds`]: ../../cosmic/time.tl
 [`Time.sleep_ns`]: ../../cosmic/time.tl
 [`Zip.Reader.entries`]: ../../cosmic/zip.tl
 [`Zip.Writer`]: ../../cosmic/zip.tl

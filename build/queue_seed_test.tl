@@ -368,7 +368,7 @@ local function jobs(...: string): string
   for _, job in ipairs({ ... }) do
     local status, name, ago, suite = job:match("^(%S+) (%S+) ?(%d*) ?(%S*)$")
     local started = ago ~= "" and ('"' .. Time.format_rfc3339(Time.now_ns() - math.tointeger(tonumber(ago)) * 1000000000,
-      { digits = 0 }) .. '"')
+      nil, { digits = 0 }) .. '"')
       or "null"
     local steps = ""
     if suite ~= "" then
