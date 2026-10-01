@@ -11,6 +11,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
 
@@ -123,4 +124,21 @@ local function test_the_compilers_identity_is_refused_to_a_child()
   end
   local ok, out, err = run({ "-e", "print(require('cosmic.store').meta('main'))" })
   assert(ok and out == "cmd.cosmic.main\n", out .. err)
+end
+
+--- A stand-in (build/stand_in.tl), built of the closure and held as
+--- this program is, runs its main module, which it carries under a
+--- name of its own (build.test_inputs' `carried_as`): started by the
+--- test, and by a child of it in turn.
+local function test_a_stand_in_runs_under_the_hold(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local direct = assert(Child.run({ probe, "print ran" }, { stdout = "capture",
+    stderr = "capture", timeout_ms = 30000 }))
+  assert(direct.ok and direct.stdout == "ran\n", tostring(direct.stdout) ..
+    tostring(direct.stderr))
+  local ok, out, err = run({ "-e", "local r = assert(require('cosmic.child').run({ ... , " ..
+    "'print ran' }, { stdout = 'capture', stderr = 'capture' })) " ..
+    "local Fs = require('cosmic.fs') Fs.put(Fs.stdout, r.stdout .. r.stderr) " ..
+    "return r.ok and 0 or 1", probe })
+  assert(ok and out == "ran\n", out .. err)
 end

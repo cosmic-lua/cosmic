@@ -92,6 +92,7 @@ local record test_inputs
   lua_loads: {string}
   standalone_loads: {string}
   loaded_beside: {string:{string}}
+  carried_as: {string:{string}}
   compiler_sought: function(closure: {string}, lua: boolean): {string}
 end
 
@@ -178,6 +179,18 @@ end
 --- module's tests start may load it where the closure holds that module
 --- ([`build.test_worker`]'s `hold_children`).
 test_inputs.loaded_beside = { ["build.teal"] = { "vendor.tl" } }
+
+--- The names a program a test builds of its own closure carries a
+--- module of that closure under, by that module: a stand-in
+--- ([`build.stand_in`]) carries build.stand_in_probe as its main
+--- module, `stand_in.main`. A process a `lua` module's tests start --
+--- the stand-in among them, which the core holds as it holds this
+--- program -- may load it under that name where the closure holds the
+--- module ([`build.test_worker`]'s `hold_children`): what the stand-in
+--- carries is the bytecode its builder reads of the store, which the
+--- store's hold keeps to the closure, so what it runs is what the key
+--- holds. build/lua_children_test.tl starts one.
+test_inputs.carried_as = { ["build.stand_in_probe"] = { "stand_in.main" } }
 
 --- Where [`build.fuzz`] keeps the corpus of every property.
 local corpora <const> = "testdata/fuzz/"

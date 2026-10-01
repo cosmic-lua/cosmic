@@ -1,8 +1,10 @@
---- The cases of core/syscalls_test.tl that start this very program, or
---- read it -- a confined child's end with the program that started it,
---- an offline child's loopback, and the executable's own path -- and
---- those that confine a child in a root of its own (unveiling), which
---- only a worker that declares `nests` can (see [`Test.needs`] below).
+--- The cases of core/syscalls_test.tl that start this very program to
+--- run a chunk -- a confined child's end with the program that started
+--- it, an offline child's loopback, an exit watch -- and those that
+--- confine a child in a root of its own (unveiling), which only a worker
+--- that declares `nests` can (see [`Test.needs`] below). The
+--- executable's own path, which only a `tool` test can read, is
+--- core/artifact_fd_tool_test.tl's.
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -17,13 +19,14 @@ local sandbox_skip = require("build.sandbox_skip")
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What these cases are tested on: /proc, the whole environment, which
---- this program started again inherits, and the program itself, which they start and read; and `nests`, since the
+--- this program started again inherits, and the program itself, which
+--- they start only to run a chunk (`lua`); and `nests`, since the
 --- unveiling cases give a child a root of its own, which a worker held
 --- by a Landlock ruleset cannot (build.confine's `forbid_running`).
 Test.needs{
   host = { "/proc" },
   env = { "*" },
-  tool = true,
+  lua = true,
   nests = true,
 }
 
@@ -184,12 +187,6 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(status.code == 0 and said == "up\n127.0.0.1:1: Connection refused\n", said)
-end
-
-local function test_executable_is_a_file()
-  local path = assert(sys.executable())
-  assert(path:sub(1, 1) == "/", "the executable's path is absolute")
-  assert(assert(sys.stat(path)).kind == "file")
 end
 
 --- An unveiled child has a root of its own holding only the paths it was

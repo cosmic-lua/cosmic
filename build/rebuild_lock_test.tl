@@ -35,7 +35,7 @@ end
 --- A holder asking again holds it still, and a holder lets go of the
 --- file's flock with the lock. Whether another run is kept out while
 --- it holds the lock is asked from another process
---- (`rebuild_lock_tool_test.tl`): opening and closing the file here
+--- (`rebuild_lock_lua_test.tl`): opening and closing the file here
 --- would drop this process's fcntl locks on it.
 local function test_a_holder_lets_go_of_the_flock_on_release(tmp: string)
   local root, path = tree(tmp)
