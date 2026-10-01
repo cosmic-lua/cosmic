@@ -2,8 +2,10 @@
 --- on a Teal program drawn from every kind of statement the parser
 --- produces, with comments, blank lines and line breaks drawn between and
 --- inside them, the fix either refuses by name or writes a text that
---- parses to the same program (which [`build.fix.source`] checks itself);
---- fixing that text again leaves it as it is; and every comment's text
+--- parses to the same program, and fixing it again leaves it as it is
+--- (both of which [`build.fix.source`] checks itself, the second by
+--- rendering its output once more, which is all fixing it again would
+--- do while [`build.fix.rule`] holds no rules); and every comment's text
 --- reaches it.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
@@ -116,11 +118,11 @@ end
 
 --- What separates two statements: a line break mostly, with a trailing
 --- comment before it and blank lines and comments of their own lines
---- after it, else a space or a `;`.
+--- after it, else a space or a `;`, a comment in front of it or not.
 local function sep(g: Gen): string
   local k = g.src:int(0, 11)
   if k == 0 then return " " end
-  if k == 1 then return "; " end
+  if k == 1 then return chance(g, 2) and "; " or " " .. long_comment(g) .. " ; " end
   if k == 2 then return ";\n" .. indent(g) end
   local parts: {string} = {}
   if chance(g, 5) then parts[#parts + 1] = " " .. line_comment(g) end
@@ -189,8 +191,13 @@ end
 --- would be a second statement.
 local function args(g: Gen, d: integer): string
   local k = g.src:int(1, 8)
-  -- tl reads a `(` on a later line than the token before it as a new
-  -- statement, so a string spanning lines ends what it is passed to.
+  -- TODO: tl reads a `(` on a later line than the token before it as
+  -- a new statement, and compares with the line that token STARTS on
+  -- (tl.tl's `tkop.y > prev_tk.y`), so `f [[a\nb]](1)` fails though no
+  -- break stands before the `(`, and the `;` it inserts goes at the
+  -- token's start line plus its length. Once a record under patch/tl/
+  -- compares the line the token ends on, draw strings spanning lines as
+  -- arguments too.
   if k == 1 then return " " .. pick(g, LINE_STRINGS) end
   if k == 2 then return " " .. pick(g, { "[[long]]", "[==[ a ]] b ]==]", "[[]]" }) end
   if k == 3 then return "()" end
@@ -315,8 +322,12 @@ end
 --- to.
 local function long_line(g: Gen): string
   local out: {string} = {}
-  for i = 1, g.src:int(12, 30) do
+  -- Twelve names reach past any width whichever are drawn.
+  for i = 1, 12 do
     out[i] = pick(g, NAMES)
+  end
+  while Fuzz.more(g.src, #out, 30) do
+    out[#out + 1] = pick(g, NAMES)
   end
   return table.concat(out, " + ")
 end
@@ -567,15 +578,6 @@ local function writes_the_same_program(input: string): boolean, string
   return held, why
 end
 
-local function fixes_to_a_fixed_point(input: string): boolean, string
-  local out, held, why = fixed(input)
-  if out == nil then return held, why end
-  local again, trouble = fix.source(built, out, "fuzz.tl")
-  if again == nil then return false, "fixing the output again refused it: " .. trouble end
-  if again.source ~= out then return false, "fixing the output again changed it:\n" .. again.source end
-  return true, ""
-end
-
 --- Every `@n@` mark in `text`, counted.
 local function marks(text: string): {string: integer}
   local out: {string: integer} = {}
@@ -601,28 +603,14 @@ local function keeps_every_comment(input: string): boolean, string
   return true, ""
 end
 
-local REQUIRES <const> = { "parsed", "rendered", "changed" }
-local SHARES <const>: {string: number} = { parsed = 0.9, rendered = 0.9 }
-
 local function test_fix_writes_the_same_program_or_refuses_by_name(tmp: string)
   Fuzz.run({
     name = "fix renders",
     dir = tmp,
     gen = program,
     check = writes_the_same_program,
-    requires = REQUIRES,
-    shares = SHARES,
-  })
-end
-
-local function test_fixing_what_fix_wrote_changes_nothing(tmp: string)
-  Fuzz.run({
-    name = "fix idempotent",
-    dir = tmp,
-    gen = program,
-    check = fixes_to_a_fixed_point,
-    requires = REQUIRES,
-    shares = SHARES,
+    requires = { "parsed", "rendered", "changed" },
+    shares = { parsed = 0.9, rendered = 0.9 },
   })
 end
 

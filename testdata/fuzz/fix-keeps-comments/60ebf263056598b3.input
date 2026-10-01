@@ -1,0 +1,1 @@
+global type T --[[ @1@ why ]] = {string: integer}

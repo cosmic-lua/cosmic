@@ -21,6 +21,7 @@ local expr = require("build.fix.expr")
 local sig = require("build.fix.sig")
 local typescan = require("build.fix.typescan")
 
+local type compiler = require("build.compiler")
 local type Node = ast.Node
 local type Ctx = ctx_mod.Ctx
 
@@ -65,6 +66,32 @@ local function begins_at(c: Ctx, s: Node): integer, integer
   return at.y, at.x
 end
 
+--- The first of the `;` run after statement `i` of `body`: the last
+--- token before the next statement, or before the token closing the
+--- block (its keyword, or the end of the file), walked back over the
+--- run. Nil when no `;` stands there.
+local function semicolon(c: Ctx, body: Node, i: integer): compiler.Token | nil
+  local j: integer
+  local next_one = body[i + 1]
+  if next_one ~= nil then
+    local y, x = begins_at(c, next_one)
+    j = typescan.index_before(c.scan, y, x)
+  else
+    local yend, xend = body.yend, body.xend
+    j = (yend ~= nil and xend ~= nil) and typescan.index_before(c.scan, yend, xend) or #c.scan.tokens
+    if typescan.tk(c.scan, j) ~= ";" then
+      j = j - 1
+    end
+  end
+  if typescan.tk(c.scan, j) ~= ";" then
+    return nil
+  end
+  while j > 1 and typescan.tk(c.scan, j - 1) == ";" do
+    j = j - 1
+  end
+  return c.scan.tokens[j]
+end
+
 --- Every statement of one block, each on the line the source gave it.
 ---
 --- A `;` after a statement is a flag on it (`semicolon`), however many
@@ -89,7 +116,7 @@ local function block(c: Ctx, body: Node)
     ctx_mod.lead_at(c, body.y, body.x, " ")
     emit.put(c.em, ";")
   end
-  for _, s in ipairs(body) do
+  for i, s in ipairs(body) do
     local y, x = begins_at(c, s)
     -- A statement moves by the distance its line moves, which differs
     -- from its first keyword's when a comment precedes it on that line.
@@ -104,6 +131,10 @@ local function block(c: Ctx, body: Node)
     end
     statement(c, s)
     if s.semicolon then
+      local t = semicolon(c, body, i)
+      if t ~= nil then
+        ctx_mod.lead_at(c, t.y, t.x, "")
+      end
       emit.put(c.em, ";")
     end
   end

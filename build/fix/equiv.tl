@@ -72,10 +72,11 @@ local function has_metadata(t: {any:any}): boolean
   return kind is string or typename is string or op is string or text is string
 end
 
---- Fields that hold a coordinate wherever they hold a number, on a
---- table with no metadata too: a list the parser stamps where it closes
---- (a `<T>` list's `yend`/`xend`), which a field map, whose values are
---- type objects, never holds a number under.
+--- Fields that hold a coordinate wherever they hold a number, even on a
+--- table with no metadata: the parser stamps where some lists close on
+--- the list itself (a `<T>` list's `yend` and `xend`). A field map
+--- never holds a number under these names, since its values are type
+--- objects.
 local coordinate: {string:boolean} = {
   ["y"] = true,
   ["x"] = true,

@@ -558,3 +558,10 @@ local function test_a_goto_and_a_label_keep_their_line_breaks()
   writes("goto -- why\ncontinue ::continue::\n", "goto -- why\ncontinue ::continue::\n")
   writes("::\ntop ::\n", "::\ntop::\n")
 end
+
+--- A statement's `;` is written where the source put it, on a line of
+--- its own included.
+local function test_a_semicolon_keeps_its_own_line()
+  writes("f()\n; g()\n", "f()\n; g()\n")
+  writes("f() ; g()\n", "f(); g()\n")
+end

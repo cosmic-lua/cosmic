@@ -207,12 +207,14 @@ local function column(e: Emitter): integer
 end
 
 --- Every comment still unwritten that sat on the cursor's own line or
---- earlier: a trailing comment, one space after whatever the output
---- line already holds, on the way to line `y`. A long one can close on
---- a later line, and the comments after its `]]` on that line go on
---- with the run when the code between them is written already: all of
---- it, when that line is before `y`, and none, when the source wrote
---- none. Otherwise that code comes before them.
+--- earlier, written as trailing comments one space after what the
+--- output line already holds, on the way to line `y`.
+---
+--- A long comment among them can close on a later line. The comments
+--- after its `]]` on that line join the run when nothing the renderer
+--- has still to write stands between: when that line comes before `y`,
+--- all its code is written already; on `y` itself, only when the source
+--- wrote nothing between them and the `]]`.
 local function trailing(e: Emitter, y: integer)
   local line = e.line
   -- The column just past the last comment written, on the line it ended on.
@@ -356,13 +358,14 @@ local function ahead(e: Emitter, y: integer, x: integer)
     if not e.code_after[e.at] or c.y ~= y or c.x >= x then
       return
     end
-    -- Against a unary `-`, the comment's `--` would read as `---`, a
-    -- line comment taking the rest of the line.
+    -- A space parts it from code before it, which against a unary `-`
+    -- is what keeps its `--` from reading as `---`, a line comment
+    -- taking the rest of the line; an opening bracket keeps it close.
     local i = #e.parts
     while i > 0 and e.parts[i] == "" do
       i = i - 1
     end
-    if i > 0 and e.parts[i]:sub(-1) == "-" then
+    if i > 0 and e.parts[i]:sub(-1):match("[%s%(%[{]") == nil then
       put(e, " ")
     end
     put(e, c.text .. " ")

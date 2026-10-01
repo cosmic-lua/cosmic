@@ -144,10 +144,10 @@ local function closing_angle(s: Scan, i: integer): integer
   return #s.tokens
 end
 
---- The names tl's parser reads as a whole type at once (its
---- `simple_types`, and `table` with no `.` after it): a `<` after one
---- is no type argument list but the comparison the type is an operand
---- of, as in `a as integer < b`.
+--- The names tl's parser reads as a whole type at once: its
+--- `simple_types`, whatever follows them, and `table` unless a `.`
+--- follows it. A `<` after one is no type argument list but the
+--- comparison the type is an operand of, as in `a as integer < b`.
 local simple: {string:boolean} = {
   ["nil"] = true,
   ["any"] = true,
@@ -183,7 +183,7 @@ local function single_end(s: Scan, i: integer): integer
     end
     return j
   end
-  if simple[text] and tk(s, i + 1) ~= "." then
+  if simple[text] and (text ~= "table" or tk(s, i + 1) ~= ".") then
     return i
   end
   local j = i

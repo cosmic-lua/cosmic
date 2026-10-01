@@ -375,3 +375,15 @@ local function test_a_line_comment_before_a_closing_bracket()
   keeps("x = a[a -- why\n]\n")
   keeps("x = { [a -- why\n] = 1 }\n")
 end
+
+--- A comment between a statement and its `;` stays in front of the
+--- `;`: the parser hangs it on that token, and writing the `;` first
+--- would hang it on the next statement's.
+local function test_a_comment_before_a_semicolon_stays_before_it()
+  keeps("local a = 1 --[[ x ]] ; -- y\nlocal b = 2\n")
+  keeps("f() --[[ x ]] ; g()\n")
+  keeps("local a = 1\n--[[ x ]] ; -- y\nlocal b = 2\n")
+  keeps("local a = 1 --[[ x\n]] ; -- y\nlocal b = 2\n")
+  keeps("do f() --[[ x ]] ; end\n")
+  keeps("f() --[[ x ]] ;\n")
+end
