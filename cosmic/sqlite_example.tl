@@ -21,8 +21,9 @@ function Example.open()
   local rows = assert(Sqlite.rows(frozen, "SELECT body FROM notes"))
   assert(rows[1][1].kind == "text" and rows[1][1].text == "hi")
   assert(frozen:close())
-  local both = pcall(Sqlite.open, path, { writable = true, immutable = true })
-  assert(not both, "writable and immutable together raise")
+  local opened, why = pcall(Sqlite.open, path, { writable = true, immutable = true })
+  assert(not opened and tostring(why):find("both writable and immutable", 1, true) ~= nil,
+    tostring(why))
   assert(Fs.remove_tree(dir))
 end
 

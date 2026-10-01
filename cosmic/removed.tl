@@ -275,10 +275,15 @@ local module: Module = {
     ["cosmic.sqlite.last_insert_rowid"] = "use db:last_insert_rowid(), the method on " ..
       "the handle Sqlite.open answers (" .. sqlite .. ")",
   },
+  -- TODO: a call that still passes Sqlite.open's old third argument gets
+  -- only the arity error (`wrong number of arguments ... at most 2`), with
+  -- no hint: the message names no callee. Say `{ immutable = true }` for
+  -- `false, true` once the checker carries a hint for an arity error that
+  -- names the callee.
   arguments = {
     ["cosmic.sqlite.OpenOptions"] = "Sqlite.open(path, opts) takes a table: " ..
-      "{ writable = true } for the old `true`, { immutable = true } for the old " ..
-      "`false, true`, and nothing for `false` (" .. sqlite .. ")",
+      "{ writable = true } for the old `true`, and nothing for `false` (" ..
+      sqlite .. ")",
   },
 }
 

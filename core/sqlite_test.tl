@@ -200,14 +200,14 @@ local function test_open_reports_a_path_it_cannot_open(tmp: string)
   failed(Sqlite.open(tmp .. "/missing.db"))
 end
 
---- The options are a table, as the old positional booleans were not: a
---- boolean there would index as truthy through the raw binding, so a
---- Lua caller still passing `true` is refused rather than made writable.
+--- The options are a table. A boolean would read as truthy through the
+--- raw binding, so a Lua caller passing `true` is refused rather than
+--- made writable.
 local function test_open_refuses_options_that_are_not_a_table(tmp: string)
   local open: any = Sqlite.open
   for _, given in ipairs({ true, false, "writable", 1 } as {any}) do
     local ok, why = pcall(open as function(string, any): (any, any), tmp .. "/never.db", given)
-    assert(not ok and tostring(why):find("options is a table", 1, true) ~= nil, tostring(why))
+    assert(not ok and tostring(why):find("sqlite: open: options is a table", 1, true) ~= nil, tostring(why))
   end
   assert(Fs.exists(tmp .. "/never.db") == false)
   -- An explicit false is the same as leaving the option out.

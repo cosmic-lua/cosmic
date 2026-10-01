@@ -152,7 +152,7 @@ end
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
   local given: any = opts
   if given ~= nil and type(given) ~= "table" then
-    error("Sqlite.open: options is a table such as { writable = true }, not a " ..
+    error("sqlite: open: options is a table such as { writable = true }, not a " ..
       type(given), 2)
   end
   return sqlite.open(path, opts and opts.writable, opts and opts.immutable)
