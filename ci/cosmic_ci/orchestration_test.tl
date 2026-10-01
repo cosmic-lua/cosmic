@@ -602,6 +602,38 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
   end
 end
 
+--- COSMIC_CI_FORMAT_CHANGED names a file of the paths a light run
+--- changed, one a line: the check lays out only those (`--changed`,
+--- after a `--`, so a path is never an option), none where none
+--- changed; a file that cannot be read checks the whole tree.
+local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string)
+  local base, project = command(tmp)
+  local listed = tmp .. "/changed-paths"
+  assert(Fs.write(listed, "cosmic/fs.tl\ndoc/a b.md\n"))
+  local empty = tmp .. "/changed-none"
+  assert(Fs.write(empty, ""))
+  for _, case in ipairs({
+    { name = "listed", changed = listed, ran = "fix --check --changed -- cosmic/fs.tl doc/a b.md" },
+    { name = "none", changed = empty, ran = "fix --check --changed --" },
+    { name = "unread", changed = tmp .. "/no-such-list", ran = "fix --check ." },
+    { name = "unset", changed = "", ran = "fix --check ." },
+  }) do
+    local fake = tmp .. "/format-changed-" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s' \"$*\" > \"$0.ran\"\nexit 0\n", 493)
+    local outcome = Fixture.call("format-changed-" .. case.name, append(base, { "platform", "format" }),
+      project, tmp .. "/logs", context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run",
+        COSMIC_CI_FORMAT_CHANGED = case.changed,
+      }))
+    assert(outcome.result.ok, case.name .. ": the format phase failed")
+    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    assert(ran == case.ran, case.name .. ": the check ran " .. tostring(ran))
+  end
+end
+
 --- The format check keeps a native suite's boundary: where the suite
 --- ran (its immediate snapshot is there) it runs only after the
 --- boundary was checked. A job that ran no suite (ci.yml's `checked`,

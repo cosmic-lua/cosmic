@@ -843,7 +843,8 @@
     # check, which the legs run only on a full run, and the tree's
     # format check, which answers the same on every host and runs on one
     # leg in a full run's assemble. Each costs a leg some 30 to 60 s
-    # where this job, with no suite, finishes well before the legs.
+    # where this job has no suite, and its format check lays out only
+    # what the branch changed, so it keeps pace with the legs.
     checked: {
       needs: "reuse",
       if: "!cancelled() && needs.reuse.outputs.run == ''",
@@ -927,15 +928,30 @@
           shell: "sh",
           run: "sh .github/scripts/leg-host-id.sh \"linux-x86_64-checked\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
         },
+        # The base on main a full run restores verdicts by, and from which
+        # a light run's format check lays out only what changed.
         {
           name: "find the tree's base on main",
           id: "merge-base",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
           "working-directory": ".",
           shell: "sh",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
           run: "sh .github/scripts/merge-base.sh",
+        },
+        # What a branch changed since that base, whose tree main's run
+        # held to the whole format check: a light run's lays out only
+        # these, and makes the checks spanning files over the whole tree.
+        # Where the script names none, the check covers the whole tree.
+        {
+          name: "name the paths the branch changed",
+          id: "changed",
+          if: "env.COSMIC_CI_SCOPE == 'light'",
+          "working-directory": ".",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {BASE: "${{ steps.merge-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
+          run: "sh .github/scripts/changed-paths.sh",
         },
         {
           name: "restore test verdicts",
@@ -1004,10 +1020,6 @@
         # A light run's check of the pinned CI driver, which a full run
         # makes on every leg (theirs says how), skipped where main left
         # linux-x86_64's marker (above) for what it reads.
-        # TODO: check only the changed paths' format below where no
-        # formatter or type rule moved: on a branch where most verdicts
-        # stand, this job (some 190 s of setup, the boot and the format
-        # check) can outlast the legs and gate the run.
         {
           name: "check the pinned CI driver",
           if: "env.COSMIC_CI_SCOPE == 'light' && steps.driver-check-restore.outputs.cache-hit != 'true'",
@@ -1020,10 +1032,13 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform boot",
         },
         # A light run's format check, which a full run's assemble makes
-        # on one leg.
+        # on one leg over the whole tree: of the paths the branch changed
+        # (above), where it named them, the checks spanning files still
+        # over the whole tree.
         {
           name: "check the tree's format",
           if: "env.COSMIC_CI_SCOPE == 'light'",
+          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
           run: "cosmic-driver cosmic_ci/driver.tl platform format",
         },
         {
