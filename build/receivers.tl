@@ -6,7 +6,7 @@
 --- [`build.analyzer.analyze`]'s references answer the other half from syntax
 --- alone -- [`Fs.read`] through a `require` alias -- and need no
 --- checker; this needs one, so it runs where a module is compiled
---- ([`build.importer`]'s `generate`) and its rows are kept with the
+--- ([`build.compilation.generate`]) and its rows are kept with the
 --- compile, under the same key, since what a value's type is depends
 --- on every module the source imports and not only on its own bytes.
 ---

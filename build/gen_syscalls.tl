@@ -538,7 +538,7 @@ function generator.declaration(header: string, target?: Target): string | nil, s
   out[#out + 1] = ""
   out[#out + 1] = "-- Where each declaration above sits in " .. target.header .. ", which"
   out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
-  out[#out + 1] = "-- `build.importer`'s `origin_lines`."
+  out[#out + 1] = "-- `build.derivation`'s `origin_lines`."
   for _, class in ipairs(classes) do
     local prefix = ""
     if class.name ~= "Constants" then

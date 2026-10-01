@@ -4,7 +4,7 @@
 --- or a generator fills, keyed by the source they came from.
 ---
 --- What a source parses to is recorded in these columns, in this order.
---- [`build.importer`]'s shared parses read them with `SELECT *` and check
+--- [`build.derivation`]'s shared parses read them with `SELECT *` and check
 --- only each table's width. The `inputs` view decides what a compile is
 --- given beside a source: its import path and kind, the file it is read
 --- from, and whether it was generated.
