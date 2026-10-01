@@ -155,7 +155,9 @@ local record Time
     months: integer
     --- Whole days of the calendar part.
     days: integer
-    --- The hours, minutes and seconds, as nanoseconds.
+    --- The hours, minutes and seconds, as nanoseconds. [`between`]'s can
+    --- exceed a day, where the day step would overshoot into a fold or a
+    --- skipped day.
     ns: integer
   end
 
@@ -322,6 +324,7 @@ local record Cursor
   at: integer
   --- Why a read failed, with the byte it failed at; nil while none has.
   why: string
+  metamethod __close: function(Cursor)
 end
 
 --- A cursor over `text`, of its own.
@@ -332,13 +335,21 @@ end
 local byte <const> = string.byte
 local sub <const> = string.sub
 
-local lent: Cursor = cursor("")
+--- What ends a borrowing: the text is let go, so a large one is not held
+--- until the next read.
+local lent_mt: metatable<Cursor> = {
+  __close = function(cur: Cursor) cur.text = "" end,
+}
+
+local lent: Cursor = setmetatable(cursor(""), lent_mt)
 
 --- A cursor over `text` that every caller shares, so the readers that
---- run on every request allocate none. A reader may borrow it only while
---- nothing it calls borrows it too, and the readers never yield. A TZ
---- string, which `zone` reads in the middle of an RFC 3339 text, has a
---- [`cursor`] of its own.
+--- run on every request allocate none; hold it in a `<close>` variable.
+--- It is safe because no code a reader calls borrows it again: nothing
+--- reachable from `zone` (the store, and the TZif and POSIX readers,
+--- which have a [`cursor`] of their own) calls `parse`, [`parse_date`] or
+--- [`parse_http`], and the readers never yield. A module loaded in the
+--- middle of one that came to call them would corrupt the read.
 local function borrow(text: string): Cursor
   lent.text, lent.at, lent.why = text, 1, nil
   return lent
@@ -1405,7 +1416,10 @@ end
 --- counted from the date those months reach, where a month with no such
 --- day gives its last. Where a gap, a fold or a day a zone skipped would
 --- put that sum past `to`, the days and then the months are one fewer
---- until it is not, so the rest is never against the sign.
+--- until it is not, so the rest is never against the sign. The days are
+--- the most that are not past `to`, so where one more would overshoot
+--- into a fold or a day the zone skipped, `ns` can exceed a day (up to
+--- about 47 hours in Apia).
 function Time.between(from: integer, to: integer, zone?: Time.Zone): Time.Duration
   if from == to then return { years = 0, months = 0, days = 0, ns = 0 } end
   local dir = to > from and 1 or -1
@@ -1544,7 +1558,7 @@ end
 --- RFC 3339 text and its RFC 9557 suffix: [`parse_rfc3339`]'s and
 --- [`parse_rfc3339_zoned`]'s work.
 local function parse(text: string): Time.Zoned | nil, string
-  local cur = borrow(text)
+  local cur <close> = borrow(text)
   local c: Time.Civil = {}
   date_into(cur, c)
   expect(cur, "T", "between the date and the time")
@@ -1663,7 +1677,7 @@ end
 --- UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
   local c: Time.Civil = { hour = 0, minute = 0, second = 0, ns = 0 }
-  local cur = borrow(text)
+  local cur <close> = borrow(text)
   date_into(cur, c)
   finish(cur)
   if cur.why ~= nil then return nil, cur.why end
@@ -1715,7 +1729,7 @@ end
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): integer | nil, string
   local c: Time.Civil = { ns = 0 }
-  local cur = borrow(text)
+  local cur <close> = borrow(text)
   local separator = text:sub(4, 4)
   if separator == "," then
     name_of(cur, SHORT_DAYS, "a day name")
