@@ -40,7 +40,7 @@ return function(argv: {string}): integer
   end
   assert(ordinary ~= nil, "no ordinary build.* module to compare")
 
-  local db = assert(Sqlite.open(argv[1], true))
+  local db = assert(Sqlite.open(argv[1], { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, " ..
     "kind TEXT, source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
   local impostor = string.dump((assert(load("return 'impostor'"))))

@@ -1,4 +1,5 @@
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 
@@ -112,7 +113,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(State.suite_rows(db)[1].held == figures.held)
   assert(db:close())
   local old = tmp .. "/old.db"
-  local handle = assert(Sqlite.open(old, true))
+  local handle = assert(SqliteOpen.writable(old))
   assert(handle:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY, worker TEXT, " ..
     "run TEXT, attempt TEXT, phase TEXT, suite TEXT, status TEXT, exit_code INTEGER, " ..
     "tests INTEGER, modules INTEGER, ran INTEGER, stood INTEGER, every INTEGER, " ..
@@ -212,7 +213,7 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
     "|  |  |  |  |  |  |", 1, true), text)
   -- An operations database from before the table has no rows.
   local old = tmp .. "/old.db"
-  local handle = assert(Sqlite.open(old, true))
+  local handle = assert(SqliteOpen.writable(old))
   assert(handle:exec("CREATE TABLE operation_events (id INTEGER PRIMARY KEY)"))
   assert(#State.suite_rows(handle) == 0)
   assert(handle:close())

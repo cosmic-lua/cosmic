@@ -552,7 +552,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
     "ORDER BY line, module, symbol"))
@@ -616,7 +616,7 @@ local function test_uses_of_an_inherited_field_name_its_interface()
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
     "ORDER BY line, module, symbol"))
@@ -892,7 +892,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local result = assert(importer.compile(handle, built, identities.compiler))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
   work.close(handle)
-  local out = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local out = assert(Sqlite.open(root .. "/o/cosmic.db"))
   local compiled_by = assert(Sqlite.text_rows(out,
     "SELECT value FROM meta WHERE key = 'compiler'"))
   local binary: importer.Code = {
@@ -1156,7 +1156,7 @@ local function test_generated_syscall_docs_carry_header_lines()
   assert(writer.write_result(handle, root .. "/out.db", result))
   work.close(handle)
 
-  local out = assert(Sqlite.open(root .. "/out.db", false))
+  local out = assert(Sqlite.open(root .. "/out.db"))
   local rows = assert(Sqlite.text_rows(out,
     "SELECT symbol, file, line, text FROM docs WHERE module = 'cosmic.sys' " ..
     "AND symbol IN ('read', 'O_RDONLY') ORDER BY symbol"))

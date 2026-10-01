@@ -60,7 +60,7 @@ end
 --- Adds hostile project metadata used to prove portable context wins.
 local function spoof_database(argv: {string}): integer
   local path = assert(argv[1], "usage: tool.tl spoof-database DATABASE")
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   local values: {string:string} = {
     host = "spoofed",
     host_image = "spoofed",
@@ -88,7 +88,7 @@ local function verify_verdicts(argv: {string}): integer
   local database, counter = argv[1], argv[2]
   assert(database ~= nil and counter ~= nil,
     "usage: tool.tl verify-verdicts DATABASE COUNTER")
-  local db = assert(Sqlite.open(database, false))
+  local db = assert(Sqlite.open(database))
   local keys = assert(Sqlite.text_rows(db,
     "SELECT key FROM verdicts ORDER BY key"))
   assert(db:close())
@@ -112,7 +112,7 @@ local function prepare_databases(argv: {string}): integer
   assert(#argv == 4,
     "usage: tool.tl prepare-databases OLD NEW BASIS MISSING")
   local function update(path: string, marker: string)
-    local db = assert(Sqlite.open(path, true))
+    local db = assert(Sqlite.open(path, { writable = true }))
     assert(Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text("retained_fixture"), text(marker) }))
@@ -128,7 +128,7 @@ local function prepare_databases(argv: {string}): integer
   local markers = { "old", "new", "basis", "missing" }
   for index, marker in ipairs(markers) do update(argv[index], marker) end
 
-  local db = assert(Sqlite.open(argv[1], false))
+  local db = assert(Sqlite.open(argv[1]))
   local rows = assert(Sqlite.text_rows(db, "SELECT key FROM meta"))
   local keys: {string:boolean} = {}
   for _, row in ipairs(rows) do keys[row[1]] = true end

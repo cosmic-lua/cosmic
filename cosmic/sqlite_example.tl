@@ -1,9 +1,31 @@
 --- Worked examples for [`cosmic.sqlite`], shown by `cosmic docs` and run by
 --- `cosmic test`.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 
 local Example = {}
+
+--- A file database is read-only until `writable` creates it; `immutable`
+--- reads one that nothing changes while it is open, leaving no `-wal`,
+--- `-shm` or journal beside it. Asking for both raises.
+function Example.open()
+  local dir = assert(Fs.mkdtemp("cosmic-sqlite-example-"))
+  local path = dir .. "/notes.db"
+  assert(Sqlite.open(path) == nil, "a read-only open does not create the file")
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE notes (body TEXT)"))
+  assert(Sqlite.run(db, "INSERT INTO notes VALUES (?1)", { { text = "hi" } }))
+  assert(db:close())
+  local frozen = assert(Sqlite.open(path, { immutable = true }))
+  local rows = assert(Sqlite.rows(frozen, "SELECT body FROM notes"))
+  assert(rows[1][1].kind == "text" and rows[1][1].text == "hi")
+  assert(frozen:close())
+  local opened, why = pcall(Sqlite.open, path, { writable = true, immutable = true })
+  assert(not opened and tostring(why):find("both writable and immutable", 1, true) ~= nil,
+    tostring(why))
+  assert(Fs.remove_tree(dir))
+end
 
 --- Read a value without losing its SQLite storage class.
 function Example.typed_row()

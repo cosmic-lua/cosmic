@@ -35,7 +35,7 @@ end
 --- rows (for a table), its pages, the bytes those pages take, and the
 --- bytes that are actually payload. Returns how many tables it saw.
 local function describe(path: string): integer | nil, string
-  local db, open_trouble = Sqlite.open(path, false)
+  local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return nil, open_trouble
   end
@@ -81,7 +81,7 @@ end
 
 --- The last few rows of the working database's `builds`.
 local function builds(path: string): boolean, string
-  local db, open_trouble = Sqlite.open(path, false)
+  local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return false, open_trouble
   end
@@ -108,7 +108,7 @@ local slowest_kept = 5
 --- name which tests drag the suite out.
 --- @param about whether a test module's rows are to be reported
 local function slowest(path: string, about: function(string): boolean): boolean, string
-  local db, open_trouble = Sqlite.open(path, false)
+  local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return false, open_trouble
   end
@@ -157,7 +157,7 @@ local function module_files(root: string): {string:string} | nil, string
       return nil, present_trouble
     end
     if present then
-      local db, open_trouble = Sqlite.open(path, false)
+      local db, open_trouble = Sqlite.open(path)
       if db == nil then
         return nil, open_trouble
       end
@@ -176,7 +176,7 @@ end
 --- with how many of its rows `about` keeps, for the tables that keep
 --- any. Returns how many rows it kept.
 local function describe_under(path: string, about: function(string): boolean): integer | nil, string
-  local db, open_trouble = Sqlite.open(path, false)
+  local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return nil, open_trouble
   end
