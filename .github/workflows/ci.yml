@@ -567,6 +567,25 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
 
+        # What a save of zig's caches below would carry that no build of
+        # this tree reads (cosmic_ci/zig_prune.tl): each output no manifest
+        # vouches for any more (the output zig's own hash of a manifest's
+        # name and its files' digests names), as a core change leaves the
+        # old core's copies, and every compile and link built from one,
+        # with its manifest, the old linked cores among them. A queue leg's entry holds what it
+        # restored and all it added, so without this each core change's
+        # seed held every earlier one's of the day (macOS's 561 MB
+        # compressed, 1.8 GB on disk, at the day's end, 1.2 GB of it
+        # superseded; linux-x86_64's 867 MB, 2.9 GB). It removes nothing
+        # where zig's manifests read otherwise than it knows, and fails
+        # nothing: an entry left whole costs only time. Only where one of
+        # the saves below follows (the upload's, or the queue's stage).
+        {
+          name: "prune the zig build outputs no step vouches for",
+          if: "always() && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && ((github.event_name == 'merge_group' && !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))) || (env.COSMIC_CI_SAVES == 'true' && (github.event_name == 'schedule' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))))",
+          run: "cosmic-driver cosmic_ci/driver.tl zig-prune",
+        },
+
         # The last build of zig's caches is above, so they are saved here,
         # with the tree moved: place-tree.sh keeps it one directory deep,
         # where actions/cache's paths relative to the workspace resolve.
@@ -723,31 +742,19 @@
         # restore one built from it rather than the nightly's, which
         # compiles the core again on every leg (some two to three
         # minutes a boot and a checked build). Once per core change, of
-        # a few hundred MB compressed a leg (linux-x86_64's 323 to 388 MB,
-        # the TODO above), about 1 GB a set of four: the nightly still
-        # bounds what each carries (it restores nothing), and GitHub
-        # evicts the least recently used, so the older of them.
+        # some 140 to 250 MB compressed a leg once pruned (above), under
+        # 1 GB a set of four: the nightly's cold build bounds what each
+        # carries (it restores nothing), and GitHub evicts the least
+        # recently used, so the older of them.
         # TODO: delete a seeded zig build entry once the nightly's
         # supersedes it (in `prune`, as prune-commit-verdicts.sh deletes
         # the verdicts under a commit), should their room in the
         # repository's 10 GB cache evict entries still in use (the fuzz
         # corpora, another leg's newest).
-        # TODO: bound what a seeded zig build entry carries. Each is the
-        # entry its run restored (often the last core change's seed) and
-        # all the run added, saved whole, so a day's core changes grow it
-        # until the nightly's cold entry supersedes them (linux-x86_64's
-        # seed-zig artifact went 243 -> 306 MB over two queue runs). Keeping
-        # only the files the run read or wrote (atime or mtime newer than
-        # a stamp made after the restore, atimes reset first) breaks the
-        # next build rather than recompiling it: zig takes a hit on each
-        # input's stat, unread, and trusts a hit step's whole o/<digest>,
-        # so a pruned input or output fails as "file not found". That held
-        # even with every cache file a kept manifest names, and every
-        # o/<digest> any kept file is in, kept too. The fix waits on zig
-        # naming the outputs each manifest vouches for, or a cache
-        # collection of its own; short of that, queue runs could build
-        # on the nightly's entry rather than the last seed, given the
-        # nightly a key of its own to restore by.
+        # An entry is bounded by the prune above: what the run before
+        # added for its own core goes once this run's core supersedes
+        # it, so a seed holds the nightly's cold build and the newest
+        # core's, not a day of them.
         {
           name: "keep what main would save of this leg",
           if: "success() && github.event_name == 'merge_group'",
