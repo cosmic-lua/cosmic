@@ -267,7 +267,7 @@ local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
     cancelled = function(): boolean return true end,
   })
   assert(code == 1, tostring(code))
-  assert(table.concat(err):find("cancelled", 1, true) ~= nil, table.concat(err))
+  assert(table.concat(err):find("interrupted", 1, true) ~= nil, table.concat(err))
   assert(Fs.stat(path) == nil, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find("got.txt", 1, true), "left behind: " .. name)

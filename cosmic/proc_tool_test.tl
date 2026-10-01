@@ -70,7 +70,7 @@ local fed = assert(Child.start({ probe, "exit 0" }, { input = "" }))
 assert(fed:wait())
 local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
 assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")
-local _, trouble = Proc.exec(probe, { probe, "status-field SigIgn" }, {})
+local _, trouble = Proc.exec({ probe, "status-field SigIgn" }, { env = {} })
 print(trouble)
 require("cosmic.sys").exit(1)
 ]]
@@ -81,6 +81,39 @@ require("cosmic.sys").exit(1)
   local ignored = assert(assert(r.stdout):match("SigIgn:%s*(%x+)"), r.stdout)
   local mask = math.tointeger(tonumber(ignored, 16)) or 0
   assert(mask & (1 << (sys.SIGPIPE - 1)) == 0, "SIGPIPE arrived ignored: " .. ignored)
+end
+
+--- What the program a chunk becomes answers to `env-of FOO`: `exec` is
+--- the [`Proc.exec`] call it makes, `outer` the variable the chunk's own
+--- process has.
+local function becomes(tmp: string, probe: string, exec: string): string
+  local chunk = 'local Proc = require("cosmic.proc")\nlocal probe = ...\n' ..
+    "local _, trouble = " .. exec .. "\nprint(trouble)\nrequire(\"cosmic.sys\").exit(1)\n"
+  local env = this_program.environment()
+  env.FOO = "outer"
+  local started = this_program.program({ "-e", chunk, probe }, { env = env, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  return r.stdout or ""
+end
+
+--- `Proc.exec(argv, { env })` is `Child.start(argv, { env })`'s, with the
+--- process replaced: argv[1] the program, `env` its whole environment
+--- and, left out, this process's own.
+local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
+  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local given = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { FOO = "given" } })')
+  assert(given == "FOO=given\n", given)
+  local replaced = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { OTHER = "x" } })')
+  assert(replaced == "FOO unset\n", replaced)
+  local inherited = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" })')
+  assert(inherited == "FOO=outer\n", inherited)
+  assert(not pcall(Proc.exec, {}))
+  local missing = tmp .. "/missing"
+  local failed, trouble = Proc.exec({ missing, "x" })
+  assert(not failed and trouble:find(missing .. ": ", 1, true) == 1, trouble)
 end
 
 --- A relaunched child's arguments are the words after the relaunch's

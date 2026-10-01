@@ -66,18 +66,25 @@ function Example.chmod()
   assert(Fs.remove_tree(dir))
 end
 
---- A file set to an exact size through a descriptor open for writing:
---- shorter cuts it, longer pads it with zero bytes.
-function Example.truncate()
+--- A file written under a temporary name and renamed onto its path
+--- when `close` succeeds, so a reader never sees half of it: `abort`
+--- (or a failure) leaves the path as it was. `sync` first makes the
+--- bytes durable before the rename can reach the disk.
+function Example.create()
   local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
   local path = dir .. "/record"
-  local fd = assert(Fs.open_write(path))
-  assert(Fs.put(fd, "header and body"))
-  assert(Fs.truncate(fd, 6))
-  assert(Fs.close(fd))
+  assert(Fs.write(path, "old"))
+  local draft = assert(Fs.create(path))
+  assert(draft:write("new, but not yet"))
+  assert(draft:abort())
+  assert(Fs.read(path) == "old")
+  local file = assert(Fs.create(path))
+  assert(file:write("new"))
+  assert(file:sync())
+  assert(file:close())
   local data = assert(Fs.read(path))
   print(data)
-  assert(data == "header", data)
+  assert(data == "new", data)
   assert(Fs.remove_tree(dir))
 end
 

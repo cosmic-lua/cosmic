@@ -441,7 +441,7 @@ end
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
   -- The program's cores stay where they are; only the caches move.
-  env.COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE or Fs.cache_path("cores")
+  env.COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE or Fs.cache_dir("cores", { make = false })
   env.XDG_CACHE_HOME = xdg
   env.COSMIC_ZIG_CACHE, env.COSMIC_ZIG_GLOBAL_CACHE = nil, nil
   env.COSMIC_TEST_SANDBOX = nil

@@ -120,10 +120,11 @@ function reboot.auto_boot(environment?: {string:string}): boolean
   return value ~= "0"
 end
 
---- `argv` from slot 0 on, as a list to exec.
-local function reentry(argv: {integer:string}): {string}
-  local arguments: {string} = {}
-  local at = 0
+--- `argv` from slot 1 on, led by `program`, the path to exec, as the
+--- list [`Proc.exec`] takes.
+local function reentry(program: string, argv: {integer:string}): {string}
+  local arguments: {string} = { program }
+  local at = 1
   while argv[at] ~= nil do
     arguments[#arguments + 1] = argv[at]
     at = at + 1
@@ -315,7 +316,7 @@ local function into(handle: work.Handle, built: compiler,
 
   local environment = sys.environ()
   environment[marker] = settle and "2" or "1"
-  local _, exec_trouble = Proc.exec(out, reentry(argv), environment)
+  local _, exec_trouble = Proc.exec(reentry(out, argv), { env = environment })
   return exec_trouble
 end
 
@@ -399,7 +400,7 @@ local function reenter(handle: work.Handle, out: string,
     log:complain(close_trouble)
     return 1
   end
-  local _, exec_trouble = Proc.exec(out, reentry(argv), sys.environ())
+  local _, exec_trouble = Proc.exec(reentry(out, argv), { env = sys.environ() })
   log:complain(exec_trouble)
   return 3
 end
@@ -462,7 +463,7 @@ local function serialize(handle: work.Handle, root: string,
   end
   -- Released at once: the run entered below takes it again if it must.
   rebuild_lock.release()
-  local _, exec_trouble = Proc.exec(out, reentry(argv), sys.environ())
+  local _, exec_trouble = Proc.exec(reentry(out, argv), { env = sys.environ() })
   log:complain(exec_trouble)
   return 3
 end
@@ -496,8 +497,8 @@ function reboot.boot_into(root: string, argv: {integer:string},
     return "bin/zig build boot failed; fix what it reports and run this again"
   end
   environment[marker] = "1"
-  local _, exec_trouble = Proc.exec(root .. "/o/bin/cosmic", reentry(argv),
-    environment)
+  local _, exec_trouble = Proc.exec(reentry(root .. "/o/bin/cosmic", argv),
+    { env = environment })
   return exec_trouble
 end
 

@@ -123,6 +123,15 @@ promises lean on come first:
   tree.
 - measure `into`'s copy on a large payload (a big NDJSON file) against
   [`Json.decode`] on the same text once the benchmark harness exists.
+- [`cosmic.http`] with a request body written a chunk at a time, once a
+  caller needs one (`cosmic refresh` posting a large artifact, say): the
+  `Http.upload` that was removed with its C `start`, `write` and `finish`
+  (a tested streaming path with a read callback that paused the transfer,
+  `Expect:` suppressed, a given or chunked length), whose C went with it
+  because no test but its own entered it. A 307 or 308 with a streamed body
+  needs the caller to hand the body over again (a function answering a
+  fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
+  rewind was not possible" without one.
 - `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `doc` and `embed` exist only as build internals under

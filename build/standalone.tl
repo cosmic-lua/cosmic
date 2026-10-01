@@ -71,7 +71,7 @@ end
 --- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
 --- no cache.
 local function cached_path(source: string, variables?: {string:string}): string | nil
-  local dir, _ = Fs.cache_dir("standalone", variables)
+  local dir, _ = Fs.cache_dir("standalone", { environment = variables })
   if dir == nil then
     return nil
   end

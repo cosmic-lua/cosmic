@@ -368,6 +368,21 @@ local function locate(root: string): string | nil, string
   return Zig.ensure_installed(root, cache, install.path, install.pin, install.host)
 end
 
+--- [`Fs.cache_dir`] with `environment`'s variables (the process's own
+--- when nil), for this file, which runs on the pinned release and is
+--- also checked and run against the tree.
+local function cache_dir(tool: string, environment: {string:string} | nil): string | nil, string
+  -- TODO: once ci/cosmic-driver.pin names a release whose Fs.cache_dir
+  -- takes `{ environment = environment }`, call that here and drop this
+  -- function.
+  if environment == nil then return Fs.cache_dir(tool) end
+  -- The release's takes the variables themselves, the tree's an options
+  -- table holding them: one table both read, so it passes neither by type.
+  local named = Fs.cache_dir as any as function(string, any): string | nil, string
+  return named(tool, { environment = environment,
+    XDG_CACHE_HOME = environment.XDG_CACHE_HOME, HOME = environment.HOME })
+end
+
 --- Where one of zig's caches is: `variable` from `environment` (the
 --- process's own when nil) when set, else `tool` in this user's cosmic
 --- cache directory, made as [`Fs.cache_dir`] makes it, else `fallback`.
@@ -385,7 +400,7 @@ local function located(variable: string, tool: string, fallback: string,
   if given ~= nil and given ~= "" then
     return given
   end
-  local made, _ = Fs.cache_dir(tool, environment)
+  local made, _ = cache_dir(tool, environment)
   if made ~= nil then return made end
   return fallback
 end

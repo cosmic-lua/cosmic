@@ -106,9 +106,8 @@ end
 --- the limit the process started with too.
 local function test_a_program_exec_d_gets_the_limit_the_process_started_with(tmp: string)
   local lines = started_low(tmp, [[
-local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
-local _, trouble = Proc.exec("/bin/sh", { "/bin/sh", "-c", "ulimit -Sn" }, Env.all())
+local _, trouble = Proc.exec({ "/bin/sh", "-c", "ulimit -Sn" })
 error(trouble)
 ]])
   if lines == nil then return end

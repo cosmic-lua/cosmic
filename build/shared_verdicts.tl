@@ -136,7 +136,7 @@ function shared_verdicts.location(environment?: {string:string}): string | nil, 
     end
     return value, ""
   end
-  local dir, trouble = Fs.cache_dir("verdicts", environment)
+  local dir, trouble = Fs.cache_dir("verdicts", { environment = environment })
   if dir == nil then return nil, trouble end
   return dir .. "/verdicts.db", ""
 end

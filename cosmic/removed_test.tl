@@ -11,7 +11,9 @@ local modules <const>: {string:any} = {
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.csv"] = require("cosmic.csv"),
   ["cosmic.coverage"] = require("cosmic.coverage"),
+  ["cosmic.fs"] = require("cosmic.fs"),
   ["cosmic.hash"] = require("cosmic.hash"),
+  ["cosmic.http"] = require("cosmic.http"),
   ["cosmic.json"] = require("cosmic.json"),
   ["cosmic.shape"] = require("cosmic.shape"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
@@ -163,5 +165,20 @@ local function test_the_removed_cli_maps_name_the_verb_record_field_that_replace
   for member, field in pairs(fields) do
     local instead = Removed.members["cosmic.cli." .. member]
     assert(instead ~= nil and instead:find("Cli.verbs[verb]." .. field, 1, true), member)
+  end
+end
+
+--- A program that streamed a request body, truncated a descriptor or
+--- asked for a cache path is told what to write instead: a whole body
+--- through [`Http.open`], [`sys.ftruncate`], and `cache_dir` with `make = false`.
+local function test_the_removed_fs_and_http_members_name_their_replacements()
+  for member, want in pairs({
+    ["http.upload"] = "Http.open(url, { method = \"PUT\", body = body })",
+    ["http.Upload"] = "Http.open(url, { method = \"PUT\", body = body })",
+    ["fs.truncate"] = "sys.ftruncate(fd, length)",
+    ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
+  } as {string:string}) do
+    local instead = Removed.members["cosmic." .. member]
+    assert(instead ~= nil and instead:find(want, 1, true), member)
   end
 end
