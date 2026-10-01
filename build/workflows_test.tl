@@ -1979,6 +1979,59 @@ local function test_a_leg_trims_its_verdicts_before_it_saves_them()
     "the verdicts are trimmed after the container goes, or after they are saved")
 end
 
+--- A leg cuts its zig build outputs to what some manifest still vouches
+--- for (cosmic_ci/zig_prune.tl) after its last build of them, the
+--- assemble's, and before either save of them: main's upload and the
+--- queue's seed, which held a day of core changes' outputs whole. It
+--- runs where one of those saves follows -- the queue's where the
+--- restore took no entry of this core, main's where its upload does --
+--- and on no branch push, which saves nothing.
+local function test_a_leg_prunes_its_zig_outputs_before_it_saves_them()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local steps = jobs.platform.steps as {{string: any}}
+  local prune, at = step_running(steps, "driver.tl zig-prune")
+  local _, assembled = step_running(steps, "driver.tl platform assemble")
+  local stage, staged = step_running(steps, "queue-seed.sh stage")
+  local saved: integer
+  local upload: {string: any}
+  for i, step in ipairs(steps) do
+    local path = step.with ~= nil and (step.with as {string: string}).path or nil
+    if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil and
+        path == "${{ runner.temp }}/zig-build" then
+      saved, upload = i, step
+    end
+  end
+  assert(assembled < at and at < saved and at < staged,
+    "the zig outputs are pruned before the assemble's builds, or after they are saved")
+  for i = at + 1, staged do
+    local run = steps[i].run
+    assert(not (run is string and run:find("bin/zig", 1, true) ~= nil),
+      "a build of zig's caches comes after the prune: " .. tostring(steps[i].name))
+  end
+  local condition = prune["if"] as string
+  local upload_condition = upload["if"] as string
+  local restored = upload_condition:match(
+    "(!startsWith%(steps%.zig%-cache%-restore%.outputs%.cache%-matched%-key, format%('{0}full%-', steps%.names%.outputs%.vendor%)%))")
+  assert(restored ~= nil, "main's upload is held to another restore than this test reads: " .. upload_condition)
+  local exact = (stage.env as {string: string}).ZIG_BUILD_EXACT
+  assert(exact == "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-",
+    "the queue seeds its zig outputs against another prefix: " .. tostring(exact))
+  for _, clause in ipairs({
+    "always() && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && ",
+    "github.event_name == 'merge_group' && " ..
+      "!startsWith(steps.zig-cache-restore.outputs.cache-matched-key, " ..
+      "format('{0}full-{1}-', steps.names.outputs.vendor, steps.names.outputs.core))",
+    "env.COSMIC_CI_SAVES == 'true' && (github.event_name == 'schedule' || " .. restored .. ")",
+  }) do
+    assert(condition:find(clause, 1, true) ~= nil,
+      "the prune runs other than where a save of the zig outputs follows: " .. condition)
+  end
+  assert(prune["continue-on-error"] == nil and
+    (prune.run as string) == "cosmic-driver cosmic_ci/driver.tl zig-prune",
+    "the prune runs otherwise than as the driver's verb, which never fails: " .. tostring(prune.run))
+end
+
 --- A job a push to a branch starts and skips still shows as a
 --- check on the branch's PR, a skipped one whose matrix, if it has one,
 --- never expands in its name. So a job that runs only on main or on

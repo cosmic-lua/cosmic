@@ -44,6 +44,7 @@ extern long syscall (long, ...);
 extern int clone (int (*)(void *), void *, int, void *, ...);
 #endif
 #if defined(__APPLE__)
+#include <libproc.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
 #endif
@@ -289,10 +290,64 @@ COSMIC_SYSCALL(getrlimit, 1) {
   return 1;
 }
 
+/* The most a start raises RLIMIT_NOFILE's soft limit to: macOS's
+ * OPEN_MAX, past which an older macOS refuses a soft limit. It holds on
+ * every system, where the hard limit can be a million or none, because
+ * a child on a Linux that closes no range (before 5.9, or where a filter
+ * refuses close_range) closes each descriptor up to the soft limit one
+ * by one ([`close_child_descriptors`]): a millisecond or two at this
+ * bound, against most of a second at a million. */
+#define DESCRIPTOR_LIMIT_RAISED 10240
+
+/* RLIMIT_NOFILE's soft limit as this process started with it, while
+ * `descriptor_limit_raised` says the start raised it and nothing has set
+ * it since: what a program it execs is given back
+ * ([`restore_descriptor_limit`]). A child reads them on the parent's
+ * memory, or a copy of it, before exec. */
+static rlim_t started_descriptor_limit;
+static bool descriptor_limit_raised;
+
+void cosmic_raise_descriptor_limit (void) {
+  struct rlimit limits;
+  if (getrlimit(RLIMIT_NOFILE, &limits) != 0) return;
+  rlim_t target = DESCRIPTOR_LIMIT_RAISED;
+  if (limits.rlim_max < target) target = limits.rlim_max;
+#if defined(__APPLE__)
+  /* macOS refuses a soft limit past kern.maxfilesperproc, or holds the
+   * process to it, and that can be set below OPEN_MAX. */
+  int most = 0;
+  size_t size = sizeof most;
+  if (sysctlbyname("kern.maxfilesperproc", &most, &size, NULL, 0) == 0 && most > 0 &&
+      (rlim_t)most < target)
+    target = (rlim_t)most;
+#endif
+  if (limits.rlim_cur >= target) return;
+  struct rlimit raised = { .rlim_cur = target, .rlim_max = limits.rlim_max };
+  if (setrlimit(RLIMIT_NOFILE, &raised) != 0) return;
+  started_descriptor_limit = limits.rlim_cur;
+  descriptor_limit_raised = true;
+}
+
+/* Gives a program about to be exec'd the soft RLIMIT_NOFILE this
+ * process started with, where the start raised it, so a host program --
+ * a shell's `ulimit -n` -- sees what the user set; a relaunch of this
+ * program raises it again. The hard limit stays as it is now, and bounds
+ * the soft one where something lowered it since. True where it lowered
+ * the limit. A refusal leaves the raised one, which harms no program. */
+static bool restore_descriptor_limit (void) {
+  struct rlimit limits;
+  if (!descriptor_limit_raised || getrlimit(RLIMIT_NOFILE, &limits) != 0) return false;
+  limits.rlim_cur = started_descriptor_limit < limits.rlim_max ? started_descriptor_limit
+                                                                : limits.rlim_max;
+  return setrlimit(RLIMIT_NOFILE, &limits) == 0;
+}
+
 COSMIC_SYSCALL(setrlimit, 3) {
   int resource = cosmic_checkint(L, 1);
   struct rlimit limits = { .rlim_cur = check_limit(L, 2), .rlim_max = check_limit(L, 3) };
   if (setrlimit(resource, &limits) != 0) return cosmic_fail_effect(L, errno);
+  /* A limit the program set is the one its children get. */
+  if (resource == RLIMIT_NOFILE) descriptor_limit_raised = false;
   return cosmic_ok(L);
 }
 
@@ -393,10 +448,15 @@ COSMIC_SYSCALL(execve, 3) {
   char **carried = cosmic_store_environment(envp);
   if (carried == NULL) return cosmic_fail_effect(L, ENOMEM);
   char **given = cosmic_coverage_environment(carried);
+  /* Lowered before the report, which credits what lowers it; a report
+   * whose file finds no room under the lowered limit is left unwritten. */
+  struct rlimit raised;
+  bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 && restore_descriptor_limit();
   cosmic_coverage_report(); /* nothing of this image remains to report later */
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
   execve(path, argv, given);
   int number = errno;
+  if (lowered) setrlimit(RLIMIT_NOFILE, &raised);
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_IGN);
   if (given != carried) free(given);
   if (carried != envp) free(carried);
@@ -425,14 +485,45 @@ static int report_child_error (int fd, int number) {
 /* The highest descriptor number a child may be handed besides stdio. */
 #define CHILD_FD_MAX 255
 
-/* Close every descriptor from `from` up. Cosmic-opened descriptors are
- * CLOEXEC already; this also closes foreign descriptors that are not. */
+/* Close every descriptor from `from` up to `limit`. Cosmic-opened
+ * descriptors are CLOEXEC already; this also closes foreign descriptors
+ * that are not. Where Linux closes no range, the loop walks up to the
+ * soft limit, which the start's raise bounds ([`DESCRIPTOR_LIMIT_RAISED`]);
+ * macOS's stops past the highest open ([`open_descriptor_bound`]). */
 static void close_child_descriptors (int from, long limit) {
 #if defined(__linux__) && defined(SYS_close_range)
   if (syscall(SYS_close_range, (unsigned)from, ~0u, 0u) == 0) return;
 #endif
   for (int fd = from; fd < limit; fd++) close(fd);
 }
+
+#if defined(__APPLE__)
+/* One past the highest descriptor this process has open: where a
+ * child's close loop ([`close_child_descriptors`]) can stop, short of
+ * walking every number up to `limit`, the soft limit, with no range to
+ * close -- and past `limit` where a descriptor is held above a limit
+ * lowered since it opened. `limit` where the kernel lists none, or
+ * more than the room given for what opened since it was asked how
+ * many. */
+static long open_descriptor_bound (long limit) {
+  int size = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, NULL, 0);
+  if (size <= 0) return limit;
+  size_t room = (size_t)size + 16 * sizeof(struct proc_fdinfo);
+  struct proc_fdinfo *open_fds = cosmic_malloc(room);
+  if (open_fds == NULL) return limit;
+  int got = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, open_fds, (int)room);
+  long bound = 0;
+  if (got <= 0 || (size_t)got >= room) {
+    bound = limit;
+  } else {
+    for (int i = 0; i < got / (int)sizeof *open_fds; i++) {
+      if (open_fds[i].proc_fd >= bound) bound = (long)open_fds[i].proc_fd + 1;
+    }
+  }
+  cosmic_free(open_fds);
+  return bound;
+}
+#endif
 
 #if defined(__linux__)
 /* Fixed by the kernel's ABI; a libc or a header older than them may not
@@ -1385,10 +1476,20 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
     failure = ENOSYS;
 #endif
   }
-  close_child_descriptors(top + 2, plan->descriptor_limit);
+  /* Up past the copies this child made above `top` too, which the
+   * parent's bound may stop short of ([`open_descriptor_bound`]). */
+  long reach = plan->descriptor_limit;
+  for (int t = 0; t <= top; t++) {
+    if (pinned[t] >= reach) reach = (long)pinned[t] + 1;
+  }
+  if (confined >= reach) reach = (long)confined + 1;
+  close_child_descriptors(top + 2, reach);
   /* The program starts with the parent's own mask; a signal pending
    * since the start is delivered now, at its default. */
   if (!failure && sigprocmask(SIG_SETMASK, &plan->mask, NULL) != 0) failure = errno;
+  /* Lowered last, once every descriptor is moved above `top`, which a
+   * lower limit can refuse; what is open above it stays open. */
+  if (!failure) restore_descriptor_limit();
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -1606,6 +1707,8 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
                                       int confined, int status_fd) {
   struct sandbox_start start = { plan, pinned, confined, status_fd, 1, -1, -1, -1, 0 };
   int top = plan->top;
+  /* Each descriptor raised above `top` here is counted in
+   * SPAWN_PLACED_ABOVE (core/process.h). */
   /* Through unshare, not clone's flags, which a container's seccomp
    * profile refuses where it lets unshare through (Docker's default,
    * narrowed as CI's is). Each namespace but the user's is the new
@@ -1731,7 +1834,8 @@ static _Noreturn int spawn_child (void *argument) {
    * source is first pinned above everything the child is handed. A
    * source that is its own target is pinned too: the copy is what makes
    * the final dup2 clear CLOEXEC on it. Inherited stdio is left alone,
-   * so a closed one stays closed. */
+   * so a closed one stays closed. What is placed above `top` besides the
+   * copies is counted in SPAWN_PLACED_ABOVE (core/process.h). */
   int pinned[CHILD_FD_MAX + 1];
   for (int t = 0; t <= top; t++) {
     pinned[t] = -1;
@@ -2331,16 +2435,15 @@ COSMIC_SYSCALL(spawn, 10) {
   }
   /* Move both ends clear of every descriptor the child is handed, so
    * closed parent stdio cannot make a pipe end collide with the
-   * remapping below. */
-  /* TODO: a soft RLIMIT_NOFILE below about 300 refuses every relaunch
-   * of this program with a bare EINVAL: a relaunch hands the child
-   * descriptor 255 (cosmic/proc.tl's CORE_FD), so these ends, and the
-   * descriptors the child moves above its own (the pinned and confining
-   * ones, and [`raise_descriptor`]'s), go to 257 and up, which F_DUPFD refuses past the soft limit (EINVAL at it,
-   * EMFILE just under it) -- as at macOS's default `ulimit -n` of 256.
-   * Raise the soft limit toward the hard one at the start of a process
-   * that relaunches, as Go's runtime does, through sys.setrlimit; or at
-   * least fail naming the descriptor past RLIMIT_NOFILE's soft limit. */
+   * remapping below. These ends, and the descriptors the child moves
+   * above its own (the pinned and confining ones, and
+   * [`raise_descriptor`]'s), go to `top` + 2 and up -- 257 and up for a
+   * relaunch, which hands the child 255 (cosmic/proc.tl's CORE_FD) --
+   * which F_DUPFD refuses past RLIMIT_NOFILE's soft limit: EINVAL at it,
+   * EMFILE just under it; SPAWN_PLACED_ABOVE (core/process.h) counts
+   * them. A start raises that limit past macOS's default of 256
+   * ([`cosmic_raise_descriptor_limit`]); a hard limit that low still
+   * refuses a relaunch, which cosmic.child's `start` says. */
   int promote_error = 0;
   int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
   if (status_read < 0) promote_error = errno;
@@ -2355,6 +2458,12 @@ COSMIC_SYSCALL(spawn, 10) {
     free(argv);
     return cosmic_fail(L, promote_error);
   }
+#if defined(__APPLE__)
+  /* Every descriptor the child inherits is open by now, these ends the
+   * last; the copies it makes above them it reaches itself
+   * ([`run_program`]). */
+  descriptor_limit = open_descriptor_bound(descriptor_limit);
+#endif
   /* What an unveiled child resolves in a root of its own is resolved here
    * first, while this process's filesystem is still the one its names
    * mean: each unveiled path with no link or `..` left in it, a shorter
