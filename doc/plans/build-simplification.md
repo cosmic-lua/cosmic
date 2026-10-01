@@ -68,15 +68,16 @@ clean second worktree instead. Preserve this distinction in later reporting.
 
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
-| 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merge queue | final head green; independent approval; all local gates passed |
-| 2. Writer identity boundary | pending | implementing | prepared from step 1 queue; publish only after step 1 merges |
+| 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merged | a6d458c9; final and queue CI green; independent approval |
+| 2. Writer identity boundary | pending | validating | based on merged a6d458c9; independent review active |
 | 3. Build phase and cleanup ownership | pending | planned | depends on 1–2 |
 | 4. Reporting outside the acknowledged runner | pending | planned | preserve existing trust model |
 | 5a. Bootstrap lock ownership preparation | pending | planned | old-pin compatible; retain SQL lock |
 | 5b. Zig scratch lifecycle preparation | pending | planned | only if independently useful |
 | 5c. Patch scratch lifecycle preparation | pending | planned | only if independently useful |
 | 5d. Pin, flock activation and obsolete adapters | pending | planned | atomic API transition; 13 unblocked TODOs |
-| 6. CI policy and recording | pending | planned | depends on 5 |
+| 6a. CI cache-name policy | pending | planned | extract duplicate names, retain restore/save policy |
+| 6b. CI operation recording | pending | planned | preserve durable exit codes and diagnostics |
 | 7. Zig graph construction | pending | planned | preserve exact graph semantics |
 | 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
 
@@ -265,19 +266,30 @@ name their unmet prerequisite precisely.
 
 ## PR 6: consolidate CI policy and operation recording
 
-Extract repeated cache naming/restore/save mechanics into a few concrete local
-actions or helpers. Keep event/leg policy reviewable, including main vs branch,
-light vs full, checked vs release, shard, merge queue and scheduled behavior.
-Preserve hashFiles timing before checkout relocation. Include any extracted
-local action in both passing-driver marker keys: their current input list names
-only .github/actions/cosmic-driver, not arbitrary new actions. Preserve step IDs
-or update every downstream output reference. Do not introduce a YAML
-generator, new DSL, serial coordinator job or additional critical-path network
-round trips merely to remove repeated text.
+Split into two narrow PRs. First extract the two identical cache-name steps
+into a cache-names action with leg input and vendor/core/compiles/image/since
+outputs. Retain id: names and every downstream reference. Keep exact hashFiles
+input/exclusion expressions in action metadata, evaluated before relocation;
+keep since before restores/builds. Use explicit host shell and a short script.
+Include the new action in both passing-driver marker hashes and update README.
 
-Consolidate Orchestration.logical and Runner's repeated operation recording.
-Keep phase/child operation identity, timeout vs exit status and retained
-diagnostics. Separate into two PRs if doing both obscures either review.
+Keep restore/save steps explicit in the workflow. Platform/checked pinned-Zig
+saves, fallback precedence, light/full verdict restores, scheduled macOS saves,
+first-shard branch saves and queue-seed trust are intentionally different. No
+additional network requests, job dependencies, YAML generator or generic action
+interpreter. Adapt the focused naming assertions and preserve comparison tests.
+
+Second move Orchestration.logical into a concrete Runner.phase sharing operation
+recording. Preserve integer phase exit codes (including nonzero23 and timeout
+return124), durable exit_code on exceptions, nested child-operation rows, full
+raised detail and the existing logging/timestamp contracts. Do not simply use
+Runner.step: its boolean results, truncation and Child.Result-derived exit code
+are different. Do not fabricate child results for in-process phases. Runner
+owns recording; orchestration retains environment/dispatch/provenance policy.
+
+Test callback success/nonzero/long exception, nested phase/child timeout, rejected
+candidate-local operation DB, retained-output-open failure and existing durable
+provenance/suite-summary behavior. Run driver tests and CI project checks.
 
 Cache maintenance should ultimately belong to the code owning its formats;
 retain the current trim/merge implementation in this series. Main supplies no
@@ -411,3 +423,16 @@ changes the design, update this plan before proceeding and explain the decision.
 - 2026-10-01: step 3 narrowed after call-graph review: unify cache-consuming
   compile paths, preserve caller-owned transactions and publication. Step 4/8
   should also update declared_key's receivers_identity comment to compilation.
+
+- 2026-10-01 22:11 UTC: step 1 #2522 merged as
+  `a6d458c9ebf85f5ec6a4180f15ce78a8343c0878` after all checks in integrated
+  queue run 36932275052 passed. Step 2 is already based on that exact commit.
+- 2026-10-01: step 2 review found vendor compiler-input row construction must
+  also leave work; move it to existing compiler-covered derivation. Local
+  run-local cannot drop to nobody: the container maps only UID/GID0 and chown
+  fails EINVAL. Preserve that failure; direct-driver root/unsandboxed fixtures
+  provide narrower transition evidence, while required CI covers unprivileged
+  operation. Do not relax repository checks to accommodate the host.
+- 2026-10-01: step 6 preflight narrowed extraction to duplicate cache names and
+  a separate phase-recording PR. Restore/save policy remains visible because
+  its apparent duplication encodes important platform/queue distinctions.
