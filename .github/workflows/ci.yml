@@ -305,7 +305,7 @@
           name: "name the zig build cache, and the run's start",
           id: "names",
           shell: "sh",
-          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-${{ matrix.name }}-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'cosmic/removed.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
+          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-${{ matrix.name }}-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
         },
 
         # The newest entry for this vendor part: `full` with this core
@@ -382,7 +382,7 @@
         # and GitHub lets no other ref restore it (main, a sibling
         # branch or the merge queue), so on main the first prefix finds
         # nothing. `names` hashes, as the compiler a branch's entry was
-        # made by, the build's own modules, cosmic.removed and the Teal
+        # made by, the build's own modules and the Teal
         # compiler's and Lua's pins and patches: more than the
         # compiler's identity holds (build.work's `compiler_identity`),
         # so an edit to the rest of build/ falls back to main's entry
@@ -973,7 +973,7 @@
           name: "name the zig build cache, and the run's start",
           id: "names",
           shell: "sh",
-          run: "echo \"vendor=zig-build-linux-x86_64-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-linux-x86_64-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'cosmic/removed.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
+          run: "echo \"vendor=zig-build-linux-x86_64-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-linux-x86_64-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
         },
         {
           name: "restore zig build outputs",

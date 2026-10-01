@@ -38,9 +38,14 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
       sandboxed = true, carried = held ~= false and carried or nil,
       closure = held ~= false and closure or nil })
   end
-  local kept = judged({ "build.lib", "build.lib_test", "build.test_worker", "cosmic.removed",
+  local kept = judged({ "build.lib", "build.lib_test", "build.test_worker",
     "cosmic.sys", "string" })
   assert(kept.passed, kept.message)
+  -- Nor is the catalog of removed names any worker's but its closure's:
+  -- what a refusal or the core quotes of it is what a test read.
+  local catalog = judged({ "build.lib", "build.test_worker", "cosmic.removed" })
+  assert(not catalog.passed)
+  assert(catalog.message:find("its worker ran cosmic.removed,", 1, true), catalog.message)
   local failed = judged({ "build.docs", "build.lib", "build.test_worker" })
   assert(not failed.passed)
   assert(failed.message:find("its worker ran build.docs,", 1, true), failed.message)

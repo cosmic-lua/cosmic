@@ -351,10 +351,11 @@ end
 --- compiler's and Lua's pins and patches, and the build's own modules a
 --- compile or a parse runs ([`work.compiler_modules`]). The standard
 --- library the importer runs on is not in it, so an edit there does not
---- recompile the world. [`cosmic.removed`] is the exception: the names
---- [`build.teal`] strips from the checker decide what a compile accepts,
---- so an edit to it moves the compiler's identity, though not the
---- runtime basis.
+--- recompile the world. Nor is [`cosmic.removed`], though [`build.teal`]
+--- quotes it in a refusal: the names it strips from the checker, which
+--- decide what a compile accepts, it spells itself, and no compile keeps
+--- a refusal. A stdlib-simplifying change adds to the catalog on almost
+--- every edit, and must not compile every module again for it.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -390,12 +391,18 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   assert(Fs.write(root .. "/cosmic/removed.tl",
     "local record Removed\nend\nreturn Removed\n-- edited\n"))
   local after_removed = identities()
-  assert(after_removed[1] ~= original[1],
-    "an edit to the names the checker strips did not move the compiler identity")
+  assert(after_removed[1] == original[1], "an edit to cosmic.removed moved the compiler identity")
   assert(after_removed[2] == original[2], "an edit to cosmic.removed moved the runtime basis")
+  assert(Fs.write(root .. "/build/teal.tl",
+    "local Fs = require(\"cosmic.fs\")\nlocal Removed = require(\"cosmic.removed\")\n" ..
+    "local record teal\nend\nteal.fs = Fs\nteal.removed = Removed\n" ..
+    "teal.withheld = { \"io\" }\nreturn teal\n"))
+  local after_withheld = identities()
+  assert(after_withheld[1] ~= original[1],
+    "an edit to the names the checker strips did not move the compiler identity")
   assert(Fs.write(root .. "/patch/tl/01.txt", "another record"))
   local after_patch = identities()
-  assert(after_patch[1] ~= after_removed[1],
+  assert(after_patch[1] ~= after_withheld[1],
     "a compiler patch did not move the compiler identity")
   assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime basis")
 end
@@ -1258,16 +1265,17 @@ end
 --- An edit to a module a compile and a parse do not run to decide what
 --- they store -- the working database's staging and records, the build's
 --- reports, the check that fails a whole build before any key is looked
---- up, the host's caches and build/zig.tl, which the caches reach --
---- compiles and parses nothing again: it moves neither the compiler's
---- identity nor the analyzer's, though build.importer requires each.
+--- up, the host's caches and build/zig.tl, which the caches reach, the
+--- catalog of removed names, which only a refusal quotes, though
+--- build.teal requires it -- compiles and parses nothing again: it moves
+--- neither the compiler's identity nor the analyzer's.
 local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   local root = identity_fixture("identity-leaves-out")
   local original = identities_of(root)
   assert(identities_of(root)[1] == original[1], "a second open moved the identity")
   for _, path in ipairs({ "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
                           "build/symbols.tl", "build/caches.tl", "build/zig.tl",
-                          "cosmic/fs.tl" }) do
+                          "cosmic/fs.tl", "cosmic/removed.tl" }) do
     edit(root, path)
     local after = identities_of(root)
     assert(after[1] == original[1], "an edit to " .. path .. " moved the compiler identity")
@@ -1287,7 +1295,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
   for _, path in ipairs({ "build/importer.tl", "build/teal.tl", "build/teal_helper.tl",
                           "build/contracts.tl", "build/receivers.tl", "build/tree.tl",
                           "build/analysis_schema.tl", "build/analyzer.tl",
-                          "build/cache_names.tl", "build/ast.tl", "cosmic/removed.tl",
+                          "build/cache_names.tl", "build/ast.tl",
                           "vendor/tl/PIN", "patch/tl/01.txt", "vendor/lua/PIN",
                           "patch/lua/01.txt" }) do
     local before = identities_of(root)
@@ -1314,9 +1322,10 @@ end
 ---
 --- A `cosmic.*` require is let through whole: it is the standard
 --- library the compile runs on, which the identity leaves out. This
---- cannot tell that from data that decides what a compile accepts, as
---- [`cosmic.removed`] does; such a module goes into the identity by hand
---- ([`work.compiler_modules`]).
+--- cannot tell that from data that decides what a compile accepts, so
+--- none may be: [`build.teal`] spells the globals it strips rather than
+--- reading [`cosmic.removed`]'s, and requires the catalog by no name a
+--- parse records, for a refusal's words alone.
 ---
 --- The walk here reads the running binary's `imports`
 --- ([`Store.requires`]), where [`work.compiler_identity`] reads the working
@@ -1335,10 +1344,12 @@ local function test_the_compiler_modules_are_closed_under_require()
   end
   for _, name in ipairs({ "build.importer", "build.teal", "build.contracts",
                           "build.receivers", "build.tree", "build.analysis_schema",
-                          "build.cache_names", "build.ast.match", "cosmic.removed" }) do
+                          "build.cache_names", "build.ast.match" }) do
     assert(covered[name], name .. " is not in the compiler's identity: " ..
       table.concat(modules, ", "))
   end
+  assert(not covered["cosmic.removed"], "cosmic.removed is in the compiler's identity: " ..
+    table.concat(modules, ", "))
   --- What build.importer requires that the compiler's identity leaves
   --- out, and why no compile or parse stores anything it decides.
   local left_out: {string:string} = {

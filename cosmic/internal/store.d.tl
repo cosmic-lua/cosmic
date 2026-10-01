@@ -73,7 +73,7 @@ local record store
   --- loads: on every module and declaration its own database holds but
   --- those `value` names -- the module's path, a space, the `meta` keys
   --- it lets through joined by commas, then each module name, each after
-  --- a space -- and cosmic.removed. The hold travels in each environment
+  --- a space. The hold travels in each environment
   --- the core starts a process with, in place of any it is given; raises
   --- when one is set already.
   hold_children: function(value: string)

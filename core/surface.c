@@ -122,7 +122,8 @@ static int removed_message (lua_State *L) {
 /* Raises what to write instead of the removed `name` -- or of its
  * field `field`, when that is a string -- at the Lua code that reached
  * for it. When cosmic.removed cannot answer (no module searcher yet,
- * or no memory), the bare fact is raised instead. */
+ * no memory, or a held process whose closure lacks it), the bare fact
+ * is raised instead, naming the field as the catalog's words would. */
 static _Noreturn void raise_removed (lua_State *L, int name, int field) {
   name = lua_absindex(L, name);
   field = field == 0 ? 0 : lua_absindex(L, field);
@@ -137,6 +138,11 @@ static _Noreturn void raise_removed (lua_State *L, int name, int field) {
   if (lua_pcall(L, 2, 1, 0) != LUA_OK || lua_type(L, -1) != LUA_TSTRING) {
     lua_pop(L, 1);
     lua_pushvalue(L, name);
+    if (field != 0 && lua_type(L, field) == LUA_TSTRING) {
+      lua_pushliteral(L, ".");
+      lua_pushvalue(L, field);
+      lua_concat(L, 3);
+    }
     lua_pushliteral(L, " is not available");
     lua_concat(L, 2);
   }
