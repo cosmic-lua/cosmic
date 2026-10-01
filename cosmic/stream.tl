@@ -52,6 +52,13 @@ local record Stream
     abort: function(Writer): boolean, string
   end
 
+  --- What [`Stream.create`] returns: a Writer that can also `sync`.
+  record FileWriter is Writer
+    --- Flushes what was written to storage, so that the rename `close`
+    --- makes cannot reach it before the data does.
+    sync: function(FileWriter): boolean, string
+  end
+
   --- How [`Stream.from_fd`] and [`Stream.to_fd`] wait for a descriptor
   --- that has nothing to read or no room to write. `timeout_ns` and
   --- `wait` need `nonblocking`: a blocking descriptor cannot be
@@ -907,75 +914,33 @@ function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
   return w
 end
 
---- The Writer [`Stream.create`] returns: its methods live on one shared
---- metatable, so creating a file costs a table, not three closures.
-local record FileWriter is Stream.Writer
-  path: string
-  temporary: sys.TemporaryFile
-  failed: string
-  closed: boolean
-end
-
-local FileWriter_methods: {string:any} = {}
-local file_writer_mt: metatable<FileWriter> = { __index = FileWriter_methods }
-
-FileWriter_methods.write = function(self: FileWriter, data: string): boolean, string
-  if self.closed then return false, closed_message end
-  if self.failed then return false, self.failed end
-  local ok, why = Fs.put(self.temporary.fd, data)
-  if not ok then
-    self.failed = why
-    return false, why
-  end
-  return true, ""
-end
-
-FileWriter_methods.abort = function(self: FileWriter): boolean, string
-  if self.closed then return true, "" end
-  self.closed = true
-  local _, _ = Fs.close(self.temporary.fd)
-  local _, _ = sys.unlink(self.temporary.path)
-  return true, ""
-end
-
-FileWriter_methods.close = function(self: FileWriter): boolean, string
-  local temporary = self.temporary
-  if self.closed then
-    if self.failed then return false, temporary.path .. ": " .. self.failed end
-    return true, ""
-  end
-  self.closed = true
-  if self.failed then
-    local _, _ = Fs.close(temporary.fd)
-    local _, _ = sys.unlink(temporary.path)
-    return false, temporary.path .. ": " .. self.failed
-  end
-  local ok, close_trouble = Fs.close(temporary.fd)
-  if not ok then
-    self.failed = close_trouble
-    local _, _ = sys.unlink(temporary.path)
-    return false, temporary.path .. ": " .. close_trouble
-  end
-  local moved, why = sys.rename(temporary.path, self.path)
-  if not moved then
-    self.failed = why
-    local _, _ = sys.unlink(temporary.path)
-    return false, self.path .. ": " .. why
-  end
-  return true, ""
-end
-
 --- A Writer over a file at `path`: bytes go to a temporary neighbor,
 --- which is renamed onto `path` only when `close` succeeds, so a
 --- reader of `path` never sees a partial write. A write or close
 --- failure, or `abort`, leaves `path` untouched and removes the
---- temporary file.
-function Stream.create(path: string, mode?: integer): Stream.Writer | nil, string
-  local opened, trouble = sys.open_temporary(path, mode or 0x1a4)
-  if opened == nil then return nil, path .. ": " .. trouble end
-  local w: FileWriter = setmetatable({
-    path = path, temporary = opened, closed = false,
-  }, file_writer_mt)
+--- temporary file. A failure names `path`, never the temporary file.
+--- This is [`Fs.create`], which says more of the file.
+function Stream.create(path: string, mode?: integer): Stream.FileWriter | nil, string
+  local file, trouble = Fs.create(path, mode)
+  if file == nil then return nil, trouble end
+  -- Teal's interfaces are nominal, and cosmic.fs, a harness module, may
+  -- not require this module to say that its Writer is one of ours.
+  -- TODO: return the Fs.Staged itself once cosmic.fs may require
+  -- cosmic.stream (see its TODO) and declares Staged a Stream.Writer.
+  local staged: Fs.Staged = file
+  local w: Stream.FileWriter = {}
+  w.write = function(_self: Stream.Writer, data: string): boolean, string
+    return staged:write(data)
+  end
+  w.sync = function(_self: Stream.FileWriter): boolean, string
+    return staged:sync()
+  end
+  w.close = function(_self: Stream.Writer): boolean, string
+    return staged:close()
+  end
+  w.abort = function(_self: Stream.Writer): boolean, string
+    return staged:abort()
+  end
   return w, ""
 end
 

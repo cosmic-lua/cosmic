@@ -155,7 +155,7 @@ local function location(environment?: {string:string}): string | nil, string
     end
     return value, ""
   end
-  local dir, trouble = Fs.cache_dir("build", environment)
+  local dir, trouble = Fs.cache_dir("build", { environment = environment })
   if dir == nil then return nil, trouble end
   return dir .. "/cache.db", ""
 end

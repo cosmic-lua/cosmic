@@ -91,6 +91,16 @@ local record Module
   -- Poll.writable, Poll.ready, `:join`, `:wait`, `:accept`,
   -- Child.wait_any, g:wait) changed its unit too, which no compile error
   -- can say: an integer is an integer.
+  -- Likewise for the calls whose parameters changed shape: `Proc.exec(path,
+  -- argv, environment)` is `Proc.exec(argv, { env = environment })`, argv[1]
+  -- the path, and `Fs.cache_dir(tool, environment)` is `Fs.cache_dir(tool,
+  -- { environment = environment })`. The compiler says only `wrong number of
+  -- arguments (given 3, expects at least 1 and at most 2)` for the
+  -- three-argument [`Proc.exec`], and `argument 1: got string, expected
+  -- {string}` for the two-argument one and for [`Fs.cache_dir`], which names no
+  -- callee `arguments` could key an entry by (it reads a boolean given for a
+  -- record), and the removed `body_size` field of Http.Options goes with the
+  -- Upload that read it. Say each once the checker's message names the callee.
   -- TODO: a whole module that left the library (cosmic.dataset, now
   -- build.dataset) has no entry: `members` names a member of a module
   -- that still loads, and a `require` of a module that is gone says only
@@ -142,6 +152,9 @@ local csv <const> = 'local Csv = require("cosmic.csv")'
 local shape <const> = 'local Shape = require("cosmic.shape")'
 local sys <const> = 'local sys = require("cosmic.sys")'
 local cli <const> = 'local Cli = require("cosmic.cli")'
+local http <const> = 'local Http = require("cosmic.http")'
+local upload <const> = "no caller in the tree sent a streamed request body; send one whole with " ..
+  "Http.open(url, { method = \"PUT\", body = body }) (" .. http .. ")"
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
@@ -390,6 +403,11 @@ local module: Module = {
       "address 127.a.b.c; declare it in Test.needs and let `cosmic test` check it",
     ["cosmic.test.lua_trouble"] = "the build refuses a `lua` beside tool, store, system or " ..
       "caches; declare Test.needs and let `cosmic test` refuse a bad one",
+    ["cosmic.http.upload"] = upload,
+    ["cosmic.http.Upload"] = upload,
+    ["cosmic.fs.truncate"] = "use sys.ftruncate(fd, length), which Fs.truncate wrapped (" .. sys .. ")",
+    ["cosmic.fs.cache_path"] = "use Fs.cache_dir(tool, { environment = environment, make = false }), " ..
+      "which answers the name alone, made, looked at and checked nowhere (" .. fs .. ")",
     ["cosmic.cli.options"] = "use Cli.verbs[verb].spec, the options of the verb's " ..
       "Flags.Command (" .. cli .. ")",
     ["cosmic.cli.usage"] = "use Cli.verbs[verb].usage, which follows the verb's name " ..

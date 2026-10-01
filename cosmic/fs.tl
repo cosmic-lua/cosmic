@@ -22,6 +22,36 @@ local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
 
+  --- A file at a path being written through a temporary neighbor and a
+  --- rename, as [`Fs.create`] returns it: a [`cosmic.stream`] Writer
+  --- (`write`, `close` and `abort`) that can also `sync`. Every failure
+  --- names the path, never the temporary file, and is sticky.
+  interface Staged
+    --- Appends `data`: false and why when it cannot all be written.
+    write: function(Staged, string): boolean, string
+    --- Flushes what was written to storage, so that the rename `close`
+    --- makes cannot reach it before the data does.
+    sync: function(Staged): boolean, string
+    --- Renames the file onto its path: false and why when a write
+    --- failed, or the rename or the closing of the file does. Safe to
+    --- call more than once; after `abort` it renames nothing and
+    --- answers true.
+    close: function(Staged): boolean, string
+    --- Removes the temporary file and leaves the path as it was. Safe
+    --- to call more than once.
+    abort: function(Staged): boolean, string
+  end
+
+  --- What [`Fs.cache_dir`] reads.
+  record CacheOptions
+    --- The variables to read (`XDG_CACHE_HOME`, `HOME`), by name; the
+    --- process's own when nil.
+    environment: {string:string}
+    --- Whether to make and check the directory; true when nil. False
+    --- answers the name alone.
+    make: boolean
+  end
+
   --- The descriptor of standard input, 0: what [`Fs.take`] reads from.
   stdin: integer
   --- The descriptor of standard output, 1: what [`Fs.put`] writes to.
@@ -94,34 +124,114 @@ local function write_all(fd: integer, data: string): boolean, string
   return true, ""
 end
 
---- Writes `data` to `path` through a temporary file and a rename, in
---- place of io.open/io.write: a reader sees the old contents or the new,
---- never a mix, and a failure before the rename leaves the old file.
---- The file is always a new one, so it gets `mode` (default 0644, less
---- the umask) and never keeps an existing file's mode. Nothing is
---- synced, so a crash can still lose the write.
-function Fs.write(path: string, data: string, mode?: integer): boolean, string
-  local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
-  if temporary == nil then
-    return false, path .. ": " .. trouble
+--- What [`Fs.create`] returns: its methods live on one shared
+--- metatable, so creating a file costs a table, not four closures.
+local record StagedFile is Fs.Staged
+  path: string
+  temporary: sys.TemporaryFile
+  failed: string
+  closed: boolean
+end
+
+local StagedFile_methods: {string:any} = {}
+local staged_mt: metatable<StagedFile> = { __index = StagedFile_methods }
+
+--- Remembers `why` as the file's failure, naming the caller's path: a
+--- failure is sticky, and never names the temporary file, which the
+--- caller never chose and which is gone when it reads the message.
+local function failing(self: StagedFile, why: string): string
+  self.failed = self.path .. ": " .. why
+  return self.failed
+end
+
+StagedFile_methods.write = function(self: StagedFile, data: string): boolean, string
+  if self.closed then return false, self.path .. ": already closed" end
+  if self.failed then return false, self.failed end
+  local ok, why = write_all(self.temporary.fd, data)
+  if not ok then return false, failing(self, why) end
+  return true, ""
+end
+
+StagedFile_methods.sync = function(self: StagedFile): boolean, string
+  if self.closed then return false, self.path .. ": already closed" end
+  if self.failed then return false, self.failed end
+  local ok, why = sys.fsync(self.temporary.fd)
+  if not ok then return false, failing(self, why) end
+  return true, ""
+end
+
+StagedFile_methods.abort = function(self: StagedFile): boolean, string
+  if self.closed then return true, "" end
+  self.closed = true
+  local _, _ = sys.close(self.temporary.fd)
+  local _, _ = sys.unlink(self.temporary.path)
+  return true, ""
+end
+
+StagedFile_methods.close = function(self: StagedFile): boolean, string
+  local temporary = self.temporary
+  if self.closed then
+    if self.failed then return false, self.failed end
+    return true, ""
   end
-  local ok, failure = write_all(temporary.fd, data)
-  if not ok then
+  self.closed = true
+  if self.failed then
     local _, _ = sys.close(temporary.fd)
     local _, _ = sys.unlink(temporary.path)
-    return false, temporary.path .. ": " .. failure
+    return false, self.failed
   end
-  local closed, close_failure = sys.close(temporary.fd)
+  local closed, close_trouble = sys.close(temporary.fd)
   if not closed then
     local _, _ = sys.unlink(temporary.path)
-    return false, temporary.path .. ": " .. close_failure
+    return false, failing(self, close_trouble)
   end
-  local moved, why = sys.rename(temporary.path, path)
+  local moved, why = sys.rename(temporary.path, self.path)
   if not moved then
     local _, _ = sys.unlink(temporary.path)
-    return false, path .. ": " .. why
+    return false, failing(self, why)
   end
   return true, ""
+end
+
+--- Starts writing a file at `path`: bytes go to a new temporary neighbor,
+--- created exclusively (so two writers never share one and a planted
+--- symlink is never followed), which `close` renames onto `path`, so a
+--- reader of `path` sees the old contents or the new, never a mix. A
+--- failure, or `abort`, leaves `path` as it was and removes the
+--- temporary file. The file is always a new one, so it gets `mode`
+--- (default 0644, less the umask) and never keeps an existing file's
+--- mode. Nothing is synced unless `sync` is called, so a crash can
+--- still lose the write. [`Stream.create`] is this, as a
+--- [`cosmic.stream`] Writer.
+function Fs.create(path: string, mode?: integer): Fs.Staged | nil, string
+  local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
+  if temporary == nil then
+    return nil, path .. ": " .. trouble
+  end
+  local staged: StagedFile = setmetatable({
+    path = path, temporary = temporary, closed = false,
+  }, staged_mt)
+  return staged, ""
+end
+
+--- Writes `data` to `path` through a temporary file and a rename, in
+--- place of io.open/io.write: [`Fs.create`], one write and the close. A
+--- reader sees the old contents or the new, never a mix, and a
+--- failure before the rename leaves the old file. The file is always a
+--- new one, so it gets `mode` (default 0644, less the umask) and never
+--- keeps an existing file's mode. Nothing is synced, so a crash can
+--- still lose the write.
+function Fs.write(path: string, data: string, mode?: integer): boolean, string
+  local file, trouble = Fs.create(path, mode)
+  if file == nil then
+    return false, trouble
+  end
+  local ok, why = file:write(data)
+  if not ok then
+    local _, _ = file:abort()
+    return false, why
+  end
+  return file:close()
 end
 
 --- Metadata for a path, or nil and an error if it cannot be inspected.
@@ -242,7 +352,7 @@ local function private_dir(path: string): boolean, string
   return true, ""
 end
 
---- The base [`Fs.cache_path`] and [`Fs.cache_dir`] put `cosmic` under.
+--- The base [`Fs.cache_dir`] puts `cosmic` under.
 local function cache_base(environment?: {string:string}): string | nil, string
   local function get(name: string): string
     if environment ~= nil then
@@ -261,16 +371,6 @@ local function cache_base(environment?: {string:string}): string | nil, string
   return base, ""
 end
 
---- Where [`Fs.cache_dir`] keeps `tool`'s cache, read from the environment
---- alone: nothing is made, looked at or checked, so it may not be there.
-function Fs.cache_path(tool: string, environment?: {string:string}): string | nil, string
-  local base, trouble = cache_base(environment)
-  if base == nil then
-    return nil, trouble
-  end
-  return base .. "/cosmic/" .. tool, ""
-end
-
 --- `$XDG_CACHE_HOME/cosmic/<tool>`, or `$HOME/.cache/cosmic/<tool>`
 --- when `XDG_CACHE_HOME` is unset, empty or not absolute, created when
 --- missing. What a tool keeps there it trusts on later runs, so there
@@ -278,12 +378,20 @@ end
 --- path this is nil and an error, as it is when the base directory is
 --- owned by another user (root aside), or `cosmic` or `cosmic/<tool>`
 --- under it is owned by another user or writable by its group or by
---- others. The two are made 0700 when missing. `environment` is the
---- variables to read, by default the process's own.
-function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil, string
+--- others. The two are made 0700 when missing. `opts.environment` is
+--- the variables to read, by default the process's own. With
+--- `opts.make` false only the name is answered, from the environment
+--- alone: nothing is made, looked at or checked, so the directory may
+--- not be there.
+function Fs.cache_dir(tool: string, opts?: Fs.CacheOptions): string | nil, string
+  local environment = opts ~= nil and opts.environment or nil
   local base, base_trouble = cache_base(environment)
   if base == nil then
     return nil, base_trouble
+  end
+  local dir = base .. "/cosmic"
+  if opts ~= nil and opts.make == false then
+    return dir .. "/" .. tool, ""
   end
   local made, trouble = Fs.mkdirs(base)
   if not made then
@@ -296,7 +404,6 @@ function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil
   if st.uid ~= sys.getuid() and st.uid ~= 0 then
     return nil, base .. ": owned by another user"
   end
-  local dir = base .. "/cosmic"
   for _, path in ipairs({ dir, dir .. "/" .. tool }) do
     local ok, ptrouble = private_dir(path)
     if not ok then
@@ -585,17 +692,6 @@ function Fs.set_mtime(path: string, seconds: integer, ns?: integer): boolean, st
   local set, trouble = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then
     return false, path .. ": " .. trouble
-  end
-  return true, ""
-end
-
---- Sets a descriptor's file to exactly `length` bytes, cutting it short
---- or extending it with zero bytes. The descriptor must be open for
---- writing; a negative length raises.
-function Fs.truncate(fd: integer, length: integer): boolean, string
-  local ok, trouble = sys.ftruncate(fd, length)
-  if not ok then
-    return false, trouble
   end
   return true, ""
 end

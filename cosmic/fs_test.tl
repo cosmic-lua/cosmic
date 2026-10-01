@@ -100,7 +100,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local ok, trouble = Fs.write(path, "new")
   sys.write = real_write
   sys.open_temporary = real_open_temporary
-  assert(not ok and trouble:find("injected write failure", 1, true))
+  assert(not ok and trouble == path .. ": injected write failure", trouble)
   assert(Fs.read(path) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
@@ -131,7 +131,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   local ok, trouble = Fs.write(path, "new")
   sys.close = real_close
   sys.open_temporary = real_open_temporary
-  assert(not ok and trouble:find("injected close failure", 1, true))
+  assert(not ok and trouble == path .. ": injected close failure", trouble)
   assert(Fs.read(path) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
@@ -153,9 +153,54 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   local ok, trouble = Fs.write(path, "new")
   sys.rename = real_rename
   sys.open_temporary = real_open_temporary
-  assert(not ok and trouble:find("injected rename failure", 1, true))
+  assert(not ok and trouble == path .. ": injected rename failure", trouble)
   assert(Fs.read(path) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
+end
+
+--- A file begun with `create` is a stage of `write`: nothing is at the
+--- path until `close`, `abort` leaves the old file, and a failure is
+--- sticky and names the caller's path, never the temporary file's.
+local function test_create_stages_a_file_until_it_is_closed(tmp: string)
+  local path = tmp .. "/target"
+  assert(Fs.write(path, "old"))
+  local file = assert(Fs.create(path))
+  assert(file:write("ne"))
+  assert(file:write("w"))
+  assert(file:sync())
+  assert(Fs.read(path) == "old")
+  assert(file:close())
+  assert(file:close(), "a second close is harmless")
+  assert(Fs.read(path) == "new")
+  local again, trouble = file:write("more")
+  assert(not again and trouble == path .. ": already closed", trouble)
+  local draft = assert(Fs.create(path))
+  assert(draft:write("discarded"))
+  assert(draft:abort() and draft:abort())
+  assert(Fs.read(path) == "new")
+  assert(#assert(Fs.list(tmp)) == 1, "a temporary file was left behind")
+end
+
+local function test_create_failures_name_the_path_and_stay(tmp: string)
+  local path = tmp .. "/target"
+  local real_write = sys.write
+  local file = assert(Fs.create(path))
+  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+    return nil, "injected write failure", 0
+  end
+  local ok, trouble = file:write("data")
+  sys.write = real_write
+  assert(not ok and trouble == path .. ": injected write failure", trouble)
+  local again, again_trouble = file:write("data")
+  assert(not again and again_trouble == trouble, again_trouble)
+  local synced, sync_trouble = file:sync()
+  assert(not synced and sync_trouble == trouble, sync_trouble)
+  local closed, close_trouble = file:close()
+  assert(not closed and close_trouble == trouble, close_trouble)
+  assert(Fs.exists(path) == false and #assert(Fs.list(tmp)) == 0, "a failed file was left behind")
+  local missing = tmp .. "/missing/target"
+  local made, make_trouble = Fs.create(missing)
+  assert(made == nil and make_trouble:find(missing .. ": ", 1, true) == 1, make_trouble)
 end
 
 local function test_put_rejects_zero_progress(tmp: string)
@@ -173,34 +218,51 @@ end
 
 local function test_cache_dir_has_no_shared_fallback()
   for _, environment in ipairs({ {}, { HOME = "" }, { XDG_CACHE_HOME = "rel", HOME = "also/rel" } }) do
-    local dir, trouble = Fs.cache_dir("tool", environment)
+    local dir, trouble = Fs.cache_dir("tool", { environment = environment })
     assert(dir == nil and trouble:find("no cache directory", 1, true) ~= nil, tostring(dir))
   end
 end
 
 local function test_cache_dir_is_made_private_under_xdg_or_home(tmp: string)
-  local dir = assert(Fs.cache_dir("tool", { XDG_CACHE_HOME = tmp .. "/xdg", HOME = tmp .. "/home" }))
+  local dir = assert(Fs.cache_dir("tool", { environment = { XDG_CACHE_HOME = tmp .. "/xdg", HOME = tmp .. "/home" } }))
   assert(dir == tmp .. "/xdg/cosmic/tool", dir)
   for _, path in ipairs({ tmp .. "/xdg/cosmic", dir }) do
     local st = assert(Fs.stat(path))
     assert(st.uid == sys.getuid() and st.mode & 0x3f == 0, path)
   end
   -- a relative XDG_CACHE_HOME is ignored, as the XDG spec says
-  dir = assert(Fs.cache_dir("tool", { XDG_CACHE_HOME = "rel", HOME = tmp .. "/home" }))
+  dir = assert(Fs.cache_dir("tool", { environment = { XDG_CACHE_HOME = "rel", HOME = tmp .. "/home" } }))
   assert(dir == tmp .. "/home/.cache/cosmic/tool", dir)
+end
+
+--- `make = false` answers the name alone, from the environment, where
+--- the default makes the directories and holds them to a private owner.
+local function test_cache_dir_without_make_makes_and_checks_nothing(tmp: string)
+  local environment = { XDG_CACHE_HOME = tmp .. "/xdg" }
+  local named = assert(Fs.cache_dir("tool", { environment = environment, make = false }))
+  assert(named == tmp .. "/xdg/cosmic/tool", named)
+  assert(Fs.exists(tmp .. "/xdg") == false, "the name alone made a directory")
+  assert(assert(Fs.cache_dir("tool", { environment = environment })) == named)
+  assert(Fs.is_dir(named) == true, "the default did not make it")
+  assert(sys.chmod(named, 0x1ff))
+  assert(Fs.cache_dir("tool", { environment = environment }) == nil)
+  assert(Fs.cache_dir("tool", { environment = environment, make = false }) == named,
+    "the name alone looked at the directory")
+  local none, trouble = Fs.cache_dir("tool", { environment = {}, make = false })
+  assert(none == nil and trouble:find("no cache directory", 1, true) ~= nil, tostring(none))
 end
 
 local function test_cache_dir_refuses_one_others_can_write_to(tmp: string)
   local environment = { XDG_CACHE_HOME = tmp }
-  assert(Fs.cache_dir("tool", environment))
+  assert(Fs.cache_dir("tool", { environment = environment }))
   assert(sys.chmod(tmp .. "/cosmic/tool", 0x1ff))
-  local dir, trouble = Fs.cache_dir("tool", environment)
+  local dir, trouble = Fs.cache_dir("tool", { environment = environment })
   assert(dir == nil and trouble:find("writable by its group or others", 1, true) ~= nil, trouble)
   assert(sys.chmod(tmp .. "/cosmic", 0x1f8))
-  dir, trouble = Fs.cache_dir("other", environment)
+  dir, trouble = Fs.cache_dir("other", { environment = environment })
   assert(dir == nil and trouble == tmp .. "/cosmic: writable by its group or others", trouble)
   assert(Fs.write(tmp .. "/plain", ""))
-  dir, trouble = Fs.cache_dir("tool", { XDG_CACHE_HOME = tmp .. "/plain" })
+  dir, trouble = Fs.cache_dir("tool", { environment = { XDG_CACHE_HOME = tmp .. "/plain" } })
   assert(dir == nil, tostring(dir))
 end
 
@@ -488,20 +550,6 @@ local function test_paths_are_linear_in_runs_of_slashes()
   assert(Fs.basename(slashes .. "a" .. slashes) == "a")
   assert(Fs.dirname(slashes .. "a" .. slashes) == "/")
   assert(Fs.within("a" .. slashes, "a"))
-end
-
-local function test_truncate_cuts_and_extends(tmp: string)
-  local path = tmp .. "/file"
-  assert(Fs.write(path, "abcdef"))
-  local fd = assert(sys.open(path, sys.O_WRONLY))
-  local cut, cut_trouble = Fs.truncate(fd, 2)
-  assert(cut and cut_trouble == "", cut_trouble)
-  assert(Fs.truncate(fd, 4))
-  assert(not pcall(Fs.truncate, fd, -1))
-  assert(Fs.close(fd))
-  assert(assert(Fs.read(path)) == "ab\0\0")
-  local failed, trouble = Fs.truncate(fd, 0)
-  assert(not failed and trouble ~= "", "a closed descriptor was truncated")
 end
 
 local function test_walk_neither_lists_nor_follows_a_link(tmp: string)

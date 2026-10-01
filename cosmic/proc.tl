@@ -16,6 +16,13 @@ else
 end
 
 local record Proc
+  --- What [`Proc.exec`] reads.
+  record ExecOptions
+    --- The program's whole environment, by name: it replaces this
+    --- process's rather than adding to it. Nil inherits this process's.
+    env: {string:string}
+  end
+
   --- How to start this same program again: the executable and the
   --- arguments that must lead its command line, the environment entries
   --- to add, and the descriptors to hand the child (see
@@ -140,13 +147,17 @@ function Proc.is_tty(fd: integer): boolean
   return sys.isatty(fd)
 end
 
---- Replaces this process with the program at `path`, run with `argv`
---- (its first element the program's own name) and exactly `environment`;
---- the process id stays the same. No shell is involved. It returns only
---- when it fails.
-function Proc.exec(path: string, argv: {string},
-                   environment: {string:string}): boolean, string
-  local _, trouble = sys.execve(path, argv, environment)
+--- Replaces this process with the program `argv[1]` names, run with
+--- `argv` -- its first element the path, and the program's own name --
+--- and `opts.env` as its whole environment, by default this process's
+--- own; the process id stays the same. As [`Child.start`] takes
+--- `argv` and `opts.env`. No shell is involved, and no `PATH` is
+--- searched. It returns only when it fails.
+function Proc.exec(argv: {string}, opts?: Proc.ExecOptions): boolean, string
+  local path = argv[1]
+  if path == nil then error("argv is empty", 2) end
+  local environment = opts ~= nil and opts.env or nil
+  local _, trouble = sys.execve(path, argv, environment or sys.environ())
   return false, path .. ": " .. trouble
 end
 
