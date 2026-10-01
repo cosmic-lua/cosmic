@@ -706,6 +706,64 @@ local function failing(fails_at: integer): Failing
   return f
 end
 
+--- A Reader that gives `chunks` one `read` at a time, whatever `max`
+--- asks, then fails with `failure` (an end of file when it is "").
+local function chunked(chunks: {string}, failure: string): Stream.Reader
+  local at = 0
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    at = at + 1
+    if chunks[at] == nil then return nil, failure end
+    return chunks[at], ""
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  return r
+end
+
+local function test_read_up_to_gathers_pieces_up_to_the_count()
+  local got, why = Stream.read_up_to(chunked({ "ab", "c", "def" }, ""), 6)
+  assert(got == "abcdef" and why == "", tostring(got))
+  got, why = Stream.read_up_to(Stream.from_string("abcdef"), 4)
+  assert(got == "abcd" and why == "")
+  assert(Stream.read_up_to(Stream.from_string("abc"), 0) == "")
+end
+
+local function test_read_up_to_tells_a_clean_end_from_a_truncation()
+  local got, why = Stream.read_up_to(Stream.from_string(""), 4)
+  assert(got == "" and why == "", tostring(got))
+  got, why = Stream.read_up_to(chunked({ "ab", "c" }, ""), 4)
+  assert(got == "abc" and why == "", tostring(got))
+end
+
+local function test_read_up_to_answers_a_failure_and_drops_what_was_read()
+  local got, why = Stream.read_up_to(chunked({ "ab" }, "disk on fire"), 4)
+  assert(got == nil and why == "disk on fire", tostring(why))
+  got, why = Stream.read_up_to(chunked({}, "disk on fire"), 4)
+  assert(got == nil and why == "disk on fire", tostring(why))
+end
+
+local function test_copy_n_copies_exactly_n_bytes_and_no_more()
+  local r = Stream.from_string(string.rep("x", 200000) .. "tail")
+  local c = Stream.collect()
+  local ok, why = Stream.copy_n(r, c, 200000)
+  assert(ok and why == "", why)
+  assert(c:result() == string.rep("x", 200000))
+  assert(drain(r) == "tail", "copy_n read past its count")
+  ok, why = Stream.copy_n(r, c, 0)
+  assert(ok and why == "")
+end
+
+local function test_copy_n_fails_on_a_short_reader_and_on_either_side_failing()
+  local c = Stream.collect()
+  local ok, why = Stream.copy_n(Stream.from_string("abc"), c, 10)
+  assert(not ok and why:find("stated size", 1, true) and why:find("wanted 10 bytes, got 3", 1, true), why)
+  assert(c:result() == "abc")
+  ok, why = Stream.copy_n(chunked({ "ab" }, "disk on fire"), Stream.collect(), 10)
+  assert(not ok and why == "disk on fire", why)
+  ok, why = Stream.copy_n(Stream.from_string("abc"), failing(1), 3)
+  assert(not ok and why == "disk full", why)
+end
+
 local function test_sticky_keeps_the_first_failure_and_aborts_once()
   local w = failing(2)
   local sink = Stream.sticky(w, "fmt")

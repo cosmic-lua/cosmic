@@ -171,13 +171,13 @@ adapter, [`Stream.hashing`] keeping its name. the limit names become
 max_bytes?)`, `Compress.xz_decoder(max_memory?)`.
 
 **PR 8 `archive: one entry, one reader, one writer`** (after PR 7).
-`Stream.ArchiveEntry` is an interface with `path`, `kind` (one `Kind` enum,
+[`Stream.ArchiveEntry`] is an interface with `path`, `kind` (one `Kind` enum,
 zip's a subset of tar's), `mode`, `size`, `mtime`, `linkpath` and `open`;
 `Tar.Entry is ArchiveEntry` adds `uid`, `gid`, `typeflag`; `Zip.Entry is
 ArchiveEntry` adds `compressed_size`, `method`, `crc32`, `offset`.
 [`Archive.Reader`] becomes the interface `{ next, close }` both satisfy, so
 `wrap_zip` (archive.tl:175) and the two casts [`build/contracts.tl`] exempts go;
-`wrap_tar` keeps only its drain. `Stream.ArchiveWriter` (`add_file`,
+`wrap_tar` keeps only its drain. [`Stream.ArchiveWriter`] (`add_file`,
 `add_dir`, `add_symlink`, `close`, `abort`) over [`Tar.Writer`] and
 [`Zip.Writer`] (zip gains `add_symlink`, refusing with a reason where the
 format cannot). `Stream.read_up_to(reader, n): string, string` ("" is a
@@ -450,6 +450,8 @@ description.
 [`Sqlite.Query`]: ../../cosmic/sqlite.tl
 [`Sqlite.Value`]: ../../cosmic/sqlite.tl
 [`Store.meta`]: ../../cosmic/store.tl
+[`Stream.ArchiveEntry`]: ../../cosmic/stream.tl
+[`Stream.ArchiveWriter`]: ../../cosmic/stream.tl
 [`Stream.Codec`]: ../../cosmic/stream.tl
 [`Stream.copy`]: ../../cosmic/stream.tl
 [`Stream.create`]: ../../cosmic/stream.tl

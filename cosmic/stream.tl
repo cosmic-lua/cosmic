@@ -123,6 +123,107 @@ local record Stream
   --- more input or calls `finish`; where there is no `pending`,
   --- nothing is ever held.
   type Transform = raw_compress.Transform
+
+  --- What an archive entry is. A zip entry is only ever a "file", a
+  --- "dir" or a "symlink".
+  enum EntryKind
+    "file"
+    "dir"
+    "symlink"
+    --- A tar entry that names another entry of the archive as `linkpath`.
+    "hardlink"
+    --- Anything else: a device, a FIFO, a GNU sparse file (typeflag
+    --- `S`, or pax `GNU.sparse.*` records), or a typeflag this module
+    --- does not know. Its body, if any, is still skipped correctly.
+    "other"
+  end
+
+  -- TODO: once `cosmic docs` lists the fields a record gets from an `is`
+  -- parent, the pages of Tar.Entry, Zip.Entry, Archive.Entry and
+  -- Archive.Reader should show path, kind, mode, size, mtime, linkpath and
+  -- open (this interface's, with their docs) beside each record's own
+  -- fields; today those two aliases list none and the records list only
+  -- what they redeclare.
+  --- One entry of a tar or a zip, as [`cosmic.archive`] walks both. The
+  --- interface lives here, not there, because Teal's interface
+  --- conformance is nominal: [`cosmic.tar`] and [`cosmic.zip`] each
+  --- declare their entry `is` it, and [`cosmic.archive`] requires them
+  --- both.
+  interface ArchiveEntry
+    --- The entry's path as the archive stores it.
+    path: string
+    --- What the entry is.
+    kind: EntryKind
+    --- The permission bits (the low 12); 0 for a zip entry whose tool
+    --- recorded none.
+    mode: integer
+    --- The body's size in bytes, uncompressed. A zip symlink's body is its
+    --- target, so its size is the target's length; a tar symlink's is 0.
+    size: integer
+    --- The modification time, in Unix epoch seconds.
+    mtime: integer
+    --- A symlink's or hardlink's target; "" otherwise.
+    linkpath: string
+    --- The entry's body. Read it before asking for the next entry: a
+    --- tar body cannot be read after that, and no body can be read once
+    --- the reader is closed. An entry from [`Archive.list`] cannot be
+    --- opened at all.
+    open: function(ArchiveEntry): Reader | nil, string
+  end
+
+  --- The entries of a tar or a zip, one at a time: what
+  --- [`cosmic.tar`]'s and [`cosmic.zip`]'s readers are, and what
+  --- [`Archive.open`] and [`Archive.open_stream`] answer.
+  interface ArchiveReader
+    --- The next entry, nil and "" at the end, or nil and an error. For
+    --- a compressed tar, the end also runs the decompressor to the end
+    --- of its stream, so a truncated or corrupt one fails here rather
+    --- than passing as a complete archive.
+    next: function(ArchiveReader): ArchiveEntry | nil, string
+    --- Closes the file or stream the archive is read from.
+    close: function(ArchiveReader): boolean, string
+  end
+
+  --- What [`ArchiveWriter`] may be told about an entry. Every field is
+  --- optional. A zip's own options, [`Zip.EntryOptions`], add the `method`
+  --- a body is stored by.
+  interface EntryOptions
+    --- The permission bits (the low 12 are written). Defaults to 0644
+    --- for a file, 0755 for a directory and 0777 for a symlink.
+    mode: integer
+    --- Modification time in Unix epoch seconds; defaults to 0. Ignored
+    --- (the archive's own zero) when the writer is `deterministic`.
+    mtime: integer
+    --- The body's size, for a file whose body is a [`Stream.Reader`]: required
+    --- by a tar, whose header states it before the body, and optional
+    --- for a zip.
+    size: integer
+  end
+
+  --- The writer a tar or a zip gives: [`cosmic.tar`]'s and
+  --- [`cosmic.zip`]'s writers are one, so a caller that packs a tree
+  --- writes it once. Once any call fails, the underlying [`Stream.Writer`] is
+  --- aborted and every later call, `close` included, returns that
+  --- failure: a half-written archive is never committed. A call after
+  --- `close` fails too.
+  interface ArchiveWriter
+    --- Adds a regular file at `path` with `data` as its body. A
+    --- [`Stream.Reader`] body is read to `opts.size` bytes (to its end, when
+    --- the format allows no size), and is not closed. Returns `true,
+    --- ""`, or `false` and why.
+    add_file: function(ArchiveWriter, path: string, data: string | Reader, opts?: EntryOptions): boolean, string
+    --- Adds a directory entry at `path`, to which a trailing `/` is
+    --- added if missing. Returns `true, ""`, or `false` and why.
+    add_dir: function(ArchiveWriter, path: string, opts?: EntryOptions): boolean, string
+    --- Adds a symbolic link at `path` pointing at `target`. Returns
+    --- `true, ""`, or `false` and why.
+    add_symlink: function(ArchiveWriter, path: string, target: string, opts?: EntryOptions): boolean, string
+    --- Writes the archive's end and closes the underlying [`Stream.Writer`],
+    --- committing it. Returns `true, ""`, or `false` and why.
+    close: function(ArchiveWriter): boolean, string
+    --- Abandons the archive: aborts the underlying [`Stream.Writer`].
+    abort: function(ArchiveWriter): boolean, string
+  end
 end
 
 local chunk_size = 1 << 16
@@ -380,24 +481,46 @@ function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
   return r
 end
 
---- Reads exactly `n` bytes, or nil and an error when the stream ends
---- first.
-function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, string
-  if n == 0 then return "", "" end
-  local parts: {string} = {}
-  local got = 0
+--- Reads up to `n` bytes: all of them, or what is left when the stream
+--- ends first, answered with "". So "" is a clean end of the stream and
+--- fewer than `n` bytes are a truncated one; nil and why when `reader`
+--- fails, with the bytes already read dropped.
+---
+---     local head, why = Stream.read_up_to(reader, 4)
+---     assert(head, why)
+---     if #head < 4 then print("shorter than a header") end
+function Stream.read_up_to(reader: Stream.Reader, n: integer): string | nil, string
+  if n <= 0 then return "", "" end
+  local first, trouble = reader:read(n)
+  if first == nil then
+    if trouble ~= "" then return nil, trouble end
+    return "", ""
+  end
+  if #first >= n then return first, "" end
+  local parts: {string} = { first }
+  local got = #first
   while got < n do
-    local chunk, trouble = reader:read(n - got)
+    local chunk, rtrouble = reader:read(n - got)
     if chunk == nil then
-      if trouble ~= "" then return nil, trouble end
-      return nil, "unexpected end of stream: wanted " .. String.counted(n, "byte") ..
-        ", got " .. tostring(got)
+      if rtrouble ~= "" then return nil, rtrouble end
+      break
     end
     parts[#parts + 1] = chunk
     got = got + #chunk
   end
-  if #parts == 1 then return parts[1], "" end
   return table.concat(parts), ""
+end
+
+--- Reads exactly `n` bytes, or nil and an error when the stream ends
+--- first.
+function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, string
+  local data, trouble = Stream.read_up_to(reader, n)
+  if data == nil then return nil, trouble end
+  if #data < n then
+    return nil, "unexpected end of stream: wanted " .. String.counted(n, "byte") ..
+      ", got " .. tostring(#data)
+  end
+  return data, ""
 end
 
 --- Moves `reader` forward `n` bytes: with its `skip` when it has one,
@@ -587,6 +710,32 @@ function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): integer | ni
     local ok, wtrouble = writer:write(chunk)
     if not ok then return nil, wtrouble end
   end
+end
+
+--- Copies exactly `n` bytes of `reader` to `writer`, and no more of
+--- `reader` than that: for a body whose size a header states and a
+--- reader that holds more after it. Answers `true, ""`, or `false` and
+--- why: a `reader` that ends before `n` bytes (its size was not the
+--- stated one), or fails, or a `writer` that does. Closes neither side.
+---
+---     local ok, why = Stream.copy_n(reader, writer, size)
+---     if not ok then writer:abort() end
+function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer): boolean, string
+  local left = n
+  while left > 0 do
+    local want = left
+    if want > chunk_size then want = chunk_size end
+    local chunk, trouble = reader:read(want)
+    if chunk == nil then
+      if trouble ~= "" then return false, trouble end
+      return false, "unexpected end of stream before its stated size: wanted " ..
+        String.counted(n, "byte") .. ", got " .. tostring(n - left)
+    end
+    local ok, wtrouble = writer:write(chunk)
+    if not ok then return false, wtrouble end
+    left = left - #chunk
+  end
+  return true, ""
 end
 
 --- A Writer over an already-open descriptor. The descriptor is not
