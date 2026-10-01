@@ -69,14 +69,14 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
 | 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merged | a6d458c9; final and queue CI green; independent approval |
-| 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | integrating newer main | branch CI green; resolve shape_specs root conflict before queue |
+| 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | in merge queue | cf1e2777; shape integration independently approved; branch CI36940909057 green |
 | 3. Build phase and cleanup ownership | pending | locally approved | c70ce491; 76 tests and 7 fixed points pass; rebase after 2 |
-| 4. Reporting outside the acknowledged runner | pending | implementing | preserve existing trust model; prepared from step 3 candidate |
-| 5a. Bootstrap lock ownership preparation | pending | implementing | old-pin-compatible scoped SQL ownership |
-| 5b. Pin, flock/scratch and obsolete adapters | pending | planned | atomic API transition; 18 unblocked TODOs |
-| 6a. CI cache-name policy | pending | planned | extract duplicate names, retain restore/save policy |
+| 4. Reporting outside the acknowledged runner | pending | locally approved | 9187fa7b; reporting and runner-boundary checks pass; rebase after 3 |
+| 5a. Bootstrap lock ownership preparation | pending | locally approved | cc912a80; independent old-pin boot and 65 focused tests pass |
+| 5b. Pin, flock/scratch and obsolete adapters | pending | implementing | verified release executed; locking and API slices prepare one atomic PR |
+| 6a. CI cache-name policy | pending | reviewing | 20420196; 38 workflow and 34 driver tests pass |
 | 6b. CI operation recording | pending | planned | preserve durable exit codes and diagnostics |
-| 7. Zig graph construction | pending | implementing/reviewing | independent preparation; publish after earlier steps |
+| 7. Zig graph construction | pending | locally approved | 32d63aa5; 19 artifact hashes and 590 dependency lines preserved |
 | 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
 
 ## PR 1: isolate the compiler and analyzer's semantic inputs
@@ -484,3 +484,12 @@ changes the design, update this plan before proceeding and explain the decision.
   ownership preparation plus one atomic complete API transition. Step7's separate
   preparation/review compares actual compiler commands and artifact hashes while
   earlier PRs pass CI; publication remains serial.
+
+- 2026-10-01: step 2 shape integration independently approved at local fe3721c0,
+  remote cf1e2777, exact tree5d15a0e4. All133 focused tests and whole-tree635
+  checks pass. Branch CI36940909057 passed every leg; queue36941246664 includes
+  preceding external error-consistency PR2530. Step4/5a/7 local candidates are
+  independently approved, pending serial rebase/publication. Step6a is in review.
+- 2026-10-01: selected step5b release was downloaded, SHA256 verified and
+  executed successfully. Separate implementation agents own bootstrap locking
+  and CI/API retirement; their changes will enter one atomic pin-transition PR.
