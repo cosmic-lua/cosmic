@@ -29,9 +29,11 @@
 --- In a task of [`Poll.run`], every wait here -- a handle's, a stream's,
 --- [`Child.run`]'s, [`Child.wait_any`]'s, [`Child.end_strays`]'s -- waits
 --- through the run, and the other tasks run meanwhile; elsewhere it
---- holds the thread. A child's exit ends a wait as it happens, where the
---- platform gives a descriptor for it (a pidfd on Linux, a kqueue on
---- Darwin), and within 10 ms elsewhere. A wait whose task is cancelled
+--- holds the thread. A child's exit wakes a wait once the kernel says
+--- it has exited, where the platform gives a descriptor for that (a
+--- pidfd on Linux, a kqueue on Darwin) -- a moment after the child's
+--- last act, which its teardown and a busy host's scheduling lengthen
+--- -- and is looked for every 10 ms elsewhere. A wait whose task is cancelled
 --- answers nil (or false) and [`Poll.CANCELLED`], as [`cosmic.net`]'s
 --- do, and leaves the child running, for its handle to end; but ending
 --- a child in a cancelled task -- [`Child.run`]'s, a close, a timeout --
