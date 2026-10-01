@@ -2804,15 +2804,11 @@ COSMIC_SYSCALL(kill, 2) {
   return cosmic_ok(L);
 }
 
-/* What [`cosmic_process_entered`] recorded: the command line, and the
- * working directory, "" where it could not be read. */
-static int entered_count;
-static char **entered;
+/* What [`cosmic_process_entered`] recorded: the working directory, ""
+ * where it could not be read. */
 static char entered_directory[PATH_MAX];
 
-void cosmic_process_entered (int argc, char **argv) {
-  entered_count = argc;
-  entered = argv;
+void cosmic_process_entered (void) {
   if (getcwd(entered_directory, sizeof entered_directory) == NULL) entered_directory[0] = '\0';
 }
 
@@ -2883,16 +2879,6 @@ COSMIC_SYSCALL(relaunch, 2) {
   if (core_fd < 0) return cosmic_fail(L, errno);
   lua_pushinteger(L, core_fd);
   lua_rawset(L, -3);
-  return 1;
-}
-
-COSMIC_SYSCALL(arguments, 0) {
-  int count = entered_count > 1 ? entered_count - 1 : 0;
-  lua_createtable(L, count, 0);
-  for (int i = 0; i < count; i++) {
-    lua_pushstring(L, entered[i + 1]);
-    lua_seti(L, -2, i + 1);
-  }
   return 1;
 }
 

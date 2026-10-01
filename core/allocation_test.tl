@@ -37,7 +37,6 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
-local type raw_socket = require("cosmic.internal.socket")
 local Time = require("cosmic.time")
 
 local type Searcher = function(string): any, any
@@ -55,20 +54,6 @@ local function process_table(): raw_process
 end
 
 local process = process_table()
-
---- The raw socket table, as the store's searcher hands it to
---- [`cosmic.net`]'s loader.
-local function socket_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
-
-local socket = socket_table()
 
 local checked = testing.configuration == "sanitized"
 
@@ -278,9 +263,9 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
   assert(sys.lstat(path) == nil, "a refused allocation left the socket file behind")
 end
 
---- The same holds of a connect that waits through a run, of a pair,
---- and of a connection's peer: a refusal anywhere, a run torn down by
---- one included, leaves no descriptor to the process.
+--- The same holds of a connect that waits through a run: a refusal
+--- anywhere, a run torn down by one included, leaves no descriptor to
+--- the process.
 local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
   local path = tmp .. "/r.sock"
@@ -288,40 +273,15 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
   local ended = under_every_failure(function()
     local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
     Poll.run(function()
-      local _client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+      local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
       local accepted <close> = assert(server:accept())
-      assert(accepted:peer())
+      assert(client:write("x"))
+      assert(accepted:read() == "x")
     end)
-    local pair <close> = assert(Net.pair())
-    assert(pair.first:write("x"))
-    assert(pair.second:read() == "x")
   end)
-  assert(ended > 0, "connecting in a run and pairing allocate")
+  assert(ended > 0, "connecting in a run allocates")
   local after = next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
-end
-
---- A listener adopted from a descriptor handed it owns its new
---- descriptor from the call that makes it, and a refusal anywhere --
---- adopting it, reading where it is bound, reading the arguments or a
---- variable -- leaves no descriptor to the process, nor the socket
---- file the listener it was handed made.
-local function test_adopting_a_listener_leaves_no_descriptor_whenever_an_allocation_fails(
-    tmp: string)
-  if not checked then return end
-  local path = tmp .. "/a.sock"
-  local listener <close> = assert(socket.listen({ kind = "unix", path = path }, 1))
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
-    local adopted <close> = assert(socket.adopt(listener:fd(), "unix"))
-    assert(socket.bound(adopted:fd()))
-    assert(#process.arguments() >= 1)
-    assert(socket.handed() == nil)
-  end)
-  assert(ended > 0, "adopting and reading the address and arguments allocate")
-  local after = next_descriptor(tmp)
-  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
-  assert(sys.lstat(path) ~= nil, "an adopted socket removed the listener's file")
 end
 
 --- Asserts the core's own C heap holds what it held when `c_heap`

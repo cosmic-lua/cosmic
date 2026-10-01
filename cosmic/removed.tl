@@ -71,6 +71,16 @@ local record Module
   -- the compiler refuses it as `got string "pipe", expected integer |
   -- Stdin`, naming no module to look an entry up by, and only a run that
   -- reaches it says to use "stream" (Child.start raises).
+  -- Likewise for what cosmic.net's records lost: the Conn methods `peer`
+  -- (an accepted connection's peer is the `address` of the listener or
+  -- the one connected to; a TCP peer's own port has no replacement) and
+  -- `writer` (a Writer whose `close` is `shutdown("write")` is a few
+  -- lines of the caller's: write, then conn:shutdown("write")), the
+  -- `timeout_ns` field of Conn and Listener (assign nothing: call
+  -- `conn:set_timeout(ns)` or `listener:set_timeout(ns)`), and the
+  -- ServeSpec field `workers` and the ListenOptions field `reclaim`,
+  -- whose runtime refusals (Net.serve, Net.listen) name what to do
+  -- instead; a typed table literal gets only `unknown field`.
   -- Likewise for the spans every record held in milliseconds or seconds:
   -- `timeout_ms` (Child.Options, Net.ListenOptions, Net.ConnectOptions,
   -- Net.ServeSpec and Http.Options), `grace_ms` (Net.ServeSpec),
@@ -110,6 +120,7 @@ local fs <const> = 'local Fs = require("cosmic.fs")'
 local stream <const> = 'local Stream = require("cosmic.stream")'
 local env <const> = 'local Env = require("cosmic.env")'
 local proc <const> = 'local Proc = require("cosmic.proc")'
+local net <const> = 'local Net = require("cosmic.net")'
 local time <const> = 'local Time = require("cosmic.time")'
 local child <const> = 'local Child = require("cosmic.child")'
 local errors <const> = 'local Errors = require("cosmic.errors")'
@@ -346,6 +357,17 @@ local module: Module = {
     ["cosmic.time.zone_from_posix"] = "use Time.local_zone({ tz = tz }), which reads a " ..
       "POSIX TZ string when the binary carries no zone of that name; Time.zone(name) " ..
       "answers one it does (" .. time .. ")",
+    ["cosmic.net.pair"] = "listen at a socket file under a temporary directory and " ..
+      "connect to it, for two connections that reach each other: " ..
+      "Net.listen(Net.unix(path)), Net.connect(server.address), server:accept(), each " ..
+      "in a task of Poll.run where both ends wait (" .. net .. ")",
+    ["cosmic.net.Pair"] = "Net.pair is gone, and so its record: listen at a socket file " ..
+      "and connect to it for two connections that reach each other (" .. net .. ")",
+    ["cosmic.net.Kind"] = "an address's `kind` is the string \"unix\" or \"tcp\", as Net.unix " ..
+      "and Net.tcp build it (" .. net .. ")",
+    ["cosmic.proc.arguments"] = "a program's main function is handed its arguments, " ..
+      "`return function(argv: {string}): integer`; Proc.relaunch() answers the command " ..
+      "that starts this program again, to which the caller appends them (" .. proc .. ")",
     ["cosmic.sqlite.cell"] = "use Sqlite.rows(db, sql, values), whose rows carry typed cells, " ..
       "or Sqlite.query(db, sql, values) to read them one at a time (" .. sqlite .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..

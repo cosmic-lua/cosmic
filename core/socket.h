@@ -27,16 +27,6 @@
 /* Opens the table as the raw [`cosmic.internal.socket`] module. */
 int cosmic_open_socket (lua_State *L);
 
-/* The variable a [`Net.serve`] supervisor starts each of its workers
- * with: "<supervisor pid>:<descriptors>", read by `handed`. */
-#define COSMIC_NET_WORKER "COSMIC_NET_WORKER"
-
-/* Takes COSMIC_NET_WORKER out of the environment as the runtime
- * starts, before anything runs that could start a child, so no
- * process this one starts inherits it, and keeps it for `handed`, with
- * this process's parent then, which the supervisor it names must be. */
-void cosmic_socket_entered (void);
-
 #endif
 
 /* Entries, as core/syscalls.h's are: X-macros core/socket.c expands
@@ -52,9 +42,9 @@ void cosmic_socket_entered (void);
  * --- Where a socket is, read by its `kind`.
  * ---@class Address
  * ---@field kind string "unix", a socket file named by `path`, or "tcp", a TCP `port` of a `host`
- * ---@field path string the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes, which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
+ * ---@field path string the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes (107 on Linux, 103 on macOS), which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
  * ---@field host string the host's numeric IPv4 or IPv6 address, for "tcp": a name is not looked up, nor an IPv6 scope read, and either fails with EINVAL, as a NUL in it does
- * ---@field port integer the port, for "tcp", from 0 to 65535: 0 to listen at a port the kernel chooses, which `bound` then names
+ * ---@field port integer the port, for "tcp", from 0 to 65535: 0 to listen at a port the kernel chooses, which the listener's `address` then names
  */
 
 /*
@@ -113,21 +103,6 @@ COSMIC_SYSCALL(start, 1);
 COSMIC_SYSCALL(connected, 1);
 
 /*
- * --- Two unix stream sockets connected to each other, each a `Socket` of its own.
- * ---@class Pair
- * ---@field first Socket one end
- * ---@field second Socket the other end
- */
-
-/*
- * --- Makes two unix stream sockets connected to each other (socketpair), each closed on exec and nonblocking, and each sending as `send` does, EPIPE rather than SIGPIPE once the other has gone.
- * ---@return Pair|nil pair the two ends, or nil on failure
- * ---@return string error what went wrong, when pair is nil
- * ---@return integer errno the error number, when pair is nil
- */
-COSMIC_SYSCALL(pair, 0);
-
-/*
  * --- Sends what of `data` the socket takes now, from byte `from` on, so a caller sending the rest after a partial send copies none of it. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
  * ---@param fd integer the connected descriptor
  * ---@param data string the bytes to send
@@ -146,38 +121,6 @@ COSMIC_SYSCALL(send, 3);
  * ---@return integer errno the error number, when address is nil
  */
 COSMIC_SYSCALL(bound, 1);
-
-/*
- * --- A listening stream socket another process handed this one as `fd`, as a `Socket` of its own: a new descriptor on it, closed on exec, which owns no socket file, so closing it leaves the file to the process that made it. The socket is made nonblocking, which the process that handed it sees too, as it shares it. `fd` itself is left open, the caller's to close. It fails ENOTSOCK for a descriptor that is no socket, EPROTOTYPE for a socket that is not a stream, EAFNOSUPPORT for one that is not of `kind`, and EINVAL for one that is connected, or not listening where the platform answers SO_ACCEPTCONN.
- * ---@param fd integer the descriptor handed
- * ---@param kind string "unix" or "tcp", the kind of `Address` the socket must be at
- * ---@return Socket|nil socket the socket, or nil on failure
- * ---@return string error what went wrong, when socket is nil
- * ---@return integer errno the error number, when socket is nil
- */
-COSMIC_SYSCALL(adopt, 2);
-
-/*
- * --- What COSMIC_NET_WORKER said when the runtime started, which a [`Net.serve`] supervisor starts each worker with, and the process's parent then.
- * ---@class Handed
- * ---@field value string the variable's value, "<supervisor pid>:<lifeline>:<listener>,...", or "" for one longer than any supervisor writes
- * ---@field parent integer this process's parent when the runtime started, which a worker's supervisor is
- */
-
-/*
- * --- What COSMIC_NET_WORKER said as the runtime started, the first time it is asked, and nil after, or where it was not set. The variable is gone from the environment from the start, so no child inherits it.
- * ---@return Handed|nil handed the variable and the parent then, or nil
- */
-COSMIC_SYSCALL(handed, 0);
-
-/*
- * --- Where a connected socket's peer is: a TCP one's host and port, or a unix one's path as its socket was bound, "" for one bound nowhere (as every socket `connect`, `start` and `pair` make is) or in Linux's abstract namespace.
- * ---@param fd integer the connected descriptor
- * ---@return Address|nil address the peer's address, or nil on failure: ENOTCONN once the socket is not connected, as a TCP one reset by its peer may be
- * ---@return string error what went wrong, when address is nil
- * ---@return integer errno the error number, when address is nil
- */
-COSMIC_SYSCALL(peer, 1);
 
 /*
  * --- Ends one direction of a connection, or both: after "write" the peer reads the end of what was sent.

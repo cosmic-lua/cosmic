@@ -13,6 +13,8 @@ local modules <const>: {string:any} = {
   ["cosmic.coverage"] = require("cosmic.coverage"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.json"] = require("cosmic.json"),
+  ["cosmic.net"] = require("cosmic.net"),
+  ["cosmic.proc"] = require("cosmic.proc"),
   ["cosmic.shape"] = require("cosmic.shape"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
   ["cosmic.stream"] = require("cosmic.stream"),
@@ -164,4 +166,20 @@ local function test_the_removed_cli_maps_name_the_verb_record_field_that_replace
     local instead = Removed.members["cosmic.cli." .. member]
     assert(instead ~= nil and instead:find("Cli.verbs[verb]." .. field, 1, true), member)
   end
+end
+
+--- A program that made a connected pair, read the arguments the program
+--- was started with or named an address's kind type is told what to do
+--- instead, and the removed pair's record says it went with it.
+local function test_the_removed_net_and_proc_members_say_what_to_do_instead()
+  local pair = Removed.members["cosmic.net.pair"]
+  assert(pair ~= nil and pair:find("Net.listen(Net.unix(path))", 1, true) and
+    pair:find("Net.connect(server.address)", 1, true), tostring(pair))
+  local record = Removed.members["cosmic.net.Pair"]
+  assert(record ~= nil and record:find("Net.pair is gone", 1, true), tostring(record))
+  local kind = Removed.members["cosmic.net.Kind"]
+  assert(kind ~= nil and kind:find("Net.unix", 1, true), tostring(kind))
+  local arguments = Removed.members["cosmic.proc.arguments"]
+  assert(arguments ~= nil and arguments:find("Proc.relaunch()", 1, true) and
+    arguments:find("argv", 1, true), tostring(arguments))
 end
