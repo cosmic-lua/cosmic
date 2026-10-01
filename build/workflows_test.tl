@@ -2371,3 +2371,26 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
   assert(seen.portable and seen.fixtures and seen.attest and seen.upload,
     "a full run's leg misses a step of the product's")
 end
+
+--- The vendor part of the zig build cache's key hashes the vendored
+--- trees and their records, but not the applier, [`build/patch.tl`],
+--- which names each patched tree by the bytes it writes: an edit to it
+--- that writes the same trees moves no object's path, so it must not
+--- move the key and send main's next run to a cold cache (main
+--- restores no other vendor part's entry).
+local function test_the_vendor_part_hashes_the_trees_and_records_but_not_the_applier()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local named: {string: any} = nil
+  for _, step in ipairs(platform.steps as {{string: any}}) do
+    if step.id == "names" then named = step end
+  end
+  assert(named ~= nil, "no step names the zig build cache")
+  local vendor = (named.run as string):match("vendor=zig%-build%-.-hashFiles%((.-)%) }}")
+  assert(vendor ~= nil, "no vendor part: " .. tostring(named.run))
+  for _, wanted in ipairs({ "'vendor/**'", "'patch/**'", "'build.zig'", "'build/zig.tl'" }) do
+    assert(vendor:find(wanted, 1, true), "the vendor part hashes no " .. wanted .. ": " .. vendor)
+  end
+  assert(not vendor:find("build/patch.tl", 1, true),
+    "the vendor part hashes the applier, whose edits write the same trees: " .. vendor)
+end
