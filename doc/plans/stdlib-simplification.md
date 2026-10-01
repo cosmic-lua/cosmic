@@ -50,8 +50,10 @@ these were taken up front and are not reopened per PR.
    o/bin/cosmic test`, `o/bin/cosmic fix --check .` before pushing, and
    `../o/bin/cosmic fix --check` from `ci/` when `ci/` changed.
 3. every removed export has a [`cosmic.removed`] entry, every moved one a
-   replacement that names its new home, and `o/bin/cosmic docs <name>` of a
-   removed name answers the removed page.
+   replacement that names its new home, so a program that used it fails to
+   compile with the replacement in the message (`cosmic docs` has no
+   removed-member lookup; teaching it one is the tool's change, not this
+   plan's).
 4. a worked example or guide that called a removed export is rewritten to the
    replacement, never deleted to make the export "unearned".
 5. a gap the PR leaves is a `TODO:` in the code at the moment it is left, and
