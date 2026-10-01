@@ -10,6 +10,7 @@ local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local contracts = require("build.contracts")
 local receivers = require("build.receivers")
+local shape_specs = require("build.shape_specs")
 local bind = require("build.bind")
 local type compiler = require("build.compiler")
 local type module = require("build.module")
@@ -459,12 +460,17 @@ local function bytecode_of(code: string, name: string,
   return bytecode
 end
 
---- Compiles one module: the checker over its source, the test tail
---- when it is a test, and the bytecode.
+--- Compiles one module: the checker over its source (with each
+--- [`Shape.record_of`] call resolved first, [`build.shape_specs`]), the test
+--- tail when it is a test, and the bytecode.
 function compilation.generate(m: Module, built: compiler, env: compiler.Env,
                         typed: receivers.State, own_tree: boolean, judged: boolean,
                         render: function(string, string, compiler.Result): string): compilation.Generated | nil, string
-  local code, result = built.gen(m.source, env, nil, "tl")
+  local source, spec_trouble = shape_specs.resolve(built, env, m.file, m.path, m.source)
+  if source == nil then
+    return nil, spec_trouble
+  end
+  local code, result = built.gen(source, env, nil, "tl")
   if m.kind == "test" and result ~= nil then
     result = discount_test_warnings(result, m.tests)
   end

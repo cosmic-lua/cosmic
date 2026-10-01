@@ -1476,6 +1476,9 @@ local compiler_roots: {string} = {
   -- refused by and the tree they hold in, and the record-field uses
   -- the checker finds.
   "build.contracts", "build.receivers", "build.teal", "build.tree",
+  -- Splices the specs [`Shape.record_of`] names into the source a compile
+  -- checks ([`build.shape_specs`]): its output is part of the bytecode.
+  "build.shape_specs",
 }
 
 --- The modules the compiler's identity holds, sorted, as `requires`

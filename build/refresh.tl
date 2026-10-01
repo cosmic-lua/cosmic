@@ -145,19 +145,12 @@ local record Index
   urls: {File}
 end
 
-local INDEX <const> = Shape.record({
-  info = Shape.record({ version = Shape.string }),
-  urls = Shape.list(Shape.record({
-    packagetype = Shape.string,
-    url = Shape.string,
-    digests = Shape.map(Shape.string),
-  })),
-})
+local INDEX <const> = Shape.record_of("Index")
 
 --- The newest sdist of `tzdata` PyPI's JSON description names: its
 --- version, URL and sha256.
 function refresh.tzdata_release(text: string): refresh.Source | nil, string
-  local index, trouble: Index | nil, string = Shape.decode_into(text, INDEX)
+  local index, trouble = INDEX:decode_into(text)
   if index == nil then
     return nil, "PyPI's description of tzdata: " .. trouble
   end

@@ -40,6 +40,45 @@ function Example.into()
   assert(text == '{"assets":["lua","zip"],"tag":"v1"}', text)
 end
 
+--- The record is its own spec: [`record_of`] reads the declaration of
+--- `Entry` where the module is built, so a field added to the record is
+--- checked from then on, and the answer is an `Entry` without an
+--- annotation to keep in step. `draft` is `boolean | nil`, so a null
+--- reads as missing.
+function Example.record_of()
+  local record Entry
+    tag: string
+    draft: boolean | nil
+    assets: {string}
+  end
+  local RELEASE <const> = Shape.record_of("Entry")
+  local release, err = RELEASE:into(decoded())
+  assert(release ~= nil, err)
+  print(release.tag, #release.assets, release.draft)
+  assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
+  local _, why = RELEASE:into({ tag = "v2", assets = { 1 } })
+  print(why)
+  assert(why == "$.assets[1]: expected string, got integer", why)
+end
+
+--- Text that is JSON is decoded and checked in one call: the answer is a
+--- [`Release`], or the reason the text is not one, whether it is not JSON
+--- or is JSON of another shape.
+function Example.decode_into()
+  local RELEASE <const> = Shape.record({
+    tag = Shape.string,
+    assets = Shape.list(Shape.string),
+  })
+  local release, err: Release | nil, string =
+    Shape.decode_into('{"tag": "v1", "assets": ["lua"]}', RELEASE)
+  assert(release ~= nil, err)
+  print(release.tag, #release.assets)
+  assert(release.tag == "v1" and release.assets[1] == "lua")
+  local _, shape: Release | nil, string = Shape.decode_into('{"tag": 1, "assets": []}', RELEASE)
+  print(shape)
+  assert(shape == "$.tag: expected string, got integer", shape)
+end
+
 --- A value that does not fit names the first place it went wrong.
 function Example.into_failure()
   local RELEASE <const> = Shape.record({
