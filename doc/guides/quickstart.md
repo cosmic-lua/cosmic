@@ -77,7 +77,7 @@ newline in it takes more than one line), and `cosmic json
 JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
 over `--flat` covers the simple cases. To count or sum, use `cosmic sql
 --from` (next section); for anything else write the script with
-`cosmic.json`, whose [`Json.flatten`] and [`Json.select`] are these two.
+`cosmic.json`: [`Json.decode`] the file and walk the value in Lua.
 `cosmic help json` has the rest.
 
 ## a random id, token or number
@@ -340,7 +340,6 @@ for a variable that holds floats. A function declared `: number` may still
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
+[`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
-[`Json.flatten`]: ../../cosmic/json.tl
-[`Json.select`]: ../../cosmic/json.tl
 [`Proc.exit`]: ../../cosmic/proc.tl

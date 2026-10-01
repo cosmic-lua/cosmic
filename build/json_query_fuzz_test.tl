@@ -1,13 +1,14 @@
---- Fuzz properties for [`Json.parse_path`] and [`Json.parse_pattern`], which
+--- Fuzz properties for [`json_query.parse_path`] and [`json_query.parse_pattern`], which
 --- read a path a person typed: they are total on any bytes, `parse_path`
---- reads back the steps [`Json.child_path`] spelled, for any keys (bytes that
+--- reads back the steps [`json_query.child_path`] spelled, for any keys (bytes that
 --- are not UTF-8, dots, brackets, quotes, control characters) and any
---- integers, `parse_pattern` those [`Json.spell_pattern`] spelled, and
---- [`Json.select`] finds what a plain walk of the document does.
+--- integers, `parse_pattern` those [`json_query.spell_pattern`] spelled, and
+--- [`json_query.select`] finds what a plain walk of the document does.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
+local json_query = require("build.json_query")
 
 --- Keys that need quoting, and one that does not, drawn more often than
 --- chance would.
@@ -18,7 +19,7 @@ local INTEGERS <const>: {integer} = { 1, 2, 10, 0, -1, 9223372036854775807, math
 
 local function render(steps: {string | integer}): string
   local text = "$"
-  for _, step in ipairs(steps) do text = Json.child_path(text, step) end
+  for _, step in ipairs(steps) do text = json_query.child_path(text, step) end
   return text
 end
 
@@ -69,7 +70,7 @@ local function test_a_rendered_path_reads_back(tmp: string)
       end
       if #steps == 0 then Fuzz.label("empty path") end
       local text = render(steps)
-      local ok, got, err = pcall(Json.parse_path, text)
+      local ok, got, err = pcall(json_query.parse_path, text)
       if not ok then return false, "raised on " .. Json.quote(text) .. ": " .. tostring(got) end
       if got == nil then return false, "refused " .. Json.quote(text) .. ": " .. err end
       if not same(got as {string | integer}, steps) then
@@ -79,7 +80,7 @@ local function test_a_rendered_path_reads_back(tmp: string)
       local first = steps[1]
       if first is string and first:match("^[%a_][%w_]*$") then
         local bare = text:sub(3)
-        local again = Json.parse_path(bare)
+        local again = json_query.parse_path(bare)
         if again == nil or not same(again, steps) then
           return false, "bare " .. Json.quote(bare) .. " read differently"
         end
@@ -123,7 +124,7 @@ local function test_parse_path_is_total_on_any_text(tmp: string)
     requires = { "read", "refused" },
     shares = { read = 0.15, refused = 0.15 },
     check = function(input: string): boolean, string
-      local ok, got, err = pcall(Json.parse_path, input)
+      local ok, got, err = pcall(json_query.parse_path, input)
       if not ok then return false, "raised: " .. tostring(got) end
       if got == nil then
         Fuzz.label("refused")
@@ -133,7 +134,7 @@ local function test_parse_path_is_total_on_any_text(tmp: string)
       if err ~= "" then return false, "a path with a message: " .. err end
       Fuzz.label("read")
       local steps = got as {string | integer}
-      local again, why = Json.parse_path(render(steps))
+      local again, why = json_query.parse_path(render(steps))
       if again == nil then return false, "did not read back its own spelling: " .. why end
       if not same(again, steps) then return false, "spelling " .. render(steps) .. " read differently" end
       return true, ""
@@ -143,7 +144,7 @@ end
 
 --- The steps of `pattern` as a plain path's, or nil when one is not
 --- a plain key or index.
-local function plain_steps(pattern: {Json.Step}): {string | integer} | nil
+local function plain_steps(pattern: {json_query.Step}): {string | integer} | nil
   local out: {string | integer} = {}
   for i, step in ipairs(pattern) do
     local plain: string | integer | nil = step.kind == "key" and step.key or step.kind == "index" and step.index or nil
@@ -161,16 +162,16 @@ local function test_parse_pattern_is_total_and_agrees_with_parse_path(tmp: strin
     requires = { "plain", "wild", "refused" },
     shares = { plain = 0.1, wild = 0.03, refused = 0.15 },
     check = function(input: string): boolean, string
-      local ok, pattern, err = pcall(Json.parse_pattern, input)
+      local ok, pattern, err = pcall(json_query.parse_pattern, input)
       if not ok then return false, "raised: " .. tostring(pattern) end
-      local path, path_err = Json.parse_path(input)
+      local path, path_err = json_query.parse_path(input)
       if pattern == nil then
         Fuzz.label("refused")
         if not (err is string) or err == "" then return false, "a refusal with no message" end
         if path ~= nil then return false, "parse_path read what parse_pattern refused: " .. err end
         return true, ""
       end
-      local steps = pattern as {Json.Step}
+      local steps = pattern as {json_query.Step}
       local plain = plain_steps(steps)
       if plain ~= nil then
         Fuzz.label("plain")
@@ -180,12 +181,12 @@ local function test_parse_pattern_is_total_and_agrees_with_parse_path(tmp: strin
       else
         Fuzz.label("wild")
         if path ~= nil then return false, "parse_path read a wildcard: " .. Json.quote(input) end
-        if not path_err:find("Json.parse_pattern", 1, true) then
-          return false, "parse_path refused a pattern without pointing at Json.parse_pattern: " .. path_err
+        if not path_err:find("is a pattern, not a path", 1, true) then
+          return false, "parse_path refused a pattern without saying it is one: " .. path_err
         end
       end
-      local again = Json.parse_pattern(Json.spell_pattern(steps))
-      if again == nil or Json.spell_pattern(again) ~= Json.spell_pattern(steps) then
+      local again = json_query.parse_pattern(json_query.spell_pattern(steps))
+      if again == nil or json_query.spell_pattern(again) ~= json_query.spell_pattern(steps) then
         return false, "spelling of " .. Json.quote(input) .. " read differently"
       end
       return true, ""
@@ -210,12 +211,12 @@ local function gen_pattern_steps(src: Fuzz.Source): string
   return Fuzz.pack(fields)
 end
 
-local function steps_of(packed: string): {Json.Step}
+local function steps_of(packed: string): {json_query.Step}
   local fields = Fuzz.unpack(packed)
-  local steps: {Json.Step} = {}
+  local steps: {json_query.Step} = {}
   for i = 1, #fields - 1, 2 do
-    local kind = fields[i] as Json.StepKind
-    local step: Json.Step = { kind = kind }
+    local kind = fields[i] as json_query.StepKind
+    local step: json_query.Step = { kind = kind }
     if kind == "key" or kind == "deep_key" then
       step.key = fields[i + 1]
     elseif kind == "index" or kind == "deep_index" then
@@ -226,7 +227,7 @@ local function steps_of(packed: string): {Json.Step}
   return steps
 end
 
-local function same_steps(a: {Json.Step}, b: {Json.Step}): boolean
+local function same_steps(a: {json_query.Step}, b: {json_query.Step}): boolean
   if #a ~= #b then return false end
   for i = 1, #a do
     if a[i].kind ~= b[i].kind or a[i].key ~= b[i].key or a[i].index ~= b[i].index then return false end
@@ -249,15 +250,15 @@ local function test_a_spelled_pattern_reads_back(tmp: string)
         Fuzz.label(step.kind == "deep_key" and "deep key" or step.kind == "deep_index" and "deep index"
           or step.kind == "deep_any" and "deep any" or step.kind == "any" and "any" or "plain step")
       end
-      local text = Json.spell_pattern(steps)
-      local ok, read, err = pcall(Json.parse_pattern, text)
+      local text = json_query.spell_pattern(steps)
+      local ok, read, err = pcall(json_query.parse_pattern, text)
       if not ok then return false, "raised on " .. Json.quote(text) .. ": " .. tostring(read) end
       if read == nil then return false, "refused " .. Json.quote(text) .. ": " .. err end
-      if not same_steps(read as {Json.Step}, steps) then
-        return false, "read " .. Json.spell_pattern(read as {Json.Step}) .. " for " .. Json.quote(text)
+      if not same_steps(read as {json_query.Step}, steps) then
+        return false, "read " .. json_query.spell_pattern(read as {json_query.Step}) .. " for " .. Json.quote(text)
       end
       local plain = plain_steps(steps)
-      local path = Json.parse_path(text)
+      local path = json_query.parse_path(text)
       if (plain == nil) ~= (path == nil) then
         return false, "parse_path and the pattern's kinds disagree on " .. Json.quote(text)
       end
@@ -298,7 +299,7 @@ end
 
 local function spelled(steps: {string | integer}): string
   local text = "$"
-  for _, step in ipairs(steps) do text = Json.child_path(text, step) end
+  for _, step in ipairs(steps) do text = json_query.child_path(text, step) end
   return text
 end
 
@@ -344,7 +345,7 @@ end
 
 --- What `pattern` matches, found the slow way: one step at a time over
 --- the values so far, `..` over everything below each, a value kept once.
-local function reference(root: Node, pattern: {Json.Step}): {string}
+local function reference(root: Node, pattern: {json_query.Step}): {string}
   local now: {Node} = { root }
   for _, step in ipairs(pattern) do
     local next_nodes: {Node} = {}
@@ -414,12 +415,12 @@ local function test_select_matches_a_step_by_step_reference(tmp: string)
       local doc = Json.decode(fields[1], { null_value = fields[3] == "nulls" and Json.null or nil })
       local pattern = steps_of(fields[2])
       local want = reference({ steps = {}, value = doc }, pattern)
-      local ok, found, err = pcall(Json.select, doc, pattern, { max_depth = 100 })
+      local ok, found, err = pcall(json_query.select, doc, pattern, { max_depth = 100 })
       if not ok then return false, "raised: " .. tostring(found) end
       if found == nil then return false, "failed: " .. err end
       local got_paths: {string} = {}
-      for i, match in ipairs(found as {Json.Located}) do got_paths[i] = match.path end
-      local text = Json.spell_pattern(pattern)
+      for i, match in ipairs(found as {json_query.Located}) do got_paths[i] = match.path end
+      local text = json_query.spell_pattern(pattern)
       if table.concat(got_paths, " ") ~= table.concat(want, " ") then
         return false, text .. " on " .. fields[1] .. ": got [" .. table.concat(got_paths, " ") ..
           "], want [" .. table.concat(want, " ") .. "]"
@@ -446,16 +447,16 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
     check = function(packed: string): boolean, string
       local fields = Fuzz.unpack(packed)
       local doc = Json.decode(fields[1], { null_value = fields[2] == "nulls" and Json.null or nil })
-      local ok, leaves, err = pcall(Json.flatten, doc)
+      local ok, leaves, err = pcall(json_query.flatten, doc)
       if not ok then return false, "raised: " .. tostring(leaves) end
       if leaves == nil then return false, "failed: " .. err end
-      local every = Json.select(doc, { { kind = "deep_any" } }, { max_depth = 100 })
+      local every = json_query.select(doc, { { kind = "deep_any" } }, { max_depth = 100 })
       local selectable: {string:boolean} = { ["$"] = true }
       for _, match in ipairs(every or {}) do selectable[match.path] = true end
       local previous = ""
-      for _, leaf in ipairs(leaves as {Json.Located}) do
+      for _, leaf in ipairs(leaves as {json_query.Located}) do
         Fuzz.label("leaves")
-        local steps, why = Json.parse_path(leaf.path)
+        local steps, why = json_query.parse_path(leaf.path)
         if steps == nil then return false, leaf.path .. " does not read: " .. why end
         local value, get_err = Json.get(doc, steps)
         if get_err ~= "" then return false, leaf.path .. ": " .. get_err end

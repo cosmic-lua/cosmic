@@ -1,15 +1,17 @@
--- Digests, HMACs and streaming digests at the Lua boundary, as the
+-- Digests, HMACs and streaming digests and HMACs at the Lua boundary, as the
 -- core provides them. Every fallible function answers `value, ""` on
 -- success and `nil, error` on failure.
 
 local record hash
+  -- An incremental digest or HMAC: one type, since both take chunks and
+  -- finish the same way.
   record Hasher
     userdata
 
     -- Raises on a finished hasher.
     update: function(Hasher, data: string)
-    -- The raw digest; the hasher is finished after this and every
-    -- further call to it throws.
+    -- The raw digest, or code for an HMAC; the hasher is finished after
+    -- this and every further call to it throws.
     digest: function(Hasher): string | nil, string
     -- `local h <close> = ...`: an unfinished digest is abandoned and
     -- the hasher finished.
@@ -26,6 +28,10 @@ local record hash
   -- Raises when no algorithm has that name; nil, error when the
   -- digest cannot start.
   hasher: function(algorithm: string): Hasher | nil, string
+  -- An incremental HMAC under key, of any length, whose digest is what
+  -- `hmac` answers over the whole of what was fed. Raises when no
+  -- algorithm has that name; nil, error when it cannot start.
+  hmac_hasher: function(algorithm: string, key: string): Hasher | nil, string
   -- The sum of the unsigned bytes of data[first..last] (1-based,
   -- inclusive; the whole string by default). Raises when first < 1,
   -- last > #data, or first > last + 1; an empty range sums to 0.

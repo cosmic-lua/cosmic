@@ -8,6 +8,11 @@
 # (ci/README.md's "the caches"). A branch based on a commit older than
 # that restores main's newest verdicts.
 #
+# It deletes too the compiles a branch's push saves for its later pushes
+# (`compiles-branch-...`, some 5 MB a leg, saved where a change to the
+# compiler moved every compile's key) once they are older than HOURS: a
+# later push of that branch restores main's, and saves its own again.
+#
 #     sh .github/scripts/prune-commit-verdicts.sh
 #
 # ci.yml's `prune` job runs it on a push to main, through `gh`
@@ -25,18 +30,26 @@ api() {
 }
 
 cutoff=$(($(date +%s) - hours * 3600))
-if ! ids=$(api --paginate "repos/${REPOSITORY-}/actions/caches?key=verdicts-&per_page=100" \
-    --jq ".actions_caches[] | select(.key | test(\"-sha-[0-9a-f]{40}\$\")) | select((.created_at | sub(\"[.][0-9]+\"; \"\") | fromdateiso8601) < $cutoff) | .id"); then
-  echo "could not list the cache's entries: none pruned"
-  exit 0
-fi
-deleted=0 failed=0
-for id in $ids; do
-  if api -X DELETE "repos/${REPOSITORY-}/actions/caches/$id" >/dev/null; then
-    deleted=$((deleted + 1))
-  else
-    failed=$((failed + 1))
+
+# Deletes each entry of PREFIX that FILTER names (by id) of the listing,
+# and says how many as WHAT.
+prune() {
+  prefix=$1 filter=$2 what=$3
+  if ! ids=$(api --paginate "repos/${REPOSITORY-}/actions/caches?key=$prefix&per_page=100" --jq "$filter"); then
+    echo "could not list the cache's $what entries: none pruned"
+    return 0
   fi
-done
-echo "pruned $deleted commit-keyed verdict entries older than $hours h ($failed failed)"
+  deleted=0 failed=0
+  for id in $ids; do
+    if api -X DELETE "repos/${REPOSITORY-}/actions/caches/$id" >/dev/null; then
+      deleted=$((deleted + 1))
+    else
+      failed=$((failed + 1))
+    fi
+  done
+  echo "pruned $deleted $what entries older than $hours h ($failed failed)"
+}
+
+prune verdicts- ".actions_caches[] | select(.key | test(\"-sha-[0-9a-f]{40}\$\")) | select((.created_at | sub(\"[.][0-9]+\"; \"\") | fromdateiso8601) < $cutoff) | .id" "commit-keyed verdict"
+prune compiles-branch- ".actions_caches[] | select(.key | startswith(\"compiles-branch-\")) | select((.created_at | sub(\"[.][0-9]+\"; \"\") | fromdateiso8601) < $cutoff) | .id" "branch compiles"
 exit 0

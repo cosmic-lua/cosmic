@@ -8,10 +8,9 @@
 --- inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local Codec = require("cosmic.codec")
 local codec = require("build.codec")
 
-local NAMES <const>: {Codec.Name} = { "hex", "base64", "base64url" }
+local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
 
 local TEXT <const> = "0123456789abcdefABCDEFxyzXYZ+/-_==\n \t\r\0\xff"
 
@@ -125,7 +124,7 @@ end
 
 --- What decoding `text` answers in chunks whose sizes are the bytes of
 --- `cuts`, then a byte at a time: the bytes, or nil and the reason.
-local function decode_cut(name: Codec.Name, text: string, lenient: boolean, cuts: string): string | nil, string
+local function decode_cut(name: codec.Name, text: string, lenient: boolean, cuts: string): string | nil, string
   local coder = codec.decoding(name, lenient)
   local out: {string} = {}
   local at, k = 1, 0

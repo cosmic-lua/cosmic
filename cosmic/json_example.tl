@@ -56,13 +56,11 @@ function Example.array()
   assert(Json.encode(Json.array()) == "[]")
 end
 
---- Explore a document whose shape is not known: `describe` shows it
---- at a glance, `get` reaches one value, and `entries` and `items`
---- narrow an object or an array so `pairs` and `ipairs` need no cast.
+--- Explore a document whose shape is not known: `get` reaches one
+--- value, and `entries` and `items` narrow an object or an array so
+--- `pairs` and `ipairs` need no cast.
 function Example.explore()
   local doc = assert(Json.decode('{"rows": [{"id": "a", "n": 1}, {"id": "b"}], "ok": true}'))
-  print(Json.describe(doc))
-  assert(Json.describe(doc) == "{ok: boolean, rows: [2 x {id: string, n?: number}]}")
   assert(Json.get(doc, { "rows", 2, "id" }) == "b")
   local _, why = Json.get(doc, { "rows", 3 })
   print(why)
@@ -77,7 +75,7 @@ function Example.decode_lines()
   local events, err = Json.decode_lines('{"level": "info"}\n{"level": "warn"}\n')
   assert(events ~= nil, err)
   assert(#events == 2)
-  print(Json.encode_lines(events))
+  for _, event in ipairs(events) do print(assert(Json.encode(event))) end
 end
 
 --- JSON Lines read from a stream a value at a time, in bounded memory
@@ -85,12 +83,14 @@ end
 --- (`Stream.open(path)`), a child's output or an HTTP response --
 --- and written back a line at a time to any Writer.
 function Example.lines()
-  local reader = Stream.from_string('{"level":"info"}\n{"level":"warn"}\n')
-  local lines = Json.lines(reader)
+  local reader = Stream.from_string('{"level":"info"}\n\n{"level":"warn"}\n')
+  local lines = Stream.lines(reader)
   local out = Stream.collect()
-  for event in lines:each() do
-    local record = event as {string:string}
-    if record.level == "warn" then assert(Json.write_line(out, record)) end
+  for line in lines:each() do
+    if line:find("%S") then
+      local record = assert(Json.decode_object(line))
+      if record.level == "warn" then assert(out:write(assert(Json.encode(record)) .. "\n")) end
+    end
   end
   assert(lines:failure() == "", lines:failure())
   print(out:result())
@@ -157,32 +157,15 @@ function Example.yaml_flow_style()
   assert(ci.name == "ci" and jobs.test["runs-on"] == "ubuntu-24.04")
 end
 
---- Every leaf of a value as a path and its value, in a fixed order: the
---- shape of an unfamiliar document at a glance. An empty container is a
---- leaf itself.
-function Example.flatten()
-  local doc = assert(Json.decode('{"a": [1, {"b": []}], "name": "cosmic"}'))
-  local leaves = assert(Json.flatten(doc))
-  for _, leaf in ipairs(leaves) do
-    print(assert(Json.flat_line(leaf.path, leaf.value)))
-  end
-  assert(#leaves == 3)
-  assert(leaves[1].path == "$.a[1]" and leaves[1].value == 1)
-  assert(leaves[2].path == "$.a[2].b")
-  assert(leaves[3].path == "$.name" and leaves[3].value == "cosmic")
-end
-
---- Every value a pattern matches, at its concrete path: `..` reaches an
---- `id` at any depth, and a pattern that matches nothing is an empty
---- list, not a failure.
-function Example.select()
-  local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
-  local found = assert(Json.select(doc, (assert(Json.parse_pattern("$..id")))))
-  assert(#found == 2)
-  assert(found[1].path == "$.a.id" and found[1].value == 1)
-  assert(found[2].path == "$.b[1].id" and found[2].value == 2)
-  local none = assert(Json.select(doc, (assert(Json.parse_pattern("$.missing")))))
-  assert(#none == 0)
+--- How a table encodes: a marked or consecutive-keyed table is an array,
+--- string keys make an object, and a table that is neither is named for
+--- what is wrong with it.
+function Example.layout()
+  assert(Json.layout(Json.array()) == "array")
+  assert(Json.layout({ 1, 2, 3 }) == "array")
+  assert(Json.layout({ name = "cosmic" }) == "object")
+  assert(Json.layout({ [1] = "a", [3] = "c" }) == "hole")
+  assert(Json.layout({ 1, name = "cosmic" }) == "mixed")
 end
 
 return Example

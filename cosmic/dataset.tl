@@ -87,9 +87,11 @@ local record Dataset
 
   --- What a reader may be told.
   record ReadOptions
-    --- Where in the document the rows are, as [`Json.parse_path`] gives
-    --- it: the whole document when nil. Only a format that reads a
-    --- document takes one (`json`); the others refuse it.
+    --- Where in the document the rows are, as the steps of a path: a
+    --- string is an object's key and an integer an array's index, counted
+    --- from 1, so `{ "a", "rows", 1 }` is `$.a.rows[1]`; the whole
+    --- document when nil. Only a format that reads a document takes one
+    --- (`json`); the others refuse it.
     at: {string | integer}
     --- Keep every cell as the text it is: no number is read and an empty
     --- cell is `''`, not NULL. Only a format of text cells (`csv`,

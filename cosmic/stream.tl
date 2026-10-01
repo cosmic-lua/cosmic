@@ -694,7 +694,7 @@ function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing
   else
     local made, trouble = Hash.hmac_hasher(algorithm, key)
     if made == nil then return nil, trouble end
-    local mac: Hash.Mac = made
+    local mac: Hash.Hasher = made
     feed = function(data: string) mac:update(data) end
     finish = function(): string | nil, string return mac:digest() end
   end

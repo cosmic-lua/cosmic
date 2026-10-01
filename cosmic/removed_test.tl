@@ -6,7 +6,9 @@ local Removed = require("cosmic.removed")
 --- ([`build.test_worker`]).
 local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
+  ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.hash"] = require("cosmic.hash"),
+  ["cosmic.json"] = require("cosmic.json"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
   ["cosmic.sys"] = require("cosmic.sys"),
   ["cosmic.tar"] = require("cosmic.tar"),
@@ -42,5 +44,16 @@ local function test_every_removed_member_is_gone_from_its_module()
     local loaded = modules[module]
     assert(loaded ~= nil, module .. " is not among this test's modules: add it")
     assert(loaded is {string: any} and loaded[member] == nil, dotted)
+  end
+end
+
+--- A program that called a streaming coder is told that `cosmic codec`
+--- has them and which whole-string function to use.
+local function test_the_removed_coders_name_the_verb_and_the_whole_string_functions()
+  for _, member in ipairs({ "encoder", "decoder", "Coder", "Name" }) do
+    local instead = Removed.members["cosmic.codec." .. member]
+    assert(instead ~= nil, member)
+    assert(instead:find("`cosmic codec`", 1, true), instead)
+    assert(instead:find("Codec.base64", 1, true), instead)
   end
 end
