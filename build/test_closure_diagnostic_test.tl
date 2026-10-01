@@ -10,7 +10,7 @@
 local function test_a_removed_global_outside_the_closure_says_only_that_it_is_gone()
   local ok, why = pcall(load("return os.getenv"))
   assert(not ok)
-  assert(tostring(why):find("os is not available$"), tostring(why))
+  assert(tostring(why):find(": os%.getenv is not available$"), tostring(why))
   assert(not tostring(why):find("Env.get", 1, true), tostring(why))
   assert(package.loaded["cosmic.removed"] == nil)
 end
