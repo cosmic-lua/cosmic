@@ -344,14 +344,8 @@ expr = function(g: Gen, d: integer): string
   if k <= 20 then return call(g, d) end
   if k <= 22 then return "function" .. body(g, d) end
   if k <= 25 then return table_constructor(g, d) end
-  -- TODO: a cast to a function type in a list takes the list's next
-  -- item into its return types, and tl's parser then reads that item
-  -- twice over, once as a type and again as the next expression, which
-  -- no rendering can say back (`return a as function():g, M:k()`). Once
-  -- a record under patch/tl/ ends the return list where tl's own
-  -- backtracking does, draw a function type here.
-  if k == 26 then return pick(g, NAMES) .. gap(g) .. "as" .. gap(g) .. typ(g, true) end
-  if k == 27 then return pick(g, NAMES) .. " is " .. typ(g, true) end
+  if k == 26 then return pick(g, NAMES) .. gap(g) .. "as" .. gap(g) .. typ(g) end
+  if k == 27 then return pick(g, NAMES) .. " is " .. typ(g) end
   if k == 28 then return long_line(g) end
   return "(" .. expr(g, d - 1) .. ")" .. gap(g) .. pick(g, BINOPS) .. gap(g) .. expr(g, d - 1)
 end

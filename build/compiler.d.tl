@@ -51,10 +51,12 @@ local record compiler
     text: string
   end
 
-  -- One lexed token. Only the fields [`build.ast`] actually reads: a
-  -- leaf's own text and position, and the comments it carries.
+  -- One lexed token. Only the fields the tree reads: a leaf's own text,
+  -- its kind ("identifier", "keyword", "string", ...), its position, and
+  -- the comments it carries.
   record Token
     tk: string
+    kind: string
     y: integer
     x: integer
     comments: {Comment} | nil

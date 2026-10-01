@@ -1,0 +1,6 @@
+#!/usr/bin/env cosmic
+
+global a: integer; do
+return a
+end; local function a<T>()
+end return a as function(integer): string, a:f "s"
