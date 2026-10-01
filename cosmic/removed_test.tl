@@ -6,6 +6,7 @@ local Removed = require("cosmic.removed")
 --- ([`build.test_worker`]).
 local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
+  ["cosmic.cli"] = require("cosmic.cli"),
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.json"] = require("cosmic.json"),
@@ -106,5 +107,15 @@ local function test_the_removed_time_members_name_their_replacements()
   } as {string:string}) do
     local instead = Removed.members["cosmic.time." .. member]
     assert(instead ~= nil and instead:find(want, 1, true), member)
+  end
+end
+
+--- A program that read [`cosmic.cli`]'s `options`, `usage` or `summary` is told
+--- which field of the verb's record in `Cli.verbs` holds it now.
+local function test_the_removed_cli_maps_name_the_verb_record_field_that_replaced_each()
+  local fields: {string:string} = { options = "spec", usage = "usage", summary = "about" }
+  for member, field in pairs(fields) do
+    local instead = Removed.members["cosmic.cli." .. member]
+    assert(instead ~= nil and instead:find("Cli.verbs[verb]." .. field, 1, true), member)
   end
 end

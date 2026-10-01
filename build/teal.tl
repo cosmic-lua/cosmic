@@ -522,7 +522,9 @@ end
 --- longer declares) are answered from [`cosmic.removed`]'s `members` when
 --- `source` binds the type's own name (`Hash`) to `require("cosmic.hash")`.
 --- The checker names a module's record after the local its `require` was
---- first bound to, whatever alias reads it now. There is no answer for a
+--- first bound to, whatever alias reads it now; one whose record is a local
+--- of its own ([`cosmic.cli`]'s) is `of type record Module`, and the alias
+--- answers for it. There is no answer for a
 --- record of the program's own, a name bound to more than one module, a
 --- module bound among several names (`local A, Hash = ...`) or by a line
 --- that does not start with its `local` (`do local Hash = ...`). Scope is
@@ -566,6 +568,14 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer): 
   end
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
+  if key == nil then
+    -- A module whose record is a local of its own (cosmic.cli's) is
+    -- named by its description, `record Module`, not by the alias; the
+    -- alias is then what the `require` was bound to.
+    key, alias = msg:match(
+      "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type record [%a_][%w_]*$")
+    typename = alias
+  end
   if key == nil then
     -- A type's name is capitalized, so only a member spelled as one is
     -- offered for it: a removed function is never a type's answer.
