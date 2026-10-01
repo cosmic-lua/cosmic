@@ -1063,3 +1063,13 @@ Each milestone is decided from 0.3's `report`, as follows.
   - Measured and dropped: duration-balanced shards. They save 2–6 s
     on CI. The halves differ mostly by runner speed: one share's 1494
     tests took 59 s on one runner and 98 s on another.
+  - A patched vendor tree is named by a digest of the bytes it
+    writes, not by build/patch.tl's own source (#2515), so an edit to
+    the applier no longer refetches and rebuilds every vendored
+    library (pushes touching it took 345–382 s).
+  - cosmic.removed is out of the compiler's identity (#2518): the
+    compiler strips through `teal.withheld` and loads the catalog
+    only for its messages, so an edit to removed.tl recompiles and
+    re-keys only what requires it, not about 470 modules. This also
+    lets #2504's branch compiles hit on a stdlib PR's later pushes;
+    both effects await a measured push.
