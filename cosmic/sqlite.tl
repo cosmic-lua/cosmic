@@ -10,7 +10,7 @@
 --- A parameter is a one-field table naming its type, one per `?N`, in
 --- order; a result cell carries its `kind` and the matching field:
 ---
----     local db = assert(Sqlite.open("notes.db", true))
+---     local db = assert(Sqlite.open("notes.db", { writable = true }))
 ---     assert(db:exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
 ---     assert(Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "hi" } }))
 ---     local rows = assert(Sqlite.rows(db, "SELECT id, body FROM t WHERE id = ?1",
@@ -62,12 +62,32 @@ local record Sqlite
     blob: string
   end
 
-  --- One query result value. `kind` is one of `"null"`, `"integer"`,
-  --- `"number"`, `"text"`, or `"blob"`; exactly the matching value field is
+  --- The SQLite storage class of a result cell: the field of a [`Cell`]
+  --- that holds its value is the one of the same name, and a `"null"`
+  --- cell has none.
+  enum Kind
+    "null"
+    "integer"
+    "number"
+    "text"
+    "blob"
+  end
+
+  --- How [`Sqlite.open`] opens a database.
+  record OpenOptions
+    --- Opens for reading and writing, creating the file when it is
+    --- missing. Without it the database is read-only.
+    writable: boolean
+    --- Opens read-only a database that nothing will change while it is
+    --- open: see [`Sqlite.open`]. Giving it with `writable` raises.
+    immutable: boolean
+  end
+
+  --- One query result value. Exactly the field its `kind` names is
   --- present, except that a null cell has no value field.
   record Cell
     --- Which field holds the value.
-    kind: string
+    kind: Kind
     --- The value of an integer cell.
     integer: integer
     --- The value of a number cell.
@@ -106,12 +126,12 @@ local record Sqlite
   version: string
 end
 
---- Opens the database file at `path`: read-only unless `writable` is
---- true, in which case a missing file is created. Answers the handle, or
---- `nil` and why.
+--- Opens the database file at `path`: read-only unless `opts.writable`
+--- is true, in which case a missing file is created. Answers the handle,
+--- or `nil` and why. `opts` that is not a table raises.
 ---
---- `immutable` opens a database that nothing will change while it is
---- open, read-only and with no lock: no `-wal`, `-shm` or journal file
+--- `opts.immutable` opens a database that nothing will change while it
+--- is open, read-only and with no lock: no `-wal`, `-shm` or journal file
 --- is made beside it, and a running statement holds nothing a writer
 --- waits on. A `-wal` is never read, so commits still in one do not
 --- show: open a database that is being written without `immutable`.
@@ -129,8 +149,13 @@ end
 ---
 --- `handle:limit(name, value)` sets one of the connection's limits,
 --- `"attached"` among them, and answers the old one.
-function Sqlite.open(path: string, writable?: boolean, immutable?: boolean): Sqlite.Handle | nil, string
-  return sqlite.open(path, writable, immutable)
+function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
+  local given: any = opts
+  if given ~= nil and type(given) ~= "table" then
+    error("sqlite: open: options is a table such as { writable = true }, not a " ..
+      type(given), 2)
+  end
+  return sqlite.open(path, opts and opts.writable, opts and opts.immutable)
 end
 
 --- A writable database held in memory: it is gone when the handle
@@ -226,16 +251,16 @@ end
 
 --- The column at `index`, from zero, of the row `statement` was just
 --- stepped to, as a typed cell: SQL NULL is `kind = "null"`.
-function Sqlite.cell(statement: Sqlite.Statement, index: integer): Sqlite.Cell
+local function cell_of(statement: Sqlite.Statement, index: integer): Sqlite.Cell
   local kind = statement:kind(index)
   if kind == "integer" then
-    return { kind = kind, integer = statement:integer(index) }
+    return { kind = "integer", integer = statement:integer(index) }
   elseif kind == "number" then
-    return { kind = kind, number = statement:number(index) }
+    return { kind = "number", number = statement:number(index) }
   elseif kind == "text" then
-    return { kind = kind, text = statement:bytes(index) }
+    return { kind = "text", text = statement:bytes(index) }
   elseif kind == "blob" then
-    return { kind = kind, blob = statement:bytes(index) }
+    return { kind = "blob", blob = statement:bytes(index) }
   end
   return { kind = "null" }
 end
@@ -243,12 +268,57 @@ end
 --- The row `statement` was just stepped to, as typed cells in column
 --- order. Its columns are asked after each step: a schema change
 --- re-prepares the statement, and its columns with it.
-local function row_of(statement: Sqlite.Statement): Sqlite.Row
+local function cells_of(statement: Sqlite.Statement): Sqlite.Row
   local row: Sqlite.Row = {}
   for index = 0, statement:columns() - 1 do
-    row[index + 1] = Sqlite.cell(statement, index)
+    row[index + 1] = cell_of(statement, index)
   end
   return row
+end
+
+--- The row `statement` was just stepped to, as the bytes of each column
+--- in order. Asked after each step, as [`cells_of`] is.
+local function texts_of(statement: Sqlite.Statement): {string}
+  local row: {string} = {}
+  for index = 0, statement:columns() - 1 do
+    row[index + 1] = statement:bytes(index)
+  end
+  return row
+end
+
+--- Steps `statement` once and gives `project` the row it stands on: the
+--- projection, or `nil` and "" when the statement is done, or `nil` and
+--- why when the step failed. [`Sqlite.rows`], [`Sqlite.text_rows`] and
+--- [`Sqlite.query`] all step through it, so they agree on what a failure
+--- says.
+local function step_row<T>(statement: Sqlite.Statement,
+                           project: function(Sqlite.Statement): T): T | nil, string
+  local state, failure = statement:step()
+  if state == nil then
+    return nil, failure ~= "" and failure or "sqlite: the step failed"
+  end
+  if state == "done" then
+    return nil, ""
+  end
+  return project(statement), ""
+end
+
+--- Every row of `statement` as `project` gives it, and the statement
+--- finalized: the rows, or `nil` and why a step failed.
+local function each_row<T>(statement: Sqlite.Statement,
+                           project: function(Sqlite.Statement): T): {T} | nil, string
+  local out: {T} = {}
+  while true do
+    local row, failure = step_row(statement, project)
+    if row == nil then
+      statement:finalize()
+      if failure ~= "" then
+        return nil, failure
+      end
+      return out, ""
+    end
+    out[#out + 1] = row
+  end
 end
 
 --- Every row a query yields, each a dense list of typed cells in column
@@ -260,20 +330,7 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
   if statement == nil then
     return nil, trouble
   end
-  local out: Sqlite.Rows = {}
-  while true do
-    local state, failure = statement:step()
-    if state == nil then
-      statement:finalize()
-      return nil, failure
-    end
-    if state == "done" then
-      break
-    end
-    out[#out + 1] = row_of(statement)
-  end
-  statement:finalize()
-  return out, ""
+  return each_row(statement, cells_of)
 end
 
 local query_mt: metatable<Sqlite.Query> = {
@@ -322,18 +379,17 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
     if failed ~= "" then return nil, failed end
     if ended then return nil, "" end
     if not open then return nil, "sqlite: the query is closed" end
-    local state, failure = statement:step()
-    if state == nil then
-      failed = failure ~= "" and failure or "sqlite: the step failed"
+    local row, failure = step_row(statement, cells_of)
+    if row == nil then
+      if failure == "" then
+        ended = true
+      else
+        failed = failure
+      end
       finish()
-      return nil, failed
+      return nil, failure
     end
-    if state == "done" then
-      ended = true
-      finish()
-      return nil, ""
-    end
-    return row_of(statement), ""
+    return row, ""
   end
   q.each = function(self: Sqlite.Query): function(): Sqlite.Row
     return function(): Sqlite.Row
@@ -362,26 +418,7 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
   if statement == nil then
     return nil, trouble
   end
-  local out: {{string}} = {}
-  while true do
-    local state, failure = statement:step()
-    if state == nil then
-      statement:finalize()
-      return nil, failure
-    end
-    if state == "done" then
-      break
-    end
-    local row: {string} = {}
-    -- Asked after each step: a schema change re-prepares the
-    -- statement, and its columns with it.
-    for index = 0, statement:columns() - 1 do
-      row[index + 1] = statement:bytes(index)
-    end
-    out[#out + 1] = row
-  end
-  statement:finalize()
-  return out, ""
+  return each_row(statement, texts_of)
 end
 
 --- Runs `work` inside a transaction and commits when it answers `true`.

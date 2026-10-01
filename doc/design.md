@@ -773,10 +773,11 @@ standalone run loads nothing of the tree but the one file.
 records, each an exact `find`, a `replace`, and a `note` saying why
 it exists. `bin/zig build` runs [`build/patch.tl`] standalone on the
 bootstrap cosmic before zig, which writes each patched copy whole into
-zig's project cache, in a directory named by a hash of the applier,
-the vendored files and the records -- the same path from every
-checkout, so zig, which keys a C object by its source's path, compiles
-a vendored file once for all of them -- and hands zig their manifest;
+zig's project cache, in a directory named by a hash of the patched
+tree as written -- the same path from every checkout, and across edits
+to the applier or the records that write the same bytes, so zig, which
+keys a C object by its source's path, compiles a vendored file once
+for all of them -- and hands zig their manifest;
 a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,

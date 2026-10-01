@@ -38,7 +38,7 @@ local text = bind.text
 --- itself, not from a record kept elsewhere, so a file that drifted from
 --- that record is never mistaken for what it describes.
 local function projected_signature(path: string): string
-  local handle, _ = Sqlite.open(path, false)
+  local handle, _ = Sqlite.open(path)
   if handle == nil then
     return ""
   end

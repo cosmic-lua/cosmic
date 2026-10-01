@@ -420,7 +420,7 @@ local function carried_digest(database: string): string | nil, string
   if not written then
     trouble = write_trouble
   else
-    local db, open_trouble = Sqlite.open(path, false)
+    local db, open_trouble = Sqlite.open(path)
     if db == nil then
       trouble = open_trouble
     else

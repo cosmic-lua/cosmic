@@ -85,7 +85,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
@@ -169,7 +169,7 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
     ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
   }))
   assert(Fs.mkdirs(root .. "/o"))
-  local projection = assert(Sqlite.open(root .. "/o/cosmic.db", true))
+  local projection = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
     "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..

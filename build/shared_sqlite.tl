@@ -103,7 +103,7 @@ end
 function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boolean, string),
                             wait_ms?: integer): Sqlite.Handle | nil, string
   wait_ms = wait_ms or busy_ms
-  local opened, trouble = Sqlite.open(path, true)
+  local opened, trouble = Sqlite.open(path, { writable = true })
   if opened == nil then return nil, path .. ": " .. trouble end
   local db: Sqlite.Handle = opened
   local function fail(why: string): Sqlite.Handle | nil, string

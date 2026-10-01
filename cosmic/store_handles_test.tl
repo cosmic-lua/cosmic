@@ -14,7 +14,7 @@ Test.needs{ store = true }
 --- VFS of its own names no file, and nothing is attached.
 local function test_attaching_a_uri_is_refused(tmp: string)
   local path = tmp .. "/real.db"
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE t (v TEXT)"))
   assert(db:close())
   local before = #Store.databases()

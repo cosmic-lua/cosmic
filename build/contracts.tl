@@ -167,6 +167,18 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
+  ["build/zig.tl:open_writable"] =
+    "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
+    "whose Sqlite.open is (string, boolean) where the tree's is (string, " ..
+    "OpenOptions): no one declaration fits both, a typed local is refused " ..
+    "by the release (got record, expected boolean), and a record field " ..
+    "holding the function would only hide the same cast",
+  ["eval/check/notes.tl:open_writable"] =
+    "eval/check/notes runs this file on the release ci/cosmic-driver.pin " ..
+    "names, whose Sqlite.open is (string, boolean) where the tree's is " ..
+    "(string, OpenOptions): no one declaration fits both, a typed local is " ..
+    "refused by the release (got record, expected boolean), and a record " ..
+    "field holding the function would only hide the same cast",
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
@@ -217,12 +229,6 @@ local casts: {string: string} = {
   ["build/teal.tl:teal.load"] =
     "the one boundary where the vendored compiler's untyped chunk " ..
     "becomes its declared surface (build/compiler.d.tl)",
-  ["cosmic/archive.tl:wrap_tar"] =
-    "Tar.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
-  ["cosmic/archive.tl:wrap_zip"] =
-    "Zip.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
     "walk has just built to the spec",

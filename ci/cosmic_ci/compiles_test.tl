@@ -1,12 +1,13 @@
 local Compiles = require("cosmic_ci.compiles")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 
 --- A cache of the shape build/shared_compiles.tl keeps, in its
 --- write-ahead mode, a row used at each of `used` (in seconds), and a
 --- table of another shape beside it.
 local function cache(path: string, used: {integer})
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(SqliteOpen.writable(path))
   assert(Sqlite.text_rows(db, "PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE compiled_v2 (key TEXT PRIMARY KEY, lua BLOB NOT NULL, " ..
     "used_ns INTEGER NOT NULL); CREATE TABLE compiled_v9 (key TEXT PRIMARY KEY)"))
@@ -56,7 +57,7 @@ end
 local function test_a_trim_keeps_only_the_parses_the_run_used(tmp: string)
   local path = tmp .. "/cache.db"
   cache(path, { 200 })
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(SqliteOpen.writable(path))
   assert(db:exec("CREATE TABLE parsed_v1 (analyzer TEXT NOT NULL, source_hash TEXT NOT NULL, " ..
     "mapped INTEGER NOT NULL, rows BLOB NOT NULL, used_ns INTEGER NOT NULL, " ..
     "PRIMARY KEY (analyzer, source_hash, mapped))"))
@@ -188,7 +189,7 @@ end
 local function test_fresh_compiles_are_counted_by_format(tmp: string)
   local path = tmp .. "/cache.db"
   local restored = tmp .. "/restored.db"
-  local db = assert(Sqlite.open(restored, true))
+  local db = assert(SqliteOpen.writable(restored))
   assert(db:exec("CREATE TABLE compiled_v1 (key TEXT PRIMARY KEY); INSERT INTO compiled_v1 VALUES ('k1')"))
   assert(db:close())
   cache(path, { 1001 })

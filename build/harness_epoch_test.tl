@@ -153,7 +153,7 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
 end
 
 local function test_the_harness_is_acknowledged()
-  local db = assert(Sqlite.open("o/cosmic.db", false))
+  local db = assert(Sqlite.open("o/cosmic.db"))
   local found, trouble = test.harness(db)
   db:close()
   assert(found ~= nil, trouble)
@@ -263,7 +263,7 @@ end
 --- is the whole edit and git merges two changes to different modules,
 --- even two that sort next to each other.
 local function test_the_file_holds_its_entries_as_the_guard_prints_them()
-  local db = assert(Sqlite.open("o/cosmic.db", false))
+  local db = assert(Sqlite.open("o/cosmic.db"))
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
     { { text = "build.harness_epoch" } }))
   db:close()
@@ -296,7 +296,7 @@ local unfollowed: {string:{string:boolean}} = {
 --- nor the digest. build/zig.tl, which build.caches requires, is such a
 --- module: it decides where a declared cache is bound from.
 local function test_the_harness_holds_what_it_runs_requires()
-  local db = assert(Sqlite.open("o/cosmic.db", false))
+  local db = assert(Sqlite.open("o/cosmic.db"))
   local found, trouble = test.harness(db)
   assert(found ~= nil, trouble)
   local named: {string:boolean} = {}
@@ -328,7 +328,7 @@ end
 --- for a clock the raw binding gives -- fails here with the rule,
 --- rather than passing once its digest is acknowledged.
 local function test_the_harness_names_its_library()
-  local db = assert(Sqlite.open("o/cosmic.db", false))
+  local db = assert(Sqlite.open("o/cosmic.db"))
   local found, trouble = test.harness(db)
   db:close()
   assert(found ~= nil, trouble)

@@ -75,7 +75,7 @@ local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
   local text = assert(Fs.read(output))
   assert(text:find("1 ran, 0 stood", 1, true), text)
   assert(not text:find("unrelated test executed", 1, true), text)
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage WHERE path = 'suite.helper'"))
   assert(db:close())
@@ -91,7 +91,7 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
     assert(result.ok, text)
     assert(text:find(expected, 1, true), text)
   end
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local by_run = assert(Sqlite.text_rows(db,
     "SELECT SUM(hit) FROM coverage WHERE path = 'suite.helper' " ..
     "GROUP BY ran_at_ns ORDER BY ran_at_ns"))
@@ -129,7 +129,7 @@ end
   local text = assert(Fs.read(output))
   assert(result.ok, text)
   assert(text:find("0 ran, 1 stood", 1, true), text)
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local credits = assert(Sqlite.text_rows(db, "SELECT test FROM coverage_by_test"))
   assert(db:close())
   assert(#credits == 1 and credits[1][1] == "suite.selected_test test_selected",
@@ -245,7 +245,7 @@ end
   local output = tmp .. "/sleep.out"
   local result = invoke(root, output, "timing/sleep_test.tl")
   assert(result.ok, assert(Fs.read(output)))
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT elapsed_ns FROM runs WHERE path = 'timing.sleep_test' " ..
     "AND test = 'test_sleeps_a_known_duration'"))
@@ -283,7 +283,7 @@ local function test_another_project_counts_none_of_the_cores_c(tmp: string)
   local output = tmp .. "/project.out"
   local result = invoke(root, output, "suite/selected_test.tl")
   assert(result.ok, assert(Fs.read(output)))
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local lines = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage WHERE path LIKE 'core/%'"))
   local credits = assert(Sqlite.text_rows(db,
@@ -351,7 +351,7 @@ end
     else
       assert(result.ok, text)
     end
-    local db = assert(Sqlite.open(root .. "/o/build.db", false))
+    local db = assert(Sqlite.open(root .. "/o/build.db"))
     local rows = assert(Sqlite.text_rows(db, "SELECT path, test FROM runs"))
     assert(db:close())
     for _, row in ipairs(rows) do

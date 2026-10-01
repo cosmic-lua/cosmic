@@ -5,7 +5,8 @@
 --- what to use instead, naming the replacement for the very field used
 --- (`os.getenv` is [`Env.get`]). `cosmic docs os` (or any field below)
 --- answers the same thing directly. `members` does the same at compile
---- time for a member a `cosmic.*` module no longer has. Help on the
+--- time for a member a `cosmic.*` module no longer has, and `arguments`
+--- for a boolean passed where a record is now taken. Help on the
 --- language's other libraries is in the checked examples that ordinary
 --- documentation search returns.
 local record Removed
@@ -52,7 +53,12 @@ local record Module
   -- EncodeOptions lost: `sorted` (keys are always in byte order),
   -- `indent` (`pretty` indents two spaces), `ascii` (no replacement),
   -- `nan_as_null` (write Json.null for the number) and `sparse_as_null`
-  -- (put Json.null where the hole is, as decode's `null_value` does).
+  -- (put Json.null where the hole is, as decode's `null_value` does);
+  -- and for the fields cosmic.archive's ExtractOptions lost:
+  -- `unsupported` (an entry that cannot be extracted always fails the
+  -- extraction; `filter` leaves its path out), `mtimes` (every file,
+  -- directory and symlink gets its archived time) and `max_bytes` (no
+  -- replacement; `max_entries` bounds the entries).
   -- Likewise for what cosmic.time's records lost: `Civil.nanosecond` and
   -- `Duration.nanoseconds` (both `ns` now), and the `zone` field of
   -- FormatOptions and AddOptions (the zone is an argument, right after the
@@ -69,6 +75,11 @@ local record Module
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
   members: {string:string}
+  --- What to write where a boolean is passed for a parameter that now
+  --- takes a record, by the record's module and name
+  --- ([`cosmic.sqlite.OpenOptions`]). The compiler says it after its
+  --- `argument 2: got boolean, expected Sqlite.OpenOptions`.
+  arguments: {string:string}
   --- What to write instead of `name`, or of its field `field`.
   message: function(name: string, field?: string): string
 end
@@ -86,6 +97,8 @@ local streamed <const> = "the streaming coders are `cosmic codec`'s, not the lib
   "Codec.base64url and decodes one with Codec.unhex, Codec.unbase64 or " ..
   "Codec.unbase64url (" .. codec .. ")"
 local archive <const> = 'local Archive = require("cosmic.archive")'
+local entry_kind <const> = "use Stream.EntryKind, the one enum every archive entry's kind is (" ..
+  'local Stream = require("cosmic.stream")' .. ")"
 local zip <const> = 'local Zip = require("cosmic.zip")'
 local string_ <const> = 'local String = require("cosmic.string")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
@@ -221,6 +234,14 @@ local module: Module = {
     ["cosmic.tar.TarWriter"] = "use Tar.Writer, the same record renamed (" .. tar .. ")",
     ["cosmic.archive.ArchiveReader"] = "use Archive.Reader, the same record renamed (" ..
       archive .. ")",
+    ["cosmic.archive.Kind"] = entry_kind,
+    ["cosmic.tar.Kind"] = entry_kind,
+    ["cosmic.zip.Kind"] = entry_kind,
+    ["cosmic.tar.EntryOptions"] = "use Stream.EntryOptions, which Tar.Writer's add_file, " ..
+      "add_dir and add_symlink take and Zip's EntryOptions extends (" .. stream .. ")",
+    ["cosmic.archive.Unsupported"] = "an entry Archive.extract cannot extract (a hard " ..
+      "link, a device, a FIFO, a sparse file) always fails it, naming the entry; " ..
+      "leave its path out with ExtractOptions.filter (" .. archive .. ")",
     ["cosmic.stream.Codec"] = "use Stream.Transform, the interface Stream.transform, " ..
       "Stream.transform_writer and Stream.run take, which Compress.Stream " ..
       "satisfies (" .. stream .. ")",
@@ -280,6 +301,8 @@ local module: Module = {
     ["cosmic.time.zone_from_posix"] = "use Time.local_zone({ tz = tz }), which reads a " ..
       "POSIX TZ string when the binary carries no zone of that name; Time.zone(name) " ..
       "answers one it does (" .. time .. ")",
+    ["cosmic.sqlite.cell"] = "use Sqlite.rows(db, sql, values), whose rows carry typed cells, " ..
+      "or Sqlite.query(db, sql, values) to read them one at a time (" .. sqlite .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..
@@ -288,6 +311,16 @@ local module: Module = {
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.last_insert_rowid"] = "use db:last_insert_rowid(), the method on " ..
       "the handle Sqlite.open answers (" .. sqlite .. ")",
+  },
+  -- TODO: a call that still passes Sqlite.open's old third argument gets
+  -- only the arity error (`wrong number of arguments ... at most 2`), with
+  -- no hint: the message names no callee. Say `{ immutable = true }` for
+  -- `false, true` once the checker carries a hint for an arity error that
+  -- names the callee.
+  arguments = {
+    ["cosmic.sqlite.OpenOptions"] = "Sqlite.open(path, opts) takes a table: " ..
+      "{ writable = true } for the old `true`, and nothing for `false` (" ..
+      sqlite .. ")",
   },
 }
 

@@ -143,7 +143,7 @@ end
 
 --- The basis of the closure stores of the projection at `whole`.
 function closure_store.basis(whole: string): closure_store.Basis | nil, string
-  local opened, trouble = Sqlite.open(whole, false)
+  local opened, trouble = Sqlite.open(whole)
   if opened == nil then return nil, whole .. ": " .. trouble end
   local db: Sqlite.Handle = opened
   local function read(): closure_store.Basis | nil, string

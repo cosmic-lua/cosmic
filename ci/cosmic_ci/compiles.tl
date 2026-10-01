@@ -26,6 +26,7 @@ local Fs = require("cosmic.fs")
 local Plural = require("cosmic_ci.plural")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 
 local record Compiles
 end
@@ -55,7 +56,7 @@ end
 function Compiles.fresh(path: string, restored: string): integer | nil, string
   -- Writable, as the trim opens it: a reader of a file in write-ahead
   -- mode leaves its log and index behind, which the save would carry.
-  local opened, open_trouble = Sqlite.open(path, true)
+  local opened, open_trouble = SqliteOpen.writable(path)
   if opened == nil then return nil, open_trouble end
   local db: Sqlite.Handle = opened
   local function fail(why: string): integer | nil, string

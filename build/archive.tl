@@ -203,16 +203,8 @@ local function with_entries(file: string, to: verb.Io,
   end
   local reader, open_why = Archive.open_stream(replay)
   if reader == nil then return fail(bare.refused, trouble_of(file, file, open_why)) end
-  local entries: {Archive.Entry} = {}
-  while true do
-    local entry, next_why = reader:next()
-    if entry == nil then
-      local _, _ = reader:close()
-      if next_why ~= "" then return fail(bare.refused, trouble_of(file, file, next_why)) end
-      break
-    end
-    entries[#entries + 1] = entry
-  end
+  local entries, list_why = Archive.list_reader(reader)
+  if entries == nil then return fail(bare.refused, trouble_of(file, file, list_why)) end
   return body(entries)
 end
 
@@ -719,7 +711,7 @@ end
 
 --- The items for the paths given, by name, sorted, and nil and an
 --- outcome when one cannot be archived.
-local function gather(paths: {string}, skip_file: string | nil, format: string): {Item} | nil, Outcome
+local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, Outcome
   local by_name: {string:Item} = {}
   local function add(name: string, full: string): Outcome | nil
     local st, why = sys.lstat(full)
@@ -732,9 +724,6 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
         if same == skip_file then return nil end
       end
     elseif st.kind == "link" then
-      if format == "zip" then
-        return fail(bare.refused, full .. ": a symlink, which zip does not hold; use .tar.gz")
-      end
       local target, target_why = Fs.readlink(full)
       if target == nil then return fail(bare.refused, target_why) end
       item.target = target
@@ -789,6 +778,26 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
   return items, fail(bare.ok, "")
 end
 
+--- `item`, a file, added to `writer` as the one body it was when its size was read.
+local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, string
+  local body, why = Stream.open(item.full)
+  if body == nil then return false, why end
+  local ok, added = writer:add_file(item.name, body, { mode = item.mode, mtime = item.mtime, size = item.size })
+  -- A tar reads only the size it was given, so a file that grew since
+  -- it was stat'd has bytes past it that would be silently dropped; a
+  -- zip has read to the end and refused it already.
+  local more, more_why: string | nil, string = nil, ""
+  if ok then more, more_why = body:read(1) end
+  -- A writer does not close its body.
+  local _, _ = body:close()
+  if not ok then return false, added end
+  if more == nil and more_why ~= "" then return false, item.full .. ": " .. more_why end
+  if more ~= nil and more ~= "" then
+    return false, item.full .. ": grew past " .. plural.count(item.size, "byte") .. " as it was read"
+  end
+  return true, ""
+end
+
 local function create(out: string, paths: {string}, reproducible: boolean, to: verb.Io): Outcome
   local format, format_why = format_of(out)
   if format == nil then return fail(bare.refused, format_why) end
@@ -798,84 +807,38 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
     local resolved, _ = Fs.absolute(out)
     skip_file = resolved
   end
-  local items, trouble = gather(paths, skip_file, format)
+  local items, trouble = gather(paths, skip_file)
   if items == nil then return trouble end
   local packed: {Item} = items
   local file, file_why = Stream.create(out)
   if file == nil then return fail(bare.refused, file_why) end
-  local add_file: function(string, string, integer, integer, integer): boolean, string
-  local add_dir: function(string, integer, integer): boolean, string
-  local add_link: function(string, string, integer): boolean, string
-  local close: function(): boolean, string
-  local abort: function(): boolean, string
+  local writer: Stream.ArchiveWriter
   if format == "zip" then
-    local writer = Zip.writer(file, { deterministic = reproducible })
-    add_file = function(name: string, full: string, mode: integer, mtime: integer, size: integer): boolean, string
-      local body, why = Stream.open(full)
-      if body == nil then return false, why end
-      local ok, added = writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
-      local _, _ = body:close()
-      if not ok then return false, added end
-      return true, ""
-    end
-    add_dir = function(name: string, mode: integer, mtime: integer): boolean, string
-      return writer:add_dir(name, { mode = mode, mtime = mtime })
-    end
-    add_link = function(_name: string, _target: string, _mtime: integer): boolean, string
-      return false, "a symlink, which zip does not hold"
-    end
-    close = function(): boolean, string return writer:close() end
-    abort = function(): boolean, string return writer:abort() end
+    writer = Zip.writer(file, { deterministic = reproducible })
   else
     local codec, codec_why = Compress.deflater("gzip")
     if codec == nil then
       local _, _ = file:abort()
       return fail(bare.refused, codec_why)
     end
-    local writer = Tar.writer(Stream.transform_writer(file, codec), { deterministic = reproducible })
-    add_file = function(name: string, full: string, mode: integer, mtime: integer, size: integer): boolean, string
-      local body, why = Stream.open(full)
-      if body == nil then return false, why end
-      -- Tar reads only the size it was given, so the body is not read
-      -- to its end: close it here, on every path.
-      local ok, added = writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
-      -- A file that grew since it was stat'd has bytes past `size` that
-      -- tar would silently drop: refuse it, as the zip branch does.
-      local more, more_why: string, string = nil, ""
-      if ok then more, more_why = body:read(1) end
-      local _, _ = body:close()
-      if not ok then return false, added end
-      if more == nil and more_why ~= "" then return false, full .. ": " .. more_why end
-      if more ~= nil and more ~= "" then
-        return false, full .. ": grew past " .. plural.count(size, "byte") .. " as it was read"
-      end
-      return true, ""
-    end
-    add_dir = function(name: string, mode: integer, mtime: integer): boolean, string
-      return writer:add_dir(name, { mode = mode, mtime = mtime })
-    end
-    add_link = function(name: string, target: string, mtime: integer): boolean, string
-      return writer:add_symlink(name, target, { mtime = mtime })
-    end
-    close = function(): boolean, string return writer:close() end
-    abort = function(): boolean, string return writer:abort() end
+    writer = Tar.writer(Stream.transform_writer(file, codec), { deterministic = reproducible })
   end
   for _, item in ipairs(packed) do
     local ok: boolean
     local why: string
     if item.kind == "dir" then
-      ok, why = add_dir(item.name, item.mode, item.mtime)
+      ok, why = writer:add_dir(item.name, { mode = item.mode, mtime = item.mtime })
     elseif item.kind == "link" then
-      ok, why = add_link(item.name, item.target, item.mtime)
+      ok, why = writer:add_symlink(item.name, item.target, { mtime = item.mtime })
     else
-      ok, why = add_file(item.name, item.full, item.mode, item.mtime, item.size)
+      ok, why = add_file(writer, item)
     end
     if not ok then
-      local _, _ = abort()
+      local _, _ = writer:abort()
       return fail(bare.refused, item.full .. ": " .. why)
     end
   end
-  local closed, close_why = close()
+  local closed, close_why = writer:close()
   if not closed then return fail(bare.refused, out .. ": " .. close_why) end
   local lines: {string} = {}
   for _, item in ipairs(packed) do lines[#lines + 1] = escaped(item.name) end
