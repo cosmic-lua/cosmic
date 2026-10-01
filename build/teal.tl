@@ -10,13 +10,22 @@
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
 
 local record teal
+  --- The globals cosmic's runtime removes, which [`environment_for`]
+  --- strips from the checker: [`cosmic.removed`]'s `order`, which
+  --- build/teal_catalog_test.tl holds this to. They are spelled here, not read
+  --- from that module, so that what a compile accepts is decided by this
+  --- module alone, which the compiler's identity holds
+  --- ([`build.work`]'s `compiler_identity`), and an edit to the rest of
+  --- the catalog -- the replacements a refusal quotes -- compiles
+  --- nothing again.
+  withheld: {string}
+
   --- What `io.open` gives back. It reads whole files and writes
   --- strings; the compiler asks nothing else of a handle.
   record Handle
@@ -275,9 +284,11 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string)
   end
 end
 
+teal.withheld = { "io", "os", "debug", "dofile", "loadfile" }
+
 --- A checker environment pointed at a staged tree (see `serve`), with
 --- the strictness this project holds itself to and without the names
---- cosmic's runtime surface removes ([`cosmic.removed`]'s `order`). tl's
+--- cosmic's runtime surface removes (`withheld`). tl's
 --- bundled standard-library declarations carry `io`, `os` and `debug`
 --- as ordinary globals, since tl cannot know cosmic's runtime lacks
 --- them, so a program reaching for one would type-check and fail only
@@ -303,7 +314,7 @@ function teal.environment_for(built: compiler, db: Sqlite.Handle,
   if env == nil then
     return nil, trouble
   end
-  for _, name in ipairs(Removed.order) do
+  for _, name in ipairs(teal.withheld) do
     env.globals[name] = nil
     env.modules[name] = nil
   end
@@ -506,9 +517,45 @@ local function integer_hint(source: string, y: integer, x: integer): string | ni
     ".0' or 'local " .. name .. ": number = " .. literal .. "' to hold a number"
 end
 
+--- What [`replacement`] reads of [`cosmic.removed`].
+local record Catalog
+  names: {string:string}
+  members: {string:string}
+  arguments: {string:string}
+  message: function(name: string, field: string): string
+end
+
+--- The module [`replacement`] quotes, named by a constant rather than
+--- a literal so that no parse records a `require` of it: the catalog
+--- decides only what a refusal says, and no compile keeps a refusal, so
+--- it is no part of the compiler's identity, and a test whose import
+--- closure reaches this module but not the catalog is not keyed by it.
+--- A test worker, and a process one starts, refuses a module of the
+--- tree outside its test's closure (build.test_worker's `refusal`,
+--- core/store.c's `put_up_inherited`), so there a refusal says what to
+--- write instead only where the test requires cosmic.removed itself,
+--- which keys its verdict by the catalog it read.
+local catalog_module <const> = "cosmic.removed"
+
+--- [`cosmic.removed`], or nil where it cannot be loaded (a test that
+--- does not require it).
+local function catalog(): Catalog | nil
+  local ok, loaded = pcall(require, catalog_module)
+  if not ok or not (loaded is {string:any}) then
+    return nil
+  end
+  local names, members, arguments, message = loaded.names, loaded.members, loaded.arguments, loaded.message
+  if names is {string:string} and members is {string:string} and arguments is {string:string} and
+      message is function(string, string): string then
+    return { names = names, members = members, arguments = arguments, message = message }
+  end
+  return nil
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
---- for any other message. `y` and `x` are the line and column in
+--- for any other message, and for those where the catalog cannot be
+--- loaded (`catalog_module`). `y` and `x` are the line and column in
 --- `source` where the checker reported it.
 ---
 --- `unknown variable: os` is read together with the field that follows
@@ -560,7 +607,8 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer): 
     "^argument %d+: got (%a+), expected ([%a_][%w_]*)%.([%a_][%w_]*)$")
   if given == "boolean" and owner ~= nil and option ~= nil then
     local module = module_bound(source, owner)
-    local instead = module ~= nil and Removed.arguments[module .. "." .. option] or nil
+    local removed = module ~= nil and catalog() or nil
+    local instead = removed ~= nil and removed.arguments[module .. "." .. option] or nil
     if instead ~= nil then
       return owner .. "." .. option .. " replaced a boolean argument: " .. instead
     end
@@ -584,7 +632,8 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer): 
   end
   if key ~= nil then
     local module = module_bound(source, typename)
-    local instead = module ~= nil and Removed.members[module .. "." .. key] or nil
+    local removed = module ~= nil and catalog() or nil
+    local instead = removed ~= nil and removed.members[module .. "." .. key] or nil
     if instead == nil then
       return nil
     end
@@ -600,10 +649,14 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer): 
   else
     name = msg:match("^module not found: '(.-)'$")
   end
-  if name == nil or Removed.names[name] == nil then
+  if name == nil then
     return nil
   end
-  return Removed.message(name, field)
+  local removed = catalog()
+  if removed == nil or removed.names[name] == nil then
+    return nil
+  end
+  return removed.message(name, field)
 end
 
 return teal

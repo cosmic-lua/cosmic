@@ -164,9 +164,16 @@ local HEADER <const> = "cosmic-test-report-4"
 ---   first and which starts this ahead of build.dispatch. A worker never
 ---   loads build.dispatch, nor what only it requires;
 --- - this module and what it requires, directly or not, at its top level
----   or on the way its `run` takes;
---- - [`cosmic.removed`], which the core loads in any test that reaches for
----   a removed global, to say what to write instead (`diagnostics`).
+---   or on the way its `run` takes.
+---
+--- Not [`cosmic.removed`], though the core requires it to say what to
+--- write instead of a removed global a test reached for (core/surface.c's
+--- `removed_message`), and [`build.teal`] to say the same of a refusal:
+--- a test whose closure does not hold it is refused it like any other
+--- module (`refusal`), and is told only that the name is not available.
+--- A test that reads what the catalog says requires it, so that its key
+--- holds what it read, and an edit to the catalog runs every other test
+--- no more.
 ---
 --- No key holds them by what they are. Every sandboxed key holds the
 --- harness's epoch in their place (build/harness_epoch.tl), and the
@@ -182,7 +189,7 @@ local HEADER <const> = "cosmic-test-report-4"
 worker.loads = {
   "build.cache_names", "build.confine", "build.key_parts", "build.test_inputs",
   "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage", "cosmic.env",
-  "cosmic.fs", "cosmic.proc", "cosmic.removed", "cosmic.test",
+  "cosmic.fs", "cosmic.proc", "cosmic.test",
 }
 
 -- Taken at load, ahead of any test that could replace them on the
@@ -328,15 +335,6 @@ function worker.decode(text: string): worker.Report | nil, string
   return report, ""
 end
 
---- Modules of the tree any test may `require` beyond its closure:
---- [`cosmic.removed`], which core/surface.c requires to say what to
---- write instead of a removed global (`os.getenv`) a test reached for.
---- It is a diagnostic the core loads, which any test may reach, so
---- every key holds it among what every worker loads (`loads`) rather
---- than a test's closure: what it says is what a test that catches the
---- error sees.
-local diagnostics <const>: {string:boolean} = { ["cosmic.removed"] = true }
-
 --- Why the module `module_path`'s tests may not `require` `name`, or
 --- nil when they may: `closure` is the set of module names its import
 --- closure holds ([`test_inputs.modules`]), and `tree` the set of the
@@ -357,7 +355,7 @@ local diagnostics <const>: {string:boolean} = { ["cosmic.removed"] = true }
 -- one module that loads it ([`build.closure_store`]'s `loaded_beside`).
 local function refusal(name: string, module_path: string, closure: {string:boolean},
                         tree: {string:boolean}): string | nil
-  if closure[name] or diagnostics[name] or not tree[name] then return nil end
+  if closure[name] or not tree[name] then return nil end
   return string.format("module '%s' is outside the import closure of %s: the build " ..
     "follows a require only when it is called directly on a literal name, so neither a " ..
     "computed name nor pcall(require, ...) is followed, and a change to %s would not run " ..
@@ -512,7 +510,7 @@ local function hold_store(module_path: string, closure: {string:boolean},
   local names: {string:boolean} = {}
   for _, set in ipairs({ tree, declared }) do
     for name in pairs(set) do
-      if not closure[name] and not diagnostics[name] then names[name] = true end
+      if not closure[name] then names[name] = true end
     end
   end
   store.hold(names, string.format("%s's verdict is keyed by what the " ..
@@ -542,7 +540,7 @@ end
 --- ([`build.test_inputs`]), what those load beside them (its
 --- `loaded_beside`, which their closure store carries), the names a
 --- program built of the closure carries one of its modules under (its
---- `carried_as`), and [`cosmic.removed`]; with the `meta` rows
+--- `carried_as`); with the `meta` rows
 --- of [`meta_keys`]. So what such a process runs and reads of the program
 --- is what the test's key holds of its closure -- its store's bytes --
 --- and of the runtime, as it is for this worker; the program's other

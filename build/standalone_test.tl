@@ -13,6 +13,11 @@ local type _tar = require("cosmic.tar")
 local type _archive = require("cosmic.archive")
 local type _json = require("cosmic.json")
 local _cli <const> = require("cosmic.cli")
+-- What a refusal says to write instead is [`cosmic.removed`]'s, which
+-- build.teal loads by no `require` a parse records: required here, it
+-- is in this test's closure, which the worker lets it load and its key
+-- holds.
+local _ = require("cosmic.removed")
 
 --- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.

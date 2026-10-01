@@ -503,7 +503,7 @@ before only main saved still wins over main's newer one under the same
 prefix.
 
 That one thing is a branch's compiles. A change to the compiler (the
-Teal compiler's patches, cosmic.removed, the build's modules a compile
+Teal compiler's patches, the build's modules a compile
 runs: build.work's `compiler_identity`) moves every compile's key, so
 main's entry answers none of a branch that makes one, and each of its
 pushes compiled the whole tree again (some 40 s a boot, on each leg and
@@ -511,7 +511,7 @@ the checked job). So a branch's push (`light`) whose builds compiled
 more than 50 modules its restored entry lacked (`compiles-trim`'s
 `fresh`) saves its trimmed compiles under
 `compiles-branch-<leg>-<compiler>-<digest>`, where `<compiler>` hashes
-the build's own modules but its tests, cosmic.removed and the Teal
+the build's own modules but its tests and the Teal
 compiler's and Lua's pins and patches: wider than the compiler's
 identity, so an edit to the rest of `build/` falls back to main's entry
 rather than to one of another compiler. Every restore of the compiles

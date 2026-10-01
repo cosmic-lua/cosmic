@@ -76,7 +76,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "9-757b1277" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "10-06977640" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "ab180fe0e9efe92df1cce055664fd33436a535b1db782b53c2dc9fa57039fdea",
@@ -107,11 +107,11 @@ harness_epoch.acknowledged = {
 
   ["build.test"] = "a56fe293ec915bdcbd55137dc78b83bb27539af9191d7e56fd5166c108bee300",
 
-  ["build.test_inputs"] = "ca08be7c5aab1eee23fc75138f73abb2cef9650bf91b4afc5c8177838fd1b388",
+  ["build.test_inputs"] = "b3027734e4e45cf19d64a6aa4f5c73da9d3e6963543beebfa27b7fac2b756de5",
 
   ["build.test_sandbox"] = "ed564b7f6dd86a633143ff7c75e906e7ab9c3d095efb4cdbdc08d9a13e301314",
 
-  ["build.test_worker"] = "57249c719262d3016dc13b8ba53d35a3bc6c8798a029d9472108889ade765574",
+  ["build.test_worker"] = "679a38e0323ee813b103a7592d76f314b7d0b1ba74bef4a336e86737706093c7",
 
   ["build.this_program"] = "8de7976beaec4a4367f0a4af8cd2162df5f587891cbad1b94ecc51a28de203eb",
 
@@ -128,8 +128,6 @@ harness_epoch.acknowledged = {
   ["cosmic.fs"] = "7b39d76caacdca83ad29f57573056a3eb6f7d61077a35d240491d05f54b51be3",
 
   ["cosmic.proc"] = "489cf0b96c5294aee2aee1de5b3c884bc489bdfecd90b822c5b383ebf1d23cc7",
-
-  ["cosmic.removed"] = "efb208603c3955ca76e353a49d1dcb7f734385239e7e86ffd9387669265b7051",
 
   ["cosmic.sqlite"] = "564ba342d5a754c2d506295754ff08f8319744006d3ffc9b3b27016750d5ffcf",
 
@@ -150,8 +148,6 @@ harness_epoch.library = {
     "the worker's report",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running",
-  ["cosmic.removed"] = "what a test that reaches for a removed global is told, which " ..
-    "the core loads in any worker",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of
   -- `library`, once build.shared_sqlite gives build.declared_key's
   -- `program`, build.shared_verdicts and build.bind what they read and
@@ -177,6 +173,7 @@ harness_epoch.retired = {
   "6",
   "7",
   "072f7458",
+  "757b1277",
 }
 
 return harness_epoch

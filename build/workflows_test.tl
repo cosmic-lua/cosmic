@@ -1103,11 +1103,11 @@ local function step_running(steps: {{string: any}}, text: string): {string: any}
 end
 
 --- What `names` hashes as the compiler a branch's compiles were made
---- by: the build's own modules, cosmic.removed, and the Teal compiler's
+--- by: the build's own modules and the Teal compiler's
 --- and Lua's pins and patches, as the compiler's identity holds them
 --- (build.work's `compiler_identity`), and the rest of build/ beside.
 local COMPILER_HASH <const> = "${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', " ..
-  "'cosmic/removed.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}"
+  "'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}"
 
 --- A branch's push saves its compiles for its own later pushes, where
 --- its builds compiled more than a few dozen modules the entry it

@@ -14,6 +14,10 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local schema = require("build.schema")
+-- What a refusal says to write instead is [`cosmic.removed`]'s, which
+-- build.teal loads by no `require` a parse records: required here, it
+-- is in this test's closure, which the worker lets it load.
+local _ = require("cosmic.removed")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
 Test.needs{ reads = { "core" }, store = true }
