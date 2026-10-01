@@ -331,3 +331,47 @@ local function test_a_comment_moved_past_an_operator_is_kept_and_settles()
       source .. ": a second pass moved it again:\n" .. fixed(once))
   end
 end
+
+--- The lines of a long comment inside a record body are the comment's
+--- own text: the body moves with its statement, and they stay as they
+--- were.
+local function test_a_long_comment_in_a_moved_record_keeps_its_lines()
+  writes("  local type T = record\n  --[=[ keep\n\n   this ]=]\n  end\n",
+         "local type T = record\n--[=[ keep\n\n   this ]=]\nend\n")
+end
+
+--- A long comment closing on a later line ends the run of trailing
+--- comments there unless nothing stands between them: a comment after
+--- code still to be written waits for that code, and one after code
+--- already written follows the `]]`.
+local function test_comments_after_a_long_one_closes_wait_for_their_code()
+  keeps("while { f = --[[ c\n]] a } do -- d\n  return a\nend\n")
+  writes("x = f(1 --[[ c\n]], -- d\n  2)\n", "x = f(1, --[[ c\n]] -- d\n  2)\n")
+end
+
+--- A comment written into a continuation line, behind a token the
+--- renderer writes itself, stays in front of the code it was written
+--- before, and one further along stays there.
+local function test_a_comment_inside_a_continuation_line_stays_before_its_code()
+  writes("b -- why\n= --[[ c ]] 1\n", "b = -- why\n            --[[ c ]] 1\n")
+  keeps("b = function(a,\n  --[[ x ]] ...: y): --[[ z ]] e end\n")
+end
+
+--- A comment between a type alias's name and its `=` is kept, moved
+--- one token along as any comment in front of an operator is.
+local function test_a_comment_in_a_type_alias_is_kept()
+  writes("global type T --[[ c ]] = {string: integer}\n",
+         "global type T = --[[ c ]] {string: integer}\n")
+end
+
+--- A long comment after a unary `-` keeps its space from it, or the two
+--- would read as `---`, a line comment.
+local function test_a_long_comment_after_a_unary_minus()
+  keeps("x = - --[[ c ]] y\n")
+end
+
+--- A line comment before an index's `]` keeps the line break after it.
+local function test_a_line_comment_before_a_closing_bracket()
+  keeps("x = a[a -- why\n]\n")
+  keeps("x = { [a -- why\n] = 1 }\n")
+end

@@ -1,0 +1,7 @@
+#!/usr/bin/env cosmic
+;
+ local type T = record
+--[=[ @1@
+
+ why ]=]
+end 

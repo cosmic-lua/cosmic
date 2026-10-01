@@ -1,0 +1,5 @@
+#!/usr/bin/env cosmic
+; global x = y
+    repeat until a;
+  local a; local b<const>, a <total>, a <const> local a
+    global type T --[[ @1@ why ]] = {string: integer}; return a

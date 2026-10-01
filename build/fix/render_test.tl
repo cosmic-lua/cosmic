@@ -508,3 +508,53 @@ local function test_an_unknown_construct_is_refused_by_name()
   assert(result == nil, "an unknown kind should be refused")
   assert(trouble:find("invented_kind", 1, true) ~= nil, "got: " .. trouble)
 end
+
+--- A `#!` line is no statement and carries no comment, and the tree
+--- holds it all the same: it is written first, before any statement,
+--- and with none at all.
+local function test_a_hashbang_line_is_kept()
+  writes("#!/usr/bin/env cosmic\nprint(1)\n", "#!/usr/bin/env cosmic\nprint(1)\n")
+  writes("#!/usr/bin/env cosmic\n", "#!/usr/bin/env cosmic\n")
+end
+
+--- A `;` is part of the tree wherever it is: after a block's last
+--- statement, in front of its first, and after a `return` with no
+--- values. A run of them is one.
+local function test_a_semicolon_at_either_end_of_a_block_survives()
+  writes("x = 1;", "x = 1;\n")
+  writes("do x = 1;; end\n", "do x = 1; end\n")
+  writes("; x = 1\n", "; x = 1\n")
+  writes("do ; x = 1 end\n", "do ; x = 1 end\n")
+  writes("return;", "return;\n")
+end
+
+--- Two `-` written together open a comment, and `[[` a long string:
+--- a unary minus keeps its space from another, and a key or index that
+--- opens with a long string keeps its space from the bracket.
+local function test_tokens_that_would_run_together_are_kept_apart()
+  writes("x = - -y\n", "x = - -y\n")
+  writes("x = t[ [[a]] ]\n", "x = t[ [[a]] ]\n")
+  writes("x = {[ [=[a]=] ] = 1}\n", "x = { [ [=[a]=] ] = 1 }\n")
+end
+
+--- A statement that continues a line, after a `;` or a block's opening
+--- keyword, moves by where that line reaches, and the lines continuing
+--- it move with it.
+local function test_a_statement_continuing_a_line_carries_its_continuation()
+  writes("x = 1;    b = f(1,\n                2)\n", "x = 1; b = f(1,\n             2)\n")
+  writes("do b =\n      1 end\n", "do b =\n      1 end\n")
+end
+
+--- `integer` is a whole type, so the `<` after it in a cast is the
+--- comparison, not type arguments.
+local function test_a_comparison_after_a_cast_to_a_simple_type()
+  writes("x = a as integer < b\n", "x = a as integer < b\n")
+  writes("x = a as R<integer> < b\n", "x = a as R<integer> < b\n")
+end
+
+--- A `goto`'s label, and a label's name and closing `::`, stay on the
+--- lines the source put them on.
+local function test_a_goto_and_a_label_keep_their_line_breaks()
+  writes("goto -- why\ncontinue ::continue::\n", "goto -- why\ncontinue ::continue::\n")
+  writes("::\ntop ::\n", "::\ntop::\n")
+end
