@@ -32,6 +32,7 @@ local analyzer_tree: {string:string} = {
   ["build/helper.tl"] = "local record helper\n  n: integer\nend\nhelper.n = 1\nreturn helper\n",
   ["build/importer.tl"] = "local helper = require(\"build.helper\")\n" ..
     "local record importer\n  n: integer\nend\nimporter.n = helper.n\nreturn importer\n",
+  ["build/derivation.tl"] = "local record derivation\nend\nreturn derivation\n",
   ["build/analyzer.tl"] = "local ast = require(\"build.ast\")\n" ..
     "local thing = require(\"build.thing\")\n--- The analyzer.\n" ..
     "local record analyzer\n  n: integer\nend\nanalyzer.n = ast.n + thing.n\nreturn analyzer\n",
@@ -179,7 +180,7 @@ local function test_a_boot_the_cache_knows_nothing_of_parses_the_tree(tmp: strin
   analyzer_checkout(tmp .. "/first", { ["build/other.tl"] = "local x = 1\nreturn x\n" })
   local _, named = boot(tmp .. "/first", path)
   analyzer_checkout(tmp .. "/second", {
-    ["build/importer.tl"] = analyzer_tree["build/importer.tl"] .. "-- another\n",
+    ["build/derivation.tl"] = analyzer_tree["build/derivation.tl"] .. "-- another\n",
   })
   local parses, second_named = boot(tmp .. "/second", path)
   assert(parses.shared == 0 and second_named ~= named)

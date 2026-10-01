@@ -25,10 +25,10 @@
 --- to what its digest says is a miss, and is deleted.
 ---
 --- A parse is shared the same way, a row per source: what one parse of
---- it wrote in every table [`build.importer`] fills from a parse, keyed
+--- it wrote in every table [`build.derivation`] fills from a parse, keyed
 --- by the analyzer that parsed it ([`importer.analyzer_identity`]), the
 --- source's hash, and whether its docs' lines are mapped to a file it
---- was generated from (`importer`'s `origin_lines`), with a digest of
+--- was generated from ([`build.derivation`]'s `origin_lines`), with a digest of
 --- the lot. [`build.importer`]'s `derive` says when a row stands in for a
 --- parse.
 ---
@@ -171,7 +171,7 @@ end
 --- accepted (`own_tree`, `generated`), and the format's table (`format`,
 --- this one's by default).
 --- The file the module is read from is no salt here: the module's own
---- key holds it already (build.importer's `dependency_keys`), so a
+--- key holds it already (build.compilation's `dependency_keys`), so a
 --- compile is never taken across a moved file.
 function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
                              format?: string): string
