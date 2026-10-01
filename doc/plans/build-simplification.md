@@ -72,8 +72,10 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | 2. Writer identity boundary | pending | planned | depends on 1 |
 | 3. Build phase and cleanup ownership | pending | planned | depends on 1–2 |
 | 4. Test judgment boundary | pending | planned | depends on 1–3 |
-| 5a. Bootstrap lock and scratch ownership | pending | planned | prepare for APIs in selected pin |
-| 5b. Bootstrap pin and obsolete adapters | pending | planned | verified published pin required |
+| 5a. Bootstrap lock ownership preparation | pending | planned | old-pin compatible; retain SQL lock |
+| 5b. Zig scratch lifecycle preparation | pending | planned | only if independently useful |
+| 5c. Patch scratch lifecycle preparation | pending | planned | only if independently useful |
+| 5d. Pin, flock activation and obsolete adapters | pending | planned | atomic API transition; 12 unblocked TODOs |
 | 6. CI policy and recording | pending | planned | depends on 5 |
 | 7. Zig graph construction | pending | planned | preserve exact graph semantics |
 | 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
@@ -174,31 +176,63 @@ not merely new acknowledged digests. Run harness/key/worker/isolation tests and
 full CI, including sandboxed runs. Preserve lazy program identity and cached
 verdict coverage replay.
 
-## PRs 5a–5b: prepare lock ownership, then retire bootstrap compatibility
+## PRs 5a–5d: prepare ownership, then advance bootstrap atomically
 
 Choose an already-published, digest-verified green release carrying the APIs
-needed for the cleanup. Inventory every TODO naming cosmic-driver.pin, and
-resolve every one the selected release actually unblocks, as AGENTS.md requires.
-Do not update a pin to an unverified artifact or assume a main commit has a release.
+needed for cleanup. Inventory every TODO naming cosmic-driver.pin, and resolve
+every one the selected release actually unblocks, as AGENTS.md requires.
 
-First, prepare the lock/scratch work unblocked by sys.flock and flock_kind:
-bootstrap rebuild locking, Zig-download scratch ownership and patched-vendor
-scratch ownership. Keep API-compatible preparation separate from the pin change
-where practical. These are semantic ownership fixes requiring concurrency and
-namespace cases, not adapter deletions. Split further if a diff loses focus.
+The old b8b4a46b pin has neither flock nor flock_kind. Preparatory PRs must work
+with that pin. Advance the pin and activate new APIs together; do not add a
+cast/feature-detection bridge just to split the change artificially.
 
-Then advance the pin with all remaining unblocked adapters removed. Expected
-candidates: writable SQLite cast adapters, retired COSMIC_TEST_KEY
-plumbing, legacy assumed-verdict fields, and duplicated plural helpers. Verify
-the release's actual capabilities before deleting each. Other TODOs may be
-unblocked; expand this step or split it into smaller PRs if the inventory calls
-for it, recording the adjustment here. Retain standalone-script independence
-and old-tool lock interoperability.
+- 5a: make bootstrap lock ownership explicit, centralize release/handoff and
+  test cross-process interoperability while retaining the old SQL-only protocol.
+- 5b: separate Zig scratch allocation, payload, cleanup and publication where
+  independently useful. Keep old-pin compatibility; this alone does not fix
+  cross-namespace ownership.
+- 5c: similarly prepare patch scratch lifecycle and a payload/metadata boundary,
+  preserving digest, modes, fsync, rename and concurrent-winner behavior.
+- 5d: advance the verified pin, activate flock ownership and remove every
+  unblocked adapter. Review rebuild lock, each scratch path and API migration
+  independently, then merge one coherent change. Skip preparation that adds no
+  durable clarity and perform that slice directly in this atomic PR.
 
-Acceptance: pinned-driver self-checks, source-tree checks, bootstrap tests and
-run-local pass against the actual selected release. No compatibility adapter
-remains for an API this release supplies. Remaining pin dependencies name their
-unmet prerequisite precisely.
+Read-only preflight of published next-0471146c identifies twelve unblocked
+TODOs: bootstrap rebuild locking; Zig and patch scratch ownership; writable
+SQLite adapters in build/zig, ci/cosmic_ci/sqlite_open and eval/check/notes;
+ZIP entries casting in report; Flags.help rendering in vendor and verify_codesign;
+String.counted in plural; both COSMIC_TEST_KEY TODOs; and assumed-verdict fields.
+Remove obsolete contracts cast exceptions and update related comments/tests.
+Keep plural.noun if its callers still need it, and keep COSMIC_CI_DECLARED_KEYS.
+Recheck this inventory against the actual selected release when implementing.
+
+Follow rebuild_lock's protocol: flock first, SQLite only when flock_kind reports
+apart, one elapsed-time budget, cleanup on every failure/handoff, and retained
+held descriptor/device-inode identity. The SQL half remains for older branches
+and bisect. Tests must use independent SQL-only child processes in both directions;
+same-process tests cannot establish fcntl exclusion.
+
+Scratch allocation and owner-lock acquisition need a brief persistent per-cache
+gate also used by the sweeper. Unique names plus a lock inside the new directory
+leave a creation/sweep race. Create within the cache, hold the owner lock during
+expensive work, and release the gate before that work. Sweep only existing owner
+files that can be locked; do not create a missing owner file and infer abandonment.
+Keep owner metadata beside a payload subdirectory and publish only payload. New
+names must avoid the old PID sweep pattern; leave legacy PID-only directories
+alone because their owners cannot safely be classified across namespaces. Test
+creation/sweep overlap, concurrent/live owners, dead-owner cleanup and namespace
+independence without serializing downloads or patching behind a global lock.
+
+Preflight still finds these unavailable: structured Proc.find/SQLite/HTTP errors,
+URL-neutral Http.download errors, signal-origin guard data, post-cancel stream
+reads, Fs.append, cache-maintenance verb, noexec Test.needs scratch, host username
+lookup, syncfs/sync and fcntl(F_FULLFSYNC). Retain the precise corresponding TODOs.
+
+Acceptance: execute the digest-verified release, pinned-driver checks, fresh boot,
+standalone help/notes paths, concurrency tests and run-local. No compatibility
+adapter remains for an API this release supplies. Remaining pin dependencies
+name their unmet prerequisite precisely.
 
 ## PR 6: consolidate CI policy and operation recording
 
@@ -300,3 +334,12 @@ changes the design, update this plan before proceeding and explain the decision.
   compiler-dependence is preserved and a new cache-maintenance verb is out of
   scope. Exact current-main release next-0471146c is published and verified by
   GitHub asset digest metadata; recheck the selected release at step 5.
+
+- 2026-10-01: bootstrap preflight expanded step 5 into compatible preparation
+  and one atomic pin/API transition. Twelve TODOs are unblocked by the inspected
+  release; missing APIs remain explicitly deferred. Scratch sweeping requires a
+  creation/ownership handshake, not merely a unique name and an internal lock.
+- 2026-10-01: step 1 validation observed another malformed local build database
+  with workspace synchronization active. Causality is not established. Move
+  build worktrees outside that synchronized directory and exclude affected runs
+  from correctness/performance evidence.
