@@ -136,7 +136,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local required = store("world", tmp .. "/required.db")
   assert(required ~= edited,
     "an edit to a declaration one the closure holds requires left its address")
-  local held_db = assert(Sqlite.open(tmp .. "/required.db", false))
+  local held_db = assert(Sqlite.open(tmp .. "/required.db"))
   local held_rows = assert(Sqlite.text_rows(held_db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM decls ORDER BY path)"))
   assert(held_db:close())
@@ -151,7 +151,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(Fs.read(tmp .. "/inside.db") ~= Fs.read(tmp .. "/first.db"),
     "an edit inside the closure left its store")
 
-  local db = assert(Sqlite.open(tmp .. "/first.db", false))
+  local db = assert(Sqlite.open(tmp .. "/first.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
     "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
@@ -209,7 +209,7 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
     assert(store("one compiler", tmp .. "/first.db") == first)
     local function address(sql: string, out: string): string
       if sql ~= "" then
-        local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+        local db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
         assert(db:exec(sql))
         assert(db:close())
       end
@@ -325,7 +325,7 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   local names = { "greet", "greet_test" }
   local basis = assert(closure_store.basis(tmp .. "/whole.db"))
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", names, basis))
-  local db = assert(Sqlite.open(tmp .. "/store.db", false))
+  local db = assert(Sqlite.open(tmp .. "/store.db"))
   local view = assert(docs.view({ db }))
   local found = assert(docs.uses(view, "greet.hello"))
   assert(db:close())
@@ -425,7 +425,7 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
   -- from.
   local function projected()
     assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
-    local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+    local db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
     assert(db:exec("INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
       "signature, text, file, line) VALUES ('greet', 'greet.wave', 'greet.wave', 1, " ..
       "'function', 'function(): string', 'Waves at the world.', 'greet.tl', 2); " ..
@@ -452,7 +452,7 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
     "a second write of the same rows moved the store's bytes")
   assert(assert(Fs.read(tmp .. "/three.db")) == one,
     "a write from the projection written afresh moved the store's bytes")
-  local db = assert(Sqlite.open(tmp .. "/one.db", false))
+  local db = assert(Sqlite.open(tmp .. "/one.db"))
   local counts = assert(Sqlite.text_rows(db, "SELECT (SELECT count(*) FROM docs_fts " ..
     "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
     "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
@@ -495,7 +495,7 @@ local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
   local commented, commented_key = keyed("the writer, commented", tmp .. "/commented.db")
   assert(commented ~= address, "the writer's edit left the address")
   assert(commented_key == key, "an edit to the writer that writes the same bytes moved the key")
-  local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+  local db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
   assert(db:exec("UPDATE modules SET bytecode = bytecode || X'00' WHERE path = 'greet'"))
   assert(db:close())
   local moved, moved_key = keyed("the writer", tmp .. "/moved.db")

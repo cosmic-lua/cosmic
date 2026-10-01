@@ -193,7 +193,7 @@ local function database(path: string): string | nil, string
   local modules, closure_trouble = carried()
   if modules == nil then return nil, closure_trouble end
   local _, _ = Fs.remove(path)
-  local db, open_trouble = Sqlite.open(path, true)
+  local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then return nil, path .. ": " .. open_trouble end
   local statements: {string} = {}
   for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end

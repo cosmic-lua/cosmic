@@ -502,7 +502,7 @@ function work.open(root: string): work.Handle | nil, string
     return nil, mkdir_trouble
   end
   local path = root .. "/o/build.db"
-  local db, open_trouble = Sqlite.open(path, true)
+  local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. open_trouble
   end

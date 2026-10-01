@@ -75,3 +75,21 @@ local function test_the_removed_shape_members_name_into_and_one_of()
   assert(either ~= nil and either:find("Shape.one_of", 1, true) and either:find("Shape.into", 1, true), either)
   assert(Removed.members["cosmic.shape.Failure"] ~= nil)
 end
+
+--- Every replaced argument is keyed by a `cosmic.*` module that loads,
+--- and by the name of a type, which is capitalized.
+local function test_every_replaced_argument_names_a_module_that_loads()
+  for dotted in pairs(Removed.arguments) do
+    local module, record = dotted:match("^(cosmic%.[%w_]+)%.(%u[%w_]*)$")
+    assert(module ~= nil and record ~= nil, dotted)
+    assert(modules[module] ~= nil, module .. " is not among this test's modules: add it")
+  end
+end
+
+--- A program that passed a boolean to [`Sqlite.open`] is told what the
+--- old `true` becomes and that `false` is no argument.
+local function test_the_sqlite_options_name_each_old_boolean_call()
+  local instead = Removed.arguments["cosmic.sqlite.OpenOptions"]
+  assert(instead ~= nil and instead:find("{ writable = true }", 1, true)
+    and instead:find("nothing for `false`", 1, true), instead)
+end

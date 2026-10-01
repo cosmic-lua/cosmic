@@ -56,7 +56,7 @@ end
 local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
   local path = tmp .. "/project.db"
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, " ..
     "source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
   assert(db:close())

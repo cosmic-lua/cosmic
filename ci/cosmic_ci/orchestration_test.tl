@@ -6,6 +6,7 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
 
@@ -838,7 +839,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       "chmod 755 o/bin/cosmic\n", 493)
     local database = runner_temp .. "/cosmic-ci/operations.db"
     if case.broken then
-      local db = assert(Sqlite.open(database, true))
+      local db = assert(SqliteOpen.writable(database))
       assert(db:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY)"))
       assert(db:close())
     end

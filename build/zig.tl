@@ -460,9 +460,10 @@ end
 
 --- Whether a build reads the file at `path`, relative to the root:
 --- CI's cache key ([`bin/zig.pin`], `build.zig`, `build.zig.zon`,
---- `core/`, `test/portable/*.c`, `vendor/`, `patch/`, [`build/patch.tl`]), plus what the
---- boot stages -- the tool's own trees whole, Teal anywhere else, and
---- the doc guides whose examples it runs.
+--- `core/`, `test/portable/*.c`, `vendor/`, `patch/`), plus what the
+--- boot stages -- the tool's own trees whole ([`build/patch.tl`], the
+--- applier, among them), Teal anywhere else, and the doc guides whose
+--- examples it runs.
 local function watches(path: string): boolean
   if watched_files[path] then
     return true
@@ -782,6 +783,19 @@ function Zig.holder(root: string): string
   return who .. " in this checkout " .. doing[role]
 end
 
+--- `Sqlite.open(path, { writable = true })`, spelled for the release this
+--- file runs on and the tree it is checked against: the release's open
+--- takes a boolean, the tree's an options table. The table is truthy to
+--- the one and read by the other, and the cast keeps neither from
+--- refusing the call by type.
+local function open_writable(path: string): Sqlite.Handle | nil, string
+  -- TODO: once ci/cosmic-driver.pin names a release whose Sqlite.open
+  -- takes `{ writable = true }`, call that where this is called and drop
+  -- this.
+  local open = Sqlite.open as any as function(string, any): Sqlite.Handle | nil, string
+  return open(path, { writable = true })
+end
+
 --- Whether `trouble`, from beginning a transaction, says another
 --- connection holds the lock rather than something wrong with the file.
 --- SQLite gives its reason only as text, which build/work.tl's `locked`
@@ -833,7 +847,7 @@ function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | b
     return nil, path .. ": " .. open_trouble
   end
   local _, _ = sys.close(fd)
-  local db, db_trouble = Sqlite.open(path, true)
+  local db, db_trouble = open_writable(path)
   if db == nil then
     return nil, path .. ": " .. db_trouble
   end

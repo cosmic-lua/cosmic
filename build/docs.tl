@@ -933,7 +933,7 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
     -- or read (a directory, a file that is not a database, one a build
     -- is rewriting) is left out, so help and docs still answer from the
     -- binary's own databases rather than failing on a stale output.
-    local own, _ = Sqlite.open("o/cosmic.db", false)
+    local own, _ = Sqlite.open("o/cosmic.db")
     if own ~= nil then
       local readable, _ = has_docs(own)
       if readable == nil then

@@ -12,7 +12,7 @@ end
 
 --- Every row `sql` answers of the database at `path`, a line each.
 function parses_fixture.dump(path: string, sql: string): string
-  local db = assert(Sqlite.open(path, false))
+  local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, sql))
   assert(db:close())
   local lines: {string} = {}

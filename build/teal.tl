@@ -521,6 +521,7 @@ end
 local record Catalog
   names: {string:string}
   members: {string:string}
+  arguments: {string:string}
   message: function(name: string, field: string): string
 end
 
@@ -543,10 +544,10 @@ local function catalog(): Catalog | nil
   if not ok or not (loaded is {string:any}) then
     return nil
   end
-  local names, members, message = loaded.names, loaded.members, loaded.message
-  if names is {string:string} and members is {string:string} and
+  local names, members, arguments, message = loaded.names, loaded.members, loaded.arguments, loaded.message
+  if names is {string:string} and members is {string:string} and arguments is {string:string} and
       message is function(string, string): string then
-    return { names = names, members = members, message = message }
+    return { names = names, members = members, arguments = arguments, message = message }
   end
   return nil
 end
@@ -574,6 +575,11 @@ end
 --- that does not start with its `local` (`do local Hash = ...`). Scope is
 --- not read: a `require` in a nested block counts as the file's own.
 ---
+--- `argument 2: got boolean, expected Sqlite.OpenOptions` is answered from
+--- [`cosmic.removed`]'s `arguments` the same way: a type that replaced a
+--- boolean parameter says what to write for the boolean. The message
+--- does not name the function, so the entry does.
+---
 --- `in assignment: got number, expected integer` names the variable when
 --- `source` has, at that position, the single assignment
 --- `name = <expression>` and `name` resolves through the lexical scopes
@@ -594,6 +600,17 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer): 
     -- a record field being readable from the AST; the parser alone does
     -- not give it.
     return integer_hint(source, y, x)
+  end
+  local given, owner, option = msg:match(
+    "^argument %d+: got (%a+), expected ([%a_][%w_]*)%.([%a_][%w_]*)$")
+  if given == "boolean" and owner ~= nil and option ~= nil then
+    local module = module_bound(source, owner)
+    local removed = module ~= nil and catalog() or nil
+    local instead = removed ~= nil and removed.arguments[module .. "." .. option] or nil
+    if instead ~= nil then
+      return owner .. "." .. option .. " replaced a boolean argument: " .. instead
+    end
+    return nil
   end
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")

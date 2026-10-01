@@ -76,6 +76,22 @@ local function test_a_removed_member_names_its_replacement(tmp: string)
     "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
 end
 
+--- A boolean passed where a parameter now takes a record is told what to
+--- write, under the alias the file gave the module; one passed where the
+--- record is not the module's own is told nothing more.
+local function test_a_boolean_for_a_record_argument_names_the_record(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
+    'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.open("x.db", true)\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:28: argument 2: got boolean, expected Sqlite.OpenOptions " ..
+    "-- Sqlite.OpenOptions replaced a boolean argument: Sqlite.open(path, opts) takes a table: " ..
+    "{ writable = true } for the old `true`", 1, true) ~= nil, trouble)
+  chunk, trouble = compile(tmp, "other.tl",
+    'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.run(true, "x")\n')
+  assert(chunk == nil)
+  assert(trouble:find("replaced a boolean argument", 1, true) == nil, trouble)
+end
+
 --- What `cosmic.json` handed to the tool, or dropped, is told where it
 --- went or what to write instead: a function, a type, and a function
 --- with a replacement in the library.

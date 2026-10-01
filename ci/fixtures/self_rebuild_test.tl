@@ -1,7 +1,7 @@
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
-local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 
 local Test = require("cosmic.test")
 
@@ -464,7 +464,7 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
 
   -- The rebuild lock's SQLite half, which a tool from before the flock
   -- holds alone and every run still waits for (build.rebuild_lock).
-  local lock = assert(Sqlite.open(tree .. "/o/rebuild.lock", true))
+  local lock = assert(SqliteOpen.writable(tree .. "/o/rebuild.lock"))
   assert(lock:exec("BEGIN IMMEDIATE"))
   local held_ok, failure = pcall(function(): boolean
     for _, entered in ipairs({ "1", "2" }) do
