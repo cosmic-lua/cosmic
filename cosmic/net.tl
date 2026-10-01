@@ -375,9 +375,11 @@ end
 --- also ends at a signal the innermost [`Child.guard`] caught.
 local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
   -- TODO: wait through Poll.wait alone, and in `connection` and `locked`
-  -- too, once cosmic.poll can see a signal a Child.guard caught (the
-  -- core's cosmic_signal_caught, which only core/socket.c's waits and
-  -- sys.flock read): the raw wait outside a task is what ends at one.
+  -- too, once cosmic.poll has what the raw wait outside a task has: a
+  -- core binding that gives it the core's cosmic_signal_caught (only
+  -- core/socket.c's waits and sys.flock read it today), a fourth shared
+  -- answer word for a wait a signal interrupted, and a loop in
+  -- Poll.wait outside a task that polls in slices to look for one.
   Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if Poll.in_task() then
     return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
@@ -587,8 +589,10 @@ local connecting_mt: metatable<Connecting> = {
 --- task of [`Poll.run`], through the run; anywhere else, holding the
 --- thread.
 local function connection(address: Net.Address, timeout_ns: integer | nil): Attempt
-  -- TODO: connect through raw.start, Poll.wait and raw.connected alone,
-  -- as `waited`'s TODO says.
+  -- TODO: connect through raw.start, Poll.wait and raw.connected alone
+  -- outside a task too, as `waited`'s TODO says: raw.connect, which
+  -- waits in the core and ends at a caught signal, is what that
+  -- replaces.
   Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if not Poll.in_task() then
     local socket, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ns))
@@ -621,9 +625,10 @@ local LOCK_PAUSE_NS <const> = Time.ms(100)
 --- wait holding the thread would keep from releasing it; anywhere
 --- else, holding the thread. False and why not otherwise.
 local function locked(fd: integer): boolean, string
-  -- TODO: wait for the lock through Poll.delay alone, as `waited`'s
-  -- TODO says: sys.flock's own wait outside a task is what ends at a
-  -- caught signal.
+  -- TODO: wait for the lock through Poll.delay alone, once `waited`'s
+  -- TODO is done (sys.flock's own wait outside a task is what ends at a
+  -- caught signal) and Poll.delay goes on outside a task, which is
+  -- the decision child.tl's pump TODO names.
   if not Poll.in_task() then
     local ok, trouble, errno = sys.flock(fd, "exclusive", Time.ceil(LOCK_NS, MS))
     if not ok then return false, said(trouble, errno) end
@@ -632,7 +637,7 @@ local function locked(fd: integer): boolean, string
   local deadline = Time.monotonic_ns() + LOCK_NS
   local pause = MS
   while true do
-    -- Asked once, which answers "timed out" where another holds the
+    -- Asked once, which answers ETIMEDOUT where another holds the
     -- lock, or "interrupted" where a guard has caught a signal.
     local ok, trouble, errno = sys.flock(fd, "exclusive", 0)
     if ok then return true, "" end

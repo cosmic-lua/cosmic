@@ -533,6 +533,17 @@ end
 --- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(handles: {Handle}, timeout_ns: integer, writable?: integer,
     cancellable?: boolean, signalled?: boolean): boolean, string
+  -- TODO: wait through Poll.delay and Poll.ready alone, here and in
+  -- Child.end_strays's sleep, once it is decided how they answer where
+  -- no task can wait. (a) They go on, holding the thread, outside a run
+  -- and in the `<close>` handler of a task being killed, as Poll.wait
+  -- does outside a run: this module's cleanup, which must wait there,
+  -- loses its thread-held branches, and poll_test's
+  -- test_waiting_outside_a_task_raises and
+  -- test_kill_raises_what_a_close_handler_raises and net_serve_test's
+  -- test_a_killed_protocols_close_cannot_wait, which hold those waits
+  -- to raising, break with it. (b) They stay task-only, and the
+  -- branches here stay.
   local fds: {integer} = {}
   local events: {integer} = {}
   local owners: {Handle} = {}
@@ -566,13 +577,6 @@ local function pump(handles: {Handle}, timeout_ns: integer, writable?: integer,
   end
   -- A wait that yields never, as one with no time to wait does, is
   -- no wait of the run's: it looks and goes on.
-  -- TODO: wait through Poll.delay and Poll.ready alone, here and in
-  -- [`end_strays`], once they go on where there is no task as Poll.wait
-  -- does: they raise outside a run and in the `<close>` handler of a
-  -- task being killed, where a cleanup of this module must wait with
-  -- the thread held, and net_serve_test.tl's
-  -- test_a_killed_protocols_close_cannot_wait holds a wait there to
-  -- raising, so one of the two contracts waits on a decision.
   local in_run = timeout_ns ~= 0 and through_run()
   -- Drained only by a wait of the run's, or with no task about: a wait
   -- holding the thread in a task, draining it, would take the wake from

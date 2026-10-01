@@ -46,18 +46,18 @@
 --- 6. A reason is for a person, never parsed: a name a statement binds
 ---    to a fallible call's reason (`err` in `local v, err = f()`, or in
 ---    an assignment) may be passed on, logged, made part of a new
----    message, or compared with `""`, `nil`, [`Poll.TIMEOUT`] or
----    [`Poll.CANCELLED`] (the two words every wait answers, for a
----    deadline passed and a task cancelled), but not read for what it
----    says -- `err:find(...)`, `:match`, `:gmatch`, `:sub`, `:byte`,
----    the same through `string.find(err, ...)`, or `err == "timeout"`
----    (`~=` too) against any other literal or value. The name is
----    followed from its binding through the rest of its block, until
----    another binding of it takes over. A failure a caller must tell
----    apart answers in a shape of its own: `nil, Poll.TIMEOUT` for a
----    deadline passed, a count or a field the caller reads, or a
+---    message, or compared with `""`, but not read for what it says --
+---    `err:find(...)`, `:match`, `:gmatch`, `:sub`, `:byte`, the same
+---    through `string.find(err, ...)`, or `err == "timeout"` (`~=`
+---    too) against any literal but `""`. The name is followed from its
+---    binding through the rest of its block, until another binding of
+---    it takes over. A failure a caller must tell apart answers in a
+---    shape of its own: `nil, ""` for no answer and no failure (a
+---    deadline passed), a count or a field the caller reads, or a
 ---    structured record standing where the value would. A reason
 ---    reached any other way (`select(2, f())`) drops the slot, rule 1.
+---    A reason may also be compared with [`Poll.TIMEOUT`] and
+---    [`Poll.CANCELLED`], the words every wait answers.
 --- 7. No escape hatch in the type layer, doc/design.md's fourth
 ---    principle: a cast (`e as T`) tells the checker what it could not
 ---    prove, so none is written but in a function `casts`

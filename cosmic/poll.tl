@@ -21,8 +21,9 @@
 --- ends one outright, for a task that goes on after its waits fail.
 --- `wait` is the one that goes on where there is no task to wait in --
 --- outside a run, in a coroutine of its own, in a finalizer -- holding
---- the thread for as long as it would have waited, so a module waits
---- with one call wherever it runs; the others raise there. Nothing else
+--- the thread in [`sys.poll`] until it answers, so a module waits with
+--- one call wherever it runs; the others raise there. In a `<close>`
+--- handler of a task the run ends, `wait` raises too. Nothing else
 --- here waits: a call that blocks the thread (a blocking read,
 --- [`Http.get`], a SQLite query) holds every task until it returns.
 ---
@@ -481,8 +482,15 @@ end
 --- true and "" once it has, false and [`Poll.TIMEOUT`] once `timeout_ns`
 --- passes first, false and [`Poll.CANCELLED`] once the task is cancelled,
 --- or false and why the descriptor could not be waited on. In a task
---- the other tasks run meanwhile; a caller that is none holds the thread
---- for the wait, as [`sys.poll`] does, past any signal.
+--- the other tasks run meanwhile. A caller that is none holds the thread:
+--- one [`sys.poll`] for the whole time left, called again only where it
+--- returns early with nothing ready (a signal). With no `timeout_ns`,
+--- then, nothing ends the wait but the descriptor, a signal a
+--- [`Child.guard`] caught included; a caller that needs one to break it
+--- waits as [`cosmic.net`] does outside a task, in the core's own wait.
+--- In a `<close>` handler of a task the run is ending -- killed, or
+--- closed as the run fails -- it raises, as every wait but a finalizer's
+--- does: such a handler must not hold the thread.
 function Poll.wait(fd: integer, events: integer, timeout_ns?: integer): boolean, string
   return wait_on(fd, events, timeout_ns, "Poll.wait")
 end

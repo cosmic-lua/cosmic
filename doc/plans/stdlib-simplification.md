@@ -235,7 +235,7 @@ net.tl:346, :830, child.tl inline at :993, :1074, :1302, :1551). the six
 :997) become calls to [`Poll.wait`]. [`Poll.delay`] is the sleep in child.tl:590
 and :1632. what landed: [`Poll.wait`] falls through outside a task (and where
 a task cannot yield), but not in a killed task's `<close>` handler, where every
-wait still raises (`net_serve_test.tl` holds it); [`Poll.delay`] and
+wait still raises (`poll_test.tl` holds it); [`Poll.delay`] and
 [`Poll.ready`] stay task-only for the same reason, so child's three branches
 and net's three (`waited`, `connection`, `locked`, whose waits outside a task
 end at a caught [`Child.guard`] signal, which only the core's socket waits and

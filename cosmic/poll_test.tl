@@ -1069,3 +1069,27 @@ local function test_checked_ns_refuses_what_no_wait_can_last()
   refused(Poll.MOST_NS + 1)
   refused("1")
 end
+
+--- While a failed run closes its tasks, a `<close>` handler that waits
+--- is refused rather than allowed to hold the thread, as in a task being
+--- killed: `wait` raises, naming the closing.
+local function test_a_wait_raises_while_the_run_closes_its_tasks(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  local trouble = ""
+  local waiter_mt: metatable<Closer> = { __close = function()
+    local _, err: boolean, any = pcall(Poll.wait, reader, sys.POLLIN, 0)
+    trouble = tostring(err)
+  end }
+  local ok, err: boolean, any = pcall(Poll.run, function()
+    Poll.spawn(function()
+      local _ <close> = setmetatable({} as Closer, waiter_mt)
+      local _, _ = Poll.delay(Time.seconds(30))
+    end)
+    assert(Poll.delay(0))
+    error("the run fails", 0)
+  end)
+  assert(not ok and tostring(err):find("the run fails", 1, true), tostring(err))
+  assert(trouble:find("Poll.wait while Poll.run closes its tasks", 1, true), trouble)
+  sys.close(reader)
+  sys.close(writer)
+end
