@@ -229,6 +229,10 @@ local casts: {string: string} = {
   ["build/receivers.tl:reporter_for"] =
     "vendored tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
+  ["build/shape_specs.tl:view_of_node"] =
+    "vendored tl hands its type objects as TypeNode and any (build/compiler.d.tl)",
+  ["build/shape_specs.tl:view_of_type"] =
+    "vendored tl hands its type objects as Type and any (build/compiler.d.tl)",
   ["build/teal.tl:teal.lazy.real"] =
     "the loaded compiler, indexed by whatever key the capsule is asked for",
   ["build/teal.tl:teal.lazy"] =

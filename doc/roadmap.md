@@ -96,13 +96,55 @@ promises lean on come first:
   sites that read fields off a decoded value through `as` casts, starting
   with those under `build/` and `ci/`; their call shapes decide whether the
   inference limit in shape.tl's module comment needs a helper.
-- a spec that agrees with its record. Nothing checks that a [`Shape.record`]
-  or [`Shape.strict_record`] names the fields of the Teal record its answer is
-  annotated as, so a field added to the record and not to the spec is never
-  set (and a strict one refuses the key outright). Have `cosmic fix` compare
-  a [`Shape.record`] or [`Shape.strict_record`] literal with the record its
-  `into` flows into, and hold the tree to it; generating a spec from the
-  record is the alternative.
+- a hand-written spec that agrees with its record. [`Shape.record_of`] derives
+  a spec from the record, so a field added to the record is checked from
+  then on; nothing checks that a [`Shape.record`] or [`Shape.strict_record`]
+  names the fields of the record its answer is annotated as, so a field added
+  to the record and not to such a spec is never set (and a strict one refuses
+  the key outright). Convert the specs that have a record (`o/bin/cosmic uses
+  Shape.record` lists them), and have `cosmic fix` compare the rest with the
+  record their `into` flows into.
+- `shape`'s `record_of`, past what landed in the first form (a string literal
+  naming a record, resolved where the module is built, in
+  [`build/shape_specs.tl`]):
+  - `Shape.of<T>()` is not Teal: a call takes no type arguments, so `T` cannot
+    be handed to a function. The name is a string, and the build splices in a
+    `function(): R return nil end` that gives the result its type; a nil cast
+    to the record (`Shape.of(nil as R)`) would drop the string and the
+    module's `require` of the record's module, at the cost of a cast in the
+    caller, which [`build/contracts.tl`]'s rule 7 refuses outside a `casts`
+    entry.
+  - a program with no build gets none: `--standalone` has no declarations to
+    read, and parsing one at run time needs the Teal compiler (about 300 KB of
+    bytecode) in every executable a program is built into. Revisit if a
+    standalone script needs it; `cosmic script.tl`, which builds the tree
+    around the script, resolves it as any module.
+  - `strict_record_of`, or `Typed:strict()`: a config file wants a misspelt
+    key refused, and [`Shape.strict_record`] takes a hand-written table. Wait
+    for a caller.
+  - a record that implements an interface (`record R is Base`) is refused:
+    the checker keeps the inherited fields in the interface, and reading them
+    is a few lines once a record needs it. A record that holds itself is
+    refused too, since a [`Shape.Spec`] is finite; `Shape.lazy` (below) is its
+    other half.
+  - an enum's values are in byte order, not the order they are declared in:
+    the checker keeps an enum as a set. A message that lists them reads
+    differently from a hand-written `one_of` in another order.
+  - a `module.Record` is found only inside the module's returned record
+    ([`receivers.record_named`]): a record another module declares and does
+    not hand out is refused. Reading it needs the checker's types of that
+    module's own scope, which [`build.receivers`] does not keep.
+  - a spec of a record and a spec in a hand-written [`Shape.list`] or
+    [`Shape.record`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
+    `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
+    polymorphic function a module can implement, so `into` and `decode_into`
+    cannot take both without a second name.
+  - a tool that predates [`build/shape_specs.tl`] cannot compile a module that
+    calls `record_of` (its checker reports the result as `T (unresolved
+    generic)`). A comment in [`build/patch.tl`] moves the image fingerprint so
+    that such a tool boots the tree rather than rebuilding it. Teach
+    [`build/reboot.tl`] to boot when a rebuild's compile fails and the
+    compiler's identity moved, and drop the comment.
 - read clang's JSON syntax tree in [`build/c/tree.tl`]. It reads the text form
   of `-Xclang -ast-dump`, and `rules.tl` digs about sixteen facts out of a
   node's text line (an operator, a cast's kind, a type, `static`, a literal's
@@ -223,11 +265,16 @@ four-producer provenance join.
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
+[`build.receivers`]: ../build/receivers.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
+[`build/contracts.tl`]: ../build/contracts.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
+[`build/patch.tl`]: ../build/patch.tl
+[`build/reboot.tl`]: ../build/reboot.tl
 [`build/refresh.tl`]: ../build/refresh.tl
+[`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
@@ -240,5 +287,10 @@ four-producer provenance join.
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
+[`receivers.record_named`]: ../build/receivers.tl
+[`Shape.list`]: ../cosmic/shape.tl
+[`Shape.record_of`]: ../cosmic/shape.tl
 [`Shape.record`]: ../cosmic/shape.tl
+[`Shape.Spec`]: ../cosmic/shape.tl
 [`Shape.strict_record`]: ../cosmic/shape.tl
+[`Typed.spec`]: ../cosmic/shape.tl

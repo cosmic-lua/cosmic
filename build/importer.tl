@@ -31,6 +31,7 @@ local gen_syscalls = require("build.gen_syscalls")
 local link_text = require("build.link_text")
 local positions = require("build.positions")
 local receivers = require("build.receivers")
+local shape_specs = require("build.shape_specs")
 local contracts = require("build.contracts")
 local symbols = require("build.symbols")
 local teal = require("build.teal")
@@ -1926,12 +1927,17 @@ local record Generated
   refused: boolean
 end
 
---- Compiles one module: the checker over its source, the test tail
---- when it is a test, and the bytecode.
+--- Compiles one module: the checker over its source (with each
+--- [`Shape.record_of`] call resolved first, [`build.shape_specs`]), the test
+--- tail when it is a test, and the bytecode.
 local function generate(m: Module, built: compiler, env: compiler.Env,
                         typed: receivers.State, own_tree: boolean, judged: boolean,
                         hints: Hints): Generated | nil, string
-  local code, result = built.gen(m.source, env, nil, "tl")
+  local source, spec_trouble = shape_specs.resolve(built, env, m.file, m.path, m.source)
+  if source == nil then
+    return nil, spec_trouble
+  end
+  local code, result = built.gen(source, env, nil, "tl")
   if m.kind == "test" and result ~= nil then
     result = discount_test_warnings(result, m.tests)
   end
