@@ -14,12 +14,12 @@ end
 
 --- Where one of zig's caches would be: `variable` from `environment`
 --- when set, else `tool` in this user's cosmic cache directory as
---- [`Fs.cache_path`] names it -- nothing made -- else `fallback`.
+--- [`Fs.cache_dir`] names it with `make = false`, so nothing is made, else `fallback`.
 local function located(variable: string, tool: string, fallback: string,
                        environment: {string:string}): string
   local given = environment[variable]
   if given ~= nil and given ~= "" then return given end
-  local named, _ = Fs.cache_path(tool, environment)
+  local named, _ = Fs.cache_dir(tool, { environment = environment, make = false })
   if named ~= nil then return named end
   return fallback
 end

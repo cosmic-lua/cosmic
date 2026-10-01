@@ -317,7 +317,8 @@ their tests.
 11). `Fs.write(path, data, mode?)` is [`Stream.create`] plus write plus
 close; [`Http.download`] streams into [`Stream.create`] through [`Stream.tee`]
 and [`Stream.copy`], a cancellation-aware reader standing in for its three
-`opts.cancelled()` polls, from 85 lines to about 30. [`Options.cancelled`]
+`opts.cancelled()` polls, from 85 lines to about 30 as planned; it landed
+at 62 (see below). [`Options.cancelled`]
 stays, as the C waits do not read the guard, with a `TODO:` naming that;
 download's signal failure says `"interrupted"` as net does, never
 `"cancelled"`, which is [`Poll.CANCELLED`]'s word. [`Fs.write`] and
@@ -328,6 +329,24 @@ path stays for `cosmic refresh`'s future needs or goes with a `TODO:`),
 { environment, make = false })`. `Proc.exec(argv, { env })` mirrors
 `Child.start(argv, opts)`, argv[1] the path. `Env` stays as the
 removed-globals mapping. [`Fs.walk`]'s `skip` and the rest are unchanged.
+
+What landed: [`Fs.write`] is the plan's [`Stream.create`] plus write plus close,
+but [`cosmic.fs`] is a harness module that may not require [`cosmic.stream`],
+so the one temporary-file-and-rename writer is [`Fs.create`] in [`cosmic.fs`]
+(an [`Fs.Staged`], a Writer that can also `sync`), which [`Fs.write`] calls
+and [`Stream.create`] wraps (a [`Stream.FileWriter`], a Writer with `sync`):
+there is one copy where there were three (`fs.tl`, `stream.tl`, `http.tl`),
+and every failure names the caller's path. [`Http.download`] is
+[`Stream.create`], [`Stream.tee`] over its hashings and [`Stream.copy`] over a
+cancellation-aware Reader: 48 lines plus the Reader's 14, 62 in all against
+the plan's 30, the two checksums and the fsync before the rename (kept
+through `sync`) accounting for the rest; [`Options.cancelled`] stays with a
+`TODO:` naming the C waits. [`Http.upload`] went with its C `start`,
+`write` and `finish` (about 200 lines of [`core/http.c`]), not just the
+Teal: a test could reach them only through `Http.upload`, and a C function
+no test enters fails a run, so the path cannot stay unused. [`doc/roadmap.md`]
+holds what it would take back. `Proc.exec(argv, opts?)` takes
+`{ env }`, the process's own environment by default.
 
 ### wave 5: the rest of the surface
 
@@ -446,6 +465,7 @@ description.
 [`Conn:writer`]: ../../cosmic/net.tl
 [`core/allocation_test.tl`]: ../../core/allocation_test.tl
 [`core/hash.c`]: ../../core/hash.c
+[`core/http.c`]: ../../core/http.c
 [`cosmic.cli`]: ../../cosmic/cli.tl
 [`cosmic.csv`]: ../../cosmic/csv.tl
 [`cosmic.entrypoint`]: ../../cosmic/entrypoint.tl
@@ -473,9 +493,11 @@ description.
 [`Flags.help`]: ../../cosmic/flags.tl
 [`Flags.Parsed`]: ../../cosmic/flags.tl
 [`Fs.cache_path`]: ../../cosmic/fs.tl
+[`Fs.create`]: ../../cosmic/fs.tl
 [`Fs.put`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.set_mtime`]: ../../cosmic/fs.tl
+[`Fs.Staged`]: ../../cosmic/fs.tl
 [`Fs.truncate`]: ../../cosmic/fs.tl
 [`Fs.walk`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
@@ -520,6 +542,7 @@ description.
 [`Stream.Codec`]: ../../cosmic/stream.tl
 [`Stream.copy`]: ../../cosmic/stream.tl
 [`Stream.create`]: ../../cosmic/stream.tl
+[`Stream.FileWriter`]: ../../cosmic/stream.tl
 [`Stream.from_fd`]: ../../cosmic/stream.tl
 [`Stream.hashing`]: ../../cosmic/stream.tl
 [`Stream.read_all`]: ../../cosmic/stream.tl

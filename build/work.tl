@@ -1462,18 +1462,11 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
 end
 
 --- Where the compiler's identity starts ([`work.compiler_modules`]):
---- build.importer, for its own source alone, and each module whose code
---- a compile or a parse runs to decide what it stores. See
+--- the semantic compile and derivation, and each module whose code
+--- they run to decide what they store. See
 --- [`work.compiler_identity`].
 local compiler_roots: {string} = {
-  -- TODO: hold only build.importer's compile and parse -- `generate`,
-  -- `with_test_tail`, `dependency_keys`, `parse_new` and the shared
-  -- parses' packing -- once they are split from what else it runs (a
-  -- refusal's hints, the caches' plumbing, the sweeps) into a module of
-  -- their own: today every edit to build/importer.tl moves the
-  -- identity, and about half of them change nothing a compile or a
-  -- parse stores.
-  "build.importer",
+  "build.compilation", "build.derivation",
   -- The analyzer ([`build.importer`]'s `analyzer_roots`): the extractors,
   -- generators and parser a parse runs, whose `tests` rows a compile
   -- appends a test module's tail from (`with_test_tail`).
@@ -1491,9 +1484,8 @@ local compiler_roots: {string} = {
 --- The modules the compiler's identity holds, sorted, as `requires`
 --- answers what a module of the tree requires: every one `require`
 --- reaches from `compiler_roots` that is the build's own
---- (`build.*`). build.importer's own requires are
---- not followed: it is here for its compile and parse, not for the
---- rest of the build it runs.
+--- (`build.*`). Every root is followed without exceptions; the importer
+--- coordinates these operations from outside their closure.
 function work.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
   local reached: {string:boolean} = {}
   local stack: {string} = {}
@@ -1502,11 +1494,9 @@ function work.compiler_modules(requires: function(string): {string} | nil, strin
     local name = table.remove(stack)
     if not reached[name] then
       reached[name] = true
-      if name ~= "build.importer" then
-        local required, trouble = requires(name)
-        if required == nil then return nil, trouble end
-        for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
-      end
+      local required, trouble = requires(name)
+      if required == nil then return nil, trouble end
+      for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
     end
   end
   local names: {string} = {}
@@ -1534,7 +1524,7 @@ end
 --- a source's rows in the analysis tables), and nothing else:
 ---
 --- - the pinned compiler and Lua;
---- - build.importer's own compile and parse;
+--- - [`build.compilation`] and [`build.derivation`];
 --- - the checker's environment ([`build.teal`]), and the names it is
 ---   stripped of, which build.teal spells itself (its `withheld`) rather
 ---   than reading [`cosmic.removed`]: the rest of that catalog is only
@@ -1555,7 +1545,8 @@ end
 --- up (build.positions), or finds the host's caches (build.caches,
 --- build/zig.tl): an edit to one compiles and parses nothing again.
 --- importer_test's `test_the_compiler_modules_are_closed_under_require`
---- holds each require of build.importer to one side or the other.
+--- checks the closed semantic boundary and classifies the coordinator's
+--- imports outside it.
 function work.compiler_identity(handle: work.Handle): string | nil, string
   local names, trouble = work.compiler_modules(requires_in(handle.db))
   if names == nil then
@@ -1659,7 +1650,7 @@ end
 --- the projections to carry, and returns them. See [`Identities`] for what
 --- each is over. The compiler's closes over `requires`, so the tree must be parsed
 --- ([`build.importer.derive`]) first: on a fresh working database the
---- closure would otherwise stop at [`build.importer`] itself, and keys
+--- closure would otherwise stop at its roots, and keys
 --- made under that identity would match no later build's.
 function work.record_identities(handle: work.Handle): work.Identities | nil, string
   local db = handle.db

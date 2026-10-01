@@ -161,7 +161,7 @@ local function toolchain(root: string, variables: {string:string}):
     if value ~= nil and value ~= "" then return nil, {} end
   end
   local pin, _ = Fs.read(root .. "/ci/cosmic-driver.pin")
-  local cache, _ = Fs.cache_path("zig", variables)
+  local cache, _ = Fs.cache_dir("zig", { environment = variables, make = false })
   if cache == nil then return nil, {} end
   local install, _ = Zig.pinned_install(root, cache)
   if install == nil then return nil, {} end
@@ -169,7 +169,7 @@ local function toolchain(root: string, variables: {string:string}):
   -- The bootstrap cosmic, cached by the digest the pin's third line
   -- names (bin/cosmic-bootstrap), and where its launcher finds its core.
   local digest = (pin or ""):match("^[^\n]*\n[^\n]*\n(%x+)")
-  local bootstrap, _ = Fs.cache_path("bootstrap", variables)
+  local bootstrap, _ = Fs.cache_dir("bootstrap", { environment = variables, make = false })
   if digest ~= nil and bootstrap ~= nil then
     runs_from[#runs_from + 1] = bootstrap .. "/cosmic-" .. digest
   end

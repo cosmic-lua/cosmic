@@ -267,7 +267,7 @@ local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
     cancelled = function(): boolean return true end,
   })
   assert(code == 1, tostring(code))
-  assert(table.concat(err):find("cancelled", 1, true) ~= nil, table.concat(err))
+  assert(table.concat(err):find("interrupted", 1, true) ~= nil, table.concat(err))
   assert(Fs.stat(path) == nil, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find("got.txt", 1, true), "left behind: " .. name)
@@ -314,6 +314,18 @@ local function test_a_sha512_fragment_verifies_and_refuses()
   assert(bad.err:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. good, 1, true), bad.err)
   local flagged = run({ "--sha512", good:upper(), url }, { reply("200 OK", "", "hello") })
   assert(flagged.code == 0 and flagged.out == "hello", flagged.err)
+end
+
+local function test_a_sha512_alone_checks_a_download_to_a_file(tmp: string)
+  local good = sha512_of("hello")
+  local path = tmp .. "/only512.txt"
+  local filed = run({ "--sha512", good, "-o", path, url }, { reply("200 OK", "", "hello") })
+  assert(filed.code == 0 and Fs.read(path) == "hello", filed.err)
+  local other = tmp .. "/wrong512.txt"
+  local bad = run({ "--sha512", string.rep("0", 128), "-o", other, url }, { reply("200 OK", "", "hello") })
+  assert(bad.code == 1 and bad.err:find("sha512 mismatch", 1, true), bad.err)
+  assert(not bad.err:find("sha256", 1, true), bad.err)
+  assert(Fs.stat(other) == nil, "the target was created")
 end
 
 local function test_the_sum_aliases_work()

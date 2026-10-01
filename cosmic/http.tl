@@ -35,9 +35,7 @@ else
   http = require("cosmic.internal.http")
 end
 
-local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
-local sys = require("cosmic.sys")
 
 local record Http
   --- One request. `follow` defaults to true, `max_redirects` to 10;
@@ -54,9 +52,8 @@ local record Http
   ---
   --- While the innermost open [`Child.guard`] has caught SIGINT or SIGTERM, an
   --- open still waiting for its response fails with "interrupted", and
-  --- so does a body's `read` that has no data to give, or a streamed
-  --- body's `write` or `finish` that must wait. The signal stays the
-  --- guard's to read.
+  --- so does a body's `read` that has no data to give. The signal stays
+  --- the guard's to read.
   ---
   --- A connection not made within `connect_timeout_ns` (default 30
   --- seconds) fails, and so does a transfer that moves fewer than
@@ -65,8 +62,7 @@ local record Http
   --- `timeout_ns` bounds the whole request and has no default. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `sha256` is read only by [`Http.download`], and `body_size` only
-  --- by [`Http.upload`].
+  --- `sha256`, `sha512` and `cancelled` are read only by [`Http.download`].
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
@@ -89,11 +85,8 @@ local record Http
     method: string
     --- Request headers, name to value.
     headers: {string:string}
-    --- The request body, sent whole; [`Http.upload`] takes `body_size` instead.
+    --- The request body, sent whole.
     body: string
-    --- [`Http.upload`] only: how long the body `write` will send, as its
-    --- Content-Length; the body goes chunked when it is not given.
-    body_size: integer
     --- Whether to follow redirects; true by default.
     follow: boolean
     --- The most redirects followed, 10 by default.
@@ -125,11 +118,15 @@ local record Http
     --- Http.download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it answers true the download stops, removes its temporary
-    --- file, never creates `path`, and fails with "cancelled". It is how
-    --- a caller holding a [`Child.guard`] ends a download on SIGINT. A wait
-    --- for data ends too when that guard catches a signal: the open or
-    --- the read fails, which the download reports as "cancelled" when
-    --- this answers true then.
+    --- file, never creates `path`, and fails with "interrupted", the
+    --- word a caught signal's failure says. It is how a caller holding
+    --- a [`Child.guard`] ends a download on SIGINT while data keeps
+    --- coming, which the guard alone ends only at a wait for it.
+    -- TODO: drop `cancelled` once cosmic.internal.http's `open` and
+    -- `read` check the innermost Child.guard whenever they are called, not
+    -- only while they wait for data, so a guard alone ends a download
+    -- whose body never makes them wait: the C waits do not read the
+    -- guard when data is already there.
     cancelled: function(): boolean
   end
 
@@ -155,24 +152,6 @@ local record Http
     --- What curl wrote to the connection; for tests with a `script`.
     --- Raises after `close`.
     sent: function(Response): string
-  end
-
-  --- A request whose body is written a chunk at a time: a
-  --- [`cosmic.stream`] Writer, so [`Stream.copy`] fills it from a file, a
-  --- child's output or another response. Each `write` blocks until curl
-  --- has taken the chunk. `close` ends the body and blocks until the
-  --- final response's headers arrive, and `response` then hands the
-  --- response over, or why there is none; asked before `close`, it
-  --- closes first. A `write` fails once the request has, or once the
-  --- server has answered before the body was all sent -- `response`
-  --- then says what it answered, as it does once a server's early
-  --- answer is too large to wait on unread. `abort` gives up on the
-  --- request, and so does a `<close>` variable left before `close`.
-  record Upload is Stream.Writer
-    metamethod __close: function(Upload)
-    --- The final response, once the body is closed; nil and why when
-    --- there is none.
-    response: function(Upload): Response | nil, string
   end
 
   --- What [`Http.get`] returns: a status, a whole body, and headers,
@@ -246,7 +225,6 @@ local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
     method = opts.method,
     headers = opts.headers,
     body = opts.body,
-    body_size = opts.body_size,
     follow = opts.follow,
     max_redirects = opts.max_redirects,
     redirect_protocols = opts.redirect_protocols,
@@ -271,78 +249,6 @@ function Http.open(url: string, opts?: Http.Options): Http.Response | nil, strin
   return respond(handle), ""
 end
 
-local closed_message <const> = "http: the request body is already closed"
-
-local upload_mt: metatable<Http.Upload> = {
-  __close = function(self: Http.Upload)
-    local _, _ = self:abort()
-  end,
-}
-
---- Starts a request to `url` whose body is written to the Upload it
---- returns, as a POST unless `opts.method` names another. Its size,
---- when `opts.body_size` gives it, is sent as the Content-Length --
---- a write that would take the body past it fails, taking none of its
---- bytes, and a `close` short of it fails the request -- and
---- otherwise the body goes chunked. `opts.body` is refused, and a HEAD
---- is `nil, err`, as neither has a body to write. The request may
---- connect and send its headers as soon as any transfer is driven,
---- before its own first write. A redirect that would send the body
---- again (a 307 or 308) fails the request, since what was written
---- cannot be written again.
-function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, string
-  -- TODO: follow a 307 or 308 with a streamed body by asking the caller
-  -- for it again (a function answering a fresh Reader, say) behind a
-  -- CURLOPT_SEEKFUNCTION that rewinds to it, once a caller must upload
-  -- through such a redirect; curl answers "necessary data rewind was not
-  -- possible" for one today.
-  local started, trouble = http.start(url, raw_options(opts))
-  if started == nil then
-    return nil, trouble
-  end
-  local handle: raw_http.Handle = started
-  local closed = false
-  local aborted = false
-  local answered: Http.Response
-  local failure = ""
-  local up: Http.Upload = {}
-  up.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed then return false, closed_message end
-    return handle:write(data)
-  end
-  up.close = function(_self: Stream.Writer): boolean, string
-    if closed then
-      if failure ~= "" and not aborted then return false, failure end
-      return true, ""
-    end
-    closed = true
-    local finished, why = handle:finish()
-    if not finished then
-      failure = why
-      handle:close()
-      return false, failure
-    end
-    answered = respond(handle)
-    return true, ""
-  end
-  up.abort = function(_self: Stream.Writer): boolean, string
-    if closed then return true, "" end
-    closed, aborted = true, true
-    failure = "http: the request was aborted"
-    handle:close()
-    return true, ""
-  end
-  up.response = function(self: Http.Upload): Http.Response | nil, string
-    if not closed then
-      local _, _ = self:close()
-    end
-    if answered == nil then return nil, failure end
-    return answered, ""
-  end
-  setmetatable(up, upload_mt)
-  return up, ""
-end
-
 --- [`Http.open`], then the whole body read at once. Fails on a
 --- connection or protocol error the same way [`Http.open`] does; a
 --- non-2xx status is not itself a failure here -- check `result.status`.
@@ -359,96 +265,81 @@ function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   return { status = response.status, body = body, headers = response.headers }, ""
 end
 
+--- `response` as a Reader that fails with "interrupted" once `cancelled`
+--- answers true: asked before each read and once more at the end of the
+--- body, so a body that came whole is still refused after a cancel.
+local function cancellable(response: Http.Response, cancelled: function(): boolean): Stream.Reader
+  local reader: Stream.Reader = {}
+  reader.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    if cancelled() then return nil, "interrupted" end
+    local chunk, why = response:read(max)
+    if chunk ~= nil then return chunk, "" end
+    if why == "" and cancelled() then return nil, "interrupted" end
+    return nil, why
+  end
+  reader.close = function(_self: Stream.Reader): boolean, string
+    return response:close()
+  end
+  return reader
+end
+
 --- Downloads `url` to `path`, as `curl -fLo` or `wget` would, streaming
---- to a fresh temporary file beside it -- created exclusively, so two
---- downloads never share one and a planted symlink is never followed --
+--- to a fresh temporary file beside it ([`Stream.create`]'s, so two
+--- downloads never share one and a planted symlink is never followed)
 --- and renaming into place only once the transfer is complete, synced to
 --- disk and, when `opts.sha256` or `opts.sha512` is given, verified: a
 --- reader never sees a partial file at the final name. Fails on a
 --- non-2xx status (a redirect `opts.follow` already took does not count)
 --- or a checksum mismatch, and removes the temporary file on every
---- failure, `opts.cancelled` answering true ("cancelled") included.
+--- failure, `opts.cancelled` answering true ("interrupted", as a
+--- caught signal says it) included.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
-  local checks: {{string}} = {}
-  local hashings: {Stream.Hashing} = {}
-  --- Starts hashing for `algorithm` when `wanted` names a digest: the
-  --- failure to, or "".
-  local function start_hashing(algorithm: Hash.Algorithm, wanted: string): string
-    if wanted == nil or wanted == "" then return "" end
-    local made, hasher_trouble = Stream.hashing(algorithm)
-    if made == nil then return hasher_trouble end
-    checks[#checks + 1] = { algorithm, wanted:lower() }
-    hashings[#hashings + 1] = made
-    return ""
-  end
-  if opts ~= nil then
-    local trouble = start_hashing("sha256", opts.sha256)
-    if trouble == "" then trouble = start_hashing("sha512", opts.sha512) end
-    if trouble ~= "" then return false, trouble end
+  opts = opts or {}
+  local given: {{Hash.Algorithm, string}} = {
+    { "sha256", opts.sha256 or "" },
+    { "sha512", opts.sha512 or "" },
+  }
+  local checks: {{string, string, Stream.Hashing}} = {}
+  for _, pair in ipairs(given) do
+    local algorithm, wanted = pair[1], pair[2]
+    if wanted ~= "" then
+      local hashing, trouble = Stream.hashing(algorithm)
+      if hashing == nil then return false, trouble end
+      checks[#checks + 1] = { algorithm, wanted:lower(), hashing }
+    end
   end
   local response, open_trouble = Http.open(url, opts)
-  if response == nil then
-    return false, open_trouble
-  end
+  if response == nil then return false, open_trouble end
   if response.status < 200 or response.status >= 300 then
     local _, _ = response:close()
     return false, url .. ": HTTP " .. tostring(response.status)
   end
-
-  local temporary, open_write_trouble = sys.open_temporary(path, 0x1a4)
-  if temporary == nil then
+  local file, create_trouble = Stream.create(path)
+  if file == nil then
     local _, _ = response:close()
-    return false, path .. ": " .. open_write_trouble
+    return false, create_trouble
   end
-  local part, fd = temporary.path, temporary.fd
-  local writer: Stream.Writer = Stream.to_fd(fd)
-  for _, hashing in ipairs(hashings) do writer = Stream.tee(writer, hashing) end
-  local ok, trouble = true, ""
-  while true do
-    if opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then
-      ok, trouble = false, "cancelled"
-      break
-    end
-    local chunk, read_trouble = response:read()
-    if chunk == nil then
-      if read_trouble ~= "" then
-        ok, trouble = false, read_trouble
-        -- a read that ended for a caught signal answers as a cancel does
-        if opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then trouble = "cancelled" end
-      end
-      break
-    end
-    ok, trouble = writer:write(chunk)
-    if not ok then break end
-  end
+  local sink: Stream.Writer = file
+  for _, check in ipairs(checks) do sink = Stream.tee(sink, check[3]) end
+  local source: Stream.Reader = response
+  if opts.cancelled ~= nil then source = cancellable(response, opts.cancelled) end
+  local copied, trouble = Stream.copy(source, sink)
   local _, _ = response:close()
-  if ok and opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then
-    ok, trouble = false, "cancelled"
-  end
-  if ok then
-    ok, trouble = Fs.fsync(fd)
-  end
-  local closed, close_trouble = Fs.close(fd)
-  if ok and not closed then
-    ok, trouble = false, close_trouble
-  end
-  if ok then
-    for i, check in ipairs(checks) do
-      local digest, digest_trouble = hashings[i]:digest()
-      if digest == nil then
-        ok, trouble = false, digest_trouble
-      elseif Codec.hex(digest) ~= check[2] then
-        ok, trouble = false, path .. ": " .. check[1] .. " mismatch: want " ..
-          check[2] .. ", got " .. Codec.hex(digest)
-      end
-      if not ok then break end
+  local committed = copied ~= nil
+  for _, check in ipairs(committed and checks or {}) do
+    local digest, digest_trouble = check[3]:digest()
+    local hex = digest ~= nil and Codec.hex(digest) or ""
+    if hex ~= check[2] then
+      committed = false
+      trouble = digest ~= nil and path .. ": " .. check[1] .. " mismatch: want " .. check[2] ..
+        ", got " .. hex or digest_trouble
+      break
     end
   end
-  if ok then
-    ok, trouble = Fs.rename(part, path)
-  end
-  if not ok then
-    local _, _ = Fs.remove(part)
+  if committed then committed, trouble = file:sync() end
+  if committed then committed, trouble = file:close() end
+  if not committed then
+    local _, _ = file:abort()
     return false, trouble
   end
   return true, ""

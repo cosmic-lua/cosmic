@@ -180,6 +180,11 @@ local casts: {string: string} = {
     "OpenOptions): no one declaration fits both, a typed local is refused " ..
     "by the release (got record, expected boolean), and a record field " ..
     "holding the function would only hide the same cast",
+  ["build/zig.tl:cache_dir"] =
+    "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
+    "whose Fs.cache_dir takes the environment's variables where the tree's " ..
+    "takes an options table holding them: no one declaration fits both, so " ..
+    "one table that holds both is passed through an untyped reference",
   ["eval/check/notes.tl:open_writable"] =
     "eval/check/notes runs this file on the release ci/cosmic-driver.pin " ..
     "names, whose Sqlite.open is (string, boolean) where the tree's is " ..

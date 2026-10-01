@@ -225,7 +225,7 @@ local function worker_cores(): Cores | nil, string
   end
   local digest = name:match("%-(%x+)$")
   if digest == nil then return nil, core .. " names no digest" end
-  local base, base_trouble = Fs.cache_path("worker-cores")
+  local base, base_trouble = Fs.cache_dir("worker-cores", { make = false })
   if base == nil then return nil, base_trouble end
   local made, made_trouble = Fs.mkdirs(base)
   if not made then return nil, made_trouble end

@@ -85,7 +85,7 @@ harness_epoch.acknowledged = {
 
   ["build.cache_names"] = "935f423ffc3fa01e6dc82028a841458319195762357707325f71fcd1e2385afd",
 
-  ["build.caches"] = "598a907beb9763ee08569df514f2437ddfeb6734b8a9f5d1a00c2e77ce510ae3",
+  ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
   ["build.confine"] = "ec5426f0704b978b8f5adc7e633e072205e0224de2e694b6ca278a41e3915ae0",
 
@@ -103,19 +103,19 @@ harness_epoch.acknowledged = {
 
   ["build.shared_sqlite"] = "996930ade3ff42383e1634e7897910298ddeec11586c63ecd5136a378ebaa2b0",
 
-  ["build.shared_verdicts"] = "ea3d41711f22f34b782afb89ae40abb12729f01f76614951e9e65c6aa700f67f",
+  ["build.shared_verdicts"] = "92f4dc9580b27406e6ca5fa2cb2168839c9896adf5c56b6754cc125a660ea295",
 
   ["build.test"] = "678c780f84dcd498339edb2b9d7a27383fc4cdfd474ff1e18e217958d670234d",
 
   ["build.test_inputs"] = "b3027734e4e45cf19d64a6aa4f5c73da9d3e6963543beebfa27b7fac2b756de5",
 
-  ["build.test_sandbox"] = "e830d7ba5c4ee63cf4e611c671875fc7741e92532d6c93d5adf7cf2b7d48ca9f",
+  ["build.test_sandbox"] = "1f7b4932348054a5797f54818b7934fcf37ae5912293ca12a222a804b482aaf2",
 
   ["build.test_worker"] = "a2c184d0cb41e691aaec7b89edf5c830d739ef8d4c92bdfe5c707e3e3dc74c00",
 
   ["build.this_program"] = "0cc5168af57d57876e8f40f5e36219bbbcf9666f09ce0d78d306cc4840f50703",
 
-  ["build.zig_caches"] = "d35906e02830ba49939d7d8c8ec2ac9ffdd1782285c1577751b318dc98d17eac",
+  ["build.zig_caches"] = "472c399b1bbbc6f9b58a2edd4fa6fabcddbea9140cac683b58acec608ff3c78c",
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
@@ -125,9 +125,9 @@ harness_epoch.acknowledged = {
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
-  ["cosmic.fs"] = "eef4c022e13812494b6a117175a141abd4ca77fd08a17f361d29e65df02dfab9",
+  ["cosmic.fs"] = "73b305d6b18db828721f0e920459ef672629ed87ecc28cf99b7288b4499a9b65",
 
-  ["cosmic.proc"] = "da9c6de1b27751d3fcdec00898b6496f7cd5be4eeaee46af64820d7600ac2cad",
+  ["cosmic.proc"] = "9315ce89f59aabbb83abefd07cd20af6845e576d3ad1540a8207af653116b768",
 
   ["cosmic.sqlite"] = "564ba342d5a754c2d506295754ff08f8319744006d3ffc9b3b27016750d5ffcf",
 

@@ -23,20 +23,16 @@ function Example.get()
   assert(got.status == 200 and got.body == '{"ok":true}', got.body)
 end
 
---- A body streamed up rather than held whole: here a gzip of a string
---- as it is compressed, and as well a file (`Stream.open(path)`), a
---- child's output or another response. With no `body_size` the body
---- goes chunked. A real call leaves `script` out:
---- `Http.upload("https://example.com/upload", { method = "PUT" })`.
-function Example.upload()
+--- A body sent whole, here a gzip of a string, with the method and
+--- headers it needs; the response is read from the handle `open`
+--- answers, and closed by its `<close>` variable. A real call leaves
+--- `script` out: `Http.open("https://example.com/upload", { method = "PUT", body = gzip })`.
+function Example.open()
   local reply = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n"
-  local up = assert(Http.upload("http://example.test/upload", {
-    method = "PUT", headers = { ["Content-Encoding"] = "gzip" }, script = { reply } }))
-  local gzip = Stream.transform(Stream.from_string(string.rep("streamed\n", 1000)),
-    (assert(Compress.deflater("gzip"))))
-  assert(Stream.copy(gzip, up))
-  assert(up:close())
-  local response <close> = assert(up:response())
+  local gzip = assert(Stream.run(assert(Compress.deflater("gzip")), string.rep("sent whole\n", 1000)))
+  local response <close> = assert(Http.open("http://example.test/upload", {
+    method = "PUT", headers = { ["Content-Encoding"] = "gzip" }, body = gzip,
+    script = { reply } }))
   print(response.status)
   assert(response.status == 201)
 end

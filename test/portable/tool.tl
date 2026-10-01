@@ -362,7 +362,7 @@ local function time_runtime(argv: {string}): integer
   environment[marker] = tostring(Time.monotonic_ns())
   environment["COSMIC_PORTABLE_CACHE"] = cache
   local arguments = { target, argv[0], "time-runtime", target, cache }
-  local _, trouble = Proc.exec(target, arguments, environment)
+  local _, trouble = Proc.exec(arguments, { env = environment })
   error(trouble)
 end
 

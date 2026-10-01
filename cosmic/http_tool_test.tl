@@ -122,35 +122,25 @@ end)
   assert(said == "nil interrupted " .. sys.SIGINT, said)
 end
 
---- A streamed `write` that waits on a server that reads none of the
---- body ends when a guard catches a signal.
-local function test_a_caught_signal_ends_a_write_that_waits(tmp: string)
+--- A download that waits on a server that sent part of the body and
+--- stalls fails "interrupted" when a guard catches a signal, though the
+--- caller's `cancelled` answers true by then too, as the verbs' own do,
+--- and leaves nothing at its path or beside it.
+local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
   local said = interrupted(tmp, [[
-  local up = assert(Http.upload(url, { method = "PUT" }))
-  assert(Fs.write(marker, ""))
-  local chunk = string.rep("x", 1 << 20)
-  local why = "never waited"
-  for _ = 1, 4096 do
-    local ok, trouble = up:write(chunk)
-    if not ok then
-      why = trouble
-      break
-    end
-  end
-  Fs.put(Fs.stdout, why)
-]], function(_conn: Net.Conn, _head: string) end)
-  assert(said == "interrupted " .. sys.SIGINT, said)
-end
-
---- A `close` that waits for an answer the server never sends ends when
---- a guard catches a signal.
-local function test_a_caught_signal_ends_a_close_that_waits(tmp: string)
-  local said = interrupted(tmp, [[
-  local up = assert(Http.upload(url, { body_size = 5 }))
-  assert(up:write("hello"))
-  assert(Fs.write(marker, ""))
-  local ok, why = up:close()
+  local target = marker .. ".target"
+  local ok, why = Http.download(url, target, {
+    cancelled = function(): boolean
+      if not Fs.stat(marker) then assert(Fs.write(marker, "")) end
+      return guard:cancelled() ~= 0
+    end,
+  })
   Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
-]], function(_conn: Net.Conn, _head: string) end)
+]], function(conn: Net.Conn, _head: string)
+  assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
+end)
   assert(said == "false interrupted " .. sys.SIGINT, said)
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(not name:find(".target", 1, true), "left behind: " .. name)
+  end
 end

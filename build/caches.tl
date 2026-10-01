@@ -7,7 +7,7 @@
 --- declares one by its name alone.
 ---
 --- - `zig`: the pinned zig [`bin/zig`] runs and the caches it builds in --
----   its installs (`Fs.cache_path("zig")`, build/zig.tl's `locate`), its
+---   its installs (`Fs.cache_dir("zig", { make = false })`, build/zig.tl's `locate`), its
 ---   global cache and the project cache ([`build.zig_caches`], where
 ---   [`Zig.global_cache`] and [`Zig.project_cache`] put them), overrides
 ---   (COSMIC_ZIG_GLOBAL_CACHE, COSMIC_ZIG_CACHE, and ZIG_GLOBAL_CACHE_DIR
@@ -35,7 +35,7 @@ end
 -- TODO: take the bootstrap cosmic's and the launcher's cores directory
 -- from the code that decides them, once either is Teal: today
 -- bin/cosmic-bootstrap and build/launcher.tl's shell each spell
--- [`Fs.cache_path`]'s rule again, which this follows.
+-- [`Fs.cache_dir`]'s rule again, which this follows.
 local function paths(name: string, root: string, environment: {string:string}): {string}
   local out: {string} = {}
   local function add(path: string | nil)
@@ -46,7 +46,7 @@ local function paths(name: string, root: string, environment: {string:string}): 
     out[#out + 1] = path
   end
   if name == "zig" then
-    local installs, _ = Fs.cache_path("zig", environment)
+    local installs, _ = Fs.cache_dir("zig", { environment = environment, make = false })
     add(installs)
     for _, path in ipairs(zig_caches.paths(root, environment)) do add(path) end
     -- Where a zig command other than `build` keeps them, when the
@@ -54,7 +54,7 @@ local function paths(name: string, root: string, environment: {string:string}): 
     add(environment.ZIG_GLOBAL_CACHE_DIR)
     add(environment.ZIG_LOCAL_CACHE_DIR)
   elseif name == "bootstrap" then
-    local bootstrap, _ = Fs.cache_path("bootstrap", environment)
+    local bootstrap, _ = Fs.cache_dir("bootstrap", { environment = environment, make = false })
     add(bootstrap)
     add(caches.cores(environment))
   end
@@ -63,14 +63,14 @@ end
 
 --- Where a portable cosmic's launcher extracts its cores, with
 --- `environment` the variables that locate it: COSMIC_PORTABLE_CACHE,
---- or the `cores` cache ([`Fs.cache_path`]). Nil where neither names a
+--- or the `cores` cache ([`Fs.cache_dir`]). Nil where neither names a
 --- directory. This program's own core is there, where it is a portable
 --- artifact, so a sandboxed worker that declares the `bootstrap` cache
 --- is given cores of its own to write instead ([`build.test_sandbox`]).
 function caches.cores(environment: {string:string}): string | nil
   local portable = environment.COSMIC_PORTABLE_CACHE
   if portable ~= nil then return portable end
-  local cores, _ = Fs.cache_path("cores", environment)
+  local cores, _ = Fs.cache_dir("cores", { environment = environment, make = false })
   return cores
 end
 

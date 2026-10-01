@@ -166,11 +166,11 @@ local function test_create_leaves_no_temp_file_when_write_fails(tmp: string)
     return nil, "injected failure", 0
   end
   local w = assert(Stream.create(path))
-  local ok = w:write("data")
+  local ok, why = w:write("data")
   sys.write = real_write
-  assert(not ok)
+  assert(not ok and why == path .. ": injected failure", why)
   local closed, trouble = w:close()
-  assert(not closed and trouble:find("injected failure", 1, true))
+  assert(not closed and trouble == why, trouble)
   assert(Fs.exists(path) == false)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
@@ -376,6 +376,21 @@ local function test_a_reader_refuses_reads_after_close(tmp: string)
   assert(r:close()) -- idempotent
   local chunk, trouble = r:read()
   assert(chunk == nil and trouble ~= "")
+end
+
+--- A file's `sync` goes through the Writer `create` returns, so a caller
+--- that wants the bytes durable before the rename asks for it there.
+local function test_create_syncs_before_it_closes(tmp: string)
+  local path = tmp .. "/target"
+  local w = assert(Stream.create(path))
+  assert(w:write("kept"))
+  assert(w:sync())
+  assert(Fs.exists(path) == false)
+  assert(w:close())
+  assert(Fs.read(path) == "kept")
+  local missing = tmp .. "/missing/target"
+  local made, trouble = Stream.create(missing)
+  assert(made == nil and trouble:find(missing .. ": ", 1, true) == 1, trouble)
 end
 
 local function test_create_abort_leaves_neither_the_file_nor_a_temporary(tmp: string)
