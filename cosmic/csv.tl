@@ -1,10 +1,9 @@
---- CSV and TSV text as records and rows: an RFC 4180 reader and writer.
+--- CSV and TSV text as records and rows: an RFC 4180 reader.
 ---
 ---     local records = assert(Csv.parse('id,name\n1,"Smith, Ann"\n2,"say ""hi"""\n'))
 ---     -- { {"id", "name"}, {"1", "Smith, Ann"}, {"2", 'say "hi"'} }
----     local rows = assert(Csv.rows('id,name\n1,Ann\n'))
----     -- { { id = "1", name = "Ann" } }
----     local text = assert(Csv.encode(records, { delimiter = "\t" }))
+---     local made = assert(Csv.table('id,name\n1,Ann\n'))
+---     -- made.columns is { "id", "name" }, made.rows is { { id = "1", name = "Ann" } }
 ---
 --- What is read:
 ---
@@ -13,34 +12,33 @@
 --- - A record ends at LF or CRLF; the last needs no line break. A lone
 ---   CR is data. Every value is a string: nothing here reads a number.
 --- - The delimiter is one byte, `,` unless `opts.delimiter` says another
----   (`"\t"` for TSV, `";"`). TSV is read as CSV with a tab, so a field
----   that begins with `"` is quoted there too, and a stray `"` in one is
----   as much a fault as in CSV.
+---   (`"\t"` for TSV, `";"`); a delimiter that is not one byte, or is a
+---   quote or a line break, raises. TSV is read as CSV with a tab, so a
+---   field that begins with `"` is quoted there too, and a stray `"` in
+---   one is as much a fault as in CSV.
 --- - A UTF-8 byte order mark at the start of the text is dropped.
 --- - A line with nothing on it, outside quotes, is no record to `parse`:
----   it is skipped, so `a,b\n\n1,2\n` holds two. `rows` and `table`
----   read it by the header's width: with two or more columns it is
+---   it is skipped, so `a,b\n\n1,2\n` holds two. `table` reads it by
+---   the header's width: with two or more columns it is
 ---   skipped, but a one-column file writes an empty cell as an empty
 ---   line (as pandas and spreadsheets do), so there an interior blank
 ---   line is a row of one empty field, and only the blank lines at the
 ---   end of the file are dropped (`a\n1\n\n3\n\n` has rows 1, "", 3), so
 ---   a final empty cell must be written `""` to be kept.
----   Blank lines before the header are skipped either way. A record of
----   one empty field is written `""`, which `encode` does, and `parse`
----   reads back.
+---   Blank lines before the header are skipped either way.
 --- - A trailing delimiter is an empty last field: `a,b,\n` holds three.
 ---
 --- What is refused, each naming its `line N, column M` (a line counts
 --- from 1, and a column is a byte in it, from 1): a quote in the middle
 --- of an unquoted field, anything but a delimiter or a line end after a
---- closing quote, and a quote never closed (where it was opened). `rows`
+--- closing quote, and a quote never closed (where it was opened). `table`
 --- also refuses, strictly, a record whose field count is not the
 --- header's: a short or long row is a file whose columns are not what
 --- they seem, and padding it would answer a query wrongly without a
 --- word. It names the line the record began on.
 ---
---- `table` and `rows` turn each header field into a column name, so a
---- row can be a table keyed by the names:
+--- `table` turns each header field into a column name, so a row can be a
+--- table keyed by the names ([`Csv.column_names`] makes them):
 ---
 --- - The empty name, and a NUL byte inside a name, become `_`.
 --- - SQLite folds ASCII case in column names, so a name whose lower case
@@ -49,7 +47,7 @@
 --- - Renaming applies to the result too: the empty name twice becomes
 ---   `_`, `__2`.
 ---
---- [`cosmic.dataset`] names its columns by the same rule.
+--- `cosmic sql --from` names the columns of a data file by the same rule.
 
 --- What `read` found: the records, and the line each began on.
 local record Scan
@@ -58,10 +56,10 @@ local record Scan
 end
 
 local record Csv
-  --- What a reader or the writer may be told.
+  --- What a reader may be told.
   record Options
     --- The one byte between fields (default `,`). It may not be `"`, CR
-    --- or LF.
+    --- or LF: the readers raise for one that is.
     delimiter: string
   end
 
@@ -77,16 +75,19 @@ end
 
 local BOM <const> = "\xEF\xBB\xBF"
 
---- The delimiter an option names, or nil and why.
-local function delimiter_of(opts: Csv.Options | nil): string | nil, string
-  local delimiter = opts ~= nil and opts.delimiter or ","
-  if #delimiter ~= 1 then
-    return nil, "the delimiter is one byte, not " .. #delimiter
+--- The delimiter an option names. Raises, naming the caller of the
+--- reader that calls this, when it is not one byte or is a quote or a
+--- line break.
+local function delimiter_of(opts: Csv.Options | nil): string
+  local delimiter: any = opts ~= nil and opts.delimiter or ","
+  if not (delimiter is string) or #delimiter ~= 1 then
+    error("csv: the delimiter is one byte, not " ..
+      (delimiter is string and "a string of length " .. #delimiter or "a " .. type(delimiter)), 3)
   end
   if delimiter == '"' or delimiter == "\r" or delimiter == "\n" then
-    return nil, "the delimiter cannot be a quote or a line break"
+    error("csv: the delimiter cannot be a quote or a line break", 3)
   end
-  return delimiter, ""
+  return delimiter
 end
 
 --- Where: "line N, column M".
@@ -108,7 +109,7 @@ local function read(text: string, delimiter: string): Scan | nil, string
     local first = text:byte(pos)
     if first == 10 or (first == 13 and text:byte(pos + 1) == 10) then
       -- A blank line: a record of no fields, which `parse` leaves out and
-      -- `rows` reads by the header's width.
+      -- `table` reads by the header's width.
       records[#records + 1] = {}
       lines[#records] = line
       pos = pos + (first == 10 and 1 or 2)
@@ -197,15 +198,12 @@ end
 
 --- The records of `text`: each a list of its fields, all strings. Nil
 --- and why (with its `line N, column M`) for a quote in an unquoted
---- field, text after a closing quote, or a quote never closed; nil and
---- why when `opts.delimiter` is not one byte or is a quote or a line
---- break. Records may differ in length here: only `rows` holds them to
---- a header. Text with no records is `{}`.
+--- field, text after a closing quote, or a quote never closed. Raises
+--- when `opts.delimiter` is not one byte or is a quote or a line break.
+--- Records may differ in length here: only `table` holds them to a
+--- header. Text with no records is `{}`.
 function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
-  local delimiter, bad = delimiter_of(opts)
-  if delimiter == nil then
-    return nil, bad
-  end
+  local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
     return nil, trouble
@@ -219,10 +217,20 @@ function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
   return records, ""
 end
 
---- A column name for each of `header`'s fields, as the module comment
---- says.
-local function names_of(header: {string}): {string}
+--- The column names for `header`'s fields, one to a field and in its
+--- order, by the rules in the module comment: the empty name and a NUL
+--- byte become `_`, and a name whose lower case an earlier one has, or
+--- one of `reserved` has, gets `_2` after it, then `_3` and on.
+--- `reserved` lists names the caller holds for itself, compared with
+--- case folded; none by default. Nothing in `header` need be unique.
+---
+---     local names = Csv.column_names({ "a", "A", "" }, { "rowid" })
+---     assert(table.concat(names, ",") == "a,A_2,_")
+function Csv.column_names(header: {string}, reserved?: {string}): {string}
   local taken: {string:boolean} = {}
+  for _, name in ipairs(reserved or {}) do
+    taken[name:lower()] = true
+  end
   local names: {string} = {}
   for index, field in ipairs(header) do
     local name = field == "" and "_" or (field:gsub("\0", "_"))
@@ -242,14 +250,11 @@ end
 --- its first record names the columns, and each record after it is a
 --- table from column name to field. Nil and why for what `parse` refuses,
 --- and for a record whose field count is not the header's, naming the
---- line it began on and both counts. Blank lines are read as the module
---- comment says. Text with no records has no columns, and a header alone
---- has columns and no rows.
+--- line it began on and both counts; raises for a delimiter `parse` does.
+--- Blank lines are read as the module comment says. Text with no records
+--- has no columns, and a header alone has columns and no rows.
 function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
-  local delimiter, bad = delimiter_of(opts)
-  if delimiter == nil then
-    return nil, bad
-  end
+  local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
     return nil, trouble
@@ -263,7 +268,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
   if records[first] == nil then
     return { columns = {}, rows = rows }, ""
   end
-  local names = names_of(records[first])
+  local names = Csv.column_names(records[first])
   local last = #records
   if #names == 1 then
     -- Blank lines after the last record are the file's end.
@@ -290,48 +295,6 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
     end
   end
   return { columns = names, rows = rows }, ""
-end
-
---- The rows `table` reads, without the header's names.
-function Csv.rows(text: string, opts?: Csv.Options): {{string:string}} | nil, string
-  local made, trouble = Csv.table(text, opts)
-  if made == nil then
-    return nil, trouble
-  end
-  return made.rows, ""
-end
-
---- One field as it is written: quoted when it holds the delimiter, a
---- quote or a line break, begins with what a reader would drop as a byte
---- order mark, or is the empty only field of its record.
-local function field_text(field: string, delimiter: string, only: boolean): string
-  if field:find(delimiter, 1, true) or field:find('[\r\n"]') or field:sub(1, 3) == BOM or
-      (only and field == "") then
-    return '"' .. field:gsub('"', '""') .. '"'
-  end
-  return field
-end
-
---- `records` as text, one per line ended by LF, that `parse` reads back
---- as they were. Nil and why when a record has no fields, which text
---- cannot hold, or `opts.delimiter` is not one `parse` takes.
-function Csv.encode(records: {{string}}, opts?: Csv.Options): string | nil, string
-  local delimiter, bad = delimiter_of(opts)
-  if delimiter == nil then
-    return nil, bad
-  end
-  local lines: {string} = {}
-  for number, record in ipairs(records) do
-    if #record == 0 then
-      return nil, "record " .. number .. " has no fields"
-    end
-    local parts: {string} = {}
-    for index, field in ipairs(record) do
-      parts[index] = field_text(field, delimiter, #record == 1)
-    end
-    lines[number] = table.concat(parts, delimiter) .. "\n"
-  end
-  return table.concat(lines), ""
 end
 
 return Csv

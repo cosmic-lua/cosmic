@@ -160,8 +160,8 @@ local record Cli
   --- the value at the path as JSON, indented, or on one line with
   --- `--compact`; a string prints as its text with `-r`. A path reads
   --- as the paths the JSON messages print: `$` is the document, then
-  --- `.key` or `["a key"]` and `[1]`, counted from 1 as [`Json.get`]
-  --- counts (`$.users[1].name`); with a file after it, a first key
+  --- `.key` or `["a key"]` and `[1]`, counted from 1
+  --- (`$.users[1].name`); with a file after it, a first key
   --- needs no dot (`a.b`), and whitespace in a path is part of a key.
   --- `*` (`.*` or `[*]`) is every member of an object or element of an
   --- array, and `..key` or `..[n]` that key or index at any depth, the
@@ -194,8 +194,8 @@ local record Cli
   --- values. Only a lookup: no
   --- filter, no transform; to count or sum, use `cosmic sql --from`.
   --- Exits 0 when the path is found (a pattern:
-  --- when something matches), 1 when it is not, with the message
-  --- [`Json.get`] gives on standard error (a pattern that matches nothing:
+  --- when something matches), 1 when it is not, with a message on
+  --- standard error naming the path reached (a pattern that matches nothing:
   --- `<pattern>: no match`; a `null` value is found), 2 for a command line
   --- it cannot read, a pattern too deep to walk, or a
   --- file that is missing or not JSON. It prints no verdict line, which

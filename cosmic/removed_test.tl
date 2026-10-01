@@ -9,6 +9,7 @@ local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
   ["cosmic.cli"] = require("cosmic.cli"),
   ["cosmic.codec"] = require("cosmic.codec"),
+  ["cosmic.csv"] = require("cosmic.csv"),
   ["cosmic.coverage"] = require("cosmic.coverage"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.json"] = require("cosmic.json"),
@@ -63,6 +64,22 @@ local function test_the_removed_coders_name_the_verb_and_the_whole_string_functi
     assert(instead:find("`cosmic codec`", 1, true), instead)
     assert(instead:find("Codec.base64", 1, true), instead)
   end
+end
+
+--- A program that called one of the lookups that moved with the dataset
+--- loader is told where they went and that it indexes the table directly.
+local function test_the_removed_json_lookups_name_build_json_query_and_direct_indexing()
+  for _, member in ipairs({ "get", "entries", "items" }) do
+    local instead = Removed.members["cosmic.json." .. member]
+    assert(instead ~= nil, member)
+    assert(instead:find("build.json_query", 1, true), instead)
+  end
+  assert(Removed.members["cosmic.json.get"]:find("directly", 1, true))
+end
+
+local function test_the_removed_csv_functions_name_what_to_use_instead()
+  assert(Removed.members["cosmic.csv.rows"]:find("Csv.table", 1, true))
+  assert(Removed.members["cosmic.csv.encode"]:find("delimiter", 1, true))
 end
 
 --- A program that named the removed codec type is told its interface.

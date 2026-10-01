@@ -1,4 +1,4 @@
-local Dataset = require("cosmic.dataset")
+local dataset = require("build.dataset")
 local Sqlite = require("cosmic.sqlite")
 
 --- A fresh in-memory database.
@@ -29,10 +29,10 @@ local function grid(db: Sqlite.Handle, sql: string): {string}
   return out
 end
 
-local function loaded(text: string, name?: string): Sqlite.Handle, Dataset.Table
-  local rows = assert(Dataset.read("json", text))
+local function loaded(text: string, name?: string): Sqlite.Handle, dataset.Table
+  local rows = assert(dataset.read("json", text))
   local db = memory()
-  local made = assert(Dataset.load(db, name or "t", rows))
+  local made = assert(dataset.load(db, name or "t", rows))
   return db, made
 end
 
@@ -65,11 +65,6 @@ local function test_json_column_holds_the_whole_row()
   local db = loaded('[{"b": [1], "a": null, "c": "\\u00e9\\n"}]')
   local rows = grid(db, "SELECT _json FROM t")
   assert(rows[1] == '{"a":null,"b":[1],"c":"é\\n"}', rows[1])
-  local without = memory()
-  local rows_of = assert(Dataset.read("json", '[{"a": 1}]'))
-  local made = assert(Dataset.load(without, "t", rows_of, { json_column = false }))
-  assert(table.concat(made.columns, ",") == "a")
-  assert(not Sqlite.rows(without, "SELECT _json FROM t"))
 end
 
 local function test_keys_are_quoted_and_collisions_renamed()
@@ -118,55 +113,55 @@ local function test_a_value_that_is_not_an_array_is_one_row()
 end
 
 local function test_at_reads_the_rows_from_a_path()
-  local rows = assert(Dataset.read("json", '{"a": {"rows": [{"id": 1}, {"id": 2}]}}',
+  local rows = assert(dataset.read("json", '{"a": {"rows": [{"id": 1}, {"id": 2}]}}',
     { at = { "a", "rows" } }))
   assert(#rows == 2 and rows[2].id == 2)
-  local none, why = Dataset.read("json", '{"a": 1}', { at = { "b" } })
+  local none, why = dataset.read("json", '{"a": 1}', { at = { "b" } })
   assert(none == nil and why:find('no key "b"', 1, true), why)
-  local bad, bad_why = Dataset.read("json", "{", {})
+  local bad, bad_why = dataset.read("json", "{", {})
   assert(bad == nil and bad_why:find("invalid JSON", 1, true), bad_why)
 end
 
 local function test_ndjson_is_a_row_per_line()
-  local rows = assert(Dataset.read("ndjson", '{"a": 1}\n\n{"a": 2, "b": "x"}\r\n7\n'))
+  local rows = assert(dataset.read("ndjson", '{"a": 1}\n\n{"a": 2, "b": "x"}\r\n7\n'))
   assert(#rows == 3 and rows[2].b == "x" and rows[3].value == 7)
   local db = memory()
-  local made = assert(Dataset.load(db, "t", rows))
+  local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "a,b,value,_json")
   assert(grid(db, "SELECT sum(a) FROM t")[1] == "i3")
-  assert(#assert(Dataset.read("ndjson", "")) == 0)
-  local bad, why = Dataset.read("ndjson", '{"a": 1}\n{\n')
+  assert(#assert(dataset.read("ndjson", "")) == 0)
+  local bad, why = dataset.read("ndjson", '{"a": 1}\n{\n')
   assert(bad == nil and why:find("line 2", 1, true), why)
-  local at, at_why = Dataset.read("ndjson", "{}", { at = { "a" } })
+  local at, at_why = dataset.read("ndjson", "{}", { at = { "a" } })
   assert(at == nil and at_why:find("no path", 1, true), at_why)
 end
 
 local function test_formats_are_found_by_name_and_extension()
-  assert(table.concat(Dataset.names(), ",") == "csv,json,ndjson,tsv")
-  assert(Dataset.format_of("a/b.json") == "json" and Dataset.format_of("x.JSONL") == "ndjson")
-  assert(Dataset.format_of("x.ndjson") == "ndjson")
-  local unknown, why = Dataset.format_of("data.xml")
+  assert(table.concat(dataset.names(), ",") == "csv,json,ndjson,tsv")
+  assert(dataset.format_of("a/b.json") == "json" and dataset.format_of("x.JSONL") == "ndjson")
+  assert(dataset.format_of("x.ndjson") == "ndjson")
+  local unknown, why = dataset.format_of("data.xml")
   assert(unknown == nil and why == "unknown extension .xml (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", why)
-  local none, none_why = Dataset.format_of("README")
+  local none, none_why = dataset.format_of("README")
   assert(none == nil and none_why:find("^no extension"), none_why)
-  local missing, missing_why = Dataset.read("yaml", "a: 1")
+  local missing, missing_why = dataset.read("yaml", "a: 1")
   assert(missing == nil and missing_why == "no format yaml (known: csv, json, ndjson, tsv)", missing_why)
-  assert(Dataset.about("json") ~= nil and Dataset.about("yaml") == nil)
+  assert(dataset.about("json") ~= nil and dataset.about("yaml") == nil)
 end
 
 local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   local db = memory()
-  local rows = assert(Dataset.read("json", '[{"a": 1}]'))
-  assert(Dataset.load(db, "t", rows))
-  local again, why = Dataset.load(db, "T", rows)
+  local rows = assert(dataset.read("json", '[{"a": 1}]'))
+  assert(dataset.load(db, "t", rows))
+  local again, why = dataset.load(db, "T", rows)
   assert(again == nil and why:find("already exists", 1, true), why)
-  local nameless, nameless_why = Dataset.load(db, "", rows)
+  local nameless, nameless_why = dataset.load(db, "", rows)
   assert(nameless == nil and nameless_why == "a table needs a name")
-  local odd = assert(Dataset.load(db, 'we"ird name', rows))
+  local odd = assert(dataset.load(db, 'we"ird name', rows))
   assert(odd.name == 'we"ird name')
   local ok = Sqlite.rows(db, 'SELECT a FROM "we""ird name"')
   assert(ok ~= nil)
-  local bad, bad_why = Dataset.load(db, "u", { { a = print as any } })
+  local bad, bad_why = dataset.load(db, "u", { { a = print as any } })
   assert(bad == nil and bad_why:find("row 1, a: a function has no SQLite value", 1, true), bad_why)
   -- A refused load leaves no table behind.
   assert(not Sqlite.rows(db, "SELECT * FROM u"))
@@ -174,11 +169,11 @@ end
 
 local function test_a_nul_byte_in_a_key_or_name_is_not_sql()
   local db = memory()
-  local made = assert(Dataset.load(db, "t", { { ["a\0b"] = 1, ["a_b"] = 2 } }))
+  local made = assert(dataset.load(db, "t", { { ["a\0b"] = 1, ["a_b"] = 2 } }))
   assert(table.concat(made.columns, ",") == "a_b,a_b_2,_json", table.concat(made.columns, ","))
   assert(made.renamed["a_b"] == "a\0b" and made.renamed["a_b_2"] == "a_b")
   assert(grid(db, "SELECT a_b, a_b_2 FROM t")[1] == "i1|i2")
-  local bad, why = Dataset.load(db, "u\0v", {})
+  local bad, why = dataset.load(db, "u\0v", {})
   assert(bad == nil and why == "a table name cannot hold a NUL byte", why)
 end
 
@@ -192,23 +187,22 @@ local function test_a_key_named_rowid_does_not_shadow_the_row_id()
 end
 
 local function test_too_many_columns_says_the_limit_and_the_count()
-  local row: Dataset.Row = {}
-  for index = 1, 2000 do row["k" .. index] = index end
+  local row: dataset.Row = {}
+  for index = 1, 1999 do row["k" .. index] = index end
   local db = memory()
-  local made, why = Dataset.load(db, "t", { row })
+  assert(dataset.load(db, "t", { row }), "1999 keys and `_json` are 2000 columns")
+  row.extra = 1
+  local made, why = dataset.load(db, "u", { row })
   assert(made == nil and why == "too many columns: 2000 distinct keys, and SQLite holds at most " ..
     "2000 columns in a table (one is `_json`)", why)
-  assert(Dataset.load(db, "u", { row }, { json_column = false }))
-  row.extra = 1
-  local over, over_why = Dataset.load(db, "v", { row }, { json_column = false })
-  assert(over == nil and over_why:find("2001 distinct keys", 1, true), over_why)
+  assert(not Sqlite.rows(db, "SELECT * FROM u"), "a refused load leaves no table")
 end
 
 --- The cells of one CSV row, typed: `typeof|value` per column, in order.
 local function csv_cells(text: string, raw?: boolean): string
-  local rows = assert(Dataset.read("csv", text, { raw = raw }))
+  local rows = assert(dataset.read("csv", text, { raw = raw }))
   local db = memory()
-  local made = assert(Dataset.load(db, "t", rows))
+  local made = assert(dataset.load(db, "t", rows))
   local picks: {string} = {}
   for index = 1, #made.columns - 1 do
     picks[index] = 'typeof("' .. made.columns[index] .. '") || \':\' || coalesce("' .. made.columns[index] .. '", \'NULL\')'
@@ -239,84 +233,107 @@ local function test_an_empty_csv_cell_is_null_and_raw_keeps_it_text()
 end
 
 local function test_a_csv_row_is_json_of_the_same_values()
-  local rows = assert(Dataset.read("csv", 'id,name,note,n\n1,"a ""b""",,2.5\n'))
+  local rows = assert(dataset.read("csv", 'id,name,note,n\n1,"a ""b""",,2.5\n'))
   local db = memory()
-  assert(Dataset.load(db, "t", rows))
+  assert(dataset.load(db, "t", rows))
   local json = grid(db, "SELECT _json FROM t")[1]
   assert(json == '{"id":1,"n":2.5,"name":"a \\"b\\"","note":null}', json)
-  local raw = assert(Dataset.read("csv", "id\n1\n", { raw = true }))
+  local raw = assert(dataset.read("csv", "id\n1\n", { raw = true }))
   local db2 = memory()
-  assert(Dataset.load(db2, "t", raw))
+  assert(dataset.load(db2, "t", raw))
   assert(grid(db2, "SELECT _json FROM t")[1] == '{"id":"1"}')
 end
 
 local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
-  local rows = assert(Dataset.read("tsv", "a\tb\n1,5\t2\n"))
+  local rows = assert(dataset.read("tsv", "a\tb\n1,5\t2\n"))
   assert(rows[1].a == "1,5" and rows[1].b == 2)
-  assert(Dataset.format_of("x.tab") == "tsv" and Dataset.format_of("X.TSV") == "tsv")
-  assert(Dataset.format_of("x.csv") == "csv")
+  assert(dataset.format_of("x.tab") == "tsv" and dataset.format_of("X.TSV") == "tsv")
+  assert(dataset.format_of("x.csv") == "csv")
   for _, name in ipairs({ "csv", "tsv" }) do
-    local none, why = Dataset.read(name, "a\n1\n", { at = { "a" } })
+    local none, why = dataset.read(name, "a\n1\n", { at = { "a" } })
     assert(none == nil and why == "the " .. name .. " format takes no path: each record is a row", why)
   end
-  local bad, why = Dataset.read("csv", "a,b\n1\n")
+  local bad, why = dataset.read("csv", "a,b\n1\n")
   assert(bad == nil and why:find("line 2, column 1", 1, true), why)
 end
 
 local function test_duplicate_and_empty_csv_headers_are_renamed_like_json_keys()
-  local rows = assert(Dataset.read("csv", "a,A,,a,_json\n1,2,3,4,5\n"))
+  local rows = assert(dataset.read("csv", "a,A,,a,_json\n1,2,3,4,5\n"))
   local db = memory()
-  local made = assert(Dataset.load(db, "t", rows))
+  local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "a,A_2,_,a_3,_json_2,_json", table.concat(made.columns, ","))
   assert(grid(db, "SELECT a, A_2, a_3, _, _json_2 FROM t")[1] == "i1|i2|i4|i3|i5")
 end
 
 local function test_json_formats_refuse_raw()
   for _, name in ipairs({ "json", "ndjson" }) do
-    local none, why = Dataset.read(name, "[]", { raw = true })
+    local none, why = dataset.read(name, "[]", { raw = true })
     assert(none == nil and why:find("no raw cells", 1, true), why)
   end
 end
 
-local function test_load_defaults_to_the_rows_own_column_order()
-  local rows = assert(Dataset.read("csv", "z,a,m\n1,2,3\n"))
-  local made = assert(Dataset.load(memory(), "t", rows))
+local function test_load_follows_the_rows_own_column_order()
+  local rows = assert(dataset.read("csv", "z,a,m\n1,2,3\n"))
+  local made = assert(dataset.load(memory(), "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
-  local given = assert(Dataset.load(memory(), "t", rows, { columns = { "m" } }))
-  assert(table.concat(given.columns, ",") == "m,a,z,_json", table.concat(given.columns, ","))
 end
 
 local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
-  local rows = assert(Dataset.read("csv", "z,a,m\n1,2,3\n"))
+  local rows = assert(dataset.read("csv", "z,a,m\n1,2,3\n"))
   local db = memory()
-  local made = assert(Dataset.load(db, "t", rows, { columns = rows.columns }))
+  local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
   local star = Sqlite.text_rows(db, "SELECT * FROM t")
   assert(star ~= nil and star[1][1] == "1" and star[1][2] == "2" and star[1][3] == "3")
   -- Rows with no order of their own are in byte order.
   local db2 = memory()
-  assert(table.concat(assert(Dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
-  local json = assert(Dataset.read("json", '[{"z": 1, "a": 2}]'))
+  assert(table.concat(assert(dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
+  local json = assert(dataset.read("json", '[{"z": 1, "a": 2}]'))
   assert(json.columns == nil)
-  -- A listed key no row has is still a column; others follow in byte order.
-  local extra = assert(Dataset.load(memory(), "t", assert(Dataset.read("json", '[{"b": 1, "a": 2}]')),
-    { columns = { "q", "b", "q" } }))
+  -- A key the reader lists that no row has is still a column, one listed
+  -- twice counts once, and the others follow in byte order.
+  local listed = assert(dataset.read("json", '[{"b": 1, "a": 2}]'))
+  listed.columns = { "q", "b", "q" }
+  local extra = assert(dataset.load(memory(), "t", listed))
   assert(table.concat(extra.columns, ",") == "q,b,a,_json", table.concat(extra.columns, ","))
   -- A header alone is a table of empty columns.
-  local none = assert(Dataset.read("csv", "x,y\n"))
-  local empty = assert(Dataset.load(memory(), "t", none))
+  local none = assert(dataset.read("csv", "x,y\n"))
+  local empty = assert(dataset.load(memory(), "t", none))
   assert(table.concat(empty.columns, ",") == "x,y,_json" and empty.count == 0)
 end
 
 local function test_a_one_column_csv_keeps_an_interior_blank_line_as_null()
-  local rows = assert(Dataset.read("csv", "a\n1\n\n3\n\n"))
+  local rows = assert(dataset.read("csv", "a\n1\n\n3\n\n"))
   assert(#rows == 3)
   local db2 = memory()
-  assert(Dataset.load(db2, "t", rows))
+  assert(dataset.load(db2, "t", rows))
   assert(#grid(db2, "SELECT 1 FROM t WHERE a IS NULL") == 1)
 end
 
 local function test_minus_zero_loads_as_the_integer_zero()
   local got = csv_cells("a,b\n-0,-0.0\n")
   assert(got == "integer:0|real:0.0", got)
+end
+
+--- A CSV file as a table, then a question about it as SQL: the columns
+--- follow the header, a number is a number, and an empty cell is NULL.
+local function test_a_csv_file_answers_a_sum_by_group()
+  local rows = assert(dataset.read("csv", "type,balance\nsavings,10\nchecking,5\nsavings,2.5\nchecking,\n"))
+  local db = memory()
+  local made = assert(dataset.load(db, "accounts", rows))
+  assert(table.concat(made.columns, ",") == "type,balance,_json")
+  local totals = assert(Sqlite.text_rows(db,
+    "SELECT type, sum(balance) FROM accounts GROUP BY type ORDER BY type"))
+  assert(totals[1][1] == "checking" and totals[1][2] == "5")
+  assert(totals[2][1] == "savings" and totals[2][2] == "12.5")
+end
+
+--- JSON rows carry no column order, so a key one row lacks is NULL there
+--- and the columns come in byte order; the format follows the extension.
+local function test_json_rows_have_null_for_a_missing_key_and_byte_order_columns()
+  local db, made = loaded('[{"id": 1, "type": "a"}, {"id": 2}]', "accounts")
+  assert(table.concat(made.columns, ",") == "id,type,_json")
+  local nulls = assert(Sqlite.rows(db, "SELECT id FROM accounts WHERE type IS NULL"))
+  assert(#nulls == 1 and nulls[1][1].integer == 2)
+  assert(dataset.format_of("accounts.jsonl") == "ndjson")
 end

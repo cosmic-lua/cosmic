@@ -13,24 +13,30 @@ function Example.parse()
   assert(#records == 3 and records[2][2] == "Smith, Ann" and records[3][2] == 'say "hi"')
 end
 
---- `rows` keys each record by the header, and refuses a record of another
---- length, naming its line.
-function Example.rows()
-  local rows, err = Csv.rows("id,name\r\n1,Ann\r\n2,Bob\r\n")
-  assert(rows ~= nil, err)
-  assert(rows[2].name == "Bob")
-  local none, why = Csv.rows("id,name\n1\n")
+--- `table` names the columns from the header, keys each record by them,
+--- and refuses a record of another length, naming its line.
+function Example.table()
+  local made, err = Csv.table("id,name\r\n1,Ann\r\n2,Bob\r\n")
+  assert(made ~= nil, err)
+  assert(table.concat(made.columns, ",") == "id,name")
+  assert(made.rows[2].name == "Bob")
+  local none, why = Csv.table("id,name\n1\n")
   assert(none == nil)
   print(why) -- line 2, column 1: the record has 1 field, the header 2
 end
 
---- A tab-separated file is the same reader with another delimiter, and
---- `encode` writes what `parse` reads back.
-function Example.encode()
-  local text, err = Csv.encode({ { "a", "b\tc" }, { "d", "" } }, { delimiter = "\t" })
-  assert(text ~= nil, err)
-  local records = assert(Csv.parse(text, { delimiter = "\t" }))
-  assert(records[1][2] == "b\tc" and records[2][2] == "")
+--- A tab-separated file is the same reader with another delimiter.
+function Example.tsv()
+  local records = assert(Csv.parse("a\tb,c\n1\t\n", { delimiter = "\t" }))
+  assert(records[1][2] == "b,c" and records[2][2] == "")
+end
+
+--- Header fields that are empty or differ only in case are renamed, so
+--- every column has a name of its own; `reserved` keeps a name free.
+function Example.column_names()
+  local names = Csv.column_names({ "id", "ID", "", "id" }, { "rowid" })
+  assert(table.concat(names, ",") == "id,ID_2,_,id_3")
+  assert(Csv.column_names({ "rowid" }, { "rowid" })[1] == "rowid_2")
 end
 
 return Example

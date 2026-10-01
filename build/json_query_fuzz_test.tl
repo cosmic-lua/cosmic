@@ -312,7 +312,7 @@ local function children(node: Node): {Node}
     steps[#steps + 1] = step
     out[#out + 1] = { steps = steps, value = value }
   end
-  local items = Json.items(node.value)
+  local items = json_query.items(node.value)
   if items ~= nil then
     -- A decoded array may have holes where a null was dropped: its
     -- elements are the integer keys, in order.
@@ -323,7 +323,7 @@ local function children(node: Node): {Node}
     for _, index in ipairs(indexes) do child(index, items[index]) end
     return out
   end
-  local members = Json.entries(node.value)
+  local members = json_query.entries(node.value)
   if members ~= nil then
     local names: {string} = {}
     for name in pairs(members) do names[#names + 1] = name end
@@ -458,7 +458,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
         Fuzz.label("leaves")
         local steps, why = json_query.parse_path(leaf.path)
         if steps == nil then return false, leaf.path .. " does not read: " .. why end
-        local value, get_err = Json.get(doc, steps)
+        local value, get_err = json_query.get(doc, steps)
         if get_err ~= "" then return false, leaf.path .. ": " .. get_err end
         local a, b = Json.encode(value), Json.encode(leaf.value)
         if a ~= b then return false, leaf.path .. " reads back as " .. tostring(a) .. ", not " .. tostring(b) end

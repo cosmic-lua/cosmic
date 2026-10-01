@@ -21,7 +21,7 @@
 ---
 --- A JSON `null` is a value here, not an absence: `--exists` is true of a
 --- key whose value is `null`, and a path through one fails for what it
---- is ([`Json.get`] reads with `null_value = Json.null`).
+--- is ([`json_query.get`] reads with `null_value = Json.null`).
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -158,7 +158,7 @@ end
 --- What `--keys` prints for `value`: an object's keys, sorted, one per
 --- line, or an array's length; nil and why when it is neither.
 local function keys_of(value: any): string | nil, string
-  local object, _ = Json.entries(value)
+  local object, _ = json_query.entries(value)
   if object ~= nil then
     local names: {string} = {}
     for key in pairs(object) do names[#names + 1] = key end
@@ -166,7 +166,7 @@ local function keys_of(value: any): string | nil, string
     if #names == 0 then return "", "" end
     return table.concat(names, "\n") .. "\n", ""
   end
-  local items, _ = Json.items(value)
+  local items, _ = json_query.items(value)
   if items ~= nil then return #items .. "\n", "" end
   return nil, "--keys needs an object or an array, got " .. shown(value)
 end
@@ -277,7 +277,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     return print_lines(leaves, false)
   end
-  local value, missing = Json.get(document, request.path)
+  local value, missing = json_query.get(document, request.path)
   if missing ~= "" then
     if request.mode ~= "exists" then complain(missing) end
     return bare.failed
