@@ -262,6 +262,31 @@ local function test_workers_stop_once_their_supervisor_is_killed(tmp: string)
   refused_at(Net.unix(tmp .. "/s.sock"))
 end
 
+--- Workers whose supervisor is killed outright, with the longest grace,
+--- drain their connections as with a short one: a wait for the grace
+--- and the margin past it, longer than one delay takes, does not raise.
+local function test_the_longest_grace_drains_once_the_supervisor_is_killed(tmp: string)
+  local met <close> = workers()
+  local err = assert(Fs.open_write(tmp .. "/stderr"))
+  local r = running(tmp, met, { tmp, "2147483647" }, { stderr = err })
+  assert(Fs.close(err))
+  local h <close> = r.supervisor
+  local _first <close> = r.first
+  local _second <close> = r.second
+  assert(h:stop(sys.SIGKILL))
+  local result = assert(h:wait(60000))
+  assert(result.signal == sys.SIGKILL, tostring(result.signal))
+  refused_at(Net.unix(tmp .. "/s.sock"))
+  for _, c in ipairs({ r.first, r.second }) do
+    assert(asked(c, "after")[1] == "after")
+    assert(c.conn:write("bye\n"))
+    local data, why = c.lines:read()
+    assert(data == nil and why == "", tostring(data) .. " " .. why)
+  end
+  local said = assert(Fs.read(tmp .. "/stderr"))
+  assert(not said:find("ms must be", 1, true), said)
+end
+
 --- A worker that exits before the stop is reported, with how it ended,
 --- and once every one has, the supervisor stops and says why. Each
 --- worker here finds the marker the supervisor left, and so a spec

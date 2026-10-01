@@ -569,7 +569,7 @@ local function raised(call: function()): string
 end
 
 local function test_a_wait_refuses_a_timeout_out_of_range()
-  local h = assert(Child.start(lua(sleep(5000))))
+  local h <close> = assert(Child.start(lua(sleep(5000))))
   for _, bad in ipairs({ -1, math.mininteger, 2147483648 }) do
     local message = raised(function() local _, _ = h:wait(bad) end)
     assert(message:find("timeout_ms is out of range", 1, true), message)
@@ -580,25 +580,25 @@ local function test_a_wait_refuses_a_timeout_out_of_range()
   -- A settled handle refuses one too, rather than answering its Result.
   local message = raised(function() local _, _ = h:wait(-1) end)
   assert(message:find("timeout_ms is out of range", 1, true), message)
-  local quick = assert(Child.start(lua("return 3")))
+  local quick <close> = assert(Child.start(lua("return 3")))
   r = assert(quick:wait(10000))
   assert(r.code == 3 and not r.timed_out)
-  r = assert(assert(Child.start(lua("return 4"))):wait())
+  local plain <close> = assert(Child.start(lua("return 4")))
+  r = assert(plain:wait())
   assert(r.code == 4)
 end
 
 local function test_wait_any_refuses_a_timeout_out_of_range()
-  local slow = assert(Child.start(lua(sleep(5000))))
+  local slow <close> = assert(Child.start(lua(sleep(5000))))
   for _, bad in ipairs({ -1, math.mininteger, 2147483648 }) do
     local message = raised(function() local _, _ = Child.wait_any({ slow }, bad) end)
     assert(message:find("timeout_ms is out of range", 1, true), message)
   end
   local none, trouble = Child.wait_any({ slow }, 0)
   assert(none == nil and trouble == "", trouble)
-  local quick = assert(Child.start(lua("")))
+  local quick <close> = assert(Child.start(lua("")))
   local first = assert(Child.wait_any({ slow, quick }))
   assert(first == quick)
-  assert(slow:close())
 end
 
 local function test_start_refuses_a_timeout_it_would_not_honour()
