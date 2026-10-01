@@ -86,16 +86,6 @@ local function test_the_census_says_each_bump_of_the_epoch_apart()
   assert(test.harness_word("8-072f7458", Time.seconds(60)) ~= word, "another timeout")
 end
 
-local function test_a_selector_is_printed_as_one_shell_word()
-  assert(test.shell_word("build/test_test.tl:test_x") == "build/test_test.tl:test_x")
-  assert(test.shell_word("a b/c_test.tl:t") == "'a b/c_test.tl:t'")
-  assert(test.shell_word("it's_test.tl:t") == "'it'\\''s_test.tl:t'")
-  assert(test.shell_word("-x_test.tl:t") == "./-x_test.tl:t")
-  assert(test.shell_word("-a b_test.tl:t") == "'./-a b_test.tl:t'")
-  assert(test.shell_word("$x_test.tl:t") == "'$x_test.tl:t'")
-  assert(test.shell_word("") == "''")
-end
-
 local function test_a_selector_can_name_one_test_of_one_module()
   local path, file = "build.test_test", "build/test_test.tl"
   assert(test.selects("build/test_test.tl:test_a", path, file, "test_a"))
@@ -165,7 +155,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local imports: {{string}} = {
     { "build.declared_key", "build.artifact" }, { "build.declared_key", "cosmic.fs" },
     { "build.shared_verdicts", "build.bind" }, { "build.test", "build.importer" },
-    { "build.test", "build.harness_epoch" }, { "build.shared_verdicts", "build.harness_epoch" },
+    { "build.test", "build.harness_epoch" }, { "build.test", "build.test_report" },
+    { "build.shared_verdicts", "build.harness_epoch" },
     { "build.closure_store", "build.schema" }, { "build.closure_store", "cosmic.sqlite" },
     { "build.shared_verdicts", "cosmic.sqlite" }, { "cosmic.sqlite", "cosmic.sys" },
   }
@@ -174,8 +165,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   local others = { "build.test_sandbox", "build.caches", "build.zig_caches", "cosmic.child",
     "build.closure_store", "build.writer",
-    "build.schema", "build.importer", "build.analyzer", "cosmic.removed", "cosmic.sqlite",
-    "cosmic.sys" }
+    "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
+    "cosmic.sqlite", "cosmic.sys" }
   -- Each module's bytecode names what it requires, as a require by
   -- value leaves the name among its constants ([`test.value_imports`]).
   local named_in: {string:string} = {}
@@ -227,7 +218,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer",
-                          "build.harness_epoch", "cosmic.removed" }) do
+                          "build.harness_epoch", "build.test_report", "cosmic.removed" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",
@@ -254,11 +245,12 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   recompiled = moves("build.test", "return 'a key'\n", "other bytecode")
   assert(recompiled == "harness", "a recompile moved " .. recompiled)
   assert(moves("build.writer", "return 'a key'\n", "other bytecode") == "")
+  assert(moves("build.test_report", "return 'a key'\n", "other bytecode") == "")
   -- The harness's modules are named, and those it runs apart.
   local named: {string:boolean} = {}
   for _, name in ipairs(before.names) do named[name] = true end
   assert(named["build.caches"] and named["build.zig_caches"] and named["build.test"] and
-    not named["build.harness_epoch"])
+    not named["build.harness_epoch"] and not named["build.test_report"])
   local runs: {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
   assert(runs["build.test_sandbox"] and runs["build.test_worker"] and not runs["build.test"])
