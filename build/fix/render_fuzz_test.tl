@@ -35,7 +35,6 @@ local FIELDS <const> = { "f", "g", "name", "go", "k2" }
 local NUMBERS <const> = { "0", "1", "42", "3.5", "0x1F", "1e10", "0.5e-3", ".5", "0xA.8p1" }
 local STRINGS <const> = { '"s"', "'q'", '"a\\"b"', '"\\n\\t"', '"-- not a comment"', '"--[[ nor this ]]"',
   "'\\65'", '"\\u{e9}"', '"\\z\n     joined"', '"\\\n"', '""' }
-local LINE_STRINGS <const> = { '"s"', "'q'", '"a\\"b"', '"-- not a comment"', '"\\u{e9}"', '""' }
 --- Long strings, whose bytes are the value: trailing spaces and lines
 --- that read as comments included.
 local LONG_STRINGS <const> = { "[[long]]", "[==[ a ]] b ]==]", "[[\nline one  \n  line two\n]]",
@@ -151,8 +150,13 @@ local function entry_sep(g: Gen): string
   return s
 end
 
---- A type; one followed by a `,` (`listed`) is never a function type,
---- whose return list would take in what follows.
+--- A type; one followed by a `,` and a type or a bare name (`listed`)
+--- is never a function type. A function type's return list takes in
+--- what follows a `,` unless it starts a parameter (`name:`, `name?:`,
+--- `?T`, `...`), so `function(): function(): integer, string` returns
+--- two values from the inner function, not one from each. That is
+--- Teal's grammar, not a bug, and no rendering can spell the other
+--- reading.
 local function typ(g: Gen, listed?: boolean): string
   local t = pick(g, TYPES)
   if listed and t:find("^function") ~= nil then t = "integer" end
@@ -191,15 +195,8 @@ end
 --- would be a second statement.
 local function args(g: Gen, d: integer): string
   local k = g.src:int(1, 8)
-  -- TODO: tl reads a `(` on a later line than the token before it as
-  -- a new statement, and compares with the line that token STARTS on
-  -- (tl.tl's `tkop.y > prev_tk.y`), so `f [[a\nb]](1)` fails though no
-  -- break stands before the `(`, and the `;` it inserts goes at the
-  -- token's start line plus its length. Once a record under patch/tl/
-  -- compares the line the token ends on, draw strings spanning lines as
-  -- arguments too.
-  if k == 1 then return " " .. pick(g, LINE_STRINGS) end
-  if k == 2 then return " " .. pick(g, { "[[long]]", "[==[ a ]] b ]==]", "[[]]" }) end
+  if k == 1 then return " " .. pick(g, STRINGS) end
+  if k == 2 then return " " .. pick(g, LONG_STRINGS) end
   if k == 3 then return "()" end
   if k == 4 then
     local tbl = expr(g, 0)
@@ -249,18 +246,27 @@ end
 
 --- A parameter list and return types.
 local function signature(g: Gen): string, boolean
-  local params: {string} = {}
+  local names: {string} = {}
+  local kinds: {integer} = {}
   local optional = false
-  while Fuzz.more(g.src, #params, 4) do
+  while Fuzz.more(g.src, #names, 4) do
     local p = pick(g, NAMES)
-    if p == "self" or p == "_" then p = "p" .. #params end
+    if p == "self" or p == "_" then p = "p" .. #names end
     -- Only an optional parameter may follow an optional one.
     local k = g.src:int(optional and 3 or 1, 3)
     optional = k == 3
-    if k == 2 then
-      p = p .. ":" .. gap(g) .. typ(g, true)
-    elseif k == 3 then
-      p = p .. "?:" .. tight(g) .. typ(g, true)
+    names[#names + 1] = p
+    kinds[#kinds + 1] = k
+  end
+  -- A typed parameter is a function type only where what follows it is
+  -- no bare name, which its return list would take in.
+  local params: {string} = {}
+  for i, p in ipairs(names) do
+    local listed = kinds[i + 1] == 1
+    if kinds[i] == 2 then
+      p = p .. ":" .. gap(g) .. typ(g, listed)
+    elseif kinds[i] == 3 then
+      p = p .. "?:" .. tight(g) .. typ(g, listed)
     end
     params[#params + 1] = p
   end
@@ -276,6 +282,8 @@ local function signature(g: Gen): string, boolean
   if r == 1 then
     out = out .. tight(g) .. ":" .. gap(g) .. typ(g)
   elseif r == 2 then
+    -- A function type first would take the second type into its own
+    -- return list: Teal's grammar, not a bug in tl.
     out = out .. ": " .. typ(g, true) .. "," .. gap(g) .. typ(g)
   end
   return out, vararg
@@ -352,14 +360,8 @@ expr = function(g: Gen, d: integer): string
   if k <= 20 then return call(g, d) end
   if k <= 22 then return "function" .. body(g, d) end
   if k <= 25 then return table_constructor(g, d) end
-  -- TODO: a cast to a function type in a list takes the list's next
-  -- item into its return types, and tl's parser then reads that item
-  -- twice over, once as a type and again as the next expression, which
-  -- no rendering can say back (`return a as function():g, M:k()`). Once
-  -- a record under patch/tl/ ends the return list where tl's own
-  -- backtracking does, draw a function type here.
-  if k == 26 then return pick(g, NAMES) .. gap(g) .. "as" .. gap(g) .. typ(g, true) end
-  if k == 27 then return pick(g, NAMES) .. " is " .. typ(g, true) end
+  if k == 26 then return pick(g, NAMES) .. gap(g) .. "as" .. gap(g) .. typ(g) end
+  if k == 27 then return pick(g, NAMES) .. " is " .. typ(g) end
   if k == 28 then return long_line(g) end
   return "(" .. expr(g, d - 1) .. ")" .. gap(g) .. pick(g, BINOPS) .. gap(g) .. expr(g, d - 1)
 end
@@ -531,10 +533,7 @@ block = function(g: Gen, d: integer): string
   if chance(g, 4) then
     out[#out + 1] = sep(g) .. "return"
     if chance(g, 3) then out[#out + 1] = gap(g) .. exprs(g, d, 3) end
-    -- TODO: tl refuses a `;` after a `return` anywhere but at the end
-    -- of the file: parse_return looks for the block's closing keyword by
-    -- the token's kind, which is "keyword", not by its text. Once a
-    -- record under patch/tl/ tests the text, draw `return ...;` here.
+    if chance(g, 3) then out[#out + 1] = tight(g) .. ";" end
     out[#out + 1] = "\n" .. indent(g)
     return table.concat(out)
   end

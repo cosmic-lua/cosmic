@@ -60,6 +60,7 @@ local sets_what_it_reads: {string:{string:boolean}} = {
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
     COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
     COSMIC_CI_BASE_SHA = true, COSMIC_CI_FORMAT_CHANGED = true, COSMIC_CI_SHARD = true,
+    COSMIC_CI_PORTABLE_SUITE = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },
 }

@@ -164,3 +164,80 @@ local function test_g_is_checked_where_it_is_read()
     assert(found.filename ~= nil and found.y ~= nil and found.x ~= nil, found.msg)
   end
 end
+
+--- What the parser refuses in `source`, each as "line:column message".
+local function syntax_errors(source: string): {string}
+  local built = assert(teal.load())
+  local _, result = built.gen(source, nil, nil, "tl")
+  local out: {string} = {}
+  for _, e in ipairs(assert(result).syntax_errors) do
+    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+  end
+  return out
+end
+
+--- A `return` closed by a `;` may end any block, as it may end the file
+--- (patch/tl's 28-return-semicolon-before-end.txt), and a statement
+--- after one is still refused.
+local function test_a_return_closed_by_a_semicolon_ends_its_block()
+  for _, source in ipairs({
+    "local function f() return 1; end\n",
+    "local function f() return; end\n",
+    "if a then return 1; elseif b then return; else return 2; end\n",
+    "repeat return; until a\n",
+    "return 1;\n",
+  }) do
+    local found = syntax_errors(source)
+    assert(#found == 0, source .. table.concat(found, "; "))
+  end
+  local found = syntax_errors("local function f() return 1; f() end\n")
+  assert(#found > 0 and found[1]:find("return must be the last statement") ~= nil,
+    table.concat(found, "; "))
+end
+
+--- A `(` on the line a string spanning lines ends on calls what the
+--- string is an argument of, and one on a later line starts a new
+--- statement, the `;` tl inserts there right after the string's last
+--- byte (patch/tl's 29-call-after-a-token-spanning-lines.txt).
+local function test_a_call_after_a_string_spanning_lines()
+  local built = assert(teal.load())
+  for _, source in ipairs({ "f [[a\nb]](1)\n", "f 'a\\z\n  b'(1)\n", "f [==[\n]==]{}(1)\n" }) do
+    local found = syntax_errors(source)
+    assert(#found == 0, source .. table.concat(found, "; "))
+    local code = assert(built.gen(source, nil, nil, "tl"))
+    assert(code:find(";", 1, true) == nil, code)
+  end
+  local tokens, errs = built.lex("f [[a\nbc]]\n(g)(1)\n", "t.tl")
+  built.parse_program(tokens, errs, "t.tl")
+  assert(#errs == 0, tostring(errs[1] and errs[1].msg))
+  local inserted: compiler.Token = nil
+  for _, t in ipairs(tokens) do
+    if t.tk == ";" then inserted = t end
+  end
+  assert(inserted ~= nil and inserted.y == 2 and inserted.x == 5,
+    inserted and inserted.y .. ":" .. inserted.x or "no ';'")
+end
+
+--- A function type's return types end before a `,` and a parameter
+--- spelled `name?:`, `?T` or `...`, as before one spelled `name:`
+--- (patch/tl's 30-return-types-end-before-a-parameter.txt); none of
+--- those can start a type. A bare name after the `,` is still a second
+--- return type.
+local function test_return_types_end_before_the_next_parameter()
+  for _, source in ipairs({
+    "local function f(cb: function(): integer, n?: string) return cb, n end\n",
+    "local function f(cb: function(): integer, ...: any) return cb end\n",
+    "local function f(cb: function(): integer, ...) return cb end\n",
+    "local type F = function(cb: function(): integer, n?: string)\n",
+    "local type G = function(function(): integer, ?string)\n",
+    "local type H = function(): integer...\n",
+  }) do
+    local found = syntax_errors(source)
+    assert(#found == 0, source .. table.concat(found, "; "))
+  end
+  local built = assert(teal.load())
+  local _, result = built.gen("local type F = function(cb: function(): integer, string)\n" ..
+    "local f: F = function(_cb: function(): (integer, string)) end\nprint(f)\n", nil, nil, "tl")
+  assert(#assert(result).syntax_errors == 0 and #result.type_errors == 0,
+    tostring((result.type_errors[1] or result.syntax_errors[1] or {}).msg))
+end
