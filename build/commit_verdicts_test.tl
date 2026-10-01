@@ -139,7 +139,7 @@ end
 --- An entry as the API lists the cache's: `hours` old.
 local function entry(id: integer, key: string, hours: number): string
   -- With milliseconds, as the API writes them.
-  local created = Time.format_rfc3339(Time.now_ns() - math.floor(hours * 3600) * 1000000000, { digits = 3 })
+  local created = Time.format_rfc3339(Time.now_ns() - math.floor(hours * 3600) * 1000000000, nil, { digits = 3 })
   return '{"id":' .. id .. ',"key":"' .. key .. '","created_at":"' .. created .. '","ref":"refs/heads/main"}'
 end
 

@@ -678,7 +678,7 @@ local function unix(year: integer, month: integer, day: integer, hour: integer, 
     second: integer): integer
   local ns = assert(Time.from_civil({
     year = year, month = month, day = day, hour = hour, minute = minute, second = second,
-    nanosecond = 0,
+    ns = 0,
   }))
   return ns // 1000000000
 end

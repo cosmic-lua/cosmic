@@ -15,6 +15,7 @@ local modules <const>: {string:any} = {
   ["cosmic.stream"] = require("cosmic.stream"),
   ["cosmic.sys"] = require("cosmic.sys"),
   ["cosmic.tar"] = require("cosmic.tar"),
+  ["cosmic.time"] = require("cosmic.time"),
   ["cosmic.zip"] = require("cosmic.zip"),
 }
 
@@ -93,6 +94,20 @@ local function test_the_sqlite_options_name_each_old_boolean_call()
   local instead = Removed.arguments["cosmic.sqlite.OpenOptions"]
   assert(instead ~= nil and instead:find("{ writable = true }", 1, true)
     and instead:find("nothing for `false`", 1, true), instead)
+end
+
+--- A program that called a removed calendar function or type is told what
+--- replaced it: `between` for the two counts, `local_zone` for a TZ string,
+--- `Duration` and `AddOptions` for the records.
+local function test_the_removed_time_members_name_their_replacements()
+  for member, want in pairs({
+    months_between = "Time.between", days_between = "Time.between",
+    zone_from_posix = "Time.local_zone", Change = "Time.Duration",
+    CivilOptions = "Time.AddOptions", parse_input = "build.time",
+  } as {string:string}) do
+    local instead = Removed.members["cosmic.time." .. member]
+    assert(instead ~= nil and instead:find(want, 1, true), member)
+  end
 end
 
 --- A program that read [`cosmic.cli`]'s `options`, `usage` or `summary` is told

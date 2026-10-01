@@ -5,15 +5,27 @@
 --- what 64 bits hold: 1677-09-21T00:12:43.145224192Z through
 --- 2262-04-11T23:47:16.854775807Z, on the proleptic Gregorian calendar.
 ---
+--- A span of exact time is an integer of nanoseconds too, which [`ms`],
+--- [`seconds`], [`minutes`] and [`hours`] make from a count
+--- (`Time.seconds(5)`). A span the calendar measures, whole years, months
+--- and days and a remainder, is a [`Duration`]: [`add_calendar`] moves a
+--- moment by one, [`between`] answers one, and [`parse_duration`] and
+--- [`format_duration`] read and write one as text.
+---
 --- A zone says what offset from UTC, abbreviation and daylight saving
 --- time each moment has somewhere: IANA's, by name (`zone`), from the
 --- copy of the tz database the binary carries -- never the host's zone
 --- files, so a name means the same rules on every host; the host's own
 --- ([`local_zone`]), the carried zone `TZ`, /etc/localtime or
---- /etc/timezone names; or one read from TZif bytes (RFC 8536) or a
---- POSIX TZ string. `civil`, [`from_civil`],
---- [`add_calendar`], [`days_between`], [`months_between`] and RFC 3339 text
---- each take one, and read the UTC calendar without.
+--- /etc/timezone names, or the POSIX TZ string `TZ` holds; or one read
+--- from TZif bytes (RFC 8536).
+---
+--- Every function that reads or writes the calendar takes its zone
+--- right after the data it works on, and its options last:
+--- `civil(ns, zone?)`, `from_civil(c, zone?, opts?)`,
+--- `add_calendar(ns, duration, zone?, opts?)`, `between(from, to,
+--- zone?)` and `format_rfc3339(ns, zone?, opts?)`. Each reads the UTC
+--- calendar without a zone.
 
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
@@ -34,8 +46,8 @@ local record Time
     minute: integer
     --- 0 through 59: there are no leap seconds.
     second: integer
-    --- 0 through 999999999.
-    nanosecond: integer
+    --- Nanoseconds after the second, 0 through 999999999.
+    ns: integer
     --- ISO 8601's: 1 (Monday) through 7 (Sunday). [`from_civil`] ignores it.
     weekday: integer
     --- The day of the year, 1 through 366. [`from_civil`] ignores it.
@@ -53,8 +65,8 @@ local record Time
   end
 
   --- A time zone: the offset from UTC, abbreviation and daylight saving
-  --- time it gives each moment. `zone`, [`local_zone`], [`zone_from_tzif`]
-  --- and [`zone_from_posix`] make one; a table made by hand is refused.
+  --- time it gives each moment. `zone`, [`local_zone`] and
+  --- [`zone_from_tzif`] make one; a table made by hand is refused.
   record Zone
     --- IANA's name for it, as "America/New_York" -- the one
     --- [`format_rfc3339`]'s `zone_name` writes -- or else the POSIX TZ
@@ -77,22 +89,6 @@ local record Time
     "compatible"
   end
 
-  record CivilOptions
-    --- "reject" when absent.
-    disambiguation: Time.Disambiguation
-  end
-
-  --- A calendar amount, for [`add_calendar`]: each field may be negative,
-  --- and a missing one is zero.
-  record Change
-    --- Calendar years to add.
-    years: integer
-    --- Calendar months to add.
-    months: integer
-    --- Calendar days to add.
-    days: integer
-  end
-
   --- What [`add_calendar`] does with a day its month does not have, as
   --- January 31 plus a month: "reject" refuses it, "clamp" takes the
   --- month's last day.
@@ -101,15 +97,16 @@ local record Time
     "clamp"
   end
 
+  --- What [`from_civil`] and [`add_calendar`], the functions that build
+  --- or move a moment, may be told beside the zone they take as an
+  --- argument. Every field is optional, and a function reads only the
+  --- fields it has use for.
   record AddOptions
-    --- "reject" when absent.
-    overflow: Time.Overflow
-    --- The zone whose calendar the amount moves along, keeping its local
-    --- time of day; UTC's when absent.
-    zone: Time.Zone
-    --- For a local time the move lands in a gap or a fold of `zone`;
-    --- "reject" when absent.
+    --- For a local time in a gap or a fold of the zone; "reject" when
+    --- absent.
     disambiguation: Time.Disambiguation
+    --- Only [`add_calendar`] reads it: "reject" when absent.
+    overflow: Time.Overflow
   end
 
   --- What [`format_rfc3339`] may be told. Every field is optional.
@@ -117,11 +114,8 @@ local record Time
     --- Digits of fraction to write, 0 through 9, cut toward the past; by
     --- default as many as the nanoseconds need, none when they are zero.
     digits: integer
-    --- The zone whose local time to write, with its offset; UTC, as
-    --- `Z`, when absent.
-    zone: Time.Zone
-    --- Also write `zone`'s IANA name after the offset, as RFC 9557 does:
-    --- `[America/New_York]`.
+    --- Also write the zone's IANA name after the offset, as RFC 9557
+    --- does: `[America/New_York]`.
     zone_name: boolean
   end
 
@@ -139,19 +133,21 @@ local record Time
     timezone: string
   end
 
-  --- A moment read from RFC 3339 text, and the zone its RFC 9557
-  --- suffix names.
+  --- A moment read from RFC 3339 text, and the zone it names.
   record Zoned
     --- The moment, in nanoseconds since the Unix epoch.
     ns: integer
-    --- Nil when the text names none.
+    --- The zone its RFC 9557 suffix names or, with none, its offset's:
+    --- a zone always that offset, named "+05:30". UTC for `Z` and
+    --- `-00:00`, which say the local offset is unknown.
     zone: Time.Zone
   end
 
   --- A span of time as people write it, `1y2mo3d4h5m6s`: a calendar
   --- part, which [`add_calendar`] moves along a calendar, and an exact
   --- part in nanoseconds. Every field has the duration's one sign: a
-  --- negative duration has each field at most zero.
+  --- negative duration has each field at most zero. A missing field is
+  --- zero.
   record Duration
     --- Whole years of the calendar part.
     years: integer
@@ -159,8 +155,10 @@ local record Time
     months: integer
     --- Whole days of the calendar part.
     days: integer
-    --- The hours, minutes and seconds, as nanoseconds.
-    nanoseconds: integer
+    --- The hours, minutes and seconds, as nanoseconds. [`between`]'s can
+    --- exceed a day, where the day step would overshoot into a fold or a
+    --- skipped day.
+    ns: integer
   end
 
   --- Coordinated Universal Time, the zone every other is an offset from.
@@ -241,7 +239,7 @@ local function seconds_of(c: Time.Civil): integer | nil, string
     or outside("hour", c.hour, 0, 23)
     or outside("minute", c.minute, 0, 59)
     or outside("second", c.second, 0, 59)
-    or outside("nanosecond", c.nanosecond, 0, NS - 1)
+    or outside("ns", c.ns, 0, NS - 1)
   if why ~= nil then return nil, why end
   return days_from_civil(c.year, c.month, c.day) * DAY
     + c.hour * 3600 + c.minute * 60 + c.second, ""
@@ -264,7 +262,7 @@ end
 local function moment(c: Time.Civil, offset: integer): integer | nil, string
   local s, why = seconds_of(c)
   if s == nil then return nil, why end
-  return instant(s - offset, c.nanosecond)
+  return instant(s - offset, c.ns)
 end
 
 --- The calendar fields of `s` seconds and `n` nanoseconds on the UTC
@@ -273,10 +271,171 @@ local function civil_at(s: integer, n: integer): Time.Civil
   local days, into = s // DAY, s % DAY
   local c = civil_from_days(days)
   c.hour, c.minute, c.second = into // 3600, into % 3600 // 60, into % 60
-  c.nanosecond = n
+  c.ns = n
   c.weekday = (days + 3) % 7 + 1
   c.yday = days - days_from_civil(c.year, 1, 1) + 1
   return c
+end
+
+-- Text.
+
+--- The nanoseconds the digits of a fraction of a second spell, one to
+--- nine of them: `5` is 500000000.
+local function fraction_ns(digits: string): integer
+  return math.tointeger(tonumber(digits .. ("0"):rep(9 - #digits)))
+end
+
+--- The fraction `ns` nanoseconds past a second writes as: with `digits`
+--- digits, cut toward the past, or with none given as few as hold it,
+--- trailing zeros dropped, and nothing for none.
+local function fraction_text(ns: integer, digits?: integer): string
+  local text = ("%09d"):format(ns)
+  if digits == nil then return (text:gsub("0+$", "")) end
+  return text:sub(1, digits)
+end
+
+--- What of a calendar moment [`civil_text`] writes.
+local enum Part
+  --- `2026-09-25`.
+  "date"
+  --- `04:09:21`.
+  "clock"
+  --- `2026-09-25T04:09`.
+  "minute"
+  --- `2026-09-25T04:09:21`.
+  "second"
+end
+
+--- The `part` of `c`, zero-padded.
+local function civil_text(c: Time.Civil, part: Part): string
+  local date = ("%04d-%02d-%02d"):format(c.year, c.month, c.day)
+  local clock = ("%02d:%02d:%02d"):format(c.hour, c.minute, c.second)
+  if part == "date" then return date end
+  if part == "clock" then return clock end
+  return date .. "T" .. clock:sub(1, part == "minute" and 5 or 8)
+end
+
+--- Where a reader of `text` is, and why it stopped, if it has. The
+--- first failure is kept and every read after it answers nil and moves
+--- nothing, so a run of reads is checked once, by `why`.
+local record Cursor
+  text: string
+  --- The byte the next read starts at.
+  at: integer
+  --- Why a read failed, with the byte it failed at; nil while none has.
+  why: string
+  metamethod __close: function(Cursor)
+end
+
+--- A cursor over `text`, of its own.
+local function cursor(text: string): Cursor
+  return { text = text, at = 1 }
+end
+
+local byte <const> = string.byte
+local sub <const> = string.sub
+
+--- What ends a borrowing: the text is let go, so a large one is not held
+--- until the next read.
+local lent_mt: metatable<Cursor> = {
+  __close = function(cur: Cursor) cur.text = "" end,
+}
+
+local lent: Cursor = setmetatable(cursor(""), lent_mt)
+
+--- A cursor over `text` that every caller shares, so the readers that
+--- run on every request allocate none; hold it in a `<close>` variable.
+--- It is safe because no code a reader calls borrows it again: nothing
+--- reachable from `zone` (the store, and the TZif and POSIX readers,
+--- which have a [`cursor`] of their own) calls `parse`, [`parse_date`] or
+--- [`parse_http`], and the readers never yield. A module loaded in the
+--- middle of one that came to call them would corrupt the read.
+local function borrow(text: string): Cursor
+  lent.text, lent.at, lent.why = text, 1, nil
+  return lent
+end
+
+--- Fails the cursor with `why`, unless it has failed already.
+local function fail(cur: Cursor, why: string)
+  if cur.why == nil then cur.why = why end
+end
+
+--- The integer of the `most` ASCII digits at the cursor, or of at least
+--- `least` and at most `most` of them when `least` is given, naming the
+--- field `what` where it fails.
+local function read_digits(cur: Cursor, most: integer, what: string, least?: integer): integer
+  if cur.why ~= nil then return nil end
+  local text, first = cur.text, cur.at
+  local at, n = first, 0
+  local stop = first + most
+  while at < stop do
+    local b = byte(text, at)
+    if b == nil or b < 48 or b > 57 then break end
+    n = n * 10 + (b - 48)
+    at = at + 1
+  end
+  if at - first < (least or most) then
+    fail(cur, ("%s: expected %s at byte %d"):format(what, least == nil and
+      String.counted(most, "digit") or "a number", first))
+    return nil
+  end
+  cur.at = at
+  return n
+end
+
+--- Moves past `want`, which the text must hold here, or fails naming
+--- what it stands for (`what`). A `T` is read as `t` too.
+local function expect(cur: Cursor, want: string, what: string)
+  if cur.why ~= nil then return end
+  local at = cur.at
+  local got = sub(cur.text, at, at + #want - 1)
+  if got ~= want and not (want == "T" and got == "t") then
+    fail(cur, ("expected %q %s at byte %d"):format(want, what, at))
+    return
+  end
+  cur.at = at + #want
+end
+
+--- Moves past `want` and answers true when the text holds it here.
+local function accept(cur: Cursor, want: string): boolean
+  local at = cur.at
+  if cur.why ~= nil or sub(cur.text, at, at + #want - 1) ~= want then return false end
+  cur.at = at + #want
+  return true
+end
+
+--- The index in `names` of the one the text holds here, moved past, or
+--- a failure that `what` is not there.
+local function name_of(cur: Cursor, names: {string}, what: string): integer
+  if cur.why ~= nil then return nil end
+  local text, at = cur.text, cur.at
+  for i, name in ipairs(names) do
+    if sub(text, at, at + #name - 1) == name then
+      cur.at = at + #name
+      return i
+    end
+  end
+  fail(cur, ("expected %s at byte %d"):format(what, at))
+  return nil
+end
+
+--- The nanoseconds of the one to nine digits of a fraction here.
+local function read_fraction(cur: Cursor): integer
+  if cur.why ~= nil then return nil end
+  local digits = cur.text:match("^%d*", cur.at)
+  if #digits == 0 or #digits > 9 then
+    fail(cur, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(cur.at, #digits))
+    return nil
+  end
+  cur.at = cur.at + #digits
+  return fraction_ns(digits)
+end
+
+--- Fails when any text is left past the cursor.
+local function finish(cur: Cursor)
+  if cur.why == nil and cur.at <= #cur.text then
+    fail(cur, ("unexpected text at byte %d"):format(cur.at))
+  end
 end
 
 -- Zones.
@@ -508,143 +667,105 @@ end
 --- since 2007, `M3.2.0,M11.1.0`, as glibc and tzcode do.
 local function parse_posix(tz: string): Posix | nil, string
   if #tz > 256 then return nil, "a TZ string is at most 256 bytes, not " .. #tz end
-  local at = 1
+  local cur = cursor(tz)
 
-  local function abbreviation(what: string): string | nil, string
-    if tz:sub(at, at) == "<" then
-      local close = tz:find(">", at + 1, true)
-      if close == nil then return nil, ("%s at byte %d: no \">\" closes it"):format(what, at) end
-      local body = tz:sub(at + 1, close - 1)
-      if #body < 3 or body:find("[^%w+%-]") ~= nil then
-        return nil, ("%s at byte %d: expected three or more letters, digits, \"+\" or \"-\" " ..
-          "between \"<\" and \">\""):format(what, at)
+  local function abbreviation(what: string): string
+    if cur.why ~= nil then return nil end
+    local first = cur.at
+    if tz:sub(first, first) == "<" then
+      local close = tz:find(">", first + 1, true)
+      if close == nil then
+        fail(cur, ("%s at byte %d: no \">\" closes it"):format(what, first))
+        return nil
       end
-      at = close + 1
-      return body, ""
+      local body = tz:sub(first + 1, close - 1)
+      if #body < 3 or body:find("[^%w+%-]") ~= nil then
+        fail(cur, ("%s at byte %d: expected three or more letters, digits, \"+\" or \"-\" " ..
+          "between \"<\" and \">\""):format(what, first))
+        return nil
+      end
+      cur.at = close + 1
+      return body
     end
-    local last = at
+    local last = first
     while tz:find("^[A-Za-z]", last) ~= nil do last = last + 1 end
-    if last - at < 3 then
-      return nil, ("%s at byte %d: expected three or more letters"):format(what, at)
+    if last - first < 3 then
+      fail(cur, ("%s at byte %d: expected three or more letters"):format(what, first))
+      return nil
     end
-    local body = tz:sub(at, last - 1)
-    at = last
-    return body, ""
+    cur.at = last
+    return tz:sub(first, last - 1)
   end
 
-  local function number(most: integer, lo: integer, hi: integer, what: string): integer | nil, string
-    local first = at
-    local n = 0
-    while at - first < most do
-      local b = tz:byte(at)
-      if b == nil or b < 48 or b > 57 then break end
-      n = n * 10 + (b - 48)
-      at = at + 1
+  local function number(most: integer, lo: integer, hi: integer, what: string): integer
+    local first = cur.at
+    local n = read_digits(cur, most, what, 1)
+    if n ~= nil and (n < lo or n > hi) then
+      fail(cur, ("%s %d at byte %d is not %d through %d"):format(what, n, first, lo, hi))
+      return nil
     end
-    if at == first then return nil, ("%s at byte %d: expected a number"):format(what, first) end
-    if n < lo or n > hi then
-      return nil, ("%s %d at byte %d is not %d through %d"):format(what, n, first, lo, hi)
-    end
-    return n, ""
+    return n
   end
 
   -- [+-]hh[:mm[:ss]], as seconds.
-  local function duration(hours: integer, what: string): integer | nil, string
-    local sign = 1
-    local c = tz:sub(at, at)
-    if c == "+" or c == "-" then
-      if c == "-" then sign = -1 end
-      at = at + 1
-    end
-    local h, why = number(3, 0, hours, what .. "'s hours")
-    if h == nil then return nil, why end
+  local function duration(hours: integer, what: string): integer
+    local sign = accept(cur, "-") and -1 or 1
+    if sign == 1 then accept(cur, "+") end
+    local h = number(3, 0, hours, what .. "'s hours")
     local m, sec = 0, 0
-    if tz:sub(at, at) == ":" then
-      at = at + 1
-      m, why = number(2, 0, 59, what .. "'s minutes")
-      if m == nil then return nil, why end
-      if tz:sub(at, at) == ":" then
-        at = at + 1
-        sec, why = number(2, 0, 59, what .. "'s seconds")
-        if sec == nil then return nil, why end
-      end
+    if accept(cur, ":") then
+      m = number(2, 0, 59, what .. "'s minutes")
+      if accept(cur, ":") then sec = number(2, 0, 59, what .. "'s seconds") end
     end
-    return sign * (h * 3600 + m * 60 + sec), ""
+    if cur.why ~= nil then return nil end
+    return sign * (h * 3600 + m * 60 + sec)
   end
 
-  local function expect(want: string, what: string): string
-    if tz:sub(at, at) ~= want then
-      return ("expected %q %s at byte %d"):format(want, what, at)
-    end
-    at = at + 1
-    return nil
-  end
-
-  local function rule(what: string): Rule | nil, string
+  local function rule(what: string): Rule
     local r: Rule = { time = 7200 }
-    local why: string
-    local c = tz:sub(at, at)
-    if c == "J" then
-      at = at + 1
+    if accept(cur, "J") then
       r.form = "J"
-      r.day, why = number(3, 1, 365, what .. "'s day")
-      if r.day == nil then return nil, why end
-    elseif c == "M" then
-      at = at + 1
+      r.day = number(3, 1, 365, what .. "'s day")
+    elseif accept(cur, "M") then
       r.form = "M"
-      r.month, why = number(2, 1, 12, what .. "'s month")
-      if r.month == nil then return nil, why end
-      why = expect(".", "after " .. what .. "'s month")
-      if why ~= nil then return nil, why end
-      r.week, why = number(1, 1, 5, what .. "'s week")
-      if r.week == nil then return nil, why end
-      why = expect(".", "after " .. what .. "'s week")
-      if why ~= nil then return nil, why end
-      r.weekday, why = number(1, 0, 6, what .. "'s weekday")
-      if r.weekday == nil then return nil, why end
+      r.month = number(2, 1, 12, what .. "'s month")
+      expect(cur, ".", "after " .. what .. "'s month")
+      r.week = number(1, 1, 5, what .. "'s week")
+      expect(cur, ".", "after " .. what .. "'s week")
+      r.weekday = number(1, 0, 6, what .. "'s weekday")
     else
       r.form = "n"
-      r.day, why = number(3, 0, 365, what .. "'s day")
-      if r.day == nil then return nil, why end
+      r.day = number(3, 0, 365, what .. "'s day")
     end
-    if tz:sub(at, at) == "/" then
-      at = at + 1
-      r.time, why = duration(167, what .. "'s time")
-      if r.time == nil then return nil, why end
-    end
-    return r, ""
+    if accept(cur, "/") then r.time = duration(167, what .. "'s time") end
+    return r
   end
 
-  local std_name, why = abbreviation("standard time's abbreviation")
-  if std_name == nil then return nil, why end
-  local west, west_why = duration(24, "standard time's offset")
-  if west == nil then return nil, west_why end
+  local std_name = abbreviation("standard time's abbreviation")
+  local west = duration(24, "standard time's offset")
+  if cur.why ~= nil then return nil, cur.why end
   local p: Posix = { std = { offset = -west, abbreviation = std_name, dst = false }, years = {} }
-  if at > #tz then return p, "" end
-  local dst_name, dst_why = abbreviation("daylight saving time's abbreviation")
-  if dst_name == nil then return nil, dst_why end
+  if cur.at > #tz then return p, "" end
+  local dst_name = abbreviation("daylight saving time's abbreviation")
+  if cur.why ~= nil then return nil, cur.why end
   local offset = p.std.offset + 3600
-  if at <= #tz and tz:sub(at, at) ~= "," then
-    local dst_west, offset_why = duration(24, "daylight saving time's offset")
-    if dst_west == nil then return nil, offset_why end
+  if cur.at <= #tz and tz:sub(cur.at, cur.at) ~= "," then
+    local dst_west = duration(24, "daylight saving time's offset")
+    if cur.why ~= nil then return nil, cur.why end
     offset = -dst_west
   end
   p.dst = { offset = offset, abbreviation = dst_name, dst = true }
-  if at > #tz then
+  if cur.at > #tz then
     p.start = { form = "M", month = 3, week = 2, weekday = 0, time = 7200 }
     p.finish = { form = "M", month = 11, week = 1, weekday = 0, time = 7200 }
     return p, ""
   end
-  why = expect(",", "before daylight saving time's rules")
-  if why ~= nil then return nil, why end
-  local start, start_why = rule("daylight saving time's start")
-  if start == nil then return nil, start_why end
-  why = expect(",", "between daylight saving time's start and end")
-  if why ~= nil then return nil, why end
-  local finish, finish_why = rule("daylight saving time's end")
-  if finish == nil then return nil, finish_why end
-  if at <= #tz then return nil, ("unexpected text at byte %d"):format(at) end
-  p.start, p.finish = start, finish
+  expect(cur, ",", "before daylight saving time's rules")
+  p.start = rule("daylight saving time's start")
+  expect(cur, ",", "between daylight saving time's start and end")
+  p.finish = rule("daylight saving time's end")
+  finish(cur)
+  if cur.why ~= nil then return nil, cur.why end
   return p, ""
 end
 
@@ -948,18 +1069,6 @@ function Time.zone_from_tzif(data: string, name: string): Time.Zone | nil, strin
   return make_zone(name, rules), ""
 end
 
---- The zone a POSIX TZ string describes, as `EST5EDT,M3.2.0,M11.1.0` or
---- `<+0330>-3:30`, named by the string itself, or nil and why it is none.
---- Offsets are west of UTC, as POSIX has them; a rule's time may be
---- negative or past 24 hours, as RFC 8536's version 3 allows; and
---- daylight saving time named with no rules takes the United States',
---- `M3.2.0,M11.1.0`, as glibc does.
-function Time.zone_from_posix(tz: string): Time.Zone | nil, string
-  local p, why = parse_posix(tz)
-  if p == nil then return nil, why end
-  return posix_zone(tz, p), ""
-end
-
 --- The zone name a path names by where it sits, as
 --- `/usr/share/zoneinfo/Europe/Berlin` names Europe/Berlin: what
 --- follows its last `zoneinfo/`, less a `posix/` or `right/` before it,
@@ -1054,7 +1163,12 @@ local unset_local: Time.Zone = nil
 --- - `:/path` or `/path` is the zone its path names the same way the
 ---   link does, else the one it links to, as `TZ=:/etc/localtime` does.
 --- - `Name` is `zone(Name)` when the binary carries it, else a POSIX TZ
----   string ([`zone_from_posix`]).
+---   string, as `EST5EDT,M3.2.0,M11.1.0` or `<+0330>-3:30`, which names
+---   the zone it describes (its `name` is the string). Offsets are west
+---   of UTC, as POSIX has them; a rule's time may be negative or past 24
+---   hours, as RFC 8536's version 3 allows; and daylight saving time
+---   named with no rules takes the United States', `M3.2.0,M11.1.0`, as
+---   glibc does.
 ---
 --- Nil and why only for a `TZ` it cannot use: a `:Name` or path naming no
 --- zone the binary carries, or a bare `TZ` that is neither a carried zone
@@ -1143,28 +1257,11 @@ local function disambiguation_of(how: Time.Disambiguation): Time.Disambiguation
   return how
 end
 
---- `c` as a zone writes local time: `2026-03-08T02:30`, with seconds
---- when it has any.
-local function local_text(c: Time.Civil): string
-  local text = ("%04d-%02d-%02dT%02d:%02d"):format(c.year, c.month, c.day, c.hour, c.minute)
-  if c.second ~= 0 or c.nanosecond ~= 0 then text = text .. (":%02d"):format(c.second) end
-  return text
-end
-
---- The nanoseconds `c` names on the calendar of `zone`, UTC's by
---- default, or nil and which field is out of its range (month 13,
---- February 30, hour 24) or not an integer (a float such as 2026.0
---- included), or that the moment is outside what an integer holds.
---- Nothing is normalized: day 32 is refused, not carried into the next
---- month. A local time a zone skipped or passed twice is resolved as
---- `opts.disambiguation` says, and refused by default, naming the
---- change; passed twice, the moment whose offset is `c.offset` is taken
---- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
---- is always `ns`. Raises for a `disambiguation` that is none of
---- [`Disambiguation`]'s, or a `zone` no function here made.
-function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.CivilOptions): integer | nil, string
-  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
-  if zone == nil then return moment(c, 0) end
+--- The whole seconds since the epoch the local time of `c` names on the
+--- calendar of `zone`, UTC's when nil, resolved as `how` says, or nil and
+--- why: [`from_civil`] less its nanoseconds and their range.
+local function resolve(c: Time.Civil, zone: Time.Zone, how: Time.Disambiguation): integer | nil, string
+  if zone == nil then return seconds_of(c) end
   local rules = rules_for(zone)
   local s, why = seconds_of(c)
   if s == nil then return nil, why end
@@ -1184,8 +1281,8 @@ function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.CivilOptio
   local chosen: integer
   if #found == 0 then
     if how == "reject" then
-      return nil, ("%s does not exist in %s: clocks moved from %s to %s"):format(local_text(c),
-        rules.name, offset_text(before), offset_text(after))
+      return nil, ("%s does not exist in %s: clocks moved from %s to %s"):format(
+        civil_text(c, "minute"), rules.name, offset_text(before), offset_text(after))
     end
     chosen = how == "earlier" and s - after or s - before
   elseif #found == 1 then
@@ -1197,40 +1294,60 @@ function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.CivilOptio
     if chosen == nil then
       if how == "reject" then
         return nil, ("%s happens twice in %s: clocks moved from %s to %s; disambiguation " ..
-          "\"earlier\" or \"later\" picks one"):format(local_text(c), rules.name,
+          "\"earlier\" or \"later\" picks one"):format(civil_text(c, "minute"), rules.name,
           offset_text(before), offset_text(after))
       end
       chosen = how == "later" and found[#found] or found[1]
     end
   end
-  return instant(chosen, c.nanosecond)
+  return chosen, ""
 end
 
---- `ns` moved by a calendar amount on the calendar of `opts.zone`, UTC's
---- by default: the years and months first, keeping the day and the
---- local time of day, then the days, and the local time reached read
---- back as [`from_civil`] reads it, with `opts.disambiguation`, so a day
---- across a change of offset is not 86400 seconds. A local time reached
---- that the zone passes twice is the moment with `ns`'s own offset when
---- one of the two has it, whatever the disambiguation. Nil and why when the
---- day the years and months reach is past its month's end and
---- `opts.overflow` is not "clamp", when the local time reached is in a
---- gap or a fold the disambiguation refuses, when a field is not an
---- integer or is past its bound (which only keeps the arithmetic from
---- wrapping), or when the result is outside the range. Raises for an
---- `overflow` or a `disambiguation` that is none of its type's. An
---- exact duration needs no call: add its nanoseconds.
-function Time.add_calendar(ns: integer, change: Time.Change,
+--- The nanoseconds `c` names on the calendar of `zone`, UTC's by
+--- default, or nil and which field is out of its range (month 13,
+--- February 30, hour 24) or not an integer (a float such as 2026.0
+--- included), or that the moment is outside what an integer holds.
+--- Nothing is normalized: day 32 is refused, not carried into the next
+--- month. A local time a zone skipped or passed twice is resolved as
+--- `opts.disambiguation` says, and refused by default, naming the
+--- change; passed twice, the moment whose offset is `c.offset` is taken
+--- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
+--- is always `ns`. Raises for a `disambiguation` that is none of
+--- [`Disambiguation`]'s, or a `zone` no function here made.
+function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.AddOptions): integer | nil, string
+  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
+  local s, why = resolve(c, zone, how)
+  if s == nil then return nil, why end
+  return instant(s, c.ns)
+end
+
+--- `ns` moved by the calendar part of `duration` on the calendar of
+--- `zone`, UTC's by default: the years and months first, keeping the day
+--- and the local time of day, then the days, and the local time reached
+--- read back as [`from_civil`] reads it, with `opts.disambiguation`, so a
+--- day across a change of offset is not 86400 seconds. Then its exact
+--- part, `duration.ns`, is added as it is. A local time reached that the
+--- zone passes twice is the moment with `ns`'s own offset when one of
+--- the two has it, whatever the disambiguation. A missing field is zero.
+--- Nil and why when the day the years and months reach is past its
+--- month's end and `opts.overflow` is not "clamp", when the local time
+--- reached is in a gap or a fold the disambiguation refuses, when a
+--- field is not an integer or is past its bound (which only keeps the
+--- arithmetic from wrapping), or when the result is outside the range.
+--- Raises for an `overflow` or a `disambiguation` that is none of its
+--- type's, or a `zone` no function here made.
+function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zone,
     opts?: Time.AddOptions): integer | nil, string
-  local years, months, days = change.years or 0, change.months or 0, change.days or 0
+  local years, months, days = duration.years or 0, duration.months or 0, duration.days or 0
+  local exact = duration.ns or 0
   local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000)
     or outside("days", days, -3650000, 3650000)
+    or outside("ns", exact, math.mininteger, math.maxinteger)
   if why ~= nil then return nil, why end
   local overflow = opts ~= nil and opts.overflow or "reject"
   if overflow ~= "reject" and overflow ~= "clamp" then
     error("time: overflow is \"reject\" or \"clamp\", not " .. tostring(overflow), 2)
   end
-  local zone = opts ~= nil and opts.zone or nil
   local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
   local c = Time.civil(ns, zone)
   local index = c.year * 12 + (c.month - 1) + years * 12 + months
@@ -1249,7 +1366,15 @@ function Time.add_calendar(ns: integer, change: Time.Change,
   -- time reached is passed twice and one of the two has it -- cosmic's
   -- own choice: Temporal resolves a nonzero amount "compatible", taking
   -- the earlier -- so an amount of nothing moves nothing, even in a fold.
-  return Time.from_civil(c, zone, { disambiguation = how })
+  local s, trouble = resolve(c, zone, how)
+  if s == nil then return nil, trouble end
+  -- The range is checked on the sum, so a local time just outside it that
+  -- the exact part brings back is no refusal. One more than a year
+  -- outside is, as [`from_civil`] holds every local time to.
+  local n = c.ns + exact % NS
+  s = s + exact // NS
+  if n >= NS then s, n = s + 1, n - NS end
+  return instant(s, n)
 end
 
 --- The seconds of `ns` on the calendar of `zone`, UTC's when nil.
@@ -1259,21 +1384,13 @@ local function local_seconds(ns: integer, zone: Time.Zone): integer
   return s + kind_at(rules_for(zone), s).offset
 end
 
---- Whole days from `from`'s date to `to`'s, on the calendar of `zone`
---- (UTC's by default), negative when `to`'s is earlier; the time of day
---- does not count.
-function Time.days_between(from: integer, to: integer, zone?: Time.Zone): integer
-  return local_seconds(to, zone) // DAY - local_seconds(from, zone) // DAY
-end
-
 --- Whole calendar months from `from` to `to`, negative when `to` is
 --- earlier, as Java's `ChronoUnit.MONTHS.between` counts them on the
---- calendar of `zone`, UTC's by default: `to`'s date steps a day toward
---- `from`'s when its local time of day has not reached `from`'s, then a
---- month counts once the day of the month does. January 31 to February
---- 29 is 0; to March 31, 2. Whole years are this divided by 12,
---- truncated toward zero.
-function Time.months_between(from: integer, to: integer, zone?: Time.Zone): integer
+--- calendar of `zone`: `to`'s date steps a day toward `from`'s when its
+--- local time of day has not reached `from`'s, then a month counts once
+--- the day of the month does. January 31 to February 29 is 0; to March
+--- 31, 2.
+local function whole_months(from: integer, to: integer, zone: Time.Zone): integer
   local a_s, b_s = local_seconds(from, zone), local_seconds(to, zone)
   local a_day, b_day = a_s // DAY, b_s // DAY
   local a_time, b_time = a_s % DAY * NS + from % NS, b_s % DAY * NS + to % NS
@@ -1288,23 +1405,65 @@ function Time.months_between(from: integer, to: integer, zone?: Time.Zone): inte
   return packed >= 0 and packed // 32 or -((-packed) // 32)
 end
 
+--- The whole years, months and days from `from` to `to` on the calendar
+--- of `zone`, UTC's by default, and the rest as `ns`: a [`Duration`]
+--- whose fields are all of one sign, negative when `to` is earlier, and
+--- which [`add_calendar`] adds back to `to` exactly, as
+--- `add_calendar(from, between(from, to, zone), zone, { overflow =
+--- "clamp", disambiguation = "compatible" })`. The months are Java's
+--- `ChronoUnit.MONTHS.between` (January 31 to February 29 is 0 months;
+--- to March 31, 2), the years are their twelves, and the days are
+--- counted from the date those months reach, where a month with no such
+--- day gives its last. Where a gap, a fold or a day a zone skipped would
+--- put that sum past `to`, the days and then the months are one fewer
+--- until it is not, so the rest is never against the sign. The days are
+--- the most that are not past `to`, so where one more would overshoot
+--- into a fold or a day the zone skipped, `ns` can exceed a day (up to
+--- about 47 hours in Apia).
+function Time.between(from: integer, to: integer, zone?: Time.Zone): Time.Duration
+  if from == to then return { years = 0, months = 0, days = 0, ns = 0 } end
+  local dir = to > from and 1 or -1
+  local options: Time.AddOptions = { overflow = "clamp", disambiguation = "compatible" }
+  local months = whole_months(from, to, zone)
+  if months * dir < 0 then months = 0 end
+  while true do
+    local anchor, _ = Time.add_calendar(from, { months = months }, zone, options)
+    local first = 0
+    if anchor ~= nil then
+      first = local_seconds(to, zone) // DAY - local_seconds(anchor, zone) // DAY
+      if first * dir < 0 then first = 0 end
+    end
+    for days = first, 0, -dir do
+      local moved, _ = Time.add_calendar(from, { months = months, days = days }, zone, options)
+      -- Out of the range is past `to`, or past `from`, for a step toward it.
+      if moved ~= nil and (to - moved) * dir >= 0 then
+        return {
+          years = dir * (math.abs(months) // 12), months = dir * (math.abs(months) % 12),
+          days = days, ns = to - moved,
+        }
+      end
+    end
+    -- With no months and no days the sum is `from`, which never is past `to`.
+    if months == 0 then error("time: between found no span", 2) end
+    months = months - dir
+  end
+end
+
 --- `ns` as RFC 3339 text, `2026-09-25T04:09:21Z` in UTC, with a fraction
---- as `opts.digits` says (`2026-09-25T04:09:21.5Z` by default). With
---- `opts.zone`, the zone's local time and its offset,
---- `2026-09-25T00:09:21-04:00`, and with `opts.zone_name` its IANA name
---- after, as RFC 9557 has it: `2026-09-25T00:09:21-04:00[America/New_York]`.
---- An offset with seconds (local mean time's, before a zone kept
---- standard time) is rounded to the minute, with the local time moved
---- to match, so the text still names `ns`. A cut in the range's first
---- second names a moment before it, which [`parse_rfc3339`] refuses.
---- Raises when `digits` is not 0 through 9, when `zone_name` is set
---- without a zone or for one with no IANA name, or for a `zone` no
---- function here made.
-function Time.format_rfc3339(ns: integer, opts?: Time.FormatOptions): string
+--- as `opts.digits` says (`2026-09-25T04:09:21.5Z` by default). With a
+--- `zone`, its local time and its offset, `2026-09-25T00:09:21-04:00`,
+--- and with `opts.zone_name` its IANA name after, as RFC 9557 has it:
+--- `2026-09-25T00:09:21-04:00[America/New_York]`. An offset with seconds
+--- (local mean time's, before a zone kept standard time) is rounded to
+--- the minute, with the local time moved to match, so the text still
+--- names `ns`. A cut in the range's first second names a moment before
+--- it, which [`parse_rfc3339`] refuses. Raises when `digits` is not 0
+--- through 9, when `zone_name` is set without a zone or for one with no
+--- IANA name, or for a `zone` no function here made.
+function Time.format_rfc3339(ns: integer, zone?: Time.Zone, opts?: Time.FormatOptions): string
   local digits = opts ~= nil and opts.digits or nil
   local bad = digits ~= nil and outside("digits", digits, 0, 9) or nil
   if bad ~= nil then error("time: " .. bad, 2) end
-  local zone = opts ~= nil and opts.zone or nil
   local zone_name = opts ~= nil and opts.zone_name or false
   local s, n = ns // NS, ns % NS
   local shift, tail = 0, "Z"
@@ -1319,90 +1478,32 @@ function Time.format_rfc3339(ns: integer, opts?: Time.FormatOptions): string
       tail = tail .. "[" .. rules.name .. "]"
     end
   elseif zone_name then
-    error("time: zone_name writes the name of opts.zone, and there is none", 2)
+    error("time: zone_name writes the name of a zone, and there is none", 2)
   end
-  local c = civil_at(s + shift, n)
-  local fraction = ("%09d"):format(c.nanosecond)
-  if digits == nil then
-    fraction = fraction:gsub("0+$", "")
-  else
-    fraction = fraction:sub(1, digits)
-  end
-  return ("%04d-%02d-%02dT%02d:%02d:%02d%s%s%s"):format(c.year, c.month, c.day,
-    c.hour, c.minute, c.second, fraction ~= "" and "." or "", fraction, tail)
+  local fraction = fraction_text(n, digits)
+  return civil_text(civil_at(s + shift, n), "second") ..
+    (fraction ~= "" and "." .. fraction or "") .. tail
 end
 
---- The integer the `count` ASCII digits at `at` in `text` spell, or nil.
-local function digits_at(text: string, at: integer, count: integer): integer
-  local n = 0
-  for i = at, at + count - 1 do
-    local b = text:byte(i)
-    if b == nil or b < 48 or b > 57 then return nil end
-    n = n * 10 + (b - 48)
+--- `YYYY-MM-DD` at the cursor into `c`.
+local function date_into(cur: Cursor, c: Time.Civil)
+  c.year = read_digits(cur, 4, "year")
+  expect(cur, "-", "after the year")
+  c.month = read_digits(cur, 2, "month")
+  expect(cur, "-", "after the month")
+  c.day = read_digits(cur, 2, "day")
+end
+
+--- `hh:mm:ss` at the cursor into `c`.
+local function clock_into(cur: Cursor, c: Time.Civil)
+  c.hour = read_digits(cur, 2, "hour")
+  expect(cur, ":", "after the hour")
+  c.minute = read_digits(cur, 2, "minute")
+  expect(cur, ":", "after the minute")
+  c.second = read_digits(cur, 2, "second")
+  if c.second == 60 then
+    fail(cur, "second 60 is not 0 through 59: cosmic time has no leap seconds")
   end
-  return n
-end
-
---- The integer the `count` digits at `at` in `text` spell, or nil and
---- that the field `name` is not there.
-local function field(text: string, at: integer, count: integer, name: string): integer | nil, string
-  local n = digits_at(text, at, count)
-  if n == nil then
-    return nil, ("%s: expected %s at byte %d"):format(name, String.counted(count, "digit"), at)
-  end
-  return n, ""
-end
-
---- Nil when `text` holds `want` at `at`, where `t` stands for `T`, or
---- why not.
-local function byte_is(text: string, at: integer, want: string, name: string): string
-  local got = text:sub(at, at + #want - 1)
-  if got ~= want and not (want == "T" and got == "t") then
-    return ("expected %q %s at byte %d"):format(want, name, at)
-  end
-  return nil
-end
-
---- The index in `names` of the name at `at` in `text`, or nil and that
---- `what` is not there.
-local function name_at(text: string, at: integer, names: {string}, what: string): integer | nil, string
-  for i, name in ipairs(names) do
-    if text:sub(at, at + #name - 1) == name then return i, "" end
-  end
-  return nil, ("expected %s at byte %d"):format(what, at)
-end
-
---- `YYYY-MM-DD` at the start of `text` into `c`, or why not.
-local function date_into(text: string, c: Time.Civil): string
-  local why: string
-  c.year, why = field(text, 1, 4, "year")
-  if c.year == nil then return why end
-  why = byte_is(text, 5, "-", "after the year")
-  if why ~= nil then return why end
-  c.month, why = field(text, 6, 2, "month")
-  if c.month == nil then return why end
-  why = byte_is(text, 8, "-", "after the month")
-  if why ~= nil then return why end
-  c.day, why = field(text, 9, 2, "day")
-  if c.day == nil then return why end
-  return nil
-end
-
---- `hh:mm:ss` at `at` in `text` into `c`, or why not.
-local function clock_into(text: string, at: integer, c: Time.Civil): string
-  local why: string
-  c.hour, why = field(text, at, 2, "hour")
-  if c.hour == nil then return why end
-  why = byte_is(text, at + 2, ":", "after the hour")
-  if why ~= nil then return why end
-  c.minute, why = field(text, at + 3, 2, "minute")
-  if c.minute == nil then return why end
-  why = byte_is(text, at + 5, ":", "after the minute")
-  if why ~= nil then return why end
-  c.second, why = field(text, at + 6, 2, "second")
-  if c.second == nil then return why end
-  if c.second == 60 then return "second 60 is not 0 through 59: cosmic time has no leap seconds" end
-  return nil
 end
 
 --- Why the RFC 9557 suffix tag `body`, the text between one `[` and
@@ -1418,25 +1519,25 @@ local function tag_problem(body: string): string
   return nil
 end
 
---- The offset `+hh:mm` or `-hh:mm` at `at` in `text` spells, in seconds
---- east of UTC, or nil and why not: hours through 23, minutes through 59.
-local function offset_at(text: string, at: integer, what: string): integer | nil, string
-  local sign = text:sub(at, at)
-  if sign ~= "+" and sign ~= "-" then
-    return nil, ("expected \"+\" or \"-\" to begin %s at byte %d"):format(what, at)
+--- The offset `+hh:mm` or `-hh:mm` at the cursor, in seconds east of
+--- UTC: hours through 23, minutes through 59. `what` names it in a failure.
+local function offset_at(cur: Cursor, what: string): integer
+  local sign = cur.text:sub(cur.at, cur.at)
+  if cur.why == nil and sign ~= "+" and sign ~= "-" then
+    fail(cur, ("expected \"+\" or \"-\" to begin %s at byte %d"):format(what, cur.at))
   end
-  local hours, minutes: integer, integer
-  local why: string
-  hours, why = field(text, at + 1, 2, what .. "'s hour")
-  if hours == nil then return nil, why end
-  why = byte_is(text, at + 3, ":", "in " .. what)
-  if why ~= nil then return nil, why end
-  minutes, why = field(text, at + 4, 2, what .. "'s minute")
-  if minutes == nil then return nil, why end
-  why = outside(what .. "'s hour", hours, 0, 23) or outside(what .. "'s minute", minutes, 0, 59)
-  if why ~= nil then return nil, why end
+  cur.at = cur.at + 1
+  local hours = read_digits(cur, 2, what .. "'s hour")
+  expect(cur, ":", "in " .. what)
+  local minutes = read_digits(cur, 2, what .. "'s minute")
+  if cur.why ~= nil then return nil end
+  local why = outside(what .. "'s hour", hours, 0, 23) or outside(what .. "'s minute", minutes, 0, 59)
+  if why ~= nil then
+    fail(cur, why)
+    return nil
+  end
   local offset = (hours * 60 + minutes) * 60
-  return sign == "-" and -offset or offset, ""
+  return sign == "-" and -offset or offset
 end
 
 --- The zones a numeric RFC 9557 suffix names, by offset: each always
@@ -1457,47 +1558,33 @@ end
 --- RFC 3339 text and its RFC 9557 suffix: [`parse_rfc3339`]'s and
 --- [`parse_rfc3339_zoned`]'s work.
 local function parse(text: string): Time.Zoned | nil, string
+  local cur <close> = borrow(text)
   local c: Time.Civil = {}
-  local why = date_into(text, c)
-  if why ~= nil then return nil, why end
-  why = byte_is(text, 11, "T", "between the date and the time")
-  if why ~= nil then return nil, why end
-  why = clock_into(text, 12, c)
-  if why ~= nil then return nil, why end
-  c.nanosecond = 0
-  local at = 20
-  if text:sub(at, at) == "." then
-    local first = at + 1
-    at = first
-    while digits_at(text, at, 1) ~= nil do at = at + 1 end
-    local count = at - first
-    if count == 0 or count > 9 then
-      return nil, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(first, count)
-    end
-    c.nanosecond = digits_at(text, first, count)
-    for _ = count + 1, 9 do c.nanosecond = c.nanosecond * 10 end
-  end
+  date_into(cur, c)
+  expect(cur, "T", "between the date and the time")
+  clock_into(cur, c)
+  c.ns = accept(cur, ".") and read_fraction(cur) or 0
+  if cur.why ~= nil then return nil, cur.why end
   local offset = 0
   -- `Z` and `-00:00` say the local offset is unknown (RFC 9557 2.2), so
   -- a zone after either is not held to the offset.
   local unknown = true
-  local mark = text:sub(at, at)
-  if mark == "Z" or mark == "z" then
-    at = at + 1
-  elseif mark == "+" or mark == "-" then
-    local read, offset_why = offset_at(text, at, "the offset")
-    if read == nil then return nil, offset_why end
-    offset = read
+  local mark = text:sub(cur.at, cur.at)
+  if mark == "+" or mark == "-" then
+    offset = offset_at(cur, "the offset")
+    if cur.why ~= nil then return nil, cur.why end
     unknown = mark == "-" and offset == 0
-    at = at + 6
+  elseif mark == "Z" or mark == "z" then
+    cur.at = cur.at + 1
   else
-    return nil, ("expected \"Z\" or an offset at byte %d"):format(at)
+    return nil, ("expected \"Z\" or an offset at byte %d"):format(cur.at)
   end
   local ns, range_why = moment(c, offset)
   if ns == nil then return nil, range_why end
   local zoned: Time.Zoned = { ns = ns }
   local first = true
-  while text:sub(at, at) == "[" do
+  while text:sub(cur.at, cur.at) == "[" do
+    local at = cur.at
     local close = text:find("]", at + 1, true)
     if close == nil then return nil, ("suffix at byte %d: no \"]\" closes it"):format(at) end
     local body = text:sub(at + 1, close - 1)
@@ -1513,10 +1600,10 @@ local function parse(text: string): Time.Zoned | nil, string
     elseif not first then
       return nil, ("suffix at byte %d: a time zone comes first, before any tag, and once"):format(at)
     elseif body:find("^[+-]") ~= nil then
-      local annotated, annotated_why = offset_at(body, 1, "the suffix's offset")
-      if annotated == nil or #body ~= 6 then
-        return nil, ("suffix at byte %d: %s"):format(at, annotated_why ~= "" and annotated_why or
-          "expected an offset as +hh:mm")
+      local inside = cursor(body)
+      local annotated = offset_at(inside, "the suffix's offset")
+      if inside.why ~= nil or #body ~= 6 then
+        return nil, ("suffix at byte %d: %s"):format(at, inside.why or "expected an offset as +hh:mm")
       end
       if not unknown and annotated ~= offset then
         return nil, ("offset %s does not match the suffix's, %s"):format(offset_text(offset),
@@ -1538,11 +1625,11 @@ local function parse(text: string): Time.Zoned | nil, string
       zoned.zone = zone
     end
     first = false
-    at = close + 1
+    cur.at = close + 1
   end
-  if at <= #text then
-    return nil, ("unexpected text at byte %d"):format(at)
-  end
+  finish(cur)
+  if cur.why ~= nil then return nil, cur.why end
+  zoned.zone = zoned.zone or (unknown and Time.UTC or fixed_zone(offset))
   return zoned, ""
 end
 
@@ -1563,9 +1650,10 @@ function Time.parse_rfc3339(text: string): integer | nil, string
   return zoned.ns, ""
 end
 
---- [`parse_rfc3339`]'s moment, with the zone its suffix names -- for an
---- offset, `[+05:30]`, a zone always that offset, named "+05:30" -- and
---- nil when the text names none.
+--- [`parse_rfc3339`]'s moment, with the zone the text names: its RFC
+--- 9557 suffix's -- for an offset, `[+05:30]`, a zone always that offset,
+--- named "+05:30" -- else its offset's, a zone named for it the same way
+--- (`+05:30`), or UTC for `Z` and `-00:00`.
 function Time.parse_rfc3339_zoned(text: string): Time.Zoned | nil, string
   return parse(text)
 end
@@ -1573,8 +1661,7 @@ end
 --- `ns`'s date on the calendar of `zone`, UTC's by default,
 --- `2026-09-25`. Raises for a `zone` no function here made.
 function Time.format_date(ns: integer, zone?: Time.Zone): string
-  local c = Time.civil(ns, zone)
-  return ("%04d-%02d-%02d"):format(c.year, c.month, c.day)
+  return civil_text(Time.civil(ns, zone), "date")
 end
 
 --- The first moment of the date `YYYY-MM-DD` names, as `2026-09-25`, on
@@ -1589,10 +1676,11 @@ end
 --- moment is outside the range, as the range's first, 1677-09-21, in
 --- UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
-  local c: Time.Civil = { hour = 0, minute = 0, second = 0, nanosecond = 0 }
-  local why = date_into(text, c)
-  if why ~= nil then return nil, why end
-  if #text > 10 then return nil, "unexpected text at byte 11" end
+  local c: Time.Civil = { hour = 0, minute = 0, second = 0, ns = 0 }
+  local cur <close> = borrow(text)
+  date_into(cur, c)
+  finish(cur)
+  if cur.why ~= nil then return nil, cur.why end
   if zone == nil then return moment(c, 0) end
   local rules = rules_for(zone)
   local midnight, midnight_why = seconds_of(c)
@@ -1623,8 +1711,8 @@ local MONTHS <const> = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
 --- [`parse_http`] refuses.
 function Time.format_http(ns: integer): string
   local c = Time.civil(ns)
-  return ("%s, %02d %s %04d %02d:%02d:%02d GMT"):format(SHORT_DAYS[c.weekday], c.day,
-    MONTHS[c.month], c.year, c.hour, c.minute, c.second)
+  return ("%s, %02d %s %04d %s GMT"):format(SHORT_DAYS[c.weekday], c.day, MONTHS[c.month],
+    c.year, civil_text(c, "clock"))
 end
 
 --- The nanoseconds an HTTP date names, in any of RFC 9110's three forms
@@ -1640,76 +1728,45 @@ end
 --- the clock as RFC 9110's fifty years ahead would. Nil and why for
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): integer | nil, string
-  local c: Time.Civil = { nanosecond = 0 }
-  local day_name, why: integer, string
-  local stop: integer
+  local c: Time.Civil = { ns = 0 }
+  local cur <close> = borrow(text)
   local separator = text:sub(4, 4)
   if separator == "," then
-    day_name, why = name_at(text, 1, SHORT_DAYS, "a day name")
-    if day_name == nil then return nil, why end
-    why = byte_is(text, 4, ", ", "after the day name")
-    if why ~= nil then return nil, why end
-    c.day, why = field(text, 6, 2, "day")
-    if c.day == nil then return nil, why end
-    why = byte_is(text, 8, " ", "after the day")
-    if why ~= nil then return nil, why end
-    c.month, why = name_at(text, 9, MONTHS, "a month name")
-    if c.month == nil then return nil, why end
-    why = byte_is(text, 12, " ", "after the month")
-    if why ~= nil then return nil, why end
-    c.year, why = field(text, 13, 4, "year")
-    if c.year == nil then return nil, why end
-    why = byte_is(text, 17, " ", "after the year")
-      or clock_into(text, 18, c)
-      or byte_is(text, 26, " GMT", "after the time")
-    if why ~= nil then return nil, why end
-    stop = 29
+    name_of(cur, SHORT_DAYS, "a day name")
+    expect(cur, ", ", "after the day name")
+    c.day = read_digits(cur, 2, "day")
+    expect(cur, " ", "after the day")
+    c.month = name_of(cur, MONTHS, "a month name")
+    expect(cur, " ", "after the month")
+    c.year = read_digits(cur, 4, "year")
+    expect(cur, " ", "after the year")
+    clock_into(cur, c)
+    expect(cur, " GMT", "after the time")
   elseif separator == " " then
-    day_name, why = name_at(text, 1, SHORT_DAYS, "a day name")
-    if day_name == nil then return nil, why end
-    c.month, why = name_at(text, 5, MONTHS, "a month name")
-    if c.month == nil then return nil, why end
-    why = byte_is(text, 8, " ", "after the month")
-    if why ~= nil then return nil, why end
-    if text:sub(9, 9) == " " then
-      c.day, why = field(text, 10, 1, "day")
-    else
-      c.day, why = field(text, 9, 2, "day")
-    end
-    if c.day == nil then return nil, why end
-    why = byte_is(text, 11, " ", "after the day")
-      or clock_into(text, 12, c)
-      or byte_is(text, 20, " ", "after the time")
-    if why ~= nil then return nil, why end
-    c.year, why = field(text, 21, 4, "year")
-    if c.year == nil then return nil, why end
-    stop = 24
+    name_of(cur, SHORT_DAYS, "a day name")
+    expect(cur, " ", "after the day name")
+    c.month = name_of(cur, MONTHS, "a month name")
+    expect(cur, " ", "after the month")
+    c.day = accept(cur, " ") and read_digits(cur, 1, "day") or read_digits(cur, 2, "day")
+    expect(cur, " ", "after the day")
+    clock_into(cur, c)
+    expect(cur, " ", "after the time")
+    c.year = read_digits(cur, 4, "year")
   else
-    day_name, why = name_at(text, 1, LONG_DAYS, "a day name")
-    if day_name == nil then return nil, why end
-    local at = #LONG_DAYS[day_name] + 1
-    why = byte_is(text, at, ", ", "after the day name")
-    if why ~= nil then return nil, why end
-    c.day, why = field(text, at + 2, 2, "day")
-    if c.day == nil then return nil, why end
-    why = byte_is(text, at + 4, "-", "after the day")
-    if why ~= nil then return nil, why end
-    c.month, why = name_at(text, at + 5, MONTHS, "a month name")
-    if c.month == nil then return nil, why end
-    why = byte_is(text, at + 8, "-", "after the month")
-    if why ~= nil then return nil, why end
-    c.year, why = field(text, at + 9, 2, "year")
-    if c.year == nil then return nil, why end
-    c.year = c.year + (c.year >= 69 and 1900 or 2000)
-    why = byte_is(text, at + 11, " ", "after the year")
-      or clock_into(text, at + 12, c)
-      or byte_is(text, at + 20, " GMT", "after the time")
-    if why ~= nil then return nil, why end
-    stop = at + 23
+    name_of(cur, LONG_DAYS, "a day name")
+    expect(cur, ", ", "after the day name")
+    c.day = read_digits(cur, 2, "day")
+    expect(cur, "-", "after the day")
+    c.month = name_of(cur, MONTHS, "a month name")
+    expect(cur, "-", "after the month")
+    local year = read_digits(cur, 2, "year")
+    c.year = year ~= nil and year + (year >= 69 and 1900 or 2000) or nil
+    expect(cur, " ", "after the year")
+    clock_into(cur, c)
+    expect(cur, " GMT", "after the time")
   end
-  if #text > stop then
-    return nil, ("unexpected text at byte %d"):format(stop + 1)
-  end
+  finish(cur)
+  if cur.why ~= nil then return nil, cur.why end
   return moment(c, 0)
 end
 
@@ -1746,7 +1803,7 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
     if #digits > 9 then
       return nil, ("the number at byte %d has %s: at most 9"):format(at, String.counted(#digits, "digit"))
     end
-    local number = digits_at(text, at, #digits)
+    local number = math.tointeger(tonumber(digits))
     at = at + #digits
     local unit = 0
     if text:sub(at, at + 1) == "mo" then
@@ -1761,8 +1818,7 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
       if frac == nil or #frac > 9 then
         return nil, ("expected 1 to 9 digits of fraction and then \"s\" at byte %d"):format(at)
       end
-      fraction = digits_at(text, at + 1, #frac)
-      for _ = #frac + 1, 9 do fraction = fraction * 10 end
+      fraction = fraction_ns(frac)
       at = at + 1 + #frac
       unit = 6
     end
@@ -1783,7 +1839,7 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
   end
   return {
     years = sign * values[1], months = sign * values[2], days = sign * values[3],
-    nanoseconds = sign * (seconds * NS + fraction),
+    ns = sign * (seconds * NS + fraction),
   }, ""
 end
 
@@ -1792,7 +1848,7 @@ end
 --- Each calendar field is written as it is, `14mo` not `1y2mo`. Raises
 --- for a duration whose fields are not all of one sign.
 function Time.format_duration(d: Time.Duration): string
-  local years, months, days, ns = d.years or 0, d.months or 0, d.days or 0, d.nanoseconds or 0
+  local years, months, days, ns = d.years or 0, d.months or 0, d.days or 0, d.ns or 0
   local negative = years < 0 or months < 0 or days < 0 or ns < 0
   if negative and (years > 0 or months > 0 or days > 0 or ns > 0) then
     error("time: a duration's fields are all of one sign", 2)
@@ -1810,121 +1866,11 @@ function Time.format_duration(d: Time.Duration): string
   local seconds, nanos = span % (60 * NS) // NS, span % NS
   if seconds ~= 0 or nanos ~= 0 then
     local text = ("%d"):format(seconds)
-    if nanos ~= 0 then
-      local trimmed = ("%09d"):format(nanos):gsub("0+$", "")
-      text = text .. "." .. trimmed
-    end
+    if nanos ~= 0 then text = text .. "." .. fraction_text(nanos) end
     parts[#parts + 1] = text .. "s"
   end
   if #parts == 0 then return "0s" end
   return (negative and "-" or "") .. table.concat(parts)
-end
-
---- What the text [`parse_input`] reads may spell.
-local INPUT_FORMS <const> = "expected RFC 3339 (2026-09-25T04:09:21Z), a date (2026-09-25), " ..
-  "a local time (2026-09-25T04:09[:21]) or @<epoch seconds>"
-
--- [`parse_input`] less the forms' names in its failures.
-local function read_input(text: string, zone: Time.Zone | nil,
-    how: Time.Disambiguation): Time.Zoned | nil, string
-  if text:sub(1, 1) == "@" then
-    local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
-    if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
-      return nil, "@ and seconds since 1970, as @1700000000 or @-1.5, at most 10 digits " ..
-        "(the calendar ends in 2262) and 9 of fraction"
-    end
-    local start = sign == "" and 2 or 3
-    local s = digits_at(text, start, #whole)
-    local n = 0
-    if #frac > 0 then n = digits_at(text, start + #whole + 1, #frac) end
-    for _ = #frac + 1, 9 do n = n * 10 end
-    if sign == "-" then
-      s = -s
-      if n > 0 then s, n = s - 1, NS - n end
-    end
-    local ns, why = instant(s, n)
-    if ns == nil then return nil, why end
-    return { ns = ns }, ""
-  end
-  if text:match("^%d%d%d%d%-%d%d%-%d%d$") then
-    local ns, why = Time.parse_date(text, zone)
-    if ns == nil then return nil, why end
-    return { ns = ns }, ""
-  end
-  local tail = text:match("^%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d(.*)$")
-  if tail ~= nil and (tail == "" or tail:match("^:%d%d$") or tail:match("^:%d%d%.%d+$")) then
-    local c: Time.Civil = { second = 0, nanosecond = 0 }
-    local why = date_into(text, c)
-    if why ~= nil then return nil, why end
-    c.hour, c.minute = digits_at(text, 12, 2), digits_at(text, 15, 2)
-    if tail ~= "" then
-      c.second = digits_at(text, 18, 2)
-      if c.second == 60 then
-        return nil, "second 60 is not 0 through 59: cosmic time has no leap seconds"
-      end
-      if #tail > 3 then
-        local digits = #tail - 4
-        if digits > 9 then
-          return nil, ("fraction: expected 1 to 9 digits, not %d"):format(digits)
-        end
-        c.nanosecond = digits_at(text, 21, digits)
-        for _ = digits + 1, 9 do c.nanosecond = c.nanosecond * 10 end
-      end
-    end
-    local ns, from_why = Time.from_civil(c, zone, { disambiguation = how })
-    if ns == nil then return nil, from_why end
-    return { ns = ns }, ""
-  end
-  -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
-  local zoned, why: Time.Zoned | nil, string
-  local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
-  if minutes ~= nil then
-    zoned, why = parse(minutes .. ":00" .. rest)
-    if zoned == nil then
-      -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
-      why = why:gsub("byte (%d+)", function(n: string): string
-        local at = math.tointeger(n) or 0
-        return "byte " .. (at >= 17 and at - 3 or at)
-      end)
-    end
-  else
-    zoned, why = parse(text)
-  end
-  if zoned == nil then return nil, why end
-  if zoned.zone == nil then
-    local head = text:match("^[^%[]*")
-    local sign, hh, mm = head:match("([+-])(%d%d):(%d%d)$")
-    if sign ~= nil and not (sign == "-" and hh == "00" and mm == "00") then
-      local offset = digits_at(head, #head - 4, 2) * 3600 + digits_at(head, #head - 1, 2) * 60
-      zoned.zone = fixed_zone(sign == "-" and -offset or offset)
-    else
-      zoned.zone = Time.UTC
-    end
-  end
-  return zoned, ""
-end
-
---- The moment a user's text names, in whichever form they wrote it, or
---- nil and why: RFC 3339 as [`parse_rfc3339_zoned`] reads it, whose zone is
---- the suffix's, or else the text's own offset (`Z` is UTC); a date
---- `2026-09-25`, its first moment on the calendar of `zone` (UTC's when
---- nil), as [`parse_date`] has it; a local time `2026-09-25T04:09` or
---- `2026-09-25T04:09:21.5`, without `Z` or an offset, on the calendar of
---- `zone`, resolved as `opts.disambiguation` says ("compatible" when
---- absent, as a wall clock would: a time in a gap lands after the gap,
---- and a time passed twice is the earlier); and `@` and seconds since
---- 1970, an integer with an optional sign and fraction, `@1700000000`,
---- `@-1.5`. Seconds are optional in the clock of RFC 3339 text as in
---- local text (`2026-09-25T04:09Z`), and a failure names the forms, then
---- the fault. The zone returned is nil for the last three, which name none.
---- Any text answers a moment or a failure. Raises for a `disambiguation`
---- that is none of its type's or a `zone` no function here made.
-function Time.parse_input(text: string, zone?: Time.Zone,
-    opts?: Time.CivilOptions): Time.Zoned | nil, string
-  local how = disambiguation_of(opts ~= nil and opts.disambiguation or "compatible")
-  local zoned, why = read_input(text, zone, how)
-  if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
-  return zoned, ""
 end
 
 --- The wall clock in nanoseconds, which can step backwards when the host
@@ -1961,6 +1907,60 @@ function Time.sleep_ns(nanoseconds: integer): boolean, string
     return false, trouble
   end
   return true, ""
+end
+
+--- `n` units of `unit_ns` nanoseconds each, for the constructors below;
+--- raises, blaming their caller, for a count that is no number or a span
+--- that is not a whole number of nanoseconds an integer holds.
+local function span(n: number, unit_ns: integer, name: string): integer
+  local kind = math.type(n)
+  if kind == "integer" then
+    local count = math.tointeger(n)
+    local most = math.maxinteger // unit_ns
+    if count > most or count < -most then
+      error(("time: %s(%d) is outside what an integer of nanoseconds holds"):format(name, count), 3)
+    end
+    return count * unit_ns
+  elseif kind == "float" then
+    -- A count like 1.005 has no exact binary form, so its product is
+    -- only near a whole number: within a few units in the last place.
+    local scaled = n * unit_ns
+    local whole = math.floor(scaled + 0.5)
+    if math.type(whole) ~= "integer" or math.abs(scaled - whole) > math.abs(scaled) * 2 ^ -50 then
+      error(("time: %s(%s) is not a whole number of nanoseconds an integer holds"):format(name,
+        tostring(n)), 3)
+    end
+    return whole
+  end
+  error(("time: %s takes a number, not %s"):format(name, type(n)), 3)
+end
+
+--- `n` milliseconds as nanoseconds: `Time.ms(250)` is 250000000. A float
+--- is as good as an integer when the span is a whole number of
+--- nanoseconds, to within the rounding of the product (`Time.ms(0.5)` is
+--- 500000, and `Time.seconds(1.005)` is 1005000000). Raises for anything
+--- else: a value that is no number, a span with a fraction of a
+--- nanosecond, or one outside what an integer holds.
+function Time.ms(n: number): integer
+  return span(n, 1000000, "Time.ms")
+end
+
+--- A timeout or a deadline's length: `Time.seconds(5)` is 5000000000
+--- nanoseconds. A count is held to what [`ms`] holds one to.
+function Time.seconds(n: number): integer
+  return span(n, NS, "Time.seconds")
+end
+
+--- Ninety seconds as a count of minutes: `Time.minutes(1.5)` is
+--- 90000000000 nanoseconds. A count is held to what [`ms`] holds one to.
+function Time.minutes(n: number): integer
+  return span(n, 60 * NS, "Time.minutes")
+end
+
+--- Hours as nanoseconds: `Time.hours(1)` is 3600000000000. A count is
+--- held to what [`ms`] holds one to.
+function Time.hours(n: number): integer
+  return span(n, 3600 * NS, "Time.hours")
 end
 
 return Time
