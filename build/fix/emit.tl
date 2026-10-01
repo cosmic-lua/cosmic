@@ -68,6 +68,8 @@ local record Emitter
   line: integer
   --- Whether source line `y` holds nothing but whitespace.
   blank: {integer:boolean}
+  --- Source line `y`'s text.
+  lines: {integer:string}
   --- Every comment the token stream carries, in source order.
   comments: {compiler.Comment}
   --- Whether the comment at the same index has CODE after it on the
@@ -145,7 +147,7 @@ local function new(source: string, tokens: {compiler.Token}): Emitter
       end
     end
   end
-  return { parts = {}, line = 0, blank = blank, comments = comments,
+  return { parts = {}, line = 0, blank = blank, lines = wrote, comments = comments,
            code_after = code_after, opens_line = opens_line, at = 1,
            shift = 0, indent = 0, bare = true }
 end
@@ -190,14 +192,48 @@ local function text(e: Emitter, s: string)
   e.line = e.line + newlines(s)
 end
 
+--- How many bytes the output line in progress holds.
+local function column(e: Emitter): integer
+  local width = 0
+  for i = #e.parts, 1, -1 do
+    local part = e.parts[i]
+    local after = part:match("\n([^\n]*)$")
+    if after ~= nil then
+      return width + #after
+    end
+    width = width + #part
+  end
+  return width
+end
+
 --- Every comment still unwritten that sat on the cursor's own line or
---- earlier: a trailing comment, one space after whatever the output
---- line already holds.
-local function trailing(e: Emitter)
-  while e.at <= #e.comments and e.comments[e.at].y <= e.line do
+--- earlier, written as trailing comments one space after what the
+--- output line already holds, on the way to line `y`.
+---
+--- A long comment among them can close on a later line. The comments
+--- after its `]]` on that line join the run when nothing the renderer
+--- has still to write stands between: when that line comes before `y`,
+--- all its code is written already; on `y` itself, only when the source
+--- wrote nothing between them and the `]]`.
+local function trailing(e: Emitter, y: integer)
+  local line = e.line
+  -- The column just past the last comment written, on the line it ended on.
+  local after = 0
+  while e.at <= #e.comments do
     local c = e.comments[e.at]
+    if c.y > line then
+      if c.y ~= e.line then
+        break
+      end
+      local between = (e.lines[c.y] or ""):sub(after, c.x - 1)
+      if c.y >= y and between:match("^%s*$") == nil then
+        break
+      end
+    end
     put(e, " " .. c.text)
-    e.line = e.line + newlines(c.text)
+    local closing = newlines(c.text)
+    e.line = e.line + closing
+    after = closing > 0 and #(c.text:match("[^\n]*$") or "") + 1 or c.x + #c.text
     e.at = e.at + 1
   end
 end
@@ -225,11 +261,12 @@ end
 --- no break to write.
 ---
 --- Once the run has reached `y`, it takes only the comments the source
---- wrote code after, since those sit in front of the code being moved
---- to. A comment with nothing after it on that line is the line's
---- trailing comment and is left for `trailing` to write after the
---- statement, because a `--` comment in front of the code would
---- comment the line out.
+--- wrote code after and in front of column `x`, since those sit in
+--- front of the code being moved to. A comment with nothing after it
+--- on that line is the line's trailing comment and is left for
+--- `trailing` to write after the statement, because a `--` comment in
+--- front of the code would comment the line out; one further along the
+--- line is written where the code reaches it.
 ---
 --- A run starts on `y` only when the comment is what that line opens
 --- with. `--[[ q ]] print(1)` is a run of one and the statement is
@@ -238,10 +275,11 @@ end
 --- it.
 --- @param e Emitter
 --- @param y integer The line being moved to
+--- @param x integer The column on `y` being moved to
 --- @return boolean Whether a blank line is still owed, which the caller
 ---   emits last so a run of blanks before `y` collapses to one
 --- @return integer The line the gap finished on
-local function gap(e: Emitter, y: integer): boolean, integer
+local function gap(e: Emitter, y: integer, x: integer): boolean, integer
   local pending = false
   local cy = e.line + 1
   while cy <= y do
@@ -254,7 +292,7 @@ local function gap(e: Emitter, y: integer): boolean, integer
       local ended = cy
       local opened = false
       while e.at <= #e.comments and e.comments[e.at].y == ended
-            and (ended < y or e.code_after[e.at]) do
+            and (ended < y or (e.code_after[e.at] and e.comments[e.at].x < x)) do
         local c = e.comments[e.at]
         put(e, (opened and " " or indent_of(e, c.x)) .. c.text)
         ended = ended + newlines(c.text)
@@ -320,6 +358,16 @@ local function ahead(e: Emitter, y: integer, x: integer)
     if not e.code_after[e.at] or c.y ~= y or c.x >= x then
       return
     end
+    -- A space parts it from code before it, which against a unary `-`
+    -- is what keeps its `--` from reading as `---`, a line comment
+    -- taking the rest of the line; an opening bracket keeps it close.
+    local i = #e.parts
+    while i > 0 and e.parts[i] == "" do
+      i = i - 1
+    end
+    if i > 0 and e.parts[i]:sub(-1):match("[%s%(%[{]") == nil then
+      put(e, " ")
+    end
     put(e, c.text .. " ")
     e.line = e.line + newlines(c.text)
     e.at = e.at + 1
@@ -368,7 +416,7 @@ local function advance(e: Emitter, y: integer, pad: string, inline: string,
     return
   end
   if #e.parts > 0 then
-    trailing(e)
+    trailing(e, y)
     if e.line >= y then
       -- The trailing comment of the cursor's own line spanned lines and
       -- closed on the one being moved to, so the break the source wrote
@@ -377,11 +425,12 @@ local function advance(e: Emitter, y: integer, pad: string, inline: string,
       -- from it, the same as after a run that reaches `y`.
       put(e, " ")
       e.line = y
+      ahead(e, y, x)
       return
     end
     put(e, "\n")
   end
-  local pending, ended = gap(e, y)
+  local pending, ended = gap(e, y, x)
   if ended >= y then
     -- A comment run in the gap ran into `y` itself, so the output is
     -- already on the line being moved to and the break the source had
@@ -396,6 +445,7 @@ local function advance(e: Emitter, y: integer, pad: string, inline: string,
   end
   put(e, pad)
   e.line = y
+  ahead(e, y, x)
 end
 
 --- Drop every comment at or before (`y`, `x`) as already written: the
@@ -418,7 +468,7 @@ end
 --- @param e Emitter
 --- @return string
 local function done(e: Emitter): string
-  trailing(e)
+  trailing(e, math.maxinteger)
   if e.at <= #e.comments then
     -- A line past the end of the last comment, which the file has no
     -- code on at all: column 1, since nothing there was written behind
@@ -441,6 +491,7 @@ local record EmitModule
   consume: function(e: Emitter, y: integer, x: integer)
   done: function(e: Emitter): string
   opening_column: function(e: Emitter, y: integer, x: integer): integer
+  column: function(e: Emitter): integer
 end
 
 local M: EmitModule = {
@@ -451,6 +502,7 @@ local M: EmitModule = {
   consume = consume,
   done = done,
   opening_column = opening_column,
+  column = column,
 }
 
 return M

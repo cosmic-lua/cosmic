@@ -140,22 +140,61 @@ local function place(ctx: Ctx, margin: integer, x: integer)
   ctx.em.shift = ctx.shift
 end
 
---- `text` with every line after the first moved by `ctx.shift` columns.
-local function reindent(ctx: Ctx, text: string): string
-  if ctx.shift == 0 or text:find("\n", 1, true) == nil then
-    return text
+--- How many newlines `text` carries.
+local function newlines(text: string): integer
+  local _, n = text:gsub("\n", "")
+  return n
+end
+
+--- The source lines after `y1`, through `y2`, that open inside a long
+--- comment or a long string starting at or after (`y1`, `x1`): the
+--- bytes there are the comment's or the string's own, not indentation.
+local function held_lines(ctx: Ctx, y1: integer, x1: integer, y2: integer): {integer:boolean}
+  local held: {integer:boolean} = {}
+  local function hold(y: integer, x: integer, text: string)
+    if y < y1 or (y == y1 and x < x1) or y > y2 then
+      return
+    end
+    for line = y + 1, y + newlines(text) do
+      held[line] = true
+    end
   end
+  -- A comment hangs on the token after it, so the first token past the
+  -- range still carries the comments that end it.
+  local tokens = ctx.scan.tokens
+  local i = typescan.index_before(ctx.scan, y1, x1) + 1
+  while tokens[i] ~= nil do
+    local t = tokens[i]
+    local carried = t.comments
+    if carried ~= nil then
+      for _, c in ipairs(carried) do
+        hold(c.y, c.x, c.text)
+      end
+    end
+    if t.y > y2 then
+      break
+    end
+    hold(t.y, t.x, t.tk)
+    i = i + 1
+  end
+  return held
+end
+
+--- `text`, read from source line `y1` on, with every line after the
+--- first moved by `ctx.shift` columns, but those `held` keeps as they
+--- are.
+local function reindent(ctx: Ctx, text: string, y1: integer, held: {integer:boolean}): string
   local out: {string} = {}
-  local first = true
+  local y = y1
   for line in String.lines(text) do
-    if first then
+    if y == y1 or held[y] then
       out[#out + 1] = line
-      first = false
     elseif ctx.shift > 0 then
       out[#out + 1] = string.rep(" ", ctx.shift) .. line
     else
       out[#out + 1] = (line:gsub("^" .. string.rep(" ", -ctx.shift), ""))
     end
+    y = y + 1
   end
   return table.concat(out, "\n")
 end
@@ -170,13 +209,20 @@ end
 --- @param x2 integer
 local function verbatim(ctx: Ctx, y1: integer, x1: integer, y2: integer, x2: integer)
   local text = ctx.source:sub(offset(ctx, y1, x1), offset(ctx, y2, x2))
-  emit.text(ctx.em, reindent(ctx, text))
+  if ctx.shift ~= 0 and y2 > y1 then
+    text = reindent(ctx, text, y1, held_lines(ctx, y1, x1, y2))
+  end
+  emit.text(ctx.em, text)
   emit.consume(ctx.em, y2, x2)
 end
 
 --- Write the original bytes of tokens `first` through `last`. Nothing
 --- is written when the range is empty, which is a type the parser
 --- synthesized rather than read off the source.
+---
+--- It leads to the first token first, so a comment the source wrote in
+--- front of it is written there, and a line break before it kept,
+--- rather than taken as written with the bytes after it.
 --- @param ctx Ctx
 --- @param first integer The index of the region's first token
 --- @param last integer The index of the region's last token
@@ -186,6 +232,7 @@ local function region(ctx: Ctx, first: integer, last: integer): boolean
   if opening == nil or last < first then
     return false
   end
+  lead_at(ctx, opening.y, opening.x, "")
   verbatim(ctx, opening.y, opening.x, ctx.scan.tokens[last].y,
     typescan.last_column(ctx.scan, last))
   return true

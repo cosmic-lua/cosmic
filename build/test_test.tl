@@ -21,6 +21,58 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
 end
 
+--- `--shard I/N` names one of N shares, from 1; nothing else does.
+local function test_a_shard_is_one_of_n_shares_from_one()
+  local shard = assert(test.shard("2/3"))
+  assert(shard.index == 2 and shard.count == 3)
+  shard = assert(test.shard("1/1"))
+  assert(shard.index == 1 and shard.count == 1)
+  for _, text in ipairs({ "0/2", "3/2", "1/0", "2", "/2", "1/", "-1/2", "1.5/2",
+      "1/2/3", " 1/2", "99999999999999999999/99999999999999999999" }) do
+    local refused, why = test.shard(text)
+    assert(refused == nil and why:find("--shard must be I/N", 1, true), text)
+  end
+end
+
+--- The N shares of one run's tests hold each test once, whatever order
+--- they come in, spread every module's tests across them, and differ
+--- in size by one at most.
+local function test_the_shares_deal_each_test_once()
+  local ids: {string} = {}
+  for module = 1, 5 do
+    for name = 1, module * 3 do
+      ids[#ids + 1] = string.format("m%d test_%02d", module, name)
+    end
+  end
+  local reversed: {string} = {}
+  for i = #ids, 1, -1 do reversed[#reversed + 1] = ids[i] end
+  for count = 1, 4 do
+    local held: {string:integer} = {}
+    local sizes: {integer} = {}
+    for index = 1, count do
+      local dealt = test.dealt(ids, { index = index, count = count })
+      local again = test.dealt(reversed, { index = index, count = count })
+      local size = 0
+      local modules: {string:boolean} = {}
+      for id in pairs(dealt) do
+        assert(again[id], id .. " is dealt by the order the ids came in")
+        held[id] = (held[id] or 0) + 1
+        size = size + 1
+        modules[id:match("^(%S+)")] = true
+      end
+      for id in pairs(again) do assert(dealt[id], id) end
+      sizes[#sizes + 1] = size
+      -- m5's fifteen tests reach every share.
+      assert(modules.m5, "share " .. index .. " of " .. count .. " holds none of m5")
+    end
+    for _, id in ipairs(ids) do
+      assert(held[id] == 1, id .. " is in " .. tostring(held[id]) .. " of " .. count .. " shares")
+    end
+    table.sort(sizes)
+    assert(sizes[#sizes] - sizes[1] <= 1, "shares of " .. count .. " differ by more than one")
+  end
+end
+
 --- The census says a key's harness parts as one word, which a report
 --- compares whole (ci/cosmic_ci/report.tl) and reads as the rest of a
 --- part, up to a space: two bumps of the epoch from one count say

@@ -126,3 +126,13 @@ local function test_record_spacing_alone_is_not_a_difference()
   assert(same, "record spacing counted as a difference: " .. difference)
   assert(kept, "record spacing changed comments: " .. difference)
 end
+
+--- A list of type arguments carries where it closes, with no kind of
+--- its own to say so: an indented generic moved left is the same tree.
+local function test_where_a_type_argument_list_closes_is_no_difference()
+  local same, _, difference = compare("  local function f<T>(x: T) end\n",
+    "local function f<T>(x: T) end\n")
+  assert(same, "got: " .. difference)
+  local record_same, _, record_difference = compare(" local record R<T> end\n", "local record R<T> end\n")
+  assert(record_same, "got: " .. record_difference)
+end
