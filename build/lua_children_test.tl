@@ -9,6 +9,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
@@ -103,4 +104,23 @@ local function test_a_standalone_file_is_refused_without_standalone(tmp: string)
   assert(not ok and out == "", out .. err)
   assert(err:find(REFUSED, 1, true) and err:find("declare standalone = true beside lua", 1,
     true), err)
+end
+
+--- The compiler's identity is refused to a child whose module's closure
+--- holds no reader of it beyond what `lua` adds (build.test_inputs'
+--- `compiler_sought`), as its key leaves it out: build.dispatch, which
+--- reads it, is among `lua_loads` here, so a read the key does not hold
+--- fails rather than being answered, here as in the child. A row every
+--- key holds still reads.
+local function test_the_compilers_identity_is_refused_to_a_child()
+  local read, why = pcall(Store.meta, "compiler")
+  assert(not read and tostring(why):find("Store.meta of \"compiler\" is held", 1, true),
+    tostring(why))
+  for _, row in ipairs({ "compiler", "compiled_by" }) do
+    local ok, out, err = run({ "-e", "print(require('cosmic.store').meta('" .. row .. "'))" })
+    assert(not ok and out == "" and err:find(REFUSED, 1, true) and
+      err:find("does not hold that row", 1, true), row .. ": " .. out .. err)
+  end
+  local ok, out, err = run({ "-e", "print(require('cosmic.store').meta('main'))" })
+  assert(ok and out == "cmd.cosmic.main\n", out .. err)
 end
