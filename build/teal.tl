@@ -18,7 +18,7 @@ local type compiler = require("build.compiler")
 local record teal
   --- The globals cosmic's runtime removes, which [`environment_for`]
   --- strips from the checker: [`cosmic.removed`]'s `order`, which
-  --- build/teal_test.tl holds this to. They are spelled here, not read
+  --- build/teal_catalog_test.tl holds this to. They are spelled here, not read
   --- from that module, so that what a compile accepts is decided by this
   --- module alone, which the compiler's identity holds
   --- ([`build.work`]'s `compiler_identity`), and an edit to the rest of
