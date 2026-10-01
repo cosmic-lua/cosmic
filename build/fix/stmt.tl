@@ -21,6 +21,7 @@ local expr = require("build.fix.expr")
 local sig = require("build.fix.sig")
 local typescan = require("build.fix.typescan")
 
+local type compiler = require("build.compiler")
 local type Node = ast.Node
 local type Ctx = ctx_mod.Ctx
 
@@ -65,40 +66,98 @@ local function begins_at(c: Ctx, s: Node): integer, integer
   return at.y, at.x
 end
 
+--- The first of the `;` run after statement `i` of `body`: the last
+--- token before the next statement, or before the token closing the
+--- block (its keyword, or the end of the file), walked back over the
+--- run. Nil when no `;` stands there.
+local function semicolon(c: Ctx, body: Node, i: integer): compiler.Token | nil
+  local j: integer
+  local next_one = body[i + 1]
+  if next_one ~= nil then
+    local y, x = begins_at(c, next_one)
+    j = typescan.index_before(c.scan, y, x)
+  else
+    local yend, xend = body.yend, body.xend
+    j = (yend ~= nil and xend ~= nil) and typescan.index_before(c.scan, yend, xend) or #c.scan.tokens
+    if typescan.tk(c.scan, j) ~= ";" then
+      j = j - 1
+    end
+  end
+  if typescan.tk(c.scan, j) ~= ";" then
+    return nil
+  end
+  while j > 1 and typescan.tk(c.scan, j - 1) == ";" do
+    j = j - 1
+  end
+  return c.scan.tokens[j]
+end
+
 --- Every statement of one block, each on the line the source gave it.
 ---
---- A `;` between two statements is not in the AST, and dropping one can
---- join two statements into something that reads differently
---- (`local t: T; i, t = f()`). So it is read back off the token stream:
---- when the token before a statement is a separator, it is written.
+--- A `;` after a statement is a flag on it (`semicolon`), however many
+--- the source wrote, and it is written right after the statement: one
+--- between two statements keeps them from reading as one
+--- (`local t: T; i, t = f()`), and one after a block's last statement
+--- is still part of the tree.
 ---
---- That stream is the parser's, not the lexer's, so it can hold a `;`
---- the source never wrote. Where a line ends in a call and the next
---- begins with a `(`, tl inserts a `;` to record which of the two
---- readings it took, and writing it out states in the source what the
---- compiler had decided.
+--- The flag is set from the parser's token stream, not the lexer's, so
+--- it can stand for a `;` the source never wrote. Where a line ends in
+--- a call and the next begins with a `(`, tl inserts a `;` to record
+--- which of the two readings it took, and writing it out states in the
+--- source what the compiler had decided.
 --- @param c Ctx
 --- @param body Node A "statements" node
 local function block(c: Ctx, body: Node)
   local outer = c.margin
   local outer_shift = c.shift
+  if body.tk == ";" then
+    -- A `;` in front of the first statement flags none: the block's own
+    -- node opens on it, and keeps it only as its first token.
+    ctx_mod.lead_at(c, body.y, body.x, " ")
+    emit.put(c.em, ";")
+  end
   for i, s in ipairs(body) do
     local y, x = begins_at(c, s)
-    if i > 1 then
-      local first = typescan.index_at(c.scan, y, x)
-      if first ~= nil and typescan.tk(c.scan, first - 1) == ";" then
-        emit.put(c.em, ";")
-      end
-    end
     -- A statement moves by the distance its line moves, which differs
     -- from its first keyword's when a comment precedes it on that line.
-    ctx_mod.place(c, outer + 2, emit.opening_column(c.em, y, x))
+    local opening = emit.opening_column(c.em, y, x)
+    ctx_mod.place(c, outer + 2, opening)
     ctx_mod.lead_to(c, y, x, outer + 2, " ")
+    if opening == x and not c.em.bare then
+      -- It continues a line, after another statement or a `]]`, so it
+      -- moves by where that line has reached instead.
+      c.shift = emit.column(c.em) - (x - 1)
+      c.em.shift = c.shift
+    end
     statement(c, s)
+    if s.semicolon then
+      local t = semicolon(c, body, i)
+      if t ~= nil then
+        ctx_mod.lead_at(c, t.y, t.x, "")
+      end
+      emit.put(c.em, ";")
+    end
   end
   c.margin = outer
   c.shift = outer_shift
   c.em.shift = outer_shift
+end
+
+--- Write `texts`, the tokens after the one statement `n` opens on, each
+--- where the source put it: on its line, or `inline` after what came
+--- before. A `goto`'s label and a label's name and closing `::` have no
+--- node of their own, and the source may break a line between them.
+local function words(c: Ctx, n: Node, texts: {string}, inline: string)
+  local at = typescan.index_at(c.scan, n.y, n.x)
+  for i, text in ipairs(texts) do
+    local t = at ~= nil and c.scan.tokens[at + i] or nil
+    if t ~= nil then
+      ctx_mod.lead_at(c, t.y, t.x, inline)
+    else
+      emit.put(c.em, inline)
+    end
+    emit.text(c.em, text)
+  end
 end
 
 --- Write a keyword the AST records no position for, such as a `then`
@@ -243,7 +302,8 @@ local function type_declaration(c: Ctx, n: Node, word: string)
     ctx_mod.refuse(c, "a type alias with no token of its own")
     return
   end
-  emit.put(c.em, " ")
+  local t = c.scan.tokens[first]
+  ctx_mod.lead_at(c, t.y, t.x, " ")
   ctx_mod.region(c, first, typescan.type_end(c.scan, first))
 end
 
@@ -399,13 +459,19 @@ statement = function(c: Ctx, n: Node)
     local exps = n.exps
     if exps ~= nil and #exps > 0 then
       expr.items(c, exps, " ")
+    elseif exps ~= nil and exps.tk == ";" then
+      -- `return;` with no values: the empty list opens on the `;`, and
+      -- keeps it only as its first token.
+      emit.put(c.em, ";")
     end
   elseif kind == "break" then
     emit.text(c.em, "break")
   elseif kind == "goto" then
-    emit.text(c.em, "goto " .. (n.label or ""))
+    emit.text(c.em, "goto")
+    words(c, n, { n.label or "" }, " ")
   elseif kind == "label" then
-    emit.text(c.em, "::" .. (n.label or "") .. "::")
+    emit.text(c.em, "::")
+    words(c, n, { n.label or "", "::" }, "")
   elseif kind == "repeat" then
     local body = n.body
     if body == nil then

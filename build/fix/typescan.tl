@@ -144,6 +144,22 @@ local function closing_angle(s: Scan, i: integer): integer
   return #s.tokens
 end
 
+--- The names tl's parser reads as a whole type at once: its
+--- `simple_types`, whatever follows them, and `table` unless a `.`
+--- follows it. A `<` after one is no type argument list but the
+--- comparison the type is an operand of, as in `a as integer < b`.
+local simple: {string:boolean} = {
+  ["nil"] = true,
+  ["any"] = true,
+  ["number"] = true,
+  ["string"] = true,
+  ["thread"] = true,
+  ["boolean"] = true,
+  ["integer"] = true,
+  ["self"] = true,
+  ["table"] = true,
+}
+
 local type_end: function(Scan, integer): integer
 local rets_end: function(Scan, integer): integer
 
@@ -166,6 +182,9 @@ local function single_end(s: Scan, i: integer): integer
       return rets_end(s, j + 2)
     end
     return j
+  end
+  if simple[text] and (text ~= "table" or tk(s, i + 1) ~= ".") then
+    return i
   end
   local j = i
   while tk(s, j + 1) == "." and is_name(tk(s, j + 2)) do
@@ -255,6 +274,7 @@ local record TypescanModule
   type Scan = Scan
   new: function(tokens: {compiler.Token}): Scan
   index_at: function(s: Scan, y: integer, x: integer): integer | nil
+  index_before: function(s: Scan, y: integer, x: integer): integer
   bounded_end: function(s: Scan, y: integer, x: integer): integer
   type_end: function(s: Scan, i: integer): integer
   rets_end: function(s: Scan, i: integer): integer
@@ -268,6 +288,7 @@ end
 local M: TypescanModule = {
   new = new,
   index_at = index_at,
+  index_before = index_before,
   bounded_end = bounded_end,
   type_end = type_end,
   rets_end = rets_end,
