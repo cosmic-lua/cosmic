@@ -465,7 +465,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     if not written then
       return write_trouble
     end
-    local opened, open_trouble = Sqlite.open(path, true)
+    local opened, open_trouble = Sqlite.open(path, { writable = true })
     if opened == nil then
       return path .. ": " .. open_trouble
     end

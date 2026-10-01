@@ -1,6 +1,7 @@
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 
 local record State
   schema: string
@@ -93,7 +94,7 @@ local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
 end
 
 function State.open(path: string): Sqlite.Handle
-  local db = assert(Sqlite.open(path, true)); assert(db:exec(State.schema))
+  local db = assert(SqliteOpen.writable(path)); assert(db:exec(State.schema))
   -- A table written before a key part or `held` was gains its column.
   local present = suite_columns_of(db)
   local wanted: {string} = { "held" }

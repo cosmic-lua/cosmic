@@ -54,7 +54,7 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
   })
   assert(outcome.status == "error" and outcome.code == 1 and outcome.trouble,
     "retained open failure did not return an error outcome")
-  local db = assert(Sqlite.open(database, false))
+  local db = assert(Sqlite.open(database))
   local rows = assert(Sqlite.text_rows(db, [[
     SELECT c.status, c.detail
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
@@ -85,7 +85,7 @@ local function test_step_records_work_done_in_process(tmp: string)
   end)
   assert(raised.status == "error" and raised.code == 1 and
     (raised.trouble or ""):find("broke", 1, true))
-  local db = assert(Sqlite.open(database, false))
+  local db = assert(Sqlite.open(database))
   local rows = assert(Sqlite.text_rows(db, [[
     SELECT s.phase, c.status, coalesce(c.detail, '')
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id

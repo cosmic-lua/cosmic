@@ -1696,7 +1696,7 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   local kind, trouble = sys.flock_kind(fd)
   assert(kind == "apart" or kind == "shared", trouble)
   assert(sys.flock(fd, "exclusive"))
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   -- Asked once: a connection waits a minute for a lock by default.
   assert(db:exec("PRAGMA busy_timeout = 0"))
   local taken, why = db:exec("BEGIN IMMEDIATE")

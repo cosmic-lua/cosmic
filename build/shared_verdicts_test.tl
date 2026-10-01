@@ -49,7 +49,7 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
     "test: census: no rows")
   shared_verdicts.close(cache)
   -- As a cache from before the column, holding one row.
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("DROP TABLE declared_v1"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
     "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
@@ -88,7 +88,7 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   local cache = assert(shared_verdicts.open(path))
   shared_verdicts.close(cache)
   -- As a cache of an earlier format: its table, and no declared_v1.
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("DROP TABLE declared_v1"))
   assert(db:exec("CREATE TABLE verdicts_v4 (key TEXT PRIMARY KEY)"))
   assert(db:close())
@@ -128,7 +128,7 @@ local function test_a_store_digest_is_kept_by_its_address(tmp: string)
   local path = tmp .. "/cache/verdicts.db"
   local cache = assert(shared_verdicts.open(path))
   shared_verdicts.close(cache)
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("DROP TABLE stores_v1"))
   assert(db:close())
   cache = assert(shared_verdicts.open(path))

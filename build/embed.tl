@@ -140,7 +140,7 @@ function embed.database(project: string, main: string): string | nil, string
   local building = project .. ".embed"
   local _, _ = Fs.remove(building)
   local _, _ = Fs.remove(building .. ".vacuumed")
-  local out, open_trouble = Sqlite.open(building, true)
+  local out, open_trouble = Sqlite.open(building, { writable = true })
   if out == nil then
     return nil, building .. ": " .. open_trouble
   end

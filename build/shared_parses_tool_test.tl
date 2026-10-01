@@ -131,7 +131,7 @@ end
 
 --- `parse_rows` of the checkout at `root`.
 local function parse_rows_of(root: string): string
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local out = parse_rows(db)
   assert(db:close())
   return out
@@ -228,7 +228,7 @@ local function test_a_damaged_parse_is_parsed_again_and_replaced(tmp: string)
   built_as(tmp .. "/first", env, "4 sources parsed;")
   local c_hash = dump(tmp .. "/first/o/build.db", "SELECT source_hash FROM inputs WHERE path = 'c'")
   local b_hash = dump(tmp .. "/first/o/build.db", "SELECT source_hash FROM inputs WHERE path = 'b'")
-  local cache = assert(Sqlite.open(path, true))
+  local cache = assert(Sqlite.open(path, { writable = true }))
   -- `b`'s rows become `c`'s, and `c`'s become no stream at all.
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET rows = (SELECT rows FROM parsed_v1 " ..
     "WHERE source_hash = ?2) WHERE source_hash = ?1", { { text = b_hash }, { text = c_hash } }))

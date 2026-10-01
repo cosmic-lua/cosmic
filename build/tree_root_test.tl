@@ -22,7 +22,7 @@ local function project(dir: string): string
   assert(Fs.write(tmp .. "/proj/o/cosmic.db", ""))
   assert(Fs.mkdirs(tmp .. "/proj/a/b"))
   -- What the last build staged: one source under a/b.
-  local db = assert(Sqlite.open(tmp .. "/proj/o/build.db", true))
+  local db = assert(Sqlite.open(tmp .. "/proj/o/build.db", { writable = true }))
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
     "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
   assert(Sqlite.run(db, "INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))

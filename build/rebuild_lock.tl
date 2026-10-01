@@ -142,7 +142,7 @@ end
 --- `wait_ms`. Answers "held", "busy", or nil and why.
 local function take_sqlite(lock: Lock, path: string,
                            wait_ms: integer): rebuild_lock.Taken | nil, string
-  local db, db_trouble = Sqlite.open(path, true)
+  local db, db_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. db_trouble
   end

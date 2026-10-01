@@ -5,7 +5,8 @@
 --- what to use instead, naming the replacement for the very field used
 --- (`os.getenv` is [`Env.get`]). `cosmic docs os` (or any field below)
 --- answers the same thing directly. `members` does the same at compile
---- time for a member a `cosmic.*` module no longer has. Help on the
+--- time for a member a `cosmic.*` module no longer has, and `arguments`
+--- for a boolean passed where a record is now taken. Help on the
 --- language's other libraries is in the checked examples that ordinary
 --- documentation search returns.
 local record Removed
@@ -69,6 +70,11 @@ local record Module
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
   members: {string:string}
+  --- What to write where a boolean is passed for a parameter that now
+  --- takes a record, by the record's module and name
+  --- ([`cosmic.sqlite.OpenOptions`]). The compiler says it after its
+  --- `argument 2: got boolean, expected Sqlite.OpenOptions`.
+  arguments: {string:string}
   --- What to write instead of `name`, or of its field `field`.
   message: function(name: string, field?: string): string
 end
@@ -273,6 +279,8 @@ local module: Module = {
       "seconds, ns) (" .. fs .. ")",
     ["cosmic.sys.EBUSY"] = "compare sys.errno_name(errno) with \"EBUSY\", the errno's " ..
       "name on every system (" .. sys .. ")",
+    ["cosmic.sqlite.cell"] = "use Sqlite.rows(db, sql, values), whose rows carry typed cells, " ..
+      "or Sqlite.query(db, sql, values) to read them one at a time (" .. sqlite .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..
@@ -281,6 +289,16 @@ local module: Module = {
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.last_insert_rowid"] = "use db:last_insert_rowid(), the method on " ..
       "the handle Sqlite.open answers (" .. sqlite .. ")",
+  },
+  -- TODO: a call that still passes Sqlite.open's old third argument gets
+  -- only the arity error (`wrong number of arguments ... at most 2`), with
+  -- no hint: the message names no callee. Say `{ immutable = true }` for
+  -- `false, true` once the checker carries a hint for an arity error that
+  -- names the callee.
+  arguments = {
+    ["cosmic.sqlite.OpenOptions"] = "Sqlite.open(path, opts) takes a table: " ..
+      "{ writable = true } for the old `true`, and nothing for `false` (" ..
+      sqlite .. ")",
   },
 }
 

@@ -16,6 +16,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
+local SqliteOpen = require("cosmic_ci.sqlite_open")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 
@@ -117,7 +118,7 @@ function CacheTrim.trim(path: string, since_ns: integer,
                         tables: CacheTrim.Tables): CacheTrim.Trimmed | nil, string
   if not Predicate.exists(path) then return nil, "" end
   local before_bytes = size(path)
-  local opened, open_trouble = Sqlite.open(path, true)
+  local opened, open_trouble = SqliteOpen.writable(path)
   if opened == nil then return nil, open_trouble end
   local db: Sqlite.Handle = opened
   local function fail(why: string): CacheTrim.Trimmed | nil, string
@@ -234,7 +235,7 @@ end
 local function feed_rows(hasher: Hash.Hasher, path: string): boolean, string
   -- Writable, as the trim opens it: a reader of a file in write-ahead
   -- mode leaves its log and index behind, which the save would carry.
-  local opened, open_trouble = Sqlite.open(path, true)
+  local opened, open_trouble = SqliteOpen.writable(path)
   if opened == nil then return false, open_trouble end
   local db: Sqlite.Handle = opened
   local function fail(why: string): boolean, string

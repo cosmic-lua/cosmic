@@ -5,7 +5,7 @@ local sql = require("build.sql")
 local function project(): string
   local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
   assert(Fs.mkdirs(root .. "/o"))
-  local db = assert(Sqlite.open(root .. "/o/cosmic.db", true))
+  local db = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
     "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
     "(3, char(27) || '[31m' || char(127) || '\\N')"))
@@ -139,7 +139,7 @@ end
 local function test_a_query_leaves_no_wal_or_shm_beside_the_database()
   local root = assert(Fs.mkdtemp("cosmic-sql-wal-test-"))
   local path = root .. "/wal.db"
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("PRAGMA journal_mode = WAL; CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
   assert(db:close())
   assert(Fs.exists(path .. "-wal") == false and Fs.exists(path .. "-shm") == false,
@@ -159,7 +159,7 @@ end
 local function test_a_query_sees_commits_that_live_only_in_the_wal()
   local root = assert(Fs.mkdtemp("cosmic-sql-wal-frames-test-"))
   local path = root .. "/wal.db"
-  local writer = assert(Sqlite.open(path, true))
+  local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; " ..
     "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
   assert(writer:exec("PRAGMA wal_checkpoint(TRUNCATE); INSERT INTO t VALUES (2)"))
@@ -179,7 +179,7 @@ end
 local function test_a_commit_that_reaches_the_wal_during_the_open_is_seen()
   local root = assert(Fs.mkdtemp("cosmic-sql-wal-race-test-"))
   local path = root .. "/wal.db"
-  local writer = assert(Sqlite.open(path, true))
+  local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; " ..
     "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
   assert(writer:exec("PRAGMA wal_checkpoint(TRUNCATE)"))
