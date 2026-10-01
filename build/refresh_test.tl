@@ -49,7 +49,7 @@ end
 --- Every dataset is an option naming a file to read it from.
 local function test_every_dataset_is_an_option()
   for _, dataset in ipairs(refresh.datasets) do
-    assert(Cli.options.refresh["--" .. dataset.name] ~= nil, dataset.name)
+    assert(Cli.verbs.refresh.spec["--" .. dataset.name] ~= nil, dataset.name)
   end
 end
 
