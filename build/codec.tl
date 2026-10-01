@@ -31,7 +31,7 @@
 ---
 --- The input is streamed, 64 KiB at a time (a read that comes up short,
 --- as a pipe's does, is read on until the chunk is full or the input
---- ends), through [`cosmic.codec`]'s incremental coders. Encoding writes
+--- ends), through the incremental coders below. Encoding writes
 --- each chunk's text as soon as it is made. Decoding holds one chunk's
 --- bytes back until the next chunk has decoded, so an input of at most
 --- 64 KiB writes nothing when it is refused. A padding, length or
@@ -51,6 +51,34 @@ local plural = require("build.plural")
 
 --- The `cosmic codec` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
+  --- The encodings, by the name a command line gives.
+  enum Name
+    "hex"
+    "base64"
+    "base64url"
+  end
+
+  --- One incremental transform, a chunk at a time, in the shape of
+  --- [`cosmic.compress`]'s streams: `update(chunk)` feeds bytes (or
+  --- text) and returns the output that is ready, possibly ""; and
+  --- `finish()` says no more input follows and returns what is left,
+  --- with `nil` and a reason when a decoder's text was refused. Both
+  --- answer `value, ""` on success. An encoder never fails. A decoder
+  --- fails only at `finish`: it cannot tell a bad length from a bad
+  --- character until the text ends, and the whole-string decoders
+  --- report the length first, so it keeps the first bad character and
+  --- carries on. A coder holds at most three characters of a group not
+  --- yet whole, plus a little state, however much passes through it,
+  --- and gives all the output it has at each call. After `finish`,
+  --- `update` and `finish` raise.
+  record Coder
+    --- Feeds a chunk; answers the output that is ready, possibly "".
+    update: function(Coder, chunk: string): string | nil, string
+    --- Ends the input; answers what is left, or `nil` and why a
+    --- decoder's text was refused.
+    finish: function(Coder): string | nil, string
+  end
+
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
@@ -69,19 +97,214 @@ local record verb
   end
 end
 
+--- A coder whose `update` and `finish` are the given functions, each
+--- refused once `finish` has run.
+local function guarded(
+    update: function(chunk: string): string, string,
+    finish: function(): string | nil, string): verb.Coder
+  local done = false
+  local c: verb.Coder = {}
+  c.update = function(_self: verb.Coder, chunk: string): string | nil, string
+    if done then error("codec: coder is finished", 2) end
+    return update(chunk)
+  end
+  c.finish = function(_self: verb.Coder): string | nil, string
+    if done then error("codec: coder is finished", 2) end
+    done = true
+    return finish()
+  end
+  return c
+end
+
+--- One base64 alphabet: how [`cosmic.codec`] writes and reads it whole,
+--- `class` a pattern matching a character outside it, `padded` whether
+--- its text ends in `=`, and `name` what its refusals call it.
+local record Alphabet
+  encode: function(string): string
+  decode: function(string): string | nil, string
+  class: string
+  padded: boolean
+  name: string
+end
+
+local STANDARD <const>: Alphabet = {
+  encode = Codec.base64, decode = Codec.unbase64,
+  class = "[^A-Za-z0-9+/]", padded = true, name = "base64",
+}
+local URL <const>: Alphabet = {
+  encode = Codec.base64url, decode = Codec.unbase64url,
+  class = "[^A-Za-z0-9_-]", padded = false, name = "base64url",
+}
+
+--- A base64 encoder: whole groups of three bytes go out as they come,
+--- and the last one or two are padded, if `a` pads, at `finish`.
+local function base64_encoder(a: Alphabet): verb.Coder
+  local carry = ""
+  return guarded(
+    function(chunk: string): string, string
+      local data = carry .. chunk
+      local whole = #data - #data % 3
+      carry = data:sub(whole + 1)
+      if whole == 0 then return "", "" end
+      return a.encode(whole == #data and data or data:sub(1, whole)), ""
+    end,
+    function(): string, string
+      return a.encode(carry), ""
+    end)
+end
+
+local function hex_decoder(): verb.Coder
+  local total = 0
+  local carry = ""
+  local bad_at: integer | nil
+  local bad_byte = 0
+  return guarded(
+    function(chunk: string): string, string
+      local before = total - #carry
+      total = total + #chunk
+      if bad_at ~= nil then return "", "" end
+      local data = carry .. chunk
+      local at = data:find("[^0-9a-fA-F]")
+      if at ~= nil then
+        bad_at, bad_byte, carry = before + at, data:byte(at), ""
+        return "", ""
+      end
+      local even = #data - #data % 2
+      carry = data:sub(even + 1)
+      return (assert(Codec.unhex(data:sub(1, even)))), ""
+    end,
+    function(): string | nil, string
+      if total % 2 ~= 0 then
+        return nil, ("codec: hex text of odd length %d"):format(total)
+      end
+      if bad_at ~= nil then
+        return nil, ("codec: byte 0x%02x at %d is not a hex digit"):format(bad_byte, bad_at)
+      end
+      return "", ""
+    end)
+end
+
+--- A decoder for `a`, as the whole-string one is: the same refusals in
+--- the same order, the same words, and offsets counted from the first
+--- character fed.
+local function base64_decoder(a: Alphabet): verb.Coder
+  local name = a.name
+  local padded = a.padded
+  local total = 0
+  -- Characters of the group in progress, all in the alphabet.
+  local carry = ""
+  -- The first character outside the alphabet, where it lies and what
+  -- it is; from there on, only how many characters follow and whether
+  -- all of them are `=`, which decides whether it is padding.
+  local bad_at: integer | nil
+  local bad_byte = 0
+  local run = 0
+  local run_pad = false
+  return guarded(
+    function(chunk: string): string, string
+      local before = total - #carry
+      total = total + #chunk
+      if bad_at ~= nil then
+        run = run + #chunk
+        if run_pad and chunk:find("[^=]") then run_pad = false end
+        return "", ""
+      end
+      local data = carry .. chunk
+      local at = data:find(a.class)
+      local usable = at ~= nil and at - 1 or #data
+      local whole = usable - usable % 4
+      carry = data:sub(whole + 1, usable)
+      if at ~= nil then
+        bad_at, bad_byte = before + at, data:byte(at)
+        run = #data - at + 1
+        run_pad = bad_byte == 61 and data:find("[^=]", at) == nil
+      end
+      if whole == 0 then return "", "" end
+      return (assert(a.decode(data:sub(1, whole)))), ""
+    end,
+    function(): string | nil, string
+      if padded then
+        if total % 4 ~= 0 then
+          return nil, ("codec: %s text of length %d, not a multiple of 4"):format(name, total)
+        end
+      elseif total % 4 == 1 then
+        return nil, ("codec: %s text of length %d leaves one character over"):format(name, total)
+      end
+      if bad_at ~= nil and not (padded and run_pad and run <= 2) then
+        if bad_byte == 61 then
+          return nil, ("codec: %s text has misplaced '=' padding at %d"):format(name, bad_at)
+        end
+        return nil, ("codec: byte 0x%02x at %d is outside the %s alphabet"):format(
+          bad_byte, bad_at, name)
+      end
+      if #carry < 2 then return "", "" end
+      -- The last, partial group decodes as the whole-string decoder
+      -- would see it, padded out if the alphabet is.
+      local last = padded and carry .. ("="):rep(4 - #carry) or carry
+      local out, why = a.decode(last)
+      if out == nil then return nil, why end
+      return out, ""
+    end)
+end
+
+--- An incremental encoder for `name`: feed it chunks of bytes with
+--- `update` and it returns the text they spell so far, holding back at
+--- most two bytes of an unfinished base64 group; `finish` returns the
+--- rest, with the padding [`Codec.base64`] writes. The text of all the
+--- chunks together is exactly the whole-string encoder's, whatever the
+--- chunking. Raises on a name it does not know.
+--- @param name hex, base64 or base64url
+--- @return verb.Coder The encoder
+function verb.encoder(name: verb.Name): verb.Coder
+  if name == "hex" then
+    return guarded(
+      function(chunk: string): string, string
+        return Codec.hex(chunk), ""
+      end,
+      function(): string, string
+        return "", ""
+      end)
+  elseif name == "base64" then
+    return base64_encoder(STANDARD)
+  elseif name == "base64url" then
+    return base64_encoder(URL)
+  end
+  error("codec: no such encoding: " .. tostring(name), 2)
+end
+
+--- An incremental decoder for `name`, as strict as the whole-string
+--- one ([`Codec.unhex`], [`Codec.unbase64`], [`Codec.unbase64url`]) and
+--- refusing with the same reason, its offsets counted from the first
+--- character fed, whatever the chunking. `update` returns the bytes
+--- whole groups of text spell, holding back at most three characters;
+--- `finish` returns the last bytes, or `nil` and the reason.
+--- Raises on a name it does not know.
+--- @param name hex, base64 or base64url
+--- @return verb.Coder The decoder
+function verb.decoder(name: verb.Name): verb.Coder
+  if name == "hex" then
+    return hex_decoder()
+  elseif name == "base64" then
+    return base64_decoder(STANDARD)
+  elseif name == "base64url" then
+    return base64_decoder(URL)
+  end
+  error("codec: no such encoding: " .. tostring(name), 2)
+end
+
 local spec = Cli.options.codec
 
 local usage = "cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [<file>|-]"
 
 --- The encodings, by the name a command line gives.
-local names: {Codec.Name} = { "hex", "base64", "base64url" }
+local names: {verb.Name} = { "hex", "base64", "base64url" }
 
-local by_word: {string:Codec.Name} = {}
+local by_word: {string:verb.Name} = {}
 for _, each in ipairs(names) do
   by_word[each] = each
 end
 
-local function known(word: string): Codec.Name | nil
+local function known(word: string): verb.Name | nil
   return by_word[word]
 end
 
@@ -123,8 +346,8 @@ local blank <const> = "[ \t\n\r\f\v]"
 --- (so empty input writes just the newline).
 --- @param name hex, base64 or base64url
 --- @param wrap columns per line; 0 for one line
-local function encoding(name: Codec.Name, wrap: integer): Codec.Coder
-  local inner = Codec.encoder(name)
+local function encoding(name: verb.Name, wrap: integer): verb.Coder
+  local inner = verb.encoder(name)
   local column = 0
   --- `text` with a newline wherever a line is full and more follows.
   local function shaped(text: string): string
@@ -143,11 +366,11 @@ local function encoding(name: Codec.Name, wrap: integer): Codec.Coder
     end
     return table.concat(parts)
   end
-  local coder: Codec.Coder = {}
-  coder.update = function(_self: Codec.Coder, chunk: string): string, string
+  local coder: verb.Coder = {}
+  coder.update = function(_self: verb.Coder, chunk: string): string, string
     return shaped((assert(inner:update(chunk)))), ""
   end
-  coder.finish = function(_self: Codec.Coder): string, string
+  coder.finish = function(_self: verb.Coder): string, string
     return shaped((assert(inner:finish()))) .. "\n", ""
   end
   return coder
@@ -160,8 +383,8 @@ end
 --- naming a byte offset, from 0, counted in the input as given.
 --- @param name hex, base64 or base64url
 --- @param lenient whether the other padding spelling is accepted
-function verb.decoding(name: Codec.Name, lenient: boolean): Codec.Coder
-  local inner = Codec.decoder(name)
+function verb.decoding(name: verb.Name, lenient: boolean): verb.Coder
+  local inner = verb.decoder(name)
   local wrong = refused[name]
   -- Bytes fed so far, characters that are not whitespace, and the
   -- offset of the last of them.
@@ -182,8 +405,8 @@ function verb.decoding(name: Codec.Name, lenient: boolean): Codec.Coder
   local function at_end(why: string): nil, string
     return fail(("%s (at offset %d)"):format(why:gsub("^codec: ", ""), last or math.max(fed - 1, 0)))
   end
-  local coder: Codec.Coder = {}
-  coder.update = function(_self: Codec.Coder, chunk: string): string | nil, string
+  local coder: verb.Coder = {}
+  coder.update = function(_self: verb.Coder, chunk: string): string | nil, string
     if failed ~= nil then return nil, failed end
     local clean = squeezed(chunk)
     local bad = clean:find(wrong)
@@ -212,10 +435,10 @@ function verb.decoding(name: Codec.Name, lenient: boolean): Codec.Coder
       end
     end
     fed = fed + #chunk
-    -- A [`cosmic.codec`] decoder refuses only at `finish`.
+    -- The strict decoder refuses only at `finish`.
     return assert(inner:update(body)), ""
   end
-  coder.finish = function(_self: Codec.Coder): string | nil, string
+  coder.finish = function(_self: verb.Coder): string | nil, string
     if failed ~= nil then return nil, failed end
     -- Padding: `=` is only ever a run at the end, at most two long.
     local head = ""
@@ -249,7 +472,7 @@ end
 --- @param name hex, base64 or base64url
 --- @param bytes what to encode
 --- @param wrap columns per line; 0 for one line
-function verb.encode(name: Codec.Name, bytes: string, wrap: integer): string
+function verb.encode(name: verb.Name, bytes: string, wrap: integer): string
   local coder = encoding(name, wrap)
   return assert(coder:update(bytes)) .. assert(coder:finish())
 end
@@ -259,7 +482,7 @@ end
 --- @param name hex, base64 or base64url
 --- @param text the encoded text
 --- @param lenient whether the other padding spelling is accepted
-function verb.decode(name: Codec.Name, text: string, lenient: boolean): string | nil, string
+function verb.decode(name: verb.Name, text: string, lenient: boolean): string | nil, string
   local coder = verb.decoding(name, lenient)
   local head, why = coder:update(text)
   if head == nil then return nil, why end
@@ -270,7 +493,7 @@ end
 
 --- What a command line asks for.
 local record Request
-  name: Codec.Name
+  name: verb.Name
   decode: boolean
   wrap: integer
   lenient: boolean
