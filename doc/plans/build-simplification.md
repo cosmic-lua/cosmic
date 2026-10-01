@@ -70,12 +70,12 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | --- | --- | --- | --- |
 | 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merged | a6d458c9; final and queue CI green; independent approval |
 | 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | merged | 09240c31; branch and integrated queue36941246664 green; independent approval |
-| 3. Build phase and cleanup ownership | pending | integrated review | 6a04d5a6 on merged2; identical approved patch; fresh gates running |
-| 4. Reporting outside the acknowledged runner | pending | locally approved | 9187fa7b; reporting and runner-boundary checks pass; rebase after 3 |
-| 5a. Bootstrap lock ownership preparation | pending | locally approved | cc912a80; independent old-pin boot and 65 focused tests pass |
+| 3. Build phase and cleanup ownership | [#2532](https://github.com/cosmic-lua/cosmic/pull/2532) | in merge queue | 6f5e6861; branch CI36942604690 green; independent approval |
+| 4. Reporting outside the acknowledged runner | pending | integrated approval | 0364d170; 83 focused and 11 parser tests pass; align after 3 |
+| 5a. Bootstrap lock ownership preparation | pending | integration review | 82d54b66; patch-identical rebase onto approved step 4 |
 | 5b. Pin, flock/scratch and obsolete adapters | pending | implementing | verified release executed; locking and API slices prepare one atomic PR |
 | 6a. CI cache-name policy | pending | locally approved | 20420196; independent output/identity/policy checks and 38 tests pass |
-| 6b. CI operation recording | pending | planned | preserve durable exit codes and diagnostics |
+| 6b. CI operation recording | pending | implementing | concrete phase recording; preserve exit codes, diagnostics and timing |
 | 7. Zig graph construction | pending | locally approved | 32d63aa5; 19 artifact hashes and 590 dependency lines preserved |
 | 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
 
@@ -498,3 +498,18 @@ changes the design, update this plan before proceeding and explain the decision.
   after every check in queue36941246664 passed, including Alpine. Independent
   queue review confirms preceding PR2530 keeps all writer/compiler boundaries
   and step2 harness acknowledgments. Step3 rebase is patch-identical at6a04d5a6.
+
+- 2026-10-01: step 3 opened as #2532 at remote 6f5e6861, identical reviewed
+  tree 834eedd7. Integrated checks: 122 tests passed, repeat 122 stood in 1.217 s
+  with zero compiles/reads; whole-tree 635 files and CI 60 files passed. Branch
+  CI 36942604690 is green; queue 36942878305 is running. No new TODOs.
+- 2026-10-01: step 4 rebase is independently approved at 0364d170; 83 focused
+  tests and 11 CI parser tests passed, full-tree 637 files has zero findings.
+  Step 5a rebase is patch-identical and undergoing final integration checks.
+  Both still require alignment with the actual preceding merge before publication.
+- 2026-10-01: step 5b scratch ownership stays local in both standalone scripts:
+  they can import only modules carried by the pinned release. A new checkout
+  helper would break standalone bootstrap. The small duplicate protocol avoids
+  a new public API and pin cycle. Independent locking and API reviewers are active.
+  Removing COSMIC_TEST_KEY changes possible worker inputs, so this transition
+  conservatively retires the current harness epoch rather than reusing verdicts.
