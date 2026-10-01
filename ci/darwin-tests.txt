@@ -14,14 +14,22 @@
 # Darwin exemptions tallied here: only a whole run, the scheduled one's,
 # tallies which C functions a test entered.
 #
-# spawn by fork where Linux clones; confine, unveil, offline and
-# subreaper refused ENOSYS; descriptors closed without close_range
-# (core/syscalls.c).
+# spawn by posix_spawn where Linux clones: its descriptors, directory,
+# process group, mask and SIGPIPE given as file actions and attributes,
+# the rest closed by POSIX_SPAWN_CLOEXEC_DEFAULT, exec's errno as
+# posix_spawn's own, and the soft descriptor limit lowered around the
+# call; confine, pledge, unveil, offline and subreaper refused ENOSYS
+# (core/syscalls.c's `spawn_program`).
 core/syscalls_test.tl
+core/syscalls_sigpipe_test.tl
 core/syscalls_tool_test.tl
+core/descriptor_limit_system_test.tl
 cosmic/child_test.tl
-# Signals a child starts with restored to default up to Darwin's
-# SIGNAL_LIMIT of 32 (core/syscalls.c's `default_signals`).
+cosmic/child_lua_test.tl
+cosmic/child_tool_test.tl
+# Signals a child starts with: a caught one at its default through
+# exec, an ignored one ignored but SIGPIPE (core/syscalls.c's
+# `spawn_program`).
 cosmic/child_signal_test.tl
 # The artifact's descriptor refused without openat2, and the executable
 # found by _NSGetExecutablePath rather than /proc/self/exe

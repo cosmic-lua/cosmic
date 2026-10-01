@@ -26,7 +26,8 @@ local LOW <const> = 256
 
 --- Run in the program started at LOW: its own soft limit, what a
 --- relaunch of it printed or why it failed, the soft limit a shell it
---- starts is given, and that again once it set its own.
+--- starts is given, its own once the two have started, and the shell's
+--- again once it set its own.
 local CHUNK <const> = [[
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -49,6 +50,7 @@ local r, why = Child.run(argv, { env = env, fds = relaunch.fds, stdout = "captur
   stderr = "capture" })
 print(r ~= nil and (assert(r.stdout):gsub("%s+$", "")) or why)
 print(shell_limit())
+print(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft)
 assert(sys.setrlimit(sys.RLIMIT_NOFILE, 300, limits.hard))
 print(shell_limit())
 ]]
@@ -82,13 +84,21 @@ local function test_a_start_at_a_low_limit_raises_it_and_relaunches(tmp: string)
   assert(raised > LOW, "the soft limit stayed " .. lines[1])
 end
 
+--- A start that gives its child the limit the program started with
+--- gives this program its raised one back once the child has started.
+local function test_a_start_leaves_this_program_s_limit_raised(tmp: string)
+  local lines = started_low(tmp, CHUNK)
+  if lines == nil then return end
+  assert(lines[4] == lines[1], tostring(lines[4]) .. " after starting, not " .. lines[1])
+end
+
 --- A host program gets the limit the program started with, not the one
 --- it raised; once the program sets the limit, it gets that one.
 local function test_a_host_program_gets_the_limit_the_program_started_with(tmp: string)
   local lines = started_low(tmp, CHUNK)
   if lines == nil then return end
   assert(lines[3] == tostring(LOW), lines[3])
-  assert(lines[4] == "300", lines[4])
+  assert(lines[5] == "300", lines[5])
 end
 
 --- A program the process becomes ([`Proc.exec`], the execve binding) gets
