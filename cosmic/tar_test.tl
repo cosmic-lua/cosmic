@@ -567,3 +567,19 @@ local function test_a_link_target_holding_a_nul_byte_is_refused()
   -- A refused argument is not a failed write.
   assert(w:add_symlink("l", "ok"))
 end
+
+--- A failing Writer's own words are what the writer answers, as they
+--- are; a failing body Reader's are told what the writer was doing.
+local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
+  local full: Stream.Writer = {}
+  full.write = function(_self: Stream.Writer, _data: string): boolean, string
+    return false, "disk full"
+  end
+  full.close = function(_self: Stream.Writer): boolean, string return true, "" end
+  full.abort = full.close
+  local w = Tar.writer(full)
+  local ok, trouble = w:add_file("f", Stream.from_string(string.rep("x", 100000)), { size = 100000 })
+  assert(not ok and trouble == "disk full", trouble)
+  ok, trouble = w:close()
+  assert(not ok and trouble == "disk full", trouble)
+end

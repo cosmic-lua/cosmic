@@ -633,6 +633,13 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   local deterministic = opts.deterministic or false
   local sink = Stream.sticky(w, "tar")
   local tw: Tar.Writer = {}
+  -- What a body is copied to: the sink, which keeps a write's failure.
+  local body_sink: Stream.Writer = {}
+  body_sink.write = function(_self: Stream.Writer, data: string): boolean, string
+    return sink:put(data)
+  end
+  body_sink.close = function(_self: Stream.Writer): boolean, string return true, "" end
+  body_sink.abort = body_sink.close
 
   local function put_entry(path: string, typeflag: string, size: integer,
       mode: integer, mtime: integer, linkname: string): boolean, string
@@ -686,8 +693,13 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
       ok, trouble = sink:put(data)
       if not ok then return false, trouble end
     else
-      ok, trouble = Stream.copy_n(data, w, size)
-      if not ok then return sink:fail("tar: add_file: " .. trouble) end
+      ok, trouble = Stream.copy_n(data, body_sink, size)
+      if not ok then
+        -- A failed write is the sink's already, said as the Writer said it.
+        local usable, failure = sink:usable()
+        if not usable then return false, failure end
+        return sink:fail("tar: add_file: " .. trouble)
+      end
     end
     return sink:put(pad_bytes(size))
   end

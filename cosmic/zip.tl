@@ -156,27 +156,34 @@ local NS_PER_SECOND <const> = 1000000000
 local DOS_FIRST <const> = 315532800
 local DOS_LAST <const> = 4354819199
 
+--- The DOS date `last_date`'s midnight, in Unix epoch seconds: the
+--- entries of one archive mostly share a date, and the calendar need
+--- not be asked about it again for each.
+local last_date: integer = -1
+local last_midnight: integer = 0
+
 --- A DOS date and time as Unix epoch seconds. A field its bits can
 --- spell but no clock or calendar has is clamped to the nearest it
 --- could be: month 13 to December, hour 24 to 23, a second of 60 to 59,
 --- and a day past its month's end (February 31) to the month's last.
 local function dos_to_unix(date: integer, clock: integer): integer
-  local c: Time.Civil = {
-    year = ((date >> 9) & 0x7F) + 1980,
-    month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
-    day = math.max(date & 0x1F, 1),
-    hour = math.min((clock >> 11) & 0x1F, 23),
-    minute = math.min((clock >> 5) & 0x3F, 59),
-    second = math.min((clock & 0x1F) * 2, 59),
-    nanosecond = 0,
-  }
-  local ns, _ = Time.from_civil(c)
-  -- Only a day past the month's end can be refused now.
-  while ns == nil do
-    c.day = c.day - 1
-    ns, _ = Time.from_civil(c)
+  if date ~= last_date then
+    local c: Time.Civil = {
+      year = ((date >> 9) & 0x7F) + 1980,
+      month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
+      day = math.max(date & 0x1F, 1),
+      hour = 0, minute = 0, second = 0, nanosecond = 0,
+    }
+    local ns, _ = Time.from_civil(c)
+    -- Only a day past the month's end can be refused now.
+    while ns == nil do
+      c.day = c.day - 1
+      ns, _ = Time.from_civil(c)
+    end
+    last_date, last_midnight = date, ns // NS_PER_SECOND
   end
-  return ns // NS_PER_SECOND
+  return last_midnight + math.min((clock >> 11) & 0x1F, 23) * 3600 +
+    math.min((clock >> 5) & 0x3F, 59) * 60 + math.min((clock & 0x1F) * 2, 59)
 end
 
 --- Unix epoch seconds as a DOS date and time, to two seconds: a moment
@@ -190,9 +197,12 @@ end
 
 --- The refusal of `text`, which `what` names, when it holds a NUL byte:
 --- every system call would take it as the end of the string and never
---- see the rest. "" when it holds none.
-local function nul_refusal(text: string, what: string): string
-  if text:find("\0", 1, true) == nil then return "" end
+--- see the rest. "" when it holds none. With `first` and `last`, only
+--- those positions of `text` are searched, so a name need not be cut
+--- out of the buffer it lies in to be checked.
+local function nul_refusal(text: string, what: string, first?: integer, last?: integer): string
+  local nul = text:find("\0", first or 1, true)
+  if nul == nil or (last ~= nil and nul > last) then return "" end
   return "zip: NUL byte " .. what
 end
 
@@ -472,8 +482,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   c.at = at + whole
   local name_start = at + 46
   local name_end = name_start + name_len - 1
-  local name = buf:sub(name_start, name_end)
-  local refusal = nul_refusal(name, "in an entry name")
+  local refusal = nul_refusal(buf, "in an entry name", name_start, name_end)
   if refusal ~= "" then return nil, refusal end
   local mode = 0
   local unix_type = 0
@@ -508,13 +517,13 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   -- overflow for values already known not to be negative.
   local cd_offset = c.start
   if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
-    return nil, "zip: entry " .. name .. " (offset " ..
+    return nil, "zip: entry " .. buf:sub(name_start, name_end) .. " (offset " ..
       tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
       "the start of the central directory at " .. tostring(cd_offset)
   end
   if bare and kind ~= "symlink" then return CHECKED, "" end
   local entry: Zip.Entry = setmetatable({
-    path = name,
+    path = buf:sub(name_start, name_end),
     kind = kind,
     size = usize,
     compressed_size = csize,
@@ -849,8 +858,12 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     feed.close = function(_self: Stream.Writer): boolean, string return true, "" end
     feed.abort = feed.close
     local copied, ctrouble = Stream.copy(body, feed)
-    -- A failure of the writer is the sink's already, and `fail` keeps the first.
-    if copied == nil then return sink:fail(ctrouble) end
+    if copied == nil then
+      -- A failed write is the sink's already, said as the Writer said it.
+      local usable, failure = sink:usable()
+      if not usable then return false, failure end
+      return sink:fail("zip: add_file: " .. ctrouble)
+    end
     if deflater ~= nil then
       local tail, ftrouble = deflater:finish()
       if tail == nil then return sink:fail(ftrouble) end

@@ -257,7 +257,9 @@ local record Cli
   --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
   --- encoder for either. Paths must be relative and stay under the
   --- working directory; a fifo, socket or device is refused, named,
-  --- wherever it is found. Prints no verdict
+  --- wherever it is found. A symlink is stored as a link in both
+  --- formats; a zip tool that ignores Unix attributes extracts the
+  --- target's text as a file. Prints no verdict
   --- line, its output being data for a pipe. Exits 0 when done, 1 for a
   --- member or a path that is not there or files it would overwrite, 2
   --- for a command line, an archive it cannot read or one it refuses

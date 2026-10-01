@@ -138,8 +138,9 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
 end
 
---- The types the archive modules shared, now one in [`cosmic.stream`], name
---- where each went.
+--- A type an archive module no longer declares is told where its
+--- replacement is: [`cosmic.stream`] holds the entry kind, the entry
+--- options and the interfaces the three modules share.
 local function test_a_removed_archive_type_names_its_replacement(tmp: string)
   for _, case in ipairs({
     { "cosmic.tar", "Tar", "Kind", "use Stream.EntryKind" },

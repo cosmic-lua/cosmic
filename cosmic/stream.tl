@@ -138,6 +138,12 @@ local record Stream
     "other"
   end
 
+  -- TODO: once `cosmic docs` lists the fields a record gets from an `is`
+  -- parent, the pages of Tar.Entry, Zip.Entry, Archive.Entry and
+  -- Archive.Reader should show path, kind, mode, size, mtime, linkpath and
+  -- open (this interface's, with their docs) beside each record's own
+  -- fields; today those two aliases list none and the records list only
+  -- what they redeclare.
   --- One entry of a tar or a zip, as [`cosmic.archive`] walks both. The
   --- interface lives here, not there, because Teal's interface
   --- conformance is nominal: [`cosmic.tar`] and [`cosmic.zip`] each
@@ -151,7 +157,8 @@ local record Stream
     --- The permission bits (the low 12); 0 for a zip entry whose tool
     --- recorded none.
     mode: integer
-    --- The body's size in bytes, uncompressed.
+    --- The body's size in bytes, uncompressed. A zip symlink's body is its
+    --- target, so its size is the target's length; a tar symlink's is 0.
     size: integer
     --- The modification time, in Unix epoch seconds.
     mtime: integer
