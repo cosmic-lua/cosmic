@@ -6,13 +6,14 @@
 --- wrong. So `cosmic fix` reparses what it wrote and compares the two
 --- trees here, field by field, ignoring only what a rewrite may move.
 ---
---- Ignored: a node's position (`y`, `x`, `yend`, `xend`), the filename
---- stamped on it, the type identifier tl hands out from a counter, and
---- the comments the parser attached to statements. Comments are
---- compared separately, off the token stream, where each appears
---- exactly once. Everything else is compared, including the fields a
---- type object carries, so a record body that lost a field or a
---- `<const>` that became something else is a difference.
+--- Ignored: a node's position (`y`, `x`, `yend`, `xend`, and those of a
+--- list the parser stamps one on), the filename stamped on it, the type
+--- identifier tl hands out from a counter, and the comments the parser
+--- attached to statements. Comments are compared separately, off the
+--- token stream, where each appears exactly once. Everything else is
+--- compared, including the fields a type object carries, so a record
+--- body that lost a field or a `<const>` that became something else is
+--- a difference.
 ---
 --- `if_parent` is skipped rather than followed: an "if_block" node
 --- points back at its enclosing "if" statement, a cycle. That statement
@@ -71,19 +72,40 @@ local function has_metadata(t: {any:any}): boolean
   return kind is string or typename is string or op is string or text is string
 end
 
+--- Fields that hold a coordinate wherever they hold a number, even on a
+--- table with no metadata: the parser stamps where some lists close on
+--- the list itself (a `<T>` list's `yend` and `xend`). A field map
+--- never holds a number under these names, since its values are type
+--- objects.
+local coordinate: {string:boolean} = {
+  ["y"] = true,
+  ["x"] = true,
+  ["yend"] = true,
+  ["xend"] = true,
+}
+
 --- The keys worth comparing on one table, both sides' keys together.
 local function keys_of(a: {any:any}, b: {any:any}): {any}
   local metadata = has_metadata(a) and has_metadata(b)
+  local function compared(k: any): boolean
+    if not (k is string) then
+      return true
+    end
+    if metadata then
+      return not positional[k]
+    end
+    return not (coordinate[k] and math.type(a[k]) == "integer" and math.type(b[k]) == "integer")
+  end
   local seen: {any:boolean} = {}
   local out: {any} = {}
   for k in pairs(a) do
-    if not metadata or not (k is string) or not positional[k] then
+    if compared(k) then
       seen[k] = true
       out[#out + 1] = k
     end
   end
   for k in pairs(b) do
-    if not seen[k] and (not metadata or not (k is string) or not positional[k]) then
+    if not seen[k] and compared(k) then
       out[#out + 1] = k
     end
   end

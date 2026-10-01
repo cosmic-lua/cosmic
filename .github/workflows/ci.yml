@@ -104,8 +104,10 @@
     platform: {
       needs: "reuse",
       if: "!cancelled() && needs.reuse.outputs.run == ''",
-      # The leg's name is the check's, so a ruleset needs no matrix.
-      name: "${{ matrix.name }}",
+      # The leg's name is the check's, so a ruleset needs no matrix; a
+      # light run's second linux-x86_64 share (`shard`) is
+      # linux-x86_64-shard.
+      name: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.shell }}"}},
       strategy: {
         "fail-fast": false,
@@ -115,6 +117,17 @@
           # runner and target in another image; the merge queue, main and
           # a scheduled or manual run run all four.
           name: "${{ fromJSON((github.event_name != 'push' || github.ref == 'refs/heads/main') && '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\", \"alpine-x86_64\"]' || '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\"]') }}",
+          # A light run splits linux-x86_64's native suite, its longest
+          # leg's, between two legs on that leg's runner and image
+          # (COSMIC_CI_SHARD, `cosmic test --shard`), each its whole
+          # self but for the other's tests; the exclusions below keep
+          # the other legs whole. Each restores and keys as that leg
+          # does, and the gate (`ci`) needs every leg. A full run, whose
+          # suites gate a merge, runs every leg whole.
+          shard: "${{ fromJSON((github.event_name != 'push' || github.ref == 'refs/heads/main') && '[\"\"]' || '[\"1/2\", \"2/2\"]') }}",
+          # Of the original combinations, before any entry below is
+          # added; on a full run, with no second share, none matches.
+          exclude: [{name: "linux-aarch64", shard: "2/2"}, {name: "macos-aarch64", shard: "2/2"}],
           # Each entry adds to the legs of its `name`; the first, which
           # names none, adds alpine-x86_64's to every leg, and each
           # later one replaces all of them for its own. An entry naming
@@ -160,8 +173,15 @@
       permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 45,
       env: {
-        COSMIC_WORKER: "${{ matrix.name }}",
+        # The job's own name (`name` above), which names what it
+        # uploads apart from the other linux-x86_64 share's.
+        COSMIC_WORKER: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}",
         TARGET: "${{ matrix.target }}",
+        # Which share of the native suite this leg runs (`I/N`), where
+        # it runs one (a light run's linux-x86_64 legs, `shard` above);
+        # empty for the whole suite. The other legs of a light run carry
+        # a share in the matrix too, which this does not pass on.
+        COSMIC_CI_SHARD: "${{ matrix.name == 'linux-x86_64' && matrix.shard || '' }}",
         # The checked core's suite runs in a job of its own (`checked`),
         # beside the legs rather than after one of them; each leg still
         # builds and verifies the checked core (orchestration.tl's
@@ -633,7 +653,7 @@
           if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "ci-driver-${{ matrix.name }}",
+            name: "ci-driver-${{ env.COSMIC_WORKER }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
             "retention-days": 7,
@@ -658,7 +678,7 @@
           if: "failure()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "platform-diagnostics-${{ matrix.name }}",
+            name: "platform-diagnostics-${{ env.COSMIC_WORKER }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/checked-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
             "if-no-files-found": "ignore",
             "retention-days": 7,

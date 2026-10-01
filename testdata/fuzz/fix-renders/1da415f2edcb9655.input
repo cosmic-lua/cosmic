@@ -1,0 +1,2 @@
+#!/usr/bin/env cosmic
+ return {[ [[long]] ] = a ,}

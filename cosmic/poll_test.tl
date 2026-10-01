@@ -583,3 +583,235 @@ local function test_a_ready_wait_refuses_what_is_no_wait()
   end)
   raises(function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end, "Poll.ready outside Poll.run")
 end
+
+--- The growth of live memory, in KiB, from `base`, once what is no
+--- longer reachable is collected.
+local function grown_since(base: number): number
+  collectgarbage()
+  collectgarbage()
+  return collectgarbage("count") - base
+end
+
+--- Long time waits answered early are not kept until their times come:
+--- a server's tasks, each waiting with a long timeout and answered
+--- first, would otherwise hold every wait it ever made, and its task,
+--- behind a wait due sooner that is still waiting.
+local function test_time_waits_answered_early_are_not_kept()
+  local early, late = 0.0, 0.0
+  Poll.run(function()
+    local sooner = Poll.spawn(function()
+      local _, _ = Poll.delay(1800 * 1000)
+    end)
+    assert(Poll.delay(0))
+    collectgarbage()
+    collectgarbage()
+    local base = collectgarbage("count")
+    for round = 1, 10 do
+      local tasks: {Poll.Task} = {}
+      for i = 1, 1000 do
+        tasks[i] = Poll.spawn(function()
+          local _, _ = Poll.delay(3600 * 1000)
+        end)
+      end
+      assert(Poll.delay(0))
+      for _, task in ipairs(tasks) do task:cancel() end
+      for _, task in ipairs(tasks) do assert(task:join()) end
+      local grown = grown_since(base)
+      if round <= 2 then early = math.max(early, grown) else late = math.max(late, grown) end
+    end
+    sooner:cancel()
+  end)
+  assert(late < early + 128, ("grew %.0f KiB, then %.0f KiB"):format(early, late))
+end
+
+--- A task joined over and over with a timeout keeps none of the joins
+--- its timeout answered, and still answers the joins left waiting, in
+--- the order they began.
+local function test_joins_a_timeout_answers_are_not_kept()
+  local early, late = 0.0, 0.0
+  local order: {string} = {}
+  Poll.run(function()
+    local sleeper = Poll.spawn(function()
+      local _, _ = Poll.delay(3600 * 1000)
+    end)
+    local function joiner(name: string): Poll.Task
+      return Poll.spawn(function()
+        assert(sleeper:join())
+        order[#order + 1] = name
+      end)
+    end
+    local first = joiner("first")
+    assert(Poll.delay(0))
+    collectgarbage()
+    collectgarbage()
+    local base = collectgarbage("count")
+    for round = 1, 10 do
+      for _ = 1, 1000 do
+        local ok, why = sleeper:join(0)
+        assert(not ok and why == Poll.TIMEOUT, why)
+      end
+      local grown = grown_since(base)
+      if round <= 2 then early = math.max(early, grown) else late = math.max(late, grown) end
+    end
+    local second = joiner("second")
+    assert(Poll.delay(0))
+    sleeper:cancel()
+    assert(first:join())
+    assert(second:join())
+  end)
+  assert(late < early + 64, ("grew %.0f KiB, then %.0f KiB"):format(early, late))
+  assert(table.concat(order, " ") == "first second", table.concat(order, " "))
+end
+
+--- A join answered by a cancel, its task killed before it resumes,
+--- is no joiner's either, as one killed while it waits is not.
+local function test_joins_killed_after_their_answer_are_not_kept()
+  local early, late = 0.0, 0.0
+  Poll.run(function()
+    local sleeper = Poll.spawn(function()
+      local _, _ = Poll.delay(3600 * 1000)
+    end)
+    assert(Poll.delay(0))
+    collectgarbage()
+    collectgarbage()
+    local base = collectgarbage("count")
+    for round = 1, 10 do
+      for _ = 1, 100 do
+        local answered = Poll.spawn(function()
+          local _, _ = sleeper:join()
+        end)
+        local waiting = Poll.spawn(function()
+          local _, _ = sleeper:join(1000)
+        end)
+        assert(Poll.delay(0))
+        answered:cancel()
+        answered:kill()
+        waiting:kill()
+      end
+      local grown = grown_since(base)
+      if round <= 2 then early = math.max(early, grown) else late = math.max(late, grown) end
+    end
+    sleeper:cancel()
+  end)
+  assert(late < early + 128, ("grew %.0f KiB, then %.0f KiB"):format(early, late))
+end
+
+--- Waits on descriptors that end by a cancel or a kill leave nothing
+--- polled: tasks left waiting only on each other still raise rather
+--- than wait on a descriptor no task waits on.
+local function test_ended_descriptor_waits_leave_nothing_polled(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  raises(function()
+    Poll.run(function()
+      local cancelled = Poll.spawn(function()
+        local _, _ = Poll.ready({ reader, reader }, { sys.POLLIN, 0 }, 100000)
+      end)
+      local killed = Poll.spawn(function()
+        local _, _ = Poll.readable(reader, 100000)
+      end)
+      assert(Poll.delay(0))
+      cancelled:cancel()
+      killed:kill()
+      assert(Poll.delay(0))
+      local first: Poll.Task
+      local second = Poll.spawn(function()
+        local _, _ = first:join()
+      end)
+      first = Poll.spawn(function()
+        local _, _ = second:join()
+      end)
+      local _, _ = first:join()
+    end)
+  end, "every task waits on another")
+  sys.close(reader)
+  sys.close(writer)
+end
+
+--- Waits begin and end on descriptors many of them share, round after
+--- round: each wait on a descriptor made ready is answered in the turn
+--- it is, those of one turn in the order they began; a wait asking for
+--- none of what came stays waiting; and one cancelled, or on a
+--- descriptor about to close, is answered so.
+local function test_waits_sharing_descriptors_come_and_go(tmp: string)
+  local count = 6
+  local readers: {integer} = {}
+  local writers: {integer} = {}
+  for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. i) end
+  Poll.run(function()
+    for round = 1, 20 do
+      local seen: {string} = {}
+      local answers: {integer:{integer}} = {}
+      local waiting: {integer:{Poll.Task}} = {}
+      for i = 1, count do
+        waiting[i] = {}
+        for r = 1, 3 do
+          waiting[i][r] = Poll.spawn(function()
+            local ok, why = Poll.readable(readers[i], 5000)
+            seen[#seen + 1] = i .. "r" .. r .. (ok and "" or " " .. why)
+          end)
+        end
+        Poll.spawn(function()
+          -- The writer is writable, but this wait does not ask that.
+          answers[i] = assert(Poll.ready({ readers[i], writers[i] }, { sys.POLLIN, 0 }, 5000))
+          seen[#seen + 1] = i .. "q"
+        end)
+        Poll.spawn(function()
+          assert(Poll.writable(writers[i], 5000))
+          seen[#seen + 1] = i .. "w"
+        end)
+      end
+      assert(Poll.delay(0))
+      assert(Poll.delay(0))
+      local expected: {string} = {}
+      for i = 1, count do expected[#expected + 1] = i .. "w" end
+      assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
+      seen, expected = {}, {}
+      -- A cancel or a closing answers its waits at once, a write at the
+      -- next poll.
+      local at_once, written: {string}, {string} = {}, {}
+      for i = 1, count do
+        local how = (i + round) % 3
+        if how == 0 then
+          waiting[i][2]:cancel()
+          at_once[#at_once + 1] = i .. "r2 " .. Poll.CANCELLED
+        elseif how == 1 then
+          Poll.closing(readers[i])
+          for r = 1, 3 do at_once[#at_once + 1] = i .. "r" .. r end
+          at_once[#at_once + 1] = i .. "q"
+        else
+          assert(sys.write(writers[i], "x") == 1)
+          for r = 1, 3 do written[#written + 1] = i .. "r" .. r end
+          written[#written + 1] = i .. "q"
+        end
+      end
+      assert(Poll.delay(0))
+      for _, list in ipairs({ at_once, written }) do
+        for _, each in ipairs(list) do expected[#expected + 1] = each end
+      end
+      assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
+      seen, expected = {}, {}
+      for i = 1, count do
+        local how = (i + round) % 3
+        if how == 0 then
+          assert(sys.write(writers[i], "x") == 1)
+          expected[#expected + 1] = i .. "r1"
+          expected[#expected + 1] = i .. "r3"
+          expected[#expected + 1] = i .. "q"
+        end
+      end
+      assert(Poll.delay(0))
+      assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
+      for i = 1, count do
+        local how = (i + round) % 3
+        local first = how == 1 and sys.POLLNVAL or sys.POLLIN
+        assert(answers[i][1] & first ~= 0 and answers[i][2] == 0,
+          i .. ": " .. answers[i][1] .. " " .. answers[i][2])
+        if how ~= 1 then assert(sys.read(readers[i], 16) == "x") end
+      end
+    end
+  end)
+  for i = 1, count do
+    sys.close(readers[i])
+    sys.close(writers[i])
+  end
+end

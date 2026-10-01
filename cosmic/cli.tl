@@ -464,6 +464,8 @@ local module: Module = {
         "stood on the shared cache, how many rows it holds, even in a checkout " ..
         "that ran before" },
       ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
+      ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
+        "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
       ["--timeout"] = { value = "seconds",
         about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
     },

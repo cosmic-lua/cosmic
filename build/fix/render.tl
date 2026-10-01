@@ -68,6 +68,13 @@ local function rendered(parsed: ast.Parsed, source: string): string | nil, strin
     refused = {},
     block = stmt.block,
   }
+  local hashbang = parsed.node.hashbang
+  if hashbang ~= nil then
+    -- The `#!` line is no statement and carries no comment, so nothing
+    -- else writes it; the cursor moves past it as past any line written.
+    emit.put(c.em, hashbang)
+    c.em.line = 1
+  end
   stmt.block(c, parsed.node)
   if #c.refused > 0 then
     local seen: {string:boolean} = {}

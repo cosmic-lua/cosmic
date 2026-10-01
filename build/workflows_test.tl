@@ -192,7 +192,9 @@ local FULL_RUN <const> = "(github.event_name != 'push' || github.ref == 'refs/he
 --- matrix configurations") expand them: every combination of the
 --- dimensions (a dimension FULL_RUN chooses between two lists, as
 --- `${{ fromJSON(FULL_RUN && '[...]' || '[...]') }}`, is the one its
---- scope takes), then each `include` entry added to every one of those
+--- scope takes), less each one an `exclude` entry matches (every
+--- dimension it names holds the value it gives, a partial match), then
+--- each `include` entry added to every one of those
 --- original combinations whose dimensions it does not contradict,
 --- overwriting what an earlier entry added, or, where it contradicts
 --- all of them, a combination of its own, which no later entry is
@@ -200,8 +202,7 @@ local FULL_RUN <const> = "(github.event_name != 'push' || github.ref == 'refs/he
 local function expand(matrix: {string: any}, scope: string): {{string: string}}
   local dims: {string} = {}
   for key in pairs(matrix) do
-    assert(key ~= "exclude", "an exclude comes before the includes it would need to hold back")
-    if key ~= "include" then dims[#dims + 1] = key end
+    if key ~= "include" and key ~= "exclude" then dims[#dims + 1] = key end
   end
   table.sort(dims)
   local combos: {{string: string}} = {}
@@ -224,6 +225,23 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
     end
     combos = next_combos
   end
+  -- GitHub's docs: "All include combinations are processed after
+  -- exclude", so an entry never takes back an excluded combination,
+  -- and an exclusion holds back none an entry creates.
+  local kept: {{string: string}} = {}
+  for _, combo in ipairs(combos) do
+    local excluded = false
+    for _, entry in ipairs(matrix.exclude as {{string: string}} or {}) do
+      local matches = true
+      for k, v in pairs(entry) do
+        assert(combo[k] ~= nil or matrix[k] ~= nil, "an exclusion names no dimension: " .. k)
+        if combo[k] ~= v then matches = false end
+      end
+      if matches then excluded = true end
+    end
+    if not excluded then kept[#kept + 1] = combo end
+  end
+  combos = kept
   -- An original combination's dimensions are never overwritten, so
   -- each still holds its own.
   local created: {{string: string}} = {}
@@ -283,13 +301,31 @@ local function test_a_matrix_expands_as_githubs_docs_say()
   }, " "), "the docs' example expands to " .. table.concat(lines, " "))
 end
 
---- The platform legs by name, on a run of `scope`.
+--- The platform job's name, and its COSMIC_WORKER, for a leg: the
+--- leg's own, or `<leg>-shard` for a leg's second share.
+local LEG_NAME <const> = "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}"
+
+--- The share of linux-x86_64's native suite a leg runs (COSMIC_CI_SHARD).
+local LEG_SHARD <const> = "${{ matrix.name == 'linux-x86_64' && matrix.shard || '' }}"
+
+--- [`LEG_NAME`] and [`LEG_SHARD`] of `leg`, as GitHub evaluates them.
+local function leg_name(leg: {string: string}): string
+  if leg.shard == "2/2" then return leg.name .. "-shard" end
+  return leg.name
+end
+local function leg_shard(leg: {string: string}): string
+  if leg.name == "linux-x86_64" and leg.shard ~= "" then return leg.shard end
+  return ""
+end
+
+--- The platform legs by job name ([`LEG_NAME`]), on a run of `scope`.
 local function platform_legs(scope: string): {string: {string: string}}
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local out: {string: {string: string}} = {}
   for _, leg in ipairs(legs_of((ci.jobs as {string: {string: any}}).platform, scope)) do
-    assert(out[leg.name] == nil, "two legs named " .. tostring(leg.name))
-    out[leg.name] = leg
+    local name = leg_name(leg)
+    assert(out[name] == nil, "two legs named " .. name)
+    out[name] = leg
   end
   return out
 end
@@ -308,7 +344,8 @@ local function test_a_branch_push_runs_no_alpine_leg()
     return table.concat(out, " ")
   end
   assert(names(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64", "a full run's legs: " .. names(full))
-  assert(names(light) == "linux-aarch64 linux-x86_64 macos-aarch64", "a light run's legs: " .. names(light))
+  assert(names(light) == "linux-aarch64 linux-x86_64 linux-x86_64-shard macos-aarch64",
+    "a light run's legs: " .. names(light))
   -- Each leg's entry sets every value the first, alpine-x86_64's, sets:
   -- one it left out would be alpine-x86_64's on that leg.
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
@@ -336,10 +373,68 @@ local function test_a_branch_push_runs_no_alpine_leg()
     end
     local other = light[name]
     for _, key in ipairs(keys) do
-      assert(other == nil or other[key] == leg[key], name .. "'s " .. key .. " differs on a light run")
+      -- A light run's share is its own (test_a_branch_push_splits_linux_x86_64s_suite_in_two).
+      assert(other == nil or key == "shard" or other[key] == leg[key],
+        name .. "'s " .. key .. " differs on a light run")
     end
   end
   assert(full["macos-aarch64"].image == "" and full["macos-aarch64"].prepare == "", "macos-aarch64 has an image")
+end
+
+--- A branch push (`light`) splits linux-x86_64's native suite, the
+--- longest of its legs', in two: two legs of linux-x86_64's own
+--- values, the first with COSMIC_CI_SHARD 1/2 and the second, named
+--- linux-x86_64-shard, 2/2, each restoring and keying as that leg does
+--- (its `name` in the matrix is the leg's) and uploading under a name
+--- of its own; every other leg, and every leg of a full run, runs its
+--- suite whole. The gate needs every leg.
+local function test_a_branch_push_splits_linux_x86_64s_suite_in_two()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local platform = jobs.platform
+  local env = platform.env as {string: string}
+  assert(platform.name == LEG_NAME, "the legs' name: " .. tostring(platform.name))
+  assert(env.COSMIC_WORKER == LEG_NAME, "the legs' COSMIC_WORKER: " .. tostring(env.COSMIC_WORKER))
+  assert(env.COSMIC_CI_SHARD == LEG_SHARD, "the legs' COSMIC_CI_SHARD: " .. tostring(env.COSMIC_CI_SHARD))
+  local light, full = platform_legs("light"), platform_legs("full")
+  local first, second = light["linux-x86_64"], light["linux-x86_64-shard"]
+  assert(first ~= nil and second ~= nil, "a light run has no second linux-x86_64 leg")
+  assert(leg_shard(first) == "1/2" and leg_shard(second) == "2/2",
+    "linux-x86_64's shares: " .. leg_shard(first) .. " " .. leg_shard(second))
+  for key, value in pairs(first) do
+    assert(key == "shard" or second[key] == value, "linux-x86_64-shard's " .. key .. " differs")
+  end
+  for key in pairs(second) do assert(first[key] ~= nil, "linux-x86_64-shard has " .. key) end
+  assert(second.name == "linux-x86_64", "the second share restores by " .. tostring(second.name))
+  for name, leg in pairs(light) do
+    if leg.name ~= "linux-x86_64" then
+      assert(leg_shard(leg) == "", name .. " runs a share of its suite")
+    end
+  end
+  for name, leg in pairs(full) do
+    assert(leg_shard(leg) == "" and leg.shard == "", name .. " runs a share of a full run's suite")
+    assert(leg_name(leg) == leg.name, name .. " is named apart on a full run")
+  end
+  -- Every artifact a light run's leg uploads is named apart, by the
+  -- job's name: two of one name would fail the second upload.
+  for _, step in ipairs(platform.steps as {{string: any}}) do
+    local uses = step.uses as string or ""
+    if uses:find("^actions/upload%-artifact@") then
+      local with = step.with as {string: string}
+      local condition = step["if"] as string or ""
+      local light_too = not (condition:find("COSMIC_CI_SCOPE == 'full'", 1, true) or
+        condition:find("github.event_name == 'merge_group'", 1, true))
+      if light_too then
+        assert(with.name:find("${{ env.COSMIC_WORKER }}", 1, true) and
+          not with.name:find("matrix.name", 1, true),
+          "a light run's legs upload " .. with.name .. " under one name")
+      end
+    end
+  end
+  local needs = jobs.ci.needs as {string}
+  local gated = false
+  for _, need in ipairs(needs) do if need == "platform" then gated = true end end
+  assert(gated, "the gate does not need the legs")
 end
 
 --- A workflow runs only when a path its filters name changes, so a
@@ -1847,13 +1942,15 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   local QUEUE <const> = "github.event_name == 'merge_group'"
   local names: {string: string} = {}
   for _, case in ipairs({
+      -- A queue run's legs run whole, so a leg's job is named by the leg
+      -- alone there ([`LEG_NAME`]).
       { job = "platform", suite = "release-suite", file = "verdicts.db", name = "${{ matrix.name }}",
-        within = 30, ready = "", begun = true },
+        job_name = LEG_NAME, within = 30, ready = "", begun = true },
       { job = "checked", suite = "checked-suite", file = "checked.db", name = "linux-x86_64-checked",
-        within = 90, ready = "420", begun = false } }) do
+        job_name = "linux-x86_64-checked", within = 90, ready = "420", begun = false } }) do
     local job = jobs[case.job]
     local where = case.job
-    assert(job.name == case.name, where .. "'s name: " .. tostring(job.name))
+    assert(job.name == case.job_name, where .. "'s name: " .. tostring(job.name))
     assert((job.permissions as {string: string}).actions == "read", where .. " cannot read the run ahead")
     local steps = job.steps as {{string: any}}
     local at: {string: integer} = {}

@@ -1,0 +1,3 @@
+#!/usr/bin/env cosmic
+;
+ local record R<T> is I end 

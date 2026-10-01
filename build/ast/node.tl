@@ -221,6 +221,13 @@ local record Node is {Node}
   pkey: string | nil
   pvalue: string | nil
 
+  --- A statement: whether a `;` followed it, written or inserted by the
+  --- parser to settle a call's reading.
+  semicolon: boolean | nil
+  --- The "statements" node at the top of a file: the `#!` line it opens
+  --- with, without its line break.
+  hashbang: string | nil
+
   -- "goto" and "label": the name jumped to, or declared.
   label: string | nil
 
