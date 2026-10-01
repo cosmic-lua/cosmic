@@ -9,6 +9,7 @@ local modules <const>: {string:any} = {
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.hash"] = require("cosmic.hash"),
   ["cosmic.json"] = require("cosmic.json"),
+  ["cosmic.shape"] = require("cosmic.shape"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
   ["cosmic.stream"] = require("cosmic.stream"),
   ["cosmic.sys"] = require("cosmic.sys"),
@@ -63,4 +64,14 @@ end
 local function test_the_removed_codec_type_names_the_transform_interface()
   local instead = Removed.members["cosmic.stream.Codec"]
   assert(instead ~= nil and instead:find("Stream.Transform", 1, true), instead)
+end
+
+--- A program that asked `into` for every failure, or a union, is told
+--- that `into` answers the first and what to write for alternatives.
+local function test_the_removed_shape_members_name_into_and_one_of()
+  local failures = Removed.members["cosmic.shape.failures"]
+  assert(failures ~= nil and failures:find("Shape.into", 1, true) and failures:find("first", 1, true), failures)
+  local either = Removed.members["cosmic.shape.either"]
+  assert(either ~= nil and either:find("Shape.one_of", 1, true) and either:find("Shape.into", 1, true), either)
+  assert(Removed.members["cosmic.shape.Failure"] ~= nil)
 end
