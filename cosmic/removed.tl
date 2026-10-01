@@ -285,7 +285,7 @@ local module: Module = {
     ["cosmic.test.network_trouble"] = "the build refuses a `network` that is no loopback " ..
       "address 127.a.b.c; declare it in Test.needs and let `cosmic test` check it",
     ["cosmic.test.lua_trouble"] = "the build refuses a `lua` beside tool, store, system or " ..
-      "caches; declare needs and let `cosmic test` refuse a bad one",
+      "caches; declare Test.needs and let `cosmic test` refuse a bad one",
   },
   -- TODO: a call that still passes Sqlite.open's old third argument gets
   -- only the arity error (`wrong number of arguments ... at most 2`), with
