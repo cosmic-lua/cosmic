@@ -105,7 +105,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "ea3d41711f22f34b782afb89ae40abb12729f01f76614951e9e65c6aa700f67f",
 
-  ["build.test"] = "057d991eaefb5fe03d1014b6d170c8a659262b464ad6a18ee952177381c1b1e9",
+  ["build.test"] = "52f007c5d59c73268796fdf700d3be3a3dd6eca24c16d7d91fcede90182a8ec4",
 
   ["build.test_inputs"] = "fb13930bd0c1f253a77385c85136d053685a2ba3fb25dc679a7da15b1aed6168",
 

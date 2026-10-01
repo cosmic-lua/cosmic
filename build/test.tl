@@ -171,6 +171,15 @@ local record test
     skipped: integer
   end
 
+  --- One of the shares `--shard I/N` splits a run's chosen tests into
+  --- ([`test.shard`], [`test.dealt`]).
+  record Shard
+    --- Which share, from 1.
+    index: integer
+    --- How many shares there are.
+    count: integer
+  end
+
   --- How a run is bounded, from the command line and the environment.
   record Limits
     --- Each test's deadline.
@@ -266,6 +275,37 @@ end
 function test.selects(selector: string, path: string, file: string, name: string): boolean
   local _, named = split(selector)
   return test.matches(selector, path, file) and (named == nil or named == name)
+end
+
+--- The share `text`, `--shard`'s value, names: `I/N`, whole numbers with
+--- 1 <= I <= N. Nil and why for anything else.
+function test.shard(text: string): test.Shard | nil, string
+  local trouble = "--shard must be I/N, whole numbers with 1 <= I <= N, not " .. text
+  local i, n = text:match("^(%d+)/(%d+)$")
+  if i == nil or n == nil then return nil, trouble end
+  local index, count = math.tointeger(tonumber(i)), math.tointeger(tonumber(n))
+  if index == nil or count == nil or index < 1 or index > count then
+    return nil, trouble
+  end
+  return { index = index, count = count }, ""
+end
+
+--- Of `ids`, the tests a run chose, each `"<module> <name>"`, the ones
+--- `shard` runs: dealt in turn, in sorted order, to shares 1 to N, so
+--- the N shares of one choice run each test exactly once, a module's
+--- tests are spread across them, and one share holds at most one test
+--- more than another. It turns on the ids alone, never on what a run
+--- recorded of their cost, which another host's run need not have read
+--- alike: so every share of one tree deals the same.
+function test.dealt(ids: {string}, shard: test.Shard): {string:boolean}
+  local sorted: {string} = {}
+  for i, id in ipairs(ids) do sorted[i] = id end
+  table.sort(sorted)
+  local out: {string:boolean} = {}
+  for k, id in ipairs(sorted) do
+    if (k - 1) % shard.count == shard.index - 1 then out[id] = true end
+  end
+  return out
 end
 
 --- `word` as one word a POSIX shell reads back as it is: itself when
@@ -2355,6 +2395,15 @@ local function run(argv: {integer:string}): integer
     log:complain("test: " .. limits_trouble)
     return 2
   end
+  local shard: test.Shard = nil
+  if parsed.values["--shard"] ~= nil then
+    local chosen, shard_trouble = test.shard(parsed.values["--shard"])
+    if chosen == nil then
+      log:complain("test: " .. shard_trouble)
+      return 2
+    end
+    shard = chosen
+  end
   local sandbox_mode, sandbox_trouble = test_sandbox.mode()
   if sandbox_mode == nil then
     log:complain("test: " .. sandbox_trouble)
@@ -2614,6 +2663,35 @@ local function run(argv: {integer:string}): integer
     end
     return 1
   end
+  -- A share of the chosen tests (`--shard`), dealt over all of them
+  -- ([`test.dealt`]): the other shares, run elsewhere, run the rest.
+  if shard ~= nil then
+    local ids: {string} = {}
+    for _, m in ipairs(selected_modules) do
+      for _, name in ipairs(selected_tests[m.path]) do ids[#ids + 1] = m.path .. " " .. name end
+    end
+    local dealt = test.dealt(ids, shard)
+    local kept: {importer.Module} = {}
+    for _, m in ipairs(selected_modules) do
+      local names: {string} = {}
+      for _, name in ipairs(selected_tests[m.path]) do
+        if dealt[m.path .. " " .. name] then names[#names + 1] = name end
+      end
+      if #names > 0 then
+        kept[#kept + 1] = m
+        selected_tests[m.path] = names
+      else
+        selected_tests[m.path] = nil
+      end
+    end
+    selected_modules = kept
+  end
+  -- Whether this run chose every test of the tree: what only the whole
+  -- suite answers for is checked on such a run alone.
+  local whole = #selectors == 0 and shard == nil
+  -- Said after the sandbox, last on the summary line, whichever verdict.
+  local share_summary = shard ~= nil and
+    string.format("; shard %d of %d", shard.index, shard.count) or ""
 
   -- Every verdict and every coverage row of this run lands together.
   local begun, begin_trouble = work.begin(handle)
@@ -2976,7 +3054,7 @@ local function run(argv: {integer:string}): integer
   -- them. Every core cosmic tests with observes its own C.
   local function_lines: {string} = {}
   local functions = Coverage.native_functions()
-  if own_tree and #selectors == 0 and #functions > 0 then
+  if own_tree and whole and #functions > 0 then
     -- A host whose name cannot be had is held to every function.
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
@@ -2993,6 +3071,11 @@ local function run(argv: {integer:string}): integer
       function_lines[2] = "test: C exemptions a test entered on this core: " ..
         table.concat(entered.stale, ", ")
     end
+  elseif own_tree and #selectors == 0 and #functions > 0 then
+    -- A share's tests enter only some of them; a whole run, which CI's
+    -- merge queue makes on every leg, holds the core to all of them.
+    function_lines[1] = string.format("test: C functions not checked: shard %d of %d " ..
+      "runs part of the suite, and only a whole run enters every one", shard.index, shard.count)
   end
 
   local cov_hit, cov_total, cov_trouble =
@@ -3009,7 +3092,7 @@ local function run(argv: {integer:string}): integer
   -- some of it adds to what the rest looked at before.
   if rec.digests ~= nil and rec.digests.read > 0 then
     local kept, keep_trouble = true, ""
-    if #selectors == 0 then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
+    if whole then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
     for _, row in ipairs(kept and declared_key.kept(rec.digests) or {}) do
       if kept then
         kept, keep_trouble = Sqlite.run(records,
@@ -3071,7 +3154,7 @@ local function run(argv: {integer:string}): integer
         (tally.skipped == 1 and "it" or "them") .. "), ") or "") ..
       (tally.every > 0 and (tally.every .. " run every time (no key holds them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
-      clock.took(started) .. sandbox_summary)
+      clock.took(started) .. sandbox_summary .. share_summary)
     return 0
   end
   say_skips(rec)
@@ -3085,7 +3168,7 @@ local function run(argv: {integer:string}): integer
   end
   log:verdict("test", false, #failures .. " of " ..
     (total + #result.refused) .. " failed, " .. plural.count(#errors, "infrastructure error") .. ", " ..
-    clock.took(started) .. sandbox_summary)
+    clock.took(started) .. sandbox_summary .. share_summary)
   return 1
 end
 
