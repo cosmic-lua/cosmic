@@ -1087,6 +1087,47 @@ chmod 755 o/bin/cosmic
   assert(Fs.read(seen .. ".words") == "test --census\n", "a Linux push's suite ran --all")
 end
 
+--- A branch push's linux-x86_64 legs each run a share of the native
+--- suite, the one COSMIC_CI_SHARD names (`--shard`), which the suite
+--- itself is not given; where it names none, the whole suite runs.
+local function test_a_shard_leg_runs_its_share_of_the_native_suite(tmp: string)
+  local base, project = command(tmp)
+  for _, case in ipairs({
+    { name = "second", shard = "2/2", words = "test --census --shard 2/2\n" },
+    { name = "whole", shard = "", words = "test --census\n" },
+  }) do
+    local fake = tmp .. "/shard-" .. case.name
+    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
+    local seen = fake .. "-seen"
+    Fixture.write(fake .. "/bin/zig", [[#!/bin/sh
+mkdir -p o/bin
+printf 'db' > o/build.db
+cat > o/bin/cosmic <<'SCRIPT'
+#!/bin/sh
+if [ "$1" = test ]; then printf '%s\n' "$*" > "$SEEN.words"; env > "$SEEN.env"; fi
+exit 0
+SCRIPT
+chmod 755 o/bin/cosmic
+]], 493)
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(runner_temp))
+    local outcome = Fixture.call("shard-" .. case.name, append(base, { "platform", "build" }),
+      project, tmp .. "/logs", context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", SEEN = seen,
+        COSMIC_CI_SCOPE = "light", COSMIC_CI_EVENT = "push",
+        COSMIC_CI_CHECKED_SUITE = "skip", COSMIC_CI_REQUIRE_SANDBOX = "1",
+        COSMIC_CI_SHARD = case.shard, XDG_CACHE_HOME = tmp .. "/cache",
+      }))
+    assert(outcome.result.ok, case.name .. ": the build failed: " .. Fixture.read(outcome.err))
+    local words = assert(Fs.read(seen .. ".words"))
+    assert(words == case.words, case.name .. ": the suite ran " .. words)
+    local env = assert(Fs.read(seen .. ".env"))
+    assert(not env:find("COSMIC_CI_SHARD", 1, true), case.name .. ": the suite was given the share")
+  end
+end
+
 --- The portable suite stands on verdicts where the other suites do --
 --- a Linux leg's push or merge queue run -- on those of its own file
 --- ([`cosmic_ci.orchestration.suite_verdicts`]), never the local suite's; where

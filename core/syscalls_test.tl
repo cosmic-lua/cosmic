@@ -28,9 +28,11 @@ local sandbox_skip = require("build.sandbox_skip")
 --- What the syscall table is tested on: /proc and the whole
 --- environment: a stand-in program (build/stand_in.tl) is
 --- what a child here runs, reading nothing of the system's. The cases
---- that start this program itself, or read it, or unveil a child's root
---- -- which a worker that does not declare `tool` cannot (see
---- core/syscalls_tool_test.tl) -- are core/syscalls_tool_test.tl's.
+--- that start this program itself to run a chunk, or unveil a child's
+--- root -- which a worker that declares neither `lua` nor `nests`
+--- cannot (see core/syscalls_tool_test.tl) -- are
+--- core/syscalls_tool_test.tl's, and the one that reads the program's
+--- own path core/artifact_fd_tool_test.tl's.
 Test.needs{
   host = { "/proc" },
   env = { "*" },

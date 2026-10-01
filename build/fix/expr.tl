@@ -28,6 +28,39 @@ local expression: function(Ctx, Node)
 
 local refuse = ctx_mod.refuse
 
+--- The text of the token `n` starts on, or "" when no token starts there.
+local function first_token(c: Ctx, n: Node): string
+  local at = ctx_mod.start_of(c, n)
+  local i = typescan.index_at(c.scan, at.y, at.x)
+  return i ~= nil and typescan.tk(c.scan, i) or ""
+end
+
+--- What stands between a `[` and the key or index inside it: a space
+--- when the key opens with a long string, since `[[` would open one.
+local function inside_brackets(c: Ctx, key: Node): string
+  return first_token(c, key):sub(1, 1) == "[" and " " or ""
+end
+
+--- A key or index between brackets, the `]` where the source put it: a
+--- line break before it is kept, so a comment ending the line before
+--- does not take the `]` into it.
+local function in_brackets(c: Ctx, key: Node)
+  local inside = inside_brackets(c, key)
+  local at = ctx_mod.start_of(c, key)
+  local first = typescan.index_at(c.scan, at.y, at.x)
+  emit.put(c.em, "[")
+  ctx_mod.lead(c, key, inside)
+  expression(c, key)
+  if first ~= nil and typescan.tk(c.scan, first - 1) == "[" then
+    local t = c.scan.tokens[typescan.closing(c.scan, first - 1)]
+    if t ~= nil then
+      ctx_mod.lead_at(c, t.y, t.x, inside)
+      inside = ""
+    end
+  end
+  emit.put(c.em, inside .. "]")
+end
+
 --- What follows an `as` or an `is`, as original bytes. `anchor` is the
 --- operator's own token when there is one: the type begins right after
 --- it, which is a surer place to start than the type object's recorded
@@ -158,10 +191,8 @@ local function table_item(c: Ctx, n: Node)
       refuse(c, "a bracketed table key with no key")
       return
     end
-    emit.put(c.em, "[")
-    ctx_mod.lead(c, key, "")
-    expression(c, key)
-    emit.put(c.em, "] =")
+    in_brackets(c, key)
+    emit.put(c.em, " =")
   else
     expression(c, value)
     return
@@ -178,8 +209,11 @@ local function operator(c: Ctx, n: Node)
     return
   end
   if e2 == nil then
+    -- A worded operator needs its space to stay a word, and a `-` in
+    -- front of another to stay out of a comment.
+    local apart = o.op:match("^%a") ~= nil or (o.op == "-" and first_token(c, e1):sub(1, 1) == "-")
     emit.text(c.em, o.op)
-    ctx_mod.lead(c, e1, o.op:match("^%a") ~= nil and " " or "")
+    ctx_mod.lead(c, e1, apart and " " or "")
     expression(c, e1)
     return
   end
@@ -189,10 +223,7 @@ local function operator(c: Ctx, n: Node)
     return
   end
   if o.op == "@index" then
-    emit.put(c.em, "[")
-    ctx_mod.lead(c, e2, "")
-    expression(c, e2)
-    emit.put(c.em, "]")
+    in_brackets(c, e2)
     return
   end
   if o.op == "." or o.op == ":" then

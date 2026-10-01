@@ -859,7 +859,7 @@ end
 --- One suite of `c`'s candidate, run by `executable`, `env` added to
 --- its environment.
 local function suite(c: Context, name: string, executable: string,
-    diagnostics: string, env?: {string:string}): integer
+    diagnostics: string, env?: {string:string}, shard?: string): integer
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
@@ -867,6 +867,10 @@ local function suite(c: Context, name: string, executable: string,
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   -- Its key parts said, as the checked suite's are, for its row.
   table.insert(words, 2, "--census")
+  if shard then
+    words[#words + 1] = "--shard"
+    words[#words + 1] = shard
+  end
   local argv: {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
@@ -1017,9 +1021,13 @@ end
 --- The native suite, on the tree `boot` built: the `build` phase
 --- without its boot, which ci.yml's legs run apart so that what comes
 --- between (the verdicts of the merge queue's run ahead) waits on
---- nothing the boot does.
+--- nothing the boot does. Where COSMIC_CI_SHARD names a share (`I/N`,
+--- a branch push's linux-x86_64 legs), only that share of its tests
+--- (`cosmic test --shard`): the leg that runs each other share runs the
+--- rest, on the same host.
 local function phase_local_suite(p: PlatformContext): integer
-  return suite(p.operation, "local", p.root .. "/o/bin/cosmic", p.local_diagnostics)
+  return suite(p.operation, "local", p.root .. "/o/bin/cosmic", p.local_diagnostics,
+    nil, named("COSMIC_CI_SHARD"))
 end
 
 --- `boot`, then the native suite (`local-suite`): ci/run-local's first

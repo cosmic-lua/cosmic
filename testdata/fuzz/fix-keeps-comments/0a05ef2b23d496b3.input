@@ -1,0 +1,5 @@
+  local type T = record
+  --[=[ @1@
+
+   why ]=]
+  end

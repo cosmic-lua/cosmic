@@ -30,6 +30,23 @@ local function invoke(root: string, output: string, selector: string): Child.Res
   return (assert(result, trouble))
 end
 
+--- A run of `cosmic test` with `words` in `root`, as `invoke`'s.
+local function invoke_words(root: string, output: string, words: {string}): Child.Result
+  local fd = assert(Fs.open_write(output))
+  local env = this_program.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
+  env.TMPDIR = Fs.dirname(output)
+  local argv: {string} = { "test" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local started = this_program.program(argv, {
+    cwd = root, env = env, stdout = fd, stderr = fd,
+    process_group = true, timeout_ms = 30000,
+  })
+  local result, trouble = Child.run(started.argv, started.options)
+  assert(Fs.close(fd))
+  return (assert(result, trouble))
+end
+
 local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -296,4 +313,68 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   assert(not result.ok, text)
   assert(text:find("could not make a temporary directory", 1, true), text)
   assert(not text:find("attempt to perform arithmetic", 1, true), text)
+end
+
+--- The shares of `--shard I/N`, each run in a checkout of its own as
+--- CI's runners do, run every chosen test once between them, and the
+--- one that holds a failing test fails as a whole run would; a share
+--- that names no share is refused.
+local function test_the_shares_of_a_run_run_each_test_once(tmp: string)
+  local function shard_project(at: string): string
+    local root = at .. "/project"
+    assert(Fs.mkdirs(root .. "/suite"))
+    assert(Fs.write(root .. "/suite/a_test.tl", [[
+local function test_one() end
+local function test_two() end
+local function test_three() end
+]]))
+    assert(Fs.write(root .. "/suite/b_test.tl", [[
+local function test_four() end
+local function test_five()
+  error("the failing test ran")
+end
+]]))
+    return root
+  end
+  local seen: {string:integer} = {}
+  local failed = 0
+  for index = 1, 2 do
+    local at = tmp .. "/share-" .. tostring(index)
+    local root = shard_project(at)
+    local output = at .. "/run.out"
+    local result = invoke_words(root, output, { "--shard", tostring(index) .. "/2" })
+    local text = assert(Fs.read(output))
+    assert(text:find("; shard " .. tostring(index) .. " of 2)", 1, true), text)
+    if text:find("the failing test ran", 1, true) then
+      failed = failed + 1
+      assert(not result.ok and text:find("test: FAIL (1 of ", 1, true), text)
+    else
+      assert(result.ok, text)
+    end
+    local db = assert(Sqlite.open(root .. "/o/build.db", false))
+    local rows = assert(Sqlite.text_rows(db, "SELECT path, test FROM runs"))
+    assert(db:close())
+    for _, row in ipairs(rows) do
+      local id = row[1] .. " " .. row[2]
+      seen[id] = (seen[id] or 0) + 1
+    end
+  end
+  assert(failed == 1, "the failing test failed " .. tostring(failed) .. " shares")
+  local ids: {string} = {}
+  for id, count in pairs(seen) do
+    assert(count == 1, id .. " ran in " .. tostring(count) .. " shares")
+    ids[#ids + 1] = id
+  end
+  table.sort(ids)
+  assert(table.concat(ids, ",") == table.concat({
+    "suite.a_test test_one", "suite.a_test test_three", "suite.a_test test_two",
+    "suite.b_test test_five", "suite.b_test test_four" }, ","), table.concat(ids, ","))
+  for _, refused in ipairs({ "3/2", "0/2", "1", "1/0", "a/b" }) do
+    local root = shard_project(tmp .. "/refused-" .. refused:gsub("/", "-"))
+    local output = tmp .. "/refused-" .. refused:gsub("/", "-") .. ".out"
+    local result = invoke_words(root, output, { "--shard", refused })
+    local text = assert(Fs.read(output))
+    assert(not result.ok and result.code == 2, text)
+    assert(text:find("--shard must be I/N", 1, true), text)
+  end
 end
