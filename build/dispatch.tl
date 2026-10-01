@@ -276,7 +276,7 @@ local function module_of(root: string, file: string): string | nil, string
   if resolved == nil then
     return nil, trouble
   end
-  if resolved:sub(1, #root + 1) ~= root .. "/" then
+  if not String.starts_with(resolved, root .. "/") then
     return nil, file .. " is not inside " .. root
   end
   local relative = resolved:sub(#root + 2)

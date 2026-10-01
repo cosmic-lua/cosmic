@@ -12,6 +12,7 @@ local Sqlite = require("cosmic.sqlite")
 local parses_fixture = require("build.parses_fixture")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -195,7 +196,7 @@ local function test_a_mapped_parse_stands_only_for_a_mapped_one(tmp: string)
     "SELECT source FROM derived WHERE file = 'doc/guides/guide.md'")
   local own_line = 0
   local number = 0
-  for line in (generated .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(generated) do
     number = number + 1
     if line:find("^local function example_1") then own_line = number end
   end

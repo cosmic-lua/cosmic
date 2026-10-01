@@ -20,13 +20,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Compress = require("cosmic.compress")
 local sys = require("cosmic.sys")
-
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
+local String = require("cosmic.string")
 
 local record Stream
   interface Reader
@@ -365,7 +359,7 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, str
     local chunk, trouble = reader:read(n - got)
     if chunk == nil then
       if trouble ~= "" then return nil, trouble end
-      return nil, "unexpected end of stream: wanted " .. counted(n, "byte") ..
+      return nil, "unexpected end of stream: wanted " .. String.counted(n, "byte") ..
         ", got " .. tostring(got)
     end
     parts[#parts + 1] = chunk
@@ -388,7 +382,7 @@ function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
     local chunk, trouble = reader:read(want)
     if chunk == nil then
       if trouble ~= "" then return false, trouble end
-      return false, "unexpected end of stream: skipping " .. counted(n, "byte")
+      return false, "unexpected end of stream: skipping " .. String.counted(n, "byte")
     end
     left = left - #chunk
   end
@@ -492,7 +486,7 @@ function Stream.lines(reader: Stream.Reader, max?: integer): Stream.Lines
     chunk, at, parts, held = "", 1, {}, 0
     return nil, failed
   end
-  local too_long = "stream: a line is longer than " .. counted(limit, "byte")
+  local too_long = "stream: a line is longer than " .. String.counted(limit, "byte")
   local lines: Stream.Lines = {}
   lines.read = function(_self: Stream.Lines): string | nil, string
     if failed ~= "" then return nil, failed end

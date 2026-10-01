@@ -109,6 +109,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local artifact = require("build.artifact")
 local bind = require("build.bind")
 local schema = require("build.schema")
@@ -165,7 +166,7 @@ local function carried(): {Carried} | nil, string
   for _, name in ipairs(core_requires) do pending[#pending + 1] = name end
   while #pending > 0 do
     local name = table.remove(pending, 1)
-    if not seen[name] and name:sub(1, #"cosmic.internal.") ~= "cosmic.internal." then
+    if not seen[name] and not String.starts_with(name, "cosmic.internal.") then
       seen[name] = true
       local requires, trouble = Store.requires(name)
       if requires == nil then return nil, name .. ": " .. trouble end

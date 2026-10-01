@@ -11,6 +11,7 @@ local Test = require("cosmic.test")
 local verb_cases = require("build.verb_cases")
 local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
+local String = require("cosmic.string")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
@@ -310,7 +311,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
   -- A path may be named resolved: /var/... is /private/var/... on macOS.
   local real = assert(Fs.absolute(tmp))
   for _, path in ipairs(listed) do
-    local under = path:sub(1, #tmp) == tmp or path:sub(1, #real) == real
+    local under = String.starts_with(path, tmp) or String.starts_with(path, real)
     assert(not under, "sql listed " .. path)
   end
   assert(Fs.read(tmp .. "/o/build.db") == garbage)

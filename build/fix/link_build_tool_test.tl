@@ -7,6 +7,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 --- The program itself, which its test starts.
 Test.needs{ tool = true }
@@ -17,7 +18,7 @@ local function check(root: string): string
   local result = assert(Child.run(started.argv, started.options))
   assert(not result.ok, result.stdout)
   local out: {string} = {}
-  for line in (assert(result.stdout) .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(assert(result.stdout)) do
     if line:find(": link: ", 1, true) ~= nil then out[#out + 1] = line end
   end
   return table.concat(out, "\n")

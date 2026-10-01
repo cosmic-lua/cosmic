@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local flow = require("build.flow")
+local String = require("cosmic.string")
 
 --- The workflows and actions, and the programs and pins they name.
 Test.needs{
@@ -524,7 +525,7 @@ end
 local function holds(sparse: {string} | nil, path: string): boolean
   if sparse == nil then return true end
   for _, prefix in ipairs(sparse) do
-    if path == prefix or path:sub(1, #prefix + 1) == prefix .. "/" then return true end
+    if path == prefix or String.starts_with(path, prefix .. "/") then return true end
   end
   return false
 end
@@ -583,8 +584,8 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
       if here ~= "" then
         local present = false
         for _, prefix in ipairs(walk.sparse) do
-          if here == prefix or here:sub(1, #prefix + 1) == prefix .. "/"
-              or prefix:sub(1, #here + 1) == here .. "/" then
+          if here == prefix or String.starts_with(here, prefix .. "/")
+              or String.starts_with(prefix, here .. "/") then
             present = true
           end
         end

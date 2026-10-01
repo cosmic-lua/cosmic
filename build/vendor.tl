@@ -41,6 +41,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 local record Vendor
   record Pin
@@ -189,7 +190,7 @@ function Vendor.kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string}
   local strip = plain(pin.strip)
   for _, entry in ipairs(entries) do
     local path = plain(entry.path)
-    if entry.kind == "file" and path:sub(1, #strip) == strip then
+    if entry.kind == "file" and String.starts_with(path, strip) then
       local under = path:sub(#strip + 1)
       if under ~= "" and matches(pin.keep, under, used) and not matches(pin.drop, under) then
         out[entry.path] = under

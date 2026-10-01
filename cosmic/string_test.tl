@@ -64,3 +64,16 @@ local function test_prefix_and_suffix_are_plain_text()
   assert(not String.ends_with("tl", ".tl"))
   assert(not String.starts_with("", "a") and not String.ends_with("", "a"))
 end
+
+local function test_counted_pluralizes_all_but_one()
+  assert(String.counted(1, "byte") == "1 byte")
+  assert(String.counted(0, "byte") == "0 bytes")
+  assert(String.counted(2, "byte") == "2 bytes")
+  assert(String.counted(-1, "byte") == "-1 bytes")
+end
+
+local function test_counted_takes_an_irregular_plural()
+  assert(String.counted(1, "entry", "entries") == "1 entry")
+  assert(String.counted(3, "entry", "entries") == "3 entries")
+  assert(String.counted(0, "entry", "entries") == "0 entries")
+end

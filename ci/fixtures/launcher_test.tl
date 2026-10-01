@@ -6,6 +6,7 @@ local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
+local String = require("cosmic.string")
 
 -- The launcher contract (COSMIC_FIXTURE_LAUNCHER,
 -- cosmic_ci/launcher_setup.tl): the launcher and the target's socket
@@ -50,7 +51,7 @@ end
 
 local function no_private_entries(cache: string, stem: string)
   for _, name in ipairs((assert(Fs.list(cache)))) do
-    assert(name:sub(1, #stem) ~= stem,
+    assert(not String.starts_with(name, stem),
       "cache retained private entry: " .. name)
   end
 end
@@ -238,7 +239,7 @@ core_bytes, 0x1c0)
   local artifact = Fixture.read(ctx.artifact)
   local selected: string | nil = nil
   for line in artifact:sub(1, 16384):gmatch("[^\n]+") do
-    if line:sub(1, #host + 2) == "  " .. host then
+    if String.starts_with(line, "  " .. host) then
       assert(selected == nil, "duplicate selected launcher header")
       selected = line
     end

@@ -365,6 +365,9 @@ local function beneath(path: string, prefix: string): boolean
   prefix = prefix:gsub("/+$", "")
   path = path:gsub("/+$", "")
   if prefix == "" then return path:sub(1, 1) == "/" end
+  -- Not String.starts_with: every worker loads this module, and a
+  -- require of cosmic.string would add it to build/test_worker.tl's
+  -- [`worker.loads`].
   return path == prefix or path:sub(1, #prefix + 1) == prefix .. "/"
 end
 

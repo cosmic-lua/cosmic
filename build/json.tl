@@ -30,6 +30,7 @@ local Json = require("cosmic.json")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
+local String = require("cosmic.string")
 
 --- The `cosmic json` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -260,7 +261,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     -- once per match above it (`$..a` over nested `a`s, `$..*`).
     local covered: string | nil
     for _, match in ipairs(matches) do
-      if covered ~= nil and match.path:sub(1, #covered) == covered
+      if covered ~= nil and String.starts_with(match.path, covered)
         and match.path:find("^[.%[]", #covered + 1) then
         goto next_match
       end

@@ -127,6 +127,7 @@
 local ast = require("build.ast")
 local receivers = require("build.receivers")
 local type compiler = require("build.compiler")
+local String = require("cosmic.string")
 
 local type Node = ast.Node
 local type Type = receivers.Type
@@ -1591,12 +1592,12 @@ local function stale(file: string, name: string, exemptions: {string: string},
   local prefix = file .. ":"
   local stubbed = "build/importer.tl:"
   for key in pairs(exemptions) do
-    if key:sub(1, #stubbed) == stubbed then
+    if String.starts_with(key, stubbed) then
       problems[#problems + 1] = string.format(
         "%s: contracts.%s names %s; no table may name a function of " ..
           "build/importer.tl, which a test's tree stubs",
         file, name, key)
-    elseif key:sub(1, #prefix) == prefix and not used[key] then
+    elseif String.starts_with(key, prefix) and not used[key] then
       problems[#problems + 1] = string.format(
         "%s: contracts.%s names %s, which no longer needs it; drop the entry",
         file, name, key)

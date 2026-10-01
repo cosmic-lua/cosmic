@@ -343,7 +343,7 @@ end
 local function visible_of(text: string): string, {integer: boolean}
   local lines: {string} = {}
   local least: integer | nil = nil
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(text) do
     lines[#lines + 1] = line
     if line:find("%S") ~= nil then
       local column = indent_of(line)
@@ -687,7 +687,7 @@ function link_text.plain_spans(text: string): {link_text.Span}
   local found: {link_text.Span} = {}
   scan(visible, continues, found)
   local lines: {string} = {}
-  for line in (visible .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(visible) do
     lines[#lines + 1] = line
   end
   local out: {link_text.Span} = {}
@@ -1070,7 +1070,7 @@ function link_text.unlinked(text: string): string
   end
   local out: {string} = {}
   local number = 0
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(text) do
     number = number + 1
     if not dropped[number] then
       local start = starts[number]

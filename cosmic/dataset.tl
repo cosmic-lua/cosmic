@@ -69,13 +69,7 @@
 local Csv = require("cosmic.csv")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
-
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
+local String = require("cosmic.string")
 
 local record Dataset
   --- One row: a column name's key to its value. A value is a string, a
@@ -431,8 +425,8 @@ function Dataset.load(handle: Sqlite.Handle, name: string, rows: Dataset.Rows,
   end
   local names, key_of, renamed = columns_of(rows, json_column, columns_given)
   if #names + (json_column and 1 or 0) > max_columns then
-    return nil, "too many columns: " .. counted(#names, "distinct key") .. ", and SQLite holds at most " ..
-      counted(max_columns, "column") .. " in a table" .. (json_column and " (one is `_json`)" or "")
+    return nil, "too many columns: " .. String.counted(#names, "distinct key") .. ", and SQLite holds at most " ..
+      String.counted(max_columns, "column") .. " in a table" .. (json_column and " (one is `_json`)" or "")
   end
   local declared: {string} = {}
   local marks: {string} = {}

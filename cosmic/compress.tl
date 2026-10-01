@@ -6,13 +6,7 @@
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
 -- indirection exists.
 local type raw_compress = require("cosmic.internal.compress")
-
--- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
--- require build/, and a shared module under cosmic.internal would be
--- reachable by any program's require; three lines copied is the lesser cost.
-local function counted(n: integer, singular: string, several?: string): string
-  return n .. " " .. (n == 1 and singular or several or singular .. "s")
-end
+local String = require("cosmic.string")
 
 local extra: any = select(2, ...)
 local raw: raw_compress
@@ -109,7 +103,7 @@ function Compress.inflate(format: Compress.Format, data: string, max?: integer):
     if out == nil then return nil, utrouble end
     total = total + #out
     if max ~= nil and total > max then
-      return nil, "expanded data is larger than " .. counted(max, "byte")
+      return nil, "expanded data is larger than " .. String.counted(max, "byte")
     end
     parts[#parts + 1] = out
     if not dec:pending() then break end

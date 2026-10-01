@@ -42,6 +42,7 @@ local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
+local String = require("cosmic.string")
 
 local record link_index
   --- One link as a parse or the stage recorded it, with the module
@@ -249,7 +250,7 @@ local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.
                          library: string | nil): string
   local function from_root(path: string): string
     if path == root then return "." end
-    if path:sub(1, #root + 1) == root .. "/" then return path:sub(#root + 2) end
+    if String.starts_with(path, root .. "/") then return path:sub(#root + 2) end
     return path
   end
   local real_root = memo.reals[root] ~= nil and memo.reals[root][1] or root
@@ -267,7 +268,7 @@ local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.
   for path, answer in pairs(memo.reals) do
     local real = answer[1]
     -- Only whether a path stays inside the root decides a link.
-    local inside = real ~= nil and (real == real_root or real:sub(1, #real_root + 1) == real_root .. "/")
+    local inside = real ~= nil and (real == real_root or String.starts_with(real, real_root .. "/"))
     lines[#lines + 1] = "real " .. from_root(path) .. " " .. (inside and "in" or "out")
   end
   for path, answer in pairs(memo.reads) do

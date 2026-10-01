@@ -27,6 +27,7 @@ local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
+local String = require("cosmic.string")
 
 --- The `cosmic archive` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -265,7 +266,7 @@ end
 
 --- Whether `name` is `member` or lies under it.
 local function under(name: string, member: string): boolean
-  return name == member or name:sub(1, #member + 1) == member .. "/"
+  return name == member or String.starts_with(name, member .. "/")
 end
 
 --- What `extract` refuses for files that are in the way: how many, and

@@ -79,7 +79,7 @@ end
 harness_epoch.epoch = "9-757b1277" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "55c6260541c8f3be6caf3f77121aadb47636a8f26308e3b0b089e7b193522176",
+  ["build.artifact"] = "ab180fe0e9efe92df1cce055664fd33436a535b1db782b53c2dc9fa57039fdea",
 
   ["build.bind"] = "9fee5bf681f9fcb8a2e2e88ba7982b1d3546b5c438ddd598e5de1c27e12c80ec",
 
@@ -99,17 +99,17 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
-  ["build.plural"] = "52aa9695f4dffc58d017a83027ef65807b8d22b794b6d286a82ab70009250e69",
+  ["build.plural"] = "1e61e11577e769b3c7d1c0e5d179d9e177a4c1293cf596ee02ed993133a41043",
 
-  ["build.shared_sqlite"] = "9750c85b5db5419e925d8a8af9552c60054872486a5e37ea762ee3c4862536d2",
+  ["build.shared_sqlite"] = "9858854b7134215def1f9a15043175e674c948db064912bc9f907a2cc7df2b64",
 
   ["build.shared_verdicts"] = "ea3d41711f22f34b782afb89ae40abb12729f01f76614951e9e65c6aa700f67f",
 
-  ["build.test"] = "c2ab362cdfc944084af8f03d15d0674be383cd37b176281f2d7fadb566425691",
+  ["build.test"] = "0eb9d78c544530dafcf025a14e925596e2f2caf4f495757abf3ebfe4efbdae16",
 
-  ["build.test_inputs"] = "c17fa9cc8ac35e4785118830e365e60d4916b706976049990f3827d7b3e90bbd",
+  ["build.test_inputs"] = "ffd2ef8f2351f4a8a6e118393b49d6a3e134a3eda89442fd5a23a6b9b30f3133",
 
-  ["build.test_sandbox"] = "453f3828508b60b2acf0e20351c5e10990a8ffea899aebdb94f5756451a07f54",
+  ["build.test_sandbox"] = "ed564b7f6dd86a633143ff7c75e906e7ab9c3d095efb4cdbdc08d9a13e301314",
 
   ["build.test_worker"] = "57249c719262d3016dc13b8ba53d35a3bc6c8798a029d9472108889ade765574",
 
@@ -133,7 +133,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.sqlite"] = "82d676b467d4922f82441c9e753116850dbfafb2ebc20fa5b1a6b7029b0a97c0",
 
-  ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
+  ["cosmic.string"] = "7f7dfc84c61efeb1c11838e30de81a1e50e4014533d80c8409a31db05ce68c1c",
 
   ["cosmic.test"] = "577bc17543910d9c6abc7b0ce498c8a80646c712699a00622e3c448fe0f840bf",
 
@@ -160,7 +160,8 @@ harness_epoch.library = {
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
   ["cosmic.string"] = "the launcher's template, which a key holds, is split into lines " ..
-    "through it (`build.launcher`)",
+    "through it (`build.launcher`), and a count's noun is made plural through it " ..
+    "(`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",
 }
