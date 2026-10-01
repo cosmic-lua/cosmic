@@ -15,6 +15,8 @@ end
 --- `singular`, or its plural, as `count` asks, for a line that prints the
 --- number itself (a format's `%d`).
 function plural.noun(count: integer, singular: string, several?: string): string
+  -- TODO: once cosmic.string has a helper for the noun without its count,
+  -- delegate to it as `count` does, so the plural rule is written once.
   return count == 1 and singular or several or singular .. "s"
 end
 

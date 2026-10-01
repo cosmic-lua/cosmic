@@ -99,7 +99,7 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "1bddaa2b691f6aa90da3256d045fc69f38d12c935e981a231841d94c2157b224",
 
-  ["build.plural"] = "1e61e11577e769b3c7d1c0e5d179d9e177a4c1293cf596ee02ed993133a41043",
+  ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
   ["build.shared_sqlite"] = "9858854b7134215def1f9a15043175e674c948db064912bc9f907a2cc7df2b64",
 
@@ -107,7 +107,7 @@ harness_epoch.acknowledged = {
 
   ["build.test"] = "0eb9d78c544530dafcf025a14e925596e2f2caf4f495757abf3ebfe4efbdae16",
 
-  ["build.test_inputs"] = "ffd2ef8f2351f4a8a6e118393b49d6a3e134a3eda89442fd5a23a6b9b30f3133",
+  ["build.test_inputs"] = "ca08be7c5aab1eee23fc75138f73abb2cef9650bf91b4afc5c8177838fd1b388",
 
   ["build.test_sandbox"] = "ed564b7f6dd86a633143ff7c75e906e7ab9c3d095efb4cdbdc08d9a13e301314",
 
@@ -159,9 +159,11 @@ harness_epoch.library = {
   -- and it reach no cosmic.sqlite.
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
-  ["cosmic.string"] = "the launcher's template, which a key holds, is split into lines " ..
-    "through it (`build.launcher`), and a count's noun is made plural through it " ..
-    "(`build.plural`)",
+  ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
+    "it: the launcher's template (`build.launcher`), the runtime identity " ..
+    "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
+    "header (`build.artifact`), cache set-aside names (`build.shared_sqlite`) and " ..
+    "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",
 }
