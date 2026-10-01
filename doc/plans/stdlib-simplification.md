@@ -295,6 +295,22 @@ one runner (`serving`): `watch`/`stop` have no twin left. `conn.timeout` is
 set through a method, not assignment. `Net.serve(spec)` keeps its name and
 record: a spec is what it is. the `assert`s on arguments (net.tl:411, :454,
 :737, :348) become raises with levels, as the rest of the tree writes them.
+what landed: [`Net.Address`] is `type Address = raw_socket.Address`, as
+[`Stream.Transform`] is the raw declaration's: the record's fields are
+documented once, in core/socket.h, and net.tl's copy, `Net.Kind` and `raw_address`
+go; a listener's own `address` is built again by [`Net.unix`]/[`Net.tcp`] in
+`listening`, `listened` having no second caller once `reclaim` went. the
+worker side of the supervisor (`COSMIC_NET_WORKER`, the lifeline, `adopted`)
+goes with it. a Conn's and a Listener's `timeout_ns` is private to the object,
+set through `set_timeout(ns)` (the tree's setters are `set_*`, as
+[`Fs.set_mtime`]), which validates through [`Poll.checked_ns`] at the caller's
+line. [`Net.serve`] with `workers` and [`Net.listen`] with `reclaim` raise naming
+the removal. of the four asserts, one went with `reclaim` and one had
+become [`Poll.checked_ns`] in PR 10; the two left, `read`'s `max` and
+`shutdown`'s `how`, raise `net: ...` at the caller. Left, a `TODO:` in net.tl:
+the raw socket calls nothing makes now (`peer`, `adopt`, `handed`, the
+variable's removal, and process's `arguments`) wait for the core's next
+change.
 
 **PR 13 `fs: one atomic write, and http streams through it`** (after PR
 11). `Fs.write(path, data, mode?)` is [`Stream.create`] plus write plus
@@ -458,6 +474,7 @@ description.
 [`Fs.cache_path`]: ../../cosmic/fs.tl
 [`Fs.put`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
+[`Fs.set_mtime`]: ../../cosmic/fs.tl
 [`Fs.truncate`]: ../../cosmic/fs.tl
 [`Fs.walk`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
@@ -471,6 +488,7 @@ description.
 [`Net.Address`]: ../../cosmic/net.tl
 [`Net.Conn.read`]: ../../cosmic/net.tl
 [`Net.Conn`]: ../../cosmic/net.tl
+[`Net.listen`]: ../../cosmic/net.tl
 [`Net.pair`]: ../../cosmic/net.tl
 [`Net.serve`]: ../../cosmic/net.tl
 [`Net.tcp`]: ../../cosmic/net.tl
@@ -478,6 +496,7 @@ description.
 [`Options.cancelled`]: ../../cosmic/http.tl
 [`Pipe.streamed`]: ../../cosmic/child.tl
 [`Poll.CANCELLED`]: ../../cosmic/poll.tl
+[`Poll.checked_ns`]: ../../cosmic/poll.tl
 [`Poll.delay`]: ../../cosmic/poll.tl
 [`Poll.MOST_NS`]: ../../cosmic/poll.tl
 [`Poll.ready`]: ../../cosmic/poll.tl

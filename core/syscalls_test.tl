@@ -1910,3 +1910,16 @@ local function test_o_nofollow_refuses_a_final_link(tmp: string)
   failed(sys.open(tmp .. "/link", sys.O_RDONLY | sys.O_NOFOLLOW))
   sys.close((assert(sys.open(path, sys.O_RDONLY | sys.O_NOFOLLOW))))
 end
+
+--- The arguments the program was started with are a list of strings,
+--- from the word after its own name on.
+local function test_arguments_is_a_list_of_strings()
+  local words = process.arguments()
+  assert(type(words) == "table")
+  local seen = 0
+  for i, word in ipairs(words) do
+    assert(type(word) == "string", i)
+    seen = seen + 1
+  end
+  assert(seen == #words)
+end

@@ -14,17 +14,15 @@
 ---     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
 ---     local port = server.address.port -- the one the kernel chose
 ---
---- A connection is one object for
---- both directions; `shutdown("write")` tells the peer the end of what
---- was sent while its answer is still read, and [`writer()`] is a Writer
---- whose `close` does just that, for a wrapper that closes what it
---- wraps.
+--- A connection is one object for both directions; `shutdown("write")`
+--- tells the peer the end of what was sent while its answer is still
+--- read.
 ---
 --- Every wait -- to connect, to accept, to read, to write -- lasts at
---- most the object's `timeout_ns` (no limit by default), failing with
---- [`Poll.TIMEOUT`], and ends with "interrupted", within a tenth of a second,
---- when the innermost open [`Child.guard`] catches SIGINT or SIGTERM, as
---- [`cosmic.http`]'s do.
+--- most the object's timeout (no limit by default; [`set_timeout`]
+--- changes it), failing with [`Poll.TIMEOUT`], and ends with
+--- "interrupted", within a tenth of a second, when the innermost open
+--- [`Child.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do.
 ---
 --- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to connect, to
 --- accept, to read or to write waits through the run, so its other
@@ -35,16 +33,11 @@
 ---
 --- [`Net.serve`] is that server, for any protocol: a function of a
 --- connection, run for each one accepted at any of its listeners, whose
---- failure closes that connection alone. With [`ServeSpec.workers`] it
---- serves in that many processes of this same program, started again
---- with its own arguments, which take connections from the listeners it
---- hands them.
+--- failure closes that connection alone.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
-local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
@@ -55,6 +48,15 @@ local errors = require("cosmic.internal.errors")
 --- `require` passes this chunk's loader, as cosmic/http.tl's does.
 local type raw_socket = require("cosmic.internal.socket")
 
+-- TODO: delete the raw socket calls no one makes now that [`Net.serve`]
+-- has no workers and Net no pair or peer: `pair`, `peer`, `adopt` and
+-- `handed`, COSMIC_NET_WORKER's removal from the environment as the
+-- runtime starts (core/socket.c, core/socket.h), their tests in
+-- core/socket_test.tl and core/allocation_test.tl, and Proc's raw
+-- `arguments` (core/process.h), with the core's next change: an edit to
+-- core/ moves every test's key and boots the tree, which this change
+-- keeps out of its diff.
+
 local extra: any = select(2, ...)
 local raw: raw_socket
 if type(extra) == "table" then
@@ -64,69 +66,13 @@ else
 end
 
 local record Net
-  --- How an [`Address`] is read: "unix", a socket file named by `path`,
-  --- or "tcp", a `port` of a `host`.
-  enum Kind
-    "unix"
-    "tcp"
-  end
-
-  --- Where a socket is.
-  record Address
-    --- Whether the address is a socket file or a host and port.
-    kind: Kind
-    --- For "unix": the socket file's path, of any length a path may
-    --- have. The platform bounds the file's own name, past the last "/"
-    --- (107 bytes on Linux, 103 on macOS); a longer one fails, "Filename
-    --- too long", naming the bound, rather than naming another file.
-    path: string
-    --- For "tcp": the host's numeric IPv4 or IPv6 address ("127.0.0.1",
-    --- "::1"). A name is not looked up, nor an IPv6 scope ("%lo") read:
-    --- either fails "Invalid argument".
-    host: string
-    --- For "tcp": the port, from 0 to 65535. A listener at 0 is at a
-    --- port the kernel chose, which its `address` names.
-    port: integer
-  end
+  --- Where a socket is, as [`Net.unix`] and [`Net.tcp`] build one: a
+  --- `kind` of "unix", with the socket file's `path`, or of "tcp", with
+  --- a numeric `host` and a `port`. It is the raw socket module's own
+  --- record, so every call takes the one an address is.
+  type Address = raw_socket.Address
 
   record ListenOptions
-    --- For "unix": take over a socket file a listener left behind -- one
-    --- that exited without `close`, killed or crashed -- rather than
-    --- fail "Address in use" there, as a daemon restarting at its
-    --- control socket does. The path is taken over only where it is a
-    --- socket file and connecting to it is refused: a live listener's
-    --- file, or any other file, is left alone, and a live listener sees
-    --- the connection that asked, which sends nothing. Listens that
-    --- reclaim take turns: each holds a lock on the file
-    --- `path .. ".lock"` from its first bind to its last, so of two
-    --- starting at once the second finds the first listening. A listen
-    --- without `reclaim` takes no turn, and refused is not always gone:
-    --- macOS refuses a live listener whose backlog is full as it refuses
-    --- a dead one, and every platform refuses a socket bound but not yet
-    --- listening -- a listen without `reclaim` in its moment between the
-    --- two -- so theirs is taken over too; and one that binds there
-    --- between the check and the removal loses its file. The lock file
-    --- stays after the listener closes. Where it cannot be opened or
-    --- locked, the listen fails, naming the lock file, rather than
-    --- reclaim without it: "Permission denied" for one another user
-    --- made (it is made mode 0600, and Linux's fs.protected_regular
-    --- refuses another's in a sticky directory such as /tmp) or in a
-    --- directory not writable here; "File name too long" for a path
-    --- within 5 bytes of the longest a path may be; [`Poll.TIMEOUT`] for
-    --- another's lock held 10 seconds; "interrupted" for a signal the
-    --- innermost open [`Child.guard`] caught; and a directory or a link
-    --- at its name fails too. In a task of [`Poll.run`], the wait for
-    --- the lock waits through the run, so reclaims of one path in tasks
-    --- of one run take turns as those of two processes do -- but over
-    --- NFS or SMB, where a lock may be the process's own rather than its
-    --- open file's, and then none waits for another of the same process.
-    --- A task cancelled in that wait fails "cancelled". A relative path
-    --- is read from the working directory at each step, which another
-    --- task may change while one waits. A path ending in "/" fails "Is
-    --- a directory", and an empty path raises, as it does without
-    --- `reclaim`. A "tcp" address raises: a port holds no file to take
-    --- over.
-    reclaim: boolean
     --- How long `accept` waits, in nanoseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
     timeout_ns: integer
@@ -152,8 +98,11 @@ local record Net
   record Listener
     --- Where it listens.
     address: Address
-    --- How long `accept` waits by default; nil for no limit.
-    timeout_ns: integer
+    --- Sets how long `accept` waits by default, in nanoseconds, from 0;
+    --- nil for no limit. A value no wait can last raises, naming
+    --- `timeout_ns`, at the caller. The connections accepted after start
+    --- with the same.
+    set_timeout: function(Listener, timeout_ns: integer | nil)
     --- The next connection, waiting for one as long as `timeout_ns`
     --- (this call's, or the listener's); nil and [`Poll.TIMEOUT`],
     --- "interrupted", "cancelled" (in a task of [`Poll.run`]), or why not.
@@ -169,14 +118,18 @@ local record Net
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it.
   record Conn is Stream.Reader, Stream.Writer
-    --- How long a `read` or a `write` waits, from 0; nil for no limit.
-    timeout_ns: integer
+    --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
+    --- nil for no limit. A connection starts with the `timeout_ns` it
+    --- was made with: [`Net.connect`]'s, or its listener's or server's.
+    --- A value no wait can last raises, naming `timeout_ns`, at the
+    --- caller.
+    set_timeout: function(Conn, timeout_ns: integer | nil)
     --- What has arrived, at most `max` bytes (64 KiB by default), once
     --- something has; nil and "" once the peer has ended what it sends.
     --- nil and [`Poll.TIMEOUT`], "interrupted" or "cancelled" (in a task of
     --- [`Poll.run`]) takes nothing, and a later read may still answer; nil
     --- and any other failure is every read's after. A failed read leaves
-    --- writing be.
+    --- writing be. A `max` below 1 raises.
     read: function(Conn, max?: integer): string | nil, string
     --- Sends all of `data`, waiting as the peer takes it. False and
     --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of [`Poll.run`])
@@ -185,35 +138,13 @@ local record Net
     write: function(Conn, data: string): boolean, string
     --- Ends one direction, or both: after "write" the peer reads the
     --- end of what was sent, and this side can still read its answer.
+    --- A `how` that is none of "read", "write" and "both" raises.
     shutdown: function(Conn, how: string): boolean, string
-    --- A Writer to the peer whose `close` is `shutdown("write")`,
-    --- leaving the answer to read here -- for a wrapper that closes
-    --- the Writer it wraps ([`Stream.transform_writer`], [`Stream.tee`])
-    --- -- and whose `abort` closes the connection.
-    writer: function(Conn): Stream.Writer
     --- Closes the connection. Safe to call more than once.
     close: function(Conn): boolean, string
     --- The same as `close`: nothing sent can be taken back.
     abort: function(Conn): boolean, string
-    --- Where the other end is: a TCP peer's host and port, or a unix
-    --- peer's path as its socket was bound, "" for one bound nowhere. A
-    --- connection to a unix listener names the listener's path (its
-    --- file's own name alone, for a path too long to bind whole); one a
-    --- listener accepts from [`Net.connect`], and either end of
-    --- [`Net.pair`], names "". nil and "connection is closed", or why
-    --- not: a TCP connection its peer has reset may no longer say.
-    peer: function(Conn): Address | nil, string
     metamethod __close: function(Conn)
-  end
-
-  --- Two connections, each the other's peer, answered by [`Net.pair`].
-  record Pair
-    --- One end, whose peer is `second`.
-    first: Conn
-    --- The other end, whose peer is `first`.
-    second: Conn
-    --- Closes both.
-    metamethod __close: function(Pair)
   end
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
@@ -234,9 +165,7 @@ local record Net
       --- At the limit no listener accepts: a connection that comes waits
       --- in its listener's backlog until one open closes, and a unix one
       --- past the backlog fails at once (see
-      --- [`ConnectOptions.timeout_ns`]). With
-      --- [`ServeSpec.workers`], each worker's limit: a connection one
-      --- worker at its limit leaves waiting is taken by another.
+      --- [`ConnectOptions.timeout_ns`]).
       connections: integer
     end
     --- Bounds on what the server takes on; nil for none.
@@ -260,59 +189,6 @@ local record Net
     --- What it raises, [`Net.serve`] raises, having closed every listener
     --- and connection, as an error in [`Poll.run`] ends it.
     on_error: function(trouble: string)
-    --- How many processes serve, from 0; nil or 0 serves in this one.
-    ---
-    --- From 1, this process -- the supervisor -- listens at every
-    --- listener, then starts that many workers: this same program,
-    --- started again ([`Proc.relaunch`]) with the arguments it was
-    --- started with ([`Proc.arguments`]), in the directory it started
-    --- in, with this process's environment. Its stdin is /dev/null, so
-    --- a program read from stdin cannot be started so; its stdout and
-    --- stderr are this process's; and it runs in a process group of
-    --- its own, so a terminal's ^C reaches the supervisor alone, which
-    --- stops the workers. Each worker is handed, from descriptor 3 on,
-    --- a lifeline -- a socket whose peer the supervisor holds -- and
-    --- then the listeners, in the order of `listeners`, and
-    --- `COSMIC_NET_WORKER` naming them: "<supervisor pid>:3:4,5". The
-    --- supervisor accepts nothing itself. [`on_ready`] is called in it
-    --- once every worker has started, and its [`Server.stop`], or SIGINT
-    --- or SIGTERM, closes its listeners -- removing each socket file, so
-    --- a client that comes after is refused -- and sends each worker
-    --- SIGTERM, which a worker stops on as a server in one process
-    --- does. A second signal is sent on to each worker, ending its
-    --- grace. A worker still running `grace_ns` and a second more after
-    --- the stop is sent SIGKILL. [`Net.serve`] returns once every worker
-    --- has exited.
-    ---
-    --- A worker that exits before the stop is reported to [`on_error`],
-    --- with how it ended, and not started again; once none is left,
-    --- the server stops, and [`Net.serve`] returns false, "every worker
-    --- exited before the server stopped". A worker whose supervisor is
-    --- gone -- ended any way, SIGKILL included, which closes its end of
-    --- the lifeline -- stops as at SIGTERM, and, where `grace_ns` bounds
-    --- its drain, exits, status 1, if it is still draining a second
-    --- past it.
-    ---
-    --- A worker is a process started with `COSMIC_NET_WORKER`. The
-    --- runtime takes the variable out of the environment as it starts,
-    --- so no process a worker starts inherits it. The worker's first
-    --- [`Net.serve`] fails, touching no descriptor, where the variable
-    --- is malformed or names a supervisor that is not the process's
-    --- parent -- one gone before the worker started, or a value set by
-    --- hand -- rather than serve on its own, or supervise workers of its
-    --- own at the same addresses. That first [`Net.serve`], whatever call
-    --- that is, serves the descriptors it names in place of listening,
-    --- whatever `workers` says there, and never calls [`on_ready`]. Its
-    --- spec must name the listeners the supervisor's did -- a program
-    --- reaches the same call with the same arguments -- and each
-    --- descriptor must be a listening stream socket of the address's
-    --- kind, at its port unless that is 0, or at its path; neither a
-    --- TCP host nor, for a path too long to bind whole, its directory is
-    --- compared. One that is not fails [`Net.serve`], naming it, and is
-    --- left open, as not known to be the worker's to close. A worker's
-    --- listeners close without removing their socket files, which are
-    --- the supervisor's.
-    workers: integer
   end
 
   --- A server [`Net.serve`] runs, handed to its [`ServeSpec.on_ready`].
@@ -374,14 +250,13 @@ end
 --- task of a run, through it; anywhere else, in the raw wait, which
 --- also ends at a signal the innermost [`Child.guard`] caught.
 local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
-  -- TODO: wait through Poll.wait alone, and in `connection` and `locked`
-  -- too, once cosmic.poll has what the raw wait outside a task has: a
-  -- core binding that gives it the core's cosmic_signal_caught (only
-  -- core/socket.c's waits and sys.flock read it today), a fourth shared
-  -- answer word for a wait a signal interrupted, and a loop in
-  -- Poll.wait outside a task that polls in slices to look for one. A
-  -- Conn's read and write are then Stream.from_fd and Stream.to_fd (see
-  -- the TODO at [`new_conn`]).
+  -- TODO: wait through Poll.wait alone, and in `connection` too, once
+  -- cosmic.poll has what the raw wait outside a task has: a core binding
+  -- that gives it the core's cosmic_signal_caught (only core/socket.c's
+  -- waits and sys.flock read it today), a fourth shared answer word for
+  -- a wait a signal interrupted, and a loop in Poll.wait outside a task
+  -- that polls in slices to look for one. A Conn's read and write are
+  -- then Stream.from_fd and Stream.to_fd (see the TODO at [`new_conn`]).
   Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if Poll.in_task() then
     return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
@@ -406,20 +281,26 @@ local conn_mt: metatable<Net.Conn> = {
 -- ends at a signal a Child.guard caught ("interrupted", which net_test's
 -- cases hold), which Poll.wait cannot see. Their `wait` option could
 -- carry `waited`, but `write` also sends through raw.send, which never
--- raises SIGPIPE where sys.write may, and reads `conn.timeout_ns` on every
--- call, which an option fixes when the object is made.
+-- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
+-- changes on every call, which an option fixes when the object is made.
 --- The connection over `socket`.
 local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): Net.Conn
   local fd = socket:fd()
   local open = true
+  -- Set by [`set_timeout`], and read by each wait, so a change reaches a
+  -- wait the next read or write starts.
+  local limit = timeout_ns
   -- Each direction's sticky failure: once a read or a write fails for
   -- good, every later one of it says so.
   local read_failure, write_failure = "", ""
   local conn: Net.Conn
   conn = {
-    timeout_ns = timeout_ns,
+    set_timeout = function(_self: Net.Conn, wait_ns: integer | nil)
+      Poll.checked_ns(wait_ns, "timeout_ns", 2)
+      limit = wait_ns
+    end,
     read = function(_self: Net.Conn, max?: integer): string | nil, string
-      assert(max == nil or max > 0, "max must be positive")
+      if max ~= nil and max <= 0 then error("net: max must be positive", 2) end
       if not open then return nil, "connection is closed" end
       if read_failure ~= "" then return nil, read_failure end
       while true do
@@ -432,7 +313,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
         end
         -- Nothing was taken: a deadline or a signal leaves the next
         -- read to try again.
-        local ready, waiting = waited(fd, false, conn.timeout_ns)
+        local ready, waiting = waited(fd, false, limit)
         if not ready then return nil, waiting end
         -- Another task may have closed the connection while this one
         -- waited in a run, and its descriptor gone to another socket.
@@ -451,7 +332,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
           write_failure = why
           return false, why
         else
-          local ready, waiting = waited(fd, true, conn.timeout_ns)
+          local ready, waiting = waited(fd, true, limit)
           if not ready then
             write_failure = waiting
             return false, waiting
@@ -462,34 +343,13 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
       return true, ""
     end,
     shutdown = function(_self: Net.Conn, how: string): boolean, string
-      assert(how == "read" or how == "write" or how == "both",
-        "how must be \"read\", \"write\" or \"both\"")
+      if how ~= "read" and how ~= "write" and how ~= "both" then
+        error("net: how must be \"read\", \"write\" or \"both\"", 2)
+      end
       if not open then return false, "connection is closed" end
       local ok, why = raw.shutdown(fd, how)
       if not ok then return false, why end
       return true, ""
-    end,
-    writer = function(self: Net.Conn): Stream.Writer
-      -- Once ended, a second close asks nothing of the socket, which
-      -- macOS answers ENOTCONN once the peer has gone. A first close
-      -- then answers ENOTCONN there, and stays so: the core cannot tell
-      -- a connection that went away from a socket never connected,
-      -- which only this caller knows it had.
-      local ended = false
-      return {
-        write = function(_w: Stream.Writer, data: string): boolean, string
-          if ended then return false, "writer is closed" end
-          return self:write(data)
-        end,
-        close = function(_w: Stream.Writer): boolean, string
-          if ended or not open then return true, "" end
-          ended = true
-          return self:shutdown("write")
-        end,
-        abort = function(_w: Stream.Writer): boolean, string
-          return self:close()
-        end,
-      }
     end,
     close = function(_self: Net.Conn): boolean, string
       if not open then return true, "" end
@@ -501,13 +361,6 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
     end,
     abort = function(self: Net.Conn): boolean, string
       return self:close()
-    end,
-    peer = function(_self: Net.Conn): Net.Address | nil, string
-      if not open then return nil, "connection is closed" end
-      local address, why = raw.peer(fd)
-      if address == nil then return nil, why end
-      if address.kind == "tcp" then return Net.tcp(address.host, address.port), "" end
-      return Net.unix(address.path), ""
     end,
   }
   return setmetatable(conn, conn_mt)
@@ -540,16 +393,21 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
     timeout_ns: integer | nil): Opened
   local fd = socket:fd()
   local open = true
+  -- Set by [`set_timeout`], and given to each connection accepted after.
+  local limit = timeout_ns
   local listener: Net.Listener
   listener = {
     address = address,
-    timeout_ns = timeout_ns,
+    set_timeout = function(_self: Net.Listener, wait_ns: integer | nil)
+      Poll.checked_ns(wait_ns, "timeout_ns", 2)
+      limit = wait_ns
+    end,
     accept = function(_self: Net.Listener, wait_ns?: integer): Net.Conn | nil, string
       if not open then return nil, "listener is closed" end
-      wait_ns = wait_ns or listener.timeout_ns
+      wait_ns = wait_ns or limit
       while true do
         local connection, why, errno = raw.accept(fd)
-        if connection ~= nil then return new_conn(connection, listener.timeout_ns), "" end
+        if connection ~= nil then return new_conn(connection, limit), "" end
         if errno ~= raw.EAGAIN then return nil, why end
         local ready, waiting = waited(fd, false, wait_ns)
         if not ready then return nil, waiting end
@@ -568,14 +426,9 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
   return { listener = setmetatable(listener, listener_mt), fd = fd }
 end
 
---- `address` as the raw table reads one.
-local function raw_address(address: Net.Address): raw_socket.Address
-  return { kind = address.kind, path = address.path, host = address.host, port = address.port }
-end
-
 --- What [`connection`] made: the socket, or, where there is none, what
---- went wrong and its errno, which [`left_behind`] tells apart. `errno`
---- is 0 for a wait's own [`Poll.TIMEOUT`] or "cancelled" in a task.
+--- went wrong and its errno, which `said` words. `errno` is 0 for a
+--- wait's own [`Poll.TIMEOUT`] or "cancelled" in a task.
 local record Attempt
   socket: raw_socket.Socket
   trouble: string
@@ -606,10 +459,10 @@ local function connection(address: Net.Address, timeout_ns: integer | nil): Atte
   -- replaces.
   Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if not Poll.in_task() then
-    local socket, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ns))
+    local socket, trouble, errno = raw.connect(address, milliseconds(timeout_ns))
     return { socket = socket, trouble = trouble, errno = errno }
   end
-  local socket, trouble, errno = raw.start(raw_address(address))
+  local socket, trouble, errno = raw.start(address)
   if socket == nil then return { trouble = trouble, errno = errno } end
   local holder: Connecting = { socket = socket }
   local held <close> = setmetatable(holder, connecting_mt)
@@ -621,156 +474,40 @@ local function connection(address: Net.Address, timeout_ns: integer | nil): Atte
   return { socket = socket }
 end
 
---- How long `reclaim` waits for another's lock, which each holds for
---- two binds with a unix connect and an unlink between, none of which
---- waits: far past that, the holder is stuck.
-local LOCK_NS <const> = Time.seconds(10)
-
---- The longest a reclaim in a task sleeps before it asks for another's
---- lock again, as core's `flock` does out of one.
-local LOCK_PAUSE_NS <const> = Time.ms(100)
-
---- An exclusive lock on the file `fd` is open on, waiting at most
---- LOCK_NS for another's: in a task of [`Poll.run`], through the run,
---- since the task holding the other may be one of this run's, which a
---- wait holding the thread would keep from releasing it; anywhere
---- else, holding the thread. False and why not otherwise.
-local function locked(fd: integer): boolean, string
-  -- TODO: wait for the lock through Poll.delay alone, once `waited`'s
-  -- TODO is done (sys.flock's own wait outside a task is what ends at a
-  -- caught signal) and Poll.delay goes on outside a task, which is
-  -- the decision child.tl's pump TODO names.
-  if not Poll.in_task() then
-    local ok, trouble, errno = sys.flock(fd, "exclusive", Time.ceil(LOCK_NS, MS))
-    if not ok then return false, said(trouble, errno) end
-    return true, ""
-  end
-  local deadline = Time.monotonic_ns() + LOCK_NS
-  local pause = MS
-  while true do
-    -- Asked once, which answers ETIMEDOUT where another holds the
-    -- lock, or "interrupted" where a guard has caught a signal.
-    local ok, trouble, errno = sys.flock(fd, "exclusive", 0)
-    if ok then return true, "" end
-    local left = deadline - Time.monotonic_ns()
-    if errno ~= raw.ETIMEDOUT or left <= 0 then return false, said(trouble, errno) end
-    local paused, why = Poll.delay(math.min(pause, left))
-    if not paused then return false, why end
-    pause = math.min(pause * 2, LOCK_PAUSE_NS)
-  end
-end
-
---- The lock `reclaim` holds, released when it goes out of scope,
---- whether the listen returns or raises; `fd` is -1 once handed on.
-local record ReclaimLock
-  fd: integer
-  metamethod __close: function(ReclaimLock)
-end
-
-local reclaim_lock_mt: metatable<ReclaimLock> = {
-  __close = function(self: ReclaimLock)
-    if self.fd >= 0 then local _, _ = sys.close(self.fd) end
-  end,
-}
-
---- The lock `reclaim` takes beside `address`'s path; nil and why not,
---- the lock file named. The lock file is never removed: a reclaim
---- waiting on one removed would then lock a file no longer at the name,
---- while the next reclaim makes and locks another.
-local function reclaim_lock(address: Net.Address): ReclaimLock, string
-  local name = address.path .. ".lock"
-  -- Open for writing, which an exclusive lock over NFS or SMB needs;
-  -- O_NONBLOCK so a FIFO at the name opens without waiting for a
-  -- writer, O_NOCTTY so a terminal there does not become this
-  -- process's.
-  local fd, why = sys.open(name,
-    sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
-  if fd == nil then return nil, name .. ": " .. why end
-  -- Held while the lock is waited for, which in a task a run torn down
-  -- ends where it waits, closing only what is held so.
-  local opening: ReclaimLock = { fd = fd }
-  local pending <close> = setmetatable(opening, reclaim_lock_mt)
-  local ok, trouble = locked(fd)
-  if not ok then return nil, name .. ": " .. trouble end
-  pending.fd = -1
-  local lock: ReclaimLock = { fd = fd }
-  return setmetatable(lock, reclaim_lock_mt), ""
-end
-
---- What `reclaim` finds at `address`'s path, which a bind found taken,
---- read from the working directory the bind was: "refused", a socket
---- file connecting to which is refused, to take over; "gone", nothing
---- there any longer, to bind again; or "", anything else, to leave
---- alone.
-local function left_behind(address: Net.Address): string
-  local st, _, lstat_errno = sys.lstat(address.path)
-  if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
-  if st.kind ~= "socket" then return "" end
-  -- A unix connect answers at once, so this waits for nothing: a live
-  -- listener whose backlog is full answers EAGAIN on Linux, left alone,
-  -- and ECONNREFUSED on macOS, taken over (see ListenOptions.reclaim).
-  local probe, _, errno = raw.connect(raw_address(address), 0)
-  if probe ~= nil then
-    local _, _ = probe:close()
-    return ""
-  end
-  if errno == raw.ECONNREFUSED then return "refused" end
-  return errno == sys.ENOENT and "gone" or ""
-end
-
---- A unix listener at `address`; with `reclaim`, taking over a socket
---- file left behind, under the lock the caller holds.
-local function listened(address: Net.Address, backlog: integer, timeout_ns: integer | nil,
-    reclaim: boolean): Opened | nil, string
-  local socket, trouble, errno = raw.listen(raw_address(address), backlog)
-  if socket == nil and errno == raw.EADDRINUSE and reclaim then
-    local found = left_behind(address)
-    if found == "refused" then
-      local removed, why, number = sys.unlink(address.path)
-      if not removed and number ~= sys.ENOENT then
-        trouble, errno = why, number
-        found = ""
-      end
-    end
-    if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
-  end
-  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
-  return new_listener(socket, { kind = address.kind, path = address.path }, timeout_ns), ""
+--- Whether `opts` sets `reclaim`, which no listen takes any more: a typed
+--- table cannot say so, but a program written for it can.
+local function sets_reclaim(opts: any): boolean
+  return opts is {string: any} and opts.reclaim ~= nil
 end
 
 --- What [`Net.listen`] opens, with its descriptor; it raises at `level`
 --- above its caller.
 local function listening(address: Net.Address, opts: Net.ListenOptions,
     level: integer): Opened | nil, string
+  if sets_reclaim(opts) then
+    error("net: ListenOptions.reclaim is gone: remove the socket file a listener left " ..
+      "behind (Fs.remove) once connecting to it is refused, then listen", level + 1)
+  end
   local backlog = opts.backlog or DEFAULT_BACKLOG
   if backlog < 1 then error("backlog must be at least 1", level + 1) end
   Poll.checked_ns(opts.timeout_ns, "timeout_ns", level + 1)
-  if address.kind == "tcp" then
-    assert(not opts.reclaim, "reclaim takes a unix address")
-    local socket, trouble, errno = raw.listen(raw_address(address), backlog)
-    if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
-    local bound, why = raw.bound(socket:fd())
-    if bound == nil then
-      local _, _ = socket:close()
-      return nil, named(address) .. ": " .. why
-    end
-    return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ns), ""
+  local socket, trouble, errno = raw.listen(address, backlog)
+  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
+  if address.kind ~= "tcp" then
+    return new_listener(socket, Net.unix(address.path), opts.timeout_ns), ""
   end
-  if not opts.reclaim then return listened(address, backlog, opts.timeout_ns, false) end
-  if address.path == "" then
-    error("bad argument #1 to 'listen' (path must not be empty)", level + 1)
+  local bound, why = raw.bound(socket:fd())
+  if bound == nil then
+    local _, _ = socket:close()
+    return nil, named(address) .. ": " .. why
   end
-  if address.path:sub(-1) == "/" then return nil, named(address) .. ": Is a directory" end
-  local lock <close>, locking = reclaim_lock(address)
-  if lock == nil then return nil, locking end
-  return listened(address, backlog, opts.timeout_ns, true)
+  return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ns), ""
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
 --- where the path is already there -- a socket file left behind by a
 --- listener that did not close included -- rather than take the name
---- from whatever holds it, unless `reclaim` takes a socket file left
---- behind by a listener that is gone. A TCP one fails "Address in use" at a port
+--- from whatever holds it. A TCP one fails "Address in use" at a port
 --- another listens at; its `address` names the port it has.
 --- A unix path too long to bind whole is bound from its directory,
 --- and raises where the process cannot return to its working directory
@@ -799,39 +536,20 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn 
   return new_conn(attempt.socket, timeout_ns), ""
 end
 
-local pair_mt: metatable<Net.Pair> = {
-  __close = function(self: Net.Pair)
-    local _, _ = self.first:close()
-    local _, _ = self.second:close()
-  end,
-}
-
---- Two connections to each other and to nothing else: for plumbing
---- within a process -- a task of [`Poll.run`] at each end -- and for
---- tests. Each waits with no limit until its `timeout_ns` is set.
-function Net.pair(): Net.Pair | nil, string
-  local ends, trouble = raw.pair()
-  if ends == nil then return nil, trouble end
-  local pair: Net.Pair = { first = new_conn(ends.first, nil), second = new_conn(ends.second, nil) }
-  setmetatable(pair, pair_mt)
-  return pair, ""
-end
-
 --- The fields a [`Net.ServeSpec`] may hold, so a misspelt one raises
 --- rather than being ignored.
 local SPEC_FIELDS <const>: {string: boolean} = {
   listeners = true, serve = true, limits = true, timeout_ns = true, grace_ns = true,
-  on_ready = true, on_error = true, workers = true,
+  on_ready = true, on_error = true,
 }
 
---- The variable naming a worker's listeners: see [`ServeSpec.workers`].
-local WORKER_VARIABLE <const> = "COSMIC_NET_WORKER"
-
---- The first descriptor a worker is handed, its lifeline, and the last
---- of the listeners that follow it: [`Proc.relaunch`] hands the program
---- its artifact and core as the two above.
-local FIRST_HANDED <const> = 3
-local LAST_HANDED <const> = 253
+--- A field a spec once held, and what to do instead, so a program that
+--- still sets one is told rather than only that the field is unknown.
+local REMOVED_FIELDS <const>: {string: string} = {
+  workers = "a server runs in one process; to serve in several, start each " ..
+    "(Proc.relaunch gives the command, Child.start runs it), each listening at an " ..
+    "address of its own",
+}
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
 local function spec_error(field: string, must: string)
@@ -858,7 +576,9 @@ local function checked_spec(spec: any)
   if not spec is {any: any} then error("Net.serve takes a spec table", 3) end
   for key in pairs(spec) do
     if not (key is string and SPEC_FIELDS[key]) then
-      error("Net.serve: spec has no field " .. tostring(key), 3)
+      local gone = key is string and REMOVED_FIELDS[key] or nil
+      error("Net.serve: spec has no field " .. tostring(key) ..
+        (gone ~= nil and ": " .. gone or ""), 3)
     end
   end
   local listeners = spec.listeners
@@ -894,15 +614,6 @@ local function checked_spec(spec: any)
   for _, field in ipairs({ "on_ready", "on_error" }) do
     local fn = spec[field]
     if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
-  end
-  local workers = spec.workers
-  if workers ~= nil and not (workers is integer and workers >= 0) then
-    spec_error("workers", "nil or an integer from 0")
-  end
-  if workers is integer and workers >= 1 and listeners is {any} and
-      #listeners > LAST_HANDED - FIRST_HANDED then
-    spec_error("listeners", "a list no longer than " .. (LAST_HANDED - FIRST_HANDED) ..
-      " with workers, which are handed a descriptor for each")
   end
 end
 
@@ -944,11 +655,6 @@ local record Serving
   --- Set once a signal `guard` caught has stopped the server: only
   --- then has the server acted on what the guard holds.
   signalled: boolean
-  --- In a worker, the descriptor its supervisor holds the other end of,
-  --- until it is closed; nil elsewhere.
-  lifeline: integer
-  --- In a worker, waits for its supervisor to be gone.
-  orphaned: Poll.Task
   metamethod __close: function(Serving)
 end
 
@@ -956,11 +662,6 @@ local serving_mt: metatable<Serving> = {
   __close = function(self: Serving)
     for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
     for _, conn in pairs(self.conns) do local _, _ = conn:close() end
-    if self.lifeline ~= nil then
-      Poll.closing(self.lifeline)
-      local _, _ = sys.close(self.lifeline)
-      self.lifeline = nil
-    end
     -- Closed, so a signal caught is delivered as it would be without
     -- the server's guard: this runs as the run raises, or after
     -- `serving` has closed or released the guard itself, when closing
@@ -974,17 +675,13 @@ local serving_mt: metatable<Serving> = {
 --- not retried, and reported, without pause.
 local ACCEPT_PAUSE_NS <const> = Time.ms(100)
 
---- Gives `trouble` to `spec`'s [`ServeSpec.on_error`], or stderr.
-local function reported(spec: Net.ServeSpec, trouble: string)
-  if spec.on_error ~= nil then
-    spec.on_error(trouble)
+--- Gives `trouble` to the spec's [`ServeSpec.on_error`], or stderr.
+local function report(s: Serving, trouble: string)
+  if s.spec.on_error ~= nil then
+    s.spec.on_error(trouble)
     return
   end
   local _, _ = Fs.put(Fs.stderr, "Net.serve: " .. trouble .. "\n")
-end
-
-local function report(s: Serving, trouble: string)
-  reported(s.spec, trouble)
 end
 
 --- What a protocol raised, with the stack it raised from, which is gone
@@ -999,7 +696,6 @@ local resume_accepting: function(s: Serving)
 --- is done with it.
 local function serve_conn(s: Serving, conn: Net.Conn)
   s.open = s.open + 1
-  conn.timeout_ns = s.spec.timeout_ns
   local task: Poll.Task
   task = Poll.spawn(function()
     local held <close> = conn
@@ -1021,7 +717,7 @@ local function accept_loop(s: Serving, a: Accepting)
     local socket, why, errno = raw.accept(a.fd)
     if socket ~= nil then
       a.failing = 0
-      serve_conn(s, new_conn(socket, nil))
+      serve_conn(s, new_conn(socket, s.spec.timeout_ns))
     elseif errno == raw.EAGAIN then
       a.failing = 0
       -- `stop` cancels this wait, as it does the pause below.
@@ -1111,87 +807,8 @@ local function watch(s: Serving)
   end
 end
 
---- How long past `grace_ns` a stopped worker has to exit before it is
---- ended -- sent SIGKILL by its supervisor, or, where the supervisor is
---- gone, exiting itself: its drain ends at `grace_ns`, unless a
---- protocol holds the thread, and it then exits.
-local KILL_MARGIN_NS <const> = Time.seconds(1)
-
---- What a worker is handed, as COSMIC_NET_WORKER names it past the
---- supervisor's pid: the descriptor whose peer the supervisor holds,
---- and each listener's, in the order of `spec.listeners`.
-local record Handed
-  lifeline: integer
-  listeners: {integer}
-end
-
---- The listener over `fd`, a worker's descriptor handed for
---- `listeners[i]`, `address`; nil and why it is not one. `fd` itself is
---- closed once it is known to be that listener, which the new one
---- holds a descriptor of its own on, and left alone otherwise: a
---- descriptor that is not it is not known to be the worker's to close.
-local function adopted(fd: integer, address: Net.Address, i: integer): Opened | nil, string
-  local handed = "descriptor " .. fd .. ", handed for listeners[" .. i .. "] (" ..
-    named(address) .. ")"
-  local socket, trouble = raw.adopt(fd, address.kind)
-  if socket == nil then return nil, handed .. ": " .. trouble end
-  local bound, why = raw.bound(socket:fd())
-  if bound == nil then
-    local _, _ = socket:close()
-    return nil, handed .. ": " .. why
-  end
-  local at: Net.Address
-  if address.kind == "tcp" then
-    -- The host is not compared: one address has several spellings.
-    if address.port ~= 0 and bound.port ~= address.port then
-      local _, _ = socket:close()
-      return nil, handed .. ": it listens at port " .. bound.port
-    end
-    at = Net.tcp(bound.host, bound.port)
-  else
-    -- A path too long to bind whole was bound from its directory, and
-    -- the socket knows its file's own name alone, not the directory.
-    local path = address.path
-    local own = #path > raw.SOCKET_NAME_MAX and path:match("[^/]*$") or path
-    if bound.path ~= own then
-      local _, _ = socket:close()
-      return nil, handed .. ": it listens at " ..
-        (bound.path == "" and "no path" or string.format("%q", bound.path))
-    end
-    at = Net.unix(path)
-  end
-  local _, _ = sys.close(fd)
-  return new_listener(socket, at, nil), ""
-end
-
---- Stops a worker's server once its supervisor is gone -- the other end
---- of `s.lifeline` closed, by its exit or its death -- as a signal
---- would; and, where `grace_ns` bounds the drain, exits the process
---- once the drain has run KILL_MARGIN_NS past it, as the supervisor
---- would have killed it.
-local function watch_supervisor(s: Serving)
-  local gone, _ = Poll.readable(s.lifeline)
-  if not gone then return end
-  stop(s)
-  local grace = s.spec.grace_ns
-  if grace == nil then return end
-  -- Over more than one delay where `grace` is near Poll.MOST_NS, the most
-  -- one takes.
-  local deadline = Time.monotonic_ns() + grace + KILL_MARGIN_NS
-  repeat
-    local outlasted, _ = Poll.delay(math.min(math.max(deadline - Time.monotonic_ns(), 0),
-      Poll.MOST_NS))
-    if not outlasted then return end
-  until Time.monotonic_ns() >= deadline
-  local _, _ = Fs.put(Fs.stderr, "Net.serve: the supervisor is gone, and connections are " ..
-    "still open " .. Time.format_duration({ ns = KILL_MARGIN_NS }) ..
-    " past grace_ns: exiting\n")
-  Proc.exit(1)
-end
-
---- The body of [`Net.serve`]'s run: in a worker, over the descriptors
---- `handed` it; else over listeners of its own.
-local function serving(spec: Net.ServeSpec, handed: Handed | nil): boolean, string
+--- The body of [`Net.serve`]'s run, over listeners of its own.
+local function serving(spec: Net.ServeSpec): boolean, string
   local state: Serving = {
     spec = spec, most = spec.limits and spec.limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
@@ -1203,12 +820,7 @@ local function serving(spec: Net.ServeSpec, handed: Handed | nil): boolean, stri
   s.guard = guard
   local addresses: {Net.Address} = {}
   for i, address in ipairs(spec.listeners) do
-    local opened, trouble: Opened, string
-    if handed ~= nil then
-      opened, trouble = adopted(handed.listeners[i], address, i)
-    else
-      opened, trouble = listening(address, {}, 1)
-    end
+    local opened, trouble = listening(address, {}, 1)
     if opened == nil then return false, trouble end
     s.accepts[i] = { listener = opened.listener, fd = opened.fd, failing = 0 }
     addresses[i] = opened.listener.address
@@ -1219,12 +831,7 @@ local function serving(spec: Net.ServeSpec, handed: Handed | nil): boolean, stri
   }
   resume_accepting(s)
   s.watcher = Poll.spawn(function() watch(s) end)
-  if handed ~= nil then
-    s.lifeline = handed.lifeline
-    s.orphaned = Poll.spawn(function() watch_supervisor(s) end)
-  elseif spec.on_ready ~= nil then
-    spec.on_ready(addresses, server)
-  end
+  if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
   if not s.stopping then
     s.waiter = Poll.spawn(function()
       while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
@@ -1233,7 +840,6 @@ local function serving(spec: Net.ServeSpec, handed: Handed | nil): boolean, stri
   end
   drain(s)
   s.watcher:cancel()
-  if s.orphaned ~= nil then s.orphaned:cancel() end
   -- Released where a signal stopped the server, which has acted on it;
   -- closed otherwise, so one caught in a drain that `stop` began is
   -- delivered as it would be without this guard.
@@ -1247,312 +853,6 @@ local function serving(spec: Net.ServeSpec, handed: Handed | nil): boolean, stri
   end
   if restore_trouble ~= "" then return false, "signal restore: " .. restore_trouble end
   return true, ""
-end
-
---- A supervisor's state for the length of its run. Closing it closes
---- every listener and ends every worker still running, so a run that
---- raises -- [`on_ready`] or [`on_error`] did -- leaves neither behind.
-local record Supervising
-  spec: Net.ServeSpec
-  listeners: {Net.Listener}
-  --- The end of each worker's lifeline this process holds: closed, by
-  --- this process's exit or death included, it stops every worker.
-  lifeline: raw_socket.Socket
-  --- Each worker not yet reaped, by its pid.
-  workers: {integer: Child.Handle}
-  --- How many `workers` holds.
-  running: integer
-  stopping: boolean
-  --- Set once the workers still running past the stop were sent SIGKILL.
-  killing: boolean
-  --- Why the server failed, "" while it has not.
-  failure: string
-  --- Waits, from [`on_ready`]'s end, for `stop` to cancel it.
-  waiter: Poll.Task
-  --- Reaps the workers that exit before the stop.
-  monitor: Poll.Task
-  --- Holds SIGINT and SIGTERM for the run.
-  guard: Child.Guard
-  --- Waits on `guard`: its first signal stops the server, and each
-  --- after is sent on to the workers.
-  watcher: Poll.Task
-  --- Set once a signal `guard` caught has stopped the server.
-  signalled: boolean
-  metamethod __close: function(Supervising)
-end
-
-local supervising_mt: metatable<Supervising> = {
-  __close = function(self: Supervising)
-    for _, listener in ipairs(self.listeners) do local _, _ = listener:close() end
-    for _, handle in pairs(self.workers) do local _, _ = handle:close() end
-    if self.lifeline ~= nil then local _, _ = self.lifeline:close() end
-    if self.guard ~= nil then local _, _ = self.guard:close() end
-  end,
-}
-
---- Sends `signal` to every worker still running, and each process of
---- its group. One reaped already -- a wait of another handle collects
---- every child that has exited -- is passed over.
-local function signal_workers(s: Supervising, signal: integer)
-  for pid, _ in pairs(s.workers) do
-    local sent, why, errno = sys.kill(-pid, signal)
-    if not sent and errno ~= sys.ESRCH then
-      reported(s.spec, "signalling worker " .. pid .. ": " .. why)
-    end
-  end
-end
-
---- Stops `s`, as [`Server.stop`] does.
-local function stop_supervising(s: Supervising)
-  if s.stopping then return end
-  s.stopping = true
-  for _, listener in ipairs(s.listeners) do
-    local closed, why = listener:close()
-    if not closed then reported(s.spec, why) end
-  end
-  signal_workers(s, sys.SIGTERM)
-  if s.waiter ~= nil then s.waiter:cancel() end
-  if s.monitor ~= nil then s.monitor:cancel() end
-end
-
---- How a worker's `result` says it ended.
-local function ended(result: Child.Result): string
-  if result.signal ~= nil then return "ended by signal " .. result.signal end
-  return "exited with status " .. tostring(result.code)
-end
-
---- Reaps every worker that has exited, reporting one that exited before
---- the stop or was killed for outlasting it.
-local function reap(s: Supervising)
-  -- A settle can wait through the run, in which another task may reap
-  -- the same worker: each is taken from a list made first, and counted
-  -- off by the task that finds it still there.
-  local listed: {integer: Child.Handle} = {}
-  for pid, handle in pairs(s.workers) do listed[pid] = handle end
-  for pid, handle in pairs(listed) do
-    local answer, why = handle:try_wait()
-    local trouble = ""
-    if s.workers[pid] ~= handle then
-      answer = { finished = false }
-    elseif answer == nil then
-      trouble = "worker " .. pid .. ": " .. why
-      local _, _ = handle:close()
-    elseif answer.finished and s.killing and answer.result.signal == sys.SIGKILL then
-      trouble = "worker " .. pid .. " was still running " ..
-        Time.format_duration({ ns = KILL_MARGIN_NS }) .. " past grace_ns after the stop, and was killed"
-    elseif answer.finished and not s.stopping then
-      trouble = "worker " .. pid .. " " .. ended(answer.result)
-    end
-    if answer == nil or answer.finished then
-      s.workers[pid] = nil
-      s.running = s.running - 1
-    end
-    if trouble ~= "" then reported(s.spec, trouble) end
-  end
-end
-
---- Waits through the run for the first of the workers still running to
---- exit, at most `timeout_ns` nanoseconds (no limit when nil), or for
---- the task to be cancelled. A worker whose settling failed -- its group
---- would not empty -- is reported and passed over, as [`reap`] does.
-local function await_worker(s: Supervising, timeout_ns?: integer)
-  local handles: {Child.Handle} = {}
-  for _, handle in pairs(s.workers) do handles[#handles + 1] = handle end
-  local done, trouble = Child.wait_any(handles, timeout_ns)
-  if done ~= nil and trouble ~= "" and s.workers[done.pid] == done then
-    s.workers[done.pid] = nil
-    s.running = s.running - 1
-    reported(s.spec, "worker " .. done.pid .. ": " .. trouble)
-  end
-end
-
---- Reaps the workers until the stop, and stops the server once none is
---- left.
-local function monitor(s: Supervising)
-  while not s.stopping do
-    reap(s)
-    if s.running == 0 then
-      s.failure = "every worker exited before the server stopped"
-      stop_supervising(s)
-      return
-    end
-    await_worker(s)
-  end
-end
-
---- Stops `s` at the first signal its guard takes, and sends each after
---- on to its workers, until the task is cancelled.
-local function watch_supervising(s: Supervising)
-  while true do
-    local signal, _ = s.guard:wait()
-    if signal == 0 then return end
-    if not s.stopping then
-      s.signalled = true
-      stop_supervising(s)
-    else
-      signal_workers(s, signal)
-    end
-  end
-end
-
---- Waits for every worker to exit once `s` has stopped, sending SIGKILL
---- to those still running `grace_ns` and KILL_MARGIN_NS after.
-local function wind_down(s: Supervising)
-  local grace = s.spec.grace_ns
-  local deadline = grace ~= nil and Time.monotonic_ns() + grace + KILL_MARGIN_NS or nil
-  while true do
-    reap(s)
-    if s.running == 0 then return end
-    if deadline ~= nil and not s.killing and Time.monotonic_ns() >= deadline then
-      s.killing = true
-      signal_workers(s, sys.SIGKILL)
-    end
-    -- Held to what a wait takes: `grace_ns` may be Poll.MOST_NS, and the
-    -- margin past it then runs out over a second wait.
-    local left: integer
-    if deadline ~= nil and not s.killing then
-      left = math.min(math.max(deadline - Time.monotonic_ns(), 0), Poll.MOST_NS)
-    end
-    await_worker(s, left)
-  end
-end
-
---- How to start a worker: its command line and options.
-local record WorkerStart
-  argv: {string}
-  options: Child.Options
-end
-
---- How to start a worker handed `lifeline` and `fds`, each listener's
---- descriptor in order: this program again, with its arguments, in the
---- directory it started in, and this process's environment with the
---- variable naming them. Nil and why where this program has no artifact
---- to start again ([`Proc.relaunch`]).
-local function worker_start(lifeline: integer, fds: {integer}): WorkerStart | nil, string
-  local relaunch, trouble = Proc.relaunch()
-  if relaunch == nil then return nil, "this program cannot be started again: " .. trouble end
-  local argv: {string} = {}
-  for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
-  for _, word in ipairs(Proc.arguments()) do argv[#argv + 1] = word end
-  local env = Env.all()
-  for name, value in pairs(relaunch.env) do env[name] = value end
-  local handed: {integer: integer | string} = {}
-  for number, fd in pairs(relaunch.fds) do handed[number] = fd end
-  handed[FIRST_HANDED] = lifeline
-  local numbers: {string} = {}
-  for i, fd in ipairs(fds) do
-    handed[FIRST_HANDED + i] = fd
-    numbers[i] = tostring(FIRST_HANDED + i)
-  end
-  env[WORKER_VARIABLE] = sys.getpid() .. ":" .. FIRST_HANDED .. ":" .. table.concat(numbers, ",")
-  return {
-    argv = argv,
-    options = { env = env, fds = handed, stdin = "null", cwd = relaunch.cwd },
-  }, ""
-end
-
---- The body of [`Net.serve`]'s run with [`ServeSpec.workers`].
-local function supervising(spec: Net.ServeSpec): boolean, string
-  local state: Supervising = {
-    spec = spec, listeners = {}, workers = {}, running = 0, stopping = false,
-    killing = false, failure = "", signalled = false,
-  }
-  local s <close> = setmetatable(state, supervising_mt)
-  local guard, guard_trouble = Child.guard()
-  if guard == nil then return false, "signal guard: " .. guard_trouble end
-  s.guard = guard
-  local addresses: {Net.Address} = {}
-  local fds: {integer} = {}
-  for i, address in ipairs(spec.listeners) do
-    local opened, trouble = listening(address, {}, 1)
-    if opened == nil then return false, trouble end
-    s.listeners[i] = opened.listener
-    fds[i] = opened.fd
-    addresses[i] = opened.listener.address
-  end
-  local ends, pair_trouble = raw.pair()
-  if ends == nil then return false, "starting a worker: " .. pair_trouble end
-  s.lifeline = ends.first
-  local handed <close> = ends.second
-  local start, start_trouble = worker_start(handed:fd(), fds)
-  if start == nil then return false, "starting a worker: " .. start_trouble end
-  for i = 1, spec.workers do
-    local handle, trouble = Child.start(start.argv, start.options)
-    if handle == nil then return false, "starting worker " .. i .. ": " .. trouble end
-    s.workers[handle.pid] = handle
-    s.running = s.running + 1
-  end
-  -- Only the workers hold this end now, so the one this process holds
-  -- reads as closed to them once it closes.
-  local _, _ = handed:close()
-  local server: Net.Server = {
-    addresses = addresses,
-    stop = function(_self: Net.Server) stop_supervising(s) end,
-  }
-  s.watcher = Poll.spawn(function() watch_supervising(s) end)
-  s.monitor = Poll.spawn(function() monitor(s) end)
-  if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
-  if not s.stopping then
-    s.waiter = Poll.spawn(function()
-      while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
-    end)
-    local _, _ = s.waiter:join()
-  end
-  wind_down(s)
-  s.watcher:cancel()
-  local restore_trouble: string
-  if s.signalled then
-    local _, trouble = guard:release()
-    restore_trouble = trouble
-  else
-    local _, trouble = guard:close()
-    restore_trouble = trouble
-  end
-  if restore_trouble ~= "" then return false, "signal restore: " .. restore_trouble end
-  if s.failure ~= "" then return false, s.failure end
-  return true, ""
-end
-
---- A descriptor `word` names, from FIRST_HANDED to LAST_HANDED; nil for
---- none.
-local function descriptor_named(word: string): integer | nil
-  local fd = word:match("^%d+$") and math.tointeger(tonumber(word)) or nil
-  if fd == nil or fd < FIRST_HANDED or fd > LAST_HANDED then return nil end
-  return fd
-end
-
---- What `found`, [`WORKER_VARIABLE`] as the runtime took it, hands a
---- worker of `count` listeners; nil and why it hands nothing: it is
---- malformed, or names a supervisor that is not this process's parent
---- -- one gone before the worker started, or a value set by hand --
---- where serving as a server of its own would take the supervisor's
---- place, or become one.
-local function handed_descriptors(found: raw_socket.Handed, count: integer): Handed | nil, string
-  local value = found.value
-  local malformed = WORKER_VARIABLE .. " must name the supervisor's pid, a descriptor " ..
-    "and then one for each listener, each from " .. FIRST_HANDED .. " to " .. LAST_HANDED ..
-    " and each once, as \"<pid>:3:4,5\", not " .. string.format("%q", value)
-  local pid, first, rest = value:match("^(%d+):([^:]*):(.*)$")
-  if pid == nil then return nil, malformed end
-  if math.tointeger(tonumber(pid)) ~= found.parent then
-    return nil, WORKER_VARIABLE .. " names supervisor " .. pid .. ", not this process's parent " ..
-      found.parent .. ": its supervisor is gone, or it was set by another"
-  end
-  local lifeline = descriptor_named(first)
-  if lifeline == nil then return nil, malformed end
-  local seen: {integer: boolean} = { [lifeline] = true }
-  local fds: {integer} = {}
-  for word in (rest .. ","):gmatch("([^,]*),") do
-    local fd = descriptor_named(word)
-    if fd == nil or seen[fd] then return nil, malformed end
-    seen[fd] = true
-    fds[#fds + 1] = fd
-  end
-  if #fds ~= count then
-    return nil, WORKER_VARIABLE .. " must name a descriptor for each listener: it names " ..
-      #fds .. ", and the spec has " .. count
-  end
-  return { lifeline = lifeline, listeners = fds }, ""
 end
 
 --- Serves `spec.serve` at each of `spec.listeners`, each connection in a
@@ -1579,10 +879,6 @@ end
 --- without end -- cannot be killed: it holds the thread, and so every
 --- task of the run and Net.serve's return, until it waits.
 ---
---- With [`ServeSpec.workers`], this process supervises workers that
---- serve, as that field says, and the connections, protocols and
---- signals below are each worker's.
----
 --- SIGINT and SIGTERM stop the server as [`Server.stop`] does: it holds
 --- a [`Child.guard`] for its run, and the first signal of either kind
 --- stops it. One more while it drains ends `grace_ns` at once, the
@@ -1605,21 +901,8 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   if Poll.in_task() then
     error("Net.serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
-  local found = raw.handed()
-  local handed: Handed = nil
-  if found ~= nil then
-    local fds, trouble = handed_descriptors(found, #spec.listeners)
-    if fds == nil then return false, trouble end
-    handed = fds
-  end
   local ok, why = true, ""
-  Poll.run(function()
-    if handed == nil and (spec.workers or 0) >= 1 then
-      ok, why = supervising(spec)
-    else
-      ok, why = serving(spec, handed)
-    end
-  end)
+  Poll.run(function() ok, why = serving(spec) end)
   if not ok then return false, why end
   return true, ""
 end

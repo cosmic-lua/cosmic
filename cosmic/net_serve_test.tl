@@ -110,12 +110,12 @@ local function test_at_the_connection_limit_accepting_waits(tmp: string)
         assert(first.lines:read() == "one")
         second = client(addresses[1])
         assert(second.conn:write("two\n"))
-        second.conn.timeout_ns = Time.ms(100)
+        second.conn:set_timeout(Time.ms(100))
         local nothing: string
         nothing, waiting_why = second.conn:read()
         assert(nothing == nil)
         assert(accepted == 1, tostring(accepted))
-        second.conn.timeout_ns = Time.seconds(5)
+        second.conn:set_timeout(Time.seconds(5))
       end
       answer = assert(second.lines:read())
       local _, _ = second.conn:close()
@@ -239,14 +239,6 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   refused({ listeners = { address }, serve = echo, grace_ms = 5 }, "spec has no field grace_ms")
   refused({ listeners = { address }, serve = echo, on_ready = true }, "spec.on_ready must be")
   refused({ listeners = { address }, serve = echo, grace = 10 }, "spec has no field grace")
-  for _, workers in ipairs({ -1, 1.5, "2", true } as {any}) do
-    refused({ listeners = { address }, serve = echo, workers = workers },
-      "spec.workers must be nil or an integer from 0")
-  end
-  local many: {Net.Address} = {}
-  for i = 1, 251 do many[i] = Net.unix(tmp .. "/" .. i .. ".sock") end
-  refused({ listeners = many, serve = echo, workers = 1 },
-    "spec.listeners must be a list no longer than 250 with workers")
   Poll.run(function()
     refused({ listeners = { address }, serve = echo }, "cannot be called in a task")
   end)
@@ -385,11 +377,11 @@ local function test_the_connection_limit_is_shared_by_every_listener(tmp: string
         assert(first.lines:read() == "one")
         second = client(addresses[2])
         assert(second.conn:write("two\n"))
-        second.conn.timeout_ns = Time.ms(100)
+        second.conn:set_timeout(Time.ms(100))
         local nothing: string
         nothing, waiting_why = second.conn:read()
         assert(nothing == nil)
-        second.conn.timeout_ns = Time.seconds(5)
+        second.conn:set_timeout(Time.seconds(5))
       end
       answer = assert(second.lines:read())
       local _, _ = second.conn:close()
@@ -514,19 +506,43 @@ local function test_a_second_signal_ends_the_grace(tmp: string)
   assert(outer:release() == sys.SIGTERM)
 end
 
---- Workers 0 serves in this process, as a spec without `workers` does.
-local function test_no_workers_serves_here(tmp: string)
+--- `workers` is gone, whatever its value: the spec is refused, naming the
+--- removal and what to do instead, before anything listens.
+local function test_workers_is_refused_naming_the_removal(tmp: string)
+  for _, workers in ipairs({ 0, 1, 2, true } as {any}) do
+    local ok, why: boolean, any = pcall(function()
+      local _, _ = Net.serve({ listeners = { Net.unix(tmp .. "/s.sock") }, serve = echo,
+        workers = workers } as Net.ServeSpec)
+    end)
+    local text = tostring(why)
+    assert(not ok and text:find("^cosmic%.net_serve_test:%d+: Net%.serve: spec has no field workers: ") ~= nil,
+      text)
+    assert(text:find("a server runs in one process; to serve in several, start each " ..
+      "(Proc.relaunch gives the command, Child.start runs it)", 1, true) ~= nil, text)
+  end
+  assert(Fs.stat(tmp .. "/s.sock") == nil)
+end
+
+--- The longest `grace_ns` a wait can last drains as a short one does:
+--- the connection open finishes, and the server returns true.
+local function test_the_longest_grace_drains_the_connections_open(tmp: string)
   local answer = ""
-  assert(Net.serve{
+  local ok, why = Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
-    workers = 0,
-    serve = echo,
+    grace_ns = Poll.MOST_NS,
+    serve = function(conn: Net.Conn)
+      local line = assert(Stream.lines(conn):read())
+      assert(Poll.delay(Time.ms(50)))
+      assert(conn:write(line .. "\n"))
+    end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local c <close> = client(addresses[1])
-      assert(c.conn:write("here\n"))
-      answer = assert(c.lines:read())
+      assert(c.conn:write("slow\n"))
+      assert(Poll.delay(Time.ms(10)))
       server:stop()
+      answer = assert(c.lines:read())
     end,
-  })
-  assert(answer == "here", answer)
+  }
+  assert(ok and why == "", why)
+  assert(answer == "slow", answer)
 end

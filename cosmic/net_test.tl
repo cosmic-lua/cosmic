@@ -51,7 +51,7 @@ end
 local function test_a_write_waits_while_the_peer_does_not_read(tmp: string)
   local p <close> = pair(tmp)
   local client, accepted = p.client, p.accepted
-  client.timeout_ns = Time.ms(50)
+  client:set_timeout(Time.ms(50))
   local ok, why = client:write(string.rep("x", 16 * 1024 * 1024))
   assert(not ok and why == Poll.TIMEOUT, why)
   local again, sticky = client:write("more")
@@ -67,7 +67,6 @@ local function test_a_read_that_times_out_leaves_the_connection_usable(tmp: stri
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Time.ms(20) }))
   local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
   local accepted <close> = assert(server:accept())
-  assert(accepted.timeout_ns == Time.ms(20))
   local data, why = accepted:read()
   assert(data == nil and why == Poll.TIMEOUT, why)
   assert(accepted:write("still here"))
@@ -76,13 +75,25 @@ local function test_a_read_that_times_out_leaves_the_connection_usable(tmp: stri
   assert(assert(accepted:read()) == "late")
 end
 
---- A timeout no wait can last is refused where it is read, naming the
---- field.
+--- A timeout no wait can last is refused where it is set, naming the
+--- field and the caller's line, for a connection and for a listener;
+--- the timeout it had stays.
 local function test_a_timeout_out_of_range_is_refused(tmp: string)
   local p <close> = pair(tmp)
-  p.client.timeout_ns = -5
-  local ok, why = pcall(p.client.read, p.client)
-  assert(not ok and tostring(why):find("timeout_ns must be", 1, true) ~= nil, tostring(why))
+  for _, bad in ipairs({ -5, Poll.MOST_NS + 1, 1.5 } as {number}) do
+    local ok, why: boolean, any = pcall(function() p.client:set_timeout(bad as integer) end)
+    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: timeout_ns must be nil or an integer from 0 to",
+      1) ~= nil, tostring(why))
+    local listener_ok, listener_why: boolean, any = pcall(function()
+      p.server:set_timeout(bad as integer)
+    end)
+    assert(not listener_ok and tostring(listener_why):find("^cosmic%.net_test:%d+: timeout_ns must be", 1) ~= nil,
+      tostring(listener_why))
+  end
+  p.client:set_timeout(Time.ms(10))
+  assert(not pcall(function() p.client:set_timeout(-1) end))
+  local data, read_why = p.client:read()
+  assert(data == nil and read_why == Poll.TIMEOUT, read_why)
   assert(not pcall(Net.connect, p.server.address, { timeout_ns = -1 }))
   assert(not pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { timeout_ns = Poll.MOST_NS + 1 }))
   assert(not pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { timeout_ns = 1 << 62 }))
@@ -92,7 +103,7 @@ end
 --- end after about the time given, in a run and out of one.
 local function test_a_timeout_waits_the_nanoseconds_it_is_given(tmp: string)
   local p <close> = pair(tmp)
-  p.accepted.timeout_ns = Time.ms(100)
+  p.accepted:set_timeout(Time.ms(100))
   local function bounded(took: integer, what: string)
     assert(took >= Time.ms(90) and took < Time.seconds(10),
       what .. " waited " .. tostring(took // Time.ms(1)) .. " ms, not about 100")
@@ -116,28 +127,9 @@ local function test_a_timeout_waits_the_nanoseconds_it_is_given(tmp: string)
     bounded(Time.monotonic_ns() - at, "an accept in a run")
   end)
   -- A nanosecond rounds up to a wait of a millisecond, which ends.
-  p.accepted.timeout_ns = 1
+  p.accepted:set_timeout(1)
   local brief, brief_why = p.accepted:read()
   assert(brief == nil and brief_why == Poll.TIMEOUT, brief_why)
-end
-
---- A Writer that a wrapper closes ends only what is sent: the answer is
---- still there to read.
-local function test_a_writer_closed_leaves_the_answer_to_read(tmp: string)
-  local p <close> = pair(tmp)
-  local writer = p.client:writer()
-  assert(writer:write("request"))
-  assert(writer:close())
-  assert(assert(Stream.read_all(p.accepted)) == "request")
-  assert(p.accepted:write("answer"))
-  assert(p.accepted:close())
-  assert(assert(Stream.read_all(p.client)) == "answer")
-  assert(writer:close(), "a second close is harmless")
-  local late, late_why = writer:write("more")
-  assert(not late and late_why == "writer is closed", late_why)
-  assert(p.client:writer():abort())
-  local data, why = p.client:read()
-  assert(data == nil and why == "connection is closed", why)
 end
 
 --- A unix listener whose backlog is full, no one accepting.
@@ -167,7 +159,7 @@ end
 
 --- What connecting to a full listener at `path` fails with: on Linux,
 --- saying the listener is busy, told from "Connection refused", which
---- `reclaim` takes for a listener gone; macOS cannot tell the two apart.
+--- a listener gone answers; macOS cannot tell the two apart.
 local function busy(path: string): string
   if assert(sys.uname()).sysname == "Darwin" then return path .. ": Connection refused" end
   return path .. ": Resource temporarily unavailable (the listener is busy: its backlog is full)"
@@ -188,7 +180,7 @@ local function test_accept_with_no_one_connecting_times_out(tmp: string)
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ns = Time.seconds(60) }))
   local conn, why = server:accept(Time.ms(20))
   assert(conn == nil and why == Poll.TIMEOUT, why)
-  server.timeout_ns = 0
+  server:set_timeout(0)
   conn, why = server:accept()
   assert(conn == nil and why == Poll.TIMEOUT, why)
 end
@@ -236,8 +228,50 @@ local function test_a_closed_connection_says_so_and_closes_again(tmp: string)
   assert(not ok and trouble == "connection is closed", trouble)
   local shut, shut_trouble = client:shutdown("write")
   assert(not shut and shut_trouble == "connection is closed", shut_trouble)
-  assert(not pcall(accepted.shutdown, accepted, "sideways"))
-  assert(not pcall(accepted.read, accepted, 0))
+end
+
+--- A `max` below 1 and a `how` of none of the three raise, at the line
+--- that called, in the module's own style.
+local function test_a_degenerate_read_or_shutdown_raises_at_the_caller(tmp: string)
+  local p <close> = pair(tmp)
+  local accepted = p.accepted
+  for _, max in ipairs({ 0, -1 }) do
+    local ok, why: boolean, any = pcall(function() local _, _ = accepted:read(max) end)
+    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: max must be positive$") ~= nil,
+      tostring(why))
+  end
+  local shut, shut_why: boolean, any = pcall(function()
+    local _, _ = accepted:shutdown("sideways")
+  end)
+  assert(not shut and tostring(shut_why):find(
+    '^cosmic%.net_test:%d+: net: how must be "read", "write" or "both"$') ~= nil, tostring(shut_why))
+  assert(accepted:shutdown("read"), "a refused call must not end the direction")
+end
+
+--- `reclaim` is gone: a listen that sets it raises, naming the removal,
+--- rather than listen without it.
+local function test_listen_refuses_the_removed_reclaim_option(tmp: string)
+  local options: any = { reclaim = true }
+  local address = Net.unix(tmp .. "/s.sock")
+  local ok, why: boolean, any = pcall(function()
+    local _, _ = Net.listen(address, options as Net.ListenOptions)
+  end)
+  assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: ListenOptions.reclaim is gone: ") ~= nil,
+    tostring(why))
+  assert(Fs.stat(tmp .. "/s.sock") == nil and Fs.stat(tmp .. "/s.sock.lock") == nil)
+end
+
+--- A listener's `address` is the one given, built again by [`Net.unix`]:
+--- a unix one keeps its path and nothing else.
+local function test_a_unix_listeners_address_is_built_again_from_its_path(tmp: string)
+  local given = { kind = "unix", path = tmp .. "/s.sock", host = "unused", port = 9 }
+  local server <close> = assert(Net.listen(given))
+  local address = server.address
+  assert(address.kind == "unix" and address.path == tmp .. "/s.sock", address.path)
+  assert(address.host == nil and address.port == nil, "a field past the kind's own was kept")
+  assert(address ~= given, "the listener holds the caller's table")
+  local client <close> = assert(Net.connect(address, { timeout_ns = Time.seconds(5) }))
+  assert(client:close())
 end
 
 --- A listener at a relative path removes its own socket file at close
@@ -348,254 +382,6 @@ local function test_a_long_path_is_reached_from_its_directory(tmp: string)
   assert(Fs.stat(deep .. "/r.sock") ~= nil, "no socket file")
   assert(server:close())
   assert(Fs.stat(deep .. "/r.sock") == nil, "the socket file was left")
-end
-
---- `reclaim` takes over a socket file a listener left behind, and
---- nothing else: a live listener's file, and a file that is no socket,
---- are left alone.
-local function test_reclaim_takes_over_only_a_socket_file_left_behind(tmp: string)
-  local path = tmp .. "/s.sock"
-  local moved = tmp .. "/moved.sock"
-  -- Moved aside while it listened, and back once it closed: a socket
-  -- file with nothing listening, as one a killed listener leaves.
-  do
-    local _gone <close> = assert(Net.listen(Net.unix(path)))
-    assert(sys.rename(path, moved))
-  end
-  assert(sys.rename(moved, path))
-  local refused, why = Net.listen(Net.unix(path))
-  assert(refused == nil and why == path .. ": Address in use", why)
-  local server <close> = assert(Net.listen(Net.unix(path), { reclaim = true, timeout_ns = Time.seconds(5) }))
-  local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
-  local accepted <close> = assert(server:accept())
-  assert(client:write("here"))
-  assert(assert(accepted:read()) == "here")
-  local again, live = Net.listen(Net.unix(path), { reclaim = true })
-  assert(again == nil and live == path .. ": Address in use", live)
-  assert(client:write("still"))
-  assert(assert(accepted:read()) == "still")
-  local plain = tmp .. "/plain"
-  assert(Fs.write(plain, "mine"))
-  local over, taken = Net.listen(Net.unix(plain), { reclaim = true })
-  assert(over == nil and taken == plain .. ": Address in use", taken)
-  assert(Fs.read(plain) == "mine")
-end
-
---- A live listener whose backlog is full keeps its file: on Linux the
---- connection that asks is answered EAGAIN, busy, rather than refused.
---- (macOS refuses it, as `reclaim`'s doc says.)
-local function test_reclaim_leaves_a_full_live_listener_alone(tmp: string)
-  if assert(sys.uname()).sysname == "Darwin" then return end
-  local path = tmp .. "/s.sock"
-  local _full <close> = full(path)
-  local again, live = Net.listen(Net.unix(path), { reclaim = true })
-  assert(again == nil and live == path .. ": Address in use", live)
-  assert(Fs.stat(path) ~= nil, "the live listener's file was taken")
-end
-
---- A socket file at `path` with nothing listening, as a killed
---- listener leaves one: moved aside while it listened, and back once it
---- closed. Answers its inode.
-local function left_behind(tmp: string, path: string): integer
-  local moved = tmp .. "/moved.sock"
-  do
-    local _gone <close> = assert(Net.listen(Net.unix(path)))
-    assert(sys.rename(path, moved))
-  end
-  assert(sys.rename(moved, path))
-  return assert(sys.lstat(path)).ino
-end
-
---- A reclaim waits its turn while another holds the lock beside the
---- path, taking nothing: without it, two reclaims starting at once
---- could each find the other's socket refused and remove it.
-local function test_reclaim_refuses_to_look_while_another_holds_the_lock(tmp: string)
-  local path = tmp .. "/s.sock"
-  local ino = left_behind(tmp, path)
-  local held = assert(sys.open(path .. ".lock", sys.O_RDONLY | sys.O_CREAT, 0x180))
-  assert(sys.flock(held, "exclusive"))
-  local guard = assert(Child.guard())
-  assert(sys.kill(sys.getpid(), sys.SIGINT))
-  local server, why = Net.listen(Net.unix(path), { reclaim = true })
-  local caught = assert(guard:release())
-  assert(caught == sys.SIGINT, tostring(caught))
-  assert(server == nil and why == path .. ".lock: interrupted", why)
-  assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken under another's lock")
-  assert(sys.close(held))
-  do
-    local _taken <close> = assert(Net.listen(Net.unix(path), { reclaim = true }))
-    local _client <close> = assert(Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) }))
-  end
-  assert(Fs.stat(path) == nil, "the socket file was left")
-  assert(assert(Fs.stat(path .. ".lock")).kind == "file", "the lock file was removed")
-end
-
---- A task that counts its turns every few milliseconds until `done`
---- holds true: how a test sees the run go on while another task waits.
-local record Ticker
-  ticks: integer
-  done: boolean
-end
-
-local function ticking(ticker: Ticker): Poll.Task
-  return Poll.spawn(function()
-    while not ticker.done do
-      ticker.ticks = ticker.ticks + 1
-      assert(Poll.delay(Time.ms(5)))
-    end
-  end)
-end
-
---- Reclaims of one socket file left behind, in tasks of one run, wait
---- through the run for a lock another task holds, and then take turns:
---- one takes the file over and the other finds it listening. The run
---- goes on meanwhile, the holder among it, which a wait holding the
---- thread would keep from ever releasing the lock.
-local function test_reclaims_in_tasks_wait_for_the_lock_through_the_run(tmp: string)
-  local path = tmp .. "/s.sock"
-  left_behind(tmp, path)
-  local ticker: Ticker = { ticks = 0, done = false }
-  local taken: {Net.Listener} = {}
-  local refused: {string} = {}
-  local released_at = 0
-  Poll.run(function()
-    local ticks = ticking(ticker)
-    local held = assert(sys.open(path .. ".lock", sys.O_RDWR | sys.O_CREAT, 0x180))
-    assert(sys.flock(held, "exclusive"))
-    local reclaims: {Poll.Task} = {}
-    for i = 1, 2 do
-      reclaims[i] = Poll.spawn(function()
-        local server, why = Net.listen(Net.unix(path), { reclaim = true })
-        if server ~= nil then taken[#taken + 1] = server else refused[#refused + 1] = why end
-      end)
-    end
-    assert(Poll.delay(Time.ms(200)))
-    released_at = ticker.ticks
-    assert(sys.close(held))
-    for _, reclaim in ipairs(reclaims) do assert(reclaim:join(Time.seconds(5))) end
-    ticker.done = true
-    assert(ticks:join())
-  end)
-  assert(#taken == 1 and #refused == 1, #refused == 1 and refused[1] or "both answered alike")
-  local _server <close> = taken[1]
-  assert(refused[1] == path .. ": Address in use", refused[1])
-  assert(released_at > 1, "the run did not go on while the reclaims waited")
-  local _client <close> = assert(Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) }))
-end
-
---- A reclaim in a task cancelled while it waits for another's lock
---- fails "cancelled" and takes nothing.
-local function test_a_reclaim_cancelled_waiting_for_the_lock_takes_nothing(tmp: string)
-  local path = tmp .. "/s.sock"
-  local ino = left_behind(tmp, path)
-  local held = assert(sys.open(path .. ".lock", sys.O_RDWR | sys.O_CREAT, 0x180))
-  assert(sys.flock(held, "exclusive"))
-  local server: Net.Listener
-  local why: string
-  Poll.run(function()
-    local reclaim = Poll.spawn(function()
-      server, why = Net.listen(Net.unix(path), { reclaim = true })
-    end)
-    assert(Poll.delay(Time.ms(20)))
-    reclaim:cancel()
-    assert(reclaim:join(Time.seconds(5)))
-  end)
-  assert(sys.close(held))
-  assert(server == nil and why == path .. ".lock: cancelled", why)
-  assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken under another's lock")
-end
-
---- How many descriptors this process holds open on the file at `path`.
-local function opens_of(path: string): integer
-  local st = assert(sys.lstat(path))
-  local count = 0
-  for fd = 0, 1023 do
-    -- The descriptor a portable start keeps on the program raises.
-    local ok, open = pcall(sys.fstat, fd)
-    if ok and open ~= nil and open.dev == st.dev and open.ino == st.ino then
-      count = count + 1
-    end
-  end
-  return count
-end
-
---- A run torn down while a reclaim in it waits for the lock closes the
---- lock file the reclaim opened, rather than leave it to the collector.
-local function test_a_run_torn_down_while_a_reclaim_waits_closes_its_lock_file(tmp: string)
-  local path = tmp .. "/s.sock"
-  left_behind(tmp, path)
-  local held = assert(sys.open(path .. ".lock", sys.O_RDWR | sys.O_CREAT, 0x180))
-  assert(sys.flock(held, "exclusive"))
-  local ok, err: boolean, any = pcall(Poll.run, function()
-    Poll.spawn(function()
-      local _, _ = Net.listen(Net.unix(path), { reclaim = true })
-    end)
-    assert(Poll.delay(Time.ms(20)))
-    error("torn down")
-  end)
-  assert(not ok and tostring(err):find("torn down", 1, true) ~= nil, tostring(err))
-  local opens = opens_of(path .. ".lock")
-  assert(sys.close(held))
-  assert(opens == 1, opens .. " descriptors left open on the lock file")
-end
-
---- Where the lock file cannot be made, a reclaim fails naming it and
---- leaves the socket file alone rather than reclaim without the lock.
-local function test_reclaim_without_its_lock_file_fails_and_takes_nothing(tmp: string)
-  local path = tmp .. "/s.sock"
-  local ino = left_behind(tmp, path)
-  assert(sys.mkdir(path .. ".lock", 0x1c0))
-  local server, why = Net.listen(Net.unix(path), { reclaim = true })
-  assert(server == nil and why == path .. ".lock: Is a directory", why)
-  assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken without the lock")
-end
-
---- [`cosmic.net`] loaded over `raw`, as the store's searcher would hand
---- it the raw socket module.
-local function net_over(raw: {string: any}): Net
-  for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      setmetatable(raw, { __index = extra })
-      return (loader as function(string, any): Net)("cosmic.net", raw)
-    end
-  end
-  error("no searcher handed over the raw socket module")
-end
-
---- A raise while a reclaim holds its lock releases the lock: held on,
---- it would keep every later reclaim of the path waiting until it
---- timed out.
-local function test_a_raise_under_the_reclaim_lock_releases_it(tmp: string)
-  local path = tmp .. "/s.sock"
-  left_behind(tmp, path)
-  local raising = net_over({ listen = function(): any error("raised under the lock") end })
-  local ok, err = pcall(raising.listen, Net.unix(path), { reclaim = true })
-  assert(not ok and tostring(err):find("raised under the lock", 1, true) ~= nil, tostring(err))
-  local probe = assert(sys.open(path .. ".lock", sys.O_RDWR, 0))
-  assert(sys.flock(probe, "exclusive"))
-  assert(sys.close(probe))
-  local _server <close> = assert(Net.listen(Net.unix(path), { reclaim = true }))
-end
-
---- A path ending in "/" names no socket file to reclaim, and makes no
---- lock file inside the directory it names.
-local function test_reclaim_refuses_a_path_ending_in_a_slash(tmp: string)
-  local server, why = Net.listen(Net.unix(tmp .. "/"), { reclaim = true })
-  assert(server == nil and why == tmp .. "/: Is a directory", why)
-  assert(Fs.stat(tmp .. "/.lock") == nil, "a lock file was made in the directory")
-end
-
---- An empty path raises under `reclaim` as it does without, before a
---- lock file named ".lock" is made in the working directory.
-local function test_reclaim_of_an_empty_path_raises_and_makes_no_lock_file(tmp: string)
-  local was = assert(sys.getcwd())
-  assert(sys.chdir(tmp))
-  local ok, err = pcall(Net.listen, Net.unix(""), { reclaim = true })
-  local made = Fs.stat(".lock")
-  assert(sys.chdir(was))
-  assert(not ok and tostring(err):find("path must not be empty", 1, true) ~= nil, tostring(err))
-  assert(made == nil, "a lock file was made in the working directory")
 end
 
 local DEEP_PART <const> = string.rep("d", 200)
@@ -766,7 +552,7 @@ local function test_in_a_run_waits_time_out_as_they_do_out_of_one(tmp: string)
   Poll.run(function()
     local conn, why = p.server:accept(Time.ms(10))
     assert(conn == nil and why == Poll.TIMEOUT, why)
-    p.accepted.timeout_ns = Time.ms(10)
+    p.accepted:set_timeout(Time.ms(10))
     local data, read_why = p.accepted:read()
     assert(data == nil and read_why == Poll.TIMEOUT, read_why)
   end)
@@ -785,38 +571,4 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   end)
   assert(Time.monotonic_ns() - began < Time.seconds(10), "the connection waited for room")
   assert(conn == nil and why == busy(path), why)
-end
-
---- A pair's ends are connected to each other, both ways, in a run or
---- out of one, and are bound nowhere; a write to an end whose other
---- has gone fails rather than raising SIGPIPE.
-local function test_a_pair_carries_bytes_both_ways()
-  local ends <close> = assert(Net.pair())
-  local first, second = ends.first, ends.second
-  assert(first:write("ping"))
-  assert(first:shutdown("write"))
-  assert(assert(Stream.read_all(second)) == "ping")
-  Poll.run(function()
-    Poll.spawn(function() assert(second:write("pong")) end)
-    assert(assert(first:read()) == "pong")
-  end)
-  local peer = assert(first:peer())
-  assert(peer.kind == "unix" and peer.path == "", peer.path)
-  assert(first:close())
-  local ok, why = second:write("after")
-  assert(not ok and why ~= "", "a write to a pair whose other end has gone succeeded")
-end
-
---- A connection to a unix listener names the listener's socket file as
---- its peer; the one accepted names a socket bound nowhere, "". A
---- closed one names none.
-local function test_a_unix_peer_is_the_path_its_socket_was_bound_at(tmp: string)
-  local p <close> = pair(tmp)
-  local client_peer = assert(p.client:peer())
-  assert(client_peer.kind == "unix" and client_peer.path == tmp .. "/s.sock", client_peer.path)
-  local accepted_peer = assert(p.accepted:peer())
-  assert(accepted_peer.kind == "unix" and accepted_peer.path == "", accepted_peer.path)
-  assert(p.client:close())
-  local none, why = p.client:peer()
-  assert(none == nil and why == "connection is closed", why)
 end

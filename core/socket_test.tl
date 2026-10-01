@@ -205,6 +205,26 @@ local function test_a_send_from_a_byte_sends_the_rest(tmp: string)
   end
 end
 
+--- A pair's ends are connected to each other, both ways, each sending
+--- as `send` does: EPIPE, not SIGPIPE, once the other has gone; and
+--- each closes its own descriptor.
+local function test_a_pair_carries_bytes_both_ways_and_closes_each_end(tmp: string)
+  local before = next_descriptor(tmp)
+  local ends = assert(raw.pair())
+  assert(assert(raw.send(ends.first:fd(), "ping")) == 4)
+  assert(raw.wait(ends.second:fd(), false, 5000))
+  assert(assert(sys.read(ends.second:fd(), 16)) == "ping")
+  assert(assert(raw.send(ends.second:fd(), "pong")) == 4)
+  assert(raw.wait(ends.first:fd(), false, 5000))
+  assert(assert(sys.read(ends.first:fd(), 16)) == "pong")
+  assert(ends.second:close())
+  local sent, _, errno = raw.send(ends.first:fd(), "after")
+  assert(sent == nil and errno == sys.EPIPE, tostring(errno))
+  assert(ends.first:close())
+  assert(not pcall(ends.first.fd, ends.first))
+  assert(next_descriptor(tmp) == before, "an end left its descriptor open")
+end
+
 --- A listener handed as a descriptor is adopted as a socket of its own
 --- on a new descriptor, which accepts there and, closed, leaves the
 --- socket file to the listener that made it; what is no listener of
@@ -270,9 +290,8 @@ end
 
 --- A unix listener whose backlog is full refuses a further connection
 --- at once, however long it may wait, whether started or connected:
---- EAGAIN on Linux, kept apart from ECONNREFUSED, which [`cosmic.net`]'s
---- `reclaim` takes for a listener gone; macOS cannot tell the two
---- apart, and answers ECONNREFUSED.
+--- EAGAIN on Linux, kept apart from ECONNREFUSED, which a listener gone
+--- answers; macOS cannot tell the two apart, and answers ECONNREFUSED.
 local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string)
   local path = tmp .. "/s.sock"
   local _listener <close> = assert(raw.listen(unix(path), 1))
