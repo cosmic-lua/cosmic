@@ -131,8 +131,8 @@ local function test_the_sqlite_options_name_each_old_boolean_call()
     and instead:find("nothing for `false`", 1, true), instead)
 end
 
---- A program that made a raw pipe for a child's stdin is told the stream
---- that stands in for it, not the `"pipe"` mode and `h.stdin` that went.
+--- A program that made a raw pipe for a child's stdin is told to use
+--- `stdin = "stream"` and `h.stdin_stream`, never the `"pipe"` mode.
 local function test_the_removed_raw_pipe_names_the_stdin_stream()
   for _, member in ipairs({ "pipe", "Pipe", "ignore_sigpipe" }) do
     local instead = Removed.members["cosmic.sys." .. member]

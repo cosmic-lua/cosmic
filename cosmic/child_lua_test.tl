@@ -282,9 +282,9 @@ local function test_stdin_stream_belongs_to_the_caller()
   assert(r.ok and r.stdout == "typed")
 end
 
---- `stdin = "pipe"` and `h:close_stdin()` went with the stream that
---- covers both: the refusal says what to write instead.
-local function test_the_removed_stdin_pipe_says_what_replaces_it()
+--- A start with `stdin = "pipe"` raises, and the message names the
+--- stream and `input` to use instead.
+local function test_a_stdin_pipe_names_the_stream_to_use()
   local ok, trouble = pcall(Child.start, { "/bin/sh" }, { stdin = "pipe" } as Child.Options)
   assert(not ok and tostring(trouble):find('"stream"', 1, true) ~= nil and
     tostring(trouble):find("stdin_stream", 1, true) ~= nil, tostring(trouble))

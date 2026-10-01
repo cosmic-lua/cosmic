@@ -272,14 +272,17 @@ caller that services other descriptors meanwhile. Child's stdin stream is
 `pump`'s `writable` argument, are gone), `pump` is a list of `{ fd, events,
 owner, kind }` entries with one service per kind, the end-of-life chain is
 `end_child(h)` (no `deadline_ns`: every caller wants the grace
-period, and a wait that is not a wait for the exit is another loop), `"pipe"`
+period, and a wait that is not a wait for the exit is another loop) under a
+safety net, `end_or_kill`, that SIGKILLs and reaps where the ending raises, `"pipe"`
 and `close_stdin` are gone, and the three options are enums beside the
 integer. Left, each a `TODO:`: a streamed output stays a queue read by
 `pipe_reader`, since handing the caller [`Stream.from_fd`] over the bare pipe
 ends the service of one output while another is read (the full-stderr and
 full-stdout tests); [`Net.Conn`]'s `read`/`write` stay (net.tl's `waited`);
 [`Fs.read`] and `copy_bytes` stay, as [`cosmic.fs`] is a harness module that
-may not require [`cosmic.stream`].
+may not require [`cosmic.stream`]. So the write-whole loops
+are not one: `Fs.write_all` (behind [`Fs.put`] and [`Fs.write`]),
+[`Stream.to_fd`], net's [`Conn.write`] and child's `input` service remain.
 
 **PR 12 `net: one address, no supervisor`** (after PR 11).
 `raw_socket.Address` is [`Net.Address`] (the four fields net.tl:561 copies
@@ -421,6 +424,7 @@ description.
 [`Compress.deflate`]: ../../cosmic/compress.tl
 [`Compress.inflate`]: ../../cosmic/compress.tl
 [`Compress.Stream`]: ../../cosmic/compress.tl
+[`Conn.write`]: ../../cosmic/net.tl
 [`Conn:peer`]: ../../cosmic/net.tl
 [`Conn:writer`]: ../../cosmic/net.tl
 [`core/allocation_test.tl`]: ../../core/allocation_test.tl
@@ -452,6 +456,7 @@ description.
 [`Flags.help`]: ../../cosmic/flags.tl
 [`Flags.Parsed`]: ../../cosmic/flags.tl
 [`Fs.cache_path`]: ../../cosmic/fs.tl
+[`Fs.put`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.truncate`]: ../../cosmic/fs.tl
 [`Fs.walk`]: ../../cosmic/fs.tl

@@ -375,6 +375,30 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
   end
 end
 
+--- A raise in the ending of a run -- here the wait of the run's own
+--- poll, which fails once the child has said its pid -- leaves no
+--- process behind: the child holds SIGTERM, so only the SIGKILL the
+--- ending falls back on ends it, before any collection of the handle.
+local function test_a_raise_while_ending_a_run_still_kills_the_child(tmp: string)
+  local report = tmp .. "/raised"
+  local poll = sys.poll
+  local raised = false
+  sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer} | nil, string, integer
+    if Fs.exists(report) then
+      raised = true
+      error("poll refused", 0)
+    end
+    return poll(fds, events, ms)
+  end
+  local argv, options = lua(holding_term(report), { timeout_ns = Time.ms(300) })
+  local ok, trouble: boolean, any = pcall(Child.run, argv, options)
+  sys.poll = poll
+  assert(raised and not ok and tostring(trouble):find("poll refused", 1, true) ~= nil,
+    tostring(trouble))
+  local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
+  assert(sys.kill(pid, 0) == false, "the child outlived the raise")
+end
+
 --- The signals this process catches, as Linux's /proc says; nil
 --- elsewhere.
 local function caught_signals(): string | nil

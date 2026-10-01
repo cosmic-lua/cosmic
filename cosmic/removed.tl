@@ -66,9 +66,11 @@ local record Module
   -- zone, opts)`).
   -- Likewise for what cosmic.child's Handle lost: `close_stdin` (close the
   -- Writer `h.stdin_stream` answers, so the child reads end of file) and
-  -- the `stdin` field (the descriptor `stdin = "pipe"` gave; that mode
-  -- went too, and a start with it raises naming "stream"), the mode
-  -- being a value, which `members` cannot key either.
+  -- the `stdin` field (the descriptor `stdin = "pipe"` gave), and the
+  -- `"pipe"` mode itself, a value, which `members` cannot key either:
+  -- the compiler refuses it as `got string "pipe", expected integer |
+  -- Stdin`, naming no module to look an entry up by, and only a run that
+  -- reaches it says to use "stream" (Child.start raises).
   -- Likewise for the spans every record held in milliseconds or seconds:
   -- `timeout_ms` (Child.Options, Net.ListenOptions, Net.ConnectOptions,
   -- Net.ServeSpec and Http.Options), `grace_ms` (Net.ServeSpec),

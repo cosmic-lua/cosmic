@@ -974,13 +974,34 @@ local function end_streamed(self: Handle)
   end
 end
 
+--- [`end_child`], with a net under it: whatever raises in the ending (an
+--- allocation refused, a wait that fails) must still leave no process
+--- behind, so a raise is answered by SIGKILL to the child, its group
+--- included, and a reap that holds the thread and cannot wait through
+--- anything that raised. The Result is left for a later `close` or
+--- collection to settle; the failure is answered as the reason.
+local function end_or_kill(self: Handle): Result | nil, string
+  local ok, r, why = pcall(end_child, self)
+  if ok then
+    if r == nil then return nil, why end
+    return r, ""
+  end
+  local _, _ = sys.kill(target(self), sys.SIGKILL)
+  for _ = 1, 100 do
+    local status, _ = exited(self)
+    if status ~= nil then break end
+    local _, _ = sys.nanosleep(POLL_NS)
+  end
+  return nil, tostring(r)
+end
+
 local handle_mt: metatable<Handle> = {
   __close = function(self: Handle)
-    if not self._closed then local _, _ = end_child(self) end
+    if not self._closed then local _, _ = end_or_kill(self) end
     end_streamed(self)
   end,
   __gc = function(self: Handle)
-    if not self._closed then local _, _ = end_child(self) end
+    if not self._closed then local _, _ = end_or_kill(self) end
     end_streamed(self)
   end,
 }
@@ -1724,7 +1745,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
     local _ending <close> = started
     r, wait_trouble = started:wait(opts.timeout_ns)
     if not started._closed and (guard:cancelled() ~= 0 or r == nil) then
-      local _, failure = end_child(started)
+      local _, failure = end_or_kill(started)
       if failure ~= "" then cleanup_trouble = failure end
     end
   end

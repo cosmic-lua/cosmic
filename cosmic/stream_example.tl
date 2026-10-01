@@ -77,11 +77,28 @@ function Example.lines()
   assert(Fs.remove_tree(dir))
 end
 
---- A stream written to an open descriptor: here standard output.
+--- A stream written to an open descriptor: here standard output. A
+--- non-blocking one can be waited on for room, for as long as
+--- `timeout_ns`: here a named pipe nobody reads, which takes what it
+--- holds, and then fails the write with [`Poll.TIMEOUT`]; `written` says
+--- how much of the body went before it did.
 function Example.to_fd()
   local w = Stream.to_fd(Fs.stdout)
   assert(Stream.copy(Stream.from_string("streamed to standard output\n"), w))
   assert(w:close())
+  local dir = assert(Fs.mkdtemp("cosmic-stream-example-"))
+  assert(sys.mkfifo(dir .. "/full", 384))
+  local reader = assert(sys.open(dir .. "/full", sys.O_RDONLY | sys.O_NONBLOCK, 0))
+  local pipe = assert(sys.open(dir .. "/full", sys.O_WRONLY | sys.O_NONBLOCK, 0))
+  local slow = Stream.to_fd(pipe, { nonblocking = true, timeout_ns = Time.ms(20) })
+  local body = string.rep("x", 1 << 20)
+  local ok, why = slow:write(body)
+  print(why, slow:written())
+  assert(not ok and why == Poll.TIMEOUT, why)
+  assert(slow:written() > 0 and slow:written() < #body)
+  assert(Fs.close(pipe))
+  assert(Fs.close(reader))
+  assert(Fs.remove_tree(dir))
 end
 
 --- A body checked against its published digest as it streams to where

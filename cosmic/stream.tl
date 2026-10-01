@@ -317,7 +317,8 @@ local function fd_options(opts: Stream.FdOptions | nil, level: integer): Stream.
     error("timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
       "cannot be waited on in pieces", level + 1)
   end
-  return opts
+  -- A copy, so a field set after this check cannot go past it.
+  return { nonblocking = opts.nonblocking, timeout_ns = opts.timeout_ns, wait = opts.wait }
 end
 
 --- Waits for `fd` to have `events` until `deadline` (nil for no limit),
@@ -834,7 +835,9 @@ end
 --- already reached it. A `write` goes out whole: it writes until every
 --- byte has gone, or fails. A failure is sticky, every later write
 --- answering it, but for a deadline or a cancelled task, which leave
---- the Writer as it was.
+--- the Writer as it was, and for no room on a descriptor not declared
+--- `nonblocking`, which a later write may find. A write a signal
+--- interrupts is tried again.
 ---
 --- Over a descriptor in non-blocking mode, `opts.nonblocking` makes a
 --- write that finds no room wait for it, as [`Stream.FdOptions`] says,
@@ -879,6 +882,13 @@ function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
           failed = why
           return false, failed
         end
+      elseif errno == sys.EINTR then
+        -- A blocking write a signal interrupted before it took a byte
+        -- is tried again; one that took some has returned them.
+      elseif errno == sys.EAGAIN then
+        -- A descriptor the caller made non-blocking without saying so:
+        -- no room now, which a later write may find.
+        return false, trouble
       else
         failed = trouble
         return false, failed
