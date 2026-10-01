@@ -508,9 +508,10 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
 end
 
 --- A hasher holds no C memory of the core's own, and a refusal while it
---- updates or digests leaves none. An HMAC's holds the key's derived pads
---- in the library's own memory, which a refusal anywhere, or a hasher
---- left unfinished, must release too.
+--- updates or digests leaves none. An HMAC's operation lives inline in
+--- its userdata, so what its walk covers is Lua's side of it: a refusal
+--- in the userdata's allocation or the values a constructor, `update`
+--- or `digest` pushes, and the collection or close of an unfinished one.
 local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   if not checked then return end
   collectgarbage("collect")

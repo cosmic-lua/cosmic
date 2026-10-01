@@ -91,14 +91,17 @@ local function test_incremental_hmac_matches_published_vectors()
   end
 end
 
+--- What an HMAC key is padded to, per algorithm (the rate of a SHA-3 sponge).
+local blocks: {Hash.Algorithm:integer} = {
+  ["md5"] = 64, ["sha1"] = 64, ["sha224"] = 64, ["sha256"] = 64, ["sha384"] = 128, ["sha512"] = 128,
+  ["sha3-224"] = 144, ["sha3-256"] = 136, ["sha3-384"] = 104, ["sha3-512"] = 72,
+}
+
 local function test_incremental_hmac_agrees_with_hmac_for_every_algorithm()
-  local algorithms: {Hash.Algorithm} = {
-    "md5", "sha1", "sha224", "sha256", "sha384", "sha512",
-    "sha3-224", "sha3-256", "sha3-384", "sha3-512",
-  }
   local message = string.rep("0123456789abcdef", 40)
-  for _, algorithm in ipairs(algorithms) do
-    for _, length in ipairs({ 0, 1, 64, 71, 72, 73, 104, 136, 144, 145, 300 }) do
+  for algorithm, block in pairs(blocks) do
+    -- Each algorithm's own block boundary, besides the lengths every one meets.
+    for _, length in ipairs({ 0, 1, 64, 71, 72, 73, 104, 136, 144, 145, 300, block - 1, block, block + 1 }) do
       local key = string.rep("k", length)
       local want = Hash.hmac(algorithm, key, message)
       for _, step in ipairs({ 1, 7, 128, #message }) do
@@ -112,6 +115,23 @@ local function test_incremental_hmac_agrees_with_hmac_for_every_algorithm()
       empty:update("")
       assert(empty:digest() == Hash.hmac(algorithm, key, ""))
     end
+  end
+end
+
+--- Starting an HMAC imports its key into one of the crypto library's
+--- 32 slots (MBEDTLS_PSA_KEY_SLOT_COUNT); the operation keeps a copy,
+--- so the slot must be released at once. A slot left behind would make
+--- the thirty-third live hasher fail to start.
+local function test_many_unfinished_incremental_hmacs_can_be_live_at_once()
+  local live: {Hash.Hasher} = {}
+  for i = 1, 100 do
+    local mac, trouble = Hash.hmac_hasher("sha256", "key" .. i)
+    assert(mac ~= nil, "hasher " .. i .. ": " .. trouble)
+    mac:update("message " .. i)
+    live[i] = mac
+  end
+  for i, mac in ipairs(live) do
+    assert(mac:digest() == Hash.hmac("sha256", "key" .. i, "message " .. i), "hasher " .. i)
   end
 end
 

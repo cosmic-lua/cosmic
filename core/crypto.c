@@ -14,6 +14,7 @@
 #include <sys/random.h>
 #endif
 
+#include "mbedtls/platform_util.h"
 #include "psa/crypto.h"
 
 int cosmic_entropy (void *out, size_t len) {
@@ -128,23 +129,26 @@ static int digest_fd (const char *name, int fd, uint64_t offset,
 static psa_status_t import_hmac_key (psa_algorithm_t alg, const void *key,
                                      size_t key_len, psa_key_id_t *id) {
   static const unsigned char zero = 0;
+  /* A digest of the key is as good as the key: wiped before every return. */
   unsigned char digested[COSMIC_DIGEST_MAX];
+  psa_status_t status = PSA_SUCCESS;
   if (key_len == 0) {
     key = &zero;
     key_len = 1;
   } else if (key_len > PSA_HASH_BLOCK_LENGTH(alg)) {
-    psa_status_t hashed = psa_hash_compute(alg, key, key_len, digested,
-                                           sizeof digested, &key_len);
-    if (hashed != PSA_SUCCESS) {
-      return hashed;
-    }
+    status = psa_hash_compute(alg, key, key_len, digested, sizeof digested,
+                              &key_len);
     key = digested;
   }
-  psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
-  psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
-  psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
-  psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(alg));
-  return psa_import_key(&attributes, key, key_len, id);
+  if (status == PSA_SUCCESS) {
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(alg));
+    status = psa_import_key(&attributes, key, key_len, id);
+  }
+  mbedtls_platform_zeroize(digested, sizeof digested);
+  return status;
 }
 
 int cosmic_hmac (const char *name, const void *key, size_t key_len,
