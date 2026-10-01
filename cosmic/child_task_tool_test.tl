@@ -71,7 +71,9 @@ local function now_ms(): integer
 end
 
 --- Runs `main` as a task beside one that ticks every 5 ms until `main`
---- returns, and answers how many times it ticked.
+--- returns, and answers how many times it ticked. A wait that held the
+--- thread lets it tick once at most, so two ticks show the wait yielded,
+--- however a loaded host stretches the 5 ms.
 local function ticking(main: function()): integer
   local ticks = 0
   Poll.run(function()
@@ -100,7 +102,7 @@ local function test_a_run_in_a_task_lets_the_others_run()
       r = assert(module.run(lua(sleep(300) .. 'print("done")', { stdout = "capture" })))
     end)
     assert(r.ok and r.stdout == "done\n", tostring(r.stdout))
-    assert(ticks >= 10, "the other task ticked " .. ticks .. " times while the child ran")
+    assert(ticks >= 2, "the other task ticked " .. ticks .. " times while the child ran")
   end
 end
 
@@ -184,7 +186,7 @@ local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
     timed = assert(h:wait(200))
   end)
   assert(timed.timed_out and timed.signal == sys.SIGTERM, tostring(timed.signal))
-  assert(ticks >= 20, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
 end
 
 --- A cancelled task's wait answers nil and CANCELLED at once, and leaves
@@ -259,7 +261,7 @@ local function test_streams_in_a_task_let_the_others_run()
     end)
     assert(table.concat(got) == "ab", table.concat(got, "|"))
     assert(fed.ok and fed.stdout == input, "fed " .. #tostring(fed.stdout) .. " bytes back")
-    assert(ticks >= 20, "the other task ticked " .. ticks .. " times")
+    assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
   end
 end
 
@@ -283,7 +285,7 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
   end)
   assert(first == 1, "the slow child ended first")
   assert(cancelled == Poll.CANCELLED, cancelled)
-  assert(ticks >= 20, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
 end
 
 --- A signal a guard catches ends a run waiting in a task at once, as it
@@ -324,7 +326,7 @@ Poll.run(function()
 end)
 local kept = assert(outer:release())
 assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
-  tostring(ticks >= 20) .. "|" .. tostring(took < 5000)))
+  tostring(ticks >= 2) .. "|" .. tostring(took < 5000)))
 ]], report }, { stderr = "capture", timeout_ms = 60000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
