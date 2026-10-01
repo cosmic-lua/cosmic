@@ -466,12 +466,12 @@ end
 --- to that: a sandboxed worker whose module declares `tool` but not
 --- `nests` ([`cosmic.test`]). False and why where there is no Landlock.
 -- TODO: let build/confine_tool_test.tl,
--- build/test_sandbox_system_test.tl and core/syscalls_tool_test.tl
--- declare `nests` alone, dropping the `tool` they declare only to
--- start what they confine, once a confined process is given only what
--- its worker has, `confine` narrowing its worker's inputs rather than
--- adding to them: today `itself` is given to the process it confines,
--- and a worker without the program fails the start EACCES.
+-- and build/test_sandbox_system_test.tl, declare `nests` alone,
+-- dropping the `tool` they declare only to start what they confine,
+-- once a confined process is given only what its worker has, `confine`
+-- narrowing its worker's inputs rather than adding to them: today
+-- `itself` is given to the process it confines, and a worker without
+-- the program fails the start EACCES.
 -- TODO: hold a copy of the program as the program -- one a test copies
 -- or links elsewhere and runs, or a core it loads some other way than
 -- by exec -- once a ruleset can name a file by its contents: today a
