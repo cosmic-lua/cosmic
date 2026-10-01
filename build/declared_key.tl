@@ -561,8 +561,7 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
     -- that on a loaded runner), the largest fixed cost of a `cosmic
     -- test` a tool test starts in a checkout of its own whose tests run
     -- the program (build.test's `program_of` spares one whose tests
-    -- none do) -- build/shared_verdicts_tool_test.tl's cases start three
-    -- or four under a 10 s bound.
+    -- none do).
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.

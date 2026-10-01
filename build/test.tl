@@ -1426,6 +1426,18 @@ end
 --- (defined with the stores, below).
 local store_digest: function(rec: Recording, m: importer.Module): string | nil, string
 
+--- The program a test that runs this program runs
+--- ([`Recording.program`]), worked out the first time a key holds it.
+--- Digesting the program reads every row its database carries, some
+--- 0.2 s, which a run none of whose tests runs it need not spend.
+local function program_of(rec: Recording): string
+  if rec.program == nil then
+    rec.tool = rec.tool or confine.itself()
+    rec.program = declared_key.program_identity(rec.digests, rec.tool)
+  end
+  return rec.program
+end
+
 --- A sandboxed test's key, over its declared inputs as they are now
 --- ([`build.declared_key`]): nil for one that reads a link out of the
 --- tree, which no key holds, said once in `rec.unkeyed`.
@@ -1444,19 +1456,6 @@ local store_digest: function(rec: Recording, m: importer.Module): string | nil, 
 -- from build.test_worker as core/store.c's lookups do (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
---- The program a test that runs this program runs
---- ([`Recording.program`]), worked out the first time a key holds it:
---- digesting the program reads every row its database carries (some
---- 0.2 s), which a run whose tests none run it -- most a tool test
---- starts in a checkout of its own -- need not spend.
-local function program_of(rec: Recording): string
-  if rec.program == nil then
-    rec.tool = rec.tool or confine.itself()
-    rec.program = declared_key.program_identity(rec.digests, rec.tool)
-  end
-  return rec.program
-end
-
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
   local runs_tool = tool_use(rec, m) == "allowed"
