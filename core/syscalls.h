@@ -464,10 +464,12 @@ COSMIC_SYSCALL(getrlimit, 1);
  * --- raises. A soft limit above the hard one is refused with EINVAL,
  * --- and a hard one raised without the privilege to with EPERM. The
  * --- system bounds RLIMIT_NOFILE besides: Linux refuses a limit past
- * --- fs.nr_open with EPERM; macOS refuses a soft limit, or a hard one
- * --- changed, past kern.maxfilesperproc (kern.maxfiles for root) with
- * --- EINVAL, and so a soft one of no limit too -- give its hard limit
- * --- back as `getrlimit` answers it, and a soft one below that bound.
+ * --- fs.nr_open with EPERM; macOS bounds a soft limit, or a hard one
+ * --- changed, by kern.maxfilesperproc (kern.maxfiles for root), and
+ * --- may refuse one past it with EINVAL or hold the process to the
+ * --- bound instead, a soft one of no limit included -- give its hard
+ * --- limit back as `getrlimit` answers it, and a soft one below that
+ * --- bound.
  * ---@param resource integer the resource, such as `RLIMIT_NOFILE`
  * ---@param soft integer the limit to hold the process to
  * ---@param hard integer the most the soft limit may be raised to

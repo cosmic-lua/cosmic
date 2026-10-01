@@ -1035,9 +1035,10 @@ end
 
 --- `setrlimit` holds the process to a soft limit `getrlimit` then
 --- answers, which it can raise again to the hard one; it refuses a soft
---- limit above the hard one (where the hard one is none, as macOS's
---- RLIMIT_NOFILE's is, a soft one of none, which macOS refuses), and a
---- negative limit, a resource past an int or not a resource at all.
+--- limit above a finite hard one, and a negative limit, a resource past
+--- an int or not a resource at all. Where the hard one is none, as
+--- macOS's RLIMIT_NOFILE's is, a soft one of none is the system's to
+--- refuse or to bound (macOS may do either), so it is only given back.
 local function test_setrlimit_holds_the_process_to_what_getrlimit_answers()
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   assert(limits.soft > 0 and limits.soft <= limits.hard, limits.soft .. " " .. limits.hard)
@@ -1049,10 +1050,12 @@ local function test_setrlimit_holds_the_process_to_what_getrlimit_answers()
   assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft)
   if limits.hard ~= math.maxinteger then
     failed_with(sys.EINVAL, sys.setrlimit(sys.RLIMIT_NOFILE, limits.hard + 1, limits.hard))
+    assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft, "a refusal moved it")
   else
-    failed_with(sys.EINVAL, sys.setrlimit(sys.RLIMIT_NOFILE, math.maxinteger, limits.hard))
+    local unbounded, why, errno = sys.setrlimit(sys.RLIMIT_NOFILE, math.maxinteger, limits.hard)
+    assert(unbounded or errno == sys.EINVAL, why)
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
   end
-  assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft, "a refusal moved it")
   failed_with(sys.EINVAL, sys.getrlimit(99999))
   failed_with(sys.EINVAL, sys.setrlimit(99999, 1, 1))
   raises(sys.setrlimit, sys.RLIMIT_NOFILE, -1, limits.hard)
