@@ -1052,6 +1052,14 @@ Each milestone is decided from 0.3's `report`, as follows.
     row-filtered store handles and no program-by-name.
   - Declined for cost (2026-10-01): sharding macOS and linux-aarch64,
     which would save 60–100 s on core changes.
-  - Next: duration-balanced shards; light runs reusing a branch's
-    compiles after a compiler-identity change (30–40 s per leg on
-    re-pushes); a slimmer zig-build restore (9–27 s per leg).
+  - zig-prune (#2501) drops the zig outputs no manifest vouches for
+    before a full leg seeds or saves them. The restored entries fell
+    about 4–4.5× (linux-x86_64 872 to 196 MB, macOS 588 to 141 MB),
+    and macOS restores in 8–11 s instead of 16–20 s.
+  - A branch push saves its compiles under a branch- and
+    compiler-keyed entry when it compiled more than 50 modules fresh,
+    and its later pushes restore it before main's (#2504). Saving is
+    observed; the restore awaits a branch's second push.
+  - Measured and dropped: duration-balanced shards. They save 2–6 s
+    on CI. The halves differ mostly by runner speed: one share's 1494
+    tests took 59 s on one runner and 98 s on another.
