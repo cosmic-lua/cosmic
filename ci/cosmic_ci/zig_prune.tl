@@ -44,7 +44,10 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local record ZigPrune
   --- One of zig's caches: its directory and the prefix by which zig's
   --- manifests name a file in it (std/Build/Cache.zig's `prefixes`:
-  --- 2 the project's cache, 3 the global one).
+  --- 2 the project's cache, 3 the global one). A manifest names a file
+  --- of its own cache by 2, though, wherever it is: the build runner's
+  --- and a compile's local cache is the cache its manifest is in, which
+  --- for libc and the like, built in the global cache, is that one.
   record Cache
     path: string
     prefix: integer
@@ -125,7 +128,8 @@ end
 --- The manifest `name` (its file's name, `<hex>.txt`) whose text is
 --- `text`, in a cache of `prefix`: nil and why where it does not read
 --- as zig's (a header of "0", then a line a file:
---- `size inode mtime digest prefix path`).
+--- `size inode mtime digest prefix path`). A file's prefix 2 is the
+--- manifest's own cache (see [`Cache`]), and 3 the global one.
 local function read(name: string, text: string, prefix: integer): Manifest | nil, string
   local hex = name:match("^(%x+)%.txt$")
   local named = hex and #hex == 32 and Codec.unhex(hex) or nil
@@ -143,8 +147,10 @@ local function read(name: string, text: string, prefix: integer): Manifest | nil
       if raw == nil then return nil, "a line '" .. line:sub(1, 80) .. "'" end
       parts[#parts + 1] = raw
       local within = path:match("^o/(%x+)/") or path:match("^o/(%x+)$")
-      if within and (file_prefix == "2" or file_prefix == "3") then
-        inputs[#inputs + 1] = file_prefix .. "/" .. within
+      if within and file_prefix == "2" then
+        inputs[#inputs + 1] = prefix .. "/" .. within
+      elseif within and file_prefix == "3" then
+        inputs[#inputs + 1] = "3/" .. within
       end
     end
   end
@@ -199,16 +205,23 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
         local path = cache.path .. "/h/" .. name
         local text, text_trouble = Fs.read(path)
         if text == nil then return nil, path .. ": " .. text_trouble end
-        local manifest, trouble = read(name, text, cache.prefix)
-        if manifest == nil then return nil, path .. ": " .. trouble end
-        if outputs[manifest.output] == nil then
-          return nil, path .. " vouches for " .. where[cache.prefix] .. "/o/" ..
-            manifest.output:match("/(.*)$") .. ", which is not there"
+        -- zig makes a manifest's file before the step it checks, and
+        -- writes it once the step is done: one left empty, by a step
+        -- that failed or was cut short, vouches for nothing, and zig
+        -- reads it as a miss. Pass it by, as zig does, rather than keep
+        -- every cache whole for it.
+        if text ~= "" then
+          local manifest, trouble = read(name, text, cache.prefix)
+          if manifest == nil then return nil, path .. ": " .. trouble end
+          if outputs[manifest.output] == nil then
+            return nil, path .. " vouches for " .. where[cache.prefix] .. "/o/" ..
+              manifest.output:match("/(.*)$") .. ", which is not there"
+          end
+          manifests[path] = manifest
+          local list = vouching[manifest.output] or {}
+          list[#list + 1] = path
+          vouching[manifest.output] = list
         end
-        manifests[path] = manifest
-        local list = vouching[manifest.output] or {}
-        list[#list + 1] = path
-        vouching[manifest.output] = list
       end
     end
   end

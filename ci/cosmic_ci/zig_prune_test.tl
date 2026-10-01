@@ -132,6 +132,40 @@ local function test_a_core_change_prunes_the_old_core_alone(tmp: string)
   assert(#again.manifests == 0 and #again.outputs == 0)
 end
 
+--- A compile built in the global cache (libc, its stubs) has that
+--- cache for its local one too, so its manifest names the global
+--- cache's files by prefix 2, as one in the project's names the
+--- project's: a superseded output of the global cache goes with the
+--- manifests that list it there. A manifest zig made and never wrote
+--- (empty: a step that failed) vouches for nothing, and is no reason
+--- to keep anything whole.
+local function test_a_manifest_names_its_own_cache_by_prefix_2(tmp: string)
+  local project = cache(tmp .. "/zig-cache")
+  project.prefix = 2
+  local shared = cache(tmp .. "/zig-global")
+  shared.prefix = 3
+  local p, g = project.path, shared.path
+  local stubs = step(g, hex("a"), { "1 libc/stubs.zig" }, { "m.s" })
+  local old_stubs = orphan(g, hex("9"), { "m.s" })
+  local libm = step(g, hex("b"), { "2 o/" .. stubs .. "/m.s" }, { "libm.so" })
+  local old_libm = step(g, hex("c"), { "2 o/" .. old_stubs .. "/m.s" }, { "libm.so" })
+  assert(Fs.write(p .. "/h/" .. hex("d") .. ".txt", ""))
+
+  local plan = assert(ZigPrune.plan({ project, shared }))
+  assert(table.concat(plan.manifests, " ") == g .. "/h/" .. hex("c") .. ".txt",
+    table.concat(plan.manifests, " "))
+  local want_outputs = { g .. "/o/" .. old_stubs, g .. "/o/" .. old_libm }
+  table.sort(want_outputs)
+  assert(table.concat(plan.outputs, " ") == table.concat(want_outputs, " "),
+    table.concat(plan.outputs, " "))
+  assert(plan.manifests_seen == 3, tostring(plan.manifests_seen))
+  assert(ZigPrune.apply(plan))
+  for _, kept in ipairs({ g .. "/o/" .. stubs .. "/m.s", g .. "/o/" .. libm .. "/libm.so",
+      p .. "/h/" .. hex("d") .. ".txt" }) do
+    assert(Fs.exists(kept), kept)
+  end
+end
+
 --- A manifest not read as zig's, or one whose output is not there, says
 --- the format is not the one this reads: nothing at all is removed,
 --- though an old core is there to remove, and the command says why.
