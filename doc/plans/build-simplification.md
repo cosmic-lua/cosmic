@@ -68,10 +68,10 @@ clean second worktree instead. Preserve this distinction in later reporting.
 
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
-| 1. Compiler and analyzer boundary | pending | implementing | independent plan review complete |
+| 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | review and CI | exact tree reviewed; fixed-point fixtures running |
 | 2. Writer identity boundary | pending | planned | depends on 1 |
 | 3. Build phase and cleanup ownership | pending | planned | depends on 1–2 |
-| 4. Test judgment boundary | pending | planned | depends on 1–3 |
+| 4. Reporting outside the acknowledged runner | pending | planned | preserve existing trust model |
 | 5a. Bootstrap lock ownership preparation | pending | planned | old-pin compatible; retain SQL lock |
 | 5b. Zig scratch lifecycle preparation | pending | planned | only if independently useful |
 | 5c. Patch scratch lifecycle preparation | pending | planned | only if independently useful |
@@ -153,28 +153,37 @@ Keep transaction/lock ordering, no-op projection avoidance, stale-tool settling,
 and output bytes. Run boot/rebuild/lock and relevant fixture coverage; run-local
 is required where the entry/launcher/artifact boundaries are touched.
 
-## PR 4: isolate the runner's trusted judgment
+## PR 4: separate reporting from the acknowledged runner
 
-Problem: the harness holds build.test whole, although it also implements CLI,
-scheduling, census and reporting. Reporting edits then require acknowledgment
-and cause the merge queue to run the full suite.
+Problem: the harness holds build.test whole, including reporting. Formatting
+edits require acknowledgment and cause merge-queue full-suite invalidation.
 
-Extract key/eligibility and worker-access decisions into a narrow module or
-small set of modules closed under the harness rules. Keep CLI and presentation
-outside. The trusted boundary must also construct effective declarations and
-closure/name allowlists, apply held-sandbox skip policy, recheck inputs, persist
-verdicts, remove failed verdicts and schedule shared updates. An unacknowledged
-caller must not be able to supply arbitrary allowlists, reuse eligibility or a
-passed decision. Retain the epoch protocol, explicit library boundary and local binding
-of replaceable library functions. Do not widen workers' access or weaken the
-store hold to make extraction easy.
+Extract presentation into build.test_report (or a comparably clear module):
+failure/skip rendering, build statistics, census, coverage text and summaries.
+Pass reporting snapshots, never mutable jobs, Recording, writable databases,
+caches or verdict state. Keep outcome and exit-code decisions with the runner;
+reporting return values must not decide acceptance. Pure selector spelling/help
+can move if useful, but policy defaults and option interpretation remain trusted.
 
-Acceptance: reporting-only edits require no semantic harness acknowledgment;
-every decision that can change pass/fail or permit reuse remains guarded.
-Review the epoch choice explicitly; a semantic change requires a fresh epoch,
-not merely new acknowledged digests. Run harness/key/worker/isolation tests and
-full CI, including sandboxed runs. Preserve lazy program identity and cached
-verdict coverage replay.
+Keep build.test acknowledged through the existing key_own model. Preserve all
+keying, eligibility, effective declarations, closure/name allowlists, scheduling,
+timeouts, worker construction, held-sandbox skips, input rechecks, persistence,
+failure eviction, shared updates and cleanup in that runner. Preserve the epoch
+protocol, explicit library boundary, local bindings, lazy program identity and
+coverage replay. Update acknowledgments for motion; retain the epoch only if
+judgment and policy are unchanged.
+
+Acceptance: presentation-only edits move no acknowledged harness digest; edits
+to runner judgment still require acknowledgment. Existing output-parser,
+runner/key/worker/isolation tests and CI pass. Review the reporting interface
+itself: the current own-root exception does not comprehensively classify the
+runner's imports. Add a focused check for report exclusion and runner inclusion.
+
+A new trusted-session interface and transitive harness root were considered and
+are unnecessary for this step. They would complicate environment helpers and
+closure-store salt ownership. Revisit only for a concrete unmet requirement or
+soundness defect; line count and removal of the build.test filename from the
+acknowledged set are not goals by themselves.
 
 ## PRs 5a–5d: prepare ownership, then advance bootstrap atomically
 
@@ -343,3 +352,16 @@ changes the design, update this plan before proceeding and explain the decision.
   with workspace synchronization active. Causality is not established. Move
   build worktrees outside that synchronized directory and exclude affected runs
   from correctness/performance evidence.
+
+- 2026-10-01: step 4 narrowed after dependency review to presentation extraction
+  with the existing acknowledged runner retained. This earns narrower reporting
+  invalidation without a new trust model or mutable judgment interface.
+- 2026-10-01: step 1 published as #2522 at
+  `689760249f52418500654f4ddee7c7143e0606eb`, tree
+  `ebfad92405b9b94d48cbcf963680367e096dcc9b`. Independent review caught
+  and resolved vendor-bytecode and projected receiver-identity omissions. A clean
+  reviewer boot reused 490 parses and 476 compiles (0 fresh, 3.343 s phase).
+  Focused exact-tree repeat: 0 ran/50 stood, 1.136 s, 0 compiled/476 cached/0 read.
+  The required 30-second full-suite run expired during setup before verdicts;
+  local full-suite coverage remains incomplete. CI and fixed-point fixtures are
+  pending; auto-merge is not yet enabled.
