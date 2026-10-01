@@ -104,12 +104,12 @@ become one.
 
 **PR 3 `sql: the dataset loader lives beside its verb`** (after PR 2).
 `cosmic/dataset.tl` becomes [`build/dataset.tl`], its tests and examples
-becoming [`build/dataset_test.tl`]; [`LoadOptions.json_column`] and `.columns`
-(no caller) go. [`cosmic.csv`] loses `rows` (a one-line derivative of `table`)
+becoming [`build/dataset_test.tl`]; `LoadOptions` is deleted entirely
+(`json_column` and `columns` had no caller). [`cosmic.csv`] loses `rows` (a one-line derivative of `table`)
 and `encode` (no caller), and gains `Csv.column_names(header, reserved?)`,
 the one copy of the header-to-unique-names rule that `names_of`
-(csv.tl:224) and `columns_of` (dataset.tl:386) each held. `Csv.read`'s
-delimiter check raises, as a degenerate argument does elsewhere.
+(csv.tl:224) and `columns_of` (dataset.tl:386) each held. [`Csv.parse`] and
+[`Csv.table`] raise for a degenerate delimiter, as a degenerate argument does elsewhere.
 
 **PR 4 `codec: the streaming coders are cosmic codec's`.** [`Codec.encoder`],
 [`Codec.decoder`], [`Codec.Coder`] and [`Codec.Name`] (codec.tl:265 to 452) move to
@@ -407,6 +407,8 @@ description.
 [`cosmic.time`]: ../../cosmic/time.tl
 [`Coverage.native_entries`]: ../../cosmic/coverage.tl
 [`Coverage.snapshot`]: ../../cosmic/coverage.tl
+[`Csv.parse`]: ../../cosmic/csv.tl
+[`Csv.table`]: ../../cosmic/csv.tl
 [`doc/roadmap.md`]: ../roadmap.md
 [`Duration.nanoseconds`]: ../../cosmic/time.tl
 [`ExtractOptions.unsupported`]: ../../cosmic/archive.tl
@@ -426,7 +428,6 @@ description.
 [`Http.upload`]: ../../cosmic/http.tl
 [`Json.layout`]: ../../cosmic/json.tl
 [`ListenOptions.reclaim`]: ../../cosmic/net.tl
-[`LoadOptions.json_column`]: ../../build/dataset.tl
 [`Net.Address`]: ../../cosmic/net.tl
 [`Net.Conn.read`]: ../../cosmic/net.tl
 [`Net.pair`]: ../../cosmic/net.tl

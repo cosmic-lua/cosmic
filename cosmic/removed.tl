@@ -195,11 +195,13 @@ local module: Module = {
       "key as nil (" .. json .. ")",
     ["cosmic.json.entries"] = "moved to build.json_query, which only `cosmic json` and " ..
       "`cosmic sql --at` call; Json.decode_object answers the outermost object as a " ..
-      "map to loop over with pairs, and `value is {string: any}` narrows a field (" ..
+      "map to loop over with pairs; `value is {string: any}` narrows a field to a " ..
+      "table, and Json.is_array(value) tells an array from an object (" ..
       json .. ")",
     ["cosmic.json.items"] = "moved to build.json_query, which only `cosmic json` and " ..
       "`cosmic sql --at` call; Json.decode_array answers the outermost array as a " ..
-      "list to loop over with ipairs, and `value is {any}` narrows a field (" ..
+      "list to loop over with ipairs; `value is {any}` narrows a field to a table, " ..
+      "and Json.is_array(value) tells an array from an object (" ..
       json .. ")",
     ["cosmic.json.Step"] = "moved to build.json_query, with parse_pattern, which only " ..
       "`cosmic json` calls",
@@ -215,7 +217,9 @@ local module: Module = {
       "that Csv.rows answered (" .. csv .. ")",
     ["cosmic.csv.encode"] = "write each record's fields joined by the delimiter, a field that " ..
       "holds the delimiter, a quote or a line break in quotes with each quote doubled, " ..
-      "and a line feed after the record; there is no writer in the library",
+      "and a line feed after the record; also quote a field that begins with the byte order " ..
+      "mark (a reader drops one there) and the empty only field of a record (else the " ..
+      "record is a blank line); there is no writer in the library",
     ["cosmic.codec.encoder"] = streamed,
     ["cosmic.codec.decoder"] = streamed,
     ["cosmic.codec.Coder"] = streamed,

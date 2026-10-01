@@ -75,17 +75,17 @@ end
 
 local BOM <const> = "\xEF\xBB\xBF"
 
---- The delimiter an option names. Raises, naming the caller `level`
---- frames above the function that calls this one, when it is not one
---- byte or is a quote or a line break.
-local function delimiter_of(opts: Csv.Options | nil, level: integer): string
+--- The delimiter an option names. Raises, naming the caller of the
+--- reader that calls this, when it is not one byte or is a quote or a
+--- line break.
+local function delimiter_of(opts: Csv.Options | nil): string
   local delimiter: any = opts ~= nil and opts.delimiter or ","
   if not (delimiter is string) or #delimiter ~= 1 then
     error("csv: the delimiter is one byte, not " ..
-      (delimiter is string and "a string of length " .. #delimiter or "a " .. type(delimiter)), level + 1)
+      (delimiter is string and "a string of length " .. #delimiter or "a " .. type(delimiter)), 3)
   end
   if delimiter == '"' or delimiter == "\r" or delimiter == "\n" then
-    error("csv: the delimiter cannot be a quote or a line break", level + 1)
+    error("csv: the delimiter cannot be a quote or a line break", 3)
   end
   return delimiter
 end
@@ -203,7 +203,7 @@ end
 --- Records may differ in length here: only `table` holds them to a
 --- header. Text with no records is `{}`.
 function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
-  local delimiter = delimiter_of(opts, 2)
+  local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
     return nil, trouble
@@ -254,7 +254,7 @@ end
 --- Blank lines are read as the module comment says. Text with no records
 --- has no columns, and a header alone has columns and no rows.
 function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
-  local delimiter = delimiter_of(opts, 2)
+  local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
     return nil, trouble
