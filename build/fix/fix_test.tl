@@ -294,6 +294,7 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   for _, case in ipairs({
     { "cosmic/string.tl", "it checks each file alone" }, { "cosmic", "it checks each file alone" },
     { "core/a.c", "core/" }, { "build/fix/init.tl", "this verb" }, { "vendor", "vendor/" },
+    { "build/patch.tl", "patched" }, { "ci/cosmic-driver.pin", "clang" },
     { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
   }) do
     local widened = fix.narrowed(own, every, { "ci/a.tl", case[1] }, { db })

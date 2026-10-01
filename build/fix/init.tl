@@ -497,14 +497,18 @@ local file_check_dirs: {string: string} = {
   ["cmd"] = "the program starts in cmd/",
 }
 
---- As `file_check_dirs`, by a file's whole path: this verb, and what
---- builds and writes the program.
+--- As `file_check_dirs`, by a file's whole path: this verb, what
+--- builds and writes the program (the image [`work.record_fingerprint`]
+--- names, less the directories above), and the pin of the cosmic the C
+--- rules run clang through ([`build.c`] gives the compiler it to read).
 local file_check_files: {string: string} = {
   ["build/fix/init.tl"] = "this verb checks each file",
   ["build.zig"] = "the program is built by build.zig",
   ["build.zig.zon"] = "the program is built by build.zig",
   ["build/launcher.tl"] = "the program is written by build/launcher.tl",
   ["build/artifact.tl"] = "the program is written by build/artifact.tl",
+  ["build/patch.tl"] = "the program's Teal compiler is patched by build/patch.tl",
+  ["ci/cosmic-driver.pin"] = "the C rules run clang through the cosmic it pins",
 }
 
 --- `path` as a path under `root` without a leading `./` or trailing
