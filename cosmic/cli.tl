@@ -469,6 +469,8 @@ local module: Module = {
     },
     fix = {
       ["--check"] = { about = "write nothing; name what a fix would change, and fail if any" },
+      ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
+        "changed since the whole tree passed; what spans files still covers it all" },
     },
     build = {
       ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
