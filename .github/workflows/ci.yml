@@ -579,7 +579,8 @@
 
         # The macOS leg's darwin-branch tests, which stand on no verdict
         # (ci/darwin-tests.txt): after the boundary, and after the upload
-        # the run behind waits on. Elsewhere, and on --all, it does nothing.
+        # the run behind waits on. Elsewhere, on --all, and where the native
+        # suite stood on no verdict, it does nothing.
         {
           name: "run the darwin suite",
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",

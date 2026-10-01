@@ -1379,7 +1379,7 @@ end
 
 --- A native suite that passed with none standing ran every test it
 --- chose; one where any stood, that failed, or that the driver ended
---- did not, nor did one that said no summary.
+--- did not, nor did one that said no summary or ran a share.
 local function test_a_native_suite_ran_every_test_where_none_stood()
   local Orchestration = require("cosmic_ci.orchestration")
   local function line(ran: integer, stood: integer): string
@@ -1391,6 +1391,8 @@ local function test_a_native_suite_ran_every_test_where_none_stood()
   assert(not Orchestration.native_ran_every(line(4, 0), 1))
   assert(not Orchestration.native_ran_every(line(4, 0), 124))
   assert(not Orchestration.native_ran_every("", 0))
+  assert(not Orchestration.native_ran_every(
+    "test: PASS (4 tests, 3 modules; 4 ran, 0 stood, 5 ms; unsandboxed; shard 1 of 2)\n", 0))
   assert(not Orchestration.native_ran_every(
     "test: FAIL (1 of 4 failed, 0 infrastructure errors, 5 ms; unsandboxed)\n", 1))
 end

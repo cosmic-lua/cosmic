@@ -988,17 +988,21 @@ function Orchestration.darwin_words(words: {string}, modules: {string}): {string
 end
 
 --- Whether the native suite whose stdout is `text` and exit status
---- `code` passed having run every test it chose, none standing on a
---- verdict: then, unsharded, it ran each listed module on this leg
---- already, as a core change or a moved harness epoch makes it.
+--- `code` passed having run every test of the tree, none standing on a
+--- verdict, as after a core change or a moved harness epoch: then it ran
+--- each listed module on this leg already. Not where it ran a share
+--- (its summary names one) or chose no test at all.
 function Orchestration.native_ran_every(text: string, code: integer): boolean
   local figures, status = SuiteOutput.read(text, code)
-  return status == "pass" and figures.stood == 0 and (figures.ran or 0) > 0
+  return status == "pass" and figures.stood == 0 and (figures.ran or 0) > 0 and
+    not (figures.sandbox or ""):find("shard", 1, true)
 end
 
 --- The darwin suite ([`darwin_words`]), on the macOS leg alone, on the
 --- tree `boot` built, in the native suite's environment, with a row of
---- its own, "darwin", which says the listed modules ran. A phase of its
+--- its own, "darwin", which says the listed modules ran -- or nothing,
+--- said on stderr, where the native suite ran every test already
+--- ([`native_ran_every`]). A phase of its
 --- own, after `local-boundary`: it writes the working database, which
 --- the boundary holds unchanged since the native suite, and ci.yml
 --- keeps the native suite's verdicts for the run behind in the queue
