@@ -1073,3 +1073,9 @@ Each milestone is decided from 0.3's `report`, as follows.
     re-keys only what requires it, not about 470 modules. This also
     lets #2504's branch compiles hit on a stdlib PR's later pushes;
     both effects await a measured push.
+  - A `cosmic test` works out the program's identity (a digest of
+    every row its carried database holds, about 0.2 s) only where a
+    key holds it (#2519). The 152 runs the suite's tool tests start
+    in fixture checkouts mostly skip it: a full unsandboxed rerun
+    took 122 s against 134 s on 4 cores, and a fresh fixture run
+    0.33 s against 0.65 s.
