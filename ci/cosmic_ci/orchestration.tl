@@ -1215,10 +1215,12 @@ local function phase_portable(p: PlatformContext): integer
   -- The suite reruns the local suite's tests under the portable build,
   -- whose artifact carries the cores o/bin/cosmic does (`ProductSetup`);
   -- each leg's launcher, runtime and identity fixtures still run the
-  -- portable product's launcher (phase_fixtures). So a gating run runs
-  -- it on the two x86-64 legs, a glibc host and a musl one, and the
-  -- others set COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a
-  -- manual one keep it on every leg (ci.yml). A leg that skips it still
+  -- portable product's launcher (phase_fixtures). So a push to main
+  -- runs it on the two x86-64 legs, a glibc host and a musl one, the
+  -- merge queue on the musl one alone (the glibc leg's bytes are the
+  -- same, which provenance holds), and the others set
+  -- COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a manual one
+  -- keep it on every leg (ci.yml). A leg that skips it still
   -- checks the artifact unchanged since assemble (attest), and its
   -- portable.db keeps what was restored whole, since the run reached
   -- none of it (cosmic_ci/verdicts.tl).
