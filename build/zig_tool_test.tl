@@ -30,7 +30,7 @@ local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp:
   local function run(): Child.Result
     local started = this_program.program({ "--standalone", script, "version" }, {
       env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ms = 30000,
+      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
     })
     return (assert(Child.run(started.argv, started.options)))
   end
@@ -65,7 +65,7 @@ end
 local function test_the_fetch_script_refuses_missing_words()
   local script = assert(Fs.absolute("build/zig_fetch.tl"))
   local started = this_program.program({ "--standalone", script, "/cache" }, {
-    env = {}, stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    env = {}, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2, tostring(result.stderr))
@@ -103,7 +103,7 @@ local function build_with_stand_in(tmp: string, script: string, group: boolean):
   -- Written whole under another name, so the stand-in never reads half.
   assert(Fs.write(tmp .. "/zig-pid.writing", (group and "-" or "") .. tostring(h.pid)))
   assert(Fs.rename(tmp .. "/zig-pid.writing", tmp .. "/zig-pid"))
-  return (assert(h:wait(30000)))
+  return (assert(h:wait(Time.seconds(30))))
 end
 
 --- A Ctrl-C that reached zig and [`bin/zig`] both, which zig caught and
@@ -152,16 +152,16 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
     stdout = "capture", stderr = "capture",
   })
   local h = assert(Child.start(started.argv, started.options))
-  local deadline = Time.monotonic_ns() + 20 * 1000000000
+  local deadline = Time.monotonic_ns() + Time.seconds(20)
   local handed: string | nil = nil
   while handed == nil and Time.monotonic_ns() < deadline do
     handed = Fs.read(tmp .. "/handed")
-    if handed == nil then assert(sys.nanosleep(20 * 1000000)) end
+    if handed == nil then assert(sys.nanosleep(Time.ms(20))) end
   end
   local taken, trouble = rebuild_lock.take(root, 0, "test")
   if taken == "held" then rebuild_lock.release() end
   assert(Fs.write(tmp .. "/go", ""))
-  local result = assert(h:wait(20000))
+  local result = assert(h:wait(Time.seconds(20)))
   assert(result.ok, tostring(result.stderr))
   local named = tostring(handed):match("^%[(.*)%]\n$")
   local given, _ = sys.stat(named or "")

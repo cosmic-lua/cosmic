@@ -490,3 +490,22 @@ local function test_parse_http_reaches_the_ranges_edges()
   assert(Time.parse_http("Fri, 11 Apr 2262 23:47:16 GMT") == math.maxinteger - math.maxinteger % NS)
   assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT") == (math.mininteger // NS + 1) * NS)
 end
+
+--- A span as the count of a unit that covers it: rounded up, so a span
+--- that is not none is never counted as none, whatever its sign.
+local function test_ceil_rounds_a_span_up_to_a_count_of_the_unit()
+  local ms = Time.ms(1)
+  assert(Time.ceil(0, ms) == 0 and Time.ceil(1, ms) == 1 and Time.ceil(ms, ms) == 1)
+  assert(Time.ceil(ms + 1, ms) == 2 and Time.ceil(Time.ms(7), ms) == 7)
+  assert(Time.ceil(-1, ms) == 0 and Time.ceil(-ms, ms) == -1 and Time.ceil(-ms - 1, ms) == -1)
+  assert(Time.ceil(math.maxinteger, ms) == math.maxinteger // ms + 1)
+  assert(Time.ceil(math.mininteger, ms) == math.mininteger // ms + 1)
+  assert(Time.ceil(math.maxinteger, 1) == math.maxinteger and Time.ceil(math.mininteger, 1) == math.mininteger)
+  assert(Time.ceil(Time.ms(1500), Time.seconds(1)) == 2)
+  for _, bad in ipairs({ 0, -1 }) do
+    local ok, why = pcall(Time.ceil, 1, bad)
+    assert(not ok and tostring(why):find("unit must be", 1, true), tostring(why))
+  end
+  local ok, why = pcall(Time.ceil, 1.5 as integer, ms)
+  assert(not ok and tostring(why):find("ns must be an integer", 1, true), tostring(why))
+end

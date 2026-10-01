@@ -6,6 +6,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which its test starts.
 Test.needs{ tool = true }
@@ -14,7 +15,7 @@ local function fix(root: string, check: boolean): Child.Result
   local args: {string} = { "fix" }
   if check then args[#args + 1] = "--check" end
   local started = this_program.program(args, { cwd = root,
-    stdout = "capture", stderr = "stdout", timeout_ms = 60000 })
+    stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end
 

@@ -182,8 +182,8 @@ local record test
 
   --- How a run is bounded, from the command line and the environment.
   record Limits
-    --- Each test's deadline.
-    timeout_ms: integer
+    --- Each test's deadline, in nanoseconds.
+    timeout_ns: integer
     --- How many workers run at once.
     jobs: integer
   end
@@ -1118,8 +1118,8 @@ end
 --- as (`cosmic test --census`): its epoch and the workers' timeout, one
 --- word, which ci/cosmic_ci/report.tl compares whole, so a bump from
 --- the same count says a moved harness.
-function test.harness_word(epoch: string, timeout_ms: integer): string
-  return string.format("e%s-t%d", epoch, timeout_ms)
+function test.harness_word(epoch: string, timeout_ns: integer): string
+  return string.format("e%s-t%d", epoch, timeout_ns)
 end
 
 --- Everything a finished job's verdict is recorded into.
@@ -1196,10 +1196,10 @@ local record Recording
   system: string
   --- The harness's epoch (build/harness_epoch.tl), which every key
   --- holds in place of the harness's code, and the timeout each worker
-  --- runs under ([`Limits.timeout_ms`]), which every key holds too: a
+  --- runs under ([`Limits.timeout_ns`]), which every key holds too: a
   --- pass reached under a longer one need not come under a shorter.
   epoch: string
-  timeout_ms: integer
+  timeout_ns: integer
   --- The program a test that runs this program runs
   --- ([`declared_key.program_identity`]), worked out once a key needs
   --- it ([`program_of`]).
@@ -1470,7 +1470,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     host = rec.sandbox and test_sandbox.worker_user(effective) ~= nil and rec.worker_host or
       rec.host,
     system = rec.system,
-    epoch = rec.epoch, timeout_ms = rec.timeout_ms,
+    epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
     program = (effective.tool or runs_tool) and program_of(rec) or nil,
     launcher = rec.launcher,
@@ -1560,7 +1560,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local id = job.id
   local wall_ns = Time.monotonic_ns() - job.started_ns
   local judged = worker.judge({
-    result = result, trouble = trouble, timeout_ms = limits.timeout_ms,
+    result = result, trouble = trouble, timeout_ns = limits.timeout_ns,
     sandboxed = rec.sandbox, refused = refused == true,
     carried = rec.carried,
     closure = closure_set(rec, job.m),
@@ -2138,7 +2138,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
   end
   job.started_ns = Time.monotonic_ns()
-  job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
+  job.deadline_ns = job.started_ns + limits.timeout_ns
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program ([`confine.forbid_running`]): what it would run
   -- is no input of its test's key; and one whose module does not
@@ -2207,8 +2207,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       handles[i] = job.handle
       if job.deadline_ns < earliest then earliest = job.deadline_ns end
     end
-    local left_ms = (earliest - Time.monotonic_ns()) // (1000 * 1000)
-    local done, trouble = Child.wait_any(handles, math.max(0, math.min(100, left_ms)))
+    local left_ns = earliest - Time.monotonic_ns()
+    local done, trouble = Child.wait_any(handles, math.max(0, math.min(Time.ms(100), left_ns)))
     local still: {Job} = {}
     for _, job in ipairs(running) do
       if job.handle == done then
@@ -2297,7 +2297,7 @@ end
 --- positive whole number.
 local function limits_of(values: {string:string}): test.Limits | nil, string
   local limits: test.Limits = {
-    timeout_ms = default_timeout_s * 1000,
+    timeout_ns = Time.seconds(default_timeout_s),
     jobs = Proc.cpu_count(),
   }
   local function positive(value: string, what: string): integer | nil, string
@@ -2307,8 +2307,9 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
     end
     return number, ""
   end
-  -- A deadline is kept in milliseconds, so seconds past this would wrap.
-  local most_seconds = math.maxinteger // 1000
+  -- A deadline is kept in nanoseconds and added to the clock's reading,
+  -- so seconds past half what an integer holds would wrap.
+  local most_seconds = (math.maxinteger // 2) // Time.seconds(1)
   local function seconds_of(value: string, what: string): integer | nil, string
     local seconds, trouble = positive(value, what)
     if seconds == nil then return nil, trouble end
@@ -2321,12 +2322,12 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   if from_env ~= nil and from_env ~= "" then
     local seconds, trouble = seconds_of(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
-    limits.timeout_ms = seconds * 1000
+    limits.timeout_ns = Time.seconds(seconds)
   end
   if values["--timeout"] ~= nil then
     local seconds, trouble = seconds_of(values["--timeout"], "--timeout")
     if seconds == nil then return nil, trouble end
-    limits.timeout_ms = seconds * 1000
+    limits.timeout_ns = Time.seconds(seconds)
   end
   if values["--jobs"] ~= nil then
     local jobs, trouble = positive(values["--jobs"], "--jobs")
@@ -2773,7 +2774,7 @@ local function run(argv: {integer:string}): integer
     origin = checkout_id(records, root, run_at_ns),
     sandbox = sandboxed, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    epoch = epoch, timeout_ms = limits.timeout_ms,
+    epoch = epoch, timeout_ns = limits.timeout_ns,
     store_salt = harness.store_salt, carried = harness.carried,
     closure_sets = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
@@ -2964,7 +2965,7 @@ local function run(argv: {integer:string}): integer
       { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },
       { "compiler", (rec.compiler or ""):sub(1, 12) },
       -- The key's harness parts, its epoch and timeout, as one word.
-      { "harness", test.harness_word(rec.epoch, rec.timeout_ms) },
+      { "harness", test.harness_word(rec.epoch, rec.timeout_ns) },
     }
     if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
     -- What every closure store holds alike, by its bytes, which the key

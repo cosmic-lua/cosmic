@@ -218,7 +218,7 @@ span already: `Poll.delay(ns)`, `ConnectOptions.timeout`), through
 converts at the one boundary. the 33 hand conversions in `build/` and
 `cosmic/` go. `now_ms` in poll.tl:197 and net.tl:566 become
 [`Time.monotonic_ns`]; the three copies of the greatest wait (poll.tl:76,
-net.tl:332, child.tl:292) become `Poll.MOST_NS`. the harness epoch is
+net.tl:332, child.tl:292) become [`Poll.MOST_NS`]. the harness epoch is
 bumped: [`build/test.tl`] and the sandbox read these.
 
 **PR 10 `poll: one wait, one timeout answer`.** `Poll.wait(fd, events,
@@ -444,6 +444,7 @@ description.
 [`Pipe.streamed`]: ../../cosmic/child.tl
 [`Poll.CANCELLED`]: ../../cosmic/poll.tl
 [`Poll.delay`]: ../../cosmic/poll.tl
+[`Poll.MOST_NS`]: ../../cosmic/poll.tl
 [`Poll.ready`]: ../../cosmic/poll.tl
 [`Poll.run`]: ../../cosmic/poll.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl

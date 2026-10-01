@@ -127,7 +127,7 @@ local record worker
     --- Whether `trouble` is why its worker was never started -- its
     --- module declares what cannot be given it -- said as it is.
     refused: boolean
-    timeout_ms: integer
+    timeout_ns: integer
     sandboxed: boolean
     --- Where the loaded set is held (`unkeyed`): the modules of the
     --- tree the tool carries and the test's import closure, each a set
@@ -156,6 +156,10 @@ end
 worker.report_fd = 3
 
 local HEADER <const> = "cosmic-test-report-4"
+-- A second in nanoseconds, which a timeout is counted in: cosmic.time,
+-- whose `seconds` this is, is no module the harness may reach
+-- (build/harness_epoch.tl's `library`).
+local SECOND_NS <const> = 1000 * 1000 * 1000
 
 --- The modules of the tree a worker loads besides its test's import
 --- closure, which is the code a worker runs of the tree but its test's:
@@ -682,7 +686,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   end
   if result.timed_out then
     return { passed = false, skipped = "", message = "timed out after " ..
-      tostring(judging.timeout_ms // 1000) .. " s; " ..
+      tostring(judging.timeout_ns // SECOND_NS) .. " s; " ..
       (judging.sandboxed and "its pid namespace" or "its process group") .. " was ended" }
   end
   local report, decode_trouble = worker.decode(result.captured[worker.report_fd])

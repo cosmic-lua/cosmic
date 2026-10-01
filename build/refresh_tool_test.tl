@@ -15,6 +15,7 @@ local Test = require("cosmic.test")
 local artifact = require("build.artifact")
 local this_program = require("build.this_program")
 local refresh = require("build.refresh")
+local Time = require("cosmic.time")
 
 --- The zone a release is made of, and the tool it refreshes, run as a
 --- host program of this program's core: the kernel runs it, with no
@@ -73,7 +74,7 @@ end
     local fd = assert(Fs.open_write(output))
     local result, trouble = Child.run({ binary, "test" }, {
       cwd = tree, env = env, stdout = fd, stderr = fd,
-      process_group = true, timeout_ms = 60000,
+      process_group = true, timeout_ns = Time.seconds(60),
     })
     assert(Fs.close(fd))
     local text = assert(Fs.read(output))

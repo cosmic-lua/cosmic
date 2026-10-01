@@ -26,6 +26,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local test_sandbox = require("build.test_sandbox")
+local Time = require("cosmic.time")
 
 local record test_sandbox_probe
 end
@@ -62,7 +63,7 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   if handle == nil then return false, test_sandbox.refusal(trouble) end
   -- Past the bound, `wait` ends it, and its pid namespace with it;
   -- `close` makes sure of it if the wait failed.
-  local result, wait_trouble = handle:wait(30000)
+  local result, wait_trouble = handle:wait(Time.seconds(30))
   if result == nil then
     local _, _ = handle:close()
     return false, wait_trouble

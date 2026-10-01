@@ -115,7 +115,7 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   local args: {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -205,11 +205,12 @@ local function test_a_test_that_declares_loopback_addresses_runs_offline_and_sta
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 Test.needs { network = { HOSTS } }
 
 local function test_refused()
-  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ms = 2000 })
+  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Time.seconds(2) })
   assert(response == nil and trouble ~= "")
   if PROBE then error("NAME in " .. tostring((Fs.readlink("/proc/self/ns/net"))) .. " |") end
 end
@@ -222,7 +223,7 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   suite(tmp .. "/beyond", "beyond", '"127.0.0.1", "example.com"', false)
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
-  assert(refused:find('suite/beyond_test.tl:5: test.needs: network "example.com": network ' ..
+  assert(refused:find('suite/beyond_test.tl:6: test.needs: network "example.com": network ' ..
     "takes loopback addresses 127.a.b.c only", 1, true) and
     not refused:find("test: PASS", 1, true), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
@@ -414,7 +415,7 @@ local function tool_project(tmp: string): function(string), function(string): st
     step = step + 1
     local fd = assert(Fs.open_write(tmp .. "/" .. step .. ".out"))
     local result, trouble = Child.run({ tool, "test" }, {
-      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
+      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Time.seconds(60),
     })
     assert(Fs.close(fd))
     local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
@@ -528,7 +529,7 @@ end
     end
     assert(found ~= "" or ended, "the test never started")
     if found ~= "" then then_do(found) end
-    local result = assert(handle:wait(60000))
+    local result = assert(handle:wait(Time.seconds(60)))
     assert(Fs.close(fd))
     -- Its directory said it started: marked so the next run's is found.
     if found ~= "" then local _ = Fs.write(found .. "/stop", "") end

@@ -34,7 +34,7 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   assert(timeout[1][1] == "10000", "busy timeout " .. timeout[1][1])
   assert(Sqlite.text_rows(db, "SELECT key FROM kept"))
   db:close()
-  local waiting = assert(shared_sqlite.open(path, prepare, 50))
+  local waiting = assert(shared_sqlite.open(path, prepare, Time.ms(50)))
   timeout = assert(Sqlite.text_rows(waiting, "PRAGMA busy_timeout"))
   assert(timeout[1][1] == "50", "busy timeout " .. timeout[1][1])
   waiting:close()
@@ -83,20 +83,20 @@ end
 
 --- How long an open of the rollback-mode cache at `path` took, in
 --- nanoseconds, and why it failed, while another connection holds it by
---- `statements`, with a wait of `wait_ms`. The cache opens once the
+--- `statements`, with a wait of `wait_ns`. The cache opens once the
 --- holder lets go.
 local function held_open(path: string, statements: {string},
-                         wait_ms: integer): integer, string
+                         wait_ns: integer): integer, string
   local holder = assert(Sqlite.open(path, { writable = true }))
   assert(holder:exec("CREATE TABLE held (x)"))
   for _, statement in ipairs(statements) do assert(holder:exec(statement)) end
   local started = Time.monotonic_ns()
-  local db, trouble = shared_sqlite.open(path, prepare, wait_ms)
+  local db, trouble = shared_sqlite.open(path, prepare, wait_ns)
   local waited = Time.monotonic_ns() - started
   assert(db == nil, "opened a cache another holds")
   assert(holder:exec("COMMIT"))
   holder:close()
-  local opened = assert(shared_sqlite.open(path, prepare, wait_ms))
+  local opened = assert(shared_sqlite.open(path, prepare, wait_ns))
   opened:close()
   return waited, trouble
 end
@@ -107,24 +107,24 @@ end
 --- answered busy, not corrupt, so no build sets aside a file another is
 --- writing.
 local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp: string)
-  local wait_ms = 100
+  local wait_ns = Time.ms(100)
   local waited, trouble = held_open(tmp .. "/cache.db",
-    { "BEGIN IMMEDIATE", "INSERT INTO held (x) VALUES (1)" }, wait_ms)
+    { "BEGIN IMMEDIATE", "INSERT INTO held (x) VALUES (1)" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
   assert(not shared_sqlite.corrupt(trouble), trouble)
-  assert(waited >= wait_ms * 1000000, "answered busy after " .. waited .. " ns")
-  assert(waited < 5 * wait_ms * 1000000, "answered busy after " .. waited .. " ns")
+  assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
+  assert(waited < 5 * wait_ns, "answered busy after " .. waited .. " ns")
 end
 
 --- A cache another connection holds whole, before it is in write-ahead
 --- mode, is waited on no longer than the wait in all: no try sits out a
 --- busy timeout of its own, so the wait never grows with the tries.
 local function test_a_cache_held_whole_is_waited_on_no_longer_than_the_wait(tmp: string)
-  local wait_ms = 100
-  local waited, trouble = held_open(tmp .. "/cache.db", { "BEGIN EXCLUSIVE" }, wait_ms)
+  local wait_ns = Time.ms(100)
+  local waited, trouble = held_open(tmp .. "/cache.db", { "BEGIN EXCLUSIVE" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
-  assert(waited >= wait_ms * 1000000, "answered busy after " .. waited .. " ns")
-  assert(waited < 5 * wait_ms * 1000000, "answered busy after " .. waited .. " ns")
+  assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
+  assert(waited < 5 * wait_ns, "answered busy after " .. waited .. " ns")
 end
 
 --- A cache already in write-ahead mode opens while another connection
@@ -134,7 +134,7 @@ local function test_a_wal_cache_opens_while_another_writes(tmp: string)
   local first = assert(shared_sqlite.open(path, prepare))
   assert(first:exec("BEGIN IMMEDIATE"))
   assert(first:exec("INSERT INTO kept (key) VALUES ('k')"))
-  local second = assert(shared_sqlite.open(path, prepare, 50))
+  local second = assert(shared_sqlite.open(path, prepare, Time.ms(50)))
   assert(first:exec("COMMIT"))
   local rows = assert(Sqlite.text_rows(second, "SELECT key FROM kept"))
   assert(#rows == 1 and rows[1][1] == "k")

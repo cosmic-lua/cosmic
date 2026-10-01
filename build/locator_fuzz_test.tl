@@ -12,6 +12,7 @@ local Fuzz = require("build.fuzz")
 local embed = require("build.embed")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
@@ -127,7 +128,7 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
       local database = tail.database:sub(1, #tail.database - cut) .. f[4]
       rewrite(f[1] .. database .. f[2])
       local r, trouble = Child.run({ program }, {
-        stdout = "capture", stderr = "capture", timeout_ms = 10000 })
+        stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) })
       if r == nil then return false, "run: " .. trouble end
       if r.timed_out then return false, "hung past 10 s" end
       if r.ok and r.stdout == "ok\n" then return true, "" end

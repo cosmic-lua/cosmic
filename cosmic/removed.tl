@@ -64,6 +64,16 @@ local record Module
   -- FormatOptions and AddOptions (the zone is an argument, right after the
   -- data: `format_rfc3339(ns, zone, opts)`, `add_calendar(ns, duration,
   -- zone, opts)`).
+  -- Likewise for the spans every record held in milliseconds or seconds:
+  -- `timeout_ms` (Child.Options, Net.ListenOptions, Net.ConnectOptions,
+  -- Net.ServeSpec and Http.Options), `grace_ms` (Net.ServeSpec),
+  -- `connect_timeout_ms` and `low_speed_seconds` (Http.Options) are
+  -- `timeout_ns`, `grace_ns`, `connect_timeout_ns` and `low_speed_ns`,
+  -- each a count of nanoseconds written `Time.ms(n)` or `Time.seconds(n)`.
+  -- A positional span whose name stays (Poll.delay, Poll.readable,
+  -- Poll.writable, Poll.ready, `:join`, `:wait`, `:accept`,
+  -- Child.wait_any, g:wait) changed its unit too, which no compile error
+  -- can say: an integer is an integer.
   -- TODO: a whole module that left the library (cosmic.dataset, now
   -- build.dataset) has no entry: `members` names a member of a module
   -- that still loads, and a `require` of a module that is gone says only

@@ -447,10 +447,16 @@ end
 --- (core/sqlite.c), which a waiting run would otherwise meet as
 --- "database is locked". It is as long as build.reboot waits for
 --- another run's rebuild lock.
-local wait_ms <const> = 30 * 60 * 1000
+local wait_ns <const> = Time.minutes(30)
 
 --- How long a run waits for that transaction before it says so.
-local notice_ms <const> = 1000
+local notice_ns <const> = Time.seconds(1)
+
+--- The statement that sets SQLite's busy timeout to `ns`, which it
+--- counts in milliseconds: rounded up, so a wait is never none.
+local function busy_timeout(ns: integer): string
+  return "PRAGMA busy_timeout = " .. tostring(Time.ceil(ns, Time.ms(1)))
+end
 
 --- Whether `trouble`, from beginning a transaction, says another
 --- connection holds the write lock rather than something wrong with the
@@ -464,18 +470,16 @@ local function locked(trouble: string): boolean
 end
 
 --- Begins the run's transaction on `db`, the working database at `path`,
---- waiting up to `wait_ms` for another run that holds it and saying so
---- after `notice_ms`. The handle keeps the long wait for every statement
+--- waiting up to `wait_ns` for another run that holds it and saying so
+--- after `notice_ns`. The handle keeps the long wait for every statement
 --- after ([`work.begin`]'s transactions among them).
 local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
-  local noticed, notice_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring(notice_ms))
+  local noticed, notice_trouble = db:exec(busy_timeout(notice_ns))
   if not noticed then
     return false, notice_trouble
   end
   local begun, trouble = db:exec("BEGIN IMMEDIATE")
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring(wait_ms))
+  local timed, time_trouble = db:exec(busy_timeout(wait_ns))
   if not timed then
     return false, time_trouble
   end
@@ -508,8 +512,7 @@ function work.open(root: string): work.Handle | nil, string
   end
   -- Before the schema is made: a run meeting a fresh file another is
   -- making its tables in waits for that run's lock here.
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring(wait_ms))
+  local timed, time_trouble = db:exec(busy_timeout(wait_ns))
   if not timed then
     local _, _ = db:close()
     return nil, path .. ": " .. time_trouble
@@ -875,7 +878,7 @@ local once = bind.once
 
 --- How long a file's modification time has to be in the past before
 --- a stat is trusted to stand for its bytes.
-local settle_ns = 2 * 1000000000
+local settle_ns = Time.seconds(2)
 
 --- Whether a file's row no longer stands for it, consuming the row
 --- from `known` either way, so what is left in `known` at the end is
@@ -909,7 +912,7 @@ function work.tool_moved(handle: work.Handle): boolean | nil, string
     if st == nil then
       return true, ""
     end
-    local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
+    local mtime_ns = Time.seconds(st.mtime) + st.mtime_ns
     if moved(known, path, st, mtime_ns) then
       return true, ""
     end
@@ -1118,7 +1121,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
       scan = false
     end
     if input or tool or scan or link_kind ~= nil then
-      local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
+      local mtime_ns = Time.seconds(st.mtime) + st.mtime_ns
       local settled = mtime_ns < now - settle_ns
       if input or tool then
         staged.files = staged.files + 1

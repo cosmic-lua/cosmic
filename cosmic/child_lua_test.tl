@@ -10,6 +10,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
@@ -72,7 +73,7 @@ local SYS <const> = 'local sys = require("cosmic.sys") '
 
 --- A chunk's statement that sleeps `ms` milliseconds.
 local function sleep(ms: integer): string
-  return 'require("cosmic.time").sleep_ns(' .. tostring(ms) .. ' * 1000000) '
+  return 'require("cosmic.time").sleep_ns(require("cosmic.time").ms(' .. tostring(ms) .. ')) '
 end
 
 --- `cat`: stdin to stdout, to its end.
@@ -144,16 +145,16 @@ local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
       "local h = again('" .. sleep(30000) .. "', { process_group = false }) " .. FS ..
       "assert(Fs.put(1, tostring(h.pid))) h:wait()",
       nil, { stdout = fd, stderr = fd })))
-    local deadline = Time.monotonic_ns() + 10 * 1000 * 1000 * 1000
+    local deadline = Time.monotonic_ns() + Time.seconds(10)
     while assert(Fs.stat(path)).size == 0 and Time.monotonic_ns() < deadline do
-      Time.sleep_ns(10 * 1000 * 1000)
+      Time.sleep_ns(Time.ms(10))
     end
     assert(assert(Fs.stat(path)).size > 0, "child did not report readiness")
     -- The descendant's pid as the child saw it, and as this process
     -- does, found while the child still runs.
     local contents = assert(Fs.read(path))
     local pid = assert(host_pid(h.pid, assert(math.tointeger((assert(tonumber(contents)))))))
-    local r = assert(h:wait(40))
+    local r = assert(h:wait(Time.ms(40)))
     assert(Fs.close(fd))
     assert(r.timed_out and not r.ok)
     -- A process-group timeout includes descendants. Signal zero would succeed
@@ -169,9 +170,9 @@ local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   local h = assert(Child.start(lua('local g = assert(require("cosmic.child").guard()) ' ..
     FS .. 'assert(Fs.write((...), "ready")) while g:cancelled() == 0 do ' .. sleep(10) ..
     'end return 19', { ready }, { process_group = false })))
-  local deadline = Time.monotonic_ns() + 10 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + Time.seconds(10)
   while not path_exists(ready) and Time.monotonic_ns() < deadline do
-    Time.sleep_ns(10 * 1000 * 1000)
+    Time.sleep_ns(Time.ms(10))
   end
   assert(path_exists(ready), "child did not report readiness")
   local r = assert(h:wait(0))
@@ -276,7 +277,7 @@ local function test_stdin_pipe_belongs_to_the_caller()
   assert(Fs.put(h.stdin as integer, "typed"))
   assert(h:close_stdin())
   assert(not h:close_stdin())
-  local r = assert(h:wait(5000))
+  local r = assert(h:wait(Time.seconds(5)))
   assert(r.ok and r.stdout == "typed")
 end
 
@@ -300,7 +301,7 @@ local function test_streams_are_read_and_written_while_the_child_runs()
   assert(read_all(stdout) == "second-go")
   local chunk, trouble = stdout:read()
   assert(chunk == nil and trouble == "")
-  local r = assert(h:wait(5000))
+  local r = assert(h:wait(Time.seconds(5)))
   assert(r.ok and r.stdout == nil and r.captured[1] == nil)
   assert(not stdin:write("late"))
 end
@@ -312,7 +313,7 @@ local function test_reading_stdout_does_not_stall_on_a_full_stderr()
     'Fs.put(1, "done")', nil, { stdout = "stream", stderr = "stream" })))
   assert(read_all(assert(h.stdout_stream)) == "done")
   assert(#read_all(assert(h.stderr_stream)) == 200000)
-  assert(assert(h:wait(5000)).ok)
+  assert(assert(h:wait(Time.seconds(5))).ok)
 end
 
 --- Writing stdin services stdout meanwhile, so a child echoing far more
@@ -324,7 +325,7 @@ local function test_writing_stdin_does_not_stall_on_a_full_stdout()
   assert(stdin:write(input))
   assert(stdin:close())
   assert(read_all(assert(h.stdout_stream)) == input)
-  assert(assert(h:wait(5000)).ok)
+  assert(assert(h:wait(Time.seconds(5))).ok)
 end
 
 --- Unread output is held up to `capture_limit`, and then the child
@@ -332,13 +333,13 @@ end
 local function test_a_streamed_output_holds_the_child_at_its_limit()
   local h = assert(Child.start(lua(FS .. 'for _ = 1, 20000 do assert(Fs.put(1, "0123456789")) end',
     nil, { stdout = "stream", capture_limit = 100 })))
-  local deadline = Time.monotonic_ns() + 300 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + Time.ms(300)
   while Time.monotonic_ns() < deadline do
     assert(not assert(h:try_wait()).finished, "the child ran past its reader")
-    Time.sleep_ns(10 * 1000 * 1000)
+    Time.sleep_ns(Time.ms(10))
   end
   assert(read_all(assert(h.stdout_stream)) == string.rep("0123456789", 20000))
-  assert(assert(h:wait(5000)).ok)
+  assert(assert(h:wait(Time.seconds(5))).ok)
 end
 
 --- What the child wrote before a wait settled it is still there to
@@ -346,7 +347,7 @@ end
 local function test_a_streamed_output_is_read_after_the_wait()
   local h = assert(Child.start(lua(FS .. 'Fs.put(1, "hello") Fs.put(2, "there")', nil,
     { stdout = "stream", stderr = "stdout" })))
-  assert(assert(h:wait(5000)).ok)
+  assert(assert(h:wait(Time.seconds(5))).ok)
   assert(read_all(assert(h.stdout_stream)) == "hellothere")
 end
 
@@ -357,8 +358,8 @@ local function test_an_escaped_writer_does_not_hold_up_a_read()
   local h = assert(Child.start(lua(AGAIN .. "again('" .. sleep(3000) .. "') " .. FS ..
     'Fs.put(1, "done") require("cosmic.sys").exit(0)', nil, { stdout = "stream" })))
   assert(read_all(assert(h.stdout_stream)):sub(1, 4) == "done")
-  assert(Time.monotonic_ns() - started < 2 * 1000 * 1000 * 1000)
-  assert(assert(h:wait(5000)).ok)
+  assert(Time.monotonic_ns() - started < Time.seconds(2))
+  assert(assert(h:wait(Time.seconds(5))).ok)
 end
 
 --- Closing a streamed output early closes the pipe: a child still
@@ -373,7 +374,7 @@ local function test_closing_a_streamed_output_ends_a_writer()
   assert(stdout:close())
   local chunk, trouble = stdout:read()
   assert(chunk == nil and trouble ~= "")
-  local r = assert(h:wait(5000))
+  local r = assert(h:wait(Time.seconds(5)))
   assert(not r.timed_out, "the writer was left blocked on the closed pipe")
 end
 
@@ -407,8 +408,8 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
     "again('" .. FS .. 'Fs.put(1, string.rep("\\\\0", 4000000))' .. "', " ..
     '{ process_group = false }) require("cosmic.sys").exit(0)', nil,
     { stdout = "stream", capture_limit = 1024, process_group = false })))
-  assert(assert(h:wait(5000)).ok)
-  Time.sleep_ns(100 * 1000 * 1000)
+  assert(assert(h:wait(Time.seconds(5))).ok)
+  Time.sleep_ns(Time.ms(100))
   assert(assert(h:try_wait()).finished)
   local queued = 0
   for _, stream in ipairs(h._streams) do queued = queued + stream.size end
@@ -426,7 +427,7 @@ local function test_a_streamed_read_of_nothing_is_refused()
   local stdout = assert(h.stdout_stream)
   assert(not pcall(stdout.read, stdout, 0))
   assert(read_all(stdout) == "x")
-  assert(assert(h:wait(5000)).ok)
+  assert(assert(h:wait(Time.seconds(5))).ok)
 end
 
 --- A write after the wait says the child has gone; one after its own
@@ -434,7 +435,7 @@ end
 local function test_a_stdin_stream_write_after_the_wait_says_why()
   local h = assert(Child.start(lua("", nil, { stdin = "stream" })))
   local stdin = assert(h.stdin_stream)
-  assert(assert(h:wait(5000)).ok)
+  assert(assert(h:wait(Time.seconds(5))).ok)
   local wrote, trouble = stdin:write("late")
   assert(not wrote and trouble == "the child has exited", trouble)
   assert(stdin:close())
@@ -445,10 +446,10 @@ end
 local function test_try_wait_services_a_chatty_child()
   local h = assert(Child.start(lua(FS .. 'assert(Fs.put(1, string.rep("0123456789", 20000)))',
     nil, { stdout = "capture" })))
-  local deadline = Time.monotonic_ns() + 10 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + Time.seconds(10)
   local polled = assert(h:try_wait())
   while not polled.finished and Time.monotonic_ns() < deadline do
-    Time.sleep_ns(1000 * 1000)
+    Time.sleep_ns(Time.ms(1))
     polled = assert(h:try_wait())
   end
   assert(polled.finished, "a full pipe stalled the child")
@@ -459,7 +460,7 @@ local function test_timeout_keeps_what_was_captured()
   -- The timeout must outlast the child's start and its write, which take
   -- over 200 ms on the sanitized core under a full suite's load.
   local r = assert(Child.run(lua(FS .. 'Fs.put(1, "partial") ' .. sleep(30000), nil,
-    { stdout = "capture", timeout_ms = 5000 })))
+    { stdout = "capture", timeout_ns = Time.seconds(5) })))
   assert(r.timed_out and not r.ok and r.stdout == "partial")
 end
 
@@ -472,7 +473,7 @@ local function test_exit_ends_and_reaps_what_the_group_left_behind()
     local h = assert(Child.start(lua(AGAIN .. "local h = again('" .. sleep(30000) ..
       "', { process_group = false }) " .. FS ..
       'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil, { stdout = "capture" })))
-    local r = assert(h:wait(5000))
+    local r = assert(h:wait(Time.seconds(5)))
     assert(r.ok and not r.timed_out and assert(math.tointeger(tonumber(r.stdout))) > 0)
     local alive, _, errno = sys.kill(-h.pid, 0)
     assert(not alive and errno == sys.ESRCH, "a member of group " .. tostring(h.pid) ..
@@ -501,9 +502,9 @@ local function test_end_strays_ends_a_stray_named_as_an_init()
       { stdout = "capture", process_group = false })))
     local pid = assert(math.tointeger(tonumber(r.stdout)))
     local name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
-    local by = Time.monotonic_ns() + 5 * 1000 * 1000 * 1000
+    local by = Time.monotonic_ns() + Time.seconds(5)
     while name ~= "cosmic-init\n" and Time.monotonic_ns() < by do
-      Time.sleep_ns(10 * 1000 * 1000)
+      Time.sleep_ns(Time.ms(10))
       name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
     end
     assert(name == "cosmic-init\n", tostring(name))
@@ -541,15 +542,15 @@ local function test_an_escaped_writer_does_not_hold_up_the_wait()
   local started = Time.monotonic_ns()
   local r = assert(Child.run(lua(AGAIN .. "again('" .. sleep(3000) .. "') " .. FS ..
     'Fs.put(1, "done") require("cosmic.sys").exit(0)', nil,
-    { stdout = "capture", timeout_ms = 10000 })))
+    { stdout = "capture", timeout_ns = Time.seconds(10) })))
   assert(r.ok and assert(r.stdout):sub(1, 4) == "done")
-  assert(Time.monotonic_ns() - started < 2 * 1000 * 1000 * 1000)
+  assert(Time.monotonic_ns() - started < Time.seconds(2))
 end
 
 local function test_wait_any_returns_the_first_to_finish()
   local slow = assert(Child.start(lua(sleep(5000))))
   local fast = assert(Child.start(lua(FS .. 'Fs.put(1, "quick")', nil, { stdout = "capture" })))
-  local first, first_trouble = Child.wait_any({ slow, fast }, 5000)
+  local first, first_trouble = Child.wait_any({ slow, fast }, Time.seconds(5))
   assert(first == fast, first_trouble)
   local r = assert(fast:wait())
   assert(r.ok and r.stdout == "quick")
@@ -570,18 +571,18 @@ end
 
 local function test_a_wait_refuses_a_timeout_out_of_range()
   local h <close> = assert(Child.start(lua(sleep(5000))))
-  for _, bad in ipairs({ -1, math.mininteger, 2147483648 }) do
+  for _, bad in ipairs({ -1, math.mininteger, Poll.MOST_NS + 1 }) do
     local message = raised(function() local _, _ = h:wait(bad) end)
-    assert(message:find("timeout_ms is out of range", 1, true), message)
+    assert(message:find("timeout_ns is out of range", 1, true), message)
   end
   -- The handle is untouched by the refusals: a zero timeout ends it.
   local r = assert(h:wait(0))
   assert(r.timed_out)
   -- A settled handle refuses one too, rather than answering its Result.
   local message = raised(function() local _, _ = h:wait(-1) end)
-  assert(message:find("timeout_ms is out of range", 1, true), message)
+  assert(message:find("timeout_ns is out of range", 1, true), message)
   local quick <close> = assert(Child.start(lua("return 3")))
-  r = assert(quick:wait(10000))
+  r = assert(quick:wait(Time.seconds(10)))
   assert(r.code == 3 and not r.timed_out)
   local plain <close> = assert(Child.start(lua("return 4")))
   r = assert(plain:wait())
@@ -590,9 +591,9 @@ end
 
 local function test_wait_any_refuses_a_timeout_out_of_range()
   local slow <close> = assert(Child.start(lua(sleep(5000))))
-  for _, bad in ipairs({ -1, math.mininteger, 2147483648 }) do
+  for _, bad in ipairs({ -1, math.mininteger, Poll.MOST_NS + 1 }) do
     local message = raised(function() local _, _ = Child.wait_any({ slow }, bad) end)
-    assert(message:find("timeout_ms is out of range", 1, true), message)
+    assert(message:find("timeout_ns is out of range", 1, true), message)
   end
   local none, trouble = Child.wait_any({ slow }, 0)
   assert(none == nil and trouble == "", trouble)
@@ -603,10 +604,10 @@ end
 
 local function test_start_refuses_a_timeout_it_would_not_honour()
   local ok, message = pcall(Child.start, { "/bin/sh", "-c", "exit 0" },
-    { timeout_ms = 10 } as Child.Options)
+    { timeout_ns = Time.ms(10) } as Child.Options)
   assert(not ok)
   assert(tostring(message):find("h:wait", 1, true), tostring(message))
-  local r = assert(Child.run(lua("", nil, { timeout_ms = 10000 })))
+  local r = assert(Child.run(lua("", nil, { timeout_ns = Time.seconds(10) })))
   assert(r.ok)
 end
 
@@ -618,4 +619,29 @@ local function test_a_run_inside_a_guard_runs()
   assert(r.code == 5, tostring(r.code))
   assert(guard:cancelled() == 0)
   assert(guard:release() == 0)
+end
+
+--- A timeout is nanoseconds: the child is ended about when it says, not
+--- a millionth of the time before nor a million times after.
+local function test_a_timeout_ends_a_child_after_the_nanoseconds_it_says()
+  local began = Time.monotonic_ns()
+  local r = assert(Child.run(lua(sleep(30000), nil, { timeout_ns = Time.ms(200) })))
+  local took = Time.monotonic_ns() - began
+  assert(r.timed_out, "the child was not ended for its timeout")
+  assert(took >= Time.ms(190) and took < Time.seconds(20), tostring(took // Time.ms(1)) .. " ms")
+  local h <close> = assert(Child.start(lua(sleep(30000))))
+  began = Time.monotonic_ns()
+  local waited = assert(h:wait(Time.ms(200)))
+  took = Time.monotonic_ns() - began
+  assert(waited.timed_out)
+  assert(took >= Time.ms(190) and took < Time.seconds(20), tostring(took // Time.ms(1)) .. " ms")
+  local slow <close> = assert(Child.start(lua(sleep(30000))))
+  began = Time.monotonic_ns()
+  local none, trouble = Child.wait_any({ slow }, Time.ms(100))
+  took = Time.monotonic_ns() - began
+  assert(none == nil and trouble == "", trouble)
+  assert(took >= Time.ms(90) and took < Time.seconds(20), tostring(took // Time.ms(1)) .. " ms")
+  -- A nanosecond is a wait that ends, as zero is a look.
+  none, trouble = Child.wait_any({ slow }, 1)
+  assert(none == nil and trouble == "", trouble)
 end

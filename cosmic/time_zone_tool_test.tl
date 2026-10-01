@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which the test starts, running a file `--standalone`
 --- (`standalone`). No zone is read from the host's files: a program
@@ -44,7 +45,7 @@ end
   for tz, want in pairs({ [""] = "UTC 0 true nil\n", ["Europe/Berlin"] = "Europe/Berlin 3600 true nil\n" }) do
     local started = this_program.program({ "--standalone", script },
       { env = { TZ = tz, TZDIR = tmp .. "/tzdir", XDG_CACHE_HOME = tmp .. "/cache" },
-        stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+        stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
     local result = assert(Child.run(started.argv, started.options))
     assert(result.code == 0 and result.stdout == want, tostring(result.stdout) .. tostring(result.stderr))
   end

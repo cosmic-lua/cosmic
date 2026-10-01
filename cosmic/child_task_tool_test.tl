@@ -65,11 +65,7 @@ end
 
 --- A chunk's statement that sleeps `ms` milliseconds.
 local function sleep(ms: integer): string
-  return 'require("cosmic.time").sleep_ns(' .. tostring(ms) .. ' * 1000000) '
-end
-
-local function now_ms(): integer
-  return Time.monotonic_ns() // 1000000
+  return 'require("cosmic.time").sleep_ns(require("cosmic.time").ms(' .. tostring(ms) .. ')) '
 end
 
 --- Runs `main` as a task beside one that ticks every 5 ms until `main`
@@ -82,7 +78,7 @@ local function ticking(main: function()): integer
     local done = false
     local ticker = Poll.spawn(function()
       while not done do
-        assert(Poll.delay(5))
+        assert(Poll.delay(Time.ms(5)))
         ticks = ticks + 1
       end
     end)
@@ -143,14 +139,14 @@ local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
       waited = assert(h:wait())
     end)
     -- The waiter runs first: it finds the child running, and waits.
-    assert(Poll.delay(1))
+    assert(Poll.delay(Time.ms(1)))
     assert(h:close_stdin())
-    assert(Poll.readable(exited, 30000))
-    assert(Poll.delay(50))
+    assert(Poll.readable(exited, Time.seconds(30)))
+    assert(Poll.delay(Time.ms(50)))
     -- A wait that ended has closed the pipe's other end.
     early = waited ~= nil
     if not early then assert(sys.write(ends.writer, "x")) end
-    assert(waiter:join(30000))
+    assert(waiter:join(Time.seconds(30)))
     assert(sys.close(exited))
     assert(sys.close(ends.writer))
   end)
@@ -214,7 +210,7 @@ local function test_a_child_that_exited_before_its_watch_was_asked_for_is_waited
       assert(not r.ok and r.code == 3, tostring(r.code))
     end
     local h <close> = assert(module.start(lua("")))
-    assert(assert(h:wait(30000)).ok)
+    assert(assert(h:wait(Time.seconds(30))).ok)
   end)
   assert(asked == 4, "an exit watch was asked for " .. asked .. " times, not 4")
 end
@@ -225,7 +221,7 @@ local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
   local timed: Child.Result
   local ticks = ticking(function()
     local h <close> = assert(Child.start(lua(sleep(100000))))
-    timed = assert(h:wait(200))
+    timed = assert(h:wait(Time.ms(200)))
   end)
   assert(timed.timed_out and timed.signal == sys.SIGTERM, tostring(timed.signal))
   assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
@@ -254,14 +250,16 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
         assert(r == nil)
         ran = why
       end)
-      local by = now_ms() + 30000
-      while not Fs.exists(report) and now_ms() < by do assert(Poll.delay(5)) end
-      local started = now_ms()
+      local by = Time.monotonic_ns() + Time.seconds(30)
+      while not Fs.exists(report) and Time.monotonic_ns() < by do
+        assert(Poll.delay(Time.ms(5)))
+      end
+      local started = Time.monotonic_ns()
       waiter:cancel()
       runner:cancel()
-      assert(waiter:join(5000))
-      assert(runner:join(5000))
-      took = now_ms() - started
+      assert(waiter:join(Time.seconds(5)))
+      assert(runner:join(Time.seconds(5)))
+      took = Time.monotonic_ns() - started
       running = assert(h:try_wait()).finished == false
       local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
       assert(sys.kill(pid, 0) == false, "the run left its child running")
@@ -270,7 +268,7 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
     assert(waited == Poll.CANCELLED, waited)
     assert(ran == Poll.CANCELLED, ran)
     assert(running, "the cancelled wait ended its child")
-    assert(took < 5000, "the cancelled waits took " .. took .. " ms")
+    assert(took < Time.seconds(5), "the cancelled waits took " .. took // Time.ms(1) .. " ms")
   end
 end
 
@@ -285,8 +283,8 @@ end
 
 --- The pid a child wrote to `report`, once it has, which is taken away.
 local function reported_pid(report: string): integer
-  local by = now_ms() + 30000
-  while not Fs.exists(report) and now_ms() < by do assert(Poll.delay(5)) end
+  local by = Time.monotonic_ns() + Time.seconds(30)
+  while not Fs.exists(report) and Time.monotonic_ns() < by do assert(Poll.delay(Time.ms(5))) end
   local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
   assert(Fs.remove(report))
   return pid
@@ -307,7 +305,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
       local ticks, done = 0, false
       local ticker = Poll.spawn(function()
         while not done do
-          assert(Poll.delay(5))
+          assert(Poll.delay(Time.ms(5)))
           ticks = ticks + 1
         end
       end)
@@ -319,7 +317,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
       run_pid = reported_pid(report)
       local before = ticks
       runner:cancel()
-      assert(runner:join(5000))
+      assert(runner:join(Time.seconds(5)))
       during = ticks - before
       local victim = Poll.spawn(function()
         local h <close> = assert(module.start(lua(holding_term(report))))
@@ -330,7 +328,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
       end)
       killed_pid = reported_pid(report)
       victim:cancel()
-      assert(Poll.delay(50))
+      assert(Poll.delay(Time.ms(50)))
       victim:kill()
       local _, why = victim:join()
       killed_answer = why
@@ -368,7 +366,7 @@ local function test_a_run_killed_in_its_cleanup_ends_its_child_and_guard(tmp: st
     end)
     pid = reported_pid(report)
     victim:cancel()
-    assert(Poll.delay(50))
+    assert(Poll.delay(Time.ms(50)))
     victim:kill()
     local _, why = victim:join()
     answer = why
@@ -427,9 +425,9 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
       assert(none == nil)
       cancelled = why
     end)
-    assert(Poll.delay(20))
+    assert(Poll.delay(Time.ms(20)))
     waiter:cancel()
-    assert(waiter:join(5000))
+    assert(waiter:join(Time.seconds(5)))
   end)
   assert(first == 1, "the slow child ended first")
   assert(cancelled == Poll.CANCELLED, cancelled)
@@ -455,27 +453,27 @@ local ticks = 0
 local took = 0
 Poll.run(function()
   local runner = Poll.spawn(function()
-    local sleeper = this_program.program({ "-e", 'require("cosmic.time").sleep_ns(100000 * 1000000)' })
+    local sleeper = this_program.program({ "-e", 'require("cosmic.time").sleep_ns(require("cosmic.time").seconds(100000))' })
     local r, why = Child.run(sleeper.argv, sleeper.options)
     answer = tostring(r) .. " " .. why
   end)
   local ticker = Poll.spawn(function()
     while answer == "" do
-      assert(Poll.delay(5))
+      assert(Poll.delay(Time.ms(5)))
       ticks = ticks + 1
     end
   end)
-  assert(Poll.delay(200))
+  assert(Poll.delay(Time.ms(200)))
   local sent = Time.monotonic_ns()
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  assert(runner:join(30000))
-  took = (Time.monotonic_ns() - sent) // 1000000
+  assert(runner:join(Time.seconds(30)))
+  took = Time.monotonic_ns() - sent
   assert(ticker:join())
 end)
 local kept = assert(outer:release())
 assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
-  tostring(ticks >= 2) .. "|" .. tostring(took < 5000)))
-]], report }, { stderr = "capture", timeout_ms = 60000 })
+  tostring(ticks >= 2) .. "|" .. tostring(took < Time.seconds(5))))
+]], report }, { stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))
@@ -496,10 +494,10 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
     local writer = Poll.spawn(function()
       wrote, why = stream:write(string.rep("x", 1 << 20))
     end)
-    assert(Poll.delay(50))
+    assert(Poll.delay(Time.ms(50)))
     assert(stream:close())
     local fd = assert(Fs.open_write(victim))
-    assert(writer:join(5000))
+    assert(writer:join(Time.seconds(5)))
     assert(Fs.close(fd))
   end)
   assert(not wrote and why == "stream: already closed", tostring(why))
@@ -513,9 +511,9 @@ local function test_two_tasks_settle_one_child_once()
   local closed: boolean
   Poll.run(function()
     local h <close> = assert(Child.start(lua("return 3")))
-    assert(assert(h:wait(30000)).code == 3)
+    assert(assert(h:wait(Time.seconds(30))).code == 3)
     local again <close> = assert(Child.start(lua("return 4")))
-    assert(Poll.delay(300))
+    assert(Poll.delay(Time.ms(300)))
     local tasks: {Poll.Task} = {}
     for i = 1, 2 do
       tasks[i] = Poll.spawn(function()

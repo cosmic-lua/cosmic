@@ -546,8 +546,16 @@ function Zig.child_status(result: Child.Result): integer
   return result.code or 1
 end
 
-local POLL_NS <const> = 20 * 1000 * 1000
-local PASS_ON_NS <const> = 250 * 1000 * 1000
+-- A millisecond and a minute in nanoseconds, written out: the pinned
+-- release's cosmic.time has no `ms` or `minutes` to write them with.
+-- TODO: write every span here through Time.ms and Time.minutes, and
+-- drop MS and MINUTE, once ci/cosmic-driver.pin names a release whose
+-- cosmic.time has them.
+local MS <const> = 1000 * 1000
+local MINUTE <const> = 60 * 1000 * MS
+
+local POLL_NS <const> = 20 * MS
+local PASS_ON_NS <const> = 250 * MS
 
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
@@ -743,7 +751,7 @@ local doing: {string:string} = {
 }
 
 --- How long a waiting boot waits in one go before it says it still is.
-local reminder_ms <const> = 5 * 60 * 1000
+local reminder_ns <const> = 5 * MINUTE
 
 --- Whether `given`, the words after bin/zig, is a build of a step that
 --- boots, writing the working database under o/ beside a tool: `boot`,
@@ -804,11 +812,13 @@ local function says_busy(trouble: string): boolean
   return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
 end
 
---- Begins the lock's transaction on `db`, waiting up to `wait_ms`:
+--- Begins the lock's transaction on `db`, waiting up to `wait_ns`:
 --- "held", "busy" when another run holds it, or nil and why for any
 --- other failure.
-local function begin(db: Sqlite.Handle, path: string, wait_ms: integer): string | nil, string
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(wait_ms))
+local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string | nil, string
+  -- SQLite counts the timeout in milliseconds: rounded up, so none is no wait.
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
+    tostring((wait_ns + MS - 1) // MS))
   if not timed then
     return nil, path .. ": " .. time_trouble
   end
@@ -866,12 +876,12 @@ function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | b
     end
     log:complain(Zig.holder(root) .. "; waiting for it (one run at a time holds " ..
       path .. ")")
-    local waited_ms = 0
+    local waited_ns = 0
     while taken == "busy" do
-      taken, trouble = begin(db, path, reminder_ms)
+      taken, trouble = begin(db, path, reminder_ns)
       if taken == "busy" then
-        waited_ms = waited_ms + reminder_ms
-        local minutes = waited_ms // 60000
+        waited_ns = waited_ns + reminder_ns
+        local minutes = waited_ns // MINUTE
         log:complain("still waiting, " .. tostring(minutes) ..
           (minutes == 1 and " minute" or " minutes") .. " on: " ..
           Zig.holder(root) .. " (one run at a time holds " .. path .. ")")

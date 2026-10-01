@@ -13,6 +13,7 @@ local Test = require("cosmic.test")
 --- What the scripts its tests run standalone require, which a child
 --- is typed and run against only where the closure holds it (`lua`).
 local type _ = require("cosmic.http")
+local Time = require("cosmic.time")
 
 --- Requests to a local port, closed or one a test serves, which a
 --- loopback alone answers: the worker runs offline, and is keyed. And
@@ -28,12 +29,13 @@ local function refused_with_cert_file(tmp: string, cert_file: string): string
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ms = 2000 })
+local Time = require("cosmic.time")
+local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Time.seconds(2) })
 Fs.put(Fs.stdout, trouble or "")
 ]]))
   local started = this_program.program({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, tostring(result.stderr))
   return result.stdout or ""
@@ -84,7 +86,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ms = 20000 }))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(20) }))
   local url = "http://127.0.0.1:" .. server.address.port .. "/"
   local marker = tmp .. "/marker"
   local started = this_program.program({ "--standalone", script, url, marker },
@@ -96,11 +98,11 @@ end
   serve(conn, head)
   for _ = 1, 2000 do
     if Fs.stat(marker) ~= nil then break end
-    assert(sys.nanosleep(10 * 1000000))
+    assert(sys.nanosleep(Time.ms(10)))
   end
   assert(Fs.stat(marker) ~= nil, "the client never reached its wait")
   assert(child:stop(sys.SIGINT))
-  local result = assert(child:wait(20000))
+  local result = assert(child:wait(Time.seconds(20)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   return result.stdout or ""
 end

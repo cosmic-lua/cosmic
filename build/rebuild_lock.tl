@@ -50,6 +50,7 @@
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
@@ -75,9 +76,8 @@ end
 
 local lock_name = "/o/rebuild.lock"
 
---- The longest wait `take` takes: [`sys.flock`] takes its timeout as a C
---- int.
-local most_wait_ms <const> = 0x7fffffff
+--- One millisecond, which [`sys.flock`] and SQLite count their waits in.
+local MS <const> = Time.ms(1)
 
 --- Where the holder writes its process id and role, a line each, for
 --- a waiting run to name it. build/zig.tl writes and reads it too.
@@ -102,7 +102,7 @@ local doing: {string:string} = {
 local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 
 --- How long a waiting run waits in one go before it says it still is.
-local reminder_ms <const> = 5 * 60 * 1000
+local reminder_ns <const> = Time.minutes(5)
 
 --- The lock's descriptor and SQLite handle, each nil once let go or
 --- never taken.
@@ -139,16 +139,16 @@ local function says_busy(trouble: string): boolean
 end
 
 --- Takes SQLite's half of the lock on `path` into `lock`, waiting up to
---- `wait_ms`. Answers "held", "busy", or nil and why.
+--- `wait_ns`. Answers "held", "busy", or nil and why.
 local function take_sqlite(lock: Lock, path: string,
-                           wait_ms: integer): rebuild_lock.Taken | nil, string
+                           wait_ns: integer): rebuild_lock.Taken | nil, string
   local db, db_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. db_trouble
   end
   lock.db = db
   local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring(wait_ms))
+    tostring(Time.ceil(wait_ns, MS)))
   if not timed then
     return nil, path .. ": " .. time_trouble
   end
@@ -168,7 +168,8 @@ local function take_sqlite(lock: Lock, path: string,
 end
 
 --- Takes the rebuild lock of `root` as `role` ("rebuild" unless
---- given), waiting up to `wait_ms` (0 to `most_wait_ms`; another raises)
+--- given), waiting up to `wait_ns` (0 to [`Poll.MOST_NS`], which [`sys.flock`]'s
+--- C int of milliseconds holds; another raises)
 --- in all for a run that holds it. Answers "held" once this process
 --- holds it -- at once when it already does -- "busy" when another run
 --- held it past the wait, or nil and why when the lock could not be
@@ -176,9 +177,9 @@ end
 --- [`Child.guard`] caught a signal during the wait, this process holds
 --- another checkout's). A half taken is let go again whenever the
 --- other is not.
-function rebuild_lock.take(root: string, wait_ms: integer,
+function rebuild_lock.take(root: string, wait_ns: integer,
                            role?: rebuild_lock.Role): rebuild_lock.Taken | nil, string
-  if wait_ms < 0 or wait_ms > most_wait_ms then
+  if wait_ns < 0 or wait_ns > Poll.MOST_NS then
     error("rebuild_lock.take: the wait is out of range", 2)
   end
   if held ~= nil then
@@ -197,7 +198,7 @@ function rebuild_lock.take(root: string, wait_ms: integer,
   end
   local opened: Lock = { fd = fd }
   local taking <close> = setmetatable(opened, lock_mt)
-  local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", wait_ms)
+  local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", Time.ceil(wait_ns, MS))
   if not flocked then
     local name = sys.errno_name(errno)
     if name == "ETIMEDOUT" then
@@ -212,8 +213,8 @@ function rebuild_lock.take(root: string, wait_ms: integer,
     return nil, path .. ": " .. kind_trouble
   end
   if kind == "apart" then
-    local left_ms = wait_ms - (Time.monotonic_ns() - started_ns) // 1000000
-    local taken, trouble = take_sqlite(taking, path, math.max(left_ms, 0))
+    local left_ns = wait_ns - (Time.monotonic_ns() - started_ns)
+    local taken, trouble = take_sqlite(taking, path, math.max(left_ns, 0))
     if taken == nil then
       return nil, trouble
     elseif taken == "busy" then
@@ -324,17 +325,17 @@ end
 function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
                            line: string): boolean, string
   log:complain(line)
-  local waited_ms = 0
+  local waited_ns = 0
   while true do
-    local taken, trouble = rebuild_lock.take(root, reminder_ms, role)
+    local taken, trouble = rebuild_lock.take(root, reminder_ns, role)
     if taken == nil then
       return false, trouble
     end
     if taken == "held" then
       return true, ""
     end
-    waited_ms = waited_ms + reminder_ms
-    log:complain("still waiting, " .. plural.count(waited_ms // 60000, "minute") ..
+    waited_ns = waited_ns + reminder_ns
+    log:complain("still waiting, " .. plural.count(waited_ns // Time.minutes(1), "minute") ..
       " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
   end
 end

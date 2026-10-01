@@ -16,6 +16,7 @@ local artifact = require("build.artifact")
 local embed = require("build.embed")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
+local Time = require("cosmic.time")
 
 --- This program's database, which every executable's is joined from.
 --- The programs these tests run are built `--host`, so no launcher --
@@ -239,7 +240,7 @@ end
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
 end
 
 --- `--host` writes this core itself with the program inside: the kernel
@@ -280,7 +281,7 @@ end
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "echo", trouble)
   local r = assert(Child.run({ tmp .. "/o/bin/echo", "--artifact=x", "y" }, {
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   assert(r.stdout == "--artifact=x|y\n", tostring(r.stdout))
 end

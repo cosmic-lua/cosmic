@@ -18,9 +18,14 @@ local String = require("cosmic.string")
 local record shared_sqlite
 end
 
---- How long a statement waits on another run's lock, in milliseconds:
+-- One millisecond in nanoseconds, which SQLite counts its busy timeout
+-- in: cosmic.time, whose `ms` and `ceil` this is, is no module the
+-- harness may reach (build/harness_epoch.tl's `library`).
+local MS <const> = 1000 * 1000
+
+--- How long a statement waits on another run's lock, in nanoseconds:
 --- each cache's transactions are short.
-local busy_ms <const> = 10000
+local busy_ns <const> = 10000 * MS
 
 --- Whether `trouble`, from a statement on a cache, says another
 --- connection holds a lock the statement needs, rather than anything
@@ -71,13 +76,13 @@ end
 --- another holds the file whole, the busy handler would wait out the
 --- busy timeout on each try. So the switch runs with no busy timeout,
 --- and a locked answer is tried again every ten milliseconds until
---- `wait_ms` have passed since the first try, on the monotonic clock;
+--- `wait_ns` have passed since the first try, on the monotonic clock;
 --- once the other's switch is written, this one reads the header and
 --- has nothing to write. Any mode but "wal" answered is a failure.
-local function to_wal(db: Sqlite.Handle, wait_ms: integer): boolean, string
+local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
   local started, clock_trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if started == nil then return false, clock_trouble end
-  local deadline = started + wait_ms * 1000000
+  local deadline = started + wait_ns
   while true do
     local rows, trouble = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
     if rows ~= nil then
@@ -89,20 +94,20 @@ local function to_wal(db: Sqlite.Handle, wait_ms: integer): boolean, string
     local now, now_trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
     if now == nil then return false, now_trouble end
     if now >= deadline then return false, trouble end
-    local _, _ = sys.nanosleep(math.min(10 * 1000000, deadline - now))
+    local _, _ = sys.nanosleep(math.min(10 * MS, deadline - now))
   end
 end
 
 --- Opens the cache at `path`, which the caller has made ready (its
 --- directory, and whatever it holds of the file's mode), in write-ahead
---- mode ([`to_wal`], which waits up to `wait_ms` in all on another run's
+--- mode ([`to_wal`], which waits up to `wait_ns` in all on another run's
 --- lock), then `prepare`d, the caller's tables made or checked, under a
---- busy timeout of `wait_ms` a statement. `wait_ms` is ten seconds when
---- nil. Answers the handle, or nil and why, prefixed with `path`, having
+--- busy timeout of `wait_ns` a statement, in whole milliseconds, rounded
+--- up. `wait_ns` is ten seconds when nil. Answers the handle, or nil and why, prefixed with `path`, having
 --- closed what it opened.
 function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boolean, string),
-                            wait_ms?: integer): Sqlite.Handle | nil, string
-  wait_ms = wait_ms or busy_ms
+                            wait_ns?: integer): Sqlite.Handle | nil, string
+  wait_ns = wait_ns or busy_ns
   local opened, trouble = Sqlite.open(path, { writable = true })
   if opened == nil then return nil, path .. ": " .. trouble end
   local db: Sqlite.Handle = opened
@@ -112,9 +117,9 @@ function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boo
   end
   local untimed, untimed_trouble = db:exec("PRAGMA busy_timeout = 0")
   if not untimed then return fail(untimed_trouble) end
-  local journal, journal_trouble = to_wal(db, wait_ms)
+  local journal, journal_trouble = to_wal(db, wait_ns)
   if not journal then return fail(journal_trouble) end
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. wait_ms)
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. -(-wait_ns // MS))
   if not timed then return fail(time_trouble) end
   local prepared, prepare_trouble = prepare(db)
   if not prepared then return fail(prepare_trouble) end

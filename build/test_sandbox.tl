@@ -137,6 +137,10 @@ test_sandbox.switch = "COSMIC_TEST_SANDBOX"
 --- neither the tree's own nor to be had at its own name
 --- ([`Plan.program`]).
 local program_place <const> = "/program"
+-- How long the probe's child may run: 30 seconds, in the nanoseconds a
+-- wait takes, which cosmic.time's `seconds` would write but is no module
+-- the harness may reach (build/harness_epoch.tl's `library`).
+local probe_timeout_ns <const> = 30 * 1000 * 1000 * 1000
 
 --- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).
 local UNVEIL_MAX <const> = confine.unveil_max
@@ -339,7 +343,7 @@ local function starts_as(user: test_sandbox.User, cores: Cores): boolean, string
     sandbox = { unveil = { reads = reads, writes = {}, at = at }, offline = true,
       user = user.uid, group = user.gid } })
   if handle == nil then return false, trouble end
-  local result, wait_trouble = handle:wait(30000)
+  local result, wait_trouble = handle:wait(probe_timeout_ns)
   if result == nil then
     local _, _ = handle:close()
     return false, wait_trouble

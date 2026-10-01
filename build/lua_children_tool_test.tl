@@ -11,6 +11,7 @@ local _ = require("cosmic.proc")
 local Test = require("cosmic.test")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
+local Time = require("cosmic.time")
 
 Test.needs{ tool = true }
 
@@ -22,7 +23,7 @@ local function run(hold: string | nil, chunk: string): boolean, integer, string,
   local env = this_program.environment()
   env["COSMIC_TEST_CHILD_HOLD"] = hold
   local started = this_program.program({ "-e", chunk }, { env = env, stdout = "capture",
-    stderr = "capture", timeout_ms = 30000 })
+    stderr = "capture", timeout_ns = Time.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   return result.ok, result.code or -1, result.stdout or "", result.stderr or ""
 end

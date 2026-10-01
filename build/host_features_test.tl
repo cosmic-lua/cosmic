@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The script, run by the system's `sh`; and where both read a macOS
 --- host's system version, which no other host has.
@@ -22,7 +23,7 @@ local function script(args: {string}): string
   local argv = { "/bin/sh", SCRIPT }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result = assert(Child.run(argv, { stdout = "capture", stderr = "capture",
-    timeout_ms = 10000 }))
+    timeout_ns = Time.seconds(10) }))
   assert(result.ok, tostring(result.stderr))
   return ((result.stdout as string):gsub("%s+$", ""))
 end

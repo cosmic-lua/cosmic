@@ -49,7 +49,7 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   assert(second, trouble)
   assert(Time.sleep_ns(300000000))
   assert(work.abort(held))
-  local result = assert(second:wait(60000))
+  local result = assert(second:wait(Time.seconds(60)))
   assert(result.ok, "the second build failed: " .. (Fs.read(output) or ""))
 end
 
@@ -66,7 +66,7 @@ local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string
   env.COSMIC_TEST_SANDBOX = nil
   local started = this_program.program({ "test" }, {
     cwd = project, env = env, stdout = "capture", stderr = "capture",
-    timeout_ms = 60000,
+    timeout_ns = Time.seconds(60),
   })
   local result = assert(Child.run(started.argv, started.options))
   local out = (result.stdout or "") .. (result.stderr or "")

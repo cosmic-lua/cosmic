@@ -232,6 +232,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Time = require("cosmic.time")
 
 local dir = assert(Fs.mkdtemp("quickstart-"))
 assert(Fs.write(dir .. "/greeter.tl", [[
@@ -253,7 +254,7 @@ argv[#argv + 1] = "cosmic"
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local result, trouble = Child.run(argv,
-  { env = env, fds = relaunch.fds, stdout = fd, timeout_ms = 5000 })
+  { env = env, fds = relaunch.fds, stdout = fd, timeout_ns = Time.seconds(5) })
 assert(Fs.close(fd))
 if result == nil then error(trouble) end
 local finished = assert(result)
@@ -281,6 +282,7 @@ ended.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
+local Time = require("cosmic.time")
 
 -- This cosmic again, past its launcher, running a chunk that sleeps
 -- for half a second and exits 3.
@@ -291,7 +293,7 @@ argv[#argv + 1] = "require('cosmic.time').sleep_ns(500000000) return 3"
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local sleeper <close> = assert(Child.start(argv, { env = env, fds = relaunch.fds }))
-local done, trouble = Child.wait_any({ sleeper }, 10)
+local done, trouble = Child.wait_any({ sleeper }, Time.ms(10))
 if done == nil and trouble ~= "" then error(trouble) end
 print(done == nil and "still running" or "finished")
 local ended = assert(sleeper:wait())

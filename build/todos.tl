@@ -109,7 +109,7 @@ end
 
 --- How long one git call may take before it is ended and its answer
 --- taken as none: a TODO is listed unblamed rather than not at all.
-local git_timeout_ms = 30 * 1000
+local git_timeout_ns = Time.seconds(30)
 
 --- Runs git in `root`, its output when it succeeds.
 local function git(root: string, args: {string}): string | nil
@@ -122,7 +122,7 @@ local function git(root: string, args: {string}): string | nil
     argv[#argv + 1] = each
   end
   local result, _ = Child.run(argv, {
-    stdin = "null", stdout = "capture", stderr = "null", timeout_ms = git_timeout_ms,
+    stdin = "null", stdout = "capture", stderr = "null", timeout_ns = git_timeout_ns,
   })
   if result == nil or not result.ok or result.stdout == nil then
     return nil
@@ -215,7 +215,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
       if handle ~= nil then
         running[#running + 1] = handle
         file_of[handle] = file
-        deadline_of[handle] = Time.monotonic_ns() + git_timeout_ms * 1000000
+        deadline_of[handle] = Time.monotonic_ns() + git_timeout_ns
       end
     end
     if #running == 0 then
@@ -224,7 +224,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
     if guard ~= nil and guard:cancelled() ~= 0 then
       break
     end
-    local done, trouble = Child.wait_any(running, 100)
+    local done, trouble = Child.wait_any(running, Time.ms(100))
     local now = Time.monotonic_ns()
     local still: {Child.Handle} = {}
     for _, handle in ipairs(running) do
@@ -459,10 +459,10 @@ end
 --- `??????????` for one outside what Time's nanoseconds hold (a forged
 --- commit date), rather than a date the product wrapped to.
 function todos.date(seconds: integer): string
-  if seconds < math.mininteger // 1000000000 + 1 or seconds > math.maxinteger // 1000000000 then
+  if seconds < math.mininteger // Time.seconds(1) + 1 or seconds > math.maxinteger // Time.seconds(1) then
     return "??????????"
   end
-  return Time.format_date(seconds * 1000000000)
+  return Time.format_date(Time.seconds(seconds))
 end
 
 --- One TODO as `todos` lists it: where, when, which commit, and what,

@@ -36,7 +36,7 @@ local function launch(program: string, cache: string, dir: string)
   local env = environment()
   env.COSMIC_PORTABLE_CACHE = cache
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = dir,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok and r.stdout == "ok\n", tostring(r.stderr))
 end
 

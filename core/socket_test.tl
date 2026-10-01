@@ -4,6 +4,7 @@
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local type _net = require("cosmic.net")
 local type raw_socket = require("cosmic.internal.socket")
@@ -267,11 +268,6 @@ local function test_adopt_refuses_a_socket_not_listening()
   assert(adopted == nil and errno == raw.EINVAL, why)
 end
 
---- The monotonic clock, in milliseconds.
-local function now_ms(): integer
-  return assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) // 1000000
-end
-
 --- A unix listener whose backlog is full refuses a further connection
 --- at once, however long it may wait, whether started or connected:
 --- EAGAIN on Linux, kept apart from ECONNREFUSED, which [`cosmic.net`]'s
@@ -287,9 +283,9 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
     held[#held + 1] = client
   end
   local want = assert(sys.uname()).sysname == "Darwin" and raw.ECONNREFUSED or raw.EAGAIN
-  local began = now_ms()
+  local began = Time.monotonic_ns()
   local client, why, errno = raw.connect(unix(path), 20000)
-  assert(now_ms() - began < 10000, "the connection waited for room")
+  assert(Time.monotonic_ns() - began < Time.seconds(10), "the connection waited for room")
   assert(client == nil and errno == want, why)
   local started, start_why, start_errno = raw.start(unix(path))
   assert(started == nil and start_errno == want, start_why)
