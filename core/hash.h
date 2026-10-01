@@ -1,6 +1,6 @@
-/* Digests and HMACs of whole strings, and streaming digests: a userdata
- * object wrapping a PSA multipart hash operation, for data that arrives
- * in chunks rather than all at once. */
+/* Digests and HMACs of whole strings, and streaming ones: a userdata
+ * object wrapping a PSA multipart hash or MAC operation, for data that
+ * arrives in chunks rather than all at once. */
 
 #ifndef COSMIC_HASH_H
 #define COSMIC_HASH_H

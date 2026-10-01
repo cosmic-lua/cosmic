@@ -152,6 +152,8 @@ local module: Module = {
   },
   members = {
     ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
+    ["cosmic.hash.Mac"] = "use Hash.Hasher, which Hash.hmac_hasher answers as " ..
+      "Hash.hasher does (" .. hash .. ")",
     ["cosmic.codec.encoder"] = streamed,
     ["cosmic.codec.decoder"] = streamed,
     ["cosmic.codec.Coder"] = streamed,

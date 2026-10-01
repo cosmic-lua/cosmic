@@ -119,18 +119,14 @@ static int digest_fd (const char *name, int fd, uint64_t offset,
   return (int)status;
 }
 
-int cosmic_hmac (const char *name, const void *key, size_t key_len,
-                 const void *data, size_t len,
-                 unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
-  psa_algorithm_t alg = cosmic_hash_algorithm(name);
-  if (alg == PSA_ALG_NONE) {
-    return -1;
-  }
-  /* HMAC takes a key of any length (RFC 2104), and the library's import
-   * takes neither an empty key nor one of 8 KiB or more. The two are the
-   * same MAC as keys it does take: a key is zero-padded to the block, so
-   * an empty one is a single zero byte; and a key longer than the block
-   * is its own digest. */
+/* Imports `key` as an HMAC key for `alg` into `*id`. HMAC takes a key of
+ * any length (RFC 2104), and the library's import takes neither an empty
+ * key nor one of 8 KiB or more. The two are the same MAC as keys it does
+ * take: a key is zero-padded to the block, so an empty one is a single
+ * zero byte; and a key longer than the block is its own digest. The
+ * caller destroys the key once its operation is set up or computed. */
+static psa_status_t import_hmac_key (psa_algorithm_t alg, const void *key,
+                                     size_t key_len, psa_key_id_t *id) {
   static const unsigned char zero = 0;
   unsigned char digested[COSMIC_DIGEST_MAX];
   if (key_len == 0) {
@@ -140,18 +136,28 @@ int cosmic_hmac (const char *name, const void *key, size_t key_len,
     psa_status_t hashed = psa_hash_compute(alg, key, key_len, digested,
                                            sizeof digested, &key_len);
     if (hashed != PSA_SUCCESS) {
-      return (int)hashed;
+      return hashed;
     }
     key = digested;
   }
-  /* A key lives in the library's own slot for exactly one computation:
-   * imported, used, destroyed. */
   psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
   psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
   psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
   psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(alg));
+  return psa_import_key(&attributes, key, key_len, id);
+}
+
+int cosmic_hmac (const char *name, const void *key, size_t key_len,
+                 const void *data, size_t len,
+                 unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
+  psa_algorithm_t alg = cosmic_hash_algorithm(name);
+  if (alg == PSA_ALG_NONE) {
+    return -1;
+  }
+  /* A key lives in the library's own slot for exactly one computation:
+   * imported, used, destroyed. */
   psa_key_id_t id = 0;
-  psa_status_t status = psa_import_key(&attributes, key, key_len, &id);
+  psa_status_t status = import_hmac_key(alg, key, key_len, &id);
   if (status != PSA_SUCCESS) {
     return (int)status;
   }
@@ -159,6 +165,21 @@ int cosmic_hmac (const char *name, const void *key, size_t key_len,
                            COSMIC_DIGEST_MAX, out_len);
   psa_destroy_key(id);
   return (int)status;
+}
+
+psa_status_t cosmic_hmac_setup (psa_mac_operation_t *operation,
+                                psa_algorithm_t alg, const void *key,
+                                size_t key_len) {
+  psa_key_id_t id = 0;
+  psa_status_t status = import_hmac_key(alg, key, key_len, &id);
+  if (status != PSA_SUCCESS) {
+    return status;
+  }
+  /* The operation takes its own copy of the key, so the slot goes now
+   * rather than living as long as the operation. */
+  status = psa_mac_sign_setup(operation, id, PSA_ALG_HMAC(alg));
+  psa_destroy_key(id);
+  return status;
 }
 
 bool cosmic_sha256_range_matches (int fd, uint64_t offset, uint64_t length,
