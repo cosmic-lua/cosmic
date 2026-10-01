@@ -62,6 +62,7 @@
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local identity = require("build.identity")
 local c_check = require("build.c")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
@@ -92,7 +93,6 @@ local Sqlite = require("cosmic.sqlite")
 
 local log = require("build.verdict").log
 local verb_spec = require("build.verb_spec")
-local work = require("build.work")
 local plural = require("build.plural")
 
 local record fix
@@ -498,7 +498,7 @@ local file_check_dirs: {string: string} = {
 }
 
 --- As `file_check_dirs`, by a file's whole path: this verb, what
---- builds and writes the program (the image [`work.record_fingerprint`]
+--- builds and writes the program (the image [`identity.record_fingerprint`]
 --- names, less the directories above), and the pin of the cosmic the C
 --- rules run clang through ([`build.c`] gives the compiler it to read).
 local file_check_files: {string: string} = {
@@ -860,13 +860,13 @@ function fix.notes(built: compiler, root: string, files: {string},
 end
 
 --- Whether `file` is in a tree of its own inside cosmic's own tree at
---- `root` ([`work.is_foreign_tree`]).
+--- `root` ([`identity.is_foreign_tree`]).
 local function in_foreign_tree(root: string, file: string): boolean
   local absolute, _ = Fs.absolute(file)
   if absolute == nil then return false end
   local relative, _ = Fs.relative(absolute, root)
   local first = relative ~= nil and relative:match("^([^/]+)/") or nil
-  return first ~= nil and work.is_foreign_tree(first)
+  return first ~= nil and identity.is_foreign_tree(first)
 end
 
 --- `cosmic fix [--check] [path...]`.

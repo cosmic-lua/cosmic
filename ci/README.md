@@ -504,7 +504,7 @@ prefix.
 
 That one thing is a branch's compiles. A change to the compiler (the
 Teal compiler's patches, the build's modules a compile
-runs: build.work's `compiler_identity`) moves every compile's key, so
+runs: build.identity's `compiler_identity`) moves every compile's key, so
 main's entry answers none of a branch that makes one, and each of its
 pushes compiled the whole tree again (some 40 s a boot, on each leg and
 the checked job). So a branch's push (`light`) whose builds compiled

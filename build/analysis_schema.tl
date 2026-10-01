@@ -10,9 +10,9 @@
 --- from, and whether it was generated.
 ---
 --- So this module is one of the roots of the compiler's identity
---- ([`build.work`]'s `compiler_roots`) and of the analyzer's
+--- ([`build.identity`]'s `compiler_roots`) and of the analyzer's
 --- ([`build.importer`]'s `analyzer_modules`). The rest of [`build.work`],
---- which only stages, fingerprints and keeps records, is in neither.
+--- which only stages and keeps records, is in neither.
 --- This module requires nothing, since an edit to what it required
 --- would move both identities.
 ---

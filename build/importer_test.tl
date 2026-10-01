@@ -7,7 +7,9 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
+local identity = require("build.identity")
 local docs = require("build.docs")
+local derivation = require("build.derivation")
 local importer = require("build.importer")
 local compilation = require("build.compilation")
 local receivers = require("build.receivers")
@@ -302,7 +304,7 @@ end
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(work.record_fingerprint(handle))
+  local fingerprint = assert(identity.record_fingerprint(handle.db))
   work.close(handle)
   return fingerprint.boot
 end
@@ -311,7 +313,7 @@ end
 local function image_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(work.record_fingerprint(handle))
+  local fingerprint = assert(identity.record_fingerprint(handle.db))
   work.close(handle)
   return fingerprint.image
 end
@@ -353,7 +355,7 @@ end
 
 --- The compiler identity is what turns source into bytecode: the Teal
 --- compiler's and Lua's pins and patches, and the build's own modules a
---- compile or a parse runs ([`work.compiler_modules`]). The standard
+--- compile or a parse runs ([`identity.compiler_modules`]). The standard
 --- library the importer runs on is not in it, so an edit there does not
 --- recompile the world. Nor is [`cosmic.removed`], though [`build.teal`]
 --- quotes it in a refusal: the names it strips from the checker, which
@@ -382,7 +384,7 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
     assert(importer.derive(handle, true, built))
-    local found = assert(work.record_identities(handle))
+    local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return { found.compiler, found.runtime_basis }
   end
@@ -642,7 +644,7 @@ local function test_uses_of_an_inherited_field_name_its_interface()
 end
 
 --- The compiler identity closes over what its roots require
---- ([`work.compiler_modules`]), so it is the same whether the working
+--- ([`identity.compiler_modules`]), so it is the same whether the working
 --- database is fresh or has parsed the tree before -- a boot on an empty
 --- `o/` must key its modules exactly as a warm one does, or the two
 --- ship different databases. A helper only build.importer requires is
@@ -666,30 +668,30 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "local teal = require(\"build.teal\")\nlocal other = require(\"build.other\")\n" ..
     "local record importer\nend\nimporter.teal = teal\nimporter.other = other\n" ..
     "return importer\n"))
-  local function identity(): string
+  local function compiler_identity(): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
     assert(importer.derive(handle, true, built))
-    local found = assert(work.record_identities(handle))
+    local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return found.compiler
   end
-  local fresh = identity()
-  local warm = identity()
+  local fresh = compiler_identity()
+  local warm = compiler_identity()
   assert(warm == fresh, "a second open of the same tree moved the compiler identity")
   assert(Fs.write(root .. "/build/other.tl",
     "local record other\nend\nreturn other\n-- edited\n"))
-  assert(identity() == fresh,
+  assert(compiler_identity() == fresh,
     "an edit to a module only build.importer requires moved the compiler identity")
   assert(Fs.write(root .. "/build/helper.tl",
     "local record helper\nend\nreturn helper\n-- edited\n"))
-  assert(identity() ~= fresh,
+  assert(compiler_identity() ~= fresh,
     "an edit to a module the compiler requires did not move its identity")
 end
 
 --- The writer identity is every module [`build.writer`] reaches, the
 --- standard library's included, but what a root requires that
---- [`work.writer_modules`] leaves out: an edit to a module it requires
+--- [`identity.writer_modules`] leaves out: an edit to a module it requires
 --- moves it, and an edit to build.importer, which build.writer requires
 --- for a type alone, or to a module only the importer requires, does
 --- not. It is what a projection is signed with ([`build.writer`]), so a
@@ -708,42 +710,65 @@ local function test_writer_identity_follows_the_writer_closure()
     "local record helper\nend\nreturn helper\n"))
   assert(Fs.write(root .. "/cosmic/codec.tl",
     "local record codec\nend\nreturn codec\n"))
+  assert(Fs.write(root .. "/build/work.tl",
+    "local record work\nend\nreturn work\n"))
+  assert(Fs.write(root .. "/build/identity.tl",
+    "local record identity\nend\nreturn identity\n"))
   assert(Fs.write(root .. "/build/writer.tl",
+    "local work = require(\"build.work\")\n" ..
     "local schema = require(\"build.schema\")\n" ..
     "local importer = require(\"build.importer\")\n" ..
     "local codec = require(\"cosmic.codec\")\nlocal record writer\nend\n" ..
-    "writer.schema = schema\nwriter.importer = importer\nwriter.codec = codec\n" ..
+    "writer.work = work\nwriter.schema = schema\nwriter.importer = importer\nwriter.codec = codec\n" ..
     "return writer\n"))
   assert(Fs.write(root .. "/build/importer.tl",
     "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
     "importer.helper = helper\nreturn importer\n"))
-  local function identity(): string
+  local function writer_identity(): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
     assert(importer.derive(handle, true, built))
-    local found = assert(work.record_identities(handle))
+    local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return found.writer
   end
-  local fresh = identity()
-  assert(identity() == fresh, "a second open of the same tree moved the writer identity")
+  local fresh = writer_identity()
+  assert(writer_identity() == fresh, "a second open of the same tree moved the writer identity")
+  assert(Fs.write(root .. "/build/work.tl",
+    "local record work\nend\nreturn work\n-- edited\n"))
+  assert(writer_identity() == fresh, "an edit to staging moved the writer identity")
   assert(Fs.write(root .. "/build/importer.tl",
     "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
     "importer.helper = helper\nreturn importer\n-- edited\n"))
-  assert(identity() == fresh, "an edit to build.importer moved the writer identity")
+  assert(writer_identity() == fresh, "an edit to build.importer moved the writer identity")
   assert(Fs.write(root .. "/build/helper.tl",
     "local record helper\nend\nreturn helper\n-- edited\n"))
-  assert(identity() == fresh,
+  assert(writer_identity() == fresh,
     "an edit to a module only build.importer requires moved the writer identity")
   assert(Fs.write(root .. "/build/schema.tl",
     "local record schema\nend\nreturn schema\n-- edited\n"))
-  local after_build = identity()
+  local after_build = writer_identity()
   assert(after_build ~= fresh,
     "an edit to a module the writer requires did not move its identity")
   assert(Fs.write(root .. "/cosmic/codec.tl",
     "local record codec\nend\nreturn codec\n-- edited\n"))
-  assert(identity() ~= after_build,
+  assert(writer_identity() ~= after_build,
     "an edit to a standard library module the writer requires did not move its identity")
+  local before_definition = writer_identity()
+  assert(Fs.write(root .. "/build/identity.tl",
+    "local record identity\nend\nreturn identity\n-- edited\n"))
+  assert(writer_identity() ~= before_definition,
+    "an edit to the fingerprint and identity definitions did not move the writer identity")
+
+  assert(Fs.write(root .. "/build/schema.tl",
+    "local work = require(\"build.work\")\nlocal record schema\nend\n" ..
+    "schema.work = work\nreturn schema\n"))
+  local through_schema = writer_identity()
+  assert(Fs.write(root .. "/build/work.tl",
+    "local record work\nend\nreturn work\n-- edited again\n"))
+  assert(writer_identity() ~= through_schema,
+    "the writer's root exclusion also excluded a dependency reached through its schema")
+
 end
 
 --- The Lua a module compiles to keeps the line numbers of the Teal it
@@ -899,7 +924,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   assert(importer.derive(handle, true, built))
-  local identities = assert(work.record_identities(handle))
+  local identities = assert(identity.record_identities(handle.db))
   local result = assert(importer.compile(handle, built, identities.compiler))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
   work.close(handle)
@@ -1256,7 +1281,7 @@ local function identities_of(root: string): {string}
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   assert(importer.derive(handle, true, built))
-  local found = assert(work.record_identities(handle))
+  local found = assert(identity.record_identities(handle.db))
   local analyzer = importer.analyzer_identity((assert(importer.tree_code(handle))))
   work.close(handle)
   return { found.compiler, analyzer }
@@ -1315,7 +1340,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
 end
 
 --- The compiler's identity holds what a compile or a parse runs to
---- decide what it stores ([`build.work`]'s `compiler_identity`). That
+--- decide what it stores ([`build.identity`]'s `compiler_identity`). That
 --- holds only while the set is closed: every module of the tree's that
 --- one of them requires is in it too, or is the standard library the
 --- compile runs on.
@@ -1334,14 +1359,14 @@ end
 --- parse records, for a refusal's words alone.
 ---
 --- The walk here reads the running binary's `imports`
---- ([`Store.requires`]), where [`work.compiler_identity`] reads the working
+--- ([`Store.requires`]), where [`identity.compiler_identity`] reads the working
 --- database's `requires`, which has rows for a declaration's source
 --- (`.d.tl`) too. The two reach the same modules while no module of the
 --- identity has a declaration of its own but build.compiler, which
 --- requires nothing.
 local function test_the_compiler_modules_are_closed_under_require()
   local ast = require("build.ast")
-  local modules = assert(work.compiler_modules(Store.requires))
+  local modules = assert(identity.compiler_modules(Store.requires))
   local covered: {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs((assert(importer.analyzer_modules()))) do
@@ -1359,7 +1384,8 @@ local function test_the_compiler_modules_are_closed_under_require()
   --- What build.importer requires that the compiler's identity leaves
   --- out, and why no compile or parse stores anything it decides.
   local left_out: {string:string} = {
-    ["build.work"] = "stages the tree, fingerprints the tool and keeps the records; " ..
+    ["build.identity"] = "fingerprints the tool and defines its identities",
+    ["build.work"] = "stages the tree and keeps the records; " ..
       "the schema a parse's rows are shaped by is build.analysis_schema's",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.symbols"] = "names what the projection documents in a refusal's hint, " ..
@@ -1387,7 +1413,7 @@ local function test_the_compiler_modules_are_closed_under_require()
       end
     end
   end
-  assert(#missing == 0, "neither in the compiler's identity (build.work's " ..
+  assert(#missing == 0, "neither in the compiler's identity (build.identity's " ..
     "compiler_roots) nor left out of it with a reason: " .. table.concat(missing, ", "))
   for name in pairs(left_out) do
     assert(not covered[name], name .. " is named as left out of the compiler's identity, " ..
@@ -1398,9 +1424,9 @@ local function test_the_compiler_modules_are_closed_under_require()
 end
 
 --- The writer's identity holds what decides a projection's bytes beside
---- the rows it is filled from ([`build.work`]'s `writer_identity`): all
---- that build.writer and build.work reach, but the few requires of
---- theirs that [`work.writer_left_out`] names with a reason. Each one
+--- the rows it is filled from ([`build.identity`]'s `writer_identity`): all
+--- that build.writer and build.identity reach, but the few requires of
+--- theirs that [`identity.writer_left_out`] names with a reason. Each one
 --- named is still a require of theirs, and reaches the identity no
 --- other way.
 ---
@@ -1412,30 +1438,33 @@ end
 --- that runs on a standard-library module the writer does not, fails
 --- here until it is one or the other.
 local function test_the_writer_modules_are_closed_under_require()
-  local modules = assert(work.writer_modules(Store.requires))
+  local modules = assert(identity.writer_modules(Store.requires))
   local covered: {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
-  for _, name in ipairs({ "build.writer", "build.work", "build.schema", "build.bom",
+  for _, name in ipairs({ "build.writer", "build.identity", "build.schema", "build.bom",
                           "build.roots", "build.tree", "build.bind", "build.symbols",
                           "cosmic.sqlite", "cosmic.codec", "cosmic.store" }) do
     assert(covered[name], name .. " is not in the writer's identity: " ..
       table.concat(modules, ", "))
   end
   local roots_require: {string:boolean} = {}
-  for _, root in ipairs({ "build.writer", "build.work" }) do
+  for _, root in ipairs({ "build.writer", "build.identity" }) do
     for _, name in ipairs((assert(Store.requires(root)))) do roots_require[name] = true end
   end
-  for name, why in pairs(work.writer_left_out()) do
+  for name, why in pairs(identity.writer_left_out()) do
     assert(why ~= "", name .. " is left out of the writer's identity with no reason")
     assert(roots_require[name], name .. " is left out of the writer's identity, " ..
-      "but neither build.writer nor build.work requires it")
+      "but neither build.writer nor build.identity requires it")
     assert(not covered[name], name .. " is left out of the writer's identity, but is in it")
   end
   local compiler: {string:boolean} = {}
-  for _, name in ipairs((assert(work.compiler_modules(Store.requires)))) do compiler[name] = true end
+  for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do compiler[name] = true end
   --- What build.writer's closure reaches that neither identity holds,
   --- and why no projection's bytes turn on it.
   local neither: {string:string} = {
+    ["build.work"] = "stages rows and owns transactions and history",
+    ["build.link_files"] = "stages prose links, whose rows the projection holds",
+    ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
@@ -1464,7 +1493,7 @@ local function test_the_writer_modules_are_closed_under_require()
   end
   table.sort(unclassified)
   assert(#unclassified == 0, "build.writer reaches, in neither the writer's identity " ..
-    "(build.work's writer_roots) nor the compiler's, with no reason: " ..
+    "(build.identity's writer_roots) nor the compiler's, with no reason: " ..
     table.concat(unclassified, ", "))
   for name in pairs(neither) do
     assert(used[name], name .. " is named as in neither identity, " ..
@@ -1781,4 +1810,22 @@ local function test_the_module_shape_does_not_reach_compilation()
   for _, name in ipairs({ "build.compilation", "build.contracts", "build.receivers" }) do
     assert(not seen[name], "the shared module shape pulled in " .. name)
   end
+end
+
+--- The compiler is one row, whatever file an older build named it by:
+--- putting one replaces a row left under `o/vendor/tl/tl.lua`, so no
+--- working database holds two.
+local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/root"))
+  local handle = assert(work.open(tmp .. "/root"))
+  assert(Sqlite.run(handle.db,
+    "INSERT INTO derived (file, path, kind, origin, from_hash, source, " ..
+    "source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', 'vendor', " ..
+    "'vendor', 'old', 'return {}', 'old')", {}))
+  assert(derivation.put_compiler(handle.db, "return { new = true }"))
+  local rows = assert(Sqlite.text_rows(handle.db,
+    "SELECT file, source FROM derived WHERE origin = 'vendor'"))
+  assert(#rows == 1 and rows[1][2] == "return { new = true }",
+    "the compiler is one row: " .. tostring(#rows))
+  assert(work.close(handle))
 end

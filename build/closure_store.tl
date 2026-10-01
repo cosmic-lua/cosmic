@@ -43,7 +43,7 @@ local record closure_store
   --- every store holds alike: the `meta` rows it keeps (`closure_meta`).
   ---
   --- What the compiler made of a module is held by what it made, not by
-  --- the compiler's identity ([`build.work`]'s `Identities`). That moves
+  --- the compiler's identity ([`build.identity`]'s `Identities`). That moves
   --- with every edit to any module a compile or a parse runs, most of
   --- which change nothing it makes. An edit to the compiler that leaves
   --- every row of a closure as it was leaves its store and its address

@@ -5,7 +5,7 @@
 --- The two are apart, and this module requires nothing, because the
 --- analyzer checks a declaration's names against these as it parses
 --- ([`build.analyzer`]). That puts this module in the analyzer's identity
---- and the compiler's ([`build.work`]'s `compiler_identity`). [`build.caches`]
+--- and the compiler's ([`build.identity`]'s `compiler_identity`). [`build.caches`]
 --- reaches build/zig.tl to find the zig cache, so it is in neither.
 
 local record cache_names

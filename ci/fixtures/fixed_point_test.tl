@@ -32,7 +32,7 @@ end
 -- product again, byte for byte (prefix, database and all). The second
 -- rebuild is done by a tool the first built, so this holds only when a
 -- tool built by a rebuild compiles and writes what a boot does.
--- `settles` is whether `file` is in the writer's identity (`build.work`'s
+-- `settles` is whether `file` is in the writer's identity (`build.identity`'s
 -- `writer_modules`) or the compiler's (`compiler_modules`): then each
 -- rebuilt tool finds its database built by other code than its own and
 -- builds it again once (`build.reboot`). Outside both, neither does.
@@ -96,19 +96,24 @@ local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "outside", "build/positions.tl", commented, false)
 end
 
+-- Staging, scans and transaction history do not define projection bytes.
+local function test_a_staging_edit_needs_no_settling(tmp: string)
+  run_fixed_point_case(tmp, "staging", "build/work.tl", commented, false)
+end
+
 -- `build.clock` is in the writer's identity and not the compiler's.
 local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true)
 end
 
--- `build.contracts` is in the compiler's identity (`build.work`'s
+-- `build.contracts` is in the compiler's identity (`build.identity`'s
 -- `compiler_roots`) and not the writer's: each rebuilt tool compiles
 -- the whole tree again with its own compiler.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "compiler", "build/contracts.tl", commented, true)
 end
 
--- An edit to how the compiler's identity is defined (`build.work`'s
+-- An edit to how the compiler's identity is defined (`build.identity`'s
 -- `compiler_identity`): the stale tool records the tree's identity by
 -- its own, older definition, so the tool it writes carries a name its
 -- own code does not give the tree. Settling, that tool keys its compiles
@@ -117,19 +122,19 @@ end
 -- the carried name instead, the settled tool would be unsettled still,
 -- and refuse (exit 3).
 local function test_a_redefined_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "identity", "build/work.tl", function(source: string): string
+  run_fixed_point_case(tmp, "identity", "build/identity.tl", function(source: string): string
     return (source:gsub('"build%.teal", "build%.tree",\n',
       '"build.teal", "build.tree", "build.clock",\n', 1))
   end, true)
 end
 
--- An edit to what the tool's fingerprint covers (`build.work`'s
+-- An edit to what the tool's fingerprint covers (`build.identity`'s
 -- `tool_files`): the stale tool records the tree's fingerprint by its
 -- own, older definition, so the tool it writes is stale by its own
 -- code, and builds itself again once (`build.reboot`) rather than
 -- refusing as still stale after a reboot.
 local function test_a_rebuilt_fingerprint_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "fingerprint", "build/work.tl", function(source: string): string
+  run_fixed_point_case(tmp, "fingerprint", "build/identity.tl", function(source: string): string
     return (source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1))
   end, true)
 end
@@ -144,7 +149,7 @@ end
 -- Keyed by the carried names, it would be unsettled still, and refuse
 -- (exit 3).
 local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "fingerprint-identity", "build/work.tl", function(source: string): string
+  run_fixed_point_case(tmp, "fingerprint-identity", "build/identity.tl", function(source: string): string
     local covered, files = source:gsub('(%["build%.zig%.zon"%] = true,\n)',
       '%1  ["README.md"] = true,\n', 1)
     assert(files == 1, "fingerprint-identity: tool_files' build.zig.zon line was not found")

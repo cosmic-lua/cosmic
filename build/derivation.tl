@@ -35,6 +35,23 @@ local type Source = derivation.Source
 local text = bind.text
 local analysis_tables = analysis_schema.tables
 
+--- Puts the compiler in (the Lua that the vendored `tl.tl`, patched, was
+--- compiled to: core/bridge.lua's `bootstrap`) as the one input with no
+--- file behind it, for every later build to carry. It replaces any
+--- compiler row already there, under whatever file it named: there is
+--- only ever one.
+function derivation.put_compiler(db: Sqlite.Handle, source: string): boolean, string
+  local cleared, trouble = db:exec("DELETE FROM derived WHERE origin = 'vendor'")
+  if not cleared then
+    return false, trouble
+  end
+  return Sqlite.run(db,
+    "INSERT OR REPLACE INTO derived (file, path, kind, origin, from_hash, " ..
+    "source, source_hash) VALUES ('o/vendor/tl/tl.tl', 'vendor.tl', " ..
+    "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
+    { text(source) })
+end
+
 --- A doc guide's import path, the same dotted-name convention every
 --- `.tl` file gets: [`doc/guides/quickstart.md`] compiles as
 --- [`doc.guides.quickstart`].

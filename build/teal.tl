@@ -21,7 +21,7 @@ local record teal
   --- build/teal_catalog_test.tl holds this to. They are spelled here, not read
   --- from that module, so that what a compile accepts is decided by this
   --- module alone, which the compiler's identity holds
-  --- ([`build.work`]'s `compiler_identity`), and an edit to the rest of
+  --- ([`build.identity`]'s `compiler_identity`), and an edit to the rest of
   --- the catalog -- the replacements a refusal quotes -- compiles
   --- nothing again.
   withheld: {string}
@@ -299,7 +299,7 @@ teal.withheld = { "io", "os", "debug", "dofile", "loadfile" }
 ---
 --- Takes the working database and the tree's root, not [`build.work`]'s
 --- handle: a require of build.work would carry the rest of it into the
---- compiler's identity (`compiler_identity` in build.work), of which
+--- compiler's identity (`compiler_identity` in build.identity), of which
 --- this module is a root.
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
                               root: string): compiler.Env | nil, string

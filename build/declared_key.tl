@@ -46,7 +46,7 @@
 ---   ([`system_identity`]): its packages and the system it says it is;
 --- - the module's graph key ([`build.positions`]' `graph_key`), over its
 ---   import graph's kinds and sources, the standard library's included;
---- - the compiler's identity ([`build.work`]'s `Identities`), as the
+--- - the compiler's identity ([`build.identity`]'s `Identities`), as the
 ---   running tool names it, only where the module's import closure holds
 ---   a module that reads it (`compiler_readers`), which a worker's
 ---   [`Store.meta`] answers from the tool's own database --
@@ -74,7 +74,7 @@
 ---
 --- The compiler is held by what it made, not by its identity. Its
 --- identity digests every module a compile or a parse runs to decide
---- what it stores ([`build.work`]'s `compiler_identity`), most of whose
+--- what it stores ([`build.identity`]'s `compiler_identity`), most of whose
 --- edits change nothing it makes (a refactor, a comment, a faster
 --- path): holding it would run every test again for an edit to any of
 --- them. What a worker runs of the
@@ -524,10 +524,11 @@ end
 ---   fixture's tree is a test's own, whose fingerprint matches only a
 ---   tree holding every file of the tool's trees, each of which that
 ---   test would declare, and each keyed by it. build.writer's `running`
----   and build.importer's `receivers_identity` and `running_analyzer`
----   ask the same question of the tree, or only whether there is one;
----   `analyzer_identity` and `receivers_identity` name the binary by it
----   only where it carries no source for its analyzer, which a built
+---   and build.importer's `running_analyzer` and build.compilation's
+---   `receivers_identity` ask the same question of the tree, or only
+---   whether there is one; `analyzer_identity` and `receivers_identity`
+---   name the binary by it only where it carries no source for the code
+---   they name, which a built
 ---   binary does; the value names a cache entry (build.standalone's
 ---   `cached_path`), and the bill of materials' version (build.bom),
 ---   which only moves a name; and an unsandboxed verdict's identity
