@@ -2595,7 +2595,13 @@ COSMIC_SYSCALL(exit_watch, 1) {
    * exec: it is closed there. One thread and no fork before the flag is
    * set, so no child can take it meanwhile. The exit, once it comes,
    * stays queued, as nothing reads the queue, and so the queue stays
-   * readable. */
+   * readable.
+   * TODO: confirm on a Darwin host whether XNU's proc_exit posts
+   * NOTE_EXIT before it marks the process a zombie, as its source reads;
+   * if so, the queue is readable a moment before waitpid can reap the
+   * child, and a wait in cosmic.child that finds no status looks again
+   * at once, spinning through its run until it can. The fix would be a
+   * blocking waitpid there, the exit being underway. */
   struct kevent change;
   EV_SET(&change, (uintptr_t)value, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, NULL);
   if (fcntl(watch, F_SETFD, FD_CLOEXEC) != 0 || kevent(watch, &change, 1, NULL, 0, NULL) != 0) {
