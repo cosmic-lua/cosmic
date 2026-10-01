@@ -9,12 +9,12 @@ local Test = require("cosmic.test")
 local function test_every_field_of_needs_is_one_fields_names()
   local every: Test.Needs = {
     reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,
-    nests = true, store = true, system = true, caches = {},
+    standalone = true, nests = true, store = true, system = true, caches = {},
   }
   local want: {string:string} = {
     reads = "list", host = "list", env = "list", network = "list",
-    tool = "flag", lua = "flag", nests = "flag", store = "flag", system = "flag",
-    caches = "list",
+    tool = "flag", lua = "flag", standalone = "flag", nests = "flag", store = "flag",
+    system = "flag", caches = "list",
   }
   local count = 0
   for name in pairs(every as {string:any}) do
@@ -61,12 +61,20 @@ end
 --- or `system` or a cache, whose host program or cached cosmic could
 --- start it unheld, it is refused, naming the field it meets.
 local function test_lua_is_refused_beside_what_starts_the_program_unheld()
-  assert(Test.lua_trouble(true, false, false, false, false) == "")
-  assert(Test.lua_trouble(false, true, true, true, true) == "")
+  assert(Test.lua_trouble(true, false, false, false, false, false) == "")
+  assert(Test.lua_trouble(true, true, false, false, false, false) == "")
+  assert(Test.lua_trouble(false, false, true, true, true, true) == "")
   for i, name in ipairs({ "tool", "store", "system", "caches" }) do
     local given = { false, false, false, false }
     given[i] = true
-    local why = Test.lua_trouble(true, given[1], given[2], given[3], given[4])
+    local why = Test.lua_trouble(true, false, given[1], given[2], given[3], given[4])
     assert(why:find("lua is refused beside " .. name, 1, true), why)
   end
+end
+
+--- `standalone` widens what `lua` holds, so alone it is refused, naming
+--- `lua`, as the build refuses it (build/analyzer_test.tl).
+local function test_standalone_is_refused_without_lua()
+  local why = Test.lua_trouble(false, true, false, false, false, false)
+  assert(why:find("standalone is refused without lua", 1, true), why)
 end

@@ -548,6 +548,14 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
       local image = core_image.digest(data)
       return hex_sha256(image ~= nil and ("image\n" .. image) or ("file\n" .. data))
     end
+    -- TODO: remember this beyond one tree's o/build.db, keyed by the
+    -- program's bytes, as shared_verdicts' `stores_v1` remembers a
+    -- store's digest by its address: every fresh tree digests the whole
+    -- carried database again (~0.25 s on a 4-core host, several times
+    -- that on a loaded runner), the largest fixed cost of a `cosmic
+    -- test` a tool test starts in a checkout of its own --
+    -- build/shared_verdicts_tool_test.tl's cases start three or four
+    -- under a 10 s bound.
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.

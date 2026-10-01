@@ -9,8 +9,9 @@ local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
---- The program itself, which its test starts.
-Test.needs{ lua = true }
+--- The program itself, which its test starts to run a file `--standalone`
+--- (`standalone`).
+Test.needs{ lua = true, standalone = true }
 
 --- A process's first window keeps the C that ran before it opened --
 --- startup -- and every later one starts empty. Run in a fresh process,
