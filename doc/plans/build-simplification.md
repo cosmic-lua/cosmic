@@ -68,14 +68,14 @@ clean second worktree instead. Preserve this distinction in later reporting.
 
 | Step | Implementation PR | State | Review and evidence |
 | --- | --- | --- | --- |
-| 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | review and CI | exact tree reviewed; fixed-point fixtures running |
+| 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | final CI | independent approval; 6 fixed points pass; final gates running |
 | 2. Writer identity boundary | pending | planned | depends on 1 |
 | 3. Build phase and cleanup ownership | pending | planned | depends on 1–2 |
 | 4. Reporting outside the acknowledged runner | pending | planned | preserve existing trust model |
 | 5a. Bootstrap lock ownership preparation | pending | planned | old-pin compatible; retain SQL lock |
 | 5b. Zig scratch lifecycle preparation | pending | planned | only if independently useful |
 | 5c. Patch scratch lifecycle preparation | pending | planned | only if independently useful |
-| 5d. Pin, flock activation and obsolete adapters | pending | planned | atomic API transition; 12 unblocked TODOs |
+| 5d. Pin, flock activation and obsolete adapters | pending | planned | atomic API transition; 13 unblocked TODOs |
 | 6. CI policy and recording | pending | planned | depends on 5 |
 | 7. Zig graph construction | pending | planned | preserve exact graph semantics |
 | 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
@@ -132,6 +132,15 @@ fingerprint or output-affecting identity changes do. Fresh and warm identities
 agree. Source additions/removals and test-only edits still have the intended
 effect. Old-tool rebuilds across a fingerprint-definition change still settle. Update
 and execute the fixed-point fixtures when their textual mutation targets move.
+
+Implementation preflight: use one build.identity module taking Sqlite.Handle,
+not work.Handle (even type imports enter identity walks). Move pure file/tool
+classification and hashing/identity definitions together; retain scans, transactions
+and generated-header discovery in work. Redirect writer's identity/hash calls;
+its remaining work.commit edge needs a narrowly justified root-edge exclusion,
+not a global exception. Move both fixed-point mutation targets to the same new
+identity file, preserving the combined case, and add work-only non-settling
+coverage. Avoid widening consumer closures through a heavyweight type alias.
 
 ## PR 3: give phase ordering and cache cleanup one owner
 
@@ -207,7 +216,7 @@ cast/feature-detection bridge just to split the change artificially.
   independently, then merge one coherent change. Skip preparation that adds no
   durable clarity and perform that slice directly in this atomic PR.
 
-Read-only preflight of published next-0471146c identifies twelve unblocked
+Read-only preflight of published next-0471146c identifies thirteen unblocked
 TODOs: bootstrap rebuild locking; Zig and patch scratch ownership; writable
 SQLite adapters in build/zig, ci/cosmic_ci/sqlite_open and eval/check/notes;
 ZIP entries casting in report; Flags.help rendering in vendor and verify_codesign;
@@ -345,7 +354,7 @@ changes the design, update this plan before proceeding and explain the decision.
   GitHub asset digest metadata; recheck the selected release at step 5.
 
 - 2026-10-01: bootstrap preflight expanded step 5 into compatible preparation
-  and one atomic pin/API transition. Twelve TODOs are unblocked by the inspected
+  and one atomic pin/API transition. Thirteen TODOs are unblocked by the inspected
   release; missing APIs remain explicitly deferred. Scratch sweeping requires a
   creation/ownership handshake, not merely a unique name and an internal lock.
 - 2026-10-01: step 1 validation observed another malformed local build database
@@ -365,3 +374,15 @@ changes the design, update this plan before proceeding and explain the decision.
   The required 30-second full-suite run expired during setup before verdicts;
   local full-suite coverage remains incomplete. CI and fixed-point fixtures are
   pending; auto-merge is not yet enabled.
+
+- 2026-10-01: step 1 final tree
+  `53f242e2d61d713281e7a443fb5a2deb717df5ec`, remote head
+  `35b3c6b7c2c301a07aa5a3a106d41441ae2e648e`, has independent approval.
+  Six fixed-point fixtures passed; the final shared-record extraction removes
+  compiler coupling from test closures. Final implementer suite: 80 passed,
+  repeat 0 ran/80 stood in 1.199 s, 0 compiled/477 cached/0 read. All 465
+  unchanged-source modules retain byte-identical bytecode. Baseline cold full
+  setup also exceeds 30 s before verdicts, so that timeout predates this work.
+  Initial CI was green on every platform; final-head CI remains pending.
+- 2026-10-01: corrected bootstrap inventory arithmetic: thirteen literal TODOs
+  unblocked and eleven still blocked, twenty-four pin-related comments total.
