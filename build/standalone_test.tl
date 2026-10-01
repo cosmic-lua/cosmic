@@ -4,10 +4,13 @@
 --- `standalone_tool_test.tl`.
 
 local standalone = require("build.standalone")
--- A fixture below requires [`cosmic.zip`], which a standalone compile
--- types from the store: required here, it is in this test's closure,
--- so the store the worker is held to answers it.
+-- A fixture below requires [`cosmic.zip`], [`cosmic.tar`] or
+-- [`cosmic.archive`], which a standalone compile types from the store:
+-- required here, each is in this test's closure, so the store the
+-- worker is held to answers it.
 local type _ = require("cosmic.zip")
+local type _tar = require("cosmic.tar")
+local type _archive = require("cosmic.archive")
 local type _json = require("cosmic.json")
 -- What a refusal says to write instead is [`cosmic.removed`]'s, which
 -- build.teal loads by no `require` a parse records: required here, it
@@ -154,6 +157,34 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
   assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("unknown type Zip.list", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
+end
+
+--- A type an archive module no longer declares is told where its
+--- replacement is: [`cosmic.stream`] holds the entry kind, the entry
+--- options and the interfaces the three modules share.
+local function test_a_removed_archive_type_names_its_replacement(tmp: string)
+  -- One file, so the archive closure is type-checked once: the checker
+  -- reports every unknown type, not only the first.
+  local cases = {
+    { "Tar", "Kind", "use Stream.EntryKind" },
+    { "Zip", "Kind", "use Stream.EntryKind" },
+    { "Archive", "Kind", "use Stream.EntryKind" },
+    { "Tar", "EntryOptions", "use Stream.EntryOptions" },
+    { "Archive", "Unsupported", "an entry Archive.extract cannot extract" },
+  }
+  local source = 'local Tar = require("cosmic.tar")\n' ..
+    'local Zip = require("cosmic.zip")\n' ..
+    'local Archive = require("cosmic.archive")\n'
+  for index, case in ipairs(cases) do
+    source = source .. 'local function f' .. index .. '(x: ' .. case[1] .. '.' .. case[2] ..
+      '): integer\n  return x and 1 or 0\nend\n'
+  end
+  local chunk, trouble = compile(tmp, "old.tl", source .. "return { f1, f2, f3, f4, f5 }\n")
+  assert(chunk == nil)
+  for _, case in ipairs(cases) do
+    assert(trouble:find(case[1] .. "." .. case[2] .. " was removed: " .. case[3], 1, true) ~= nil,
+      case[1] .. "." .. case[2] .. ": " .. trouble)
+  end
 end
 
 --- A record of the file's own named like a module's alias is not that

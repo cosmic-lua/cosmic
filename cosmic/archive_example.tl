@@ -30,4 +30,19 @@ function Example.open()
   assert(Fs.remove_tree(dir))
 end
 
+--- The entries of an archive a reader walks, listed at once: the reader
+--- is read to its end and closed, so the entries' bodies are not there.
+function Example.list_reader()
+  local out = Stream.collect()
+  local w = Tar.writer(out)
+  assert(w:add_file("README", "read me first"))
+  assert(w:add_dir("docs"))
+  assert(w:close())
+
+  local reader = assert(Archive.open_stream(Stream.from_string(out:result())))
+  local entries = assert(Archive.list_reader(reader))
+  for _, entry in ipairs(entries) do print(entry.path, entry.kind, entry.size) end
+  assert(#entries == 2 and entries[1].path == "README" and entries[2].kind == "dir")
+end
+
 return Example

@@ -1,5 +1,5 @@
 --- One entry point over whatever archive format a file turns out to
---- be: detected from its first bytes, walked through a single Entry
+--- be: detected from its first bytes, walked through a single entry
 --- shape shared by tar (plain or compressed) and zip, and extracted to
 --- a destination directory with the usual path-escape refusals a
 --- caller expects from something unpacking bytes it did not write.
@@ -13,53 +13,23 @@ local Zip = require("cosmic.zip")
 local String = require("cosmic.string")
 
 local record Archive
-  --- Shared with [`cosmic.tar`]'s own Entry.kind; zip only ever produces
-  --- "file", "dir" or "symlink".
-  type Kind = Tar.Kind
+  --- One entry of an archive, whichever format it came from: the
+  --- [`Stream.ArchiveEntry`] that tar's and zip's entries are. Teal's
+  --- interface conformance is nominal, so the interface is declared in
+  --- [`cosmic.stream`], which [`cosmic.tar`] and [`cosmic.zip`] can
+  --- require, and not here, where both are required.
+  type Entry = Stream.ArchiveEntry
 
-  record Entry
-    --- The entry's path as the archive stores it.
-    path: string
-    --- What the entry is; a zip entry is "file", "dir" or "symlink".
-    kind: Kind
-    --- The permission bits (the low 12); 0 for a zip entry whose tool
-    --- recorded none.
-    mode: integer
-    --- The body's size in bytes, uncompressed.
-    size: integer
-    --- The modification time, in Unix epoch seconds.
-    mtime: integer
-    --- A symlink's or hardlink's target; "" otherwise.
-    linkpath: string
-    --- The entry's body. Read it before asking for the next entry: a
-    --- tar body cannot be read after that, and no body can be read once
-    --- the Reader is closed. An entry from [`Archive.list`] cannot be opened
-    --- at all.
-    open: function(Entry): Stream.Reader | nil, string
-  end
-
-  record Reader
-    --- The next entry, nil and "" at the end, or nil and an error. For
-    --- a compressed tar, the end also runs the decompressor to the end
-    --- of its stream, so a truncated or corrupt one fails here rather
-    --- than passing as a complete archive.
-    next: function(Reader): Entry | nil, string
-    --- Closes the file or stream the archive is read from.
-    close: function(Reader): boolean, string
-  end
+  --- What walks an archive's entries: the [`Stream.ArchiveReader`] that
+  --- tar's and zip's readers are, declared in [`cosmic.stream`] for the
+  --- reason [`Entry`] is.
+  type Reader = Stream.ArchiveReader
 
   --- What `extract` does with a symlink entry: "skip" leaves it out,
   --- "create" makes it (see ExtractOptions.links).
   enum Links
     "skip"
     "create"
-  end
-
-  --- What `extract` does with an entry it cannot extract: "error" fails
-  --- naming it, "skip" leaves it out.
-  enum Unsupported
-    "error"
-    "skip"
   end
 
   record ExtractOptions
@@ -81,16 +51,6 @@ local record Archive
     --- may pass only through directories already extracted, never
     --- through another link or a name that does not exist yet.
     links: Links
-    --- What to do with an entry that cannot be extracted: a hard
-    --- link, a device, a FIFO, a sparse file. "error" (the default)
-    --- fails naming it; "skip" leaves it out.
-    unsupported: Unsupported
-    --- Whether to give each file, directory and symlink its archived
-    --- modification time. On by default.
-    mtimes: boolean
-    --- Fails once the files written would total more than this many
-    --- bytes. Unlimited by default; a negative limit raises.
-    max_bytes: integer
     --- Fails once more than this many entries would be written.
     --- Unlimited by default; a negative limit raises.
     max_entries: integer
@@ -122,59 +82,34 @@ local function detect(head: string): string
 end
 
 ------------------------------------------------------------------
--- a uniform Reader over a Tar.Reader or a Zip.Reader
+-- readers
 ------------------------------------------------------------------
 
---- `source`, when given, is the decompressed stream `tr` reads: once
---- the tar end is reached, whatever follows it is read through to the
---- decompressor's own end, so its errors (a truncated stream, a bad
---- checksum) surface instead of vanishing with the unread tail.
--- TODO: declare the entry once, as an interface Tar.Entry and Zip.Entry
--- are (`record Entry is ...`), with one Kind enum, so wrap_tar and
--- wrap_zip hand an entry on uncast; it waits on a module both
--- cosmic.tar and cosmic.zip require that can hold it, since
--- cosmic.archive requires them both.
-local function wrap_tar(tr: Tar.Reader, source: Stream.Reader | nil): Archive.Reader
+--- `tr`, which reads the decompressed stream `source`: once the tar end
+--- is reached, whatever follows it is read through to the decompressor's
+--- own end, so its errors (a truncated stream, a bad checksum) surface
+--- instead of vanishing with the unread tail.
+local function draining(tr: Tar.Reader, source: Stream.Reader): Archive.Reader
   local finished = false
   local ar: Archive.Reader = {}
   ar.next = function(_self: Archive.Reader): Archive.Entry | nil, string
     local e, trouble = tr:next()
-    if e == nil then
-      if trouble == "" and source ~= nil and not finished then
-        finished = true
-        while true do
-          local chunk, dtrouble = source:read()
-          if chunk == nil then
-            if dtrouble ~= "" then return nil, dtrouble end
-            break
-          end
+    if e ~= nil then return e, "" end
+    if trouble ~= "" then return nil, trouble end
+    if not finished then
+      finished = true
+      while true do
+        local chunk, dtrouble = source:read()
+        if chunk == nil then
+          if dtrouble ~= "" then return nil, dtrouble end
+          break
         end
       end
-      return nil, trouble
     end
-    -- A Tar.Entry already has every field an Archive.Entry does, and
-    -- an `open` that reads its own body: it is handed on as it is,
-    -- rather than copied into a new table and closure per entry.
-    return e as Archive.Entry, ""
+    return nil, ""
   end
   ar.close = function(_self: Archive.Reader): boolean, string
     return tr:close()
-  end
-  return ar
-end
-
---- Zip entries are walked straight off the central directory, one at
---- a time, rather than materialized all at once; like a tar entry, a
---- Zip.Entry is handed on as it is (its kinds are a subset of tar's).
-local function wrap_zip(zr: Zip.Reader): Archive.Reader
-  local ar: Archive.Reader = {}
-  ar.next = function(_self: Archive.Reader): Archive.Entry | nil, string
-    local e, trouble = zr:next()
-    if e == nil then return nil, trouble end
-    return e as Archive.Entry, ""
-  end
-  ar.close = function(_self: Archive.Reader): boolean, string
-    return zr:close()
   end
   return ar
 end
@@ -184,7 +119,7 @@ end
 --- `label` names the input in a complaint.
 local function open_tar(kind: string, source: Stream.Reader, label: string):
     Archive.Reader | nil, string
-  if kind == "tar" then return wrap_tar(Tar.reader(source), nil), "" end
+  if kind == "tar" then return Tar.reader(source), "" end
   local codec: Compress.Stream
   local ctrouble: string
   if kind == "gzip" then
@@ -199,7 +134,7 @@ local function open_tar(kind: string, source: Stream.Reader, label: string):
     return nil, "archive: " .. label .. ": " .. ctrouble
   end
   local transformed = Stream.transform(source, codec)
-  return wrap_tar(Tar.reader(transformed), transformed), ""
+  return draining(Tar.reader(transformed), transformed), ""
 end
 
 --- Detects `path`'s format from its first bytes and returns a reader
@@ -212,11 +147,7 @@ function Archive.open(path: string): Archive.Reader | nil, string
   local _, _ = Fs.close(fd)
   if head == nil then return nil, htrouble end
   local kind = detect(head)
-  if kind == "zip" then
-    local zr, ztrouble = Zip.open(path)
-    if zr == nil then return nil, ztrouble end
-    return wrap_zip(zr), ""
-  end
+  if kind == "zip" then return Zip.open(path) end
   if kind == "unknown" then
     return nil, "archive: " .. path .. ": not a recognized archive format"
   end
@@ -233,21 +164,11 @@ end
 --- stream to a file and `open` that. Closing the reader closes `source`,
 --- which is closed here as well when this fails.
 function Archive.open_stream(source: Stream.Reader): Archive.Reader | nil, string
-  local parts: {string} = {}
-  local have = 0
-  while have < 262 do
-    local chunk, trouble = source:read(262 - have)
-    if chunk == nil then
-      if trouble ~= "" then
-        local _, _ = source:close()
-        return nil, "archive: " .. trouble
-      end
-      break
-    end
-    parts[#parts + 1] = chunk
-    have = have + #chunk
+  local head, trouble = Stream.read_up_to(source, 262)
+  if head == nil then
+    local _, _ = source:close()
+    return nil, "archive: " .. trouble
   end
-  local head = table.concat(parts)
   local kind = detect(head)
   if kind == "zip" then
     local _, _ = source:close()
@@ -264,12 +185,11 @@ local function listed_open(_e: Archive.Entry): Stream.Reader | nil, string
   return nil, "archive: an entry from Archive.list cannot be opened; walk Archive.open instead"
 end
 
---- Every entry of the archive at `path`. The reader is closed before
---- this returns, so the entries' `open` fails; walk [`Archive.open`] to
---- read bodies.
-function Archive.list(path: string): {Archive.Entry} | nil, string
-  local reader, trouble = Archive.open(path)
-  if reader == nil then return nil, trouble end
+--- Every entry `reader` yields, read to the end and then closed (on
+--- every path), as [`Archive.extract_reader`] reads a reader. The
+--- entries' `open` fails, since the reader is closed before this
+--- returns; walk the reader to read bodies.
+function Archive.list_reader(reader: Archive.Reader): {Archive.Entry} | nil, string
   local out: {Archive.Entry} = {}
   while true do
     local entry, etrouble = reader:next()
@@ -282,6 +202,14 @@ function Archive.list(path: string): {Archive.Entry} | nil, string
     entry.open = listed_open
     out[#out + 1] = entry
   end
+end
+
+--- Every entry of the archive at `path`, as [`Archive.list_reader`]
+--- lists them. Walk [`Archive.open`] to read bodies.
+function Archive.list(path: string): {Archive.Entry} | nil, string
+  local reader, trouble = Archive.open(path)
+  if reader == nil then return nil, trouble end
+  return Archive.list_reader(reader)
 end
 
 ------------------------------------------------------------------
@@ -387,9 +315,6 @@ end
 local function extract_from(from: string | Archive.Reader, dest: string,
     given: Archive.ExtractOptions | nil): {string} | nil, string
   local opts: Archive.ExtractOptions = given or {}
-  if opts.max_bytes ~= nil and opts.max_bytes < 0 then
-    error("archive: max_bytes is negative", 2)
-  end
   if opts.max_entries ~= nil and opts.max_entries < 0 then
     error("archive: max_entries is negative", 2)
   end
@@ -400,9 +325,6 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     error("archive: strip_components is negative", 2)
   end
   local links_mode = opts.links or "skip"
-  local skip_unsupported = opts.unsupported == "skip"
-  local restore_mtimes = opts.mtimes ~= false
-  local bytes_left = opts.max_bytes
   local entries_left = opts.max_entries
   local reader: Archive.Reader
   if from is string then
@@ -474,25 +396,14 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
     if w == nil then return false, ctrouble end
-    -- One byte past what is left is enough to know the limit is
-    -- crossed, and is all a limited body gives: the count tells, not
-    -- the copy's reason.
-    local limited = bytes_left ~= nil and bytes_left < math.maxinteger
-    local source = limited and Stream.limit(body, bytes_left + 1) or body
-    local copied, rtrouble = Stream.copy(source, w)
+    local copied, rtrouble = Stream.copy(body, w)
     if copied == nil then
       local _, _ = w:abort()
       return false, rtrouble
     end
-    if bytes_left ~= nil and copied > bytes_left then
-      local _, _ = w:abort()
-      return false, "archive: more than " .. String.counted(opts.max_bytes, "byte") ..
-        " to extract, at " .. entry.path
-    end
-    if bytes_left ~= nil then bytes_left = bytes_left - copied end
     local ok, wtrouble = w:close()
     if not ok then return false, wtrouble end
-    if restore_mtimes then local _, _ = Fs.set_mtime(dest_path, entry.mtime) end
+    local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true, ""
   end
 
@@ -548,7 +459,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     end
     ok, why = Fs.symlink(link.target, full)
     if not ok then return false, why end
-    if restore_mtimes then local _, _ = Fs.set_mtime(full, link.mtime) end
+    local _, _ = Fs.set_mtime(full, link.mtime)
     return true, ""
   end
 
@@ -580,7 +491,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       local kind = entry.kind
       local wanted = kind == "dir" or kind == "file" or
         (kind == "symlink" and links_mode == "create")
-      if not wanted and kind ~= "symlink" and not skip_unsupported then
+      if not wanted and kind ~= "symlink" then
         return bail("archive: cannot extract " .. entry.path .. ": unsupported entry kind '" ..
           kind .. "'")
       end
@@ -642,13 +553,11 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       written[#written + 1] = link.rel
     end
   end
-  if restore_mtimes then
-    -- Deepest last-listed first, so setting a directory's time is not
-    -- undone by then touching something inside it.
-    for i = #dir_times, 1, -1 do
-      local d = dir_times[i]
-      local _, _ = Fs.set_mtime(d[1], d[2])
-    end
+  -- Deepest last-listed first, so setting a directory's time is not
+  -- undone by then touching something inside it.
+  for i = #dir_times, 1, -1 do
+    local d = dir_times[i]
+    local _, _ = Fs.set_mtime(d[1], d[2])
   end
   local _, _ = reader:close()
   return written, ""
@@ -656,11 +565,13 @@ end
 
 --- Unpacks `path` into `dest`, as `tar -x` or `unzip` would. Refuses an
 --- absolute entry path, one with a `..` component or a NUL byte, any
---- entry whose path runs through a symlink, and -- when `links` is
---- "create" -- a symlink whose target would land outside `dest`. Returns
---- the destination-relative paths actually written. A failure partway
---- leaves whatever was already written; a file that fails its own checks
---- (a CRC32, a size) is never put in place.
+--- entry whose path runs through a symlink, an entry it cannot extract
+--- (a hard link, a device, a FIFO, a sparse file) and -- when `links` is
+--- "create" -- a symlink whose target would land outside `dest`. Each
+--- file, directory and symlink gets its archived modification time.
+--- Returns the destination-relative paths actually written. A failure
+--- partway leaves whatever was already written; a file that fails its
+--- own checks (a CRC32, a size) is never put in place.
 function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
   -- A tail call: [`extract_from`]'s argument errors, raised at level 2,
