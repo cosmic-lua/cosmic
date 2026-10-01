@@ -157,7 +157,7 @@ local module: Module = {
       "line it reads, skipping a blank one (" .. stream .. "; " .. json .. ")",
     ["cosmic.json.Lines"] = "use Stream.Lines, what Stream.lines(reader) answers, " ..
       "and Json.decode(line) on each line (" .. stream .. "; " .. json .. ")",
-    ["cosmic.json.write_line"] = "use writer:write(Json.encode(value) .. \"\\n\") on a " ..
+    ["cosmic.json.write_line"] = "use writer:write(assert(Json.encode(value)) .. \"\\n\") on a " ..
       "Stream.Writer (" .. json .. ")",
     ["cosmic.json.encode_lines"] = "use Json.encode(value) for each value, joined by " ..
       "\"\\n\" and ended by one (" .. json .. ")",
@@ -177,7 +177,7 @@ local module: Module = {
     ["cosmic.json.describe"] = "moved to build.json_query, which only `cosmic json` calls; " ..
       "`cosmic json --shape file` prints a document's shape",
     ["cosmic.json.child_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "calls; spell a path with `..` and Json.quote(key) for a key that is no word (" ..
+      "calls; spell a path by concatenating its steps, Json.quote(key) for a key that is no word (" ..
       json .. ")",
     ["cosmic.json.Step"] = "moved to build.json_query, with parse_pattern, which only " ..
       "`cosmic json` calls",

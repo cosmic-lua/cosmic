@@ -119,10 +119,18 @@ local record Json
     lone_surrogates: boolean
   end
 
+  --- How a Lua table encodes: see [`Json.layout`].
+  enum Layout
+    "array"
+    "object"
+    "hole"
+    "mixed"
+  end
+
   --- What a walk over a table visits: see [`Json.members`].
   record Members
     --- How the table encodes: see [`Json.layout`].
-    layout: string
+    layout: Json.Layout
     --- The keys to visit, in order: an object's or a hole's, none for an
     --- array.
     keys: {string | integer}
@@ -263,7 +271,7 @@ end
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
 --- lists them as [`Json.members`] says; else the keys are empty and the
 --- extent 0, and a marked array is classified with no scan of it.
-local function classify(t: {any:any}, members: boolean): string, {string | integer}, integer
+local function classify(t: {any:any}, members: boolean): Json.Layout, {string | integer}, integer
   if raw.is_array(t) then
     local extent = 0
     if members then
@@ -305,7 +313,7 @@ end
 ---     assert(Json.layout({ a = 1 }) == "object")
 ---     assert(Json.layout({ [1] = 1, [3] = 3 }) == "hole")
 ---     assert(Json.layout({ 1, a = 2 }) == "mixed")
-function Json.layout(t: {any:any}): string
+function Json.layout(t: {any:any}): Json.Layout
   local layout = classify(t, false)
   return layout
 end
@@ -315,6 +323,7 @@ end
 --- elements around a gap keep their indexes; an array has none. The
 --- extent is an array's highest index, where `rawlen` is only a border
 --- of a decoded array that dropped a `null`; 0 for any other layout.
+--- Unlike [`Json.layout`], it scans a marked array to find that extent.
 function Json.members(t: {any:any}): Json.Members
   local layout, keys, extent = classify(t, true)
   return { layout = layout, keys = keys, extent = extent }

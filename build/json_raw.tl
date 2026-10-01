@@ -32,6 +32,11 @@ local record json_raw
   end
 end
 
+-- TODO: delete this module, the five options in core/json.c and the tests
+-- that exist only for them once it is decided that no caller is coming:
+-- nothing in build/, ci/ or eval/ sets them. That is a core/json.c
+-- change, so a follow-up.
+
 --- The raw table the store's searcher hands [`cosmic.json`]'s loader.
 local function raw_table(): raw_json
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra

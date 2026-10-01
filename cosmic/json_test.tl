@@ -396,6 +396,7 @@ local function test_any_bytes_are_answered()
     local value, err = Json.decode(text)
     assert(err ~= nil, "decode answers every input")
     if err == "" and value ~= nil then
+      -- Re-decoded with Json.null so no hole is left: encode refuses holes, which the fuzz property writes as nulls through the raw table.
       local whole = Json.decode(text, { null_value = Json.null })
       assert(Json.encode(whole) ~= nil, "what decodes encodes: " .. string.format("%q", text))
     else
