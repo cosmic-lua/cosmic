@@ -462,9 +462,10 @@ COSMIC_SYSCALL(getrlimit, 1);
  * --- `soft` on `resource`, with `hard` the most it may be raised to
  * --- again; `math.maxinteger` stands for no limit. The process starts
  * --- with RLIMIT_NOFILE's soft limit raised toward the hard one, as far
- * --- as 10240, and gives a program it starts the limit it started with,
- * --- until this sets RLIMIT_NOFILE. A negative limit
- * --- raises. A soft limit above the hard one is refused with EINVAL,
+ * --- as 10240 (macOS's kern.maxfilesperproc, where that is lower), so
+ * --- `getrlimit` answers the raised limit, not the one it was started
+ * --- with; a program it starts is given that one back, until this sets
+ * --- RLIMIT_NOFILE. A negative limit raises. A soft limit above the hard one is refused with EINVAL,
  * --- and a hard one raised without the privilege to with EPERM. The
  * --- system bounds RLIMIT_NOFILE besides: Linux refuses a limit past
  * --- fs.nr_open with EPERM; macOS bounds a soft limit, or a hard one
@@ -802,6 +803,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
  * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
+ * ---@field EMFILE integer no descriptor is free below RLIMIT_NOFILE's soft limit
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal
@@ -853,6 +855,7 @@ COSMIC_CONSTANT(EOPNOTSUPP)
 COSMIC_CONSTANT(EPERM)
 COSMIC_CONSTANT(ENOSPC)
 COSMIC_CONSTANT(EINVAL)
+COSMIC_CONSTANT(EMFILE)
 COSMIC_CONSTANT(SIGHUP)
 COSMIC_CONSTANT(SIGINT)
 COSMIC_CONSTANT(SIGQUIT)

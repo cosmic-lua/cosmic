@@ -12,9 +12,10 @@ local Test = require("cosmic.test")
 --- What the chunk the program runs requires besides.
 local type _ = require("cosmic.env")
 
---- A shell, whose `ulimit` starts the program at a low limit and says
---- the limit a host program is given; and the program, which the shell
---- starts past what `lua` holds.
+--- `system` for /bin/sh, whose `ulimit` starts the program at a low
+--- limit and says the limit a host program is given. `tool` for the
+--- program, which the shell starts: `lua`, which holds only what the
+--- tests start themselves, is refused beside `system`.
 Test.needs{
   system = true,
   tool = true,
@@ -52,14 +53,14 @@ assert(sys.setrlimit(sys.RLIMIT_NOFILE, 300, limits.hard))
 print(shell_limit())
 ]]
 
---- The lines the program printed, started by the shell at a soft limit
+--- The lines the program printed running `chunk`, started by the shell at a soft limit
 --- of LOW; nil where this host's hard limit leaves no room to raise it,
 --- or where there is no artifact to relaunch.
-local function started_low(tmp: string): {string} | nil
+local function started_low(tmp: string, chunk: string): {string} | nil
   if Proc.relaunch() == nil then return nil end -- a native start has nothing to relaunch
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   if limits.hard < 2 * LOW then return nil end
-  local started = this_program.program({ "-e", CHUNK }, { env = this_program.environment(),
+  local started = this_program.program({ "-e", chunk }, { env = this_program.environment(),
     cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local argv = { "/bin/sh", "-c", 'ulimit -Sn "$0" && exec "$@"', tostring(LOW) }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
@@ -74,7 +75,7 @@ end
 --- the relaunch hands its child descriptor 255, and places its own
 --- above it, which a soft limit of 256 refuses.
 local function test_a_start_at_a_low_limit_raises_it_and_relaunches(tmp: string)
-  local lines = started_low(tmp)
+  local lines = started_low(tmp, CHUNK)
   if lines == nil then return end
   assert(lines[2] == "relaunched", lines[2])
   local raised = assert(math.tointeger(tonumber(lines[1])), lines[1])
@@ -84,8 +85,21 @@ end
 --- A host program gets the limit the program started with, not the one
 --- it raised; once the program sets the limit, it gets that one.
 local function test_a_host_program_gets_the_limit_the_program_started_with(tmp: string)
-  local lines = started_low(tmp)
+  local lines = started_low(tmp, CHUNK)
   if lines == nil then return end
   assert(lines[3] == tostring(LOW), lines[3])
   assert(lines[4] == "300", lines[4])
+end
+
+--- A program the process becomes ([`Proc.exec`], the execve binding) gets
+--- the limit the process started with too.
+local function test_a_program_exec_d_gets_the_limit_the_process_started_with(tmp: string)
+  local lines = started_low(tmp, [[
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+local _, trouble = Proc.exec("/bin/sh", { "/bin/sh", "-c", "ulimit -Sn" }, Env.all())
+error(trouble)
+]])
+  if lines == nil then return end
+  assert(lines[1] == tostring(LOW), tostring(lines[1]))
 end
