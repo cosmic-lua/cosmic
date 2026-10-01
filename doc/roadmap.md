@@ -153,11 +153,11 @@ promises lean on come first:
   datagrams ("udp", "unixgram") as a
   socket of their own with `send_to` and `receive_from` over the same
   `Address`; a [`Net.serve`] listener taking a listen's own options
-  (`reclaim`, for a daemon restarting at its socket file, and
-  `backlog`); a [`Net.serve`] supervisor starting a worker that exits
-  before the stop again, after a pause that grows while workers keep
-  failing, where today it is reported and the server stops once none
-  is left; of a unix socket, its peer's user and process
+  (`backlog`); a listen that takes over a socket file a listener left
+  behind (`reclaim`, for a daemon restarting at its socket file); a
+  [`Net.serve`] in several processes of this program, which take
+  connections from the listeners it hands them; a connection's `peer`
+  address; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode.
 

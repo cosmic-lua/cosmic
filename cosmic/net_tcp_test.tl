@@ -24,10 +24,27 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   assert(assert(Stream.read_all(client)) == "pong")
 end
 
---- `reclaim` raises for a TCP address rather than listen without it.
-local function test_reclaim_of_a_tcp_address_raises()
-  local ok, err = pcall(Net.listen, Net.tcp("127.0.0.1", 0), { reclaim = true })
-  assert(not ok and tostring(err):find("reclaim takes a unix address", 1, true) ~= nil, tostring(err))
+--- `reclaim` is gone for a TCP address too: it raises, naming the
+--- removal, rather than listen without it.
+local function test_listen_refuses_the_removed_reclaim_option_for_a_tcp_address()
+  local options: any = { reclaim = true }
+  local address = Net.tcp("127.0.0.1", 0)
+  local ok, err: boolean, any = pcall(function()
+    local _, _ = Net.listen(address, options as Net.ListenOptions)
+  end)
+  assert(not ok and tostring(err):find("^cosmic%.net_tcp_test:%d+: net: ListenOptions.reclaim is gone: ") ~= nil,
+    tostring(err))
+end
+
+--- A TCP listener's `address` is built again by [`Net.tcp`]: the host as
+--- given and the port the kernel chose, with no field of a unix one.
+local function test_a_tcp_listeners_address_is_built_again_from_its_host_and_port()
+  local given = { kind = "tcp", host = "127.0.0.1", port = 0, path = "unused" }
+  local server <close> = assert(Net.listen(given))
+  local address = server.address
+  assert(address.kind == "tcp" and address.host == "127.0.0.1" and address.port > 0)
+  assert(address.path == nil, "a field past the kind's own was kept")
+  assert(address ~= given, "the listener holds the caller's table")
 end
 
 --- A port one listener holds is not another's; once it closes, nothing
@@ -86,8 +103,7 @@ end
 
 --- In a task, a TCP connection waits to be made through the run: the
 --- other tasks go on while one waits on a listener whose backlog is
---- full, until its time runs out. A connection that is made names its
---- peer, and one refused says so.
+--- full, until its time runs out. One that is refused says so.
 local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0),
     { backlog = 1, timeout_ns = Time.seconds(5) }))
@@ -99,13 +115,6 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
     held[#held + 1] = first
     local accepted = assert(server:accept())
     held[#held + 1] = accepted
-    local client_peer = assert(first:peer())
-    assert(client_peer.kind == "tcp" and client_peer.host == "127.0.0.1" and
-      client_peer.port == server.address.port, tostring(client_peer.port))
-    local accepted_peer = assert(accepted:peer())
-    assert(accepted_peer.kind == "tcp" and accepted_peer.host == "127.0.0.1" and
-      accepted_peer.port > 0 and accepted_peer.port ~= server.address.port,
-      tostring(accepted_peer.port))
     local filling = Poll.spawn(function()
       for _ = 1, 16 do
         local conn, trouble = Net.connect(server.address, { timeout_ns = Time.ms(200) })

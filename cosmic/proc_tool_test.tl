@@ -116,18 +116,16 @@ local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
   assert(not failed and trouble:find(missing .. ": ", 1, true) == 1, trouble)
 end
 
---- A relaunched child's arguments are the words after the relaunch's
---- own, without the `--artifact` pair the relaunch puts first, and its
---- relaunch names the directory it was started in, though it moved
---- since.
-local function test_arguments_and_cwd_are_how_the_program_started(tmp: string)
+--- A relaunched child's relaunch names the directory it was started in,
+--- though it moved since.
+local function test_the_relaunch_cwd_is_where_the_program_started(tmp: string)
   if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
   local chunk = "local Proc = require('cosmic.proc'); require('cosmic.sys').chdir('/'); " ..
-    "print(table.concat(Proc.arguments(), '|')); print(assert(Proc.relaunch()).cwd)"
-  local started = this_program.program({ "-e", chunk, "one", "two words" },
+    "print(assert(Proc.relaunch()).cwd)"
+  local started = this_program.program({ "-e", chunk },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.code == 0, tostring(r.stderr))
   local real = assert(sys.realpath(tmp))
-  assert(r.stdout == "-e|" .. chunk .. "|one|two words\n" .. real .. "\n", r.stdout)
+  assert(r.stdout == real .. "\n", r.stdout)
 end

@@ -91,22 +91,6 @@ function Example.accept()
   assert(Fs.remove_tree(dir))
 end
 
---- Two connections to each other, for a task at each end of [`Poll.run`]:
---- the pair is closed, both ends, with its `<close>` variable.
-function Example.pair()
-  local ends <close> = assert(Net.pair())
-  Poll.run(function()
-    Poll.spawn(function()
-      local request = assert(Stream.lines(ends.second):read())
-      assert(ends.second:write(request:upper() .. "\n"))
-    end)
-    assert(ends.first:write("hello\n"))
-    local answer = assert(Stream.lines(ends.first):read())
-    print(answer)
-    assert(answer == "HELLO", answer)
-  end)
-end
-
 --- A line-echo server on a socket file, each connection served in a
 --- task of its own until [`Server.stop`]: here `on_ready`, called once
 --- the server listens, is its client, and stops it once answered.

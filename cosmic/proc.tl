@@ -103,17 +103,6 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
   return relaunch, ""
 end
 
---- The arguments this program was started with, after its own name,
---- without the `--artifact` pair a launcher puts before them. With
---- [`relaunch`]'s `argv` before them, started in its `cwd`, they start
---- this program again on the same command line in the same directory;
---- the environment is the caller's to give. They are the program's
---- whole command line, not a script's: `cosmic app.tl serve` answers
---- `{ "app.tl", "serve" }`, where app.tl's main is handed `{ "serve" }`.
-function Proc.arguments(): {string}
-  return raw.arguments()
-end
-
 -- The search list `find` uses when PATH is unset, as execvp does.
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 
