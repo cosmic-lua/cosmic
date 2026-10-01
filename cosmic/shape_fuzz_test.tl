@@ -7,6 +7,7 @@
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
+local json_raw = require("build.json_raw")
 local Shape = require("cosmic.shape")
 
 --- Reads a recipe a byte at a time; past its end every byte is 0.
@@ -246,7 +247,7 @@ local function check_json(input: string): boolean, string
   local out, err: any, string = Shape.into(decoded, spec)
   if err ~= "" then return false, ("%s no longer fits: %s"):format(text, err) end
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
-  local again_text, aerr = Json.encode(out, { sparse_as_null = true })
+  local again_text, aerr = json_raw.encode(out, { sparse_as_null = true })
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
   -- Read back as it was first read: under `any` the answer keeps
   -- [`Json.null`], which only the same `null_value` reads back as itself.

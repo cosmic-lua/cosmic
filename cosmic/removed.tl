@@ -48,7 +48,11 @@ local record Module
   -- field strip`, without the record it was checked against, so
   -- [`build.teal`]'s `replacement` cannot look one up. Key entries by
   -- record (`cosmic.archive.ExtractOptions.strip`) once that message
-  -- names its record.
+  -- names its record. The same holds for the fields `cosmic.json`'s
+  -- EncodeOptions lost: `sorted` (keys are always in byte order),
+  -- `indent` (`pretty` indents two spaces), `ascii` (no replacement),
+  -- `nan_as_null` (write Json.null for the number) and `sparse_as_null`
+  -- (put Json.null where the hole is, as decode's `null_value` does).
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as [`core/surface.c`] does for a
@@ -82,6 +86,7 @@ local string_ <const> = 'local String = require("cosmic.string")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
+local json <const> = 'local Json = require("cosmic.json")'
 local sys <const> = 'local sys = require("cosmic.sys")'
 local module: Module = {
   fields = {
@@ -152,6 +157,42 @@ local module: Module = {
   },
   members = {
     ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
+    ["cosmic.json.lines"] = "use Stream.lines(reader) and Json.decode(line) on each " ..
+      "line it reads, skipping a blank one (" .. stream .. "; " .. json .. ")",
+    ["cosmic.json.Lines"] = "use Stream.Lines, what Stream.lines(reader) answers, " ..
+      "and Json.decode(line) on each line (" .. stream .. "; " .. json .. ")",
+    ["cosmic.json.write_line"] = "use writer:write(assert(Json.encode(value)) .. \"\\n\") on a " ..
+      "Stream.Writer (" .. json .. ")",
+    ["cosmic.json.encode_lines"] = "use Json.encode(value) for each value, joined by " ..
+      "\"\\n\" and ended by one (" .. json .. ")",
+    ["cosmic.json.parse_path"] = "moved to build.json_query, which only `cosmic json` " ..
+      "and `cosmic sql --at` call; a script's path is a list of keys and indexes, " ..
+      "`{ \"users\", 1, \"name\" }` for `$.users[1].name`, which Json.get takes (" .. json .. ")",
+    ["cosmic.json.parse_pattern"] = "moved to build.json_query, which only `cosmic json` " ..
+      "calls; `cosmic json '$..id' file` lists the values a pattern matches",
+    ["cosmic.json.spell_pattern"] = "moved to build.json_query, which only `cosmic json` calls",
+    ["cosmic.json.select"] = "moved to build.json_query, which only `cosmic json` calls; " ..
+      "`cosmic json '$..id' file` lists the values a pattern matches, and a script " ..
+      "walks the value Json.decode answers (" .. json .. ")",
+    ["cosmic.json.flatten"] = "moved to build.json_query, which only `cosmic json` calls; " ..
+      "`cosmic json --flat file` prints every leaf as a `path = value` line",
+    ["cosmic.json.flat_line"] = "moved to build.json_query, which only `cosmic json` calls; " ..
+      "`cosmic json --flat file` prints every leaf as a `path = value` line",
+    ["cosmic.json.describe"] = "moved to build.json_query, which only `cosmic json` calls; " ..
+      "`cosmic json --shape file` prints a document's shape",
+    ["cosmic.json.child_path"] = "moved to build.json_query, which only `cosmic json` " ..
+      "calls; spell a path by concatenating its steps, Json.quote(key) for a key that is no word (" ..
+      json .. ")",
+    ["cosmic.json.Step"] = "moved to build.json_query, with parse_pattern, which only " ..
+      "`cosmic json` calls",
+    ["cosmic.json.StepKind"] = "moved to build.json_query, with parse_pattern, which only " ..
+      "`cosmic json` calls",
+    ["cosmic.json.Located"] = "moved to build.json_query, with select and flatten, which " ..
+      "only `cosmic json` calls",
+    ["cosmic.json.WalkOptions"] = "moved to build.json_query, with select and flatten, " ..
+      "which only `cosmic json` calls",
+    ["cosmic.json.DescribeOptions"] = "moved to build.json_query, with describe, which " ..
+      "only `cosmic json` calls",
     ["cosmic.codec.encoder"] = streamed,
     ["cosmic.codec.decoder"] = streamed,
     ["cosmic.codec.Coder"] = streamed,

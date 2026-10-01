@@ -170,6 +170,10 @@ local casts: {string: string} = {
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
     "cosmic.internal.process declares that table, core/process.h defines it",
+  ["build/json_raw.tl:raw_table"] =
+    "the store's searcher hands cosmic.json's loader the raw JSON table as " ..
+    "its extra value, untyped as package.searchers returns it; " ..
+    "cosmic.internal.json declares that table, core/json.c defines it",
   ["build/confine.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/ast/match.tl:arr"] =

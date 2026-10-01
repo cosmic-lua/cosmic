@@ -98,7 +98,7 @@ record the verb fills. `decode`, `decode_object`, `decode_array`,
 `decode_lines`, `encode`, `array`, `is_array`, `quote`, `null` and the depth
 constants stay. one classification of a Lua table as JSON: `layout`
 (json.tl:954) becomes the only one, replacing `table_kind` (:456) and
-exported as `Json.layout` for [`cosmic.shape`], whose `dense_keys`/`split_keys`
+exported as [`Json.layout`] for [`cosmic.shape`], whose `dense_keys`/`split_keys`
 (shape.tl:318) go. the two `max_depth` validators (json.tl:933, :1340)
 become one.
 
@@ -122,7 +122,7 @@ PR 2). [`Shape.failures`] and the `all`-collecting mode it threads through
 `walk` and `walk_either` (shape.tl:401 to 535), which doubles every container
 branch, go, with [`Shape.either`]; `optional`, `one_of`, `strict_record` and
 `into`/`decode_into` stay. [`Spec.kind`] becomes an enum. the table
-classification comes from `Json.layout`.
+classification comes from [`Json.layout`].
 
 **PR 6 `time: nanoseconds, a Duration, and one way to pass a zone`.**
 - `Time.ms(n)`, `Time.seconds(n)`, `Time.minutes(n)`, `Time.hours(n)`:
@@ -423,6 +423,7 @@ description.
 [`Hash.Mac`]: ../../cosmic/hash.tl
 [`Http.download`]: ../../cosmic/http.tl
 [`Http.upload`]: ../../cosmic/http.tl
+[`Json.layout`]: ../../cosmic/json.tl
 [`ListenOptions.reclaim`]: ../../cosmic/net.tl
 [`LoadOptions.json_column`]: ../../cosmic/dataset.tl
 [`Net.Address`]: ../../cosmic/net.tl

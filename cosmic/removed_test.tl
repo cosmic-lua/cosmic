@@ -8,6 +8,7 @@ local modules <const>: {string:any} = {
   ["cosmic.archive"] = require("cosmic.archive"),
   ["cosmic.codec"] = require("cosmic.codec"),
   ["cosmic.hash"] = require("cosmic.hash"),
+  ["cosmic.json"] = require("cosmic.json"),
   ["cosmic.sqlite"] = require("cosmic.sqlite"),
   ["cosmic.stream"] = require("cosmic.stream"),
   ["cosmic.sys"] = require("cosmic.sys"),
