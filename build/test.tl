@@ -2387,7 +2387,7 @@ local function run(argv: {integer:string}): integer
     log:complain(root_trouble)
     return 1
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.test)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.test.spec)
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2

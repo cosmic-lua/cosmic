@@ -64,11 +64,29 @@ local function test_the_list_and_cli_order_agree()
     table.concat(Cli.order, " "))
 end
 
-local function test_every_option_table_is_a_verbs()
+local function test_every_verb_record_is_a_verb_in_order_and_back()
   local known: {string:boolean} = {}
-  for _, name in ipairs(Cli.order) do known[name] = true end
-  for name in pairs(Cli.options) do
-    assert(known[name], "Cli.options." .. name .. " is not a verb in Cli.order")
+  for _, name in ipairs(Cli.order) do
+    known[name] = true
+    assert(Cli.verbs[name] ~= nil, "Cli.order names " .. name .. ", which Cli.verbs lacks")
+  end
+  for name in pairs(Cli.verbs) do
+    assert(known[name], "Cli.verbs." .. name .. " is not a verb in Cli.order")
+  end
+end
+
+local function test_the_groups_name_every_verb_once_and_nothing_else()
+  local seen: {string:integer} = {}
+  for _, group in ipairs(Cli.groups) do
+    for slot = 2, #group do
+      seen[group[slot]] = (seen[group[slot]] or 0) + 1
+    end
+  end
+  for name in pairs(Cli.verbs) do
+    assert(seen[name] == 1, name .. " is in " .. (seen[name] or 0) .. " groups of Cli.groups")
+  end
+  for name in pairs(seen) do
+    assert(Cli.verbs[name] ~= nil, "Cli.groups names " .. name .. ", which Cli.verbs lacks")
   end
 end
 

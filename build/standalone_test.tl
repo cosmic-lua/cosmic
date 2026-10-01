@@ -12,6 +12,7 @@ local type _ = require("cosmic.zip")
 local type _tar = require("cosmic.tar")
 local type _archive = require("cosmic.archive")
 local type _json = require("cosmic.json")
+local _cli <const> = require("cosmic.cli")
 
 --- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
@@ -72,6 +73,16 @@ local function test_a_removed_member_names_its_replacement(tmp: string)
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:15: invalid key 'hex' in record 'Digest' of type Digest " ..
     "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
+end
+
+--- A program that read one of [`cosmic.cli`]'s per-verb maps is told which
+--- field of the verb's record replaced it, though the module's record is
+--- a local the checker describes as `record Module`.
+local function test_a_removed_cli_map_names_the_verb_record_field(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
+    'local Cli = require("cosmic.cli")\nreturn Cli.options.test\n')
+  assert(chunk == nil)
+  assert(trouble:find("Cli.options was removed: use Cli.verbs[verb].spec", 1, true) ~= nil, trouble)
 end
 
 --- A boolean passed where a parameter now takes a record is told what to

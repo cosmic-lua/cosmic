@@ -432,7 +432,7 @@ local function run(argv: {integer:string}): integer
     return code
   end
   local usage = "cosmic bom [--licenses | --json <path>]"
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.bom)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.bom.spec)
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
     return finish(2, "usage: see `cosmic help bom`")

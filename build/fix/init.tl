@@ -874,7 +874,7 @@ end
 --- @return integer The exit code: 0 when nothing is left to fix
 local function fix_verb(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.fix)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.fix.spec)
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2
