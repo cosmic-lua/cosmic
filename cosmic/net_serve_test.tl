@@ -122,7 +122,7 @@ local function test_at_the_connection_limit_accepting_waits(tmp: string)
       server:stop()
     end,
   })
-  assert(waiting_why == "timed out", waiting_why)
+  assert(waiting_why == Poll.TIMEOUT, waiting_why)
   assert(answer == "two", answer)
   assert(accepted == 2, tostring(accepted))
 end
@@ -145,7 +145,7 @@ local function test_timeout_ns_bounds_each_connection(tmp: string)
       server:stop()
     end,
   })
-  assert(why == "timed out", why)
+  assert(why == Poll.TIMEOUT, why)
 end
 
 --- Stopping closes the listener, removing its socket file, at once; a
@@ -396,7 +396,7 @@ local function test_the_connection_limit_is_shared_by_every_listener(tmp: string
       server:stop()
     end,
   })
-  assert(waiting_why == "timed out", waiting_why)
+  assert(waiting_why == Poll.TIMEOUT, waiting_why)
   assert(answer == "two", answer)
 end
 

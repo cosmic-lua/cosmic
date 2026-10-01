@@ -93,6 +93,7 @@ local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -2216,7 +2217,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
         -- `wait_any` gave beside the handle is the one reported.
         local result, _ = job.handle:wait()
         finish(rec, job, result, trouble, limits)
-      elseif done == nil and trouble ~= "" then
+      elseif done == nil and trouble ~= Poll.TIMEOUT then
         -- Supervision itself failed; end this worker and say why.
         local _, _ = job.handle:close()
         finish(rec, job, nil, trouble, limits)

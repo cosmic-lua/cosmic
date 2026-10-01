@@ -11,16 +11,20 @@
 ---     end)
 ---
 --- [`Poll.run`] runs its function as the first task, and returns once every
---- task has ended. A task waits by calling `readable`, `writable`,
---- `delay` or a Task's `join`, each of which answers true and "" once
---- what it waits for happens, or false and [`Poll.TIMEOUT`] once its
---- `timeout_ns` passes first, or false and [`Poll.CANCELLED`] once the task
---- is cancelled; `ready` waits on several descriptors at once, and
---- answers what each had, as [`sys.poll`] does; a Task's `kill` ends
---- one outright, for a task that goes on after its waits fail.
---- Nothing else here waits: a call that blocks the thread (a blocking
---- read, [`Http.get`], a SQLite query) holds every task until it
---- returns.
+--- task has ended. A task waits by calling `wait` (`readable` and
+--- `writable` are calls to it), `delay` or a Task's `join`, each of which
+--- answers true and "" once what it waits for happens, or false and
+--- [`Poll.TIMEOUT`] once its `timeout_ns` passes first, or false and
+--- [`Poll.CANCELLED`] once the task is cancelled; `ready` waits on
+--- several descriptors at once, and answers what each had, as
+--- [`sys.poll`] does, or nil and the same two words; a Task's `kill`
+--- ends one outright, for a task that goes on after its waits fail.
+--- `wait` is the one that goes on where there is no task to wait in --
+--- outside a run, in a coroutine of its own, in a finalizer -- holding
+--- the thread for as long as it would have waited, so a module waits
+--- with one call wherever it runs; the others raise there. Nothing else
+--- here waits: a call that blocks the thread (a blocking read,
+--- [`Http.get`], a SQLite query) holds every task until it returns.
 ---
 --- An error a task raises ends [`Poll.run`] at once: every other task is
 --- closed where it waits, its `<close>` variables closed, and `run`
@@ -64,7 +68,9 @@ local record Poll
     kill: function(Task)
   end
 
-  --- What a wait answers once its `timeout_ns` passes first.
+  --- What a wait answers once its `timeout_ns` passes first: the one
+  --- word every module that waits answers, [`cosmic.child`] and
+  --- [`cosmic.net`] included.
   TIMEOUT: string
   --- What a wait answers once its task is cancelled.
   CANCELLED: string
@@ -367,9 +373,15 @@ local function current(what: string, level: integer): State
   return task
 end
 
-local function checked_ns(value: integer | nil, name: string, level: integer)
-  if value ~= nil and (math.type(value) ~= "integer" or value < 0 or value > Poll.MOST_NS) then
-    error(name .. " must be an integer from 0 to " .. Poll.MOST_NS, level + 1)
+--- Raises, naming `name` and at `level` as `error` takes it in the
+--- function that calls this (1 is that function, 2 its caller), unless
+--- `value` is nil or an integer from 0 to [`Poll.MOST_NS`]: what every
+--- `timeout_ns` is held to, so a field or argument set wrong is named
+--- where it is read.
+function Poll.checked_ns(value: any, name: string, level: integer)
+  if value == nil then return end
+  if not (value is integer and value >= 0 and value <= Poll.MOST_NS) then
+    error(name .. " must be nil or an integer from 0 to " .. Poll.MOST_NS, level + 1)
   end
 end
 
@@ -404,55 +416,115 @@ local function park(task: State, w: Wait, timeout_ns: integer | nil): boolean, s
   error("a task was resumed other than by Poll.run", 2)
 end
 
-local function wait_fd(fd: integer, events: integer, timeout_ns: integer | nil, what: string): boolean, string
-  local task = current(what, 3)
-  checked_ns(timeout_ns, "timeout_ns", 3)
-  if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_FD then
-    error("fd must be a descriptor", 3)
+--- The task the calling coroutine is, for a wait that goes on without
+--- one: nil where there is none -- outside a run, in a coroutine a task
+--- made of its own, or where the task cannot yield (a finalizer).
+--- Raises at `level` for a task whose `<close>` handler is running, as
+--- the run closes its tasks or one is killed: nothing may wait there.
+local function waiting_task(what: string, level: integer): State | nil
+  if loop == nil then return nil end
+  local task = loop.tasks[coroutine.running()]
+  if task == nil then return nil end
+  if loop.closing then error(what .. " while Poll.run closes its tasks", level + 1) end
+  if task.killed then error(what .. " while its task is killed", level + 1) end
+  if not coroutine.isyieldable() then return nil end
+  return task
+end
+
+--- Checks a descriptor: the caller's `fd`, or `fds[place]`, raising at
+--- `level` above this function's caller.
+local function checked_fd(fd: any, name: string, level: integer)
+  if not (fd is integer and fd >= 0 and fd <= MOST_FD) then
+    error(name .. " must be a descriptor", level + 1)
   end
-  return park(task, { task = task, fd = fd, events = events }, timeout_ns)
+end
+
+--- Checks a mask of POLL* events, as [`checked_fd`] does.
+local function checked_events(mask: any, name: string, level: integer)
+  if not (mask is integer and mask >= 0 and mask <= 0x7fff) then
+    error(name .. " must be a mask of POLL* events", level + 1)
+  end
+end
+
+--- `timeout_ns` as [`sys.poll`] counts it, in whole milliseconds rounded
+--- up so a wait with time left never polls for none, or -1 for no limit.
+local function poll_ms(timeout_ns: integer | nil): integer
+  if timeout_ns == nil then return -1 end
+  return Time.ceil(timeout_ns, MS)
+end
+
+--- Waits for `fd` to have `events` through the run's task, or, for a
+--- caller that is none, by holding the thread in [`sys.poll`]. The
+--- wait goes on past a signal, which ends [`sys.poll`] early with
+--- nothing ready.
+local function wait_on(fd: integer, events: integer, timeout_ns: integer | nil,
+    what: string): boolean, string
+  Poll.checked_ns(timeout_ns, "timeout_ns", 3)
+  checked_fd(fd, "fd", 3)
+  checked_events(events, "events", 3)
+  local task = waiting_task(what, 3)
+  if task ~= nil then
+    return park(task, { task = task, fd = fd, events = events }, timeout_ns)
+  end
+  local deadline = timeout_ns ~= nil and Time.monotonic_ns() + timeout_ns or nil
+  while true do
+    local left = deadline ~= nil and math.max(deadline - Time.monotonic_ns(), 0) or nil
+    local revents, trouble = sys.poll({ fd }, { events }, poll_ms(left))
+    if revents == nil then return false, trouble end
+    if revents[1] ~= 0 then return true, "" end
+    if deadline ~= nil and Time.monotonic_ns() >= deadline then return false, Poll.TIMEOUT end
+  end
+end
+
+--- Waits until `fd` has any of `events` ([`sys.POLLIN`], [`sys.POLLOUT`])
+--- or has failed, at most `timeout_ns` nanoseconds (no limit when nil):
+--- true and "" once it has, false and [`Poll.TIMEOUT`] once `timeout_ns`
+--- passes first, false and [`Poll.CANCELLED`] once the task is cancelled,
+--- or false and why the descriptor could not be waited on. In a task
+--- the other tasks run meanwhile; a caller that is none holds the thread
+--- for the wait, as [`sys.poll`] does, past any signal.
+function Poll.wait(fd: integer, events: integer, timeout_ns?: integer): boolean, string
+  return wait_on(fd, events, timeout_ns, "Poll.wait")
 end
 
 --- Waits until `fd` can be read without waiting -- data, the end of what
 --- the peer sends, a connection to accept, or an error to read -- at most
---- `timeout_ns` nanoseconds (no limit when nil).
+--- `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
+--- [`sys.POLLIN`].
 function Poll.readable(fd: integer, timeout_ns?: integer): boolean, string
-  return wait_fd(fd, sys.POLLIN, timeout_ns, "Poll.readable")
+  return wait_on(fd, sys.POLLIN, timeout_ns, "Poll.readable")
 end
 
 --- Waits until `fd` can be written without waiting, or has failed, at
---- most `timeout_ns` nanoseconds (no limit when nil).
+--- most `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
+--- [`sys.POLLOUT`].
 function Poll.writable(fd: integer, timeout_ns?: integer): boolean, string
-  return wait_fd(fd, sys.POLLOUT, timeout_ns, "Poll.writable")
+  return wait_on(fd, sys.POLLOUT, timeout_ns, "Poll.writable")
 end
 
 --- Waits until any of `fds` is ready for its mask of `events`
 --- ([`sys.POLLIN`], [`sys.POLLOUT`]), at most `timeout_ns` nanoseconds
 --- (no limit when nil), as [`sys.poll`] does: the events each descriptor
 --- had, by its place -- [`sys.POLLERR`] and [`sys.POLLHUP`] among them,
---- unasked, and 0 for one that had none, as every one has once
---- `timeout_ns` passes first -- or nil and [`Poll.CANCELLED`] once the
---- task is cancelled. A descriptor another module is about to close
+--- unasked -- or nil and [`Poll.TIMEOUT`] once `timeout_ns` passes
+--- first, as [`Poll.readable`] fails, or nil and [`Poll.CANCELLED`] once
+--- the task is cancelled. A descriptor another module is about to close
 --- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
 function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {integer} | nil, string
   local task = current("Poll.ready", 2)
-  checked_ns(timeout_ns, "timeout_ns", 2)
+  Poll.checked_ns(timeout_ns, "timeout_ns", 2)
   if #fds == 0 or #events ~= #fds then
     error("Poll.ready takes one or more descriptors, and events for each", 2)
   end
   local watched, masks, answers: {integer}, {integer}, {integer} = {}, {}, {}
   for i, fd in ipairs(fds) do
     local mask = events[i]
-    if math.type(fd) ~= "integer" or fd < 0 or fd > MOST_FD then
-      error("fds[" .. i .. "] must be a descriptor", 2)
-    end
-    if math.type(mask) ~= "integer" or mask < 0 or mask > 0x7fff then
-      error("events[" .. i .. "] must be a mask of POLL* events", 2)
-    end
+    checked_fd(fd, "fds[" .. i .. "]", 2)
+    checked_events(mask, "events[" .. i .. "]", 2)
     watched[i], masks[i], answers[i] = fd, mask, 0
   end
   local ok, why = park(task,
-    { task = task, fds = watched, masks = masks, answers = answers, expiry_ok = true }, timeout_ns)
+    { task = task, fds = watched, masks = masks, answers = answers }, timeout_ns)
   if not ok then return nil, why end
   return answers, ""
 end
@@ -463,7 +535,7 @@ end
 function Poll.delay(ns: integer): boolean, string
   local task = current("Poll.delay", 2)
   if ns == nil then error("ns must be an integer from 0 to " .. Poll.MOST_NS, 2) end
-  checked_ns(ns, "ns", 2)
+  Poll.checked_ns(ns, "ns", 2)
   return park(task, { task = task, expiry_ok = true }, ns)
 end
 
@@ -496,7 +568,7 @@ local function start(fn: function()): Poll.Task
   state.handle = {
     join = function(_self: Poll.Task, timeout_ns?: integer): boolean, string
       local task = current("Task:join", 2)
-      checked_ns(timeout_ns, "timeout_ns", 2)
+      Poll.checked_ns(timeout_ns, "timeout_ns", 2)
       if state.killed then return false, Poll.CANCELLED end
       if state.ended or state.loop ~= loop then return true, "" end
       if state == task then error("a task cannot join itself", 2) end
@@ -702,11 +774,11 @@ function Poll.closing(fd: integer)
 end
 
 --- Whether the caller is a task of a running [`Poll.run`], whose waits
---- let the other tasks run: what a module that waits asks, to wait
---- through `readable`, `writable` and `ready` there and on its own
---- elsewhere. It answers true, too, in a `<close>` handler of a task
---- being killed, where those raise: a wait there fails at once rather
---- than hold the thread.
+--- let the other tasks run: what a module asks that must act
+--- differently there -- refuse a call that cannot run in a task, or
+--- wait through the run for what a task of it holds. It answers true,
+--- too, in a `<close>` handler of a task being killed, where waits
+--- raise: a wait there fails at once rather than hold the thread.
 function Poll.in_task(): boolean
   return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
 end

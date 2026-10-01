@@ -46,14 +46,16 @@
 --- 6. A reason is for a person, never parsed: a name a statement binds
 ---    to a fallible call's reason (`err` in `local v, err = f()`, or in
 ---    an assignment) may be passed on, logged, made part of a new
----    message, or compared with `""`, but not read for what it says --
----    `err:find(...)`, `:match`, `:gmatch`, `:sub`, `:byte`, the same
----    through `string.find(err, ...)`, or `err == "timeout"` (`~=`
----    too) against any literal but `""`. The name is followed from its
----    binding through the rest of its block, until another binding of
----    it takes over. A failure a caller must tell apart answers in a
----    shape of its own: `nil, ""` for no answer and no failure (a
----    deadline passed), a count or a field the caller reads, or a
+---    message, or compared with `""`, `nil`, [`Poll.TIMEOUT`] or
+---    [`Poll.CANCELLED`] (the two words every wait answers, for a
+---    deadline passed and a task cancelled), but not read for what it
+---    says -- `err:find(...)`, `:match`, `:gmatch`, `:sub`, `:byte`,
+---    the same through `string.find(err, ...)`, or `err == "timeout"`
+---    (`~=` too) against any other literal or value. The name is
+---    followed from its binding through the rest of its block, until
+---    another binding of it takes over. A failure a caller must tell
+---    apart answers in a shape of its own: `nil, Poll.TIMEOUT` for a
+---    deadline passed, a count or a field the caller reads, or a
 ---    structured record standing where the value would. A reason
 ---    reached any other way (`select(2, f())`) drops the slot, rule 1.
 --- 7. No escape hatch in the type layer, doc/design.md's fourth
@@ -868,9 +870,15 @@ local function unwrapped(n: Node | nil): Node | nil
   return nil
 end
 
---- Whether `n` is what a reason may be compared with: `""` or `nil`.
+--- Whether `n` is what a reason may be compared with: `""` or `nil`, or
+--- one of the two words every wait answers, [`Poll.TIMEOUT`] and
+--- [`Poll.CANCELLED`], which a caller tells a deadline or a cancel from
+--- a failure by.
 local function neutral(n: Node): boolean
-  return n.kind == "nil" or (n.kind == "string" and n.conststr == "")
+  if n.kind == "nil" or (n.kind == "string" and n.conststr == "") then return true end
+  local how, member = n.op, n.e2
+  return n.kind == "op" and how ~= nil and how.op == "." and is_name(n.e1, "Poll")
+    and member ~= nil and (member.tk == "TIMEOUT" or member.tk == "CANCELLED")
 end
 
 local comparing: {string: boolean} = {

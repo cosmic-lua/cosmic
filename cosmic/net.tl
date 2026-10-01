@@ -22,7 +22,7 @@
 ---
 --- Every wait -- to connect, to accept, to read, to write -- lasts at
 --- most the object's `timeout_ns` (no limit by default), failing with
---- "timed out", and ends with "interrupted", within a tenth of a second,
+--- [`Poll.TIMEOUT`], and ends with "interrupted", within a tenth of a second,
 --- when the innermost open [`Child.guard`] catches SIGINT or SIGTERM, as
 --- [`cosmic.http`]'s do.
 ---
@@ -112,7 +112,7 @@ local record Net
     --- made (it is made mode 0600, and Linux's fs.protected_regular
     --- refuses another's in a sticky directory such as /tmp) or in a
     --- directory not writable here; "File name too long" for a path
-    --- within 5 bytes of the longest a path may be; "timed out" for
+    --- within 5 bytes of the longest a path may be; [`Poll.TIMEOUT`] for
     --- another's lock held 10 seconds; "interrupted" for a signal the
     --- innermost open [`Child.guard`] caught; and a directory or a link
     --- at its name fails too. In a task of [`Poll.run`], the wait for
@@ -155,7 +155,7 @@ local record Net
     --- How long `accept` waits by default; nil for no limit.
     timeout_ns: integer
     --- The next connection, waiting for one as long as `timeout_ns`
-    --- (this call's, or the listener's); nil and "timed out",
+    --- (this call's, or the listener's); nil and [`Poll.TIMEOUT`],
     --- "interrupted", "cancelled" (in a task of [`Poll.run`]), or why not.
     accept: function(Listener, timeout_ns?: integer): Conn | nil, string
     --- Stops listening. A unix listener removes its socket file too,
@@ -173,13 +173,13 @@ local record Net
     timeout_ns: integer
     --- What has arrived, at most `max` bytes (64 KiB by default), once
     --- something has; nil and "" once the peer has ended what it sends.
-    --- nil and "timed out", "interrupted" or "cancelled" (in a task of
+    --- nil and [`Poll.TIMEOUT`], "interrupted" or "cancelled" (in a task of
     --- [`Poll.run`]) takes nothing, and a later read may still answer; nil
     --- and any other failure is every read's after. A failed read leaves
     --- writing be.
     read: function(Conn, max?: integer): string | nil, string
     --- Sends all of `data`, waiting as the peer takes it. False and
-    --- "timed out", "interrupted", "cancelled" (in a task of [`Poll.run`])
+    --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of [`Poll.run`])
     --- or why not may leave part of it sent,
     --- so it is every write's after; reading is left be.
     write: function(Conn, data: string): boolean, string
@@ -342,13 +342,11 @@ function Net.tcp(host: string, port: integer): Net.Address
   return { kind = "tcp", host = host, port = port }
 end
 
---- `timeout_ns` as the raw calls take it, in milliseconds, rounded up so
---- a timeout of any length is never none, or -1 for no limit; raising on
---- one no wait can last, so a field set wrong is named where it is read.
+--- `timeout_ns`, which [`Poll.checked_ns`] has held to what a wait can
+--- last, as the raw calls take it: in milliseconds, rounded up so a
+--- timeout of any length is never none, or -1 for no limit.
 local function milliseconds(timeout_ns: integer | nil): integer
   if timeout_ns == nil then return -1 end
-  assert(math.type(timeout_ns) == "integer" and timeout_ns >= 0 and timeout_ns <= Poll.MOST_NS,
-    "timeout_ns must be nil or a whole number of nanoseconds from 0 to " .. Poll.MOST_NS)
   return Time.ceil(timeout_ns, MS)
 end
 
@@ -356,7 +354,7 @@ end
 --- the bound a name too long ran past, what a host must be, and why a
 --- unix listener answered EAGAIN, which errno's words leave unsaid.
 local function said(trouble: string, errno: integer, address?: Net.Address): string
-  if errno == raw.ETIMEDOUT then return "timed out" end
+  if errno == raw.ETIMEDOUT then return Poll.TIMEOUT end
   if errno == raw.EINTR then return "interrupted" end
   if errno == raw.ENAMETOOLONG then
     return trouble .. " (a socket file's own name may be at most " ..
@@ -372,21 +370,19 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
   return trouble
 end
 
+--- Waits for `fd` to be readable, or writable, at most `timeout_ns`: in a
+--- task of a run, through it; anywhere else, in the raw wait, which
+--- also ends at a signal the innermost [`Child.guard`] caught.
 local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil): boolean, string
-  local ms = milliseconds(timeout_ns)
+  -- TODO: wait through Poll.wait alone, and in `connection` and `locked`
+  -- too, once cosmic.poll can see a signal a Child.guard caught (the
+  -- core's cosmic_signal_caught, which only core/socket.c's waits and
+  -- sys.flock read): the raw wait outside a task is what ends at one.
+  Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if Poll.in_task() then
-    local ready, why: boolean, string
-    if writable then
-      ready, why = Poll.writable(fd, timeout_ns)
-    else
-      ready, why = Poll.readable(fd, timeout_ns)
-    end
-    if ready then return true, "" end
-    -- Poll.TIMEOUT is this module's own "timed out", which
-    -- test_in_a_run_waits_time_out_as_they_do_out_of_one holds it to.
-    return false, why
+    return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
   end
-  local ok, trouble, errno = raw.wait(fd, writable, ms)
+  local ok, trouble, errno = raw.wait(fd, writable, milliseconds(timeout_ns))
   if ok then return true, "" end
   return false, said(trouble, errno)
 end
@@ -566,7 +562,7 @@ end
 
 --- What [`connection`] made: the socket, or, where there is none, what
 --- went wrong and its errno, which [`left_behind`] tells apart. `errno`
---- is 0 for a wait's own "timed out" or "cancelled" in a task.
+--- is 0 for a wait's own [`Poll.TIMEOUT`] or "cancelled" in a task.
 local record Attempt
   socket: raw_socket.Socket
   trouble: string
@@ -591,9 +587,11 @@ local connecting_mt: metatable<Connecting> = {
 --- task of [`Poll.run`], through the run; anywhere else, holding the
 --- thread.
 local function connection(address: Net.Address, timeout_ns: integer | nil): Attempt
-  local ms = milliseconds(timeout_ns)
+  -- TODO: connect through raw.start, Poll.wait and raw.connected alone,
+  -- as `waited`'s TODO says.
+  Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if not Poll.in_task() then
-    local socket, trouble, errno = raw.connect(raw_address(address), ms)
+    local socket, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ns))
     return { socket = socket, trouble = trouble, errno = errno }
   end
   local socket, trouble, errno = raw.start(raw_address(address))
@@ -623,6 +621,9 @@ local LOCK_PAUSE_NS <const> = Time.ms(100)
 --- wait holding the thread would keep from releasing it; anywhere
 --- else, holding the thread. False and why not otherwise.
 local function locked(fd: integer): boolean, string
+  -- TODO: wait for the lock through Poll.delay alone, as `waited`'s
+  -- TODO says: sys.flock's own wait outside a task is what ends at a
+  -- caught signal.
   if not Poll.in_task() then
     local ok, trouble, errno = sys.flock(fd, "exclusive", Time.ceil(LOCK_NS, MS))
     if not ok then return false, said(trouble, errno) end
@@ -727,7 +728,7 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
     level: integer): Opened | nil, string
   local backlog = opts.backlog or DEFAULT_BACKLOG
   if backlog < 1 then error("backlog must be at least 1", level + 1) end
-  milliseconds(opts.timeout_ns)
+  Poll.checked_ns(opts.timeout_ns, "timeout_ns", level + 1)
   if address.kind == "tcp" then
     assert(not opts.reclaim, "reclaim takes a unix address")
     local socket, trouble, errno = raw.listen(raw_address(address), backlog)
@@ -821,12 +822,6 @@ local function spec_error(field: string, must: string)
   error("Net.serve: spec." .. field .. " must be " .. must, 4)
 end
 
---- Why `ns` is no number of nanoseconds a wait can last, or "".
-local function ns_trouble(ns: any): string
-  if ns == nil or (ns is integer and ns >= 0 and ns <= Poll.MOST_NS) then return "" end
-  return "nil or an integer from 0 to " .. Poll.MOST_NS
-end
-
 --- Why `address` is no [`Net.Address`] a listener can take, or "".
 local function address_trouble(address: any): string
   if not address is {any: any} then return "an address, from Net.unix or Net.tcp" end
@@ -878,8 +873,7 @@ local function checked_spec(spec: any)
     end
   end
   for _, field in ipairs({ "timeout_ns", "grace_ns" }) do
-    local trouble = ns_trouble(spec[field])
-    if trouble ~= "" then spec_error(field, trouble) end
+    Poll.checked_ns(spec[field], "Net.serve: spec." .. field, 3)
   end
   for _, field in ipairs({ "on_ready", "on_error" }) do
     local fn = spec[field]

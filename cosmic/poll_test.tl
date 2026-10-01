@@ -165,6 +165,29 @@ local function test_waiting_outside_a_task_raises()
   end)
 end
 
+--- A wait on one descriptor goes on where there is no task to wait in --
+--- outside a run, in a coroutine of its own -- holding the thread for
+--- as long as it would have waited, and answers as a task's does.
+local function test_a_wait_outside_a_task_holds_the_thread(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  local function outside()
+    local began = Time.monotonic_ns()
+    local ok, why = Poll.wait(reader, sys.POLLIN, Time.ms(40))
+    assert(not ok and why == Poll.TIMEOUT, why)
+    ok, why = Poll.readable(reader, Time.ms(40))
+    assert(not ok and why == Poll.TIMEOUT, why)
+    assert(Time.monotonic_ns() - began >= Time.ms(79), "a wait returned early")
+    ok, why = Poll.writable(writer, Time.ms(40))
+    assert(ok and why == "", why)
+  end
+  outside()
+  Poll.run(function()
+    coroutine.wrap(outside)()
+  end)
+  sys.close(reader)
+  sys.close(writer)
+end
+
 local function test_tasks_waiting_only_on_each_other_raise()
   raises(function()
     Poll.run(function()
@@ -496,6 +519,8 @@ local function test_kill_raises_what_a_close_handler_raises()
   local raiser_mt: metatable<Closer> = { __close = function()
     local _, err: boolean, any = pcall(Poll.delay, 0)
     wait_trouble = tostring(err)
+    local _, trouble: boolean, any = pcall(Poll.readable, 0, 0)
+    assert(tostring(trouble):find("while its task is killed", 1, true), tostring(trouble))
     in_task = Poll.in_task()
     error("broken close", 0)
   end }
@@ -546,14 +571,16 @@ local function test_a_ready_wait_answers_each_descriptor_s_events(tmp: string)
   for _, fd in ipairs({ quiet, quiet_writer, reader, writer }) do sys.close(fd) end
 end
 
---- Past its timeout a ready wait answers every descriptor 0, as
---- sys.poll does, and no failure; cancelled, it answers nil and
---- CANCELLED; and a descriptor about to close answers POLLNVAL.
+--- Past its timeout a ready wait answers nil and TIMEOUT, as a readable
+--- wait fails; cancelled, it answers nil and CANCELLED; and a descriptor
+--- about to close answers POLLNVAL.
 local function test_a_ready_wait_times_out_is_cancelled_and_is_closed(tmp: string)
   local reader, writer = fifo(tmp, "p")
-  local timed, cancelled, closed: {integer}, string, {integer}
+  local timed, cancelled, closed: string, string, {integer}
   Poll.run(function()
-    timed = assert(Poll.ready({ reader }, { sys.POLLIN }, Time.ms(20)))
+    local expired, expiry = Poll.ready({ reader }, { sys.POLLIN }, Time.ms(20))
+    assert(expired == nil)
+    timed = expiry
     local waiter = Poll.spawn(function()
       local answers, why = Poll.ready({ reader }, { sys.POLLIN })
       assert(answers == nil)
@@ -569,7 +596,7 @@ local function test_a_ready_wait_times_out_is_cancelled_and_is_closed(tmp: strin
     Poll.closing(reader)
     assert(closer:join(Time.seconds(1)))
   end)
-  assert(timed[1] == 0, tostring(timed[1]))
+  assert(timed == Poll.TIMEOUT, timed)
   assert(cancelled == Poll.CANCELLED, cancelled)
   assert(closed[2] == sys.POLLNVAL, tostring(closed[2]))
   sys.close(reader)
@@ -944,8 +971,8 @@ local function test_a_wait_lasts_the_nanoseconds_it_is_given(tmp: string)
     assert(not ok and why == Poll.TIMEOUT, why)
     readable = Time.monotonic_ns() - began
     began = Time.monotonic_ns()
-    local answers = assert(Poll.ready({ reader }, { sys.POLLIN }, Time.ms(80)))
-    assert(answers[1] == 0)
+    local answers, answered = Poll.ready({ reader }, { sys.POLLIN }, Time.ms(80))
+    assert(answers == nil and answered == Poll.TIMEOUT, answered)
     ready = Time.monotonic_ns() - began
     local sleeper = Poll.spawn(function() local _, _ = Poll.delay(Time.seconds(30)) end)
     began = Time.monotonic_ns()
@@ -962,4 +989,83 @@ local function test_a_wait_lasts_the_nanoseconds_it_is_given(tmp: string)
   end
   sys.close(reader)
   sys.close(writer)
+end
+
+--- What a wait on one descriptor answers, in a task and out of one: true
+--- and "" at once for what is ready, false and TIMEOUT at about its
+--- timeout for what is not.
+local function test_one_wait_answers_alike_in_a_task_and_out_of_one(tmp: string)
+  local quiet, quiet_writer = fifo(tmp, "q")
+  local ready, ready_writer = fifo(tmp, "r")
+  assert(sys.write(ready_writer, "x"))
+  local function answers()
+    local began = Time.monotonic_ns()
+    local ok, why = Poll.wait(ready, sys.POLLIN, Time.seconds(5))
+    assert(ok and why == "", why)
+    assert(Time.monotonic_ns() - began < Time.seconds(2), "a ready descriptor was waited for")
+    ok, why = Poll.wait(ready_writer, sys.POLLOUT, Time.seconds(5))
+    assert(ok and why == "", why)
+    began = Time.monotonic_ns()
+    ok, why = Poll.wait(quiet, sys.POLLIN, Time.ms(60))
+    assert(not ok and why == Poll.TIMEOUT, why)
+    local took = Time.monotonic_ns() - began
+    assert(took >= Time.ms(59) and took < Time.seconds(5), tostring(took))
+    ok, why = Poll.readable(quiet, 0)
+    assert(not ok and why == Poll.TIMEOUT, why)
+    ok, why = Poll.writable(quiet_writer, 0)
+    assert(ok and why == "", why)
+  end
+  answers()
+  Poll.run(answers)
+  for _, fd in ipairs({ quiet, quiet_writer, ready, ready_writer }) do sys.close(fd) end
+end
+
+--- A wait is cancelled in a task, as every wait is, and refuses what is
+--- no wait wherever it is called.
+local function test_a_wait_is_cancelled_and_refuses_what_is_no_wait(tmp: string)
+  local reader, writer = fifo(tmp, "p")
+  Poll.run(function()
+    local cancelled = ""
+    local waiter = Poll.spawn(function()
+      local ok, why = Poll.wait(reader, sys.POLLIN)
+      assert(not ok)
+      cancelled = why
+    end)
+    assert(Poll.delay(0))
+    waiter:cancel()
+    assert(waiter:join())
+    assert(cancelled == Poll.CANCELLED, cancelled)
+  end)
+  for _, inside in ipairs({ false, true }) do
+    local function refuses()
+      raises(function() local _, _ = Poll.wait(-1, sys.POLLIN) end, "fd must be a descriptor")
+      raises(function() local _, _ = Poll.wait(reader, -1) end, "events must be a mask")
+      raises(function() local _, _ = Poll.wait(reader, sys.POLLIN, -1) end, "timeout_ns must be")
+    end
+    if inside then Poll.run(refuses) else refuses() end
+  end
+  sys.close(reader)
+  sys.close(writer)
+end
+
+--- The check every timeout is held to, at the level the caller names: a
+--- float, a negative and one past what a wait takes raise, nil and
+--- the ends of the range do not.
+local function test_checked_ns_refuses_what_no_wait_can_last()
+  Poll.checked_ns(nil, "span", 1)
+  Poll.checked_ns(0, "span", 1)
+  Poll.checked_ns(Poll.MOST_NS, "span", 1)
+  local function refused(value: any)
+    local ok, err: boolean, any = pcall(function() Poll.checked_ns(value, "span", 1) end)
+    assert(not ok, "accepted " .. tostring(value))
+    local text = tostring(err)
+    assert(text:find("span must be nil or an integer from 0 to " .. Poll.MOST_NS, 1, true), text)
+    -- Level 1 is the function that calls it: this file's own, not poll.tl.
+    assert(text:find("poll_test:", 1, true), text)
+  end
+  refused(1.5)
+  refused(2.0)
+  refused(-1)
+  refused(Poll.MOST_NS + 1)
+  refused("1")
 end
