@@ -452,14 +452,20 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
       sysname = "Linux", system_id = "s1",
       cpu_features = { "aes", "pclmulqdq", "asimd" }, machine = "x86_64",
       status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\nGid: 1 1 1 1\n"),
-      own_proc = true, host_id = "h1", uid = 1, walked = { write("walked", "w1") },
-      worker_uid = 65532, worker_gid = 65532,
+      own_proc = true, host_id = "h1", uid = 1, gid = 1, groups = { 1, 20 },
+      walked = { write("walked", "w1") }, worker_uid = 65532, worker_gid = 65532,
     }
   end
   -- The runner's own user and status, which a worker run as a user of
   -- its own is not keyed by, but for what it keeps of the runner's.
   local function as_runner(s: declared_key.HostSources)
     s.worker_uid, s.worker_gid = nil, nil
+  end
+  -- A host with no /proc/self/status, as macOS is, whose groups the
+  -- bindings answer.
+  local function without_status(s: declared_key.HostSources)
+    as_runner(s)
+    s.status = tmp .. "/no-status"
   end
   local function key(sources: declared_key.HostSources): string
     local digests = declared_key.digests(tmp)
@@ -482,6 +488,8 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     status = { from = as_runner, change = set("status", tmp .. "/status2").change },
     own_proc = set("own_proc", false), host_id = set("host_id", "h2"),
     uid = { from = as_runner, change = set("uid", 2).change },
+    gid = { from = without_status, change = set("gid", 2).change },
+    groups = { from = without_status, change = set("groups", { 1 }).change },
     worker_uid = set("worker_uid", 65533), worker_gid = set("worker_gid", 65533),
     walked = set("walked", { write("walked2", "w22") }),
   }
@@ -524,6 +532,36 @@ local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp:
     "CapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\n" .. tail)
   assert(dropped == host({ status = other_root, uid = 0, worker_uid = 65532,
     worker_gid = 65532 }), "keyed by the groups and capabilities of the root it left")
+end
+
+--- Where there is no /proc/self/status (macOS), the key holds the group
+--- and the supplementary groups the bindings answer, each group once,
+--- in any order the system lists them; a worker run as a user of its
+--- own is keyed by its group alone. Where there is one, its lines are
+--- the key's and these move nothing, so a Linux key holds what it held
+--- before they were read.
+local function test_the_groups_key_a_host_with_no_status(tmp: string)
+  assert(Fs.write(tmp .. "/status", "Name:\tx\nUid:\t1\t1\t1\t1\nGid:\t1\t1\t1\t1\n" ..
+    "Groups:\t1 20 \n"))
+  local function host(status: string, gid: integer, groups: {integer},
+                      worker?: integer): string
+    return declared_key.host_identity(declared_key.digests(tmp), {
+      system = { "", "", "" }, cpu_features = { "aes" }, machine = "arm64",
+      own_proc = false, host_id = "h", uid = 501, status = tmp .. "/" .. status,
+      gid = gid, groups = groups, worker_uid = worker, worker_gid = worker,
+    })
+  end
+  local base = host("none", 20, { 20, 12, 61 })
+  assert(base == host("none", 20, { 61, 12, 20, 12 }), "the order or a repeat moved it")
+  assert(base ~= host("none", 20, { 12, 61 }), "a group left out")
+  assert(base ~= host("none", 12, { 20, 12, 61 }), "another group")
+  assert(host("none", 20, {}, 65532) == host("none", 20, { 20, 12, 61 }, 65532),
+    "a worker of its own is keyed by groups it does not have")
+  assert(host("none", 20, {}, 65532) ~= host("none", 20, {}, 65533), "the worker's group")
+  assert(host("status", 20, { 20 }) == host("status", 12, { 61 }),
+    "a host with a status read the bindings")
+  -- This host's own, read where none are given.
+  assert(#host("none", nil, nil) == 64)
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,

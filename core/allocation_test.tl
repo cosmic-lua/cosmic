@@ -370,6 +370,18 @@ local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp:
   assert_c_heap(bytes, blocks, "maps_id under refusal")
 end
 
+--- `getgroups` lists the groups into a block Lua owns, not the C heap's,
+--- so a refusal of the list's table after it leaves nothing behind.
+local function test_getgroups_leaves_nothing_whenever_an_allocation_fails()
+  if not checked then return end
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    assert(sys.getgroups())
+  end)
+  assert(ended > 0, "listing the groups allocates")
+  assert_c_heap(bytes, blocks, "getgroups under refusal")
+end
+
 --- The C heap counts what the core's C allocates and frees, and a
 --- refused C allocation is counted with Lua's.
 local function test_the_c_heap_counts_its_blocks_and_refusals()
