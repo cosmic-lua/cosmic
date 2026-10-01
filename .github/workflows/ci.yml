@@ -402,9 +402,12 @@
 
         # What was restored, for the trim to count the compiles the
         # run's builds made beside it (`fresh`), where a branch's save
-        # turns on.
+        # turns on: a light run's alone, since only it saves. A copy that
+        # fails only counts every compile fresh, which costs a save.
         {
           name: "set aside a copy of the compiles restored",
+          if: "env.COSMIC_CI_SCOPE == 'light'",
+          "continue-on-error": true,
           "working-directory": ".",
           shell: "sh",
           run: "[ ! -f \"$RUNNER_TEMP/build-cache/cache.db\" ] || cp \"$RUNNER_TEMP/build-cache/cache.db\" \"$RUNNER_TEMP/compiles-restored.db\"",

@@ -1174,7 +1174,10 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
     if run is string and run:find("cp \"$RUNNER_TEMP/build-cache/cache.db\" " ..
         "\"$RUNNER_TEMP/compiles-restored.db\"", 1, true) ~= nil then
       copy = i
-      assert(step["if"] == nil and step.shell == "sh", "the copy is made on some runs, or in the container")
+      -- On a light run alone, since only it saves; a copy that fails
+      -- only costs a save, so it never fails the leg.
+      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'light'" and step["continue-on-error"] == true and
+        step.shell == "sh", "the copy is made on a run that saves none, fails the leg, or runs in the container")
     end
   end
   assert(restored ~= nil and copy ~= nil and boot ~= nil and restored < copy and copy < boot,
