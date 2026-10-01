@@ -856,6 +856,29 @@ local function test_a_relative_program_is_found_from_the_child_s_directory(tmp: 
   assert(assert(process.waitpid(pid, false)).code == 3)
 end
 
+--- Two descriptors handed crosswise, each the other's number, reach the
+--- child each at the number asked: neither move overwrites the source
+--- the other reads.
+local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: string)
+  local probe = probe_in(tmp)
+  local first, second = 140, 141
+  local files: {integer: integer} = {}
+  for _, fd in ipairs({ first, second }) do
+    failed_with(sys.EBADF, sys.fd_flags(fd))
+    files[fd] = create(tmp .. "/" .. fd)
+    assert(sys.dup2(files[fd], fd))
+  end
+  local pid = assert(process.spawn(probe, { probe, "write-fd " .. first .. " first; write-fd " ..
+    second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
+  assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
+  for fd, file in pairs(files) do
+    sys.close(fd)
+    sys.close(file)
+  end
+end
+
 --- A child is put in a process group of its own only where asked.
 local function test_a_child_s_process_group_is_its_own_where_asked(tmp: string)
   local probe = probe_in(tmp)

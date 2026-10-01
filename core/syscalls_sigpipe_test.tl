@@ -44,7 +44,10 @@ end
 --- here to check.
 local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  if writing_to_a_closed_pipe(probe) == 0 then return end -- started with SIGPIPE ignored
+  -- Started with SIGPIPE ignored, as a CI runner may start this
+  -- process: a condition of the host, not a sandbox it refuses, so no
+  -- skip ([`Test.skip`]), and a run where it holds checks nothing here.
+  if writing_to_a_closed_pipe(probe) == 0 then return end
   assert(process.ignore_sigpipe())
   local ended = writing_to_a_closed_pipe(probe)
   assert(ended == sys.SIGPIPE, "ended by " .. tostring(ended))

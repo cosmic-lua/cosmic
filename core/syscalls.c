@@ -1942,7 +1942,10 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
    * program a relative path names and still answer ENOENT, so the path
    * is made absolute first, from where the child resolves it. One longer
    * than PATH_MAX that way is refused, ENAMETOOLONG, though its parts
-   * fit. */
+   * fit; and with a relative directory too, one whose start getcwd
+   * cannot name (a directory removed, or one past PATH_MAX) is refused
+   * with getcwd's errno, where a child that changed directory first
+   * could have run it. */
   const char *path = plan->path;
   char absolute[PATH_MAX];
   if (plan->cwd != NULL && path[0] != '/') {
@@ -1988,10 +1991,16 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       failure = posix_spawnattr_setflags(&attributes, (short)flags);
       if (!failure) failure = posix_spawnattr_setsigmask(&attributes, &plan->mask);
       if (!failure) failure = posix_spawnattr_setsigdefault(&attributes, &defaults);
+      /* TODO: posix_spawn_file_actions_addchdir, which macOS 26 adds and
+       * deprecates this for, once the build's macOS deployment target
+       * is 26 or later. */
       if (!failure && plan->cwd != NULL)
         failure = posix_spawn_file_actions_addchdir_np(&actions, plan->cwd);
       for (int t = 0; !failure && t <= top; t++) {
         if (pinned[t] >= 0) {
+          /* Apple's libc refuses a copy at OPEN_MAX (10240) or past it,
+           * EBADF: one lands there only where every number from `top` + 2
+           * to it is open, under a soft limit set past 10240. */
           failure = posix_spawn_file_actions_adddup2(&actions, pinned[t], t);
         } else if (t < 3) {
           if (fcntl(t, F_GETFD) >= 0) failure = posix_spawn_file_actions_addinherit_np(&actions, t);
@@ -2003,13 +2012,17 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
        * thread opens nothing. The kernel's dup2 refuses a target at or
        * past the child's limit, so where the user's is no higher than
        * `top` the child's is `top` + 1, the least that holds what it is
-       * handed. */
+       * handed -- and a child that is this program records that as the
+       * limit it started with, which its own host programs get, not the
+       * user's: the user's would refuse it the descriptor it is handed.
+       * A raise back that is refused leaves this process at the lowered
+       * limit, which its children then get as it is. */
       if (!failure) {
         struct rlimit raised;
         bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 &&
                        restore_descriptor_limit((rlim_t)top + 1);
         failure = posix_spawn(&pid, path, &actions, &attributes, plan->argv, plan->envp);
-        if (lowered) setrlimit(RLIMIT_NOFILE, &raised);
+        if (lowered && setrlimit(RLIMIT_NOFILE, &raised) != 0) descriptor_limit_raised = false;
       }
       posix_spawnattr_destroy(&attributes);
     }
@@ -2492,11 +2505,15 @@ COSMIC_SYSCALL(spawn, 10) {
    * above its own (the pinned and confining ones -- on Darwin this
    * process copies the pinned ones -- and [`raise_descriptor`]'s), go
    * to `top` + 2 and up -- 257 and up for a relaunch, which hands the
-   * child 255 (cosmic/proc.tl's CORE_FD) -- which F_DUPFD refuses past RLIMIT_NOFILE's soft limit: EINVAL at it,
-   * EMFILE just under it; SPAWN_PLACED_ABOVE (core/process.h) counts
-   * them. A start raises that limit past macOS's default of 256
+   * child 255 (cosmic/proc.tl's CORE_FD) -- which F_DUPFD refuses past
+   * RLIMIT_NOFILE's soft limit: EINVAL at it, EMFILE just under it;
+   * SPAWN_PLACED_ABOVE (core/process.h) counts them. A start raises
+   * that limit past macOS's default of 256
    * ([`cosmic_raise_descriptor_limit`]); a hard limit that low still
-   * refuses a relaunch, which cosmic.child's `start` says. */
+   * refuses a relaunch, which cosmic.child's `start` says. Darwin's
+   * start never writes the pipe ([`spawn_program`]), whose read ends at
+   * once there; it is made all the same, so a start meets the limit
+   * where it does on Linux and the count holds on both. */
   int promote_error = 0;
   int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
   if (status_read < 0) promote_error = errno;
