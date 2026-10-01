@@ -12,7 +12,8 @@ local contracts = require("build.contracts")
 local receivers = require("build.receivers")
 local bind = require("build.bind")
 local type compiler = require("build.compiler")
-local type Module = require("build.module")
+local type module = require("build.module")
+local type Module = module.Plan
 
 local record compilation
   Module: Module

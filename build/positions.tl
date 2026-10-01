@@ -14,7 +14,8 @@
 --- whole-plan gate, outside the identity of a cached compile.
 
 local Fs = require("cosmic.fs")
-local type Module = require("build.module")
+local type module = require("build.module")
+local type Module = module.Plan
 
 local record positions
   Module: Module
