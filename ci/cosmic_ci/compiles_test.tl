@@ -154,3 +154,60 @@ local function test_the_command_names_the_rows_it_keeps_by_a_digest(tmp: string)
   assert(digests[1] == digests[2], "the same compiles named two digests")
   assert(digests[1] ~= digests[3], "another compile named the same digest")
 end
+
+--- Given a copy of what the leg restored, the command also names how
+--- many of the compiles it keeps that copy lacks (`fresh`), what a
+--- branch's save turns on, and removes the copy, which no save carries:
+--- a compile restored and used again is not fresh, one made since is.
+local function test_the_command_counts_the_compiles_not_restored(tmp: string)
+  local path = tmp .. "/cache.db"
+  local restored = tmp .. "/restored.db"
+  -- Restored k1 and k2; the run used k2 again, and made k3 and k4.
+  cache(restored, { 999, 999 })
+  cache(path, { 999, 1001, 1002, 1003 })
+  local code, out, err = Compiles.command({ "1000", restored },
+    { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
+  assert(code == 0 and err == unstamped(path), err)
+  assert(out:find("2 compiles not in what was restored", 1, true) ~= nil, out)
+  local output = assert(Fs.read(tmp .. "/output"))
+  assert(output:match("\nfresh=2\n$") ~= nil, output)
+  assert(Fs.stat(restored) == nil, "the copy of what was restored is still there")
+  -- Nothing restored: every compile kept is fresh, the fixture's table
+  -- of another shape's too.
+  local again = tmp .. "/again.db"
+  cache(again, { 1001, 1002 })
+  assert(Fs.write(tmp .. "/output", ""))
+  code, out, err = Compiles.command({ "1000", restored },
+    { COSMIC_BUILD_CACHE = again, GITHUB_OUTPUT = tmp .. "/output" })
+  assert(code == 0 and (assert(Fs.read(tmp .. "/output"))):match("\nfresh=3\n$") ~= nil, out .. err)
+end
+
+--- Fresh compiles are counted against the restored table of the same
+--- format alone: a restored table of another format holds no compile
+--- this one's builds could take.
+local function test_fresh_compiles_are_counted_by_format(tmp: string)
+  local path = tmp .. "/cache.db"
+  local restored = tmp .. "/restored.db"
+  local db = assert(Sqlite.open(restored, true))
+  assert(db:exec("CREATE TABLE compiled_v1 (key TEXT PRIMARY KEY); INSERT INTO compiled_v1 VALUES ('k1')"))
+  assert(db:close())
+  cache(path, { 1001 })
+  -- compiled_v2's k1, and compiled_v9's `other`, which no restored
+  -- table of its name holds.
+  assert(Compiles.fresh(path, restored) == 2)
+  assert(Compiles.fresh(path, tmp .. "/absent.db") == 2)
+end
+
+--- A RESTORED that is no absolute path is refused, as a SINCE that is
+--- no count of seconds is; where there is no cache to trim, the copy
+--- still goes.
+local function test_the_command_takes_restored_as_an_absolute_path(tmp: string)
+  local code, _, err = Compiles.command({ "5", "restored.db" }, { COSMIC_BUILD_CACHE = tmp .. "/cache.db" })
+  assert(code == 2 and err:find("RESTORED", 1, true) ~= nil, err)
+  local restored = tmp .. "/restored.db"
+  cache(restored, { 1 })
+  local out: string
+  code, out, err = Compiles.command({ "5", restored }, { COSMIC_BUILD_CACHE = tmp .. "/cache.db" })
+  assert(code == 0 and err == "" and out:find("nothing to trim", 1, true) ~= nil, out .. err)
+  assert(Fs.stat(restored) == nil, "the copy of what was restored is still there")
+end
