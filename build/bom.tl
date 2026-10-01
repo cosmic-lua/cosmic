@@ -12,7 +12,7 @@
 ---
 --- `notice` repeats, and every key but `notice` is read once, the first
 --- line naming it winning, as [`bin/vendor`] reads its own. A PIN is part
---- of what the core is built from ([`work.record_fingerprint`]'s image
+--- of what the core is built from ([`build.identity.record_fingerprint`]'s image
 --- hash), so correcting one of these lines reboots the core as a
 --- version bump does. What cosmic's build links in without vendoring it
 --- -- zig's own runtime, and the musl libc the Linux cores are static

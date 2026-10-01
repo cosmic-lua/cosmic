@@ -16,6 +16,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local identity = require("build.identity")
 local type importer = require("build.importer")
 local bom = require("build.bom")
 local link_index = require("build.link_index")
@@ -374,13 +375,13 @@ end
 --- `writer` it carries or, when it carries none, its whole boot hash, so
 --- a tool it rebuilt is never taken for one the tree's writer wrote
 --- ([`build.reboot`]).
-local function running(handle: work.Handle, identities: work.Identities,
+local function running(handle: work.Handle, identities: identity.Identities,
                        tree_code: boolean): string | nil, string
   local boot_hash = Store.meta("boot_hash")
   if boot_hash == nil or tree_code then
     return identities.writer
   end
-  local tree_hash, trouble = work.recorded_boot_hash(handle)
+  local tree_hash, trouble = identity.recorded_boot_hash(handle.db)
   if tree_hash == nil and trouble ~= "" then
     return nil, trouble
   end
@@ -405,7 +406,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if not committed then
     return false, commit_trouble
   end
-  local identities, identity_trouble = work.record_identities(handle)
+  local identities, identity_trouble = identity.record_identities(handle.db)
   if identities == nil then
     return false, identity_trouble
   end

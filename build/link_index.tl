@@ -129,7 +129,7 @@ link_index.none = {
 
 --- The standard library of the binary running this build: its own
 --- database, named by its `boot_hash`, which is over every file of the
---- tree it was built from ([`work.record_fingerprint`]), each source whose
+--- tree it was built from ([`build.identity.record_fingerprint`]), each source whose
 --- docs it carries and the analyzer that read them included. A binary
 --- with none carries no database, and no docs. What the store refuses
 --- (a test that does not declare `store`) is said as the library's.

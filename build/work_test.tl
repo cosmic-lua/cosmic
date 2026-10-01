@@ -4,6 +4,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
+local identity = require("build.identity")
 local work = require("build.work")
 
 local function count(db: Sqlite.Handle, table_name: string): integer
@@ -239,30 +240,12 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   assert(older:close())
 end
 
---- The compiler is one row, whatever file an older build named it by:
---- putting one replaces a row left under `o/vendor/tl/tl.lua`, so no
---- working database holds two.
-local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/root"))
-  local handle = assert(work.open(tmp .. "/root"))
-  assert(Sqlite.run(handle.db,
-    "INSERT INTO derived (file, path, kind, origin, from_hash, source, " ..
-    "source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', 'vendor', " ..
-    "'vendor', 'old', 'return {}', 'old')", {}))
-  assert(work.put_compiler(handle, "return { new = true }"))
-  local rows = assert(Sqlite.text_rows(handle.db,
-    "SELECT file, source FROM derived WHERE origin = 'vendor'"))
-  assert(#rows == 1 and rows[1][2] == "return { new = true }",
-    "the compiler is one row: " .. tostring(#rows))
-  assert(work.close(handle))
-end
-
 --- Stages a tree laid out as cosmic's own and answers its `boot`
 --- fingerprint.
 local function boot_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(work.record_fingerprint(handle))
+  local fingerprint = assert(identity.record_fingerprint(handle.db))
   assert(work.close(handle))
   return fingerprint.boot
 end

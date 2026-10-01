@@ -8,9 +8,11 @@
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
 local Time = require("cosmic.time")
+local identity = require("build.identity")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
 local compiler = require("build.compiler")
+local derivation = require("build.derivation")
 local importer = require("build.importer")
 local plural = require("build.plural")
 local shared_compiles = require("build.shared_compiles")
@@ -137,13 +139,13 @@ local function boot(root: string, argv: {integer:string},
     log:verdict("boot", false, stage_trouble)
     return 1
   end
-  local fingerprint, print_trouble = work.record_fingerprint(handle)
+  local fingerprint, print_trouble = identity.record_fingerprint(handle.db)
   if fingerprint == nil then
     local _, _ = work.close(handle)
     log:verdict("boot", false, print_trouble)
     return 1
   end
-  local kept, keep_trouble = work.put_compiler(handle, compiler_source)
+  local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
   if not kept then
     local _, _ = work.close(handle)
     log:verdict("boot", false, keep_trouble)
@@ -169,9 +171,9 @@ local function boot(root: string, argv: {integer:string},
   -- fresh working database and keys exactly as a warm build does.
   local shared = shared_compiles.for_build()
   local derived, derive_trouble = importer.derive(handle, true, compiler, shared)
-  local identities, identity_trouble: work.Identities, string = nil, derive_trouble
+  local identities, identity_trouble: identity.Identities, string = nil, derive_trouble
   if derived ~= nil then
-    identities, identity_trouble = work.record_identities(handle)
+    identities, identity_trouble = identity.record_identities(handle.db)
   end
   if derived == nil or identities == nil then
     -- `compile` finishes the cache; here nothing will.

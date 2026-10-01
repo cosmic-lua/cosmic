@@ -1180,7 +1180,7 @@ local record Recording
   views: {string:{string:string}}
   --- What keys each verdict ([`build.declared_key`]): the
   --- digests of the tree's files the run has taken, and the compiler's
-  --- identity ([`build.work`]'s `Identities`) as the running tool's `meta`
+  --- identity ([`build.identity`]'s `Identities`) as the running tool's `meta`
   --- names it, `compiler` and then `compiled_by`, which a key holds
   --- only where its closure reads it ([`declared_key.reads_compiler`]).
   digests: declared_key.Digests

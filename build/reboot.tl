@@ -24,7 +24,9 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local identity = require("build.identity")
 local artifact = require("build.artifact")
+local derivation = require("build.derivation")
 local importer = require("build.importer")
 local rebuild_lock = require("build.rebuild_lock")
 local shared_compiles = require("build.shared_compiles")
@@ -52,7 +54,7 @@ local marker = "COSMIC_REBOOTED"
 
 --- Whether the running binary's database was compiled or written by
 --- code other than the compiler and writer it carries
---- ([`work.Identities`]). A rebuild uses the stale tool's compiler and
+--- ([`identity.Identities`]). A rebuild uses the stale tool's compiler and
 --- writer, so the rebuilt tool compiles and writes its database once
 --- more itself; then it matches what a boot writes. A database that
 --- records neither identity is unsettled too.
@@ -134,7 +136,7 @@ end
 
 --- Compares the tree's fingerprints with the running binary's.
 local function state_of(handle: work.Handle): reboot.State | nil, string
-  local fingerprint, trouble = work.record_fingerprint(handle)
+  local fingerprint, trouble = identity.record_fingerprint(handle.db)
   if fingerprint == nil then
     return nil, trouble
   end
@@ -222,7 +224,7 @@ local function into(handle: work.Handle, built: compiler,
   if compiler_source == nil then
     return closing(handle, "the compiler source is not in this binary: " .. compiler_trouble)
   end
-  local kept, keep_trouble = work.put_compiler(handle, compiler_source)
+  local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
   if not kept then
     return closing(handle, keep_trouble)
   end
@@ -244,9 +246,9 @@ local function into(handle: work.Handle, built: compiler,
   -- whatever this compiler compiled (`unsettled`).
   local shared = shared_compiles.for_build()
   local derived, derive_trouble = importer.derive(handle, true, built, shared)
-  local identities, identity_trouble: work.Identities, string = nil, derive_trouble
+  local identities, identity_trouble: identity.Identities, string = nil, derive_trouble
   if derived ~= nil then
-    identities, identity_trouble = work.record_identities(handle)
+    identities, identity_trouble = identity.record_identities(handle.db)
   end
   if identities == nil then
     -- `compile` finishes the cache; here nothing will.
@@ -254,7 +256,7 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, identity_trouble)
   end
   -- A tool settling that carries the tree's code ([`carries_tree_code`])
-  -- keys by the compiler identity its own [`work.compiler_identity`]
+  -- keys by the compiler identity its own [`identity.compiler_identity`]
   -- computes, which is what the tool it writes carries. The identity it
   -- carries was taken by the tool that wrote it, by that tool's code;
   -- where the two define the identity apart, keying by the carried one
@@ -266,7 +268,7 @@ local function into(handle: work.Handle, built: compiler,
   local tool = Store.meta("compiler") or ""
   local tree_code = false
   if settle then
-    local recorded, _ = work.recorded_boot_hash(handle)
+    local recorded, _ = identity.recorded_boot_hash(handle.db)
     tree_code = (recorded ~= nil and recorded == Store.meta("boot_hash")) or
       reboot.carries_tree_code(handle)
     if tree_code then
@@ -585,9 +587,9 @@ function reboot.guard(handle: work.Handle, root: string,
   end
   -- state == "teal"
   -- A rebuild records the tree's fingerprint by the rebuilding tool's
-  -- own build.work, so when the tree moved what that fingerprint covers
+  -- own build.identity, so when the tree moved what that fingerprint covers
   -- (`is_tool`, `record_fingerprint`) the tool it wrote is stale by its
-  -- own code. build.work is in the writer's identity (`writer_roots`),
+  -- own code. build.identity is in the writer's identity (`writer_roots`),
   -- so that tool is `unsettled` too: it builds itself again, once, as a
   -- fresh unsettled tool does, keyed and signed by what its own code,
   -- which is the tree's ([`carries_tree_code`]), takes of the tree, rather
@@ -628,7 +630,7 @@ end
 --- edits that known file and so moves its own stat; a row whose file
 --- is gone fails its stat, counted as moved rather than told apart
 --- from an edit. When nothing moved, the `boot_hash` that same last
---- stage recorded into `meta` ([`work.recorded_boot_hash`]) still
+--- stage recorded into `meta` ([`identity.recorded_boot_hash`]) still
 --- describes `tool` exactly, so it is read back rather than
 --- recomputed. Only when something did move, or the database has no
 --- recorded `boot_hash` yet (a fresh `o/`, or one nothing has staged
@@ -666,7 +668,7 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
   end
   local fresh = false
   if not moved then
-    local recorded, recorded_trouble = work.recorded_boot_hash(handle)
+    local recorded, recorded_trouble = identity.recorded_boot_hash(handle.db)
     if recorded == nil and recorded_trouble ~= "" then
       log:complain(closing(handle, recorded_trouble))
       return 1

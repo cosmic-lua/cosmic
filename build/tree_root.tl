@@ -64,7 +64,7 @@ end
 -- since -- which is now a root of its own: `cosmic fix` there fails
 -- `../x.tl` as outside the project and writes an `o/` there. The fix is
 -- for the build to record the directories it walked, less the trees of
--- their own within it (`ci/`, [`work.is_foreign_tree`]), and to climb
+-- their own within it (`ci/`, [`build.identity.is_foreign_tree`]), and to climb
 -- on that record.
 local function staged(root: string, path: string): boolean | nil, string
   local file = root .. "/o/build.db"

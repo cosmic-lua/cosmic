@@ -19,7 +19,7 @@
 --- - `module.name.Record`, a record the module `module.name` reaches the
 ---   checker through, which the calling module must `require` at its top
 ---   level (`local Fs = require("cosmic.fs")`), so the compile is keyed by
----   it ([`build.importer`]'s `dependency_keys`).
+---   it ([`build.compilation`]'s `dependency_keys`).
 ---
 --- What a record may hold is what [`cosmic.shape`] can check: strings,
 --- integers, numbers, booleans and `any`; arrays and string-keyed maps of
@@ -36,10 +36,8 @@ local receivers = require("build.receivers")
 -- [`Shape.record_of`] (its checker answers the result as `T (unresolved
 -- generic)`). build/patch.tl's comment moves the image fingerprint once, so
 -- that stale tool boots; teach build/reboot.tl to boot when a teal rebuild's
--- compile fails and the compiler identity ([`work.compiler_modules`]) moved,
--- rather than on every edit to build/importer.tl, most of which change
--- nothing a compile stores (see work.tl's TODO on `compiler_roots`), and
--- then drop that comment.
+-- compile fails and the compiler identity ([`build.identity.compiler_modules`])
+-- moved, then drop that comment.
 
 local record shape_specs
 end

@@ -559,7 +559,7 @@ when the C core's inputs differ, only zig can build it, so the tool
 runs `bin/zig build boot` and re-enters the command, or, under
 `COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries
 two identities: the compiler it is, over the build's own modules a compile or a parse runs to
-decide what it stores ([`build.work`]'s `compiler_identity`), among
+decide what it stores ([`build.identity`]'s `compiler_identity`), among
 them build.teal, which names the globals the checker is stripped of,
 and the Teal compiler's and Lua's pins and patches, which every module key
 carries; and the runtime it is, over its host image and the same
@@ -1051,7 +1051,7 @@ in [roadmap.md](roadmap.md).
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
-[`build.work`]: ../build/work.tl
+[`build.identity`]: ../build/identity.tl
 [`build/bom.tl`]: ../build/bom.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl

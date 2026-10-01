@@ -62,13 +62,13 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
-allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
+allowed["build.identity.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
   "in the compiler's identity or left out of it with a reason"
-allowed["build.work.writer_modules"] = "what build/importer_test.tl holds the tree to, " ..
+allowed["build.identity.writer_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: what build.writer reaches is in the " ..
   "writer's identity, the compiler's, or neither with a reason"
-allowed["build.work.writer_left_out"] = "what build/importer_test.tl holds to the " ..
+allowed["build.identity.writer_left_out"] = "what build/importer_test.tl holds to the " ..
   "requires of the writer's roots"
 allowed["build.reboot.carries_tree_code"] = "what build/reboot_test.tl holds to " ..
   "the modules a tree holds and the binary carries"

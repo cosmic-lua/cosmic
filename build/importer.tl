@@ -16,13 +16,14 @@
 ---
 --- A module's key is its kind, the content hash of its source, the
 --- keys of everything it imports, and the identity of the compiler
---- that compiled it -- see [`build.work`]'s `Identities`. An unchanged
+--- that compiled it -- see [`build.identity`]'s `Identities`. An unchanged
 --- key is a stat; a changed one recompiles what depended on it.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local identities = require("build.identity")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
 local receivers = require("build.receivers")
@@ -49,7 +50,7 @@ local record importer
   --- build plans, of which a declaration alone is none, sorted; and a
   --- module's source, a declaration's ahead of a module's of the same
   --- name. `compiler` is the identity of the compiler it runs beside
-  --- ([`build.work`]'s `Identities`).
+  --- ([`build.identity`]'s `Identities`).
   record Code
     compiler: string
     requires: function(string): {string} | nil, string
@@ -212,10 +213,10 @@ local analysis_tables = analysis_schema.tables
 --- tree's own code, so this is the code deriving in a boot. What a
 --- module requires is what the last parse of its source found, and the
 --- compiler's identity is taken over those finds too
---- ([`work.compiler_identity`]): before a parse, a module whose source
+--- ([`identities.compiler_identity`]): before a parse, a module whose source
 --- is new has none, but its source alone already moves the identity.
 function importer.tree_code(handle: work.Handle): importer.Code | nil, string
-  local identity, trouble = work.compiler_identity(handle)
+  local identity, trouble = identities.compiler_identity(handle.db)
   if identity == nil then
     return nil, trouble
   end
@@ -638,7 +639,7 @@ end
 --- dropped, so the tables describe this tree and nothing older.
 --- `compile` does this itself; a caller that reads the tree's
 --- identities before compiling calls it first, since the compiler
---- identity [`work.record_identities`] computes closes over `requires`,
+--- identity [`identities.record_identities`] computes closes over `requires`,
 --- and a fresh working database has none until the tree is parsed.
 --- @param self_tree whether the tree is cosmic's own, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
@@ -972,7 +973,7 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
   end
   if #rows > 1 then
     return false, "the working database holds " .. plural.count(#rows, "compiler") ..
-      "; there is only ever one (work.put_compiler)"
+      "; there is only ever one (derivation.put_compiler)"
   end
   local source = rows[1][1]
   local key = compilation.vendor_key(source, tool)
