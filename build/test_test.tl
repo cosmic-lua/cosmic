@@ -4,6 +4,7 @@
 
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
 local test = require("build.test")
 local worker = require("build.test_worker")
 
@@ -78,11 +79,11 @@ end
 --- part, up to a space: two bumps of the epoch from one count say
 --- a moved harness, as another timeout does.
 local function test_the_census_says_each_bump_of_the_epoch_apart()
-  local word = test.harness_word("8-072f7458", 30000)
-  assert(word == "e8-072f7458-t30000", word)
+  local word = test.harness_word("8-072f7458", Time.seconds(30))
+  assert(word == "e8-072f7458-t" .. Time.seconds(30), word)
   assert(word:match("^%S+$") and not word:find("[,;]"), word)
-  assert(test.harness_word("8-3f9c2a1b", 30000) ~= word, "two bumps from one count")
-  assert(test.harness_word("8-072f7458", 60000) ~= word, "another timeout")
+  assert(test.harness_word("8-3f9c2a1b", Time.seconds(30)) ~= word, "two bumps from one count")
+  assert(test.harness_word("8-072f7458", Time.seconds(60)) ~= word, "another timeout")
 end
 
 local function test_a_selector_is_printed_as_one_shell_word()

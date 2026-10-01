@@ -178,19 +178,20 @@ end
 --- release runs this: the pinned one counts them in milliseconds and
 --- seconds (`connect_timeout_ms`, `low_speed_seconds`, `timeout_ms`),
 --- the tree's in nanoseconds, and each ignores the other's fields. A
---- span is rounded up to the milliseconds, since 0 is no limit.
+--- span is rounded up to the milliseconds, or for `low_speed_ns` the
+--- seconds, since 0 is no limit.
 -- TODO: set the nanosecond fields alone, and take the Time.ms and
 -- Time.seconds spans for SECOND above, once ci/cosmic-driver.pin names
 -- a release whose Http.Options counts its limits in nanoseconds and
 -- whose cosmic.time has `seconds`.
-local function limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
+function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
     timeout_ns?: integer): Http.Options
   local options: {string:integer} = {
     connect_timeout_ns = connect_ns,
     connect_timeout_ms = (connect_ns + MS - 1) // MS,
     low_speed_bytes = low_speed_bytes,
     low_speed_ns = low_speed_ns,
-    low_speed_seconds = low_speed_ns // SECOND,
+    low_speed_seconds = (low_speed_ns + SECOND - 1) // SECOND,
   }
   if timeout_ns ~= nil then
     options.timeout_ns = timeout_ns
@@ -261,7 +262,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
         if left <= 0 then
           out_of_time = true
         else
-          local ok = attempt(url, limits(math.min(CONNECT_TIMEOUT_NS, left),
+          local ok = attempt(url, ZigFetch.limits(math.min(CONNECT_TIMEOUT_NS, left),
             MIRROR_LOW_SPEED_BYTES, MIRROR_LOW_SPEED_NS, math.min(MIRROR_TIMEOUT_NS, left)))
           if ok then
             return true, ""
@@ -278,7 +279,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
       end
     end
     if fallback ~= nil then
-      local ok = attempt(fallback, limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
+      local ok = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
         FALLBACK_LOW_SPEED_NS))
       if ok then
         return true, ""

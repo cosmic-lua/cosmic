@@ -167,7 +167,7 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
-  ["build/zig_fetch.tl:limits"] =
+  ["build/zig_fetch.tl:ZigFetch.limits"] =
     "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
     "whose Http.Options counts its limits in milliseconds and seconds " ..
     "where the tree's counts nanoseconds: no one declaration fits both, " ..

@@ -214,3 +214,17 @@ local function test_sweep_removes_a_dead_installs_scratch_but_not_a_live_one(tmp
   assert(Fs.exists(live) == true)
   assert(Fs.exists(cache .. "/0.16.0-x86_64-linux") == true)
 end
+
+--- The limits are given to both releases in the units each reads, each
+--- span rounded up so that none but 0 reads as none.
+local function test_limits_are_rounded_up_for_the_release_that_counts_in_milliseconds_and_seconds()
+  local options = ZigFetch.limits(Time.ms(1500) + 1, 1024, Time.ms(1500), Time.ms(7) + 1)
+  assert(options.connect_timeout_ns == Time.ms(1500) + 1 and options.low_speed_ns == Time.ms(1500))
+  local pinned = options as any as {string:integer}
+  assert(pinned.connect_timeout_ms == 1501, tostring(pinned.connect_timeout_ms))
+  assert(pinned.timeout_ms == 8, tostring(pinned.timeout_ms))
+  assert(pinned.low_speed_seconds == 2, tostring(pinned.low_speed_seconds))
+  assert(pinned.low_speed_bytes == 1024)
+  local brief = ZigFetch.limits(1, 1024, 1) as any as {string:integer}
+  assert(brief.connect_timeout_ms == 1 and brief.low_speed_seconds == 1 and brief.timeout_ms == nil)
+end

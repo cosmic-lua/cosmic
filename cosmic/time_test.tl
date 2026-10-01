@@ -499,6 +499,8 @@ local function test_ceil_rounds_a_span_up_to_a_count_of_the_unit()
   assert(Time.ceil(ms + 1, ms) == 2 and Time.ceil(Time.ms(7), ms) == 7)
   assert(Time.ceil(-1, ms) == 0 and Time.ceil(-ms, ms) == -1 and Time.ceil(-ms - 1, ms) == -1)
   assert(Time.ceil(math.maxinteger, ms) == math.maxinteger // ms + 1)
+  assert(Time.ceil(math.mininteger, ms) == math.mininteger // ms + 1)
+  assert(Time.ceil(math.maxinteger, 1) == math.maxinteger and Time.ceil(math.mininteger, 1) == math.mininteger)
   assert(Time.ceil(Time.ms(1500), Time.seconds(1)) == 2)
   for _, bad in ipairs({ 0, -1 }) do
     local ok, why = pcall(Time.ceil, 1, bad)

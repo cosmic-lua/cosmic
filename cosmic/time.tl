@@ -1971,7 +1971,7 @@ end
 function Time.ceil(ns: integer, unit: integer): integer
   if math.type(ns) ~= "integer" then error("ns must be an integer", 2) end
   if math.type(unit) ~= "integer" or unit < 1 then error("unit must be an integer above 0", 2) end
-  return -(-ns // unit)
+  return ns // unit + (ns % unit ~= 0 and 1 or 0)
 end
 
 return Time
