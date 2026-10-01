@@ -174,6 +174,13 @@ local MIN_S <const> = math.mininteger // NS
 local MIN_NS <const> = math.mininteger % NS
 local MAX_S <const> = math.maxinteger // NS
 local MAX_NS <const> = math.maxinteger % NS
+-- TODO: the returned failures of this module -- this range's, the
+-- parsers' and the TZif reader's ("expected \"Z\" or an offset at byte 4")
+-- -- name no module, where cosmic.zip, cosmic.csv and the rest answer `nil,
+-- "zip: ..."` through one local `refuse(why)`. Route the roughly 70
+-- `return nil, ...` sites through one here (the zone cache's own `refuse`
+-- in [`zone_of`] is another thing: rename it), and update the messages
+-- cosmic/time_test.tl, time_zone_test.tl and build/time_test.tl pin.
 local RANGE <const> = "outside 1677-09-21T00:12:43.145224192Z through " ..
   "2262-04-11T23:47:16.854775807Z, what an integer of nanoseconds holds"
 
@@ -225,6 +232,16 @@ local function outside(name: string, value: integer, lo: integer, hi: integer): 
     return ("%s %d is not %d through %d"):format(name, value, lo, hi)
   end
   return nil
+end
+
+--- Raises, blaming the caller of the public function that calls this, for
+--- a field `name` whose `value` is no integer: a float such as 2026.0, or
+--- an absent field.
+local function integral(name: string, value: any)
+  if math.type(value) ~= "integer" then
+    error(("time: %s is not an integer: %s %s"):format(name, math.type(value) or type(value),
+      tostring(value)), 3)
+  end
 end
 
 --- The seconds the fields of `c` name on the UTC calendar, or nil and
@@ -949,7 +966,7 @@ local NOT_ZONES <const>: {string:boolean} = { localtime = true, posixrules = tru
 --- `localtime` (on Debian a link to /etc/localtime, the host's zone),
 --- `posixrules`, or a zone under `posix/` or `right/`.
 local function name_problem(name: string): string
-  if name == "" then return "a zone name is not empty" end
+  if name == "" then return "the zone name is empty" end
   if #name > 255 then return ("a zone name is at most 255 bytes, not %d"):format(#name) end
   local bad = name:find("[^A-Za-z0-9_+./%-]")
   if bad ~= nil then
@@ -1011,16 +1028,9 @@ local carried_names: {string:boolean} = nil
 local NEWER_ZONES <const> = "if the zone is new, `cosmic refresh tzdata --binary <this program> " ..
   "-o <copy>` writes a copy with a newer tz database"
 
---- IANA's zone `name`, as "America/New_York" or "UTC", from the copy of
---- the tz database the binary carries. The host's zone files are never
---- read, so a name gives the same rules on every host, whatever tz
---- release it has or whether it has one at all. Nil and why when
---- `name` is no zone name (empty, absolute, with a `..` part, or with a
---- character other than letters, digits and `_+-./`) or the binary
---- carries no such zone. A zone is read once a process and the same
---- [`Zone`] answered from then on, and a name found to be no zone is not
---- looked for again.
-function Time.zone(name: string): Time.Zone | nil, string
+--- The zone `name` names, as [`Time.zone`] answers for a name that is not
+--- empty.
+local function zone_of(name: string): Time.Zone | nil, string
   local problem = name_problem(name)
   if problem ~= nil then return nil, problem end
   local cached = zones[name]
@@ -1056,6 +1066,20 @@ function Time.zone(name: string): Time.Zone | nil, string
   local zone = make_zone(name, rules)
   zones[name] = zone
   return zone, ""
+end
+
+--- IANA's zone `name`, as "America/New_York" or "UTC", from the copy of
+--- the tz database the binary carries. The host's zone files are never
+--- read, so a name gives the same rules on every host, whatever tz
+--- release it has or whether it has one at all. Nil and why when
+--- `name` is no zone name (absolute, with a `..` part, or with a
+--- character other than letters, digits and `_+-./`) or the binary
+--- carries no such zone. An empty `name` raises. A zone is read once a
+--- process and the same [`Zone`] answered from then on, and a name found
+--- to be no zone is not looked for again.
+function Time.zone(name: string): Time.Zone | nil, string
+  if name == "" then error("time: the zone name is empty", 2) end
+  return zone_of(name)
 end
 
 --- The zone TZif bytes (RFC 8536) describe, named `name`, or nil and
@@ -1124,7 +1148,7 @@ end
 local function host_zone(localtime: string, timezone: string): Time.Zone
   local function carried(name: string): Time.Zone
     if name == nil then return nil end
-    local zone, _ = Time.zone(name)
+    local zone, _ = zone_of(name)
     return zone
   end
   return carried(linked_name(localtime)) or carried(written_name(timezone)) or Time.UTC
@@ -1206,13 +1230,13 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
         "or by where it links"):format(tz)
     end
     local why: string
-    zone, why = Time.zone(name)
+    zone, why = zone_of(name)
     if zone == nil then return nil, ("TZ=%s: %s"):format(tz, why) end
   else
     local name = tz_name(tz)
     local zone_name = name_problem(name) == nil
     if zone_name then
-      local named, _ = Time.zone(name)
+      local named, _ = zone_of(name)
       zone = named
     end
     if zone == nil then
@@ -1305,10 +1329,10 @@ end
 
 --- The nanoseconds `c` names on the calendar of `zone`, UTC's by
 --- default, or nil and which field is out of its range (month 13,
---- February 30, hour 24) or not an integer (a float such as 2026.0
---- included), or that the moment is outside what an integer holds.
---- Nothing is normalized: day 32 is refused, not carried into the next
---- month. A local time a zone skipped or passed twice is resolved as
+--- February 30, hour 24), or that the moment is outside what an integer
+--- holds. A field that is no integer (a float such as 2026.0 included,
+--- or one `c` lacks) raises. Nothing is normalized: day 32 is refused,
+--- not carried into the next month. A local time a zone skipped or passed twice is resolved as
 --- `opts.disambiguation` says, and refused by default, naming the
 --- change; passed twice, the moment whose offset is `c.offset` is taken
 --- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
@@ -1316,6 +1340,13 @@ end
 --- [`Disambiguation`]'s, or a `zone` no function here made.
 function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.AddOptions): integer | nil, string
   local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
+  integral("year", c.year)
+  integral("month", c.month)
+  integral("day", c.day)
+  integral("hour", c.hour)
+  integral("minute", c.minute)
+  integral("second", c.second)
+  integral("ns", c.ns)
   local s, why = resolve(c, zone, how)
   if s == nil then return nil, why end
   return instant(s, c.ns)
@@ -1332,14 +1363,18 @@ end
 --- Nil and why when the day the years and months reach is past its
 --- month's end and `opts.overflow` is not "clamp", when the local time
 --- reached is in a gap or a fold the disambiguation refuses, when a
---- field is not an integer or is past its bound (which only keeps the
---- arithmetic from wrapping), or when the result is outside the range.
---- Raises for an `overflow` or a `disambiguation` that is none of its
---- type's, or a `zone` no function here made.
+--- field is past its bound (which only keeps the arithmetic from
+--- wrapping), or when the result is outside the range. Raises for a
+--- field that is no integer, an `overflow` or a `disambiguation` that is
+--- none of its type's, or a `zone` no function here made.
 function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zone,
     opts?: Time.AddOptions): integer | nil, string
   local years, months, days = duration.years or 0, duration.months or 0, duration.days or 0
   local exact = duration.ns or 0
+  integral("years", years)
+  integral("months", months)
+  integral("days", days)
+  integral("ns", exact)
   local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000)
     or outside("days", days, -3650000, 3650000)
     or outside("ns", exact, math.mininteger, math.maxinteger)
@@ -1613,7 +1648,7 @@ local function parse(text: string): Time.Zoned | nil, string
     else
       local problem = writable_problem(body)
       if problem ~= nil then return nil, ("suffix at byte %d: %s"):format(at, problem) end
-      local zone, zone_why = Time.zone(body)
+      local zone, zone_why = zone_of(body)
       if zone == nil then return nil, ("suffix at byte %d: %s"):format(at, zone_why) end
       if not unknown then
         local want = whole_minutes(kind_at(rules_for(zone), ns // NS).offset)
@@ -1880,7 +1915,7 @@ end
 function Time.now_ns(): integer
   local reading, trouble = sys.clock_gettime(sys.CLOCK_REALTIME)
   if reading == nil then
-    error("clock_gettime(CLOCK_REALTIME): " .. trouble, 2)
+    error("time: clock_gettime(CLOCK_REALTIME): " .. trouble, 2)
   end
   return reading
 end
@@ -1892,7 +1927,7 @@ end
 function Time.monotonic_ns(): integer
   local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if reading == nil then
-    error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2)
+    error("time: clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2)
   end
   return reading
 end
@@ -1969,8 +2004,8 @@ end
 --- nanosecond, where rounding down would answer 0, no wait at all.
 --- Raises for a `unit` below 1 or an argument that is no integer.
 function Time.ceil(ns: integer, unit: integer): integer
-  if math.type(ns) ~= "integer" then error("ns must be an integer", 2) end
-  if math.type(unit) ~= "integer" or unit < 1 then error("unit must be an integer above 0", 2) end
+  if math.type(ns) ~= "integer" then error("time: ns must be an integer", 2) end
+  if math.type(unit) ~= "integer" or unit < 1 then error("time: unit must be an integer above 0", 2) end
   return ns // unit + (ns % unit ~= 0 and 1 or 0)
 end
 

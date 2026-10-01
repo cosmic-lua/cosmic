@@ -30,8 +30,9 @@
 ---     if err ~= "" then error(err) end
 ---
 --- Every fallible function answers `value, ""` on success and
---- `nil, message` on failure, so test the message, not the value: a
---- document that is just `null` decodes to nil with an empty message.
+--- `nil, message` on failure, the message opening `json: `, so test the
+--- message, not the value: a document that is just `null` decodes to nil
+--- with an empty message.
 ---
 --- A number decodes to an integer when it is written as one and fits
 --- in 64 bits, and to a float otherwise, so `9007199254740993` survives
@@ -156,13 +157,21 @@ Json.null = raw.null
 Json.default_depth = raw.default_depth
 Json.depth_limit = raw.depth_limit
 
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "json: " .. why
+end
+
 --- `raw.decode` of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
                            null_value?: any): any | nil, string
   if null_value == nil then null_value = opts.null_value end
-  return raw.decode(text, null_value, opts.max_depth, opts.json5,
+  local value, err = raw.decode(text, null_value, opts.max_depth, opts.json5,
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments)
+  if err ~= "" then return refuse(err) end
+  return value, ""
 end
 
 --- Parses JSON text into the value it holds, and "". nil and a message,
@@ -172,7 +181,9 @@ end
 --- [`decode_object`] or [`decode_array`], which check the outermost one.
 function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
-    return raw.decode(text)
+    local value, err = raw.decode(text)
+    if err ~= "" then return refuse(err) end
+    return value, ""
   end
   return decode_with(text, opts)
 end
@@ -198,7 +209,7 @@ function Json.decode_object(text: string, opts?: Json.DecodeOptions): {string: a
   if value is {string: any} and not raw.is_array(value) then
     return value, ""
   end
-  return nil, "expected a JSON object, got " .. kind(value)
+  return refuse("expected a JSON object, got " .. kind(value))
 end
 
 --- The array `text` holds, as a list, and "". nil and a message when
@@ -211,7 +222,7 @@ function Json.decode_array(text: string, opts?: Json.DecodeOptions): {any} | nil
   if value is {any} and raw.is_array(value) then
     return value, ""
   end
-  return nil, "expected a JSON array, got " .. kind(value)
+  return refuse("expected a JSON array, got " .. kind(value))
 end
 
 --- Serializes `value` as JSON text, and "". nil and a message when it
@@ -219,13 +230,18 @@ end
 --- a string that is not UTF-8, a table whose keys are neither all strings
 --- nor all integers from 1 up, an array with a hole, or nesting past
 --- `max_depth`. The message says where, as a path from the value:
---- `cannot encode a function at $.users[3].name`, with array indices
+--- `json: cannot encode a function at $.users[3].name`, with array indices
 --- counted from 1 as Lua counts them. nil encodes as `null`.
 function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, string
+  local text: string
+  local err: string
   if opts == nil then
-    return raw.encode(value)
+    text, err = raw.encode(value)
+  else
+    text, err = raw.encode(value, opts.pretty, nil, nil, opts.max_depth)
   end
-  return raw.encode(value, opts.pretty, nil, nil, opts.max_depth)
+  if text == nil then return refuse(err) end
+  return text, ""
 end
 
 --- The values of JSON Lines text (NDJSON): one JSON value to a line,

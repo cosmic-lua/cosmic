@@ -273,14 +273,14 @@ end
 function Test.needs(needs: Test.Needs)
   local trouble = trouble_of(needs)
   if trouble ~= "" then
-    error("cosmic.test: needs " .. trouble, 2)
+    error("test: needs " .. trouble, 2)
   end
   local installed = runner_in(Test)
   if installed ~= nil and installed.loaded == true then
-    error("cosmic.test: needs is called at the top of a test module, while it loads", 2)
+    error("test: needs is called at the top of a test module, while it loads", 2)
   end
   if called_at ~= nil then
-    error("cosmic.test: needs is called once, and " .. called_at .. " called it already; " ..
+    error("test: needs is called once, and " .. called_at .. " called it already; " ..
       "a test module never requires another that calls it", 2)
   end
   called_at = caller()
@@ -312,17 +312,16 @@ end
 --- user namespaces or Landlock off Linux -- there is nothing to check,
 --- and it returns silently, a pass that stands, since the key's kernel
 --- part names the platform. Nor does a test skip for a host tool or
---- artifact it lacks. Raises for a reason that is not a non-empty string and,
+--- artifact it lacks. Raises for a reason that is not a string or is empty and,
 --- under a runner, for a call as the module loads rather than from a
 --- test. Outside a runner it does nothing.
 function Test.skip(reason: string)
-  if not (reason is string) or reason == "" then
-    error("cosmic.test: skip takes a reason, a non-empty string", 2)
-  end
+  if not (reason is string) then error("test: skip's reason is not a string", 2) end
+  if reason == "" then error("test: skip's reason is empty", 2) end
   local installed = runner_in(Test)
   if installed == nil then return end
   if installed.loaded ~= true then
-    error("cosmic.test: skip is called from a test as it runs, not as its module loads", 2)
+    error("test: skip is called from a test as it runs, not as its module loads", 2)
   end
   local skipped = installed.skipped
   if skipped is function(string) then skipped(reason) end

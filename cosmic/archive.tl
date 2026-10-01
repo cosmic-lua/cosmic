@@ -12,6 +12,12 @@ local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local String = require("cosmic.string")
 
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "archive: " .. why
+end
+
 local record Archive
   --- One entry of an archive, whichever format it came from: the
   --- [`Stream.ArchiveEntry`] that tar's and zip's entries are. Teal's
@@ -131,7 +137,7 @@ local function open_tar(kind: string, source: Stream.Reader, label: string):
   end
   if codec == nil then
     local _, _ = source:close()
-    return nil, "archive: " .. label .. ": " .. ctrouble
+    return refuse(label .. ": " .. ctrouble)
   end
   local transformed = Stream.transform(source, codec)
   return draining(Tar.reader(transformed), transformed), ""
@@ -149,7 +155,7 @@ function Archive.open(path: string): Archive.Reader | nil, string
   local kind = detect(head)
   if kind == "zip" then return Zip.open(path) end
   if kind == "unknown" then
-    return nil, "archive: " .. path .. ": not a recognized archive format"
+    return refuse(path .. ": not a recognized archive format")
   end
   local raw, otrouble = Stream.open(path)
   if raw == nil then return nil, otrouble end
@@ -167,22 +173,22 @@ function Archive.open_stream(source: Stream.Reader): Archive.Reader | nil, strin
   local head, trouble = Stream.read_up_to(source, 262)
   if head == nil then
     local _, _ = source:close()
-    return nil, "archive: " .. trouble
+    return refuse(trouble)
   end
   local kind = detect(head)
   if kind == "zip" then
     local _, _ = source:close()
-    return nil, "archive: a zip cannot be read from a stream; write it to a file and open that"
+    return refuse("a zip cannot be read from a stream; write it to a file and open that")
   end
   if kind == "unknown" then
     local _, _ = source:close()
-    return nil, "archive: not a recognized archive format"
+    return refuse("not a recognized archive format")
   end
   return open_tar(kind, Stream.prepend(head, source), "stream")
 end
 
 local function listed_open(_e: Archive.Entry): Stream.Reader | nil, string
-  return nil, "archive: an entry from Archive.list cannot be opened; walk Archive.open instead"
+  return refuse("an entry from Archive.list cannot be opened; walk Archive.open instead")
 end
 
 --- Every entry `reader` yields, read to the end and then closed (on

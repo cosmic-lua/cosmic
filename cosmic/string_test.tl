@@ -30,7 +30,7 @@ end
 
 local function test_split_refuses_an_empty_separator()
   local ok, why = pcall(String.split, "abc", "")
-  assert(not ok and tostring(why):find("not empty", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("separator is empty", 1, true), tostring(why))
 end
 
 local function test_lines_match_split_on_newline()

@@ -777,6 +777,12 @@ end
 --- being killed, or a finalizer, no wait can yield, and they hold the
 --- thread in [`sys.poll`]: the cleanup there must finish too.
 local function end_child(self: Handle): Result | nil, string
+  -- TODO: this function's failures ("child did not reap after SIGKILL"),
+  -- and the other returned failures of this module that are its own and no
+  -- system call's ("process already reaped"), name no module, where
+  -- cosmic.zip and the rest answer `nil, "zip: ..."` through one local
+  -- `refuse(why)`; do the same here, and update the messages
+  -- cosmic/child*_test.tl pin.
   if self._result ~= nil then return self._result, "" end
   local status, trouble = exited(self)
   if status == nil and trouble ~= "" then return nil, trouble end
@@ -861,7 +867,9 @@ local function end_child(self: Handle): Result | nil, string
   return r, ""
 end
 
-local closed_message <const> = "stream: already closed"
+local closed_reader <const> = "child: the reader is closed"
+local closed_writer <const> = "child: the writer is closed"
+local EXITED <const> = "child: the child has exited"
 
 --- Why a stream's wait should stop now, beyond its own data: the open
 --- guard caught a signal, or the child could not be asked about.
@@ -882,9 +890,9 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local failed: string
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
-    if max ~= nil and max < 1 then error("stream: a read needs a max of at least 1", 2) end
+    if max ~= nil and max < 1 then error("child: a read needs a max of at least 1", 2) end
     if failed then return nil, failed end
-    if closed then return nil, closed_message end
+    if closed then return nil, closed_reader end
     while pipe.size == 0 do
       if pipe.fd == nil then return nil, "" end
       local why = interrupted(self)
@@ -935,21 +943,21 @@ local function feed_writer(self: Handle): Stream.Writer
   local closed = false
   local function room(_fd: integer, _events: integer, _left: integer | nil): boolean, string
     local why = interrupted(self)
-    if why == "" and self._status ~= nil then why = "the child has exited" end
+    if why == "" and self._status ~= nil then why = EXITED end
     if why ~= "" then return false, why end
     local _, cancelled = pump(watching({ self }, self), slice(nil, { self }), true, true)
     if cancelled ~= "" then return false, cancelled end
     -- Another task may have closed it meanwhile, by this writer's
     -- close or a settle, and its number be another file's by now.
-    if self._feed_fd ~= fd then return false, closed and closed_message or "the child has exited" end
+    if self._feed_fd ~= fd then return false, closed and closed_writer or EXITED end
     return true, ""
   end
   local into = Stream.to_fd(fd, { nonblocking = true, wait = room })
   local w: Stream.Writer = {}
   w.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed then return false, closed_message end
+    if closed then return false, closed_writer end
     -- Only a settled child's stdin is closed from under its writer.
-    if self._feed_fd ~= fd then return false, "the child has exited" end
+    if self._feed_fd ~= fd then return false, EXITED end
     return into:write(data)
   end
   w.close = function(_self: Stream.Writer): boolean, string
@@ -1030,7 +1038,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   end
 
   function h:wait(timeout_ns?: integer): Result | nil, string
-    Poll.checked_ns(timeout_ns, "timeout_ns", 2)
+    Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
     if self._result then return self._result, "" end
     if timeout_ns == nil and active == nil and not self._streams and
         not self._input_fd and not through_run() then
@@ -1127,8 +1135,8 @@ local function make_guard(): Guard
   end
 
   function g:wait(timeout_ns?: integer): integer, string
-    if not Poll.in_task() then error("g:wait waits in a task of Poll.run", 2) end
-    Poll.checked_ns(timeout_ns, "timeout_ns", 2)
+    if not Poll.in_task() then error("child: g:wait waits in a task of Poll.run", 2) end
+    Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
     local deadline: integer
     if timeout_ns ~= nil then deadline = now() + timeout_ns end
     while true do
@@ -1136,7 +1144,7 @@ local function make_guard(): Guard
       -- pipe's bytes: another task waiting on it may have drained it.
       local signal = self:take()
       if signal ~= 0 then return signal, "" end
-      if self._closed then return 0, "the guard is closed" end
+      if self._closed then return 0, "child: the guard is closed" end
       local left: integer
       if deadline ~= nil then left = math.max(deadline - now(), 0) end
       local woken, why = Poll.readable(raw.child_signal_fd(), left)
@@ -1300,13 +1308,13 @@ local function descriptor(value: integer | string, name: string, words: {string:
   if value is string and words[value] then return value end
   if value is integer and value >= 0 and value <= INT_MAX then return value end
   if name == "stdin" and value == "pipe" then
-    error("stdin = \"pipe\" was removed: use \"stream\" and write through the handle's " ..
+    error("child: stdin = \"pipe\" was removed: use \"stream\" and write through the handle's " ..
       "stdin_stream, closing it for end of file, or `input` for bytes known in advance", 4)
   end
   local allowed: {string} = {}
   for word in pairs(words) do allowed[#allowed + 1] = "'" .. word .. "'" end
   table.sort(allowed)
-  error(name .. " must be a file descriptor or one of " .. table.concat(allowed, ", "), 4)
+  error("child: " .. name .. " must be a file descriptor or one of " .. table.concat(allowed, ", "), 4)
 end
 
 local STDIN_WORDS <const> = { inherit = true, null = true, stream = true }
@@ -1317,22 +1325,22 @@ local STDERR_WORDS <const> = {
 local FD_WORDS <const> = { capture = true }
 
 local function without_nul(value: string, name: string)
-  if value:find("\0", 1, true) then error(name .. " contains a NUL byte", 4) end
+  if value:find("\0", 1, true) then error("child: " .. name .. " contains a NUL byte", 4) end
 end
 
 local function validate(argv: {string}, opts: Options)
-  if #argv == 0 then error("argv is empty", 3) end
+  if #argv == 0 then error("child: argv is empty", 3) end
   for i, value in ipairs(argv) do
-    if type(value) ~= "string" then error("argv[" .. tostring(i) .. "] must be a string", 3) end
+    if type(value) ~= "string" then error("child: argv[" .. tostring(i) .. "] must be a string", 3) end
     without_nul(value, "argv[" .. tostring(i) .. "]")
   end
   if opts.cwd ~= nil then without_nul(opts.cwd, "cwd") end
   if opts.env ~= nil then
     for name, value in pairs(opts.env) do
       if type(name) ~= "string" or name == "" or name:find("=", 1, true) then
-        error("environment name is empty, non-string, or contains '='", 3)
+        error("child: environment name is empty, non-string, or contains '='", 3)
       end
-      if type(value) ~= "string" then error("environment value must be a string", 3) end
+      if type(value) ~= "string" then error("child: environment value must be a string", 3) end
       without_nul(name, "environment name")
       without_nul(value, "environment value")
     end
@@ -1341,27 +1349,27 @@ local function validate(argv: {string}, opts: Options)
   descriptor(opts.stdout, "stdout", STDOUT_WORDS)
   descriptor(opts.stderr, "stderr", STDERR_WORDS)
   if opts.input ~= nil then
-    if type(opts.input) ~= "string" then error("input must be a string", 3) end
-    if stdin ~= "inherit" then error("input and a stdin of its own exclude each other", 3) end
+    if type(opts.input) ~= "string" then error("child: input must be a string", 3) end
+    if stdin ~= "inherit" then error("child: input and a stdin of its own exclude each other", 3) end
   end
   if opts.fds ~= nil then
     for number, value in pairs(opts.fds) do
       if not (number is integer) or number < 3 or number > 255 then
-        error("fds keys are child descriptors from 3 to 255", 3)
+        error("child: fds keys are child descriptors from 3 to 255", 3)
       end
       descriptor(value, "fds[" .. tostring(number) .. "]", FD_WORDS)
     end
   end
   if opts.capture_limit ~= nil and (opts.capture_limit < 1 or opts.capture_limit > INT_MAX) then
-    error("capture_limit is out of range", 3)
+    error("child: capture_limit is out of range", 3)
   end
-  Poll.checked_ns(opts.timeout_ns, "timeout_ns", 3)
+  Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
   if opts.sandbox ~= nil and opts.sandbox.unveil ~= nil then
     local unveil = opts.sandbox.unveil
     for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do
       for _, path in ipairs(list) do
         without_nul(path, "an unveiled path")
-        if path:sub(1, 1) ~= "/" then error("an unveiled path must be absolute", 3) end
+        if path:sub(1, 1) ~= "/" then error("child: an unveiled path must be absolute", 3) end
       end
     end
   end
@@ -1599,7 +1607,7 @@ end
 function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
   if opts.timeout_ns ~= nil then
-    error("timeout_ns is Child.run's; bound a started child with h:wait(timeout_ns)", 2)
+    error("child: timeout_ns is Child.run's; bound a started child with h:wait(timeout_ns)", 2)
   end
   validate(argv, opts)
   return start(argv, opts)
@@ -1619,8 +1627,8 @@ function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle | nil, 
   -- field beside the exit status, and answer the handle with "" here:
   -- build/test.tl reads the trouble beside the handle's result today, and
   -- build.contracts exempts this pair from the error-slot rules until then.
-  if #handles == 0 then error("no handles to wait for", 2) end
-  Poll.checked_ns(timeout_ns, "timeout_ns", 2)
+  if #handles == 0 then error("child: no handles to wait for", 2) end
+  Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   local deadline = timeout_ns ~= nil and now() + timeout_ns or nil
   while true do
     for _, h in ipairs(handles) do
@@ -1723,17 +1731,17 @@ end
 --- caller's guard caught before the run began does not end it, and one
 --- that ends it is left to the caller's guard rather than delivered.
 --- It also answers nil and why when the child cannot be started, and
---- nil and "signal guard: ..." when its guard cannot be opened. In a task
---- of [`Poll.run`] that is cancelled, it ends the child, as a timeout
---- would, and answers nil and [`Poll.CANCELLED`].
+--- nil and "child: signal guard: ..." when its guard cannot be opened.
+--- In a task of [`Poll.run`] that is cancelled, it ends the child, as a
+--- timeout would, and answers nil and [`Poll.CANCELLED`].
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}
   validate(argv, opts)
   if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
-    error("a \"stream\" is read or written while the child runs: use Child.start", 2)
+    error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
   end
   local held, guard_trouble = opened()
-  if held == nil then return nil, "signal guard: " .. guard_trouble end
+  if held == nil then return nil, "child: signal guard: " .. guard_trouble end
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.
   local guard <close>: Guard = held
@@ -1751,7 +1759,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   end
   -- Closing re-delivers a caught signal, after the cleanup above.
   local restored, restore_trouble = guard:close()
-  if not restored then return nil, "signal restore: " .. restore_trouble end
+  if not restored then return nil, "child: signal restore: " .. restore_trouble end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
     return nil, cleanup_trouble or wait_trouble or cancelled_by(cancellation)

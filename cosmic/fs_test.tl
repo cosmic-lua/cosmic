@@ -173,7 +173,7 @@ local function test_create_stages_a_file_until_it_is_closed(tmp: string)
   assert(file:close(), "a second close is harmless")
   assert(Fs.read(path) == "new")
   local again, trouble = file:write("more")
-  assert(not again and trouble == path .. ": already closed", trouble)
+  assert(not again and trouble == path .. ": the file is closed", trouble)
   local draft = assert(Fs.create(path))
   assert(draft:write("discarded"))
   assert(draft:abort() and draft:abort())
@@ -213,7 +213,7 @@ local function test_put_rejects_zero_progress(tmp: string)
   local ok, trouble = Fs.put(fd, "data")
   sys.write = real_write
   assert(Fs.close(fd))
-  assert(not ok and trouble == "write made no progress")
+  assert(not ok and trouble == "fs: write made no progress")
 end
 
 local function test_cache_dir_has_no_shared_fallback()
@@ -313,7 +313,7 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   local st = assert(sys.stat(path))
   assert(st.mtime == 4000 and st.mtime_ns == 0, st.mtime .. "." .. st.mtime_ns)
   local ok, why = pcall(Fs.set_mtime, path, 4000, 1000000000)
-  assert(not ok and tostring(why):find("#3 to 'set_mtime'", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("fs: nanoseconds are outside [0, 1e9)", 1, true), tostring(why))
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
 end
 

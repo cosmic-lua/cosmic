@@ -180,7 +180,7 @@ function Example.run()
   assert(back == string.rep("a", 10000))
   local out, why = Stream.run(assert(Compress.inflater("gzip")), packed, 100)
   print(why)
-  assert(out == nil and why == "output is larger than 100 bytes", why)
+  assert(out == nil and why == "stream: output is larger than 100 bytes", why)
   local shouting: Stream.Transform = {}
   shouting.update = function(_self: Stream.Transform, chunk: string): string, string
     return chunk:upper(), ""

@@ -75,6 +75,12 @@ end
 
 local BOM <const> = "\xEF\xBB\xBF"
 
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "csv: " .. why
+end
+
 --- The delimiter an option names. Raises, naming the caller of the
 --- reader that calls this, when it is not one byte or is a quote or a
 --- line break.
@@ -129,7 +135,7 @@ local function read(text: string, delimiter: string): Scan | nil, string
           while true do
             local quote = text:find('"', from, true)
             if quote == nil then
-              return nil, "unclosed quote opened at " .. at(line, opened - line_start + 1)
+              return refuse("unclosed quote opened at " .. at(line, opened - line_start + 1))
             end
             parts[#parts + 1] = text:sub(from, quote - 1)
             if text:byte(quote + 1) == 34 then
@@ -160,8 +166,8 @@ local function read(text: string, delimiter: string): Scan | nil, string
             pos = pos + 2
             ended, broke = true, true
           else
-            return nil, "after a closing quote, expected the delimiter or the end of the line at " ..
-              at(line, pos - line_start + 1)
+            return refuse("after a closing quote, expected the delimiter or the end of the line at " ..
+              at(line, pos - line_start + 1))
           end
         else
           local stop = text:find(class, pos)
@@ -172,7 +178,7 @@ local function read(text: string, delimiter: string): Scan | nil, string
           else
             local found = text:byte(stop)
             if found == 34 then
-              return nil, "a quote inside an unquoted field at " .. at(line, stop - line_start + 1)
+              return refuse("a quote inside an unquoted field at " .. at(line, stop - line_start + 1))
             end
             local value = text:sub(pos, stop - 1)
             if found == 10 then
@@ -283,8 +289,8 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
         record = { "" }
       end
     elseif #record ~= #names then
-      return nil, at(lines[number], 1) .. ": the record has " .. #record ..
-        (#record == 1 and " field" or " fields") .. ", the header " .. #names
+      return refuse(at(lines[number], 1) .. ": the record has " .. #record ..
+        (#record == 1 and " field" or " fields") .. ", the header " .. #names)
     end
     if #record > 0 then
       local row: {string:string} = {}

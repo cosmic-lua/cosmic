@@ -215,7 +215,7 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   local address = Net.unix(tmp .. "/s.sock")
   local function refused(spec: any, field: string)
     local ok, why = pcall(Net.serve, spec as Net.ServeSpec)
-    assert(not ok and tostring(why):find(field, 1, true) ~= nil, tostring(why))
+    assert(not ok and tostring(why):find("net: " .. field, 1, true) ~= nil, tostring(why))
   end
   refused({ serve = echo }, "spec.listeners must be")
   refused({ listeners = {}, serve = echo }, "spec.listeners must be")
@@ -240,7 +240,9 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   refused({ listeners = { address }, serve = echo, on_ready = true }, "spec.on_ready must be")
   refused({ listeners = { address }, serve = echo, grace = 10 }, "spec has no field grace")
   Poll.run(function()
-    refused({ listeners = { address }, serve = echo }, "cannot be called in a task")
+    local ok, why = pcall(Net.serve, { listeners = { address }, serve = echo } as Net.ServeSpec)
+    assert(not ok and tostring(why):find("net: serve runs a Poll.run of its own", 1, true) ~= nil,
+      tostring(why))
   end)
   assert(Fs.stat(tmp .. "/s.sock") == nil)
 end
@@ -354,7 +356,7 @@ local function test_a_killed_protocols_close_cannot_wait(tmp: string)
   })
   returned_at = Time.monotonic_ns()
   local _, _ = held.conn:close()
-  assert(wrote == "connection is closed", wrote)
+  assert(wrote == "net: the connection is closed", wrote)
   assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true),
     table.concat(errors, "\n"))
   assert(returned_at - stopped_at < Time.seconds(5), tostring(returned_at - stopped_at))
@@ -515,7 +517,7 @@ local function test_workers_is_refused_naming_the_removal(tmp: string)
         workers = workers } as Net.ServeSpec)
     end)
     local text = tostring(why)
-    assert(not ok and text:find("^cosmic%.net_serve_test:%d+: Net%.serve: spec has no field workers: ") ~= nil,
+    assert(not ok and text:find("^cosmic%.net_serve_test:%d+: net: spec has no field workers: ") ~= nil,
       text)
     assert(text:find("workers = 0 asked for and is now the default, so drop the key", 1, true) ~= nil,
       text)

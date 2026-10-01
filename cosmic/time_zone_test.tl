@@ -197,8 +197,20 @@ local function test_a_zone_made_by_hand_is_refused()
   assert(not formatted and tostring(format_err):find("not a zone", 1, true), tostring(format_err))
 end
 
+--- An empty name is no name a caller could mean: it raises, where any other
+--- name that names no zone is answered nil and why. Text that may name
+--- nothing (a TZ of `:posix/`) is refused, not raised, as every zone read
+--- from text is.
+local function test_an_empty_zone_name_raises()
+  local ok, why: boolean, any = pcall(function() local _, _ = Time.zone("") end)
+  assert(not ok and tostring(why):find("time: the zone name is empty", 1, true), tostring(why))
+  assert(tostring(why):find("time_zone_test", 1, true), "blames the caller: " .. tostring(why))
+  local from_text, local_why = Time.local_zone({ tz = ":posix/" })
+  assert(from_text == nil and local_why:find("the zone name is empty", 1, true), tostring(local_why))
+end
+
 local function test_zone_names_are_checked_before_any_file_is_read()
-  for _, name in ipairs({ "", "/etc/passwd", "../etc/passwd", "America/../../etc/passwd", "a//b",
+  for _, name in ipairs({ "/etc/passwd", "../etc/passwd", "America/../../etc/passwd", "a//b",
       "America/", ".", "./UTC", "a b", "a\0b", "America/New_York\n", "Zone;rm", ("a"):rep(256),
       "localtime", "posixrules", "posix/Europe/Berlin", "right/UTC" }) do
     local z, why = Time.zone(name)

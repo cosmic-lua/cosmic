@@ -188,7 +188,7 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
       if again == nil or not same(again, records) then return false, "not a fixed point: " .. text end
       if rows == nil then
         Fuzz.label("ragged")
-        if not rows_why:find("^line %d+, column 1: the record has ") then return false, "table said: " .. rows_why end
+        if not rows_why:find("^csv: line %d+, column 1: the record has ") then return false, "table said: " .. rows_why end
       elseif (records[1] == nil or #records[1] > 1) and #rows ~= math.max(#records - 1, 0) then
         return false, #rows .. " rows for " .. #records .. " records"
       end
@@ -238,7 +238,7 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       if kind == 3 then
         Fuzz.label("ragged")
         local rows, why = rows_of("h1,h2\n" .. text)
-        local expected = "line " .. (where + 1) .. ", column 1: the record has 3 fields, the header 2"
+        local expected = "csv: line " .. (where + 1) .. ", column 1: the record has 3 fields, the header 2"
         if rows ~= nil or why ~= expected then return false, "rows said " .. tostring(why) .. ", not " .. expected end
         local records = Csv.parse("h1,h2\n" .. text)
         if records == nil or #records ~= lines + 1 then return false, "parse refused a ragged table" end
@@ -248,10 +248,10 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       local expected: string
       if kind == 1 then
         Fuzz.label("stray")
-        expected = "a quote inside an unquoted field at line " .. where .. ", column " .. (column + 1)
+        expected = "csv: a quote inside an unquoted field at line " .. where .. ", column " .. (column + 1)
       else
         Fuzz.label("unclosed")
-        expected = "unclosed quote opened at line " .. where .. ", column " .. (#("k" .. where) + 2)
+        expected = "csv: unclosed quote opened at line " .. where .. ", column " .. (#("k" .. where) + 2)
       end
       local records, why = Csv.parse(text)
       if records ~= nil or why ~= expected then return false, "parse said " .. tostring(why) .. ", not " .. expected end

@@ -227,6 +227,13 @@ local function test_add_and_between_json()
   assert(offset:find('"epoch": 1772951400', 1, true), offset)
 end
 
+--- An empty zone name is a refusal here, not the raise Time.zone makes of one.
+local function test_an_empty_zone_is_refused_by_name()
+  local ran = run({ "now", "--zone", "" })
+  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.err:find("cosmic: time: --zone: the zone name is empty", 1, true), ran.err)
+end
+
 local function test_a_bad_zone_is_refused()
   for _, words in ipairs({
     { "now", "--zone", "Mars/Base" }, { "convert", "@0", "--to", "Nowhere" },

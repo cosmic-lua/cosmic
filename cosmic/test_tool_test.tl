@@ -31,7 +31,7 @@ local function run(tmp: string, body: string): string
     "hooks.__runner = runner",
     "local function try(f: function()): string",
     "  local ok, why = pcall(function(): string f() return \"\" end)",
-    "  return tostring(ok) .. \" \" .. (tostring(why):gsub(\"^.-cosmic%.test: \", \"\"))",
+    "  return tostring(ok) .. \" \" .. (tostring(why):gsub(\"^.-: test: \", \"\"))",
     "end",
     "return function(): integer",
     body,

@@ -17,7 +17,7 @@ end
 --- @return {string} The pieces
 function String.split(text: string, separator: string): {string}
   if separator == "" then
-    error("string: split needs a separator that is not empty", 2)
+    error("string: split's separator is empty", 2)
   end
   local pieces: {string} = {}
   local from = 1

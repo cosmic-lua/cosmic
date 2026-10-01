@@ -154,6 +154,22 @@ local function test_an_error_ends_the_run_and_closes_the_rest()
   assert(ran, "a run after a raise did not run")
 end
 
+--- A raise names its module, however the call was wrong.
+local function test_a_raise_names_the_module()
+  local raising: {function()} = {
+    function() Poll.delay(0) end,
+    function() Poll.spawn(function() end) end,
+    function() Poll.run(nil as function()) end,
+    function() Poll.shielded(nil as function()) end,
+    function() Poll.checked_ns(-1, "poll", "span", 1) end,
+    function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end,
+  }
+  for i, call in ipairs(raising) do
+    local ok, err: boolean, any = pcall(call)
+    assert(not ok and tostring(err):find(": poll: ", 1, true) ~= nil, i .. ": " .. tostring(err))
+  end
+end
+
 local function test_waiting_outside_a_task_raises()
   raises(function() Poll.delay(0) end, "outside Poll.run")
   raises(function() Poll.spawn(function() end) end, "outside Poll.run")
@@ -1052,14 +1068,14 @@ end
 --- float, a negative and one past what a wait takes raise, nil and
 --- the ends of the range do not.
 local function test_checked_ns_refuses_what_no_wait_can_last()
-  Poll.checked_ns(nil, "span", 1)
-  Poll.checked_ns(0, "span", 1)
-  Poll.checked_ns(Poll.MOST_NS, "span", 1)
+  Poll.checked_ns(nil, "poll", "span", 1)
+  Poll.checked_ns(0, "poll", "span", 1)
+  Poll.checked_ns(Poll.MOST_NS, "poll", "span", 1)
   local function refused(value: any)
-    local ok, err: boolean, any = pcall(function() Poll.checked_ns(value, "span", 1) end)
+    local ok, err: boolean, any = pcall(function() Poll.checked_ns(value, "poll", "span", 1) end)
     assert(not ok, "accepted " .. tostring(value))
     local text = tostring(err)
-    assert(text:find("span must be nil or an integer from 0 to " .. Poll.MOST_NS, 1, true), text)
+    assert(text:find("poll: span must be nil or an integer from 0 to " .. Poll.MOST_NS, 1, true), text)
     -- Level 1 is the function that calls it: this file's own, not poll.tl.
     assert(text:find("poll_test:", 1, true), text)
   end

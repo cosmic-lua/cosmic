@@ -189,7 +189,7 @@ static uint32_t le32 (const unsigned char *p) {
 static struct stream *checked_stream (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   if (s->finished) {
-    luaL_error(L, "the stream is finished"); /* throws: a use after the
+    luaL_error(L, "compress: the stream is finished"); /* throws: a use after the
                                                 end is a bug, not a
                                                 runtime failure */
   }
@@ -221,7 +221,7 @@ static void release (struct stream *s) {
 }
 
 /* Drops the partial output in `out`, finishes the stream, and returns
- * nil, `msg` -- the shape of every decoder failure. Never inlined, so
+ * nil, "compress: " and `msg` -- the shape of every decoder failure. Never inlined, so
  * the tests that reach a failure enter this one copy. */
 __attribute__((noinline)) static int fail (lua_State *L, struct stream *s, luaL_Buffer *out,
                  const char *msg) {
@@ -231,7 +231,7 @@ __attribute__((noinline)) static int fail (lua_State *L, struct stream *s, luaL_
   s->more = 0;
   release(s);
   lua_pushnil(L);
-  lua_pushstring(L, msg);
+  lua_pushfstring(L, "compress: %s", msg);
   return 2;
 }
 
@@ -720,7 +720,7 @@ static int inflater (lua_State *L) {
   s->inf = cosmic_malloc(sizeof *s->inf);
   if (s->inf == NULL) {
     lua_pushnil(L);
-    lua_pushstring(L, "out of memory");
+    lua_pushstring(L, "compress: out of memory");
     return 2;
   }
   memset(s->inf, 0, sizeof *s->inf);
@@ -743,7 +743,7 @@ static int deflater (lua_State *L) {
   s->tdefl = cosmic_malloc(sizeof(tdefl_compressor));
   if (s->tdefl == NULL) {
     lua_pushnil(L);
-    lua_pushstring(L, "out of memory");
+    lua_pushstring(L, "compress: out of memory");
     return 2;
   }
   /* Raw deflate for gzip too: its header and trailer are written by
@@ -870,7 +870,7 @@ static int stream_update (lua_State *L) {
 static int stream_finish (lua_State *L) {
   struct stream *s = checked_stream(L);
   if (s->more) {
-    return luaL_error(L, "the stream has pending output: drain it with "
+    return luaL_error(L, "compress: the stream has pending output: drain it with "
                          "update(\"\") while pending() before finish");
   }
   begin(s);
@@ -1033,7 +1033,7 @@ const char *cosmic_inflate_raw (const void *data, size_t len, size_t max,
        * where the stream stops short. */
       why = status == TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS ||
                     status == TINFL_STATUS_NEEDS_MORE_INPUT
-                ? "the deflate stream is truncated"
+                ? "truncated deflate stream"
                 : "the deflate stream is damaged";
       break;
     }

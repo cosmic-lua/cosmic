@@ -63,6 +63,27 @@ local function test_a_refused_option_names_the_caller_s_line()
       local _, _ = Child.run({ "/bin/sh" }, opts)
     end)
     assert(not ok and tostring(why):find("child_test:", 1, true) ~= nil, tostring(why))
+    assert(tostring(why):find(": child: ", 1, true) ~= nil, "names the module: " .. tostring(why))
+  end
+end
+
+--- A raise names its module and says why: an empty argv, a wait for no
+--- handle, and an option of no valid value.
+local function test_a_raise_names_the_module()
+  local raising: {function()} = {
+    function() local _, _ = Child.start({}) end,
+    function() local _, _ = Child.run({}) end,
+    function() local _, _ = Child.wait_any({}) end,
+    function() local _, _ = Child.start({ "/bin/sh" }, { capture_limit = 0 } as Child.Options) end,
+    function() local _, _ = Child.start({ "/bin/sh" }, { env = { [""] = "x" } } as Child.Options) end,
+    function() local _, _ = Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end,
+  }
+  local says = { "argv is empty", "argv is empty", "no handles to wait for", "capture_limit is out of range",
+    "environment name is empty", "fds keys are child descriptors" }
+  for i, call in ipairs(raising) do
+    local ok, why: boolean, any = pcall(call)
+    assert(not ok and tostring(why):find(": child: " .. says[i], 1, true) ~= nil,
+      says[i] .. ": " .. tostring(why))
   end
 end
 
@@ -175,7 +196,7 @@ local function test_a_guard_s_wait_ends_when_it_closes_under_another()
     assert(on_inner:join())
     assert(on_outer:join())
   end)
-  assert(table.concat(got, ",") == "inner=0 the guard is closed,outer=0 " .. Poll.TIMEOUT,
+  assert(table.concat(got, ",") == "inner=0 child: the guard is closed,outer=0 " .. Poll.TIMEOUT,
     table.concat(got, ","))
   assert(outer:release() == 0)
 end

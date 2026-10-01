@@ -26,7 +26,7 @@ end
 --- of the function the message came from, found in the error catalog by
 --- the words the two share.
 function Example.guidance()
-  local text = Errors.guidance("coverage collection is already active")
+  local text = Errors.guidance("coverage: collection is already active")
   print(text)
   assert(text ~= nil and text:find("Coverage.start (cosmic/coverage.tl:", 1, true) ~= nil,
     tostring(text))

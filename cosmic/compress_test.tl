@@ -154,7 +154,7 @@ local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever
     -- One update is enough: before, it answered a full megabyte of
     -- zeros, and every update after it another.
     local out, trouble = dec:update(bytes)
-    assert(out == nil and trouble == "corrupt compressed data", format .. ": " .. tostring(out and #out))
+    assert(out == nil and trouble == "compress: corrupt compressed data", format .. ": " .. tostring(out and #out))
     local one_shot, why = Compress.inflate(format, bytes)
     assert(one_shot == nil and why ~= "", format)
   end
@@ -171,9 +171,9 @@ local function test_bits_that_name_no_code_are_refused()
   -- cut short. One update each, so a decoder answering zeros for them
   -- fails here rather than looping.
   local cases: {{string, string}} = {
-    { string.rep("\0", 8), "corrupt compressed data" },
-    { string.rep("\0", 2), "corrupt compressed data" },
-    { string.rep("\0", 3), "corrupt compressed data" },
+    { string.rep("\0", 8), "compress: corrupt compressed data" },
+    { string.rep("\0", 2), "compress: corrupt compressed data" },
+    { string.rep("\0", 3), "compress: corrupt compressed data" },
     { "", "truncated" },
   }
   for _, case in ipairs(cases) do
@@ -531,7 +531,7 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     collectgarbage()
     assert(saved ~= nil, "the finalizer ran")
     local ok, why = pcall(saved.update, saved, case[2])
-    assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
     assert(not pcall(saved.finish, saved))
     assert(not saved:pending())
     assert(saved:rest() == "")
@@ -666,7 +666,7 @@ end
 
 local function test_xz_memory_limit_is_enforced()
   local out, trouble = assert(Compress.xz_decoder(1024)):update(hello_xz)
-  assert(out == nil and trouble == "xz memory limit exceeded", trouble)
+  assert(out == nil and trouble == "compress: xz memory limit exceeded", trouble)
   -- hello_xz asks for a 64 MiB dictionary (`xz -9`), which fits in 80 MiB.
   assert(drain(assert(Compress.xz_decoder(80 << 20)), hello_xz, 100) == "hello, cosmic!")
 end
@@ -680,19 +680,19 @@ local function test_raw_and_zlib_truncation_is_reported_as_truncation()
       local dec = assert(Compress.inflater(format))
       assert(dec:update(packed:sub(1, #packed - cut)))
       local last, trouble = dec:finish()
-      assert(last == nil and trouble == "truncated compressed stream",
+      assert(last == nil and trouble == "compress: truncated compressed stream",
         format .. ": " .. tostring(trouble))
     end
     local _, trouble = assert(Compress.inflater(format)):finish()
-    assert(trouble == "truncated compressed stream", trouble)
+    assert(trouble == "compress: truncated compressed stream", trouble)
   end
 end
 
 local function test_the_first_member_must_carry_the_magic()
   local cases: {{Maker, string}} = {
-    { gzip_decoder, "not a gzip stream" },
-    { bz2_decoder, "not a bzip2 stream" },
-    { xz_decoder, "not an xz stream" },
+    { gzip_decoder, "compress: not a gzip stream" },
+    { bz2_decoder, "compress: not a bzip2 stream" },
+    { xz_decoder, "compress: not an xz stream" },
   }
   for _, case in ipairs(cases) do
     local out, trouble = case[1]():update("TRAILER")
@@ -702,7 +702,7 @@ local function test_the_first_member_must_carry_the_magic()
   local dec = gzip_decoder()
   assert(dec:update("\31"))
   local _, trouble = dec:finish()
-  assert(trouble == "truncated gzip stream", trouble)
+  assert(trouble == "compress: truncated gzip stream", trouble)
 end
 
 local function test_argument_shape_errors_raise()
@@ -737,7 +737,7 @@ local function test_one_shot_deflate_and_inflate_round_trip()
   out, trouble = Compress.inflate("zlib", packed .. "x")
   assert(out == nil and trouble:find("trailing", 1, true), trouble)
   out, trouble = Compress.inflate("zlib", packed:sub(1, -2))
-  assert(out == nil and trouble == "truncated compressed stream", trouble)
+  assert(out == nil and trouble == "compress: truncated compressed stream", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", "")))) == "")
 end
 
@@ -745,7 +745,7 @@ local function test_inflate_validates_max_bytes()
   local packed = assert(Compress.deflate("zlib", "abc"))
   assert(Compress.inflate("zlib", packed, 3) == "abc")
   local out, trouble = Compress.inflate("zlib", packed, 2)
-  assert(out == nil and trouble == "output is larger than 2 bytes", trouble)
+  assert(out == nil and trouble == "stream: output is larger than 2 bytes", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
   for _, bad in ipairs({ -1, 1.5 } as {any}) do
     local ok, why = pcall(Compress.inflate, "zlib", packed, bad as integer)
@@ -815,7 +815,7 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   assert(nulls[1][1] == "1" and nulls[1][2] == "1")
   local stream = assert(Compress.deflate("raw", text))
   for _, case in ipairs({
-    { stream:sub(1, #stream - 4), "the deflate stream is truncated" },
+    { stream:sub(1, #stream - 4), "truncated deflate stream" },
     { stream .. "\0", "the deflate stream is followed by more bytes" },
     { "\xff\xff\xff\xff", "the deflate stream is damaged" },
   }) do

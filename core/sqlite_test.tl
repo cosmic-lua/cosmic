@@ -27,6 +27,13 @@ local function raises(fn: any, ...: any)
   assert(not ok, "the call must raise")
 end
 
+--- Asserts calling `fn` with `...` raises, and the message holds `says`.
+local function raises_saying(says: string, fn: any, ...: any)
+  local ok, why = pcall(fn as function(any...): (any...), ...)
+  assert(not ok, "the call must raise")
+  assert(tostring(why):find(says, 1, true) ~= nil, tostring(why))
+end
+
 local function memory(): Sqlite.Handle
   local handle, trouble = Sqlite.memory()
   assert(handle ~= nil, trouble)
@@ -163,15 +170,15 @@ local function test_a_finalized_statement_raises_from_every_method()
   assert(select("#", statement:finalize()) == 0, "finalizing returns nothing")
   assert(select("#", statement:finalize()) == 0, "finalizing twice is harmless")
   for _, method in ipairs({ "step", "columns", "reset", "parameters" }) do
-    raises((statement as {string: any})[method], statement)
+    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement)
   end
   for _, method in ipairs({ "bind_null", "name", "kind", "integer", "number", "bytes" }) do
-    raises((statement as {string: any})[method], statement, 1)
+    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement, 1)
   end
-  raises(statement.bind_integer, statement, 1, 1)
-  raises(statement.bind_number, statement, 1, 1.0)
-  raises(statement.bind_text, statement, 1, "x")
-  raises(statement.bind_blob, statement, 1, "x")
+  raises_saying("sqlite: the statement is closed", statement.bind_integer, statement, 1, 1)
+  raises_saying("sqlite: the statement is closed", statement.bind_number, statement, 1, 1.0)
+  raises_saying("sqlite: the statement is closed", statement.bind_text, statement, 1, "x")
+  raises_saying("sqlite: the statement is closed", statement.bind_blob, statement, 1, "x")
   handle:close()
 end
 
@@ -188,10 +195,10 @@ local function test_a_closed_handle_raises_from_every_method()
   local handle = memory()
   assert(handle:close() == true)
   assert(handle:close() == true, "closing twice is harmless")
-  raises(handle.exec, handle, "SELECT 1")
-  raises(handle.prepare, handle, "SELECT 1")
-  raises(handle.changes, handle)
-  raises(handle.last_insert_rowid, handle)
+  raises_saying("sqlite: the database handle is closed", handle.exec, handle, "SELECT 1")
+  raises_saying("sqlite: the database handle is closed", handle.prepare, handle, "SELECT 1")
+  raises_saying("sqlite: the database handle is closed", handle.changes, handle)
+  raises_saying("sqlite: the database handle is closed", handle.last_insert_rowid, handle)
 end
 
 local function test_open_reports_a_path_it_cannot_open(tmp: string)
@@ -409,7 +416,7 @@ local function test_limit_sets_a_named_limit_and_answers_the_old_one()
   local ok, why = handle:exec("ATTACH ':memory:' AS m")
   failed(ok, why)
   assert(why:find("too many attached", 1, true) ~= nil, why)
-  raises(handle.limit, handle, "nonesuch", 0)
+  raises_saying("sqlite: no such limit: nonesuch", handle.limit, handle, "nonesuch", 0)
   raises(handle.limit, handle, "attached", 2 ^ 40)
   for _, name in ipairs({ "length", "sql_length", "column", "expr_depth", "compound_select",
     "vdbe_op", "function_arg", "like_pattern_length", "variable_number",

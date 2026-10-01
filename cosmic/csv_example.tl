@@ -22,7 +22,7 @@ function Example.table()
   assert(made.rows[2].name == "Bob")
   local none, why = Csv.table("id,name\n1\n")
   assert(none == nil)
-  print(why) -- line 2, column 1: the record has 1 field, the header 2
+  print(why) -- csv: line 2, column 1: the record has 1 field, the header 2
 end
 
 --- A tab-separated file is the same reader with another delimiter.

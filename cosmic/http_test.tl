@@ -493,25 +493,25 @@ end
 
 local function test_an_integer_option_takes_no_numeric_string()
   local err = raised({ timeout_ns = "5" as integer })
-  assert(err:find("opts.timeout_ns must be an integer", 1, true) ~= nil, err)
+  assert(err:find("http: opts.timeout_ns must be an integer", 1, true) ~= nil, err)
 end
 
 local function test_an_integer_option_takes_no_fraction()
   local err = raised({ connect_timeout_ns = 1.5 as integer })
-  assert(err:find("opts.connect_timeout_ns must be an integer", 1, true) ~= nil, err)
+  assert(err:find("http: opts.connect_timeout_ns must be an integer", 1, true) ~= nil, err)
 end
 
 local function test_a_negative_timeout_is_refused_not_ignored()
   -- curl refuses -5 and keeps its default, which is no timeout at all.
   local err = raised({ timeout_ns = -5 })
-  assert(err:find("opts.timeout_ns must be between 0 and", 1, true) ~= nil, err)
+  assert(err:find("http: opts.timeout_ns must be between 0 and", 1, true) ~= nil, err)
 end
 
 local function test_an_integer_option_curl_would_clamp_is_refused()
   local err = raised({ max_redirects = 40000 })
-  assert(err:find("opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
+  assert(err:find("http: opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
   err = raised({ low_speed_ns = Time.seconds(70000) })
-  assert(err:find("opts.low_speed_ns must be between 0 and " .. Time.seconds(65535), 1, true) ~= nil,
+  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. Time.seconds(65535), 1, true) ~= nil,
     err)
 end
 
@@ -523,36 +523,36 @@ end
 
 local function test_redirect_protocols_takes_a_list_of_http_and_https()
   local err = raised({ redirect_protocols = "https" as {string} })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = {} })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = { "ftp" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = { "HTTPS" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   -- a name is compared whole, not up to a NUL: "http\0s" is not "http"
   err = raised({ redirect_protocols = { "http\0s" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = { "https\0" } })
-  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
 end
 
 local function test_a_boolean_option_takes_only_a_boolean()
   local err = raised({ follow = "no" as boolean })
-  assert(err:find("opts.follow must be a boolean", 1, true) ~= nil, err)
+  assert(err:find("http: opts.follow must be a boolean", 1, true) ~= nil, err)
 end
 
 local function test_non_table_headers_raise_naming_the_option()
   -- The message names the option, not a bad argument number.
   local err = raised({ headers = "X-A: 1" as {string:string} })
-  assert(err:find("opts.headers must be a table", 1, true) ~= nil, err)
+  assert(err:find("http: opts.headers must be a table", 1, true) ~= nil, err)
   assert(err:find("#-1", 1, true) == nil, err)
 end
 
 local function test_a_non_string_script_entry_raises()
   -- A non-string entry is refused, not read as an empty reply.
   local err = raised({ script = { reply("200 OK", ""), 42 as string } })
-  assert(err:find("opts.script must be a list of strings", 1, true) ~= nil, err)
+  assert(err:find("http: opts.script must be a list of strings", 1, true) ~= nil, err)
 end
 
 local function test_an_option_curl_refuses_is_an_error_naming_it()
@@ -561,6 +561,13 @@ local function test_an_option_curl_refuses_is_an_error_naming_it()
   local response, trouble = Http.open(url .. string.rep("a", 8000000), { script = {} })
   assert(response == nil)
   assert(trouble:find("CURLOPT_URL", 1, true) ~= nil, trouble)
+end
+
+local function test_read_refuses_a_max_below_one()
+  local response = assert(Http.open(url, { script = { reply("200 OK", "", "body") } }))
+  local ok, why = pcall(response.read, response, 0)
+  assert(not ok and tostring(why):find("http: read's max must be positive", 1, true), tostring(why))
+  response:close()
 end
 
 local function test_read_returns_an_empty_second_value_on_success()
@@ -618,9 +625,9 @@ local function test_a_response_a_finalizer_revives_is_closed()
   assert(response ~= nil, "the finalizer ran")
   revived[1] = nil
   local ok, err = pcall(response.read, response)
-  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
+  assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   ok, err = pcall(response.sent, response)
-  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
+  assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   response:close()
 end
 

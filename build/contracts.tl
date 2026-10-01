@@ -248,7 +248,7 @@ local casts: {string: string} = {
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
     "walk has just built to the spec",
-  ["cosmic/sqlite.tl:bind"] =
+  ["cosmic/sqlite.tl:checked"] =
     "a caller's parameter table is checked for keys its " ..
     "declaration does not name, which only a map view of it lists",
 }

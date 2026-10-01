@@ -50,7 +50,8 @@ local record Sqlite
 
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
-  --- allowed; an empty table explicitly binds SQL NULL.
+  --- allowed; an empty table explicitly binds SQL NULL. A value of
+  --- another shape raises where it is bound.
   record Value
     --- Bound as an SQLite integer.
     integer: integer
@@ -164,33 +165,52 @@ function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
---- Binds SQLite parameters positionally. Parameter keys must be
---- positional (1..N, matching the statement's own placeholders), and
---- each value must be a table with at most one field, named integer,
---- number, text, or blob ({} for NULL).
-local function bind(
-  statement: Sqlite.Statement, values: {Sqlite.Value}
-): boolean, string
-  local count = statement:parameters()
-  for key in pairs(values as {any: any}) do
-    if not (key is number) or key % 1 ~= 0 or key < 1 or key > count then
-      return false, "unexpected parameter key: " .. tostring(key)
+--- Raises, blaming the caller of the public function that calls the
+--- function that calls this, unless `values` is a list of Values: each a
+--- table with at most one field, named integer, number, text, or blob
+--- ({} for NULL), under keys that are positions from 1. It runs before a
+--- statement is prepared, so a raise leaves none to finalize. Answers the
+--- highest key, 0 for none.
+local function checked(values: {Sqlite.Value}): integer
+  local highest = 0
+  for key, value in pairs(values as {any: any}) do
+    if not (key is integer) or key < 1 then
+      error("sqlite: values holds the key " .. tostring(key) .. ", not a position from 1", 4)
     end
-  end
-  for index = 1, count do
-    local value = values[index]
     if type(value) ~= "table" then
-      return false, "parameter " .. index .. ": expected a Value table (use {} for NULL)"
+      error("sqlite: parameter " .. key .. " is no Value table (use {} for NULL)", 4)
     end
     local fields = 0
-    for key in pairs(value as {any: any}) do
-      if key ~= "integer" and key ~= "number" and key ~= "text" and key ~= "blob" then
-        return false, "parameter " .. index .. ": unknown Value field: " .. tostring(key)
+    for field in pairs(value as {any: any}) do
+      if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" then
+        error("sqlite: parameter " .. key .. " has an unknown Value field: " .. tostring(field), 4)
       end
       fields = fields + 1
     end
     if fields > 1 then
-      return false, "parameter " .. index .. ": expected at most one Value field"
+      error("sqlite: parameter " .. key .. " has more than one Value field", 4)
+    end
+    if key > highest then highest = key end
+  end
+  return highest
+end
+
+--- Binds SQLite parameters positionally, which [`checked`] has found
+--- well formed, `highest` the greatest position they hold: the positions
+--- must be 1..N, matching the statement's own placeholders, or the
+--- statement is refused with why.
+local function bind(
+  statement: Sqlite.Statement, values: {Sqlite.Value}, highest: integer
+): boolean, string
+  local count = statement:parameters()
+  if highest > count then
+    return false, "sqlite: values holds a parameter " .. highest ..
+      ", and the statement has " .. count
+  end
+  for index = 1, count do
+    local value = values[index]
+    if value == nil then
+      return false, "sqlite: parameter " .. index .. " has no value (use {} for NULL)"
     end
     local ok: boolean
     local trouble: string
@@ -206,7 +226,7 @@ local function bind(
       ok, trouble = statement:bind_null(index)
     end
     if not ok then
-      return false, "parameter " .. index .. ": " .. trouble
+      return false, "sqlite: parameter " .. index .. ": " .. trouble
     end
   end
   return true, ""
@@ -216,11 +236,13 @@ end
 --- statement that does not bind is finalized.
 local function prepared(handle: Sqlite.Handle, sql: string,
                         values: {Sqlite.Value}): Sqlite.Statement | nil, string
+  values = values or {}
+  local highest = checked(values)
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
     return nil, trouble
   end
-  local bound, why = bind(statement, values or {})
+  local bound, why = bind(statement, values, highest)
   if not bound then
     statement:finalize()
     return nil, why
@@ -234,7 +256,9 @@ end
 --- `values` is a dense list indexed by SQLite's parameter index, through
 --- its highest index. Repeated named parameters share an index, and a
 --- gap in `?NNN` numbers still needs an entry (use `{}`). A missing entry
---- or an extra key is an error.
+--- or an extra key answers `false` and why. A malformed [`Sqlite.Value`]
+--- (no table, a field it has no name for, more than one field) raises, as
+--- does a key that is no position from 1.
 function Sqlite.run(handle: Sqlite.Handle, sql: string,
                     values?: {Sqlite.Value}): boolean, string
   local statement, trouble = prepared(handle, sql, values)

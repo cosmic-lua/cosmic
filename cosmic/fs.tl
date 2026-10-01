@@ -107,7 +107,10 @@ function Fs.read(path: string): string | nil, string
   return table.concat(parts), ""
 end
 
-local function write_all(fd: integer, data: string): boolean, string
+--- Writes all of `data` to `fd`; a write that moves nothing fails
+--- "`blame`write made no progress", `blame` being "fs: " where no caller
+--- names the file.
+local function write_all(fd: integer, data: string, blame: string): boolean, string
   local at = 1
   while at <= #data do
     -- The whole string the first time, rather than a copy of it.
@@ -117,7 +120,7 @@ local function write_all(fd: integer, data: string): boolean, string
       return false, trouble
     end
     if put == 0 then
-      return false, "write made no progress"
+      return false, blame .. "write made no progress"
     end
     at = at + put
   end
@@ -145,15 +148,15 @@ local function failing(self: StagedFile, why: string): string
 end
 
 StagedFile_methods.write = function(self: StagedFile, data: string): boolean, string
-  if self.closed then return false, self.path .. ": already closed" end
+  if self.closed then return false, self.path .. ": the file is closed" end
   if self.failed then return false, self.failed end
-  local ok, why = write_all(self.temporary.fd, data)
+  local ok, why = write_all(self.temporary.fd, data, "")
   if not ok then return false, failing(self, why) end
   return true, ""
 end
 
 StagedFile_methods.sync = function(self: StagedFile): boolean, string
-  if self.closed then return false, self.path .. ": already closed" end
+  if self.closed then return false, self.path .. ": the file is closed" end
   if self.failed then return false, self.failed end
   local ok, why = sys.fsync(self.temporary.fd)
   if not ok then return false, failing(self, why) end
@@ -364,7 +367,7 @@ local function cache_base(environment?: {string:string}): string | nil, string
   if base:sub(1, 1) ~= "/" then
     local home = get("HOME")
     if home:sub(1, 1) ~= "/" then
-      return nil, "no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
+      return nil, "fs: no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
     end
     base = home .. "/.cache"
   end
@@ -600,7 +603,7 @@ function Fs.chmod(path: string, mode: integer): boolean, string
   if mode < 0 or mode > 0xfff then
     local shown = (mode > 0 and math.tointeger(mode) ~= nil) and string.format("0x%x", mode) or
       tostring(mode)
-    error("chmod: mode " .. shown .. " is outside 0 to 0xfff", 2)
+    error("fs: mode " .. shown .. " is outside 0 to 0xfff", 2)
   end
   local changed, trouble = sys.chmod(path, mode)
   if not changed then
@@ -658,7 +661,7 @@ end
 --- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
 --- are the standard-stream descriptors used instead of io.write/io.output.
 function Fs.put(fd: integer, data: string): boolean, string
-  return write_all(fd, data)
+  return write_all(fd, data, "fs: ")
 end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is
@@ -687,7 +690,7 @@ end
 --- target. `ns` outside [0, 1e9) raises.
 function Fs.set_mtime(path: string, seconds: integer, ns?: integer): boolean, string
   if ns ~= nil and (ns < 0 or ns >= 1000000000) then
-    error("bad argument #3 to 'set_mtime' (nanoseconds outside [0, 1e9))", 2)
+    error("fs: nanoseconds are outside [0, 1e9)", 2)
   end
   local set, trouble = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then

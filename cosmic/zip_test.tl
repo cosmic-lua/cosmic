@@ -583,6 +583,31 @@ local function test_a_streamed_size_that_is_wrong_fails_the_write()
   end
 end
 
+--- A size that no body could have is a mistake in the call, not a failure
+--- of the write: it raises, and the writer stays usable.
+local function test_a_streamed_size_below_zero_or_no_integer_raises()
+  local w = Zip.writer(Stream.collect())
+  for _, size in ipairs({ -1, 1.5 } as {number}) do
+    local ok, why: boolean, any = pcall(function()
+      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer })
+    end)
+    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true),
+      tostring(why))
+    assert(tostring(why):find("zip_test", 1, true), "blames the caller: " .. tostring(why))
+  end
+  -- Whatever the body, and before any other refusal of the call.
+  for _, call in ipairs({
+    function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
+    function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
+  } as {function()}) do
+    local ok, why: boolean, any = pcall(call)
+    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true),
+      tostring(why))
+  end
+  assert(w:add_file("g", "x"))
+  assert(w:close())
+end
+
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
   local bad: Stream.Reader = {}

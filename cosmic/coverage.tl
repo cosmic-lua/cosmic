@@ -42,6 +42,12 @@ local record Coverage
 end
 
 --- The open window's session, nil while none is open.
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "coverage: " .. why
+end
+
 local active: Coverage.Session | nil = nil
 
 --- Starts collecting line hits, discarding anything collected before,
@@ -53,7 +59,7 @@ local active: Coverage.Session | nil = nil
 --- @return string Error message when refused, "" on success
 function Coverage.start(): Coverage.Session | nil, string
   if active ~= nil then
-    return nil, "coverage collection is already active"
+    return refuse("collection is already active")
   end
   local session: Coverage.Session = {}
   active = session
@@ -73,7 +79,7 @@ end
 --- @return string Error message when refused, "" on success
 function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
   if active == nil or session ~= active then
-    return nil, "no matching open coverage collection for this session"
+    return refuse("no matching open collection for this session")
   end
   active = nil
   return native.stop(), ""

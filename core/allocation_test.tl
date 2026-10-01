@@ -363,7 +363,7 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
     local ok, made, trouble = pcall(Compress.inflater, "raw")
     local refused = testing.allow_allocations()
     if ok and made == nil then
-      assert(trouble == "out of memory", tostring(trouble))
+      assert(trouble == "compress: out of memory", tostring(trouble))
       assert(refused >= 1, "the refused window is counted")
       answered = true
       break
@@ -530,7 +530,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
   testing.fail_at("json_malloc")
   local _, whole = Json.decode("[1]")
   assert(not testing.fail_at(), "decode never reached json_malloc")
-  assert(whole == "out of memory", whole)
+  assert(whole == "json: out of memory", whole)
   local named: {string: boolean} = {}
   for skip = 0, 16 do
     testing.fail_at("json_malloc", skip)
@@ -540,10 +540,10 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
       assert(values ~= nil, why)
       break
     end
-    assert(values == nil and why:match("^line %d: out of memory$"), tostring(why))
+    assert(values == nil and why:match("^json: line %d: out of memory$"), tostring(why))
     named[why] = true
   end
-  assert(named["line 1: out of memory"] and named["line 2: out of memory"],
+  assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"],
     "each record's refusal names its line")
 end
 

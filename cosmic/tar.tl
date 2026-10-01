@@ -54,8 +54,9 @@ local record Tar
     --- [`Stream.Reader`] body needs `opts.size`, since a tar header
     --- states a size before its body, and is read to that many bytes,
     --- which it then requires; a string body must match `opts.size`
-    --- when that is given. The reader is not closed. Returns `true, ""`,
-    --- or `false` and why.
+    --- when that is given. A `size` that is no integer, or is negative,
+    --- raises. The reader is not closed. Returns `true, ""`, or `false`
+    --- and why.
     add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: Stream.EntryOptions): boolean, string
     --- Adds a directory entry at `path`, to which a trailing `/` is
     --- added if missing. Returns `true, ""`, or `false` and why.
@@ -72,6 +73,12 @@ local record Tar
 end
 
 local BLOCK <const> = 512
+
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "tar: " .. why
+end
 
 --- The most of an entry's body read at once, as [`cosmic.stream`] reads.
 local chunk_size <const> = 1 << 16
@@ -179,8 +186,8 @@ end
 --- block boundary, for an `L`/`K`/`x`/`g` special entry's own body.
 local function read_special_body(raw: Stream.Reader, size: integer): string | nil, string
   if size < 0 or size > SPECIAL_BODY_LIMIT then
-    return nil, "tar: a long-name or pax header body of " .. String.counted(size, "byte") ..
-      " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit"
+    return refuse("a long-name or pax header body of " .. String.counted(size, "byte") ..
+      " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit")
   end
   local data, trouble = Stream.read_exact(raw, size)
   if data == nil then return nil, trouble end
@@ -314,12 +321,12 @@ local function parse_header(block: string, long_name: string | nil, long_link: s
     if ok and pax_local ~= nil then ok, trouble = apply_pax(pax_local, f) end
     if not ok then return nil, trouble end
   end
-  if f.size < 0 then return nil, "tar: negative entry size" end
+  if f.size < 0 then return refuse("negative entry size") end
   -- Its padding added, a size this near the integer limit could wrap
   -- negative, and `next` would skip none of its body; a block below the
   -- limit is a bound no padding crosses.
   if f.size > math.maxinteger - BLOCK then
-    return nil, "tar: entry size " .. tostring(f.size) .. " is too large"
+    return refuse("entry size " .. tostring(f.size) .. " is too large")
   end
   f.kind = (typeflag == "S" or f.sparse) and "other" or kind_of(typeflag)
   return f, ""
@@ -409,10 +416,10 @@ local body_mt: metatable<Body> = { __index = Body_methods }
 
 Body_methods.read = function(self: Body, max: integer): string | nil, string
   if self.failed then return nil, self.failed end
-  if self.closed then return nil, "tar: entry body is closed" end
+  if self.closed then return refuse("the entry body is closed") end
   local state = self.state
   if self.generation ~= state.generation then
-    return nil, "tar: entry is no longer current"
+    return refuse("entry is no longer current")
   end
   local left = self.left
   if left <= 0 then return nil, "" end
@@ -420,7 +427,7 @@ Body_methods.read = function(self: Body, max: integer): string | nil, string
   if want > left then want = left end
   local chunk, rtrouble = state.raw:read(want)
   if chunk == nil then
-    self.failed = rtrouble ~= "" and rtrouble or "tar: unexpected end of archive"
+    self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
     return nil, self.failed
   end
   self.left = left - #chunk
@@ -455,11 +462,11 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
   local entry_mt: metatable<Tar.Entry> = {
     __index = {
       open = function(e: Tar.Entry): Stream.Reader | nil, string
-        if e ~= state.current then return nil, "tar: entry is no longer current" end
+        if e ~= state.current then return refuse("entry is no longer current") end
         -- A second `open` on the same entry would share `left` and
         -- `pending_skip` with the first and read wherever that one
         -- left off, silently -- refuse it.
-        if state.opened then return nil, "tar: entry already opened once" end
+        if state.opened then return refuse("entry already opened once") end
         state.opened = true
         local body: Body = setmetatable({
           state = state, generation = state.generation, left = state.size, closed = false,
@@ -471,7 +478,7 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
 
   tr.next = function(_self: Tar.Reader): Tar.Entry | nil, string
     if failed then return nil, failed end
-    if closed then return nil, "tar: reader is closed" end
+    if closed then return refuse("the reader is closed") end
     if ended then return nil, "" end
     state.generation = state.generation + 1
     state.current = nil
@@ -648,7 +655,6 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     local refusal = nul_refusal(path, "in a path")
     if refusal == "" then refusal = nul_refusal(linkname, "in a link target") end
     if refusal ~= "" then return false, refusal end
-    if size < 0 then return false, "tar: negative size" end
     if deterministic then mtime = 0 end
     local prefix, name, fits = split_ustar(path)
     local link_fits = #linkname <= 100
@@ -675,6 +681,9 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
       fopts?: Stream.EntryOptions): boolean, string
     fopts = fopts or {}
     local size = fopts.size
+    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
+      error("tar: opts.size must be an integer of at least 0", 2)
+    end
     if size == nil then
       if data is string then
         size = #data
