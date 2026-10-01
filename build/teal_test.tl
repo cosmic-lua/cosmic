@@ -194,3 +194,26 @@ local function test_a_return_closed_by_a_semicolon_ends_its_block()
   assert(#found > 0 and found[1]:find("return must be the last statement") ~= nil,
     table.concat(found, "; "))
 end
+
+--- A `(` on the line a string spanning lines ends on calls what the
+--- string is an argument of, and one on a later line starts a new
+--- statement, the `;` tl inserts there right after the string's last
+--- byte (patch/tl's 29-call-after-a-token-spanning-lines.txt).
+local function test_a_call_after_a_string_spanning_lines()
+  local built = assert(teal.load())
+  for _, source in ipairs({ "f [[a\nb]](1)\n", "f 'a\\z\n  b'(1)\n", "f [==[\n]==]{}(1)\n" }) do
+    local found = syntax_errors(source)
+    assert(#found == 0, source .. table.concat(found, "; "))
+    local code = assert(built.gen(source, nil, nil, "tl"))
+    assert(code:find(";", 1, true) == nil, code)
+  end
+  local tokens, errs = built.lex("f [[a\nbc]]\n(g)(1)\n", "t.tl")
+  built.parse_program(tokens, errs, "t.tl")
+  assert(#errs == 0, tostring(errs[1] and errs[1].msg))
+  local inserted: compiler.Token = nil
+  for _, t in ipairs(tokens) do
+    if t.tk == ";" then inserted = t end
+  end
+  assert(inserted ~= nil and inserted.y == 2 and inserted.x == 5,
+    inserted and inserted.y .. ":" .. inserted.x or "no ';'")
+end

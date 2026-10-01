@@ -35,7 +35,6 @@ local FIELDS <const> = { "f", "g", "name", "go", "k2" }
 local NUMBERS <const> = { "0", "1", "42", "3.5", "0x1F", "1e10", "0.5e-3", ".5", "0xA.8p1" }
 local STRINGS <const> = { '"s"', "'q'", '"a\\"b"', '"\\n\\t"', '"-- not a comment"', '"--[[ nor this ]]"',
   "'\\65'", '"\\u{e9}"', '"\\z\n     joined"', '"\\\n"', '""' }
-local LINE_STRINGS <const> = { '"s"', "'q'", '"a\\"b"', '"-- not a comment"', '"\\u{e9}"', '""' }
 --- Long strings, whose bytes are the value: trailing spaces and lines
 --- that read as comments included.
 local LONG_STRINGS <const> = { "[[long]]", "[==[ a ]] b ]==]", "[[\nline one  \n  line two\n]]",
@@ -191,15 +190,8 @@ end
 --- would be a second statement.
 local function args(g: Gen, d: integer): string
   local k = g.src:int(1, 8)
-  -- TODO: tl reads a `(` on a later line than the token before it as
-  -- a new statement, and compares with the line that token STARTS on
-  -- (tl.tl's `tkop.y > prev_tk.y`), so `f [[a\nb]](1)` fails though no
-  -- break stands before the `(`, and the `;` it inserts goes at the
-  -- token's start line plus its length. Once a record under patch/tl/
-  -- compares the line the token ends on, draw strings spanning lines as
-  -- arguments too.
-  if k == 1 then return " " .. pick(g, LINE_STRINGS) end
-  if k == 2 then return " " .. pick(g, { "[[long]]", "[==[ a ]] b ]==]", "[[]]" }) end
+  if k == 1 then return " " .. pick(g, STRINGS) end
+  if k == 2 then return " " .. pick(g, LONG_STRINGS) end
   if k == 3 then return "()" end
   if k == 4 then
     local tbl = expr(g, 0)

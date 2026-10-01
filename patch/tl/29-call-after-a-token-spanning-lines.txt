@@ -1,0 +1,23 @@
+file: tl.tl
+note: a `(` on a later line than the token before it starts a new statement, and tl compared the `(` with the line that token starts on, so a call on a string spanning lines -- `f [[a\nb]](1)`, the `(` on the string's last line -- failed to parse, and the `;` it inserted was placed past the token's first line rather than after its last byte. Compare with the line the token ends on, and place the `;` right after it
+--- find
+            local prev_tk = ps.tokens[i - 1]
+            if tkop.y > prev_tk.y and ps.parse_lang ~= "lua" then
+               table.insert(ps.tokens, i, { y = prev_tk.y, x = prev_tk.x + #prev_tk.tk, tk = ";", kind = ";" })
+               break
+            end
+--- replace
+            local prev_tk = ps.tokens[i - 1]
+            -- A long string, or a string with an escaped line break,
+            -- ends on a later line than it starts on.
+            local _, breaks = prev_tk.tk:gsub("\n", "")
+            local prev_end_y = prev_tk.y + breaks
+            if tkop.y > prev_end_y and ps.parse_lang ~= "lua" then
+               local prev_end_x = prev_tk.x + #prev_tk.tk
+               if breaks > 0 then
+                  prev_end_x = #prev_tk.tk:match("[^\n]*$") + 1
+               end
+               table.insert(ps.tokens, i, { y = prev_end_y, x = prev_end_x, tk = ";", kind = ";" })
+               break
+            end
+--- end
