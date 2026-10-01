@@ -233,12 +233,13 @@ local function test_http_and_date_parse_are_total(tmp: string)
 end
 
 local BETWEEN_ZONES <const> = { "UTC", "Asia/Kolkata", "America/New_York", "Pacific/Apia",
-  "Europe/London", "Australia/Lord_Howe" }
+  "Europe/London", "Europe/Dublin", "Antarctica/Troll", "Australia/Lord_Howe" }
 
---- Two moments from 1954 through 2128 -- where Kolkata's offset is fixed -- and a zone, packed.
+--- Two moments from 1897 through 2128, which reach each zone's history
+--- of changes, and a zone, packed.
 local function gen_pair(src: Fuzz.Source): string
   local function moment(): integer
-    return src:int(-500000000, 5000000000) * NS + (src:int(0, 2) == 0 and 0 or src:int(0, NS - 1))
+    return src:int(-2500000000, 5000000000) * NS + (src:int(0, 2) == 0 and 0 or src:int(0, NS - 1))
   end
   local from = moment()
   -- Often near the first, where the calendar's small counts and its edges are.
@@ -251,11 +252,8 @@ local function between_holds(input: string): boolean, string
   local from, to = string.unpack("<i8i8", input)
   local name = input:sub(17)
   local zone = assert(Time.zone(name))
-  local ok, span, why = pcall(Time.between, from, to, zone)
+  local ok, span = pcall(Time.between, from, to, zone)
   if not ok then return false, "raised: " .. tostring(span) end
-  if span == nil then
-    return false, ("%d to %d in %s refused: %s"):format(from, to, name, tostring(why))
-  end
   local d = span as Time.Duration
   local text_ok, text = pcall(Time.format_duration, d)
   if not text_ok then return false, ("%d to %d in %s: %s"):format(from, to, name, tostring(text)) end
@@ -264,16 +262,19 @@ local function between_holds(input: string): boolean, string
       or back.ns ~= d.ns then
     return false, text .. " does not read back"
   end
+  local dir = to > from and 1 or to < from and -1 or 0
+  if (d.years * dir < 0) or (d.months * dir < 0) or (d.days * dir < 0) or (d.ns * dir < 0) then
+    return false, ("%d to %d in %s: %s is against the sign of the span"):format(from, to, name, text)
+  end
   Fuzz.label(to < from and "negative" or "positive")
   if d.months ~= 0 then Fuzz.label("months") end
   if d.days ~= 0 then Fuzz.label("days") end
-  if name == "UTC" or name == "Asia/Kolkata" then
-    local moved, moved_why = Time.add_calendar(from, d, zone, { overflow = "clamp" })
-    if moved ~= to then
-      return false, ("%d to %d in %s: %s adds to %s: %s"):format(from, to, name, text,
-        tostring(moved), tostring(moved_why))
-    end
-    Fuzz.label("added back")
+  if name ~= "UTC" and name ~= "Asia/Kolkata" then Fuzz.label("a zone with changes") end
+  local moved, why = Time.add_calendar(from, d, zone,
+    { overflow = "clamp", disambiguation = "compatible" })
+  if moved ~= to then
+    return false, ("%d to %d in %s: %s adds to %s: %s"):format(from, to, name, text,
+      tostring(moved), tostring(why))
   end
   return true, ""
 end
@@ -284,7 +285,7 @@ local function test_between_adds_back_to_the_second_moment(tmp: string)
     dir = tmp,
     gen = gen_pair,
     check = between_holds,
-    requires = { "negative", "positive", "months", "days", "added back" },
-    shares = { negative = 0.2, months = 0.2, days = 0.2 },
+    requires = { "negative", "positive", "months", "days", "a zone with changes" },
+    shares = { negative = 0.2, months = 0.2, days = 0.2, ["a zone with changes"] = 0.5 },
   })
 end

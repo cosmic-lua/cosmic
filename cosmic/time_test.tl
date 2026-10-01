@@ -232,6 +232,16 @@ local function test_add_calendar_adds_the_exact_part_last()
   assert(none == nil and why:find("ns is not an integer", 1, true) ~= nil, why)
 end
 
+--- The calendar part may leave the range on the way when the exact part
+--- brings the sum back into it.
+local function test_add_calendar_holds_only_the_sum_to_the_range()
+  local near_end = math.maxinteger - 86400 * NS + 1
+  assert(Time.add_calendar(near_end, { days = 1, ns = -1 }) == math.maxinteger)
+  assert(Time.add_calendar(math.mininteger + 86400 * NS - 1, { days = -1, ns = 1 }) == math.mininteger)
+  local none, why = Time.add_calendar(near_end, { days = 1 })
+  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+end
+
 local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   local none, why = Time.add_calendar(at("2024-01-31T00:00:00Z"), { months = 1 })
   assert(none == nil and why == "2024-02 has no day 31; overflow \"clamp\" takes its last", why)
@@ -327,6 +337,10 @@ local function test_the_constructors_scale_a_count_to_nanoseconds()
   assert(Time.seconds(0.25) == 250000000 and Time.minutes(1.5) == 90 * NS)
   assert(Time.hours(0.5) == 1800 * NS and Time.hours(2.0) == 7200 * NS)
   assert(Time.hours(24) == Time.seconds(86400) and Time.minutes(60) == Time.hours(1))
+  -- Float rounding in the product is no refusal: a count whose span is whole to within it.
+  assert(Time.seconds(1.005) == 1005000000 and Time.seconds(1.1) == 1100000000)
+  assert(Time.seconds(0.1 + 0.2) == 300000000 and Time.ms(0.1 + 0.2) == 300000)
+  assert(Time.minutes(0.1) == 6 * NS and Time.hours(1 / 3) == 1200 * NS)
   -- The largest count each takes.
   assert(Time.seconds(math.maxinteger // NS) == math.maxinteger // NS * NS)
   assert(Time.ms(-(math.maxinteger // 1000000)) == -(math.maxinteger // 1000000) * 1000000)

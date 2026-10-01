@@ -324,86 +324,106 @@ local record Cursor
   why: string
 end
 
-local cursor_mt: metatable<Cursor> = { __index = Cursor }
-
+--- A cursor over `text`, of its own.
 local function cursor(text: string): Cursor
-  return setmetatable({ text = text, at = 1 }, cursor_mt)
+  return { text = text, at = 1 }
+end
+
+local byte <const> = string.byte
+local sub <const> = string.sub
+
+local lent: Cursor = cursor("")
+
+--- A cursor over `text` that every caller shares, so the readers that
+--- run on every request allocate none. A reader may borrow it only while
+--- nothing it calls borrows it too, and the readers never yield. A TZ
+--- string, which `zone` reads in the middle of an RFC 3339 text, has a
+--- [`cursor`] of its own.
+local function borrow(text: string): Cursor
+  lent.text, lent.at, lent.why = text, 1, nil
+  return lent
 end
 
 --- Fails the cursor with `why`, unless it has failed already.
-function Cursor:fail(why: string)
-  if self.why == nil then self.why = why end
+local function fail(cur: Cursor, why: string)
+  if cur.why == nil then cur.why = why end
 end
 
 --- The integer of the `most` ASCII digits at the cursor, or of at least
 --- `least` and at most `most` of them when `least` is given, naming the
 --- field `what` where it fails.
-function Cursor:digits(most: integer, what: string, least?: integer): integer
-  if self.why ~= nil then return nil end
-  local first, n = self.at, 0
-  while self.at - first < most do
-    local b = self.text:byte(self.at)
+local function read_digits(cur: Cursor, most: integer, what: string, least?: integer): integer
+  if cur.why ~= nil then return nil end
+  local text, first = cur.text, cur.at
+  local at, n = first, 0
+  local stop = first + most
+  while at < stop do
+    local b = byte(text, at)
     if b == nil or b < 48 or b > 57 then break end
     n = n * 10 + (b - 48)
-    self.at = self.at + 1
+    at = at + 1
   end
-  if self.at - first < (least or most) then
-    self:fail(("%s: expected %s at byte %d"):format(what, least == nil and
+  if at - first < (least or most) then
+    fail(cur, ("%s: expected %s at byte %d"):format(what, least == nil and
       String.counted(most, "digit") or "a number", first))
     return nil
   end
+  cur.at = at
   return n
 end
 
 --- Moves past `want`, which the text must hold here, or fails naming
 --- what it stands for (`what`). A `T` is read as `t` too.
-function Cursor:expect(want: string, what: string)
-  if self.why ~= nil then return end
-  local got = self.text:sub(self.at, self.at + #want - 1)
+local function expect(cur: Cursor, want: string, what: string)
+  if cur.why ~= nil then return end
+  local at = cur.at
+  local got = sub(cur.text, at, at + #want - 1)
   if got ~= want and not (want == "T" and got == "t") then
-    self:fail(("expected %q %s at byte %d"):format(want, what, self.at))
+    fail(cur, ("expected %q %s at byte %d"):format(want, what, at))
     return
   end
-  self.at = self.at + #want
+  cur.at = at + #want
 end
 
 --- Moves past `want` and answers true when the text holds it here.
-function Cursor:accept(want: string): boolean
-  if self.why ~= nil or self.text:sub(self.at, self.at + #want - 1) ~= want then return false end
-  self.at = self.at + #want
+local function accept(cur: Cursor, want: string): boolean
+  local at = cur.at
+  if cur.why ~= nil or sub(cur.text, at, at + #want - 1) ~= want then return false end
+  cur.at = at + #want
   return true
 end
 
 --- The index in `names` of the one the text holds here, moved past, or
 --- a failure that `what` is not there.
-function Cursor:name_of(names: {string}, what: string): integer
-  if self.why ~= nil then return nil end
+local function name_of(cur: Cursor, names: {string}, what: string): integer
+  if cur.why ~= nil then return nil end
+  local text, at = cur.text, cur.at
   for i, name in ipairs(names) do
-    if self.text:sub(self.at, self.at + #name - 1) == name then
-      self.at = self.at + #name
+    if sub(text, at, at + #name - 1) == name then
+      cur.at = at + #name
       return i
     end
   end
-  self:fail(("expected %s at byte %d"):format(what, self.at))
+  fail(cur, ("expected %s at byte %d"):format(what, at))
   return nil
 end
 
 --- The nanoseconds of the one to nine digits of a fraction here.
-function Cursor:fraction(): integer
-  if self.why ~= nil then return nil end
-  local digits = self.text:match("^%d*", self.at)
+local function read_fraction(cur: Cursor): integer
+  if cur.why ~= nil then return nil end
+  local digits = cur.text:match("^%d*", cur.at)
   if #digits == 0 or #digits > 9 then
-    self:fail(("fraction at byte %d: expected 1 to 9 digits, not %d"):format(self.at, #digits))
+    fail(cur, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(cur.at, #digits))
     return nil
   end
-  self.at = self.at + #digits
+  cur.at = cur.at + #digits
   return fraction_ns(digits)
 end
 
 --- Fails when any text is left past the cursor.
-function Cursor:finish()
-  if self.why == nil and self.at <= #self.text then
-    self:fail(("unexpected text at byte %d"):format(self.at))
+local function finish(cur: Cursor)
+  if cur.why == nil and cur.at <= #cur.text then
+    fail(cur, ("unexpected text at byte %d"):format(cur.at))
   end
 end
 
@@ -644,12 +664,12 @@ local function parse_posix(tz: string): Posix | nil, string
     if tz:sub(first, first) == "<" then
       local close = tz:find(">", first + 1, true)
       if close == nil then
-        cur:fail(("%s at byte %d: no \">\" closes it"):format(what, first))
+        fail(cur, ("%s at byte %d: no \">\" closes it"):format(what, first))
         return nil
       end
       local body = tz:sub(first + 1, close - 1)
       if #body < 3 or body:find("[^%w+%-]") ~= nil then
-        cur:fail(("%s at byte %d: expected three or more letters, digits, \"+\" or \"-\" " ..
+        fail(cur, ("%s at byte %d: expected three or more letters, digits, \"+\" or \"-\" " ..
           "between \"<\" and \">\""):format(what, first))
         return nil
       end
@@ -659,7 +679,7 @@ local function parse_posix(tz: string): Posix | nil, string
     local last = first
     while tz:find("^[A-Za-z]", last) ~= nil do last = last + 1 end
     if last - first < 3 then
-      cur:fail(("%s at byte %d: expected three or more letters"):format(what, first))
+      fail(cur, ("%s at byte %d: expected three or more letters"):format(what, first))
       return nil
     end
     cur.at = last
@@ -668,9 +688,9 @@ local function parse_posix(tz: string): Posix | nil, string
 
   local function number(most: integer, lo: integer, hi: integer, what: string): integer
     local first = cur.at
-    local n = cur:digits(most, what, 1)
+    local n = read_digits(cur, most, what, 1)
     if n ~= nil and (n < lo or n > hi) then
-      cur:fail(("%s %d at byte %d is not %d through %d"):format(what, n, first, lo, hi))
+      fail(cur, ("%s %d at byte %d is not %d through %d"):format(what, n, first, lo, hi))
       return nil
     end
     return n
@@ -678,13 +698,13 @@ local function parse_posix(tz: string): Posix | nil, string
 
   -- [+-]hh[:mm[:ss]], as seconds.
   local function duration(hours: integer, what: string): integer
-    local sign = cur:accept("-") and -1 or 1
-    if sign == 1 then cur:accept("+") end
+    local sign = accept(cur, "-") and -1 or 1
+    if sign == 1 then accept(cur, "+") end
     local h = number(3, 0, hours, what .. "'s hours")
     local m, sec = 0, 0
-    if cur:accept(":") then
+    if accept(cur, ":") then
       m = number(2, 0, 59, what .. "'s minutes")
-      if cur:accept(":") then sec = number(2, 0, 59, what .. "'s seconds") end
+      if accept(cur, ":") then sec = number(2, 0, 59, what .. "'s seconds") end
     end
     if cur.why ~= nil then return nil end
     return sign * (h * 3600 + m * 60 + sec)
@@ -692,21 +712,21 @@ local function parse_posix(tz: string): Posix | nil, string
 
   local function rule(what: string): Rule
     local r: Rule = { time = 7200 }
-    if cur:accept("J") then
+    if accept(cur, "J") then
       r.form = "J"
       r.day = number(3, 1, 365, what .. "'s day")
-    elseif cur:accept("M") then
+    elseif accept(cur, "M") then
       r.form = "M"
       r.month = number(2, 1, 12, what .. "'s month")
-      cur:expect(".", "after " .. what .. "'s month")
+      expect(cur, ".", "after " .. what .. "'s month")
       r.week = number(1, 1, 5, what .. "'s week")
-      cur:expect(".", "after " .. what .. "'s week")
+      expect(cur, ".", "after " .. what .. "'s week")
       r.weekday = number(1, 0, 6, what .. "'s weekday")
     else
       r.form = "n"
       r.day = number(3, 0, 365, what .. "'s day")
     end
-    if cur:accept("/") then r.time = duration(167, what .. "'s time") end
+    if accept(cur, "/") then r.time = duration(167, what .. "'s time") end
     return r
   end
 
@@ -729,11 +749,11 @@ local function parse_posix(tz: string): Posix | nil, string
     p.finish = { form = "M", month = 11, week = 1, weekday = 0, time = 7200 }
     return p, ""
   end
-  cur:expect(",", "before daylight saving time's rules")
+  expect(cur, ",", "before daylight saving time's rules")
   p.start = rule("daylight saving time's start")
-  cur:expect(",", "between daylight saving time's start and end")
+  expect(cur, ",", "between daylight saving time's start and end")
   p.finish = rule("daylight saving time's end")
-  cur:finish()
+  finish(cur)
   if cur.why ~= nil then return nil, cur.why end
   return p, ""
 end
@@ -1226,20 +1246,11 @@ local function disambiguation_of(how: Time.Disambiguation): Time.Disambiguation
   return how
 end
 
---- The nanoseconds `c` names on the calendar of `zone`, UTC's by
---- default, or nil and which field is out of its range (month 13,
---- February 30, hour 24) or not an integer (a float such as 2026.0
---- included), or that the moment is outside what an integer holds.
---- Nothing is normalized: day 32 is refused, not carried into the next
---- month. A local time a zone skipped or passed twice is resolved as
---- `opts.disambiguation` says, and refused by default, naming the
---- change; passed twice, the moment whose offset is `c.offset` is taken
---- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
---- is always `ns`. Raises for a `disambiguation` that is none of
---- [`Disambiguation`]'s, or a `zone` no function here made.
-function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.AddOptions): integer | nil, string
-  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
-  if zone == nil then return moment(c, 0) end
+--- The whole seconds since the epoch the local time of `c` names on the
+--- calendar of `zone`, UTC's when nil, resolved as `how` says, or nil and
+--- why: [`from_civil`] less its nanoseconds and their range.
+local function resolve(c: Time.Civil, zone: Time.Zone, how: Time.Disambiguation): integer | nil, string
+  if zone == nil then return seconds_of(c) end
   local rules = rules_for(zone)
   local s, why = seconds_of(c)
   if s == nil then return nil, why end
@@ -1278,7 +1289,25 @@ function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.AddOptions
       chosen = how == "later" and found[#found] or found[1]
     end
   end
-  return instant(chosen, c.ns)
+  return chosen, ""
+end
+
+--- The nanoseconds `c` names on the calendar of `zone`, UTC's by
+--- default, or nil and which field is out of its range (month 13,
+--- February 30, hour 24) or not an integer (a float such as 2026.0
+--- included), or that the moment is outside what an integer holds.
+--- Nothing is normalized: day 32 is refused, not carried into the next
+--- month. A local time a zone skipped or passed twice is resolved as
+--- `opts.disambiguation` says, and refused by default, naming the
+--- change; passed twice, the moment whose offset is `c.offset` is taken
+--- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
+--- is always `ns`. Raises for a `disambiguation` that is none of
+--- [`Disambiguation`]'s, or a `zone` no function here made.
+function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.AddOptions): integer | nil, string
+  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
+  local s, why = resolve(c, zone, how)
+  if s == nil then return nil, why end
+  return instant(s, c.ns)
 end
 
 --- `ns` moved by the calendar part of `duration` on the calendar of
@@ -1326,12 +1355,15 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
   -- time reached is passed twice and one of the two has it -- cosmic's
   -- own choice: Temporal resolves a nonzero amount "compatible", taking
   -- the earlier -- so an amount of nothing moves nothing, even in a fold.
-  local reached, trouble = Time.from_civil(c, zone, { disambiguation = how })
-  if reached == nil then return nil, trouble end
-  if exact == 0 then return reached, "" end
-  local sum = reached + exact
-  if (exact > 0 and sum < reached) or (exact < 0 and sum > reached) then return nil, RANGE end
-  return sum, ""
+  local s, trouble = resolve(c, zone, how)
+  if s == nil then return nil, trouble end
+  -- The range is checked on the sum, so a local time just outside it that
+  -- the exact part brings back is no refusal. One more than a year
+  -- outside is, as [`from_civil`] holds every local time to.
+  local n = c.ns + exact % NS
+  s = s + exact // NS
+  if n >= NS then s, n = s + 1, n - NS end
+  return instant(s, n)
 end
 
 --- The seconds of `ns` on the calendar of `zone`, UTC's when nil.
@@ -1364,33 +1396,43 @@ end
 
 --- The whole years, months and days from `from` to `to` on the calendar
 --- of `zone`, UTC's by default, and the rest as `ns`: a [`Duration`]
---- whose fields are all of one sign, negative when `to` is earlier. The
---- months are Java's `ChronoUnit.MONTHS.between` (January 31 to February
---- 29 is 0 months; to March 31, 2), the years are their twelves, and the
---- days are counted from the date those months reach, where a month
---- with no such day gives its last. A local time in a gap or a fold of
---- `zone` is read as "compatible" does. Nil and why when a step is
---- outside the range.
-function Time.between(from: integer, to: integer, zone?: Time.Zone): Time.Duration | nil, string
-  local months = whole_months(from, to, zone)
+--- whose fields are all of one sign, negative when `to` is earlier, and
+--- which [`add_calendar`] adds back to `to` exactly, as
+--- `add_calendar(from, between(from, to, zone), zone, { overflow =
+--- "clamp", disambiguation = "compatible" })`. The months are Java's
+--- `ChronoUnit.MONTHS.between` (January 31 to February 29 is 0 months;
+--- to March 31, 2), the years are their twelves, and the days are
+--- counted from the date those months reach, where a month with no such
+--- day gives its last. Where a gap, a fold or a day a zone skipped would
+--- put that sum past `to`, the days and then the months are one fewer
+--- until it is not, so the rest is never against the sign.
+function Time.between(from: integer, to: integer, zone?: Time.Zone): Time.Duration
+  if from == to then return { years = 0, months = 0, days = 0, ns = 0 } end
+  local dir = to > from and 1 or -1
   local options: Time.AddOptions = { overflow = "clamp", disambiguation = "compatible" }
-  local anchor, why = Time.add_calendar(from, { months = months }, zone, options)
-  if anchor == nil then return nil, why end
-  local days = local_seconds(to, zone) // DAY - local_seconds(anchor, zone) // DAY
-  local moved, days_why = Time.add_calendar(anchor, { days = days }, zone, options)
-  -- A day too many lands past `to`, as one a gap moves later does, or
-  -- past the range's end; so may the day before it, in a zone that
-  -- skipped a day whole.
-  while days ~= 0 and (moved == nil or (days > 0 and moved > to) or (days < 0 and moved < to)) do
-    days = days > 0 and days - 1 or days + 1
-    moved, days_why = Time.add_calendar(anchor, { days = days }, zone, options)
+  local months = whole_months(from, to, zone)
+  if months * dir < 0 then months = 0 end
+  while true do
+    local anchor, _ = Time.add_calendar(from, { months = months }, zone, options)
+    local first = 0
+    if anchor ~= nil then
+      first = local_seconds(to, zone) // DAY - local_seconds(anchor, zone) // DAY
+      if first * dir < 0 then first = 0 end
+    end
+    for days = first, 0, -dir do
+      local moved, _ = Time.add_calendar(from, { months = months, days = days }, zone, options)
+      -- Out of the range is past `to`, or past `from`, for a step toward it.
+      if moved ~= nil and (to - moved) * dir >= 0 then
+        return {
+          years = dir * (math.abs(months) // 12), months = dir * (math.abs(months) % 12),
+          days = days, ns = to - moved,
+        }
+      end
+    end
+    -- With no months and no days the sum is `from`, which never is past `to`.
+    if months == 0 then error("time: between found no span", 2) end
+    months = months - dir
   end
-  if moved == nil then return nil, days_why end
-  local sign = (months < 0 or days < 0 or to < moved) and -1 or 1
-  return {
-    years = sign * (math.abs(months) // 12), months = sign * (math.abs(months) % 12),
-    days = days, ns = to - moved,
-  }, ""
 end
 
 --- `ns` as RFC 3339 text, `2026-09-25T04:09:21Z` in UTC, with a fraction
@@ -1431,22 +1473,22 @@ end
 
 --- `YYYY-MM-DD` at the cursor into `c`.
 local function date_into(cur: Cursor, c: Time.Civil)
-  c.year = cur:digits(4, "year")
-  cur:expect("-", "after the year")
-  c.month = cur:digits(2, "month")
-  cur:expect("-", "after the month")
-  c.day = cur:digits(2, "day")
+  c.year = read_digits(cur, 4, "year")
+  expect(cur, "-", "after the year")
+  c.month = read_digits(cur, 2, "month")
+  expect(cur, "-", "after the month")
+  c.day = read_digits(cur, 2, "day")
 end
 
 --- `hh:mm:ss` at the cursor into `c`.
 local function clock_into(cur: Cursor, c: Time.Civil)
-  c.hour = cur:digits(2, "hour")
-  cur:expect(":", "after the hour")
-  c.minute = cur:digits(2, "minute")
-  cur:expect(":", "after the minute")
-  c.second = cur:digits(2, "second")
+  c.hour = read_digits(cur, 2, "hour")
+  expect(cur, ":", "after the hour")
+  c.minute = read_digits(cur, 2, "minute")
+  expect(cur, ":", "after the minute")
+  c.second = read_digits(cur, 2, "second")
   if c.second == 60 then
-    cur:fail("second 60 is not 0 through 59: cosmic time has no leap seconds")
+    fail(cur, "second 60 is not 0 through 59: cosmic time has no leap seconds")
   end
 end
 
@@ -1468,16 +1510,16 @@ end
 local function offset_at(cur: Cursor, what: string): integer
   local sign = cur.text:sub(cur.at, cur.at)
   if cur.why == nil and sign ~= "+" and sign ~= "-" then
-    cur:fail(("expected \"+\" or \"-\" to begin %s at byte %d"):format(what, cur.at))
+    fail(cur, ("expected \"+\" or \"-\" to begin %s at byte %d"):format(what, cur.at))
   end
   cur.at = cur.at + 1
-  local hours = cur:digits(2, what .. "'s hour")
-  cur:expect(":", "in " .. what)
-  local minutes = cur:digits(2, what .. "'s minute")
+  local hours = read_digits(cur, 2, what .. "'s hour")
+  expect(cur, ":", "in " .. what)
+  local minutes = read_digits(cur, 2, what .. "'s minute")
   if cur.why ~= nil then return nil end
   local why = outside(what .. "'s hour", hours, 0, 23) or outside(what .. "'s minute", minutes, 0, 59)
   if why ~= nil then
-    cur:fail(why)
+    fail(cur, why)
     return nil
   end
   local offset = (hours * 60 + minutes) * 60
@@ -1502,12 +1544,12 @@ end
 --- RFC 3339 text and its RFC 9557 suffix: [`parse_rfc3339`]'s and
 --- [`parse_rfc3339_zoned`]'s work.
 local function parse(text: string): Time.Zoned | nil, string
-  local cur = cursor(text)
+  local cur = borrow(text)
   local c: Time.Civil = {}
   date_into(cur, c)
-  cur:expect("T", "between the date and the time")
+  expect(cur, "T", "between the date and the time")
   clock_into(cur, c)
-  c.ns = cur:accept(".") and cur:fraction() or 0
+  c.ns = accept(cur, ".") and read_fraction(cur) or 0
   if cur.why ~= nil then return nil, cur.why end
   local offset = 0
   -- `Z` and `-00:00` say the local offset is unknown (RFC 9557 2.2), so
@@ -1571,7 +1613,7 @@ local function parse(text: string): Time.Zoned | nil, string
     first = false
     cur.at = close + 1
   end
-  cur:finish()
+  finish(cur)
   if cur.why ~= nil then return nil, cur.why end
   zoned.zone = zoned.zone or (unknown and Time.UTC or fixed_zone(offset))
   return zoned, ""
@@ -1621,9 +1663,9 @@ end
 --- UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
   local c: Time.Civil = { hour = 0, minute = 0, second = 0, ns = 0 }
-  local cur = cursor(text)
+  local cur = borrow(text)
   date_into(cur, c)
-  cur:finish()
+  finish(cur)
   if cur.why ~= nil then return nil, cur.why end
   if zone == nil then return moment(c, 0) end
   local rules = rules_for(zone)
@@ -1673,43 +1715,43 @@ end
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): integer | nil, string
   local c: Time.Civil = { ns = 0 }
-  local cur = cursor(text)
+  local cur = borrow(text)
   local separator = text:sub(4, 4)
   if separator == "," then
-    cur:name_of(SHORT_DAYS, "a day name")
-    cur:expect(", ", "after the day name")
-    c.day = cur:digits(2, "day")
-    cur:expect(" ", "after the day")
-    c.month = cur:name_of(MONTHS, "a month name")
-    cur:expect(" ", "after the month")
-    c.year = cur:digits(4, "year")
-    cur:expect(" ", "after the year")
+    name_of(cur, SHORT_DAYS, "a day name")
+    expect(cur, ", ", "after the day name")
+    c.day = read_digits(cur, 2, "day")
+    expect(cur, " ", "after the day")
+    c.month = name_of(cur, MONTHS, "a month name")
+    expect(cur, " ", "after the month")
+    c.year = read_digits(cur, 4, "year")
+    expect(cur, " ", "after the year")
     clock_into(cur, c)
-    cur:expect(" GMT", "after the time")
+    expect(cur, " GMT", "after the time")
   elseif separator == " " then
-    cur:name_of(SHORT_DAYS, "a day name")
-    cur:expect(" ", "after the day name")
-    c.month = cur:name_of(MONTHS, "a month name")
-    cur:expect(" ", "after the month")
-    c.day = cur:accept(" ") and cur:digits(1, "day") or cur:digits(2, "day")
-    cur:expect(" ", "after the day")
+    name_of(cur, SHORT_DAYS, "a day name")
+    expect(cur, " ", "after the day name")
+    c.month = name_of(cur, MONTHS, "a month name")
+    expect(cur, " ", "after the month")
+    c.day = accept(cur, " ") and read_digits(cur, 1, "day") or read_digits(cur, 2, "day")
+    expect(cur, " ", "after the day")
     clock_into(cur, c)
-    cur:expect(" ", "after the time")
-    c.year = cur:digits(4, "year")
+    expect(cur, " ", "after the time")
+    c.year = read_digits(cur, 4, "year")
   else
-    cur:name_of(LONG_DAYS, "a day name")
-    cur:expect(", ", "after the day name")
-    c.day = cur:digits(2, "day")
-    cur:expect("-", "after the day")
-    c.month = cur:name_of(MONTHS, "a month name")
-    cur:expect("-", "after the month")
-    local year = cur:digits(2, "year")
+    name_of(cur, LONG_DAYS, "a day name")
+    expect(cur, ", ", "after the day name")
+    c.day = read_digits(cur, 2, "day")
+    expect(cur, "-", "after the day")
+    c.month = name_of(cur, MONTHS, "a month name")
+    expect(cur, "-", "after the month")
+    local year = read_digits(cur, 2, "year")
     c.year = year ~= nil and year + (year >= 69 and 1900 or 2000) or nil
-    cur:expect(" ", "after the year")
+    expect(cur, " ", "after the year")
     clock_into(cur, c)
-    cur:expect(" GMT", "after the time")
+    expect(cur, " GMT", "after the time")
   end
-  cur:finish()
+  finish(cur)
   if cur.why ~= nil then return nil, cur.why end
   return moment(c, 0)
 end
@@ -1866,21 +1908,25 @@ local function span(n: number, unit_ns: integer, name: string): integer
     end
     return count * unit_ns
   elseif kind == "float" then
-    local ns = math.tointeger(n * unit_ns)
-    if ns == nil then
+    -- A count like 1.005 has no exact binary form, so its product is
+    -- only near a whole number: within a few units in the last place.
+    local scaled = n * unit_ns
+    local whole = math.floor(scaled + 0.5)
+    if math.type(whole) ~= "integer" or math.abs(scaled - whole) > math.abs(scaled) * 2 ^ -50 then
       error(("time: %s(%s) is not a whole number of nanoseconds an integer holds"):format(name,
         tostring(n)), 3)
     end
-    return ns
+    return whole
   end
   error(("time: %s takes a number, not %s"):format(name, type(n)), 3)
 end
 
 --- `n` milliseconds as nanoseconds: `Time.ms(250)` is 250000000. A float
 --- is as good as an integer when the span is a whole number of
---- nanoseconds (`Time.ms(0.5)` is 500000). Raises for anything else: a
---- value that is no number, a span with a fraction of a nanosecond, or
---- one outside what an integer holds.
+--- nanoseconds, to within the rounding of the product (`Time.ms(0.5)` is
+--- 500000, and `Time.seconds(1.005)` is 1005000000). Raises for anything
+--- else: a value that is no number, a span with a fraction of a
+--- nanosecond, or one outside what an integer holds.
 function Time.ms(n: number): integer
   return span(n, 1000000, "Time.ms")
 end

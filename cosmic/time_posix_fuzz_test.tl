@@ -30,7 +30,7 @@ do
       samples[#samples + 1] = footer
     end
   end
-  for _, extra in ipairs({ "EST5EDT", "EST5EDT4,0/0,J365/25", "AAA0BBB,J60/0,300/167",
+  for _, extra in ipairs({ "AAA5BBB", "EST5EDT4,0/0,J365/25", "AAA0BBB,J60/0,300/167",
       "AAA-24BBB24,M3.2.0/-167,M11.1.0/167", "<+0330>-3:30" }) do
     samples[#samples + 1] = extra
   end

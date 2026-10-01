@@ -562,6 +562,38 @@ local function test_between_follows_the_zones_calendar()
   assert(noon.months == 6 and noon.days == 0 and noon.ns == 0, "noon to noon, across the change")
 end
 
+--- A fold or a skipped day under the days or months a span steps over
+--- must not flip its sign or leave it short of `to`: each answer has one
+--- sign and `add_calendar` adds it back to `to`.
+local function test_between_holds_across_folds_and_skipped_days()
+  local cases: {{string, string, string}} = {
+    { "Europe/London", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
+    { "Europe/Dublin", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
+    { "Antarctica/Troll", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
+    { "Pacific/Apia", "1900-03-30T12:33:00-11:27", "2011-12-31T00:00:00+14:00" },
+    { "America/New_York", "2023-03-12T01:59:59-05:00", "2023-11-05T01:30:00-05:00" },
+    { "Pacific/Apia", "2010-12-30T00:00:00-10:00", "2012-01-01T00:00:00+14:00" },
+  }
+  local options: Time.AddOptions = { overflow = "clamp", disambiguation = "compatible" }
+  for _, case in ipairs(cases) do
+    local z, from, to = zone(case[1]), at(case[2]), at(case[3])
+    for _, pair in ipairs({ { from, to }, { to, from } } as {{integer}}) do
+      local d = Time.between(pair[1], pair[2], z)
+      local dir = pair[2] > pair[1] and 1 or -1
+      local text = Time.format_duration(d)
+      assert(d.years * dir >= 0 and d.months * dir >= 0 and d.days * dir >= 0 and d.ns * dir >= 0,
+        case[1] .. " " .. text)
+      assert(Time.add_calendar(pair[1], d, z, options) == pair[2], case[1] .. " " .. text)
+    end
+  end
+  local ny = zone("America/New_York")
+  assert(Time.format_duration(Time.between(at("2023-03-12T01:59:59-05:00"),
+    at("2023-11-05T01:30:00-05:00"), ny)) == "7mo23d24h30m1s")
+  local apia = zone("Pacific/Apia")
+  assert(Time.format_duration(Time.between(at("2010-12-30T00:00:00-10:00"),
+    at("2012-01-01T00:00:00+14:00"), apia)) == "1y1d24h")
+end
+
 --- `local_zone` takes only a zone's name from the host -- from `TZ`,
 --- the /etc/localtime link, or /etc/timezone -- and the rules from the
 --- binary's copy; with no name to take, UTC.

@@ -129,19 +129,25 @@ classification comes from [`Json.layout`].
   nanosecond integers from a count, raising on a non-integer result.
 - [`Time.Duration`] stays the record it is, as the one calendar span:
   `Change` (time.tl:94), identical to it less `nanoseconds`, goes, and
-  `add_calendar(ns, duration, zone?, opts?)` takes a `Duration`.
+  `add_calendar(ns, duration, zone?, opts?)` takes a `Duration` and adds its
+  exact part (`ns`) last.
   `Time.between(from, to, zone?): Duration` answers the whole years, months,
   days and remainder between two instants, absorbing the 35 lines
   `build/time.tl:336` spends combining `months_between`, `add_calendar` and
   `days_between`; `months_between` and `days_between` go (only that verb
-  called them), with hints naming `between`.
+  called them), with hints naming `between`. `between` always answers a
+  `Duration` of one sign that `add_calendar(from, d, zone, { overflow =
+  "clamp", disambiguation = "compatible" })` adds back to `to` exactly, in a
+  zone with folds and skipped days too.
 - every calendar function takes `zone?` positionally after its data and
   `opts?` last: `format_rfc3339(ns, zone?, opts?)` and `add_calendar` change;
   `CivilOptions` merges into `AddOptions` less `overflow`.
 - `parse_input` and `read_input` (time.tl:1835 to 1935) move to
   `build/time.tl`: a user-text heuristic is the verb's input layer.
   `parse_duration` and `format_duration` stay as `Duration`'s text form.
-  `parse_rfc3339_zoned` goes (no caller; `parse_rfc3339` stays).
+  `parse_rfc3339_zoned` stays, since the verb's `parse_input` needs the zone
+  of RFC 3339 text, and it now always answers a zone: its suffix's, else its
+  offset's, else UTC.
   `zone_from_posix` stays (it is how `TZ` is read) but is no longer exported
   unless a caller appears: it becomes local to `local_zone`.
 - one cursor helper (`at`, `digits(n)`, `expect(s)`, `name_of(list)`,

@@ -455,11 +455,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if whole > 0 and fraction < 0 then whole = whole - 1 elseif whole < 0 and fraction > 0 then whole = whole + 1 end
     value = whole
   else
-    local span, why = Time.between(first.ns, second.ns, calendar)
-    if span == nil then
-      complain(why)
-      return bare.failed
-    end
+    local span = Time.between(first.ns, second.ns, calendar)
     value = unit == "months" and span.years * 12 + span.months or Time.format_duration(span)
   end
   if as_json then
