@@ -246,7 +246,8 @@ local record Stream
     mtime: integer
     --- The body's size, for a file whose body is a [`Stream.Reader`]: required
     --- by a tar, whose header states it before the body, and optional
-    --- for a zip.
+    --- for a zip. One that is no integer, or is negative, raises, whatever
+    --- the body.
     size: integer
   end
 
@@ -284,7 +285,8 @@ local function refuse(why: string): nil, string
   return nil, "stream: " .. why
 end
 
-local closed_message <const> = "stream: the reader is closed"
+local closed_reader <const> = "stream: the reader is closed"
+local closed_writer <const> = "stream: the writer is closed"
 
 --- A Reader over bytes already in memory.
 function Stream.from_string(s: string): Stream.Reader
@@ -292,7 +294,7 @@ function Stream.from_string(s: string): Stream.Reader
   local closed = false
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max: integer): string | nil, string
-    if closed then return nil, closed_message end
+    if closed then return nil, closed_reader end
     if at > #s then return nil, "" end
     local want = max or (#s - at + 1)
     if want <= 0 then return nil, "" end
@@ -308,7 +310,7 @@ function Stream.from_string(s: string): Stream.Reader
     return true, ""
   end
   r.skip = function(_self: Stream.Reader, n: integer): boolean, string
-    if closed then return false, closed_message end
+    if closed then return false, closed_reader end
     if n < 0 then return false, "stream: skip of a negative count" end
     -- Compared this way round, so a huge `n` cannot wrap `at + n`.
     if n > #s + 1 - at then
@@ -325,7 +327,7 @@ end
 --- raising at `level` above the caller of this function's caller.
 local function fd_options(opts: Stream.FdOptions | nil, level: integer): Stream.FdOptions
   if opts == nil then return {} end
-  Poll.checked_ns(opts.timeout_ns, "stream: timeout_ns", level + 1)
+  Poll.checked_ns(opts.timeout_ns, "stream", "timeout_ns", level + 1)
   if (opts.timeout_ns ~= nil or opts.wait ~= nil) and not opts.nonblocking then
     error("stream: timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
       "cannot be waited on in pieces", level + 1)
@@ -365,7 +367,7 @@ local function make_fd_reader(fd: integer, owned: boolean, opts: Stream.FdOption
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max: integer): string | nil, string
     if failed then return nil, failed end
-    if closed then return nil, closed_message end
+    if closed then return nil, closed_reader end
     if ended then return nil, "" end
     local deadline: integer = nil
     if opts.timeout_ns ~= nil then deadline = Time.monotonic_ns() + opts.timeout_ns end
@@ -400,7 +402,7 @@ local function make_fd_reader(fd: integer, owned: boolean, opts: Stream.FdOption
     local size = st.size
     r.skip = function(_self: Stream.Reader, n: integer): boolean, string
       if failed then return false, failed end
-      if closed then return false, closed_message end
+      if closed then return false, closed_reader end
       if n == 0 then return true, "" end
       if ended then
         failed = "stream: skip past the end of the file"
@@ -504,7 +506,7 @@ function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Strea
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max: integer): string | nil, string
     if failed then return nil, failed end
-    if closed then return nil, closed_message end
+    if closed then return nil, closed_reader end
     while at > #pending and not finished do
       local out, trouble = step()
       if out == nil then
@@ -543,7 +545,7 @@ function Stream.limit(reader: Stream.Reader, n: integer): Stream.Reader
   local closed = false
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max: integer): string | nil, string
-    if closed then return nil, closed_message end
+    if closed then return nil, closed_reader end
     if left <= 0 then return nil, "" end
     local want = max or chunk_size
     if want > left then want = left end
@@ -568,7 +570,7 @@ function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
   local closed = false
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
-    if closed then return nil, closed_message end
+    if closed then return nil, closed_reader end
     if at <= #prefix then
       local want = max or (#prefix - at + 1)
       if want <= 0 then return nil, "" end
@@ -869,7 +871,7 @@ function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
   local went = 0
   local w: Stream.FdWriter = {}
   w.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed then return false, closed_message end
+    if closed then return false, closed_writer end
     if failed then return false, failed end
     local deadline: integer = nil
     if options.timeout_ns ~= nil then deadline = Time.monotonic_ns() + options.timeout_ns end
@@ -959,7 +961,7 @@ function Stream.collect(): Stream.Collector
   local closed = false
   local c: Stream.Collector = {}
   c.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed then return false, closed_message end
+    if closed then return false, closed_writer end
     parts[#parts + 1] = data
     return true, ""
   end
@@ -1010,7 +1012,7 @@ function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing
   local closed = false
   local h: Stream.Hashing = {}
   h.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed or result ~= nil then return false, closed_message end
+    if closed or result ~= nil then return false, closed_writer end
     feed(data)
     return true, ""
   end
@@ -1086,7 +1088,7 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform)
     end
   end
   w.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed then return false, closed_message end
+    if closed then return false, closed_writer end
     if failed then return false, failed end
     local ok, trouble = feed(data)
     if not ok then

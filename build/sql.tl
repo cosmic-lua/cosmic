@@ -471,7 +471,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
       given[#inputs] = true
       if name == "--as" then
         if dataset.about(value) == nil then
-          return nil, "no format " .. value .. " (known: " .. table.concat(dataset.names(), ", ") .. ")"
+          return nil, "dataset: no format " .. value .. " (known: " .. table.concat(dataset.names(), ", ") .. ")"
         end
         input.format = value
       else

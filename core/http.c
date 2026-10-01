@@ -328,8 +328,8 @@ static int is_token (const char *method, size_t len) {
  * returns as `nil, err`. */
 _Noreturn static void bad_option (lua_State *L, const char *key,
                                   const char *want) {
-  luaL_argerror(L, 2, lua_pushfstring(L, "opts.%s must be %s", key, want));
-  abort(); /* luaL_argerror never returns */
+  luaL_error(L, "http: opts.%s must be %s", key, want);
+  abort(); /* luaL_error never returns */
 }
 
 /* Pushes opts[key] and returns it, or NULL when it is nil; anything but
@@ -364,9 +364,7 @@ static long opt_integer (lua_State *L, const char *key, long fallback,
     if (lua_type(L, -1) == LUA_TNUMBER) v = lua_tointegerx(L, -1, &ok);
     if (!ok) bad_option(L, key, "an integer");
     if (v < 0 || v > max) {
-      luaL_argerror(L, 2,
-                    lua_pushfstring(L, "opts.%s must be between 0 and %I",
-                                    key, max));
+      luaL_error(L, "http: opts.%s must be between 0 and %I", key, max);
     }
   }
   lua_pop(L, 1);
@@ -829,7 +827,7 @@ static int failed (lua_State *L, const char *why) {
 static int handle_read (lua_State *L) {
   struct transfer *t = checked(L);
   lua_Integer max = luaL_optinteger(L, 2, 65536);
-  luaL_argcheck(L, max > 0, 2, "must be positive");
+  if (max <= 0) luaL_error(L, "http: read's max must be positive");
 
   if (t->body_len == 0) {
     resume(t);
@@ -868,7 +866,7 @@ static int handle_sent (lua_State *L) {
   }
   script_step(t->script);
   if (t->script->sent_lost) {
-    luaL_error(L, "no memory to record what curl sent");
+    luaL_error(L, "http: no memory to record what curl sent");
   }
   lua_pushlstring(L, t->script->sent != NULL ? t->script->sent : "",
                   t->script->sent_len);
@@ -1235,7 +1233,7 @@ static int http_check_certificate (lua_State *L) {
   int parsed = mbedtls_x509_crt_parse_der(&crt, (const unsigned char *)der, len);
   mbedtls_x509_crt_free(&crt);
   if (parsed == MBEDTLS_ERR_X509_ALLOC_FAILED) {
-    return luaL_error(L, "no memory to read a certificate");
+    return luaL_error(L, "http: no memory to read a certificate");
   }
   if (parsed != 0) {
     /* mbedtls_strerror names none of X509's codes in this build. */

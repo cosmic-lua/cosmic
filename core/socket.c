@@ -90,6 +90,10 @@ static int tcp_address_of (lua_State *L, int index, struct target *out) {
  * out of range -- raises. Nothing is left on the stack, and nothing of
  * it is kept but the copies in `*out`. */
 static int address_of (lua_State *L, int index, struct target *out) {
+  /* The argument errors here, and in tcp_address_of, are the raw binding's
+   * last line of defence: cosmic.net checks an address first and raises
+   * "net: address must be ...", so only a caller of the binding itself
+   * meets them, in luaL_argerror's own form. That is decided, not a gap. */
   memset(&out->address, 0, sizeof out->address);
   out->length = 0;
   out->directory[0] = '\0';

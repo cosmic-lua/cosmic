@@ -78,7 +78,7 @@ local record Zip
     --- must say so, since its local header has to announce zip64
     --- before any of the body is read. When given, the body must turn
     --- out exactly this long, or the write fails. A size that is no
-    --- integer, or is negative, raises.
+    --- integer, or is negative, raises, whatever the body.
     size: integer
     --- "deflate" (the default) or "store". Only [`add_file`] reads it:
     --- a directory and a symlink are stored.
@@ -921,14 +921,14 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
 
   zw.add_file = function(_self: Zip.Writer, path: string, data: string | Stream.Reader,
       fopts?: Zip.EntryOptions): boolean, string
+    fopts = fopts or {}
+    local size = fopts.size
+    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
+      error("zip: opts.size must be an integer of at least 0", 2)
+    end
     -- A trailing `/` is what marks a directory: a file of that name
     -- would read back as one.
     if path:sub(-1) == "/" then return false, "zip: a file's path ends in /: " .. path end
-    fopts = fopts or {}
-    local size = fopts.size
-    if not (data is string) and size ~= nil and (math.type(size) ~= "integer" or size < 0) then
-      error("zip: opts.size must be an integer of at least 0", 2)
-    end
     return put_entry(path, data, fopts.method or "deflate", S_IFREG, fopts.mode or 0x1a4,
       fopts.mtime or 0, fopts.size)
   end

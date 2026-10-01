@@ -374,16 +374,18 @@ local function current(what: string, level: integer): State
   return task
 end
 
---- Raises, naming `name` (the argument or field, after its module's
---- name: "net: timeout_ns") and at `level` as `error` takes it in the
+--- Raises "`module`: `name` must be ...", `name` the argument or field
+--- and `module` the one that reads it ("net", "timeout_ns"), at `level`
+--- as `error` takes it in the
 --- function that calls this (1 is that function, 2 its caller), unless
 --- `value` is nil or an integer from 0 to [`Poll.MOST_NS`]: what every
 --- `timeout_ns` is held to, so a field or argument set wrong is named
 --- where it is read.
-function Poll.checked_ns(value: any, name: string, level: integer)
+function Poll.checked_ns(value: any, module: string, name: string, level: integer)
   if value == nil then return end
   if not (value is integer and value >= 0 and value <= Poll.MOST_NS) then
-    error(name .. " must be nil or an integer from 0 to " .. Poll.MOST_NS, level + 1)
+    error(module .. ": " .. name .. " must be nil or an integer from 0 to " .. Poll.MOST_NS,
+      level + 1)
   end
 end
 
@@ -461,7 +463,7 @@ end
 --- nothing ready.
 local function wait_on(fd: integer, events: integer, timeout_ns: integer | nil,
     what: string): boolean, string
-  Poll.checked_ns(timeout_ns, "poll: timeout_ns", 3)
+  Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 3)
   checked_fd(fd, "fd", 3)
   checked_events(events, "events", 3)
   local task = waiting_task(what, 3)
@@ -521,7 +523,7 @@ end
 --- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
 function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {integer} | nil, string
   local task = current("Poll.ready", 2)
-  Poll.checked_ns(timeout_ns, "poll: timeout_ns", 2)
+  Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
   if #fds == 0 or #events ~= #fds then
     error("poll: Poll.ready takes one or more descriptors, and events for each", 2)
   end
@@ -544,7 +546,7 @@ end
 function Poll.delay(ns: integer): boolean, string
   local task = current("Poll.delay", 2)
   if ns == nil then error("poll: ns must be an integer from 0 to " .. Poll.MOST_NS, 2) end
-  Poll.checked_ns(ns, "poll: ns", 2)
+  Poll.checked_ns(ns, "poll", "ns", 2)
   return park(task, { task = task, expiry_ok = true }, ns)
 end
 
@@ -577,7 +579,7 @@ local function start(fn: function()): Poll.Task
   state.handle = {
     join = function(_self: Poll.Task, timeout_ns?: integer): boolean, string
       local task = current("Task:join", 2)
-      Poll.checked_ns(timeout_ns, "poll: timeout_ns", 2)
+      Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
       if state.killed then return false, Poll.CANCELLED end
       if state.ended or state.loop ~= loop then return true, "" end
       if state == task then error("poll: a task cannot join itself", 2) end

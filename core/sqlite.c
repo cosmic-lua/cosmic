@@ -565,7 +565,7 @@ static int statement_name (lua_State *L) {
   const char *name = sqlite3_column_name(s->stmt, index);
   if (name == NULL) {
     /* SQLite could not make the name: out of memory, not a value. */
-    return luaL_error(L, "not enough memory");
+    return luaL_error(L, "sqlite: not enough memory");
   }
   lua_pushstring(L, name);
   return 1;
@@ -620,7 +620,7 @@ static int statement_bytes (lua_State *L) {
   int len = sqlite3_column_bytes(s->stmt, index);
   if (data == NULL && len > 0) {
     /* SQLite could not make the bytes: out of memory, not a value. */
-    return luaL_error(L, "not enough memory");
+    return luaL_error(L, "sqlite: not enough memory");
   }
   if (data == NULL) {
     lua_pushliteral(L, "");

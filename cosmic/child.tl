@@ -779,10 +779,10 @@ end
 local function end_child(self: Handle): Result | nil, string
   -- TODO: this function's failures ("child did not reap after SIGKILL"),
   -- and the other returned failures of this module that are its own and no
-  -- system call's ("process already reaped", "the child has exited"), name
-  -- no module, where cosmic.zip and the rest answer `nil, "zip: ..."`
-  -- through one local `refuse(why)`; do the same here, and update the
-  -- messages cosmic/child*_test.tl pin.
+  -- system call's ("process already reaped"), name no module, where
+  -- cosmic.zip and the rest answer `nil, "zip: ..."` through one local
+  -- `refuse(why)`; do the same here, and update the messages
+  -- cosmic/child*_test.tl pin.
   if self._result ~= nil then return self._result, "" end
   local status, trouble = exited(self)
   if status == nil and trouble ~= "" then return nil, trouble end
@@ -869,6 +869,7 @@ end
 
 local closed_reader <const> = "child: the reader is closed"
 local closed_writer <const> = "child: the writer is closed"
+local EXITED <const> = "child: the child has exited"
 
 --- Why a stream's wait should stop now, beyond its own data: the open
 --- guard caught a signal, or the child could not be asked about.
@@ -942,13 +943,13 @@ local function feed_writer(self: Handle): Stream.Writer
   local closed = false
   local function room(_fd: integer, _events: integer, _left: integer | nil): boolean, string
     local why = interrupted(self)
-    if why == "" and self._status ~= nil then why = "the child has exited" end
+    if why == "" and self._status ~= nil then why = EXITED end
     if why ~= "" then return false, why end
     local _, cancelled = pump(watching({ self }, self), slice(nil, { self }), true, true)
     if cancelled ~= "" then return false, cancelled end
     -- Another task may have closed it meanwhile, by this writer's
     -- close or a settle, and its number be another file's by now.
-    if self._feed_fd ~= fd then return false, closed and closed_writer or "the child has exited" end
+    if self._feed_fd ~= fd then return false, closed and closed_writer or EXITED end
     return true, ""
   end
   local into = Stream.to_fd(fd, { nonblocking = true, wait = room })
@@ -956,7 +957,7 @@ local function feed_writer(self: Handle): Stream.Writer
   w.write = function(_self: Stream.Writer, data: string): boolean, string
     if closed then return false, closed_writer end
     -- Only a settled child's stdin is closed from under its writer.
-    if self._feed_fd ~= fd then return false, "the child has exited" end
+    if self._feed_fd ~= fd then return false, EXITED end
     return into:write(data)
   end
   w.close = function(_self: Stream.Writer): boolean, string
@@ -1037,7 +1038,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   end
 
   function h:wait(timeout_ns?: integer): Result | nil, string
-    Poll.checked_ns(timeout_ns, "child: timeout_ns", 2)
+    Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
     if self._result then return self._result, "" end
     if timeout_ns == nil and active == nil and not self._streams and
         not self._input_fd and not through_run() then
@@ -1135,7 +1136,7 @@ local function make_guard(): Guard
 
   function g:wait(timeout_ns?: integer): integer, string
     if not Poll.in_task() then error("child: g:wait waits in a task of Poll.run", 2) end
-    Poll.checked_ns(timeout_ns, "child: timeout_ns", 2)
+    Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
     local deadline: integer
     if timeout_ns ~= nil then deadline = now() + timeout_ns end
     while true do
@@ -1362,7 +1363,7 @@ local function validate(argv: {string}, opts: Options)
   if opts.capture_limit ~= nil and (opts.capture_limit < 1 or opts.capture_limit > INT_MAX) then
     error("child: capture_limit is out of range", 3)
   end
-  Poll.checked_ns(opts.timeout_ns, "child: timeout_ns", 3)
+  Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
   if opts.sandbox ~= nil and opts.sandbox.unveil ~= nil then
     local unveil = opts.sandbox.unveil
     for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do
@@ -1627,7 +1628,7 @@ function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle | nil, 
   -- build/test.tl reads the trouble beside the handle's result today, and
   -- build.contracts exempts this pair from the error-slot rules until then.
   if #handles == 0 then error("child: no handles to wait for", 2) end
-  Poll.checked_ns(timeout_ns, "child: timeout_ns", 2)
+  Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   local deadline = timeout_ns ~= nil and now() + timeout_ns or nil
   while true do
     for _, h in ipairs(handles) do
@@ -1730,9 +1731,9 @@ end
 --- caller's guard caught before the run began does not end it, and one
 --- that ends it is left to the caller's guard rather than delivered.
 --- It also answers nil and why when the child cannot be started, and
---- nil and "signal guard: ..." when its guard cannot be opened. In a task
---- of [`Poll.run`] that is cancelled, it ends the child, as a timeout
---- would, and answers nil and [`Poll.CANCELLED`].
+--- nil and "child: signal guard: ..." when its guard cannot be opened.
+--- In a task of [`Poll.run`] that is cancelled, it ends the child, as a
+--- timeout would, and answers nil and [`Poll.CANCELLED`].
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}
   validate(argv, opts)
@@ -1740,7 +1741,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
     error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
   end
   local held, guard_trouble = opened()
-  if held == nil then return nil, "signal guard: " .. guard_trouble end
+  if held == nil then return nil, "child: signal guard: " .. guard_trouble end
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.
   local guard <close>: Guard = held
@@ -1758,7 +1759,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   end
   -- Closing re-delivers a caught signal, after the cleanup above.
   local restored, restore_trouble = guard:close()
-  if not restored then return nil, "signal restore: " .. restore_trouble end
+  if not restored then return nil, "child: signal restore: " .. restore_trouble end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
     return nil, cleanup_trouble or wait_trouble or cancelled_by(cancellation)

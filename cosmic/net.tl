@@ -287,7 +287,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
   local conn: Net.Conn
   conn = {
     set_timeout = function(_self: Net.Conn, wait_ns: integer | nil)
-      Poll.checked_ns(wait_ns, "net: timeout_ns", 2)
+      Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
       limit = wait_ns
     end,
     read = function(_self: Net.Conn, max?: integer): string | nil, string
@@ -390,11 +390,11 @@ local function new_listener(socket: raw_socket.Socket, address: Net.Address,
   listener = {
     address = address,
     set_timeout = function(_self: Net.Listener, wait_ns: integer | nil)
-      Poll.checked_ns(wait_ns, "net: timeout_ns", 2)
+      Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
       limit = wait_ns
     end,
     accept = function(_self: Net.Listener, wait_ns?: integer): Net.Conn | nil, string
-      Poll.checked_ns(wait_ns, "net: timeout_ns", 2)
+      Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
       if not open then return nil, "net: the listener is closed" end
       wait_ns = wait_ns or limit
       while true do
@@ -464,7 +464,7 @@ local function connection(address: Net.Address, timeout_ns: integer | nil): Atte
   -- outside a task too, as `waited`'s TODO says: raw.connect, which
   -- waits in the core and ends at a caught signal, is what that
   -- replaces.
-  Poll.checked_ns(timeout_ns, "net: timeout_ns", 3)
+  Poll.checked_ns(timeout_ns, "net", "timeout_ns", 3)
   if not Poll.in_task() then
     local socket, trouble, errno = raw.connect(address, milliseconds(timeout_ns))
     return { socket = socket, trouble = trouble, errno = errno }
@@ -499,7 +499,7 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
   if unusable ~= "" then error("net: address must be " .. unusable, level + 1) end
   local backlog = opts.backlog or DEFAULT_BACKLOG
   if backlog < 1 then error("net: backlog must be at least 1", level + 1) end
-  Poll.checked_ns(opts.timeout_ns, "net: timeout_ns", level + 1)
+  Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", level + 1)
   local socket, trouble, errno = raw.listen(address, backlog)
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
   if address.kind ~= "tcp" then
@@ -607,10 +607,7 @@ local function checked_spec(spec: any)
     end
   end
   for _, field in ipairs({ "timeout_ns", "grace_ns" }) do
-    local span = spec[field]
-    if span ~= nil and not (span is integer and span >= 0 and span <= Poll.MOST_NS) then
-      spec_error(field, "nil or an integer from 0 to " .. Poll.MOST_NS)
-    end
+    Poll.checked_ns(spec[field], "net", "spec." .. field, 3)
   end
   for _, field in ipairs({ "on_ready", "on_error" }) do
     local fn = spec[field]
@@ -817,7 +814,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
   }
   local s <close> = setmetatable(state, serving_mt)
   local guard, guard_trouble = Child.guard()
-  if guard == nil then return false, "signal guard: " .. guard_trouble end
+  if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard
   local addresses: {Net.Address} = {}
   for i, address in ipairs(spec.listeners) do
@@ -852,7 +849,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     local _, trouble = guard:close()
     restore_trouble = trouble
   end
-  if restore_trouble ~= "" then return false, "signal restore: " .. restore_trouble end
+  if restore_trouble ~= "" then return false, "net: signal restore: " .. restore_trouble end
   return true, ""
 end
 

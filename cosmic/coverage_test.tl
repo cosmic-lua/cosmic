@@ -51,7 +51,7 @@ end
 local function test_start_refused_while_a_window_is_already_open()
   local session, trouble = Coverage.start()
   assert(session == nil, "start must refuse while a real window is open")
-  assert(trouble ~= "", "the refusal must explain why")
+  assert(trouble == "coverage: collection is already active", trouble)
 end
 
 --- A `stop` given anything but the session that opened the window, here
@@ -60,7 +60,7 @@ local function test_stop_with_a_foreign_session_does_not_disrupt_the_window()
   local foreign: Coverage.Session = {}
   local hits, trouble = Coverage.stop(foreign)
   assert(hits == nil, "a foreign session must not get back the real hits")
-  assert(trouble ~= "", "the refusal must explain why")
+  assert(trouble == "coverage: no matching open collection for this session", trouble)
   -- The window is still open: `start` still refuses.
   local session, start_trouble = Coverage.start()
   assert(session == nil, "the genuine window must still be open, unreset")

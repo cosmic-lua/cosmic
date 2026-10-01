@@ -39,7 +39,7 @@ end
 local function test_indent_is_one_level_of_a_pretty_layout()
   assert(encoded({ 1 }, { pretty = true, indent = "\t" }) == "[\n\t1\n]", "a tab")
   local ok, why = pcall(json_raw.encode, 1, { pretty = true, indent = "x" })
-  assert(not ok and tostring(why):match("indent must be spaces and tabs"), tostring(why))
+  assert(not ok and tostring(why):match("json: indent must be spaces and tabs"), tostring(why))
 end
 
 local function test_unsorted_keeps_every_member()

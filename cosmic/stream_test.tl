@@ -147,6 +147,30 @@ local function test_to_fd_writes_without_closing(tmp: string)
   assert(Fs.read(path) == "hello world")
 end
 
+--- A write after a close says the writer is closed, whichever writer it is,
+--- and a read of a closed reader says the reader is.
+local function test_a_closed_writer_and_a_closed_reader_say_which_they_are(tmp: string)
+  local fd = assert(Fs.open_write(tmp .. "/closed"))
+  local collected = Stream.collect()
+  local codec: Fake = {}
+  codec.pending = function(_self: Fake): boolean return false end
+  codec.update = function(_self: Fake, chunk: string): string | nil, string return chunk, "" end
+  codec.finish = function(_self: Fake): string | nil, string return "", "" end
+  local transformed = Stream.transform_writer(Stream.collect(), codec)
+  local hashing = assert(Stream.hashing("sha256"))
+  local writers: {Stream.Writer} = { collected, Stream.to_fd(fd), hashing, transformed }
+  for i, w in ipairs(writers) do
+    assert(w:close())
+    local ok, why = w:write("x")
+    assert(not ok and why:find("stream: the writer is closed", 1, true) == 1, i .. ": " .. why)
+  end
+  assert(Fs.close(fd))
+  local reader = Stream.from_string("abc")
+  assert(reader:close())
+  local data, why = reader:read()
+  assert(data == nil and why == "stream: the reader is closed", why)
+end
+
 local function test_create_renames_into_place_only_on_close(tmp: string)
   local path = tmp .. "/target"
   local w = assert(Stream.create(path))

@@ -107,7 +107,10 @@ function Fs.read(path: string): string | nil, string
   return table.concat(parts), ""
 end
 
-local function write_all(fd: integer, data: string): boolean, string
+--- Writes all of `data` to `fd`; a write that moves nothing fails
+--- "`blame`write made no progress", `blame` being "fs: " where no caller
+--- names the file.
+local function write_all(fd: integer, data: string, blame: string): boolean, string
   local at = 1
   while at <= #data do
     -- The whole string the first time, rather than a copy of it.
@@ -117,7 +120,7 @@ local function write_all(fd: integer, data: string): boolean, string
       return false, trouble
     end
     if put == 0 then
-      return false, "write made no progress"
+      return false, blame .. "write made no progress"
     end
     at = at + put
   end
@@ -147,7 +150,7 @@ end
 StagedFile_methods.write = function(self: StagedFile, data: string): boolean, string
   if self.closed then return false, self.path .. ": the file is closed" end
   if self.failed then return false, self.failed end
-  local ok, why = write_all(self.temporary.fd, data)
+  local ok, why = write_all(self.temporary.fd, data, "")
   if not ok then return false, failing(self, why) end
   return true, ""
 end
@@ -364,7 +367,7 @@ local function cache_base(environment?: {string:string}): string | nil, string
   if base:sub(1, 1) ~= "/" then
     local home = get("HOME")
     if home:sub(1, 1) ~= "/" then
-      return nil, "no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
+      return nil, "fs: no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
     end
     base = home .. "/.cache"
   end
@@ -658,7 +661,7 @@ end
 --- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
 --- are the standard-stream descriptors used instead of io.write/io.output.
 function Fs.put(fd: integer, data: string): boolean, string
-  return write_all(fd, data)
+  return write_all(fd, data, "fs: ")
 end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is

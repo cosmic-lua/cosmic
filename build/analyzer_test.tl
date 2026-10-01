@@ -293,6 +293,19 @@ local function test_catalogs_a_false_return()
   assert(found[1].message == "the thing is busy right now", found[1].message)
 end
 
+--- A module's own `return refuse("why")`, which answers `nil, "module: why"`,
+--- is catalogued by the literal it is given.
+local function test_catalogs_a_refuse_return()
+  local source = lines({
+    "local function try_thing(): nil, string",
+    "  return refuse(\"the thing is busy right now\")",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 1, "expected one entry, got " .. #found)
+  assert(found[1].message == "the thing is busy right now", found[1].message)
+end
+
 --- A concatenated message keeps its literal pieces and drops the
 --- interpolated ones, so the entry holds exactly the text an error
 --- would always contain.

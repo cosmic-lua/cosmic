@@ -213,7 +213,7 @@ local function test_put_rejects_zero_progress(tmp: string)
   local ok, trouble = Fs.put(fd, "data")
   sys.write = real_write
   assert(Fs.close(fd))
-  assert(not ok and trouble == "write made no progress")
+  assert(not ok and trouble == "fs: write made no progress")
 end
 
 local function test_cache_dir_has_no_shared_fallback()

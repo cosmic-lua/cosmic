@@ -151,20 +151,20 @@ local function test_incremental_hmac_throws_naming_the_finished_hasher()
   local ok, trouble = pcall(function(): string, string
     return mac:digest()
   end)
-  assert(not ok and tostring(trouble):find("the hasher is finished", 1, true), tostring(trouble))
+  assert(not ok and tostring(trouble):find("hash: the hasher is finished", 1, true), tostring(trouble))
   local updated = pcall(mac.update, mac, "more")
   assert(not updated)
   local _, why = pcall(function(): any
     mac:update("more")
     return nil
   end)
-  assert(tostring(why):find("the hasher is finished", 1, true), tostring(why))
+  assert(tostring(why):find("hash: the hasher is finished", 1, true), tostring(why))
 end
 
 local function test_incremental_hmac_raises_on_an_unknown_algorithm()
   local ok, trouble = pcall(Hash.hmac_hasher, "sha0" as Hash.Algorithm, "key")
   assert(not ok)
-  assert(tostring(trouble):find("no such digest algorithm", 1, true), tostring(trouble))
+  assert(tostring(trouble):find("hash: no such digest algorithm", 1, true), tostring(trouble))
 end
 
 local function test_incremental_hmac_answers_an_empty_error()
@@ -266,7 +266,7 @@ end
 local function test_an_unknown_algorithm_raises()
   local ok, trouble = pcall(Hash.digest, "sha0" as Hash.Algorithm, "abc")
   assert(not ok)
-  assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil,
+  assert(tostring(trouble):find("hash: no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
 end
 
@@ -330,7 +330,7 @@ end
 local function test_hasher_raises_on_an_unknown_algorithm()
   local ok, trouble = pcall(Hash.hasher, "sha0" as Hash.Algorithm)
   assert(not ok)
-  assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil,
+  assert(tostring(trouble):find("hash: no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
 end
 

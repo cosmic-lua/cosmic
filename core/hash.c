@@ -71,7 +71,7 @@ static int hash_hasher (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
-    return luaL_argerror(L, 1, "no such digest algorithm");
+    return luaL_error(L, "hash: no such digest algorithm");
   }
   struct hasher *h = new_hasher(L, false);
   return started(L, h, psa_hash_setup(&h->operation.hash, alg));
@@ -83,7 +83,7 @@ static int hash_hmac_hasher (lua_State *L) {
   const char *key = luaL_checklstring(L, 2, &key_len);
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
-    return luaL_argerror(L, 1, "no such digest algorithm");
+    return luaL_error(L, "hash: no such digest algorithm");
   }
   struct hasher *h = new_hasher(L, true);
   return started(L, h, cosmic_hmac_setup(&h->operation.mac, alg, key, key_len));
@@ -159,7 +159,7 @@ static int hash_byte_sum (lua_State *L) {
 static int hashed (lua_State *L, int status, const unsigned char *digest,
                    size_t len) {
   if (status == -1) {
-    return luaL_argerror(L, 1, "no such digest algorithm");
+    return luaL_error(L, "hash: no such digest algorithm");
   }
   if (status != 0) {
     return luaL_error(L, "hash: the digest failed with status %d", status);

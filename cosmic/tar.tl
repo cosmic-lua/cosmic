@@ -54,8 +54,9 @@ local record Tar
     --- [`Stream.Reader`] body needs `opts.size`, since a tar header
     --- states a size before its body, and is read to that many bytes,
     --- which it then requires; a string body must match `opts.size`
-    --- when that is given. The reader is not closed. Returns `true, ""`,
-    --- or `false` and why.
+    --- when that is given. A `size` that is no integer, or is negative,
+    --- raises. The reader is not closed. Returns `true, ""`, or `false`
+    --- and why.
     add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: Stream.EntryOptions): boolean, string
     --- Adds a directory entry at `path`, to which a trailing `/` is
     --- added if missing. Returns `true, ""`, or `false` and why.

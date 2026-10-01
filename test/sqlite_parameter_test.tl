@@ -22,17 +22,18 @@ end
 local function test_mismatched_parameters_do_not_execute()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (a, b)"))
-  local mismatched: {any} = {
-    {},
-    { { integer = 1 } },
-    { {}, {}, {} },
-    { [2] = {} },
+  local mismatched: {{any, string}} = {
+    { {}, "sqlite: parameter 1 has no value (use {} for NULL)" },
+    { { { integer = 1 } }, "sqlite: parameter 2 has no value (use {} for NULL)" },
+    { { {}, {}, {} }, "sqlite: values holds a parameter 3, and the statement has 2" },
+    { { [2] = {} }, "sqlite: parameter 1 has no value (use {} for NULL)" },
   }
-  for _, values in ipairs(mismatched) do
-    local ok, why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values as {Sqlite.Value})
-    assert(not ok and why:find("sqlite: ", 1, true) == 1, tostring(why))
-    local rows, failure = Sqlite.text_rows(db, "SELECT ?1, ?2", values as {Sqlite.Value})
-    assert(rows == nil and failure:find("sqlite: ", 1, true) == 1, tostring(failure))
+  for _, case in ipairs(mismatched) do
+    local values = case[1] as {Sqlite.Value}
+    local ok, why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values)
+    assert(not ok and why == case[2], tostring(why))
+    local rows, failure = Sqlite.text_rows(db, "SELECT ?1, ?2", values)
+    assert(rows == nil and failure == case[2], tostring(failure))
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
   assert(rows[1][1] == "0")

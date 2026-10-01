@@ -13,6 +13,7 @@ local scopes = require("build.scopes")
 
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
+  --- (or `return refuse(...)`, a module's own `nil, "module: ..."`)
   --- message under a top-level function, with the function it is in
   --- -- see [`catalog_of`]. The guidance a match prints is that
   --- function's own documentation, found in `docs` by symbol.
@@ -439,7 +440,7 @@ end
 --- entry, never here.
 local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.CatalogEntry}, string
   local patterns: {ast.Node} = {}
-  for _, source in ipairs({ "return nil, $MSG", "return false, $MSG" }) do
+  for _, source in ipairs({ "return nil, $MSG", "return false, $MSG", "return refuse($MSG)" }) do
     local pattern, trouble = ast.compile_pattern(built, source)
     if pattern == nil then
       return {}, trouble
