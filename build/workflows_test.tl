@@ -2019,3 +2019,192 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   end
   assert(names.platform ~= names.checked, "the legs and the checked job keep their verdicts under one name")
 end
+
+--- A value of a workflow expression: a string, or a comparison's
+--- boolean.
+local type Value = string | boolean
+
+--- What `${{ <text> }}` answers on a run of `event` to `ref`, for a leg
+--- of `leg`'s values, in as much of GitHub's expression syntax as a
+--- leg's switches use: string literals, `matrix.<key>`,
+--- `github.event_name` and `github.ref`, `==`, `!=`, `!`, `&&`, `||` and
+--- parentheses. As GitHub's docs ("Operators") say, '' and false are
+--- falsy, and `a && b` and `a || b` answer an operand, not a boolean.
+--- It compares two strings ignoring case, as GitHub does, so a
+--- literal cased otherwise than the value it names answers as it would
+--- there; a comparison of a string with a boolean, which GitHub coerces
+--- to numbers, it refuses.
+local function evaluate(text: string, leg: {string: string}, event: string, ref: string): Value
+  local inner = assert(text:match("^%${{ (.*) }}$"), "not an expression: " .. text)
+  local tokens: {string} = {}
+  local at = 1
+  while at <= #inner do
+    local space = inner:match("^%s+", at)
+    if space ~= nil then
+      at = at + #space
+    else
+      local token = inner:match("^'[^']*'", at) or inner:match("^[%a_][%w_.-]*", at) or
+        inner:match("^[=!]=", at) or inner:match("^&&", at) or inner:match("^||", at) or
+        inner:match("^[!()]", at)
+      assert(token ~= nil, "an expression this test cannot read: " .. inner:sub(at))
+      tokens[#tokens + 1] = token
+      at = at + #token
+    end
+  end
+  local i = 1
+  local function truthy(v: Value): boolean return v ~= "" and v ~= false end
+  local disjunction: function(): Value
+  local function primary(): Value
+    local token = assert(tokens[i], "an expression ends early: " .. inner)
+    i = i + 1
+    if token == "(" then
+      local v = disjunction()
+      assert(tokens[i] == ")", "an unclosed parenthesis: " .. inner)
+      i = i + 1
+      return v
+    elseif token == "!" then
+      return not truthy(primary())
+    elseif token:sub(1, 1) == "'" then
+      return token:sub(2, -2)
+    elseif token:sub(1, 7) == "matrix." then
+      return leg[token:sub(8)] or ""
+    elseif token == "github.event_name" then
+      return event
+    elseif token == "github.ref" then
+      return ref
+    end
+    error("a name this test cannot answer: " .. token)
+  end
+  local function comparison(): Value
+    local left = primary()
+    local op = tokens[i]
+    if op == "==" or op == "!=" then
+      i = i + 1
+      local right = primary()
+      assert(left is string and right is string,
+        "a comparison of other than two strings this test cannot answer: " .. inner)
+      local same = left:lower() == right:lower()
+      if op == "==" then return same end
+      return not same
+    end
+    return left
+  end
+  local function conjunction(): Value
+    local v = comparison()
+    while tokens[i] == "&&" do
+      i = i + 1
+      local right = comparison()
+      if truthy(v) then v = right end
+    end
+    return v
+  end
+  disjunction = function(): Value
+    local v = conjunction()
+    while tokens[i] == "||" do
+      i = i + 1
+      local right = conjunction()
+      if not truthy(v) then v = right end
+    end
+    return v
+  end
+  local v = disjunction()
+  assert(tokens[i] == nil, "an expression with more after its end: " .. inner)
+  return v
+end
+
+--- [`evaluate`] answers as GitHub does where `&&` and `||` choose
+--- between strings, and where a comparison is grouped.
+local function test_an_expression_evaluates_as_github_says()
+  local leg = { name = "linux-x86_64" }
+  local function e(text: string, event: string): Value
+    return evaluate("${{ " .. text .. " }}", leg, event, "refs/heads/main")
+  end
+  assert(e("matrix.name == 'linux-x86_64' && 'run' || 'skip'", "push") == "run")
+  assert(e("matrix.name == 'alpine-x86_64' && 'run' || 'skip'", "push") == "skip")
+  assert(e("(matrix.name == 'linux-x86_64' && github.event_name != 'merge_group') && 'run' || 'skip'",
+    "merge_group") == "skip")
+  assert(e("!(github.event_name == 'push') && 'a' || 'b'", "schedule") == "a")
+  assert(e("matrix.image && '1' || '0'", "push") == "0", "an empty value is truthy")
+  assert(e("github.ref == 'refs/heads/main'", "push") == true)
+  assert(e("github.event_name == 'Merge_Group' && 'a' || 'b'", "merge_group") == "a",
+    "a comparison of strings minds their case")
+  assert(e("github.event_name != 'MERGE_GROUP' && 'a' || 'b'", "merge_group") == "b",
+    "a comparison of strings minds their case")
+end
+
+--- The run of each event a test below asks after, with the ref it runs
+--- on.
+local EVENTS <const>: {{string}} = {
+  { "merge_group", "refs/heads/gh-readonly-queue/main/pr-1-0123456789abcdef0123456789abcdef01234567" },
+  { "push", "refs/heads/main" },
+  { "schedule", "refs/heads/main" },
+  { "workflow_dispatch", "refs/heads/main" },
+}
+
+--- The full-run legs that run the portable suite (COSMIC_CI_PORTABLE_SUITE
+--- `run`) on a run of `event` to `ref`, by name, space-joined in order.
+local function portable_suite_legs(event: string, ref: string): string
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local env = ((ci.jobs as {string: {string: any}}).platform.env) as {string: string}
+  local value = assert(env.COSMIC_CI_PORTABLE_SUITE, "the legs set no COSMIC_CI_PORTABLE_SUITE")
+  local out: {string} = {}
+  for name, leg in pairs(platform_legs("full")) do
+    local answer = evaluate(value, leg, event, ref)
+    assert(answer == "run" or answer == "skip", name .. "'s COSMIC_CI_PORTABLE_SUITE on " ..
+      event .. " is " .. tostring(answer))
+    if answer == "run" then out[#out + 1] = name end
+  end
+  table.sort(out)
+  return table.concat(out, " ")
+end
+
+--- The merge queue runs the portable suite on alpine-x86_64 alone: on
+--- linux-x86_64, the queue's longest leg, it ran some 190 s on the same
+--- portable bytes, which the join holds identical to alpine-x86_64's
+--- (`provenance`). A push to main runs it on both x86-64 legs, a glibc
+--- host and a musl one, and the scheduled and a manual run on every
+--- leg; alpine-x86_64 runs it on every full run.
+local function test_the_merge_queue_runs_the_portable_suite_on_alpine_x86_64_alone()
+  local want: {string: string} = {
+    merge_group = "alpine-x86_64",
+    push = "alpine-x86_64 linux-x86_64",
+    schedule = "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
+    workflow_dispatch = "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
+  }
+  for _, case in ipairs(EVENTS) do
+    local got = portable_suite_legs(case[1], case[2])
+    assert(got == want[case[1]], "a " .. case[1] .. " run runs the portable suite on " .. got)
+  end
+end
+
+--- A leg that skips the portable suite still runs the step (the driver
+--- records the artifact's digest there, and says it skipped the suite),
+--- its regressions on the portable product, and its attestation and
+--- upload of the bytes it ran, on every full run: so the join's
+--- comparison still counts an attestation from every leg
+--- (`strategy.job-total`), linux-x86_64's in the merge queue among
+--- them, and none of those steps turns on COSMIC_CI_PORTABLE_SUITE.
+local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ran()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local seen: {string: boolean} = {}
+  for _, step in ipairs(platform.steps as {{string: any}}) do
+    local run = step.run as string or ""
+    local phase = run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)")
+    local with = step.with as {string: string}
+    local upload = with ~= nil and with.name == "portable-product-${{ matrix.name }}"
+    if phase == "portable" or phase == "fixtures" or phase == "attest" or upload then
+      local key = upload and "upload" or phase
+      assert(step["if"] == FULL, key .. " runs on another condition than a full run's: " ..
+        tostring(step["if"]))
+      assert(not assert(Json.encode(step)):find("PORTABLE_SUITE", 1, true), key .. " turns on the portable suite's switch")
+      seen[key] = true
+      if phase == "attest" then
+        assert(run:find("\"${{ strategy.job-total }}\"", 1, true) ~= nil,
+          "attest expects another count of products than the legs': " .. run)
+      end
+    end
+  end
+  assert(seen.portable and seen.fixtures and seen.attest and seen.upload,
+    "a full run's leg misses a step of the product's")
+end
