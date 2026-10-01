@@ -155,7 +155,7 @@ importer.prune_references =
 --- the roots of
 --- [`importer.analyzer_modules`]. "The analyzer" in these names is that
 --- whole set, of which the source analyzer [`build.analyzer`] is one.
---- Each is a root of the compiler's identity too ([`build.work`]'s
+--- Each is a root of the compiler's identity too ([`build.identity`]'s
 --- `compiler_roots`), which the analyzer's starts from. The schema of the
 --- rows a parse stores ([`build.analysis_schema`]) is among them: what a
 --- source parses to is recorded in its columns.
@@ -637,18 +637,17 @@ end
 --- row has no file and is Lua, so it is neither dropped nor parsed
 --- here; the plan carries it. What no input refers to any more is
 --- dropped, so the tables describe this tree and nothing older.
---- `compile` does this itself; a caller that reads the tree's
---- identities before compiling calls it first, since the compiler
---- identity [`identities.record_identities`] computes closes over `requires`,
---- and a fresh working database has none until the tree is parsed.
+--- Both compile entry points do this once before planning modules. A
+--- self-build records its identities afterward, since
+--- [`identities.record_identities`] closes over the parsed `requires`.
 --- @param self_tree whether the tree is cosmic's own, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
 --- @param built the compiler, loaded and ready
 --- @param shared the parses every checkout shares, or nil for none: a
 ---   source another checkout's analyzer parsed, where that analyzer is
 ---   this one ([`shared_analyzer`]), is taken from them rather than
----   parsed, and every parse made here is offered them. `compile`
----   finishes them.
+---   parsed, and every parse made here is offered them. This borrows the
+---   cache; a compile entry point or the caller must finish it.
 --- @return what it parsed and took, or nil and why it could not
 function importer.derive(handle: work.Handle, self_tree: boolean,
                          built: compiler, shared?: importer.Shared): importer.Parses | nil, string
@@ -989,15 +988,11 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
   return remember(cache, "vendor.tl", key, ordinal, source, bytecode, false)
 end
 
---- [`importer.compile`], less finishing what it shares.
-local function compile(handle: work.Handle, built: compiler, tool: string,
-                       unjudged: boolean, shared: importer.Shared): importer.Result | nil, string
-  local own_tree, own_trouble = tree.is_own(handle.root)
-  if own_tree == nil then return nil, own_trouble end
-  local parses, derive_trouble = importer.derive(handle, own_tree, built, shared)
-  if parses == nil then
-    return nil, derive_trouble
-  end
+--- Plans and compiles an already derived tree. Only the entry points
+--- below own the shared cache; every failure here returns through them.
+local function compile_derived(handle: work.Handle, built: compiler, tool: string,
+                               own_tree: boolean, parses: importer.Parses,
+                               unjudged: boolean, shared: importer.Shared): importer.Result | nil, string
   local modules, trouble = compilation.collect(handle.db)
   if modules == nil then
     return nil, trouble
@@ -1193,6 +1188,36 @@ local function compile(handle: work.Handle, built: compiler, tool: string,
   return result
 end
 
+--- A self-build chooses the compiler that actually runs only after the
+--- analyzer has stabilized and the complete tree identities are recorded.
+local function prepare_compile(handle: work.Handle, built: compiler, tool: string,
+                               unjudged: boolean, shared: importer.Shared,
+                               choose: function(identities.Identities): string | nil, string): importer.Result | nil, string
+  local own_tree, own_trouble = tree.is_own(handle.root)
+  if own_tree == nil then return nil, own_trouble end
+  local parses, derive_trouble = importer.derive(handle, own_tree, built, shared)
+  if parses == nil then return nil, derive_trouble end
+  if choose ~= nil then
+    local recorded, record_trouble = identities.record_identities(handle.db)
+    if recorded == nil then return nil, record_trouble end
+    local selected, select_trouble = choose(recorded)
+    if selected == nil then return nil, select_trouble end
+    tool = selected
+  end
+  return compile_derived(handle, built, tool, own_tree, parses, unjudged, shared)
+end
+
+--- The cache belongs to the whole derive/identity/compile operation,
+--- including successful rows offered before a later phase fails.
+local function consuming_compile(handle: work.Handle, built: compiler, tool: string,
+                                 unjudged: boolean, shared: importer.Shared,
+                                 choose?: function(identities.Identities): string | nil, string): importer.Result | nil, string
+  local result, trouble = prepare_compile(handle, built, tool, unjudged, shared, choose)
+  if shared ~= nil then shared.finish() end
+  if result == nil then return nil, trouble end
+  return result, ""
+end
+
 --- Compiles every module, in import order, into Lua and bytecode --
 --- or finds it already compiled under the same key. The keys and the
 --- compiles land in the working database inside the run's
@@ -1226,10 +1251,19 @@ end
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string, unjudged?: boolean,
                           shared?: importer.Shared): importer.Result | nil, string
-  local result, trouble = compile(handle, built, tool, unjudged, shared)
-  if shared ~= nil then shared.finish() end
-  if result == nil then return nil, trouble end
-  return result, ""
+  return consuming_compile(handle, built, tool, unjudged, shared)
+end
+
+--- Compiles a self-build after deriving its sources and recording its
+--- complete identities. `choose` selects the compiler actually running:
+--- the tree's for a boot, the running tool's until a rebuild settles.
+--- Like [`importer.compile`], consumes `shared`, finishing it exactly once
+--- on success or failure. The working database and its transaction remain
+--- the caller's, as does publishing the completed projection.
+function importer.compile_tree(handle: work.Handle, built: compiler,
+                               choose: function(identities.Identities): string | nil, string,
+                               unjudged: boolean, shared?: importer.Shared): importer.Result | nil, string
+  return consuming_compile(handle, built, "", unjudged, shared, choose)
 end
 
 return importer

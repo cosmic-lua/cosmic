@@ -94,6 +94,129 @@ local function compile_fixture(root: string): importer.Result | nil, string
   return result, compile_trouble
 end
 
+--- Observes the real derive and compile through an empty shared cache.
+--- Offers must survive a later failure, and no operation may follow finish.
+local record SharedTrace
+  finished: integer
+  offered: integer
+  kept: {string}
+  flushed: {string}
+end
+
+local function traced_cache(): importer.Shared, SharedTrace
+  local trace: SharedTrace = { finished = 0, offered = 0, kept = {}, flushed = {} }
+  local function active()
+    assert(trace.finished == 0, "cache used after finish")
+  end
+  local shared: importer.Shared = {
+    analyzers = function(_hashes: {string}): {string}
+      active()
+      return {}
+    end,
+    requires = function(_analyzer: string, _hashes: {string}): {string:{string}}
+      active()
+      return {}
+    end,
+    parse = function(_analyzer: string, _hash: string, _mapped: boolean): importer.Shared.Parse | nil
+      active()
+      return nil
+    end,
+    offer = function(_analyzer: string, _hash: string, _mapped: boolean, _made: importer.Shared.Parse)
+      active()
+      trace.offered = trace.offered + 1
+    end,
+    look = function(_module: importer.Module, _own: boolean): importer.Shared.Compile | nil
+      active()
+      return nil
+    end,
+    keep = function(module: importer.Module, _own: boolean, _made: importer.Shared.Compile)
+      active()
+      trace.kept[#trace.kept + 1] = module.path
+    end,
+    finish = function()
+      active()
+      trace.finished = trace.finished + 1
+      for _, path in ipairs(trace.kept) do trace.flushed[#trace.flushed + 1] = path end
+    end,
+  }
+  return shared, trace
+end
+
+local function test_compile_consumes_shared_cache_on_success_and_failure()
+  for _, failing in ipairs({ false, true }) do
+    local root = assert(write_fixture("cache-compile", {
+      ["a.tl"] = "return { value = 1 }\n",
+      ["z.tl"] = failing and "local value: string = 1\nreturn value\n" or
+        "return { value = 2 }\n",
+    }))
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, false))
+    local shared, trace = traced_cache()
+    local result, trouble = importer.compile(handle, built, "cache-lifetime", false, shared)
+    assert(trace.finished == 1, "compile did not finish its cache exactly once")
+    assert(trace.offered == 2, "derive did not offer both sources")
+    assert(trace.flushed[1] == "a", "a successful compile was lost before finishing")
+    if failing then
+      assert(result == nil and trouble:find("z.tl", 1, true), trouble)
+      assert(#trace.flushed == 1, "a refused compile was shared")
+    else
+      assert(result ~= nil, trouble)
+      assert(result.parses.parsed == 2 and #trace.flushed == 2)
+    end
+    assert(work.close(handle))
+  end
+end
+
+local function test_compile_finishes_shared_cache_when_derivation_fails()
+  local root = assert(write_fixture("cache-derive", { ["cosmic/claimed.tl"] = "return {}\n" }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local shared, trace = traced_cache()
+  local result, trouble = importer.compile(handle, built, "cache-lifetime", false, shared)
+  assert(result == nil and trouble:find("reserved", 1, true), trouble)
+  assert(trace.finished == 1 and trace.offered == 0 and #trace.flushed == 0)
+  assert(work.close(handle))
+end
+
+local function test_self_compile_consumes_cache_after_identity_selection()
+  for _, phase in ipairs({ "success", "record", "select" }) do
+    local root = assert(write_fixture("cache-identity", {
+      ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+      ["core/empty.h"] = "",
+    }))
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    if phase == "record" then
+      assert(handle.db:exec("CREATE TRIGGER refuse_identity BEFORE INSERT ON meta " ..
+        "WHEN NEW.key = 'compiler' BEGIN SELECT RAISE(ABORT, 'identity refused'); END"))
+    end
+    local shared, trace = traced_cache()
+    local selected = false
+    local result, trouble = importer.compile_tree(handle, built,
+      function(recorded: identity.Identities): string | nil, string
+        selected = true
+        assert(trace.finished == 0 and trace.offered == 1,
+          "identity selected before derivation completed")
+        local rows = assert(Sqlite.text_rows(handle.db,
+          "SELECT value FROM meta WHERE key = 'compiler'"))
+        assert(rows[1][1] == recorded.compiler, "selection ran before recording identities")
+        if phase == "select" then return nil, "selection refused" end
+        return "chosen-compiler", ""
+      end, false, shared)
+    assert(trace.finished == 1, "self-build did not finish its cache exactly once")
+    assert(selected == (phase ~= "record"))
+    if phase == "success" then
+      assert(result ~= nil, trouble)
+      assert(result.tool == "chosen-compiler" and result.parses.parsed == 1)
+      assert(trace.offered == 1 and #trace.flushed == 1)
+    else
+      assert(result == nil and trouble:find("refused", 1, true), trouble)
+      assert(trace.offered == 1 and #trace.flushed == 0)
+    end
+    assert(work.close(handle))
+  end
+end
+
 --- A declaration is the source the checker uses for an imported module,
 --- including when an implementation with the same import path exists. An
 --- edit that changes its public type must invalidate a warm dependent.
