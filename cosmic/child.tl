@@ -33,10 +33,11 @@
 --- platform gives a descriptor for it (a pidfd on Linux, a kqueue on
 --- Darwin), and within 10 ms elsewhere. A wait whose task is cancelled
 --- answers nil (or false) and [`Poll.CANCELLED`], as [`cosmic.net`]'s
---- do, and leaves the child running, for its handle to end; but ending
---- a child in a cancelled task -- [`Child.run`]'s, a close, a timeout --
---- holds the thread until it is done: a second or so for each child
---- that ignores SIGTERM, most of it waiting for its group to empty.
+--- do, and leaves the child running, for its handle to end. Ending a
+--- child in a cancelled task -- [`Child.run`]'s, a close, a timeout --
+--- waits through the run all the same ([`Poll.shielded`]) until it is
+--- done: a second or so for each child that ignores SIGTERM, most of it
+--- waiting for its group to empty.
 ---
 --- A stream redirected to "stream" is the caller's to read or write
 --- while the child runs, through the handle's `stdout_stream`,
@@ -525,9 +526,9 @@ end
 ---
 --- In a task of [`Poll.run`], the wait goes through the run, the other
 --- tasks running meanwhile. Once the task is cancelled, a `cancellable`
---- pump answers false and [`Poll.CANCELLED`] at once; any other waits on
---- its own, holding the thread, as the cleanup it serves -- ending a
---- child, emptying its pipes -- must finish.
+--- pump answers false and [`Poll.CANCELLED`] at once; any other waits
+--- shielded from the cancel ([`Poll.shielded`]), as the cleanup it
+--- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
     cancellable?: boolean, signalled?: boolean): boolean, string
   local fds: {integer} = {}
@@ -563,10 +564,6 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
   end
   -- A wait that yields never, as one with no time to wait does, is
   -- no wait of the run's: it looks and goes on.
-  -- TODO: let a cancelled task's cleanup wait through the run too, once
-  -- cosmic.poll has a wait that a cancel does not end: it holds the
-  -- thread today (below), up to TERM_GRACE_NS, KILL_REAP_NS and a
-  -- group's clearing for each child it ends.
   local in_run = timeout_ms ~= 0 and through_run()
   -- Drained only by a wait of the run's, or with no task about: a wait
   -- holding the thread in a task, draining it, would take the wake from
@@ -581,20 +578,27 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
     -- Nothing here could end a wait with no limit: it waits a slice.
     if timeout_ms < 0 then timeout_ms = POLL_MS end
     if in_run then
-      local paused, cancelled = Poll.delay(timeout_ms)
+      local paused, cancelled: boolean, string
+      local function pause()
+        paused, cancelled = Poll.delay(timeout_ms)
+      end
+      if cancellable then pause() else Poll.shielded(pause) end
       if paused then return false, "" end
-      if cancellable then return false, cancelled end
+      return false, cancelled
     end
     if timeout_ms > 0 then local _, _ = sys.nanosleep(timeout_ms * 1000 * 1000) end
     return false, ""
   end
   local revents: {integer}
   if in_run then
-    local answers, cancelled = Poll.ready(fds, events, timeout_ms >= 0 and timeout_ms or nil)
-    if answers == nil and cancellable then return false, cancelled end
+    local answers, cancelled: {integer}, string
+    local function look()
+      answers, cancelled = Poll.ready(fds, events, timeout_ms >= 0 and timeout_ms or nil)
+    end
+    if cancellable then look() else Poll.shielded(look) end
+    if answers == nil then return false, cancelled end
     revents = answers
-  end
-  if revents == nil then
+  else
     local polled, _ = sys.poll(fds, events, timeout_ms)
     revents = polled
   end
@@ -1621,13 +1625,33 @@ function Child.end_strays(spared?: {integer}): integer
       end
     end
     if through_run() then
-      local paused, _ = Poll.delay(POLL_MS // 10)
-      if not paused then local _, _ = sys.nanosleep(POLL_NS // 10) end
+      -- Shielded: ending the strays is a cleanup, which a cancel does
+      -- not cut short.
+      Poll.shielded(function()
+        local _, _ = Poll.delay(POLL_MS // 10)
+      end)
     else
       local _, _ = sys.nanosleep(POLL_NS // 10)
     end
   end
 end
+
+--- The child [`Child.run`] has started, ended where the run is left
+--- other than by returning: a task killed where the run waits, or in
+--- its cleanup, which the run would not otherwise finish.
+local record Running
+  handle: Handle
+  metamethod __close: function(Running)
+end
+
+local running_mt: metatable<Running> = {
+  __close = function(self: Running)
+    local h = self.handle
+    if h == nil or h._closed then return end
+    local cleaned, _, _ = pcall(terminate, h)
+    if not cleaned then emergency_cleanup(h) end
+  end,
+}
 
 --- Runs a program -- one executable path -- to completion and answers its
 --- [`Result`]. A child that exits nonzero, or is ended by a signal or its
@@ -1659,12 +1683,17 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   end
   local held, guard_trouble = opened()
   if held == nil then return nil, "signal guard: " .. guard_trouble end
-  local guard: Guard = held
+  -- Closed after `running`, as the run is left: the child is ended
+  -- before the guard gives back the signals.
+  local guard <close>: Guard = held
+  local holder: Running = {}
+  local running <close> = setmetatable(holder, running_mt)
   local h: Handle
   local function supervised(): Result | nil, string
     local started, trouble = start(argv, opts)
     if not started then return nil, trouble end
     h = started
+    running.handle = started
     return h:wait(opts.timeout_ms)
   end
   local called, r, wait_trouble = pcall(supervised)
@@ -1678,6 +1707,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
       cleanup_trouble = failure
     end
   end
+  running.handle = nil
   -- Closing re-delivers a caught signal, after the cleanup above.
   local restored, restore_trouble = guard:close()
   if not restored then

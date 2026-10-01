@@ -14,7 +14,7 @@ local this_program = require("build.this_program")
 
 --- What the tests read: the environment, which a child inherits, and
 --- the program itself (`tool`), which every child is.
-Test.needs{ env = { "*" }, tool = true }
+Test.needs{ env = { "*" }, tool = true, host = { "/proc" } }
 
 local type Searcher = function(string): any, any
 local type ChildModule = require("cosmic.child")
@@ -181,6 +181,112 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
     assert(running, "the cancelled wait ended its child")
     assert(took < 5000, "the cancelled waits took " .. took .. " ms")
   end
+end
+
+--- A child that holds SIGTERM, and so outlasts it, once it has said
+--- its pid in `report`.
+local function holding_term(report: string): string
+  return 'local Fs = require("cosmic.fs") local sys = require("cosmic.sys") ' ..
+    'local _guard = assert(require("cosmic.child").guard()) ' ..
+    'assert(Fs.write(' .. string.format("%q", report) .. ', tostring(sys.getpid()))) ' ..
+    'while true do ' .. sleep(1000) .. 'end'
+end
+
+--- The pid a child wrote to `report`, once it has, which is taken away.
+local function reported_pid(report: string): integer
+  local by = now_ms() + 30000
+  while not Fs.exists(report) and now_ms() < by do assert(Poll.delay(5)) end
+  local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
+  assert(Fs.remove(report))
+  return pid
+end
+
+--- A cancelled task's run ends a child that outlasts SIGTERM through
+--- the run: the other tasks run through the grace it gives the child
+--- and the wait for its SIGKILL. A kill still ends a task whose cleanup
+--- so waits, its handle's close ending the child.
+local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
+  local report = tmp .. "/pid"
+  for _, module in ipairs(both()) do
+    local ran, waited: string, string
+    local during = 0
+    local run_pid, killed_pid: integer, integer
+    local killed_answer: string
+    Poll.run(function()
+      local ticks, done = 0, false
+      local ticker = Poll.spawn(function()
+        while not done do
+          assert(Poll.delay(5))
+          ticks = ticks + 1
+        end
+      end)
+      local runner = Poll.spawn(function()
+        local r, why = module.run(lua(holding_term(report)))
+        assert(r == nil)
+        ran = why
+      end)
+      run_pid = reported_pid(report)
+      local before = ticks
+      runner:cancel()
+      assert(runner:join(5000))
+      during = ticks - before
+      local victim = Poll.spawn(function()
+        local h <close> = assert(module.start(lua(holding_term(report))))
+        local r, why = h:wait()
+        assert(r == nil)
+        waited = why
+        local _, _ = h:close()
+      end)
+      killed_pid = reported_pid(report)
+      victim:cancel()
+      assert(Poll.delay(50))
+      victim:kill()
+      local _, why = victim:join()
+      killed_answer = why
+      done = true
+      assert(ticker:join())
+    end)
+    assert(ran == Poll.CANCELLED, ran)
+    assert(during >= 10, "the other task ticked " .. during .. " times while the run ended its child")
+    assert(sys.kill(run_pid, 0) == false, "the run left its child running")
+    assert(waited == Poll.CANCELLED, waited)
+    assert(killed_answer == Poll.CANCELLED, killed_answer)
+    assert(sys.kill(killed_pid, 0) == false, "the killed task left its child running")
+  end
+end
+
+--- The signals this process catches, as Linux's /proc says; nil
+--- elsewhere.
+local function caught_signals(): string | nil
+  local status, _ = Fs.read("/proc/self/status")
+  if status == nil then return nil end
+  return status:match("SigCgt:%s*(%x+)")
+end
+
+--- A task killed in its run's cleanup -- cancelled, then killed while
+--- the run ends a child that outlasts SIGTERM -- still ends the child,
+--- and gives back the signals the run's guard held.
+local function test_a_run_killed_in_its_cleanup_ends_its_child_and_guard(tmp: string)
+  local report = tmp .. "/pid"
+  local before = caught_signals()
+  local pid: integer
+  local answer: string
+  Poll.run(function()
+    local victim = Poll.spawn(function()
+      local _, _ = Child.run(lua(holding_term(report)))
+    end)
+    pid = reported_pid(report)
+    victim:cancel()
+    assert(Poll.delay(50))
+    victim:kill()
+    local _, why = victim:join()
+    answer = why
+  end)
+  assert(answer == Poll.CANCELLED, answer)
+  assert(sys.kill(pid, 0) == false, "the killed run left its child running")
+  local after = caught_signals()
+  assert(after == before, "caught " .. tostring(before) .. " before the run, " ..
+    tostring(after) .. " after")
 end
 
 --- A child's streams read and written in a task let the others run:

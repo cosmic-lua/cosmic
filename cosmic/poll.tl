@@ -24,9 +24,11 @@
 ---
 --- An error a task raises ends [`Poll.run`] at once: every other task is
 --- closed where it waits, its `<close>` variables closed, and `run`
---- raises the error. A task that must go on after a failure catches it
---- itself.
+--- raises the error -- a message with the task's stack beneath it,
+--- which the run's own stack would not show. A task that must go on
+--- after a failure catches it itself.
 
+local errors = require("cosmic.internal.errors")
 local sys = require("cosmic.sys")
 
 local record Poll
@@ -39,8 +41,9 @@ local record Poll
     --- a task killed, or one a failed run closed where it waited.
     join: function(Task, timeout_ms?: integer): boolean, string
     --- Ends the task at its next wait: the wait it is in, if any, and
-    --- every one after, answers false and [`Poll.CANCELLED`] at once. A
-    --- task that has ended is left alone.
+    --- every one after, answers false and [`Poll.CANCELLED`] at once --
+    --- but for one in [`Poll.shielded`], which waits on as though the
+    --- task were not cancelled. A task that has ended is left alone.
     cancel: function(Task)
     --- Ends the task now, where it waits or before it starts, without
     --- resuming it: the pending `<close>` variables of its own coroutine
@@ -147,6 +150,9 @@ local record State
   --- Set for a task killed, or one a failed run closed where it waited.
   killed: boolean
   cancelled: boolean
+  --- How many [`Poll.shielded`] calls the task is in: while any, a
+  --- cancel answers none of its waits.
+  shields: integer
   parked: Wait
   joiners: {Wait}
 end
@@ -156,6 +162,13 @@ local record Wake
   task: State
   ok: boolean
   why: string
+end
+
+--- A [`Poll.shielded`] call's hold on its task, let go as the call
+--- returns or raises, or as its task is closed.
+local record Shielding
+  task: State
+  metamethod __close: function(Shielding)
 end
 
 --- A run's state while [`Poll.run`] runs; nil otherwise.
@@ -367,7 +380,7 @@ local function park(task: State, w: Wait, timeout_ms: integer | nil): boolean, s
   task.parked = w
   loop.seq = loop.seq + 1
   w.seq = loop.seq
-  if task.cancelled then
+  if task.cancelled and task.shields == 0 then
     wake(w, false, Poll.CANCELLED)
   else
     if w.fd ~= nil then
@@ -479,7 +492,7 @@ end
 
 --- A new task running `fn`, ready to run.
 local function start(fn: function()): Poll.Task
-  local state: State = { co = coroutine.create(fn), loop = loop, joiners = {} }
+  local state: State = { co = coroutine.create(fn), loop = loop, shields = 0, joiners = {} }
   state.handle = {
     join = function(_self: Poll.Task, timeout_ms?: integer): boolean, string
       local task = current("Task:join", 2)
@@ -494,7 +507,7 @@ local function start(fn: function()): Poll.Task
     cancel = function(_self: Poll.Task)
       if state.loop ~= loop or state.ended or state.cancelled then return end
       state.cancelled = true
-      if state.parked ~= nil then wake(state.parked, false, Poll.CANCELLED) end
+      if state.parked ~= nil and state.shields == 0 then wake(state.parked, false, Poll.CANCELLED) end
     end,
     kill = function(_self: Poll.Task)
       if state.loop ~= loop or state.ended then return end
@@ -506,6 +519,31 @@ local function start(fn: function()): Poll.Task
   loop.live = loop.live + 1
   loop.ready[#loop.ready + 1] = { task = state, ok = true, why = "" }
   return state.handle
+end
+
+local shielding_mt: metatable<Shielding> = {
+  __close = function(held: Shielding)
+    held.task.shields = held.task.shields - 1
+  end,
+}
+
+--- Calls `fn` in the calling task with its waits shielded from a
+--- cancel: one that comes meanwhile answers none of them, nor the
+--- waits `fn` begins after it, which each wait for what they wait for.
+--- Once `fn` returns, the task's next wait answers [`Poll.CANCELLED`] at
+--- once, as a cancelled task's do. It is for a cleanup that must wait --
+--- a child to be ended, a peer to read its last bytes -- while the other
+--- tasks run. A kill still ends the task, and a failed run still closes
+--- it, where it waits in `fn`; a shield whose `fn` never returns leaves
+--- only those to end it. What `fn` raises, it raises.
+function Poll.shielded(fn: function())
+  local task = current("Poll.shielded", 2)
+  if type(fn) ~= "function" then error("Poll.shielded takes a function", 2) end
+  -- Made before the count moves, so a refused allocation leaves it be.
+  local held: Shielding = { task = task }
+  local _held <close> = setmetatable(held, shielding_mt)
+  task.shields = task.shields + 1
+  fn()
 end
 
 --- Starts `fn` as a task of its own, run once the calling task waits.
@@ -542,10 +580,15 @@ local function step(task: State, ok: boolean, why: string)
     task.started = true
     resumed, err = coroutine.resume(task.co)
   end
-  -- TODO: carry the task's traceback with its error, taken from its
-  -- coroutine before it is closed, once cosmic.errors can trace another
-  -- coroutine: only the message crosses resume today.
   if not resumed then
+    -- The stack the error was raised from is the task's, which resume
+    -- leaves in place until the coroutine is closed.
+    -- A message that already carries a stack keeps its own. The trace
+    -- can fail (no memory for it), and the close below must still run.
+    if err is string and not err:find("\nstack traceback:", 1, true) then
+      local traced, text = pcall(errors.trace_of, task.co, err)
+      if traced then err = text end
+    end
     -- resume leaves a coroutine that raised with its `<close>` variables
     -- open: close answers the error again, which is already in hand.
     local _, _ = coroutine.close(task.co)
@@ -675,9 +718,10 @@ local function run_tasks(main: function())
 end
 
 --- Runs `main` as the first task and every task it spawns, returning
---- once all have ended. It raises what a task raised, having closed the
---- rest; and raises when every task left waits on another, which none
---- could ever answer. It cannot be called from within a task.
+--- once all have ended. It raises what a task raised, with the task's
+--- stack beneath a message, having closed the rest; and raises when
+--- every task left waits on another, which none could ever answer. It
+--- cannot be called from within a task.
 function Poll.run(main: function())
   if loop ~= nil then error("Poll.run is already running", 2) end
   if type(main) ~= "function" then error("Poll.run takes a function", 2) end
