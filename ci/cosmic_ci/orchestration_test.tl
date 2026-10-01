@@ -958,24 +958,27 @@ local function test_the_self_rebuild_fixture_runs_on_two_legs_and_on_every_sched
     "the self-rebuild fixture runs on no macOS leg of a gating run: " .. value)
 end
 
---- The portable suite runs on the two x86-64 legs of a gating run
---- (COSMIC_CI_PORTABLE_SUITE), a glibc host and a musl one, and on
---- every leg of the scheduled run and a manual one.
+--- The portable suite runs on the two x86-64 legs of a push to main
+--- (COSMIC_CI_PORTABLE_SUITE), a glibc host and a musl one, on the musl
+--- one alone in the merge queue, whose glibc leg builds the same bytes,
+--- and on every leg of the scheduled run and a manual one.
 local function test_the_portable_suite_runs_on_two_legs_and_on_every_scheduled_one()
   local legs, env = platform_legs_and_env()
   local value = assert(env.COSMIC_CI_PORTABLE_SUITE, "ci.yml's platform job sets no COSMIC_CI_PORTABLE_SUITE")
-  local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
+  local one, two = value:match("^%${{ %(%(matrix%.name == '([%w_-]+)' && " ..
+    "github%.event_name != 'merge_group'%) || " ..
     "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
     "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
   assert(one and two and one ~= two and legs[one] and legs[two],
-    "the portable suite runs on no two legs of the matrix, " ..
-    "or not on every leg of the scheduled and a manual run: " .. value)
+    "the portable suite runs on no two legs of a push to main, on more than " ..
+    "one of the merge queue, or not on every leg of the scheduled and a manual run: " .. value)
   assert(legs[one].target:sub(1, 7) == "x86_64-" and legs[two].target:sub(1, 7) == "x86_64-",
     "the portable suite runs on a leg of a gating run that is no x86-64 one: " .. value)
-  -- Both Linux legs, one in the Alpine (musl) image, one not (glibc).
-  assert(legs[one].image ~= "" and legs[two].image ~= "" and
-    (legs[one].image:find("alpine", 1, true) ~= nil) ~= (legs[two].image:find("alpine", 1, true) ~= nil),
-    "the portable suite's gating legs are not a glibc host and a musl one: " .. value)
+  -- Both Linux legs, the queue's in the Alpine (musl) image, the other
+  -- not (glibc).
+  assert(legs[one].image ~= "" and legs[one].image:find("alpine", 1, true) == nil and
+    legs[two].image:find("alpine", 1, true) ~= nil,
+    "the portable suite's gating legs are not a glibc host and, in the queue too, a musl one: " .. value)
 end
 
 --- A leg that skips the portable suite (COSMIC_CI_PORTABLE_SUITE=skip)

@@ -21,23 +21,32 @@ Test.needs{ env = { "*" }, lua = true, host = { "/proc" } }
 local type Searcher = function(string): any, any
 local type ChildModule = require("cosmic.child")
 
---- cosmic.child loaded again, over a raw table whose `exit_watch` gives
---- no descriptor, as a platform without one does: its waits look for
---- each exit every few milliseconds instead.
-local function without_exit_watch(): ChildModule
+--- cosmic.child loaded again, over a copy of the raw table it is handed
+--- that `alter` changes: the copy keeps the core's own functions until
+--- `alter` replaces one.
+local function reloaded(alter: function({string: any})): ChildModule
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then
       local copy: {string: any} = {}
       for name, value in pairs(extra as {string: any}) do copy[name] = value end -- cast: to copy a table by name
-      copy.exit_watch = function(_pid: integer): integer, string, integer
-        return nil, "no exit watch here", sys.ENOSYS
-      end
+      alter(copy)
       local loaded = loader as function(string, any): ChildModule -- cast: the loader the store's searcher answers
       return loaded("cosmic.child", copy as raw_process) -- cast: the table core/process.h declares
     end
   end
   error("cosmic.child is handed no raw table")
+end
+
+--- cosmic.child loaded again, over a raw table whose `exit_watch` gives
+--- no descriptor, as a platform without one does: its waits look for
+--- each exit every few milliseconds instead.
+local function without_exit_watch(): ChildModule
+  return reloaded(function(copy: {string: any})
+    copy.exit_watch = function(_pid: integer): integer, string, integer
+      return nil, "no exit watch here", sys.ENOSYS
+    end
+  end)
 end
 
 --- The module with an exit watch, and one without. Each is used after
@@ -64,7 +73,9 @@ local function now_ms(): integer
 end
 
 --- Runs `main` as a task beside one that ticks every 5 ms until `main`
---- returns, and answers how many times it ticked.
+--- returns, and answers how many times it ticked. A wait that held the
+--- thread lets it tick once at most, so two ticks show the wait yielded,
+--- however a loaded host stretches the 5 ms.
 local function ticking(main: function()): integer
   local ticks = 0
   Poll.run(function()
@@ -93,53 +104,91 @@ local function test_a_run_in_a_task_lets_the_others_run()
       r = assert(module.run(lua(sleep(300) .. 'print("done")', { stdout = "capture" })))
     end)
     assert(r.ok and r.stdout == "done\n", tostring(r.stdout))
-    assert(ticks >= 10, "the other task ticked " .. ticks .. " times while the child ran")
+    assert(ticks >= 2, "the other task ticked " .. ticks .. " times while the child ran")
   end
 end
 
---- A wait in a task ends at the child's exit, as it happens. Each child
---- here says when it exits, 3 ms into the wait, a slice of 10 ms not
---- yet up: a wait that looks for the exit every slice, as the copy with
---- no exit watch does, sees it some 7 ms late, where one woken by the
---- exit sees it at once. The soonest of a few tries of each is taken,
---- and the watched one must be under 4 ms, or at least 2 ms sooner than
---- the other where a slow host makes both late. A wait with a timeout
---- ends the child at it, the other task ticking meanwhile.
-local function test_a_wait_in_a_task_ends_at_the_exit_or_the_timeout(tmp: string)
-  local said = tmp .. "/exited"
-  local soonest: {integer} = {}
-  for m, module in ipairs(both()) do
-    soonest[m] = math.maxinteger
-    ticking(function()
-      for _ = 1, 5 do
-        local h <close> = assert(module.start(lua(
-          'local Fs = require("cosmic.fs") local sys = require("cosmic.sys") ' ..
-          'while assert(Fs.take(0, 4096)) ~= "" do end ' ..
-          'assert(Fs.write(' .. string.format("%q", said) .. ', ' ..
-          'tostring(require("cosmic.time").monotonic_ns()))) sys.exit(0)', { stdin = "pipe" })))
-        assert(Poll.delay(50))
-        local closer = Poll.spawn(function()
-          assert(Poll.delay(3))
-          assert(h:close_stdin())
-        end)
-        assert(assert(h:wait(60000)).ok)
-        local seen = Time.monotonic_ns()
-        assert(closer:join())
-        local late = seen - assert(math.tointeger(tonumber((assert(Fs.read(said))))))
-        if late < soonest[m] then soonest[m] = late end
-      end
+--- A wait in a task whose child has an exit watch waits on the watch
+--- alone, with no slice to look for the exit by, and ends once the watch
+--- is readable. The watch here is a pipe this test writes to, standing
+--- in for the core's, which core/syscalls_tool_test.tl holds readable at
+--- the exit: the child exits -- the core's own watch, opened beside it,
+--- says so -- and the wait goes on through several slices of a wait
+--- that looked, until the pipe is written. How soon after a child's last
+--- act the core's watch is readable is the kernel's to say -- the
+--- child's teardown and, on a busy host, its scheduling come first -- and
+--- is not measured here: a whole suite run on a macOS runner has taken
+--- some 6 ms over it.
+local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
+  local ends: raw_process.Pipe
+  local watch: function(integer): integer, string, integer
+  local module = reloaded(function(copy: {string: any})
+    local pipe = copy.pipe as function(): raw_process.Pipe, string, integer -- cast: the raw table's `pipe`
+    watch = copy.exit_watch as function(integer): integer, string, integer -- cast: the raw table's `exit_watch`
+    ends = assert(pipe())
+    copy.exit_watch = function(_pid: integer): integer, string, integer
+      return ends.reader, "", 0
+    end
+  end)
+  local waited: Child.Result
+  local early = false
+  Poll.run(function()
+    -- Not grouped: a grouped start makes an adopting process, whose waits
+    -- wake every second to reap orphans, and so look.
+    local h <close> = assert(module.start(lua(
+      'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end',
+      { stdin = "pipe", process_group = false })))
+    local exited = assert(watch(h.pid))
+    local waiter = Poll.spawn(function()
+      waited = assert(h:wait())
     end)
-  end
+    -- The waiter runs first: it finds the child running, and waits.
+    assert(Poll.delay(1))
+    assert(h:close_stdin())
+    assert(Poll.readable(exited, 30000))
+    assert(Poll.delay(50))
+    -- A wait that ended has closed the pipe's other end.
+    early = waited ~= nil
+    if not early then assert(sys.write(ends.writer, "x")) end
+    assert(waiter:join(30000))
+    assert(sys.close(exited))
+    assert(sys.close(ends.writer))
+  end)
+  assert(not early, "a wait with an exit watch found its child's exit without it")
+  assert(waited.ok, tostring(waited.code))
+end
+
+--- Every child cosmic.child starts here has the core's exit watch: a
+--- platform that has one gives it, rather than leaving the waits to
+--- look for each exit in turn.
+local function test_every_child_started_here_has_an_exit_watch()
+  local given, refused = 0, ""
+  local module = reloaded(function(copy: {string: any})
+    local watch = copy.exit_watch as function(integer): integer, string, integer -- cast: the raw table's `exit_watch`
+    copy.exit_watch = function(pid: integer): integer, string, integer
+      local fd, why, errno = watch(pid)
+      if fd ~= nil then given = given + 1 else refused = why end
+      return fd, why, errno
+    end
+  end)
+  Poll.run(function()
+    for _ = 1, 3 do
+      assert(assert(module.run(lua(""))).ok)
+    end
+  end)
+  assert(given == 3, "an exit watch was given for " .. given .. " of 3 children: " .. refused)
+end
+
+--- A wait with a timeout ends the child at it, the other task ticking
+--- meanwhile.
+local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
   local timed: Child.Result
   local ticks = ticking(function()
     local h <close> = assert(Child.start(lua(sleep(100000))))
     timed = assert(h:wait(200))
   end)
-  assert(soonest[1] < 4 * 1000000 or soonest[1] + 2 * 1000000 < soonest[2],
-    "a wait saw a child's exit " .. soonest[1] // 1000 .. " us late, and " ..
-    soonest[2] // 1000 .. " us looking for it every slice")
   assert(timed.timed_out and timed.signal == sys.SIGTERM, tostring(timed.signal))
-  assert(ticks >= 20, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
 end
 
 --- A cancelled task's wait answers nil and CANCELLED at once, and leaves
@@ -320,7 +369,7 @@ local function test_streams_in_a_task_let_the_others_run()
     end)
     assert(table.concat(got) == "ab", table.concat(got, "|"))
     assert(fed.ok and fed.stdout == input, "fed " .. #tostring(fed.stdout) .. " bytes back")
-    assert(ticks >= 20, "the other task ticked " .. ticks .. " times")
+    assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
   end
 end
 
@@ -344,7 +393,7 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
   end)
   assert(first == 1, "the slow child ended first")
   assert(cancelled == Poll.CANCELLED, cancelled)
-  assert(ticks >= 20, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
 end
 
 --- A signal a guard catches ends a run waiting in a task at once, as it
@@ -385,7 +434,7 @@ Poll.run(function()
 end)
 local kept = assert(outer:release())
 assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
-  tostring(ticks >= 20) .. "|" .. tostring(took < 5000)))
+  tostring(ticks >= 2) .. "|" .. tostring(took < 5000)))
 ]], report }, { stderr = "capture", timeout_ms = 60000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..

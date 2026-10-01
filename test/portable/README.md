@@ -127,9 +127,11 @@ too-short program, and a single mutated byte.
 
 The pinned CI driver owns full-suite execution, retained output, working
 database snapshots, delayed boundaries, and artifact immutability checks.
-In a full run it runs portable suites from a fresh tracked-source export on
-every leg, including the `alpine-x86_64` job container, which builds and
-tests natively on musl/BusyBox like every other leg. Its isolated project and
+In a full run every leg builds the portable product from a fresh
+tracked-source export and runs its regressions on it; the portable suite
+runs on `alpine-x86_64` (musl/BusyBox, in its job container), on
+`linux-x86_64` too outside the merge queue, and on every leg of the
+scheduled and a manual run (`COSMIC_CI_PORTABLE_SUITE` in ci.yml). Its isolated project and
 command contracts are documented in `ci`.
 
 [`build.artifact`]: ../../build/artifact.tl
