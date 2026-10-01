@@ -722,7 +722,7 @@ end
 --- `digest` answers, not the plain digest.
 -- TODO: once Hash.Hasher's `update` answers `"", ""` (or a thin adapter
 -- stands over it), make a Hasher a Stream.Transform with `finish` as its
--- `digest`, so `Stream.run` and `transform_writer` drive it and this
+-- `digest`, so [`Stream.run`] and [`transform_writer`] drive it and this
 -- Writer shrinks to that adapter.
 function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing | nil, string
   local feed: function(data: string)

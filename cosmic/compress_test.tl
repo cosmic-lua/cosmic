@@ -748,9 +748,9 @@ local function test_inflate_validates_max_bytes()
   assert(out == nil and trouble == "output is larger than 2 bytes", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
   for _, bad in ipairs({ -1, 1.5 } as {any}) do
-    local ok, trouble = pcall(Compress.inflate, "zlib", packed, bad as integer)
-    assert(not ok and tostring(trouble):find("compress: max_bytes", 1, true) ~= nil,
-      tostring(trouble))
+    local ok, why = pcall(Compress.inflate, "zlib", packed, bad as integer)
+    assert(not ok and tostring(why):find("compress: max_bytes", 1, true) ~= nil,
+      tostring(why))
   end
 end
 
