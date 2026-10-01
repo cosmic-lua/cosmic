@@ -1371,6 +1371,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     ["restore zig build outputs"] = true, ["restore zig build outputs of another vendor part"] = true,
     ["restore compiles and parses"] = true, ["move the tree to a path of its own"] = true,
     ["move the tree back to where it was checked out"] = true,
+    ["find the tree's base on main"] = true,
   }
   local function same(where: string, mine: any, their: any)
     if their is string then their = as_leg(their) end
@@ -1458,7 +1459,8 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
         (held and " only on a full run: " or " on a light run: ") .. condition)
     end
   end
-  assert(table.concat(only_light, ", ") == "name linux-x86_64's host, find a passing CI driver check, " ..
+  assert(table.concat(only_light, ", ") == "name the paths the branch changed, " ..
+    "name linux-x86_64's host, find a passing CI driver check, " ..
     "check the pinned CI driver, check the tree's format",
     "the checked job runs on a light run alone: " .. table.concat(only_light, ", "))
   local mine, check = step_running(steps, "cosmic-driver test cosmic_ci")
@@ -1518,6 +1520,53 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     (kept.with as {string: string}).name == "ci-driver-" .. name and
     (kept.with as {string: string}).path == ((theirs["preserve CI driver database"].with) as {string: string}).path,
     "the checked job keeps its operations only on some runs, or under another name: " .. tostring(kept and kept["if"]))
+end
+
+--- A light run's format check lays out only what the branch changed
+--- since its base on main, whose tree main's run held to the whole
+--- check: the checked job finds that base on a light run too, names the
+--- paths (.github/scripts/changed-paths.sh, on the host, which fetches
+--- the base with the credentials the checkout keeps) before its tree
+--- moves, and hands the list to the format check, which checks the
+--- whole tree where the script named none. A full run's check, the
+--- merge queue's, is the whole tree's.
+local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local steps = jobs.checked.steps as {{string: any}}
+  local base, found = step_running(steps, "sh .github/scripts/merge-base.sh")
+  assert(base["if"] == nil, "the checked job finds its base only on some runs: " .. tostring(base["if"]))
+  local named, listed = step_running(steps, "sh .github/scripts/changed-paths.sh")
+  assert(named.id == "changed" and named["if"] == LIGHT and named.shell == "sh" and
+    named["working-directory"] == "." and named["continue-on-error"] == true,
+    "the checked job names what changed otherwise, or fails for it: " .. tostring(named["if"]))
+  local env = named.env as {string: string}
+  assert(env.BASE == "${{ steps.merge-base.outputs.sha }}" and
+    env.OUT:find("${{ runner.temp }}/", 1, true) == 1,
+    "the paths changed are named from another base, or kept outside the runner's temporary directory")
+  local _, moved = step_running(steps, "sh .github/scripts/place-tree.sh")
+  assert(found < listed and listed < moved,
+    "the checked job names what changed before it finds the base, or with its tree moved")
+  local checkout: {string: any} = nil
+  for _, step in ipairs(steps) do
+    if step.uses == CHECKOUT then checkout = step end
+  end
+  assert(checkout ~= nil and (checkout.with as {string: any})["persist-credentials"] == nil,
+    "the checked job keeps no credentials to fetch its base with")
+  local format, checked_at = step_running(steps, "platform format")
+  assert(checked_at > listed and format["if"] == LIGHT and
+    (format.env as {string: string}).COSMIC_CI_FORMAT_CHANGED == "${{ steps.changed.outputs.paths }}",
+    "a light run's format check lays out other than what the branch changed")
+  for _, step in ipairs(steps) do
+    local run = step.run as string or ""
+    local e = step.env as {string: string} or {}
+    assert(e.COSMIC_CI_FORMAT_CHANGED == nil or run:find("platform format", 1, true) ~= nil,
+      "a step other than the format check reads what the branch changed")
+  end
+  for _, step in ipairs(jobs.platform.steps as {{string: any}}) do
+    local e = step.env as {string: string} or {}
+    assert(e.COSMIC_CI_FORMAT_CHANGED == nil, "a leg's check lays out only what changed")
+  end
 end
 
 --- A job that moves its tree (.github/scripts/place-tree.sh) moves it

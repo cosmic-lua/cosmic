@@ -1086,6 +1086,36 @@ local function phase_sandbox(p: PlatformContext): integer
   return 0
 end
 
+--- The format check's command, below: `fix --check .`, or, where
+--- COSMIC_CI_FORMAT_CHANGED names a file, one path a line, of what
+--- changed since the tree's base on main, which passed the whole tree's
+--- check (.github/scripts/changed-paths.sh, on a light run), `fix
+--- --check --changed` of those paths, which lays out only them yet makes
+--- every check spanning files over the whole tree, and lays out all of
+--- it where a path named is part of what checks each file. A file that
+--- cannot be read checks the whole tree.
+local function format_command(root: string): {string}
+  local command = { root .. "/o/bin/cosmic", "fix", "--check" }
+  local listed = Env.get("COSMIC_CI_FORMAT_CHANGED") or ""
+  local text: string | nil = nil
+  if listed ~= "" then
+    local found, trouble = Fs.read(listed)
+    text = found
+    if found == nil then
+      Fs.put(Fs.stderr, "format check: the whole tree, since what changed is not known: " ..
+        trouble .. "\n")
+    end
+  end
+  if text == nil then
+    command[#command + 1] = "."
+    return command
+  end
+  command[#command + 1] = "--changed"
+  command[#command + 1] = "--"
+  for line in text:gmatch("[^\n]+") do command[#command + 1] = line end
+  return command
+end
+
 --- The tree's format check (`fix --check .`, which also builds and
 --- type-checks the tree). It is the first thing assemble does, where a
 --- tree formats and type-checks the same on every platform, so the
@@ -1106,8 +1136,7 @@ local function format_check(p: PlatformContext): integer
       "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
-  return checked(p.operation, "format check",
-    { p.root .. "/o/bin/cosmic", "fix", "--check", "." })
+  return checked(p.operation, "format check", format_command(p.root))
 end
 
 local function phase_assemble(p: PlatformContext): integer
