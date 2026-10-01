@@ -12,6 +12,7 @@ int main (int argc, char **argv) {
 #if defined(__linux__)
   if (cosmic_sandbox_init_asked(argc, argv)) cosmic_sandbox_init();
 #endif
+  cosmic_raise_descriptor_limit();
   struct cosmic_startup startup;
   /* The artifact is named `--artifact <path>`, or `--artifact=<path>` in
    * one argument. A `#!` line hands its interpreter one argument at most,

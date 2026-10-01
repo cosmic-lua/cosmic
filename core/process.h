@@ -29,9 +29,29 @@
  * closure by name. */
 #define UNVEIL_MAX 256
 
+/* How many descriptors `spawn` places above the highest it hands a
+ * child (`top` + 2 and up), besides a copy of each it hands: the status
+ * pipe's two ends; the ruleset; and, for an unveiled child, /proc/self
+ * and the mapping pipe's two ends for one that gives root up, this
+ * program, and the started and ready pipes' four ends
+ * (core/syscalls.c's `start_unveiled`). F_DUPFD refuses them past
+ * RLIMIT_NOFILE's soft limit; cosmic.child's `start` says so where the
+ * limit leaves too few. A descriptor placed there besides counts here. */
+#define SPAWN_PLACED_ABOVE 11
+
 /* What a signal stamp counts each caught signal as: the stamp is their
  * count times this, plus the last one's number, which is below it. */
 #define SIGNAL_STAMP_UNIT 64
+
+/* Raises RLIMIT_NOFILE's soft limit toward the hard one, as far as
+ * 10240 (macOS's OPEN_MAX) or kern.maxfilesperproc where that is lower,
+ * as a Go program's runtime does at its start:
+ * a spawn places descriptors above the highest it hands a child, 257
+ * and up for a relaunch, past a soft limit as low as macOS's default.
+ * A program this process execs is given the soft limit it started with
+ * back, unless it set RLIMIT_NOFILE itself (`setrlimit`). A refusal leaves the
+ * limit as it was. `main` calls it before anything starts a child. */
+void cosmic_raise_descriptor_limit (void);
 
 /* Opens the table as the raw [`cosmic.internal.process`] module. */
 int cosmic_open_process (lua_State *L);
@@ -326,6 +346,8 @@ COSMIC_SYSCALL(child_signal_fd, 0);
  * ---@class Constants
  * ---@field UNVEIL_MAX integer the most paths a sandbox unveils, its reads and writes together
  * ---@field SIGNAL_STAMP_UNIT integer what a stamp counts each caught signal as, above the last one's number
+ * ---@field SPAWN_PLACED_ABOVE integer how many descriptors `spawn` places above the highest it hands a child, besides a copy of each it hands
  */
 COSMIC_CONSTANT(UNVEIL_MAX)
 COSMIC_CONSTANT(SIGNAL_STAMP_UNIT)
+COSMIC_CONSTANT(SPAWN_PLACED_ABOVE)
