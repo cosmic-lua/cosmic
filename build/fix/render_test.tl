@@ -166,6 +166,18 @@ local function test_a_cast_to_a_function_type_ends_where_tl_ends_it()
          "local t = {\n  k = b as function(): string;\n}\n")
 end
 
+--- A function type's return types also end before a `,` and a
+--- parameter spelled `name?:`, `?T` or `...`, and before a `...`
+--- expression after a cast.
+local function test_function_return_types_end_before_a_parameter()
+  writes("local function f(cb: function(): integer, n?: string, ...: any) return cb, n end\n",
+         "local function f(cb: function(): integer, n?: string, ...: any) return cb, n end\n")
+  writes("local type F = function(function(): integer, ?string, ...: any)\n",
+         "local type F = function(function(): integer, ?string, ...: any)\n")
+  writes("local function g(...: any): any return a as function(): integer, ... end\n",
+         "local function g(...: any): any return a as function(): integer, ... end\n")
+end
+
 --- Blocks: the closing keyword goes where the source put it, so a
 --- one-line `if` stays on one line and a spread-out one stays spread.
 local function test_blocks_keep_the_shape_the_source_gave_them()

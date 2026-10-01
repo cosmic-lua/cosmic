@@ -208,13 +208,22 @@ type_end = function(s: Scan, i: integer): integer
   return j
 end
 
---- Whether token `i` is a name with a `:` after it, as a parameter or a
---- field `name: type` begins. tl ends a function's return types before
---- a `,` followed by one (its parse_trying_list's lookahead), so that
---- `function(f: function(): integer, n: integer)` is two parameters.
-local function names_a_field(s: Scan, i: integer): boolean
+--- Whether token `i` starts a parameter: `name:`, `name?:`, `?T` or
+--- `...`, none of which can start a type. tl ends a function's return
+--- types before a `,` followed by one (its parse_trying_list's
+--- lookahead, with patch/tl's 30-return-types-end-before-a-parameter.txt),
+--- so that `function(f: function(): integer, n?: integer)` is two
+--- parameters.
+local function starts_a_parameter(s: Scan, i: integer): boolean
   local t = s.tokens[i]
-  return t ~= nil and t.kind == "identifier" and tk(s, i + 1) == ":"
+  if t == nil then
+    return false
+  end
+  if t.tk == "?" or t.tk == "..." then
+    return true
+  end
+  return t.kind == "identifier"
+    and (tk(s, i + 1) == ":" or (tk(s, i + 1) == "?" and tk(s, i + 2) == ":"))
 end
 
 --- The index of the last token of a comma-separated list of types
@@ -222,7 +231,7 @@ end
 --- A function's return types and a declaration's type list are both
 --- this shape, and a variadic last one (`: any...`) ends at its `...`.
 --- A function's return types (`returns`) also end before a `,` that
---- [`names_a_field`] follows.
+--- [`starts_a_parameter`] follows.
 --- @param s Scan
 --- @param i integer
 --- @param returns boolean|nil Whether the list is a function's return types
@@ -232,7 +241,7 @@ rets_end = function(s: Scan, i: integer, returns?: boolean): integer
     return closing(s, i)
   end
   local j = type_end(s, i)
-  while tk(s, j + 1) == "," and not (returns and names_a_field(s, j + 2)) do
+  while tk(s, j + 1) == "," and not (returns and starts_a_parameter(s, j + 2)) do
     j = type_end(s, j + 2)
   end
   if tk(s, j + 1) == "..." then
@@ -271,7 +280,7 @@ local function open_returns(s: Scan, i: integer): boolean
     return false
   end
   j = type_end(s, k + 2)
-  while tk(s, j + 1) == "," and not names_a_field(s, j + 2) do
+  while tk(s, j + 1) == "," and not starts_a_parameter(s, j + 2) do
     j = type_end(s, j + 2)
   end
   return tk(s, j + 1) ~= "..."

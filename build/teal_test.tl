@@ -217,3 +217,27 @@ local function test_a_call_after_a_string_spanning_lines()
   assert(inserted ~= nil and inserted.y == 2 and inserted.x == 5,
     inserted and inserted.y .. ":" .. inserted.x or "no ';'")
 end
+
+--- A function type's return types end before a `,` and a parameter
+--- spelled `name?:`, `?T` or `...`, as before one spelled `name:`
+--- (patch/tl's 30-return-types-end-before-a-parameter.txt); none of
+--- those can start a type. A bare name after the `,` is still a second
+--- return type.
+local function test_return_types_end_before_the_next_parameter()
+  for _, source in ipairs({
+    "local function f(cb: function(): integer, n?: string) return cb, n end\n",
+    "local function f(cb: function(): integer, ...: any) return cb end\n",
+    "local function f(cb: function(): integer, ...) return cb end\n",
+    "local type F = function(cb: function(): integer, n?: string)\n",
+    "local type G = function(function(): integer, ?string)\n",
+    "local type H = function(): integer...\n",
+  }) do
+    local found = syntax_errors(source)
+    assert(#found == 0, source .. table.concat(found, "; "))
+  end
+  local built = assert(teal.load())
+  local _, result = built.gen("local type F = function(cb: function(): integer, string)\n" ..
+    "local f: F = function(_cb: function(): (integer, string)) end\nprint(f)\n", nil, nil, "tl")
+  assert(#assert(result).syntax_errors == 0 and #result.type_errors == 0,
+    tostring((result.type_errors[1] or result.syntax_errors[1] or {}).msg))
+end

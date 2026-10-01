@@ -150,8 +150,13 @@ local function entry_sep(g: Gen): string
   return s
 end
 
---- A type; one followed by a `,` (`listed`) is never a function type,
---- whose return list would take in what follows.
+--- A type; one followed by a `,` and a type or a bare name (`listed`)
+--- is never a function type. A function type's return list takes in
+--- what follows a `,` unless it starts a parameter (`name:`, `name?:`,
+--- `?T`, `...`), so `function(): function(): integer, string` returns
+--- two values from the inner function, not one from each. That is
+--- Teal's grammar, not a bug, and no rendering can spell the other
+--- reading.
 local function typ(g: Gen, listed?: boolean): string
   local t = pick(g, TYPES)
   if listed and t:find("^function") ~= nil then t = "integer" end
@@ -241,18 +246,27 @@ end
 
 --- A parameter list and return types.
 local function signature(g: Gen): string, boolean
-  local params: {string} = {}
+  local names: {string} = {}
+  local kinds: {integer} = {}
   local optional = false
-  while Fuzz.more(g.src, #params, 4) do
+  while Fuzz.more(g.src, #names, 4) do
     local p = pick(g, NAMES)
-    if p == "self" or p == "_" then p = "p" .. #params end
+    if p == "self" or p == "_" then p = "p" .. #names end
     -- Only an optional parameter may follow an optional one.
     local k = g.src:int(optional and 3 or 1, 3)
     optional = k == 3
-    if k == 2 then
-      p = p .. ":" .. gap(g) .. typ(g, true)
-    elseif k == 3 then
-      p = p .. "?:" .. tight(g) .. typ(g, true)
+    names[#names + 1] = p
+    kinds[#kinds + 1] = k
+  end
+  -- A typed parameter is a function type only where what follows it is
+  -- no bare name, which its return list would take in.
+  local params: {string} = {}
+  for i, p in ipairs(names) do
+    local listed = kinds[i + 1] == 1
+    if kinds[i] == 2 then
+      p = p .. ":" .. gap(g) .. typ(g, listed)
+    elseif kinds[i] == 3 then
+      p = p .. "?:" .. tight(g) .. typ(g, listed)
     end
     params[#params + 1] = p
   end
@@ -268,6 +282,8 @@ local function signature(g: Gen): string, boolean
   if r == 1 then
     out = out .. tight(g) .. ":" .. gap(g) .. typ(g)
   elseif r == 2 then
+    -- A function type first would take the second type into its own
+    -- return list: Teal's grammar, not a bug in tl.
     out = out .. ": " .. typ(g, true) .. "," .. gap(g) .. typ(g)
   end
   return out, vararg
