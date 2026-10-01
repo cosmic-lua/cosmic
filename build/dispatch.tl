@@ -215,7 +215,11 @@ local function usage_line(verb: string): string
   end
   local words: {string} = { "cosmic" }
   if typed ~= "" then words[#words + 1] = typed end
-  local usage = require("cosmic.cli").verbs[verb].usage
+  local command = require("cosmic.cli").verbs[verb]
+  local usage = command.usage
+  if usage == nil then
+    usage = command.spec ~= nil and next(command.spec) ~= nil and "[options]" or ""
+  end
   if usage ~= "" then words[#words + 1] = usage end
   return table.concat(words, " ")
 end
@@ -692,11 +696,15 @@ function dispatch.main(argv: {integer:string}): integer
   end
   local chosen = spec_of(verb)
   -- TODO: dispatch through Flags.dispatch, with each verb a Flags.Command
-  -- whose `run` takes the Flags.Parsed. It cannot yet: a verb reads its
-  -- own argv, and `time` and `rand` set a negative number aside before
+  -- whose `run` takes the Flags.Parsed. It waits on two things in Flags.
+  -- Flags.parse must read a negative number as a word where the spec
+  -- declares no digit option: `time` and `rand` set one aside before
   -- parsing (build/time.tl's `protect`, build/rand.tl's `marked`), which
-  -- Flags.dispatch's parse would refuse. It waits on Flags.parse reading
-  -- a negative number as a word where the spec names no digit option.
+  -- Flags.dispatch's parse would refuse. Flags.dispatch must take a
+  -- default command for a first word that names none: a file run
+  -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
+  -- refuse as options) and `-e`, `--standalone` and `--version` are
+  -- verbs by no command name.
   local options = chosen ~= nil and Cli.verbs[verb].spec or {}
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(argv, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.

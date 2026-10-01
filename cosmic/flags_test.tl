@@ -177,6 +177,7 @@ local function test_help_of_a_command_says_options_where_its_usage_is_unwritten(
     "usage: prog run <file>" .. lines)
   assert(Flags.help({ spec = described, usage = "" }, "prog run") == "usage: prog run" .. lines)
   assert(Flags.help({ about = "Runs." }, "prog run") == "usage: prog run\n\nRuns.")
+  assert(not pcall(Flags.help, {}, ""))
 end
 
 local function test_asks_help_stops_at_the_double_dash_and_defers_to_the_spec()

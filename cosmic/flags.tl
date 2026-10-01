@@ -284,9 +284,13 @@ end
 ---       -v          say more
 --- @param command Command The command to describe
 --- @param name string What the usage line calls it: the program, and the
----   command's own word after it when it has one ("prog count")
+---   command's own word after it when it has one ("prog count"); not
+---   empty, or this raises
 --- @return string The help
 function Flags.help(command: Flags.Command, name: string): string
+  if name == "" then
+    error("flags: help needs a name for the usage line", 2)
+  end
   local spec = command.spec or {}
   local usage = command.usage
   if usage == nil then

@@ -95,8 +95,8 @@ local function test_the_sqlite_options_name_each_old_boolean_call()
     and instead:find("nothing for `false`", 1, true), instead)
 end
 
---- A program that read the verbs' parallel maps is told each is a field of
---- the record `Cli.verbs` holds for the verb.
+--- A program that read [`cosmic.cli`]'s `options`, `usage` or `summary` is told
+--- which field of the verb's record in `Cli.verbs` holds it now.
 local function test_the_removed_cli_maps_name_the_verb_record_field_that_replaced_each()
   local fields: {string:string} = { options = "spec", usage = "usage", summary = "about" }
   for member, field in pairs(fields) do

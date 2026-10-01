@@ -116,15 +116,6 @@ promises lean on come first:
   stand-in and a list's hole are missing values, and `integer` is the one
   conversion. old's D28, which chose the opposite on the copy, is not on this
   tree.
-- `cosmic`'s own verbs through [`Flags.dispatch`]. [`build/dispatch.tl`] asks
-  [`Flags.asks_help`] for what a verb's line asks, but runs a verb with its
-  whole `argv` rather than dispatching: `time` and `rand` set a negative
-  number aside before parsing, which [`Flags.dispatch`]'s own parse would
-  refuse, so [`Flags.parse`] reading a negative number as a word where the
-  spec names no digit option comes first; then each verb takes the
-  [`Flags.Parsed`] and `cosmic help`'s grouped index becomes sections and a
-  preamble of [`Flags.dispatch`]'s program help. The `TODO:`s in
-  [`build/dispatch.tl`] mark both places.
 - measure `into`'s copy on a large payload (a big NDJSON file) against
   [`Json.decode`] on the same text once the benchmark harness exists.
 - `format`, `check`: small modules a program
@@ -228,7 +219,6 @@ four-producer provenance join.
 [`build.fuzz`]: ../build/fuzz/init.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
-[`build/dispatch.tl`]: ../build/dispatch.tl
 [`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/refresh.tl`]: ../build/refresh.tl
@@ -242,10 +232,6 @@ four-producer provenance join.
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
-[`Flags.asks_help`]: ../cosmic/flags.tl
-[`Flags.dispatch`]: ../cosmic/flags.tl
-[`Flags.parse`]: ../cosmic/flags.tl
-[`Flags.Parsed`]: ../cosmic/flags.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Shape.record`]: ../cosmic/shape.tl
