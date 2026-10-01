@@ -733,3 +733,17 @@ local function test_a_download_checks_every_digest_it_is_given(tmp: string)
     assert(name == "two.bin", "left behind: " .. name)
   end
 end
+
+local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
+  local path = tmp .. "/only512.bin"
+  local s512 = Codec.hex(Hash.digest("sha512", "hello"))
+  local ok, why = Http.download(url, path, { script = { reply("200 OK", "", "hello") }, sha512 = s512 })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+  local other = tmp .. "/wrong512.bin"
+  local zeros = string.rep("0", 128)
+  local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") }, sha512 = zeros })
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true), bad_why)
+  assert(not bad_why:find("sha256", 1, true), bad_why)
+  assert(Fs.stat(other) == nil, "the target was created")
+end

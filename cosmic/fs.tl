@@ -34,7 +34,8 @@ local record Fs
     sync: function(Staged): boolean, string
     --- Renames the file onto its path: false and why when a write
     --- failed, or the rename or the closing of the file does. Safe to
-    --- call more than once.
+    --- call more than once; after `abort` it renames nothing and
+    --- answers true.
     close: function(Staged): boolean, string
     --- Removes the temporary file and leaves the path as it was. Safe
     --- to call more than once.

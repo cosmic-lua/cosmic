@@ -316,6 +316,18 @@ local function test_a_sha512_fragment_verifies_and_refuses()
   assert(flagged.code == 0 and flagged.out == "hello", flagged.err)
 end
 
+local function test_a_sha512_alone_checks_a_download_to_a_file(tmp: string)
+  local good = sha512_of("hello")
+  local path = tmp .. "/only512.txt"
+  local filed = run({ "--sha512", good, "-o", path, url }, { reply("200 OK", "", "hello") })
+  assert(filed.code == 0 and Fs.read(path) == "hello", filed.err)
+  local other = tmp .. "/wrong512.txt"
+  local bad = run({ "--sha512", string.rep("0", 128), "-o", other, url }, { reply("200 OK", "", "hello") })
+  assert(bad.code == 1 and bad.err:find("sha512 mismatch", 1, true), bad.err)
+  assert(not bad.err:find("sha256", 1, true), bad.err)
+  assert(Fs.stat(other) == nil, "the target was created")
+end
+
 local function test_the_sum_aliases_work()
   local ran = run({ url .. "#sha256sum=" .. Hash.hex_sha256("hello") }, { reply("200 OK", "", "hello") })
   assert(ran.code == 0 and ran.out == "hello", ran.err)

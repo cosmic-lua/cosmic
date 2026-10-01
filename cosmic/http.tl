@@ -295,10 +295,13 @@ end
 --- caught signal says it) included.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
   opts = opts or {}
-  local algorithms: {Hash.Algorithm} = { "sha256", "sha512" }
+  local given: {{Hash.Algorithm, string}} = {
+    { "sha256", opts.sha256 or "" },
+    { "sha512", opts.sha512 or "" },
+  }
   local checks: {{string, string, Stream.Hashing}} = {}
-  for i, algorithm in ipairs(algorithms) do
-    local wanted = (i == 1 and opts.sha256 or opts.sha512) or ""
+  for _, pair in ipairs(given) do
+    local algorithm, wanted = pair[1], pair[2]
     if wanted ~= "" then
       local hashing, trouble = Stream.hashing(algorithm)
       if hashing == nil then return false, trouble end

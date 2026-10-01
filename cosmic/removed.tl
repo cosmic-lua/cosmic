@@ -94,8 +94,10 @@ local record Module
   -- Likewise for the calls whose parameters changed shape: `Proc.exec(path,
   -- argv, environment)` is `Proc.exec(argv, { env = environment })`, argv[1]
   -- the path, and `Fs.cache_dir(tool, environment)` is `Fs.cache_dir(tool,
-  -- { environment = environment })`. The compiler says only `argument 1: got
-  -- string, expected {string}` (and the like) for either, which names no
+  -- { environment = environment })`. The compiler says only `wrong number of
+  -- arguments (given 3, expects at least 1 and at most 2)` for the
+  -- three-argument [`Proc.exec`], and `argument 1: got string, expected
+  -- {string}` for the two-argument one and for [`Fs.cache_dir`], which names no
   -- callee `arguments` could key an entry by (it reads a boolean given for a
   -- record), and the removed `body_size` field of Http.Options goes with the
   -- Upload that read it. Say each once the checker's message names the callee.
