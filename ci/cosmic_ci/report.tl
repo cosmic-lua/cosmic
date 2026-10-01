@@ -528,7 +528,10 @@ end
 local function database_of(zip: string): string | nil, string
   local reader, why = Zip.open_string(zip)
   if reader == nil then return nil, why end
-  local listed, list_why = reader:entries()
+  -- TODO: once ci/cosmic-driver.pin names a release whose Zip.Reader.entries
+  -- answers `{Entry} | nil, string`, drop this cast.
+  local entries_of = reader.entries as any as function(Zip.Reader): {Zip.Entry} | nil, string
+  local listed, list_why = entries_of(reader)
   if listed == nil then
     reader:close()
     return nil, list_why
