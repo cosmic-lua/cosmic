@@ -164,3 +164,33 @@ local function test_g_is_checked_where_it_is_read()
     assert(found.filename ~= nil and found.y ~= nil and found.x ~= nil, found.msg)
   end
 end
+
+--- What the parser refuses in `source`, each as "line:column message".
+local function syntax_errors(source: string): {string}
+  local built = assert(teal.load())
+  local _, result = built.gen(source, nil, nil, "tl")
+  local out: {string} = {}
+  for _, e in ipairs(assert(result).syntax_errors) do
+    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+  end
+  return out
+end
+
+--- A `return` closed by a `;` may end any block, as it may end the file
+--- (patch/tl's 28-return-semicolon-before-end.txt), and a statement
+--- after one is still refused.
+local function test_a_return_closed_by_a_semicolon_ends_its_block()
+  for _, source in ipairs({
+    "local function f() return 1; end\n",
+    "local function f() return; end\n",
+    "if a then return 1; elseif b then return; else return 2; end\n",
+    "repeat return; until a\n",
+    "return 1;\n",
+  }) do
+    local found = syntax_errors(source)
+    assert(#found == 0, source .. table.concat(found, "; "))
+  end
+  local found = syntax_errors("local function f() return 1; f() end\n")
+  assert(#found > 0 and found[1]:find("return must be the last statement") ~= nil,
+    table.concat(found, "; "))
+end

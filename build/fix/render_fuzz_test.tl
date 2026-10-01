@@ -531,10 +531,7 @@ block = function(g: Gen, d: integer): string
   if chance(g, 4) then
     out[#out + 1] = sep(g) .. "return"
     if chance(g, 3) then out[#out + 1] = gap(g) .. exprs(g, d, 3) end
-    -- TODO: tl refuses a `;` after a `return` anywhere but at the end
-    -- of the file: parse_return looks for the block's closing keyword by
-    -- the token's kind, which is "keyword", not by its text. Once a
-    -- record under patch/tl/ tests the text, draw `return ...;` here.
+    if chance(g, 3) then out[#out + 1] = tight(g) .. ";" end
     out[#out + 1] = "\n" .. indent(g)
     return table.concat(out)
   end

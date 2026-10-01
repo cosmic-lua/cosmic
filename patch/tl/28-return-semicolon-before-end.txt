@@ -1,0 +1,7 @@
+file: tl.tl
+note: after a `return ...;` parse_return looked the next token's kind up in stop_statement_list, whose keys are keyword texts, so `local function f() return 1; end` was refused as a return before the end of its block; only the end of the file passed. Look the token's text up instead
+--- find
+      if ps.tokens[i].kind ~= "$EOF$" and not stop_statement_list[ps.tokens[i].kind] then
+--- replace
+      if ps.tokens[i].kind ~= "$EOF$" and not stop_statement_list[ps.tokens[i].tk] then
+--- end
