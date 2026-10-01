@@ -401,7 +401,7 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
     return false, path .. ": " .. open_write_trouble
   end
   local part, fd = temporary.path, temporary.fd
-  local writer = Stream.to_fd(fd)
+  local writer: Stream.Writer = Stream.to_fd(fd)
   for _, hashing in ipairs(hashings) do writer = Stream.tee(writer, hashing) end
   local ok, trouble = true, ""
   while true do

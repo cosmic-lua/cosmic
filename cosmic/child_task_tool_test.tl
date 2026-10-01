@@ -133,14 +133,14 @@ local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
     -- wake every second to reap orphans, and so look.
     local h <close> = assert(module.start(lua(
       'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end',
-      { stdin = "pipe", process_group = false })))
+      { stdin = "stream", process_group = false })))
     local exited = assert(watch(h.pid))
     local waiter = Poll.spawn(function()
       waited = assert(h:wait())
     end)
     -- The waiter runs first: it finds the child running, and waits.
     assert(Poll.delay(Time.ms(1)))
-    assert(h:close_stdin())
+    assert(assert(h.stdin_stream):close())
     assert(Poll.readable(exited, Time.seconds(30)))
     assert(Poll.delay(Time.ms(50)))
     -- A wait that ended has closed the pipe's other end.
@@ -174,8 +174,8 @@ local function test_every_child_started_here_has_an_exit_watch()
     for _ = 1, 3 do
       local h <close> = assert(module.start(lua(
         'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end',
-        { stdin = "pipe", process_group = false })))
-      assert(h:close_stdin())
+        { stdin = "stream", process_group = false })))
+      assert(assert(h.stdin_stream):close())
       assert(assert(h:wait()).ok)
     end
   end)
@@ -341,6 +341,37 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
     assert(waited == Poll.CANCELLED, waited)
     assert(killed_answer == Poll.CANCELLED, killed_answer)
     assert(sys.kill(killed_pid, 0) == false, "the killed task left its child running")
+  end
+end
+
+--- A child that holds SIGTERM is ended by the SIGKILL that follows the
+--- grace period, whether a timed wait or a close ends it: the Result
+--- says it timed out, and the end comes within the grace and the reap,
+--- not after the child's own loop.
+local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp: string)
+  local report = tmp .. "/held"
+  for _, module in ipairs(both()) do
+    local h = assert(module.start(lua(holding_term(report))))
+    local by = Time.monotonic_ns() + Time.seconds(30)
+    while not Fs.exists(report) and Time.monotonic_ns() < by do Time.sleep_ns(Time.ms(5)) end
+    local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
+    assert(Fs.remove(report))
+    local started = Time.monotonic_ns()
+    local r = assert(h:wait(Time.ms(100)))
+    local took = Time.monotonic_ns() - started
+    assert(r.timed_out and not r.ok and r.signal == sys.SIGKILL, tostring(r.signal))
+    assert(took >= Time.ms(300) and took < Time.seconds(3), "ended after " .. took // Time.ms(1) .. " ms")
+    assert(sys.kill(pid, 0) == false, "the child outlived its wait")
+    local closing = assert(module.start(lua(holding_term(report))))
+    by = Time.monotonic_ns() + Time.seconds(30)
+    while not Fs.exists(report) and Time.monotonic_ns() < by do Time.sleep_ns(Time.ms(5)) end
+    local closing_pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
+    assert(Fs.remove(report))
+    started = Time.monotonic_ns()
+    assert(closing:close())
+    took = Time.monotonic_ns() - started
+    assert(took < Time.seconds(3), "closed after " .. took // Time.ms(1) .. " ms")
+    assert(sys.kill(closing_pid, 0) == false, "the child outlived its close")
   end
 end
 

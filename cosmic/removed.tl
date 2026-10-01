@@ -64,6 +64,11 @@ local record Module
   -- FormatOptions and AddOptions (the zone is an argument, right after the
   -- data: `format_rfc3339(ns, zone, opts)`, `add_calendar(ns, duration,
   -- zone, opts)`).
+  -- Likewise for what cosmic.child's Handle lost: `close_stdin` (close the
+  -- Writer `h.stdin_stream` answers, so the child reads end of file) and
+  -- the `stdin` field (the descriptor `stdin = "pipe"` gave; that mode
+  -- went too, and a start with it raises naming "stream"), the mode
+  -- being a value, which `members` cannot key either.
   -- Likewise for the spans every record held in milliseconds or seconds:
   -- `timeout_ms` (Child.Options, Net.ListenOptions, Net.ConnectOptions,
   -- Net.ServeSpec and Http.Options), `grace_ms` (Net.ServeSpec),
@@ -297,11 +302,11 @@ local module: Module = {
     ["cosmic.sys.Unveil"] = "there is no public way to unveil a child's filesystem " ..
       "yet; start one with Child.start(argv, opts) (" .. child .. ")",
     ["cosmic.sys.ChildStatus"] = "use Child.Result, what h:wait() answers (" .. child .. ")",
-    ["cosmic.sys.pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
-      "or stdout = \"capture\" (" .. child .. ")",
-    ["cosmic.sys.Pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
-      "or stdout = \"capture\" (" .. child .. ")",
-    ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"pipe\" }), or " ..
+    ["cosmic.sys.pipe"] = "use Child.start(argv, { stdin = \"stream\" }) and " ..
+      "h.stdin_stream, or stdout = \"capture\" (" .. child .. ")",
+    ["cosmic.sys.Pipe"] = "use Child.start(argv, { stdin = \"stream\" }) and " ..
+      "h.stdin_stream, or stdout = \"capture\" (" .. child .. ")",
+    ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"stream\" }), or " ..
       "{ input = bytes }, ignores SIGPIPE for this process, so a write to a child " ..
       "that has gone fails with EPIPE instead (" .. child .. ")",
     ["cosmic.sys.guard_child_signals"] = "use Child.guard(), and hold it in a " ..

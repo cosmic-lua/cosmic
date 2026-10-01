@@ -6,7 +6,10 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 
 local Example = {}
 
@@ -32,7 +35,9 @@ function Example.collect()
 end
 
 --- A descriptor opened elsewhere, read as a stream. Closing the Reader
---- leaves the descriptor open: whoever opened it closes it.
+--- leaves the descriptor open: whoever opened it closes it. A
+--- non-blocking one can be waited on, for as long as `timeout_ns`: here a
+--- named pipe with a writer that says nothing, which fails the read with [`Poll.TIMEOUT`].
 function Example.from_fd()
   local dir = assert(Fs.mkdtemp("cosmic-stream-example-"))
   assert(Fs.write(dir .. "/notes.txt", "one\ntwo\n"))
@@ -42,6 +47,15 @@ function Example.from_fd()
   assert(r:close())
   assert(Fs.close(fd))
   assert(text == "one\ntwo\n", text)
+  assert(sys.mkfifo(dir .. "/quiet", 384))
+  local quiet = assert(sys.open(dir .. "/quiet", sys.O_RDONLY | sys.O_NONBLOCK, 0))
+  local writer = assert(sys.open(dir .. "/quiet", sys.O_WRONLY | sys.O_NONBLOCK, 0))
+  local waiting = Stream.from_fd(quiet, { nonblocking = true, timeout_ns = Time.ms(20) })
+  local chunk, why = waiting:read()
+  print(why)
+  assert(chunk == nil and why == Poll.TIMEOUT, why)
+  assert(Fs.close(quiet))
+  assert(Fs.close(writer))
   assert(Fs.remove_tree(dir))
 end
 

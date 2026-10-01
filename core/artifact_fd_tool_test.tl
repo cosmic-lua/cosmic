@@ -221,7 +221,7 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] }
   local flipping = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e",
-    filled(flipper, values) }, { env = env, fds = fds, stdin = "pipe", stdout = "capture",
+    filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "capture",
     stderr = "capture" }))
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(caller, values) }, { env = env, fds = fds, stdout = "capture", stderr = "capture",

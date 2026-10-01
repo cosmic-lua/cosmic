@@ -32,6 +32,15 @@ end
 
 local chunk_size = 1 << 16
 
+-- TODO: read through Stream.read_all, and copy_bytes through Stream.copy,
+-- so that read-to-end is one loop and the write loop below is
+-- Stream.to_fd's, once cosmic.fs may require cosmic.stream: cosmic.fs
+-- is a harness module (build/harness_epoch.tl's `library` lists it for
+-- the worker's reads, binds and report), the harness reaches no other
+-- cosmic.* module than `library` names, and cosmic.stream, with the
+-- cosmic.hash, cosmic.poll and cosmic.time it requires, is none of
+-- them; cosmic.stream also requires cosmic.fs today, a cycle its
+-- reads and writes through sys would end.
 --- Reads the whole of a file as bytes, loading it in one call. Use this for
 --- the common io.open/io.read or io.lines case when streaming and Lua file
 --- handles are unnecessary.

@@ -379,7 +379,9 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil)
   -- core binding that gives it the core's cosmic_signal_caught (only
   -- core/socket.c's waits and sys.flock read it today), a fourth shared
   -- answer word for a wait a signal interrupted, and a loop in
-  -- Poll.wait outside a task that polls in slices to look for one.
+  -- Poll.wait outside a task that polls in slices to look for one. A
+  -- Conn's read and write are then Stream.from_fd and Stream.to_fd (see
+  -- the TODO at [`new_conn`]).
   Poll.checked_ns(timeout_ns, "timeout_ns", 3)
   if Poll.in_task() then
     return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
@@ -397,6 +399,15 @@ local conn_mt: metatable<Net.Conn> = {
   end,
 }
 
+-- TODO: make a Conn's `read` and `write` the Reader and Writer
+-- Stream.from_fd and Stream.to_fd answer over the socket
+-- ({ nonblocking = true, timeout_ns }), collapsing this write loop into
+-- theirs, once the TODO in `waited` is done: a wait outside a task here
+-- ends at a signal a Child.guard caught ("interrupted", which net_test's
+-- cases hold), which Poll.wait cannot see. Their `wait` option could
+-- carry `waited`, but `write` also sends through raw.send, which never
+-- raises SIGPIPE where sys.write may, and reads `conn.timeout_ns` on every
+-- call, which an option fixes when the object is made.
 --- The connection over `socket`.
 local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): Net.Conn
   local fd = socket:fd()
