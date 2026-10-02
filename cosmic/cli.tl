@@ -401,12 +401,15 @@ local record Cli
   --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
   --- a write to standard output it cannot use
   fetch: string
-  --- `cosmic docs [q]`: what the database says about q -- a symbol
+  --- `cosmic docs [q...]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
-  --- or words to search the documentation for; a module lists the
+  --- or words to search the documentation for, the first five matches
+  --- shown whole and the rest a line each; a module lists the
   --- signature of each function it offers, ahead of the rest of its
-  --- prose; with no q, every module there is, with what it is for. The
-  --- tree is found as `test` finds it
+  --- prose. Several qualified names (Fs.read Fs.write) are each looked
+  --- up in turn; any other words are searched for together. With no q,
+  --- every module there is, with what it is for; with `cosmic`, the
+  --- standard library's. The tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --

@@ -180,9 +180,12 @@ signature, with how many places use it and how many examples it has, ahead
 of the rest of its prose. `cosmic docs hex_sha256` (or [`Hash.hex_sha256`])
 shows one symbol, with its doc comment and its examples. Words search the
 documentation instead, so `cosmic docs sha256 hex` finds the same function
-when you do not know its name; with no argument, `cosmic docs` lists every
-module. Then `cosmic uses Hash.hex_sha256` prints each `file:line` that
-refers to it, to see how others call it before you do:
+when you do not know its name, the first five matches whole and the rest a
+line each. Several qualified names, such as `cosmic docs Fs.read Fs.write`,
+are each looked up in turn. With no argument, `cosmic docs` lists every
+module, and `cosmic docs cosmic` the standard library's. Then
+`cosmic uses Hash.hex_sha256` prints each `file:line` that refers to it,
+to see how others call it before you do:
 
     $ cosmic docs cosmic.hash
     cosmic.hash (cosmic/hash.tl)
