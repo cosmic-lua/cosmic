@@ -168,7 +168,8 @@ end
 
 --- Whether `text` is an IPv6 address (RFC 4291's text form): eight
 --- groups of one to four hex digits, a `::` standing in for one or more
---- of them at most once, and the last two may be a dotted IPv4 address.
+--- of them at most once, and the last two may be a dotted IPv4 address,
+--- each part without a leading zero (RFC 3986's dec-octet), as curl reads it.
 --- A zone (`%25eth0`, RFC 6874) is not taken: no caller here dials a
 --- link-local address by its interface.
 local function is_ipv6(text: string): boolean
@@ -176,7 +177,7 @@ local function is_ipv6(text: string): boolean
   local v4 = text:match(":(%d+%.%d+%.%d+%.%d+)$")
   if v4 ~= nil then
     for octet in v4:gmatch("%d+") do
-      if #octet > 3 or (math.tointeger(tonumber(octet)) or 256) > 255 then
+      if octet:find("^0%d") or (math.tointeger(tonumber(octet)) or 256) > 255 then
         return false
       end
     end

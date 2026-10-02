@@ -121,7 +121,7 @@ local function test_parse_takes_only_a_well_formed_ipv6_host()
   end
   for _, host in ipairs({ ":", ":::", ":::::", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7", "1::2::3", "12345::",
       "g::", "1:2:3:4:5:6:7:8::", "::1.2.3.256", "::1.2.3", "1:2:3:4:5:6:7:1.2.3.4", ":1::", "1::2:",
-      "::0001.2.3.4", "::1:2:3:4:5:6:7:8", "fe80::1%25eth0" }) do
+      "::0001.2.3.4", "::01.2.3.4", "::ffff:1.2.3.04", "::1:2:3:4:5:6:7:8", "fe80::1%25eth0" }) do
     local p, why = Url.parse("http://[" .. host .. "]/")
     assert(p == nil and why == "url: the host in brackets is not an IPv6 address", host)
   end
