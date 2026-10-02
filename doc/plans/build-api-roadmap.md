@@ -155,20 +155,20 @@ D1 verifies all nine groups/eleven pin TODOs and both related waits/flush needs 
 
 ## Concurrent source changes
 
-PR #2543's codec and Stream.transform changes are already included in 9ac37cba. PR #2544 inspected at a6c6ce32 renames Reader.read's max argument to max_bytes across stream/HTTP/child/net/archive surfaces and updates child validation wording and harness acknowledgment. It does not remove the sticky guard cancellation in Child.pipe_reader, so B2 remains necessary. Rebase onto its actual merge if it lands; preserve max_bytes and incoming acknowledgments. Do not reapply either external API cleanup under this roadmap.
+PR #2543's codec and Stream.transform changes are already included in 9ac37cba. PR #2544 inspected at a6c6ce32 renames Reader.read's max argument to max_bytes across stream/HTTP/child/net/archive surfaces and updates child validation wording and harness acknowledgment. It merged as 7f35550d and does not remove the sticky guard cancellation in Child.pipe_reader, so B2 remains necessary. Preserve max_bytes and incoming acknowledgments. Do not reapply either external API cleanup under this roadmap.
 
 ## Execution ledger
 
 | Step | Implementation PR | State | Evidence |
 | --- | --- | --- | --- |
-| A1 | [#2545](https://github.com/cosmic-lua/cosmic/pull/2545) | CI running | acfc8a77; exact independently reviewed tree ef80637e; auto-merge enabled after required checks |
-| A2 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
-| A3 | pending | prepared and independently approved | 055c9b41/tree9e2d5056; source Fetch consumer included; actual A2 base alignment and remote checks required |
+| A1 | [#2545](https://github.com/cosmic-lua/cosmic/pull/2545) | merged | 338a8e25; reviewed tree ef80637e; branch 36955108004 and queue 36955383885 green |
+| A2 | [#2546](https://github.com/cosmic-lua/cosmic/pull/2546) | CI running | 147a4569; exact independently reviewed tree f1a68e18 on merged A1; auto-merge enabled |
+| A3 | pending | prepared and independently approved | 9a3f8d4b/tree37787864; source Fetch consumer included; integrated review passed; actual A2 merge alignment and remote checks required |
 | A4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | pending | preparing | Genuine streamed-I/O failure prerequisite plus B1 policy comment; epoch update required |
-| B2b | pending | design review | Bounded drain accepted in principle; entry-signal/lifecycle semantics must be settled before coding |
-| B3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B2b | pending | design approved; preparation waits for B2a | Entry freshness, captured-guard lifetime, exclusive consumption and error precedence reviewed; runnable child example earns export |
+| B3 | pending | local preparation | Paired design and implementation review; publication follows A4 |
 | B4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -210,3 +210,15 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   unreadable caches are retained with no save digest, an explicit conservative
   policy adjustment. Broad typed query/open APIs are not prerequisites for this
   useful safe command and will not be added solely to preserve deletion behavior.
+
+- 2026-10-02 UTC: A1 merged as `338a8e25` after green branch and queue checks.
+  A2 published as #2546 at `147a4569`, exact approved tree `f1a68e18`; all
+  74 focused integration tests passed, whole-tree check covered 637 files with
+  zero findings, and checked allocation/GC cases were independently reviewed.
+  A3 integrated tree `37787864` is independently approved: 121 implementation
+  and 117 independent HTTP/Fetch cases passed; all four A3 blobs are unchanged.
+- 2026-10-02 UTC: refined B2 design approved after resolving the fresh-signal
+  entry race, captured-guard closure, parked Reader exclusion, valid-prefix
+  error ordering and bounded zero-time behavior. Local B2a/B3 preparation may
+  overlap A-wave CI; publication still follows A4. B2b waits for B2a's private
+  ownership foundation and earns its export with a useful runnable child example.
