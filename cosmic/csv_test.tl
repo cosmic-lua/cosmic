@@ -138,6 +138,34 @@ local function test_a_ragged_record_is_refused_strictly_naming_its_line()
   assert(bad_quote == nil and quote_why:find("unclosed quote", 1, true), quote_why)
 end
 
+local function lines_of(text: string, opts?: Csv.Options): string
+  local made = assert(Csv.table(text, opts))
+  assert(#made.lines == #made.rows, #made.lines .. " lines for " .. #made.rows .. " rows")
+  local out: {string} = {}
+  for index, line in ipairs(made.lines) do
+    out[index] = tostring(line)
+  end
+  return table.concat(out, ",")
+end
+
+local function test_each_row_carries_the_line_its_record_began_on()
+  assert(lines_of("a,b\n1,2\n3,4\n") == "2,3")
+  assert(lines_of("a,b\r\n1,2\r\n3,4") == "2,3")
+  -- A quoted line break, LF or CRLF, pushes every later record down.
+  assert(lines_of('a,b\n1,"x\ny"\n3,4\n') == "2,4")
+  assert(lines_of('a,b\r\n1,"x\r\ny\r\nz"\r\n3,4\r\n') == "2,5")
+  -- So does one in the header, and blank lines, skipped, still count.
+  assert(lines_of('"a\nA",b\n1,2\n') == "3")
+  assert(lines_of("\n\na,b\n\n1,2\n\r\n3,4\n") == "5,7")
+  -- A one-column file's interior blank line is a row on its own line.
+  assert(lines_of("h\n1\n\n3\n\n") == "2,3,4")
+  -- A byte order mark is no line, and a lone CR does not end one.
+  assert(lines_of("\xEF\xBB\xBFa,b\n1,2\n") == "2")
+  assert(lines_of("a,b\n1\r2,3\n4,5\n") == "2,3")
+  assert(lines_of("a\tb\n1\t\"\n\"\n3\t4\n", { delimiter = "\t" }) == "2,4")
+  assert(lines_of("") == "" and lines_of("a,b\n") == "")
+end
+
 local function test_headers_are_renamed_deterministically()
   local rows = assert(rows_of("a,a,A,,,a_2,a\n1,2,3,4,5,6,7\n"))
   local row = rows[1]

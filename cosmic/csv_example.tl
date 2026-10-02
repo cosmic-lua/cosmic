@@ -25,6 +25,19 @@ function Example.table()
   print(why) -- csv: line 2, column 1: the record has 1 field, the header 2
 end
 
+--- Each row comes with the line its record began on, to name when the
+--- caller refuses one: a quoted line break pushes later records down a
+--- line, and a skipped blank line still counts.
+function Example.lines()
+  local made = assert(Csv.table('id,note\n1,"two\nlines"\n\n2,x\n'))
+  assert(made.rows[2].id == "2" and made.lines[1] == 2 and made.lines[2] == 5)
+  for index, row in ipairs(made.rows) do
+    if row.note == "x" then
+      print("line " .. made.lines[index] .. ": a note too short") -- line 5: a note too short
+    end
+  end
+end
+
 --- A tab-separated file is the same reader with another delimiter.
 function Example.tsv()
   local records = assert(Csv.parse("a\tb,c\n1\t\n", { delimiter = "\t" }))

@@ -2,7 +2,8 @@
 --- the writer below writes `parse` reads back, in any of the delimiters;
 --- `parse` and `table` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
---- refused naming the line and column it was put at.
+--- refused naming the line and column it was put at; and `table` answers
+--- the line each row was written to begin on.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Csv = require("cosmic.csv")
@@ -332,6 +333,94 @@ local function test_blank_lines_count_by_the_headers_width(tmp: string)
       local two = rows_of("h,g\n" .. table.concat(wide, "\n") .. (#lines > 0 and "\n" or ""))
       if two == nil or #two ~= #lines - blanks then return false, "two columns did not skip the blanks" end
       Fuzz.label("wide")
+      return true, ""
+    end,
+  })
+end
+
+--- A table as packed strings: the delimiter, `b` or `-` for a byte order
+--- mark or none, then per record `r` and what ends it (`n` LF, `c` CRLF,
+--- `b` LF and a blank line), and `f<text>` per field. The first record
+--- with a field is the header; the check fits each after it to its width.
+local function gen_located(src: Fuzz.Source): string
+  local parts: {string} = { Fuzz.pick(src, DELIMITERS), src:int(0, 3) == 0 and "b" or "-" }
+  local records = 0
+  while Fuzz.more(src, records, 6) do
+    records = records + 1
+    parts[#parts + 1] = "r" .. Fuzz.pick(src, { "n", "c", "b" })
+    local count = 0
+    while Fuzz.more(src, count, 4) do
+      count = count + 1
+      parts[#parts + 1] = "f" .. field(src)
+    end
+  end
+  return Fuzz.pack(parts)
+end
+
+-- Each row's line is the one its record was written to begin on, counting
+-- the line breaks quoted in the fields before it, CRLF and blank lines
+-- alike; so the lines rise, and each holds the start of its first field.
+local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: string)
+  Fuzz.run({
+    name = "csv lines",
+    dir = tmp,
+    gen = gen_located,
+    requires = { "rows", "quoted break", "blank", "crlf" },
+    shares = { rows = 0.2, ["quoted break"] = 0.03 },
+    check = function(input: string): boolean, string
+      local parts = Fuzz.unpack(input)
+      local delimiter = parts[1] or ","
+      local out: {string} = { parts[2] == "b" and BOM or "" }
+      local width = 0
+      local written: {string} = {}
+      local expected: {integer} = {}
+      local line = 1
+      local index = 3
+      while index <= #parts do
+        local ending = parts[index]:sub(2)
+        local fields: {string} = {}
+        index = index + 1
+        while index <= #parts and parts[index]:sub(1, 1) == "f" do
+          fields[#fields + 1] = parts[index]:sub(2)
+          index = index + 1
+        end
+        if #fields > 0 then
+          if width == 0 then width = #fields end
+          local texts: {string} = {}
+          for at = 1, width do texts[at] = field_text(fields[at] or "", delimiter, width == 1) end
+          local record = table.concat(texts, delimiter)
+          if #out > 1 then
+            expected[#expected + 1] = line
+            written[#written + 1] = texts[1]
+          end
+          local blank = ending == "b" and width > 1
+          out[#out + 1] = record .. (ending == "c" and "\r\n" or "\n") .. (blank and "\n" or "")
+          local _, breaks = record:gsub("\n", "")
+          if breaks > 0 and #out > 2 then Fuzz.label("quoted break") end
+          if blank then Fuzz.label("blank") end
+          if ending == "c" then Fuzz.label("crlf") end
+          line = line + 1 + breaks + (blank and 1 or 0)
+        end
+      end
+      local text = table.concat(out)
+      local made, why = Csv.table(text, { delimiter = delimiter })
+      if made == nil then return false, "table refused its own text: " .. why end
+      if #made.lines ~= #made.rows or #made.rows ~= #expected then
+        return false, #made.lines .. " lines, " .. #made.rows .. " rows, " .. #expected .. " written"
+      end
+      local starts: {integer} = { #out[1] + 1 }
+      for at in text:gmatch("\n()") do starts[#starts + 1] = at end
+      for number, began in ipairs(made.lines) do
+        if began ~= expected[number] then
+          return false, "row " .. number .. " at line " .. began .. ", written at " .. expected[number]
+        end
+        if number > 1 and began <= made.lines[number - 1] then return false, "lines do not rise" end
+        local first = written[number]
+        if text:sub(starts[began], starts[began] + #first - 1) ~= first then
+          return false, "line " .. began .. " does not begin with row " .. number .. "'s first field"
+        end
+      end
+      if #expected > 0 then Fuzz.label("rows") end
       return true, ""
     end,
   })
