@@ -261,6 +261,22 @@ local record Cli
   --- malformed line among them) or a write to standard output it cannot
   --- use, with `cosmic: hash: ...` on standard error
   hash: string
+  --- `cosmic cache trim compiles PATH --since-ns N` keeps supported compile
+  --- and parse rows last used at or after N, a Unix nanosecond timestamp.
+  --- `trim verdicts PATH... --since-ns N` keeps an unreached cache whole;
+  --- `--whole` instead preserves all active verdict rows without vacuuming.
+  --- Paths are explicit and absolute. This running binary owns the formats
+  --- and never discovers, stages or rebuilds the candidate project.
+  --- Unknown schemas and unreadable files are retained. `--restored PATH`
+  --- compares retained compile keys against a pre-run snapshot without
+  --- deleting that snapshot. `--json` prints one versioned report with
+  --- per-file results, a complete canonical save digest when available,
+  --- and the fresh compile count when requested and established.
+  --- Writers must remain stopped through maintenance and the caller's save.
+  --- An incomplete WAL checkpoint, read or write suppresses the save digest.
+  --- Exit 0 means complete, 1 incomplete maintenance, and 2 a refused command
+  --- line. Diagnostics go to stderr; no verdict line is printed.
+  cache: string
   --- `cosmic archive list|extract|create`: the zip and tar files a
   --- release ships, with no script. `list <file>|-` prints one entry
   --- per line -- path (a symlink's `path -> target`), size, mode in
@@ -486,7 +502,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   verbs = {
@@ -559,6 +575,16 @@ local module: Module = {
           "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
           "path ($.rows), not the document" },
+      },
+    },
+    cache = {
+      about = "trim explicitly named shared caches with this tool's formats",
+      usage = "trim compiles|verdicts PATH...",
+      spec = {
+        ["--since-ns"] = { value = "N", about = "keep rows used at or after this Unix nanosecond timestamp" },
+        ["--whole"] = { about = "keep verdict rows whole, without vacuuming" },
+        ["--restored"] = { value = "PATH", about = "compare retained compile keys with this snapshot" },
+        ["--json"] = { about = "print one versioned JSON maintenance report" },
       },
     },
     json = {
@@ -698,11 +724,11 @@ local module: Module = {
   groups = {
     { "Running code", "run", "standalone", "eval", "version" },
     { "Project", "test", "fix", "build", "db" },
-    { "Quick tools", "sql", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
+    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 
