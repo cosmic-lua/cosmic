@@ -1717,7 +1717,7 @@ end
 local function test_every_field_of_needs_is_one_the_build_reads()
   local every: Test.Needs = {
     reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,
-    standalone = true, nests = true, store = true, system = true, caches = {},
+    standalone = true, nests = true, noexec = true, store = true, system = true, caches = {},
   }
   local flags: {string:boolean} = {}
   local named: {string} = {}

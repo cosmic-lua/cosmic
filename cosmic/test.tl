@@ -138,6 +138,11 @@ local record Test
     --- worker is held, so a test that
     --- confines without it passes there and fails on a Linux leg.
     nests: boolean
+    --- Requests private writable scratch at COSMIC_TEST_NOEXEC whose
+    --- files cannot execute. Ordinary scratch is unchanged. Reading,
+    --- interpreting or copying the bytes elsewhere remains possible.
+    --- Unsupported hosts skip these tests; a held-sandbox run fails them.
+    noexec: boolean
     --- Whether the tests read the tree's projection, `o/cosmic.db`, or
     --- the rows of modules of the tree outside their import closure.
     --- Without it, a sandboxed worker is given at o/cosmic.db the store
@@ -200,7 +205,7 @@ end
 --- `needs` holds a value to its shape and no more.
 local FIELDS <const>: {string:string} = {
   reads = "list", host = "list", env = "list", network = "list",
-  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", store = "flag",
+  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", noexec = "flag", store = "flag",
   system = "flag", caches = "list",
 }
 

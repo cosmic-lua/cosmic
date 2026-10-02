@@ -99,6 +99,7 @@ local record analyzer
     lua: boolean
     standalone: boolean
     nests: boolean
+    noexec: boolean
     store: boolean
     system: boolean
     caches: {string}
@@ -1303,7 +1304,7 @@ end
 --- [`cosmic.test`]'s `Needs`, which build/analyzer_test.tl holds it to.
 local input_fields <const>: {string:string} = {
   reads = "list", host = "list", env = "list", network = "list",
-  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", store = "flag",
+  tool = "flag", lua = "flag", standalone = "flag", nests = "flag", noexec = "flag", store = "flag",
   system = "flag", caches = "list",
 }
 
@@ -1503,7 +1504,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, standalone = false, nests = false, store = false,
+    tool = false, lua = false, standalone = false, nests = false, noexec = false, store = false,
     system = false, caches = {},
   }
   local seen: {string:boolean} = {}
@@ -1536,6 +1537,8 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         out.standalone = on
       elseif field == "nests" then
         out.nests = on
+      elseif field == "noexec" then
+        out.noexec = on
       elseif field == "system" then
         out.system = on
       else

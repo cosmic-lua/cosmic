@@ -88,6 +88,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.standalone = true
     elseif field == "nests" then
       one.nests = true
+    elseif field == "noexec" then
+      one.noexec = true
     elseif field == "store" then
       one.store = true
     elseif field == "system" then
