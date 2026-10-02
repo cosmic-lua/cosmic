@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
+#include <pwd.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -59,6 +60,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "check.h"
 #include "coverage.h"
 #include "fail.h"
+#include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
 #include "executable.h"
@@ -91,6 +93,53 @@ COSMIC_SYSCALL(executable, 0) {
     return cosmic_fail(L, number == 0 ? ENAMETOOLONG : number);
   }
   lua_pushstring(L, resolved);
+  return 1;
+}
+
+/* Directory-service lookup is confined to the calling process. The
+ * buffer bound limits this wrapper, not libc's own work or its latency. */
+COSMIC_SYSCALL(user, 1) {
+  luaL_checktype(L, 1, LUA_TSTRING);
+  size_t length;
+  const char *name = luaL_checklstring(L, 1, &length);
+  if (length == 0 || memchr(name, '\0', length) != NULL) {
+    return luaL_argerror(L, 1, "user name is empty or contains a NUL byte");
+  }
+  bool oversized = COSMIC_FAULT("getpwnam_r(oversize)");
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
+  enum { initial_size = 1024, maximum_size = 1024 * 1024 };
+  size_t size = initial_size;
+  struct passwd entry, *found = NULL;
+  for (;;) {
+    void *buffer = cosmic_realloc(guard->resource, size);
+    if (buffer == NULL) return cosmic_fail(L, ENOMEM);
+    guard->resource = buffer;
+    int failure;
+    if (oversized || COSMIC_FAULT("getpwnam_r(ERANGE)")) failure = ERANGE;
+    else if (COSMIC_FAULT("getpwnam_r(missing)")) failure = 0;
+    else if (COSMIC_FAULT("getpwnam_r")) failure = EIO;
+    else failure = getpwnam_r(name, &entry, buffer, size, &found);
+    if (failure == ERANGE && size < maximum_size) {
+      size *= 2;
+      continue;
+    }
+    if (failure != 0) return cosmic_fail(L, failure);
+    break;
+  }
+  if (found == NULL) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "");
+    lua_pushinteger(L, 0);
+    return 3;
+  }
+  uid_t uid = found->pw_uid;
+  gid_t gid = found->pw_gid;
+  cosmic_guard_release(guard);
+  lua_createtable(L, 0, 2);
+  lua_pushinteger(L, (lua_Integer)uid);
+  lua_setfield(L, -2, "uid");
+  lua_pushinteger(L, (lua_Integer)gid);
+  lua_setfield(L, -2, "gid");
   return 1;
 }
 
