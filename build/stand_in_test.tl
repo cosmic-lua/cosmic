@@ -406,3 +406,11 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
   assert(db:close())
 end
+
+--- The dependency traversal's order is deterministic even though it
+--- is not path order: rowids must not move a repeated build's bytes.
+local function test_the_stand_in_is_reproducible(tmp: string)
+  local one = assert(Fs.read((assert(stand_in.build(tmp .. "/one")))))
+  local two = assert(Fs.read((assert(stand_in.build(tmp .. "/two")))))
+  assert(one == two, "repeating the stand-in build changed its bytes")
+end

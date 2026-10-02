@@ -428,10 +428,12 @@ fills them with, records the release in `components`, and puts the
 database back behind the same head, byte for byte. The binary it reads
 is never written.
 
-every table is `WITHOUT ROWID` on a natural key, except `docs` and
-`catalog`, which FTS5's external-content mode joins by rowid and
-which are therefore keyed on an integer assigned in one deterministic
-insertion order instead, and `ca_roots` and `zoneinfo`, for their size. everything a build
+tables use natural keys. narrow rows use `WITHOUT ROWID`; `docs`,
+`catalog` and `examples` have the rowids FTS5 joins against; `ca_roots`
+and `zoneinfo` use rowid tables for their size. `modules` has a separate
+path index, so a name lookup need not read unrelated bytecode and source
+overflow pages. every producer inserts rows in a deterministic order;
+a rowid is not an identity across builds. everything a build
 does on one host lives in a second database beside it, `o/build.db`,
 the working database: the tree as it was last read, staged whole
 before anything transforms it; what a stat said about each file, so
