@@ -1,5 +1,5 @@
 file: tl.tl
-note: a variable, argument or loop variable named for a simple type was never checked for shadowing, since the name also spells a type; but `string` is the string library too, and `local string = s:upper()` hid it with no warning while every other library's name warns. A value so named is now checked against a record of that name, which only the string library is (`any` and `thread` are interfaces no value hides); a type declared with such a name warns as before
+note: a variable, argument or loop variable named for a simple type was never checked for shadowing, since the name also spells a type; but `string` is the string library too, and `local string = s:upper()` hid it with no warning while every other library's name warns. A value so named is now checked against a record of that name, which only the string library is (`any`, `thread` and `userdata` are interfaces no value hides); a type declared with such a name warns as before
 --- find
       if simple_types[new_name as TypeName] then
          if t.typename ~= "typedecl" then

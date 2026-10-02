@@ -62,8 +62,8 @@ end
 
 --- What [`teal.replacement`] says of a number where an integer was
 --- expected when no declaration explains it.
-local converted = "'as integer' converts nothing: math.tointeger(x) does " ..
-  "(nil unless x is whole), and // divides integers to an integer"
+local converted = "'as integer' converts nothing: math.tointeger(x) does, " ..
+  "and is nil unless x is whole; // of two integers is an integer"
 
 local function said(name: string, line: integer, literal: string): string
   return name .. " is an integer, inferred from 'local " .. name .. " = " .. literal ..
@@ -433,6 +433,8 @@ local function test_a_number_for_an_integer_names_the_conversions()
     "in local declaration: m: in map value: got number, expected integer") == converted)
   assert(teal.replacement("argument 1: got number (inferred at :2:11), expected integer",
     "", 3, 9) == converted)
+  assert(replacement_for(f:gsub("n: integer%)", "n: integer | nil)") .. "print(f(7 / 2))\n",
+    "argument 1: got number, expected integer | nil") == converted)
   assert(teal.replacement("argument 1: got string, expected integer", "", 1, 1) == nil)
 end
 
@@ -466,6 +468,10 @@ local function test_a_standard_global_shadowed_is_named_where_declared()
     == "'table' here is a local that hides the standard library's table: rename it")
   assert(replacement_for("table.nope({})\n", "invalid key 'nope' in record 'table' of type table")
     == nil)
+  -- cosmic withholds `io` from the checker ([`teal.withheld`]): a local
+  -- of that name hides nothing.
+  assert(teal.replacement("invalid key 'write' in record 'io' of type R", "", 3, 9) == nil)
+  assert(teal.replacement("variable shadows previous declaration of 'io'", "", 2, 7) == nil)
 end
 
 --- tl checked no value named for a simple type for shadowing, and so
@@ -500,13 +506,17 @@ local function test_two_types_of_one_name_are_told_apart()
   local scoped = "local record Store\n  n: integer\nend\n" ..
     "local function put(s: Store): Store\n  return s\nend\n" ..
     "do\n  local record Store\n    n: integer\n  end\n  local s: Store = {n = 1}\n  print(put(s))\nend\n"
-  local twice = "two distinct types are both named Store: declare it in one module and name " ..
-    "that one elsewhere, as 'local type Store = Kv.Store' where Kv is that module's require"
+  local twice = "two distinct types are both named Store: declare it once and name that one " ..
+    "everywhere, as 'local type Store = Kv.Store' for one declared in a module required as Kv"
   assert(replacement_for(scoped,
     "argument 1: Store (defined in :8) is not a Store (defined in :1)") == twice)
   assert(teal.replacement("argument 1: Store (defined in :7) is not a Store " ..
     "(defined in /abs/path/kv.tl:3)", "", 8, 8) == twice)
+  assert(teal.replacement("argument 1: Kv.Store is not a Store", "", 1, 1) ==
+    "two distinct types are both named Store: use Kv.Store rather than declaring Store " ..
+    "again, as 'local type Store = Kv.Store'")
   assert(teal.replacement("argument 1: Store is not a Kv.Entry", "", 1, 1) == nil)
+  assert(teal.replacement("argument 1: A.Node is not a B.Node", "", 1, 1) == nil)
 end
 
 --- `Kv.Kv` for a module bound to `Kv` is told `Kv` is the type; a name
