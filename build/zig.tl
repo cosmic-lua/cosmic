@@ -270,21 +270,10 @@ function Zig.ensure_installed(root: string, cache: string, install: string, pin:
   return zig, ""
 end
 
---- Where `name` runs from: itself when it holds a slash, else the
---- first executable file of that name on `path` (an empty entry is the
---- working directory). Nothing runnable is nil and why, as Proc.find
---- says it; [`status_of`] gives a shell's status for it: 126 for one
---- that is there but not executable, 127 for none at all.
-function Zig.resolve(name: string, path: string): string | nil, string
-  return Proc.find(name, path)
-end
-
---- The exit status a shell gives for what `resolve` could not find.
--- TODO: tell none from not executable by something other than
--- Proc.find's message, once ci/cosmic-driver.pin names a cosmic whose
--- Proc.find reports which case it hit apart from the text.
-local function status_of(why: string): integer
-  return String.ends_with(why, ": not executable") and 126 or 127
+--- Where `name` runs from, or its typed lookup failure. Names holding a
+--- slash pass through unchanged; a bare name searches `path` once.
+function Zig.resolve(name: string, path: string): Proc.FindResult
+  return Proc.find_result(name, path)
 end
 
 --- How many of a pin's sha256 hex digits name its install. The name
@@ -779,13 +768,6 @@ function Zig.holder(root: string): string
   return who .. " in this checkout " .. doing[role]
 end
 
---- Whether `trouble`, from beginning a transaction, says another
---- connection holds the lock rather than something wrong with the file.
---- The pinned SQLite API gives its reason only as text.
-local function says_busy(trouble: string): boolean
-  return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
-end
-
 --- Begins the lock's transaction on `db`, waiting up to `wait_ns`:
 --- "held", "busy" when another run holds it, or nil and why for any
 --- other failure.
@@ -796,16 +778,14 @@ local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string 
   if not timed then
     return nil, path .. ": " .. time_trouble
   end
-  local begun, trouble = db:exec("BEGIN IMMEDIATE")
-  if begun then
+  local begun = db:exec_result("BEGIN IMMEDIATE")
+  if begun.code == Sqlite.OK then
     return "held", ""
   end
-  -- TODO: tell SQLITE_BUSY by its code rather than its text once
-  -- ci/cosmic-driver.pin names a cosmic whose cosmic.sqlite answers one.
-  if says_busy(trouble) then
+  if begun.code == Sqlite.BUSY then
     return "busy", ""
   end
-  return nil, path .. ": " .. trouble
+  return nil, path .. ": " .. begun.reason
 end
 
 --- Owns both halves until the callback ends, including on an exception.
@@ -905,13 +885,14 @@ function Zig.main(argv: {integer:string}): integer
     log:complain(ztrouble)
     return 1
   end
-  local program, unresolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
-  if program == nil then
-    local status = status_of(unresolved)
+  local resolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
+  if resolved.kind ~= "resolved" then
+    local status = resolved.kind == "not_executable" and 126 or 127
     log:complain(zig .. ": " .. (status == 127 and "not found" or "permission denied"))
     return status
   end
 
+  local program = assert(resolved.path)
   local given: {string} = {}
   local at = 1
   while argv[at] ~= nil do
