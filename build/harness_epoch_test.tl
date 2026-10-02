@@ -162,6 +162,17 @@ local function test_the_harness_is_acknowledged()
   assert(complaint == nil, complaint)
 end
 
+--- Presentation edits need no acknowledgment; the runner's judgment remains
+--- held whole, even though its reporting dependency is not followed.
+local function test_the_runner_is_acknowledged_without_its_reporter()
+  local db = assert(Sqlite.open("o/cosmic.db"))
+  local found, trouble = test.harness(db)
+  db:close()
+  assert(found ~= nil, trouble)
+  assert(found.modules["build.test"] ~= nil)
+  assert(found.modules["build.test_report"] == nil)
+end
+
 --- A `retired` of the bare counts "1" to `n`, as build/harness_epoch.tl's
 --- begins with the counts of the epochs that had no token.
 local function counted(n: integer): {string}

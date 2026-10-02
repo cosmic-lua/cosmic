@@ -117,6 +117,7 @@ local confine = require("build.confine")
 local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
+local test_report = require("build.test_report")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
@@ -307,16 +308,6 @@ function test.dealt(ids: {string}, shard: test.Shard): {string:boolean}
     if (k - 1) % shard.count == shard.index - 1 then out[id] = true end
   end
   return out
-end
-
---- `word` as one word a POSIX shell reads back as it is: itself when
---- it holds nothing a shell treats specially, else single-quoted with
---- each `'` written `'\''`. One starting with `-` is prefixed `./`
---- first, so a command does not take it for an option.
-function test.shell_word(word: string): string
-  if word:sub(1, 1) == "-" then word = "./" .. word end
-  if word ~= "" and not word:find("[^%w_./:@%%+=,-]") then return word end
-  return "'" .. (word:gsub("'", "'\\''")) .. "'"
 end
 
 local text = bind.text
@@ -915,7 +906,7 @@ local harness_alone <const>: {string} = { "cosmic.child" }
 -- TODO: hold only the part of build.test that makes a key, gives a
 -- worker its holds and looks a verdict up, walked as `key_roots` are,
 -- once it is a module of its own (plan 2.7b): today build.test is held whole and unwalked, so an
--- edit to its census or report output acknowledges the harness, and
+-- edit to its remaining census plumbing acknowledges the harness, and
 -- what it requires beyond [`key_code`] (cosmic.time, cosmic.cli and the
 -- like) is outside build/harness_epoch.tl's `library` rule.
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
@@ -2355,36 +2346,25 @@ local function sandbox_here(): boolean, string
   return true, ""
 end
 
---- Says each of `failures`, sorted, with the selector that reruns its
---- test and what the test printed; a failed test's message names the
---- directory it kept (`finish`).
---- Says each skipped test, with why ([`Test.skip`]), sorted.
+--- Reporting receives copies, never the mutable state that judges a run.
 local function say_skips(rec: Recording)
-  table.sort(rec.skips)
-  for _, skip in ipairs(rec.skips) do log:say("test: SKIP  " .. skip) end
+  local skips: {string} = {}
+  for i, skip in ipairs(rec.skips) do skips[i] = skip end
+  for _, line in ipairs(test_report.skips(skips)) do log:say(line) end
 end
 
 local function say_failures(rec: Recording, failures: {string})
-  table.sort(failures)
+  local snapshots: {test_report.Failure} = {}
   for _, failure in ipairs(failures) do
-    -- The line keeps its `<module> <name>: <message>` shape; the
-    -- selector that reruns that one test follows it on a line of its own.
-    log:say("test: FAIL  " .. failure)
     local id = rec.failed[failure]
-    local rerun = id ~= nil and rec.reruns[id] or nil
-    if rerun ~= nil then
-      log:say("  rerun: " .. rec.rerun_prefix ..
-        "cosmic test " .. test.shell_word(rerun))
-    end
-    local printed = id ~= nil and rec.outputs[id] or nil
-    if printed ~= nil then
-      if #printed > 4096 then
-        printed = "..." .. printed:sub(-4096)
-      end
-      for printed_line in String.lines((printed:gsub("\n$", ""))) do
-        log:say("  | " .. printed_line)
-      end
-    end
+    snapshots[#snapshots + 1] = {
+      message = failure,
+      rerun = id ~= nil and rec.reruns[id] or nil,
+      printed = id ~= nil and rec.outputs[id] or nil,
+    }
+  end
+  for _, line in ipairs(test_report.failures(snapshots, rec.rerun_prefix)) do
+    log:say(line)
   end
 end
 
@@ -2618,14 +2598,10 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local parses = result.parses
-  log:say("build: " .. plural.count(#result.modules, "module") .. " (" .. result.compiled ..
-    " compiled, " .. result.cached .. " cached" ..
-    (result.shared > 0 and ", " .. result.shared .. " of them taken from another checkout" or "") ..
-    ((parses.parsed > 0 or parses.shared > 0) and "; " ..
-      plural.count(parses.parsed, "source") .. " parsed" ..
-      (parses.shared > 0 and ", " .. parses.shared .. " taken from another checkout" or "") or "") ..
-    "; " .. plural.count(staged.files, "file") .. " staged, " .. staged.read .. " read) in " ..
-    clock.took(started))
+  log:say(test_report.build({ modules = #result.modules, compiled = result.compiled,
+    cached = result.cached, shared = result.shared, parsed = parses.parsed,
+    shared_parses = parses.shared, files = staged.files, read = staged.read },
+    clock.took(started)))
 
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word, and
@@ -3151,9 +3127,7 @@ local function run(argv: {integer:string}): integer
     failures[#failures + 1] = line
   end
 
-  local cov_pct = cov_total > 0 and (cov_hit * 100.0 / cov_total) or 0.0
-  local cov_line = string.format("test: coverage %.1f%% (%d/%d %s; informational, never a failure)",
-    cov_pct, cov_hit, cov_total, plural.noun(cov_total, "line"))
+  local cov_line = test_report.coverage(cov_hit, cov_total)
 
   if #failures == 0 and #errors == 0 then
     if total == 0 then
@@ -3164,16 +3138,10 @@ local function run(argv: {integer:string}): integer
     say_skips(rec)
     log:say(cov_line)
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
-    -- A figure the summary adds goes after `stood`: CI's driver reads the
-    -- figures before it by their places (ci/cosmic_ci/suite_output.tl).
-    log:verdict("test", true, plural.count(total, "test") .. ", " ..
-      plural.count(modules_run, "module") .. "; " ..
-      tally.ran .. " ran, " .. tally.cached .. " stood, " ..
-      (tally.skipped > 0 and (tally.skipped .. " skipped (this host could not check " ..
-        (tally.skipped == 1 and "it" or "them") .. "), ") or "") ..
-      (tally.every > 0 and (tally.every .. " run every time (no key holds them), ") or "") ..
-      (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
-      clock.took(started) .. sandbox_summary .. share_summary)
+    log:verdict("test", true, test_report.passed({ total = total, modules = modules_run,
+      ran = tally.ran, cached = tally.cached, skipped = tally.skipped,
+      every = tally.every, shared = tally.shared },
+      clock.took(started) .. sandbox_summary .. share_summary))
     return 0
   end
   say_skips(rec)
@@ -3185,9 +3153,8 @@ local function run(argv: {integer:string}): integer
     log:say(cov_line)
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
   end
-  log:verdict("test", false, #failures .. " of " ..
-    (total + #result.refused) .. " failed, " .. plural.count(#errors, "infrastructure error") .. ", " ..
-    clock.took(started) .. sandbox_summary .. share_summary)
+  log:verdict("test", false, test_report.failed(#failures, total + #result.refused,
+    #errors, clock.took(started) .. sandbox_summary .. share_summary))
   return 1
 end
 
