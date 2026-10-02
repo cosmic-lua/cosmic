@@ -406,6 +406,19 @@ actively written benchmark databases and JSON files. Do not stop or modify the
 platform's synchronization service. Raw evidence is not to be published, per the
 user's instruction; publish concise results and limitations only.
 
+The renewed decoder experiment is bounded before collection: use the exact main
+commit after #2588 merges as parent, the decoder integrated onto that parent as
+candidate, and one fixed pinned controller. Freeze executable/controller/script
+hashes and target/configuration before starting. Run all 15 existing workloads
+once, in existing order, with exactly 200 A/A and 200 A/B pairs each and three
+discarded warmup pairs per phase. Preserve alternating order. There are no
+adaptive repeats or count changes. An exclusive measurement window ends after
+completion, a technical failure, or a 90-minute limit; an incomplete run cannot
+pass. Every workload must pass the repaired gate. Retain nonpassing results for
+diagnosis instead of repeating unchanged inputs until favorable. Startup p95
+bounds describe five-launch batch averages; cold I/O and peak RSS remain
+unmeasured. This new experiment cannot retroactively erase the earlier finding.
+
 ### 1. Structural artifact decoder independent of host selection
 
 Factor validated framing/range/core enumeration from host/configuration
@@ -739,8 +752,8 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | --- | --- | --- | --- |
 | 0 Baseline/harness | Merged | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), merge `c41d73db391fef74518ebb93e9cc05902e154ca2` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push and merge-queue CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
 | 0.5 Runtime VFS capability | Merged | [#2572](https://github.com/cosmic-lua/cosmic/pull/2572), merge `eb8ea8ccc04b00ab8d4f6909cfe04a4de3426fa7` | Reproduced on pinned release and in a held sandboxed worker. Separate adversarial review: no blocking findings; comment/doc suggestions applied. Full suite 3,299 tests pass; `fix --check .`, sanitized build, `ci/run-local` (all stages incl. fixtures) and all push/merge-queue CI pass. `bin/perf` vs parent `5805988`: 15/17 pass at 30 pairs; `exact_docs` and `embed_host` inconclusive on tails only, both pass in predeclared 100-pair reruns. One run with a mistyped parent commit discarded before review. Raw evidence kept locally, not published. No new TODOs. |
-| 1 Structural decoder | Draft; performance blocks merge | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), head `40203127ca9f7ee4668eceb8e85bdec2cc11a9d6` | Independent code review approved local `1c091ee` (identical tree). All required push CI passed, including checked/Linux/macOS legs. Fifteen-workload measurements, five follow-ups and the final eight-invocation pinned crossover round are retained. Startup's cumulative paired median remains +0.036 ms, interval [+0.018, +0.051] ms; calibration/tail/noise issues also remain. The predeclared protocol stopped unresolved. No auto-merge or further discretionary local reruns. No VFS, store authority or new artifact-access changes. |
-| 0.6 Performance inference | In progress | — | Separate implementer and statistical reviewer assigned on refreshed main `0ec53d3`. Fixed-sample/tail-bound contract and candidate-blind validation criteria agreed before implementation or new artifact timings. Historical step-1 finding remains open. |
+| 1 Structural decoder | Draft; performance blocks merge | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), head `40203127ca9f7ee4668eceb8e85bdec2cc11a9d6` | Independent code review approved local `1c091ee` (identical tree). All required push CI passed, including checked/Linux/macOS legs. Published summaries preserve the fifteen-workload measurements, five follow-ups and final eight-invocation pinned crossover round; unpublished raw files expired with the old scratch environment. Startup's cumulative paired median remains +0.036 ms, interval [+0.018, +0.051] ms; calibration/tail/noise issues also remain. The predeclared protocol stopped unresolved. No auto-merge or further discretionary local reruns. No VFS, store authority or new artifact-access changes. |
+| 0.6 Performance inference | Draft; CI pending | [#2588](https://github.com/cosmic-lua/cosmic/pull/2588), head `9cd29743fe867074554fbbb53cf14bb29ec25a16` | Independent statistical/source review approved identical local tree `ee1493a4`. All 42 configurations / 210,000 frozen simulation trials met criteria: supported null passes 93.16–94.24%, minimum interval coverage 95.50%, strong location block 100%, doubled tail block 95.08%. Thirteen focused tests and 660-file check pass. Prescribed local full suite timed out with host failures; required CI remains gating. Core bytes unchanged; database +16 KiB. Small noisy shifts retain limited detection power. Historical step-1 finding remains open. |
 | 2 Artifact handles | Pending | — | VFS prerequisite reviewed and complete; add direct host-format reopening-denial coverage. |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
 | 3a Existing database recognition | Planned independent work | — | Read-only dependency review complete; no new access APIs. |
