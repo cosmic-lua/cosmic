@@ -17,4 +17,25 @@ function Example.is_tty()
   end
 end
 
+--- A command dispatcher chooses shell status 126 or 127 from the kind,
+--- leaving the reason for a person. Resolution of an explicit path only
+--- selects its spelling: starting that path can still fail.
+function Example.find_result()
+  local dir = assert(Fs.mkdtemp("cosmic-proc-example-"))
+  assert(Fs.write(dir .. "/blocked", "", 0x180))
+  local function status(name: string): integer
+    local result = Proc.find_result(name, dir)
+    if result.kind == "resolved" then
+      print("selected", result.path)
+      return 0
+    end
+    print(result.reason)
+    return result.kind == "not_executable" and 126 or 127
+  end
+  assert(status("blocked") == 126)
+  assert(status("missing") == 127)
+  assert(status(dir .. "/missing") == 0)
+  assert(Fs.remove_tree(dir))
+end
+
 return Example
