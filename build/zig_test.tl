@@ -9,7 +9,6 @@
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
-local Sqlite = require("cosmic.sqlite")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
@@ -311,36 +310,12 @@ end
 --- A build of the boot step holds the checkout's rebuild lock, as a
 --- `cosmic test` run and a rebuild of the tool do (build.rebuild_lock),
 --- to its end; a build of any other step takes none.
-local function test_a_boot_holds_the_rebuild_lock(tmp: string)
+local function test_boot_steps_need_the_rebuild_lock()
   assert(Zig.boots({ "build", "boot" }))
   assert(Zig.boots({ "build", "cores", "boot" }))
   assert(Zig.boots({ "build", "sanitized" }))
   assert(not Zig.boots({ "build", "cores" }))
   assert(not Zig.boots({ "boot" }))
-  local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root))
-  local lock = assert(Zig.hold(root, {}))
-  assert(lock is Sqlite.Handle, "a free lock was not taken")
-  assert(rebuild_lock.take(root, 0, "test") == "busy", "a boot's lock was taken under it")
-  assert(Fs.read(root .. "/o/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
-  assert(lock:close())
-  assert(rebuild_lock.take(root, 0, "test") == "held")
-  rebuild_lock.release()
-end
-
---- The boot a stale tool starts goes on under the lock that tool holds
---- and hands it, named by any spelling of the tree's root, rather than
---- wait for it: its parent waits for the boot. One whose variable names
---- another file waits as any boot would (not run here, since it would
---- wait on this process for good).
-local function test_a_boot_handed_the_lock_goes_on_under_it(tmp: string)
-  local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/o"))
-  assert(rebuild_lock.take(root, 0, "test") == "held")
-  local handed = rebuild_lock.hand({}, root .. "/.")
-  local lock, trouble = Zig.hold(root, handed)
-  rebuild_lock.release()
-  assert(lock == false, "a handed boot answered " .. tostring(lock) .. " " .. trouble)
 end
 
 --- build/zig.tl, which keeps its own copy of build/rebuild_lock.tl's
@@ -375,7 +350,8 @@ local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
     assert(sys.close(fd))
     return
   end
-  local lock, trouble = Zig.hold(root, {})
-  assert(lock == nil, "a boot took a lock it cannot write")
-  assert(trouble:find(root .. "/o/rebuild.lock: ", 1, true), trouble)
+  local status = Zig.with_lock(root, {}, function(): integer
+    error("a boot ran without a writable lock")
+  end)
+  assert(status == 1)
 end

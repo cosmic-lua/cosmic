@@ -849,33 +849,12 @@ local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string 
   return nil, path .. ": " .. trouble
 end
 
---- The lock, held until this process exits, for a boot: a `cosmic test`
---- run or a rebuild of the tool in the same checkout, which hold it too,
---- and this boot wait for one another. Answers the lock, or false when
---- the lock is busy and `environment` says a parent holding it handed it
---- on (`handed_variable`: the boot a stale tool starts), or nil and
---- why: a lock file this process cannot write, which would lock
---- nothing, among them. One that finds another run holding it says so
---- and waits for it, saying so again every few minutes, as long as it
---- takes.
-function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | boolean | nil, string
-  local made, made_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    return nil, root .. "/o: " .. made_trouble
-  end
+--- Takes `db`'s transaction for a boot, or goes on under the parent's
+--- hold when the lock is busy and its handoff names this same file.
+--- A waiting boot reports its holder every few minutes until admitted.
+local function hold(db: Sqlite.Handle, root: string,
+    environment: {string:string}): boolean | nil, string
   local path = root .. lock_name
-  -- SQLite opens a file it cannot write read-only, where a transaction
-  -- locks nothing: refused here instead. Closed before SQLite's lock is
-  -- taken, since a close drops this process's fcntl locks on the file.
-  local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
-  if fd == nil then
-    return nil, path .. ": " .. open_trouble
-  end
-  local _, _ = sys.close(fd)
-  local db, db_trouble = open_writable(path)
-  if db == nil then
-    return nil, path .. ": " .. db_trouble
-  end
   local taken, trouble = begin(db, path, 0)
   if taken == "busy" then
     -- The variable names the lock's file by the holder's own spelling
@@ -885,7 +864,6 @@ function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | b
       local given, _ = sys.stat(handed)
       local own, _ = sys.stat(path)
       if given ~= nil and own ~= nil and given.dev == own.dev and given.ino == own.ino then
-        local _, _ = db:close()
         return false, ""
       end
     end
@@ -904,7 +882,6 @@ function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | b
     end
   end
   if taken == nil then
-    local _, _ = db:close()
     return nil, trouble
   end
   -- Written aside and moved into place, so a waiting run reads a whole
@@ -914,7 +891,48 @@ function Zig.hold(root: string, environment: {string:string}): Sqlite.Handle | b
   if written then
     local _, _ = Fs.rename(aside, root .. holder_name)
   end
-  return db, ""
+  return true, ""
+end
+
+--- Owns the boot's SQLite handle through acquisition, handoff and the
+--- whole build. Every return and exception closes it here; the callback
+--- receives the environment that hands the held lock to the boot bridge.
+function Zig.with_lock(root: string, environment: {string:string},
+    run: function({string:string}): integer): integer
+  local made, made_trouble = Fs.mkdirs(root .. "/o")
+  if not made then
+    log:complain(root .. "/o: " .. made_trouble)
+    return 1
+  end
+  local path = root .. lock_name
+  -- SQLite opens a file it cannot write read-only, where a transaction
+  -- locks nothing: refused here instead. Closed before SQLite's lock is
+  -- taken, since a close drops this process's fcntl locks on the file.
+  local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
+  if fd == nil then
+    log:complain(path .. ": " .. open_trouble)
+    return 1
+  end
+  local _, _ = sys.close(fd)
+  local db, db_trouble = open_writable(path)
+  if db == nil then
+    log:complain(path .. ": " .. db_trouble)
+    return 1
+  end
+  local ok, status = pcall(function(): integer
+    local taken, trouble = hold(db, root, environment)
+    if taken == nil then
+      log:complain(trouble)
+      return 1
+    end
+    local env: {string:string} = {}
+    for key, value in pairs(environment) do env[key] = value end
+    env[handed_variable] = path
+    return run(env)
+  end)
+  local _, _ = db:close()
+  if not ok then error(status, 0) end
+  return status
 end
 
 --- The whole entry point, over `argv` as the entry-point contract
@@ -944,40 +962,28 @@ function Zig.main(argv: {integer:string}): integer
     at = at + 1
   end
   if given[1] == "build" then
-    local env: {string:string} | nil = nil
-    local lock: Sqlite.Handle | boolean = false
-    if Zig.boots(given) then
-      -- Held to the build's end; handed on to the boot's bridge, which
-      -- writes o/cosmic.db holding it (build/writer.tl).
-      local taken, lock_trouble = Zig.hold(root, Env.all())
-      if taken == nil then
-        log:complain(lock_trouble)
-        return 1
-      end
-      lock = taken
-      env = Env.all()
-      env[handed_variable] = root .. lock_name
-    end
     -- The vendored trees are patched once the snapshot is taken, so a
     -- vendored file edited while they are is caught as any source is.
-    local status = watched_build(root, env, function(): {string} | nil
-      local manifest, patch_trouble = patch(root, Zig.project_cache(root))
-      if manifest == nil then
-        log:complain(patch_trouble)
-        return nil
-      end
-      local build_argv: {string} = { program }
-      for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
-          Zig.global_cache(root), given, Proc.cpu_count(),
-          { "-Dpatched=" .. manifest })) do
-        build_argv[#build_argv + 1] = a
-      end
-      return build_argv
-    end)
-    if lock is Sqlite.Handle then
-      local _, _ = lock:close()
+    local function build(env?: {string:string}): integer
+      return watched_build(root, env, function(): {string} | nil
+        local manifest, patch_trouble = patch(root, Zig.project_cache(root))
+        if manifest == nil then
+          log:complain(patch_trouble)
+          return nil
+        end
+        local build_argv: {string} = { program }
+        for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
+            Zig.global_cache(root), given, Proc.cpu_count(),
+            { "-Dpatched=" .. manifest })) do
+          build_argv[#build_argv + 1] = a
+        end
+        return build_argv
+      end)
     end
-    return status
+    if Zig.boots(given) then
+      return Zig.with_lock(root, Env.all(), build)
+    end
+    return build()
   end
   local exec_argv: {string} = { zig }
   for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
