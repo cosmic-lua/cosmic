@@ -1146,6 +1146,8 @@ local function make_handle(pid: integer, process_group: boolean, limit: integer)
   local h: Handle = setmetatable({
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
   }, handle_mt)
+  -- Owned only once it has its metatable, so the finalizer covers the child from then; a
+  -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
   owned[pid] = true
   return h
 end
@@ -1160,18 +1162,18 @@ local function noted(g: Guard, stamp: integer)
   end
 end
 
-local function read(self: Guard)
+local function read_guard(self: Guard)
   if self._closed then return end
   noted(self, raw.child_signal_read(self == active))
 end
 
 Guard.cancelled = function(self: Guard): integer
-  read(self)
+  read_guard(self)
   return self._signal
 end
 
 Guard.take = function(self: Guard): integer
-  read(self)
+  read_guard(self)
   local signal = self._fresh
   self._fresh = 0
   return signal
@@ -1201,7 +1203,7 @@ end
 --- caller's dispositions. Answers "" or why they could not be
 --- restored, kept for every later close or release to answer again;
 --- whether this was the last; and, for the last, the signal owed it.
-local function restore(self: Guard): string, boolean, integer
+local function restore_guard(self: Guard): string, boolean, integer
   self._closed = true
   for i = #open_guards, 1, -1 do
     if open_guards[i] == self then
@@ -1232,7 +1234,7 @@ Guard.close = function(self: Guard): boolean, string
     if self._trouble ~= "" then return false, self._trouble end
     return true, ""
   end
-  local trouble, last, owing = restore(self)
+  local trouble, last, owing = restore_guard(self)
   if trouble ~= "" then return false, trouble end
   if not last then
     -- The caller's dispositions are not back yet: the guards still
@@ -1254,7 +1256,7 @@ Guard.release = function(self: Guard): integer | nil, string
     if self._trouble ~= "" then return nil, self._trouble end
     return self._signal, ""
   end
-  local trouble, last, owing = restore(self)
+  local trouble, last, owing = restore_guard(self)
   if trouble ~= "" then return nil, trouble end
   if last and self._signal == 0 and owing ~= 0 then
     local _, _ = sys.kill(sys.getpid(), owing)
