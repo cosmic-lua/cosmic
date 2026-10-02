@@ -3,6 +3,7 @@
 ---
 ---     local got = assert(Http.get("https://example.com/"))
 ---     print(got.status, got.body)
+---     local put = assert(Http.request("PUT", "https://example.com/item", { body = "new" }))
 ---     local ok, trouble = Http.download(
 ---       "https://example.com/big.zip", "big.zip", { sha256 = "..." })
 ---
@@ -10,9 +11,10 @@
 --- (following every redirect `opts.follow` allows) and hands back a
 --- [`Response`] whose body is read a chunk at a time -- a
 --- [`cosmic.stream`] Reader, so [`Stream.copy`], [`Stream.transform`] and the
---- rest take it as they take a file; [`Http.get`] reads the whole body
---- for the common case, and [`Http.download`] streams it straight to a
---- file, verifying a checksum while it goes.
+--- rest take it as they take a file; [`Http.request`] reads the whole
+--- body for the common case, with any method ([`Http.get`] for a GET),
+--- and [`Http.download`] streams it straight to a file, verifying a
+--- checksum while it goes.
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
@@ -41,7 +43,9 @@ local record Http
   --- One request. `follow` defaults to true, `max_redirects` to 10;
   --- a followed 303, or a 301/302 after a POST, turns the request
   --- into a GET, as RFC 9110 says. `method` is case-sensitive, as
-  --- HTTP's are, and defaults to GET, or POST when there is a `body`.
+  --- HTTP's are, and defaults to GET, or POST when there is a `body`;
+  --- [`Http.request`] takes the method as its first argument instead,
+  --- and [`Http.get`] sends GET and no body.
   ---
   --- `redirect_protocols`, a list of "http" and "https", names the
   --- schemes a redirect may lead to (default both; the start URL's own
@@ -181,9 +185,9 @@ local record Http
     actual: string | nil
   end
 
-  --- What [`Http.get`] returns: a status, a whole body, and headers,
-  --- bundled into one value since a public fallible function here
-  --- returns exactly `(value, string)`.
+  --- What [`Http.request`] and [`Http.get`] return: a status, a whole
+  --- body, and headers, bundled into one value since a public fallible
+  --- function here returns exactly `(value, string)`.
   record Body
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -262,10 +266,13 @@ end
 
 --- `opts` as the raw module reads them: its spans in the milliseconds
 --- (and, for `low_speed_ns`, the seconds) it counts them in.
-local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
-  if opts == nil then return nil end
+--- `method`, when given, stands in for `opts.method`.
+local function raw_options(opts: Http.Options | nil, method?: string): raw_http.Options | nil
+  if opts == nil then
+    return method ~= nil and { method = method } or nil
+  end
   return {
-    method = opts.method,
+    method = method or opts.method,
     headers = opts.headers,
     body = opts.body,
     follow = opts.follow,
@@ -280,23 +287,18 @@ local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
   }
 end
 
---- Opens `url`, blocking until the final response's headers arrive.
---- The body is not read yet -- call `response:read(max_bytes)` until it
---- returns `nil, ""` for a clean end, or use [`Http.get`] to read it
---- all at once.
-function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
-  local handle, trouble = http.open(url, raw_options(opts))
+--- [`Http.open`], `method` standing in for `opts.method` when given.
+local function opened(url: string, opts: Http.Options | nil, method: string | nil): Http.Response | nil, string
+  local handle, trouble = http.open(url, raw_options(opts, method))
   if handle == nil then
     return nil, trouble
   end
   return respond(handle), ""
 end
 
---- [`Http.open`], then the whole body read at once. Fails on a
---- connection or protocol error the same way [`Http.open`] does; a
---- non-2xx status is not itself a failure here -- check `result.status`.
-function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
-  local response, trouble = Http.open(url, opts)
+--- [`opened`], then the whole body read at once.
+local function whole(url: string, opts: Http.Options | nil, method: string | nil): Http.Body | nil, string
+  local response, trouble = opened(url, opts, method)
   if response == nil then
     return nil, trouble
   end
@@ -306,6 +308,63 @@ function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
     return nil, read_trouble
   end
   return { status = response.status, body = body, headers = response.headers }, ""
+end
+
+--- Opens `url`, blocking until the final response's headers arrive.
+--- The body is not read yet -- call `response:read(max_bytes)` until it
+--- returns `nil, ""` for a clean end, or use [`Http.request`] (or
+--- [`Http.get`]) to read it all at once.
+function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
+  return opened(url, opts, nil)
+end
+
+--- Sends a GET for `url` and reads the whole body: [`Http.request`]
+--- with "GET". Fails on a connection or protocol error the same way
+--- [`Http.open`] does; a non-2xx status is not itself a failure here --
+--- check `result.status`. An `opts.method` other than "GET", or an
+--- `opts.body`, raises, naming [`Http.request`], which sends any method
+--- and a body.
+function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
+  if opts ~= nil and opts.method ~= nil and opts.method ~= "GET" then
+    error(("http: Http.get sends a GET; send %s with Http.request(%q, url, opts)"):
+       format(opts.method, opts.method), 2)
+  end
+  if opts ~= nil and opts.body ~= nil then
+    error("http: Http.get sends no body; send one with Http.request(method, url, { body = ... })", 2)
+  end
+  return whole(url, opts, nil)
+end
+
+--- Sends `method` to `url`, with `opts.body` when given, and reads the
+--- whole response: its status, headers and body. `method` is
+--- case-sensitive, as HTTP's are ("PUT", "DELETE", "PATCH", ...);
+--- [`Http.open`] is the same request with its body read a chunk at a
+--- time. Fails on a connection or protocol error the same way
+--- [`Http.open`] does; a non-2xx status is not itself a failure here --
+--- check `result.status`.
+---
+---     local put = assert(Http.request("PUT", "https://example.com/items/1",
+---       { headers = { ["Content-Type"] = "application/json" }, body = '{"n":1}' }))
+---     local gone = assert(Http.request("DELETE", "https://example.com/items/1"))
+---     print(put.status, gone.status)
+---
+--- An empty `method`, an `opts.method` that differs from it, or an
+--- `opts.body` with "GET" or "HEAD" raises: the request would not be
+--- the one asked for.
+function Http.request(method: string, url: string, opts?: Http.Options): Http.Body | nil, string
+  if method == "" then
+    error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
+  end
+  if opts ~= nil and opts.method ~= nil and opts.method ~= method then
+    error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
+       format(method, opts.method), 2)
+  end
+  -- TODO: send a GET with a body once core/http.c's set_method names GET
+  -- (its TODO), which until then sends a body with GET as a POST.
+  if opts ~= nil and opts.body ~= nil and (method == "GET" or method == "HEAD") then
+    error(("http: Http.request sends no body with %s"):format(method), 2)
+  end
+  return whole(url, opts, method)
 end
 
 --- A Reader over a Response that fails with "interrupted" once

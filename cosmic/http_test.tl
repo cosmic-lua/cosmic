@@ -955,3 +955,61 @@ local function test_download_result_interleaved_publishers_own_their_staged_file
     assert(#assert(Fs.list(tmp)) == 1, "one publisher left its staged file behind")
   end
 end
+
+local function test_request_reads_the_whole_response()
+  local got, trouble = Http.request("PATCH", url,
+    { body = "x", script = { reply("201 Created", "X-One: 1\r\n", "made") } })
+  assert(got ~= nil, trouble)
+  assert(got.status == 201 and got.body == "made" and got.headers["x-one"] == "1", got.body)
+end
+
+--- The method reaches the transfer: a HEAD reads no body, where a GET
+--- of the same reply would wait for the 1000 bytes it promises and fail.
+local function test_request_sends_its_method()
+  local head = "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n"
+  local got, trouble = Http.request("HEAD", url, { script = { head } })
+  assert(got ~= nil and got.body == "", trouble)
+  local get = Http.request("GET", url, { script = { head } })
+  assert(get == nil, "a GET read a body that never came")
+end
+
+--- The request is the one asked for, or none: an empty method, an
+--- `opts.method` that differs from the argument, and a body with GET or
+--- HEAD raise before anything is sent.
+local function test_request_refuses_what_it_would_not_send_as_asked()
+  local script = { reply("200 OK", "") }
+  for method, opts in pairs({
+    [""] = { script = script },
+    PUT = { method = "POST", script = script },
+    GET = { body = "x", script = script },
+    HEAD = { body = "x", script = script },
+  } as {string:Http.Options}) do
+    local ok, why = pcall(Http.request, method, url, opts)
+    assert(not ok and tostring(why):find("Http.request", 1, true), method .. ": " .. tostring(why))
+  end
+  local got, trouble = Http.request("PUT", url, { method = "PUT", script = script })
+  assert(got ~= nil and got.status == 200, trouble)
+end
+
+--- The options a caller passes are left as they were.
+local function test_request_leaves_its_options_alone()
+  local opts: Http.Options = { body = "x", script = { reply("204 No Content", "") } }
+  assert(Http.request("PUT", url, opts))
+  assert(opts.method == nil and opts.body == "x")
+end
+
+--- Http.get sends a GET: another method, or a body, which would make it
+--- a POST, raises and names Http.request.
+local function test_get_refuses_another_method_and_a_body()
+  local script = { reply("200 OK", "") }
+  for _, opts in ipairs({
+    { method = "PUT", script = script },
+    { method = "HEAD", script = script },
+    { body = "x", script = script },
+  } as {Http.Options}) do
+    local ok, why = pcall(Http.get, url, opts)
+    assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))
+  end
+  local got, trouble = Http.get(url, { method = "GET", script = script })
+  assert(got ~= nil and got.status == 200, trouble)
+end

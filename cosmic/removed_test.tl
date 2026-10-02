@@ -172,11 +172,11 @@ end
 
 --- A program that streamed a request body, truncated a descriptor or
 --- asked for a cache path is told what to write instead: a whole body
---- through [`Http.open`], [`sys.ftruncate`], and `cache_dir` with `make = false`.
+--- through [`Http.request`], [`sys.ftruncate`], and `cache_dir` with `make = false`.
 local function test_the_removed_fs_and_http_members_name_their_replacements()
   for member, want in pairs({
-    ["http.upload"] = "Http.open(url, { method = \"PUT\", body = body })",
-    ["http.Upload"] = "Http.open(url, { method = \"PUT\", body = body })",
+    ["http.upload"] = "Http.request(\"PUT\", url, { body = body })",
+    ["http.Upload"] = "Http.request(\"PUT\", url, { body = body })",
     ["fs.truncate"] = "sys.ftruncate(fd, length)",
     ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
   } as {string:string}) do
