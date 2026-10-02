@@ -335,6 +335,10 @@ end
 --- within another would read each token through every look around it.
 --- The bound is mostly on the ratio of two compiles of files alike in
 --- length, so it holds on a slow core and a loaded host.
+-- TODO: count the tokens a look reads, once patch/tl's look_ahead
+-- reports them, and bound that count rather than compile times: each
+-- source here compiles about 2000 lines twice, which on the checked
+-- core under load approaches a test's deadline.
 local function test_a_keyword_named_variable_costs_what_it_reads()
   local built = assert(teal.load())
   local head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
