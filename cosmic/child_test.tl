@@ -17,6 +17,7 @@ local Time = require("cosmic.time")
 --- names what finds it; a path that is not there gets no such hint.
 local function test_a_bare_name_not_found_points_at_proc_find(tmp: string)
   local _, trouble = Child.run({ "cosmic-no-such-program" }, { cwd = tmp })
+  assert(trouble:sub(1, 13) == "child: start:", trouble)
   assert(trouble:find("with no PATH search; " ..
     "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
   local _, pathed = Child.run({ tmp .. "/cosmic-no-such-program" })

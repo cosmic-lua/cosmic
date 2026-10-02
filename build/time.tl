@@ -194,6 +194,12 @@ end
 local INPUT_FORMS <const> = "expected RFC 3339 (2026-09-25T04:09:21Z), a date (2026-09-25), " ..
   "a local time (2026-09-25T04:09[:21]) or @<epoch seconds>"
 
+--- A failure of [`cosmic.time`] less its leading "time: ": the verb's
+--- complaint opens `cosmic: time: ` already.
+local function plain(why: string): string
+  return (why:gsub("^time: ", ""))
+end
+
 --- [`verb.parse_input`] less the forms' names in its failures.
 local function read_input(text: string, zone: Time.Zone | nil,
     how: Time.Disambiguation): Time.Zoned | nil, string
@@ -216,7 +222,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
   end
   if text:match("^%d%d%d%d%-%d%d%-%d%d$") then
     local ns, why = Time.parse_date(text, zone)
-    if ns == nil then return nil, why end
+    if ns == nil then return nil, plain(why) end
     return { ns = ns }, ""
   end
   local year, month, day, hour, minute, tail = text:match(
@@ -241,7 +247,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
       end
     end
     local ns, from_why = Time.from_civil(c, zone, { disambiguation = how })
-    if ns == nil then return nil, from_why end
+    if ns == nil then return nil, plain(from_why) end
     return { ns = ns }, ""
   end
   -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
@@ -259,7 +265,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
   else
     zoned, why = Time.parse_rfc3339_zoned(text)
   end
-  if zoned == nil then return nil, why end
+  if zoned == nil then return nil, plain(why) end
   return zoned, ""
 end
 
@@ -354,7 +360,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if host == nil then
       local zone, why = to.local_zone()
       if zone == nil then
-        complain("the host's time zone: " .. why .. "; name one with --zone, --from or --to")
+        complain("the host's time zone: " .. plain(why) .. "; name one with --zone, --from or --to")
         return nil
       end
       host = zone
@@ -372,7 +378,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     local zone, why = Time.zone(text)
     if zone == nil then
-      complain(name .. ": " .. why)
+      complain(name .. ": " .. plain(why))
       return nil
     end
     return zone
@@ -429,14 +435,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if sub == "add" then
     local duration, why = Time.parse_duration(parsed.words[3])
     if duration == nil then
-      complain(("%q: %s"):format(parsed.words[3], why))
+      complain(("%q: %s"):format(parsed.words[3], plain(why)))
       return bare.refused
     end
     local moved, moved_why = Time.add_calendar(first.ns, duration, calendar, {
       overflow = parsed.set["--clamp"] and "clamp" or "reject", disambiguation = disambiguation,
     })
     if moved == nil then
-      complain((moved_why:gsub('overflow "clamp" takes its last', "--clamp takes its last")))
+      complain((plain(moved_why):gsub('overflow "clamp" takes its last', "--clamp takes its last")))
       return bare.failed
     end
     return print_seen({ ns = moved, zone = calendar })

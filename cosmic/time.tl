@@ -174,13 +174,15 @@ local MIN_S <const> = math.mininteger // NS
 local MIN_NS <const> = math.mininteger % NS
 local MAX_S <const> = math.maxinteger // NS
 local MAX_NS <const> = math.maxinteger % NS
--- TODO: the returned failures of this module -- this range's, the
--- parsers' and the TZif reader's ("expected \"Z\" or an offset at byte 4")
--- -- name no module, where cosmic.zip, cosmic.csv and the rest answer `nil,
--- "zip: ..."` through one local `refuse(why)`. Route the roughly 70
--- `return nil, ...` sites through one here (the zone cache's own `refuse`
--- in [`zone_of`] is another thing: rename it), and update the messages
--- cosmic/time_test.tl, time_zone_test.tl and build/time_test.tl pin.
+--- What a failure of this module answers, nil and `why` under the
+--- module's name. Only a public function answers through it: the
+--- private readers (the parsers, the TZif reader, the zone cache) answer
+--- a bare `why`, so a message that quotes one -- a zone's, the footer's --
+--- is not prefixed twice.
+local function refuse(why: string): nil, string
+  return nil, "time: " .. why
+end
+
 local RANGE <const> = "outside 1677-09-21T00:12:43.145224192Z through " ..
   "2262-04-11T23:47:16.854775807Z, what an integer of nanoseconds holds"
 
@@ -1039,7 +1041,7 @@ local function zone_of(name: string): Time.Zone | nil, string
   if refused ~= nil then return nil, refused end
   -- Only an answer the database gave is remembered: a query that failed
   -- (EMFILE, a locked file) is this call's failure, and asked again.
-  local function refuse(why: string): string
+  local function remember(why: string): string
     if refused_count >= REFUSED_KEPT then
       refused_names, refused_count = {}, 0
     end
@@ -1053,14 +1055,14 @@ local function zone_of(name: string): Time.Zone | nil, string
     carried_names = names
   end
   if not carried_names[name] then
-    return nil, refuse(("no time zone %s: this binary's tz database has none; %s"):format(
+    return nil, remember(("no time zone %s: this binary's tz database has none; %s"):format(
       name, NEWER_ZONES))
   end
   local carried, trouble = Store.zoneinfo(name)
   if carried == nil then return nil, ("time zone %s: %s"):format(name, trouble) end
   local rules, why = parse_tzif(carried)
   if rules == nil then
-    return nil, refuse(("the binary's time zone %s: %s"):format(name, why))
+    return nil, remember(("the binary's time zone %s: %s"):format(name, why))
   end
   rules.named = writable(name)
   local zone = make_zone(name, rules)
@@ -1079,7 +1081,9 @@ end
 --- to be no zone is not looked for again.
 function Time.zone(name: string): Time.Zone | nil, string
   if name == "" then error("time: the zone name is empty", 2) end
-  return zone_of(name)
+  local zone, why = zone_of(name)
+  if zone == nil then return refuse(why) end
+  return zone, ""
 end
 
 --- The zone TZif bytes (RFC 8536) describe, named `name`, or nil and
@@ -1088,7 +1092,7 @@ end
 --- write.
 function Time.zone_from_tzif(data: string, name: string): Time.Zone | nil, string
   local rules, why = parse_tzif(data)
-  if rules == nil then return nil, why end
+  if rules == nil then return refuse(why) end
   rules.named = writable(name)
   return make_zone(name, rules), ""
 end
@@ -1226,12 +1230,12 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
   elseif tz:sub(1, 1) == ":" or tz:sub(1, 1) == "/" then
     local name = tz_name((tz:gsub("^:", "")))
     if name == nil then
-      return nil, ("TZ=%s: a path names a zone only by what follows its \"zoneinfo/\", " ..
-        "or by where it links"):format(tz)
+      return refuse(("TZ=%s: a path names a zone only by what follows its \"zoneinfo/\", " ..
+        "or by where it links"):format(tz))
     end
     local why: string
     zone, why = zone_of(name)
-    if zone == nil then return nil, ("TZ=%s: %s"):format(tz, why) end
+    if zone == nil then return refuse(("TZ=%s: %s"):format(tz, why)) end
   else
     local name = tz_name(tz)
     local zone_name = name_problem(name) == nil
@@ -1243,8 +1247,8 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
       local p, why = parse_posix(tz)
       if p == nil then
         -- Written as a zone name, it may be one IANA added since.
-        return nil, ("TZ=%s names no zone this binary carries, and is no POSIX TZ string: %s%s"):format(
-          tz, why, zone_name and "; " .. NEWER_ZONES or "")
+        return refuse(("TZ=%s names no zone this binary carries, and is no POSIX TZ string: %s%s"):format(
+          tz, why, zone_name and "; " .. NEWER_ZONES or ""))
       end
       zone = posix_zone(tz, p)
     end
@@ -1348,8 +1352,10 @@ function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.AddOptions
   integral("second", c.second)
   integral("ns", c.ns)
   local s, why = resolve(c, zone, how)
-  if s == nil then return nil, why end
-  return instant(s, c.ns)
+  if s == nil then return refuse(why) end
+  local ns, range_why = instant(s, c.ns)
+  if ns == nil then return refuse(range_why) end
+  return ns, ""
 end
 
 --- `ns` moved by the calendar part of `duration` on the calendar of
@@ -1378,7 +1384,7 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
   local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000)
     or outside("days", days, -3650000, 3650000)
     or outside("ns", exact, math.mininteger, math.maxinteger)
-  if why ~= nil then return nil, why end
+  if why ~= nil then return refuse(why) end
   local overflow = opts ~= nil and opts.overflow or "reject"
   if overflow ~= "reject" and overflow ~= "clamp" then
     error("time: overflow is \"reject\" or \"clamp\", not " .. tostring(overflow), 2)
@@ -1390,8 +1396,8 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
   local last = month_days(c.year, c.month)
   if c.day > last then
     if overflow ~= "clamp" then
-      return nil, ("%04d-%02d has no day %d; overflow \"clamp\" takes its last"):format(
-        c.year, c.month, c.day)
+      return refuse(("%04d-%02d has no day %d; overflow \"clamp\" takes its last"):format(
+        c.year, c.month, c.day))
     end
     c.day = last
   end
@@ -1402,14 +1408,16 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
   -- own choice: Temporal resolves a nonzero amount "compatible", taking
   -- the earlier -- so an amount of nothing moves nothing, even in a fold.
   local s, trouble = resolve(c, zone, how)
-  if s == nil then return nil, trouble end
+  if s == nil then return refuse(trouble) end
   -- The range is checked on the sum, so a local time just outside it that
   -- the exact part brings back is no refusal. One more than a year
   -- outside is, as [`from_civil`] holds every local time to.
   local n = c.ns + exact % NS
   s = s + exact // NS
   if n >= NS then s, n = s + 1, n - NS end
-  return instant(s, n)
+  local moved_ns, range_why = instant(s, n)
+  if moved_ns == nil then return refuse(range_why) end
+  return moved_ns, ""
 end
 
 --- The seconds of `ns` on the calendar of `zone`, UTC's when nil.
@@ -1681,7 +1689,7 @@ end
 --- zone does not have then, or a critical `[!key=value]` tag.
 function Time.parse_rfc3339(text: string): integer | nil, string
   local zoned, why = parse(text)
-  if zoned == nil then return nil, why end
+  if zoned == nil then return refuse(why) end
   return zoned.ns, ""
 end
 
@@ -1690,7 +1698,9 @@ end
 --- named "+05:30" -- else its offset's, a zone named for it the same way
 --- (`+05:30`), or UTC for `Z` and `-00:00`.
 function Time.parse_rfc3339_zoned(text: string): Time.Zoned | nil, string
-  return parse(text)
+  local zoned, why = parse(text)
+  if zoned == nil then return refuse(why) end
+  return zoned, ""
 end
 
 --- `ns`'s date on the calendar of `zone`, UTC's by default,
@@ -1715,12 +1725,17 @@ function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
   local cur <close> = borrow(text)
   date_into(cur, c)
   finish(cur)
-  if cur.why ~= nil then return nil, cur.why end
-  if zone == nil then return moment(c, 0) end
+  if cur.why ~= nil then return refuse(cur.why) end
+  if zone == nil then
+    local ns, range_why = moment(c, 0)
+    if ns == nil then return refuse(range_why) end
+    return ns, ""
+  end
   local rules = rules_for(zone)
   local midnight, midnight_why = seconds_of(c)
-  if midnight == nil then return nil, midnight_why end
+  if midnight == nil then return refuse(midnight_why) end
   local earliest, earliest_why = Time.from_civil(c, zone, { disambiguation = "earlier" })
+  -- from_civil answers under the module's name already.
   if earliest == nil then return nil, earliest_why end
   local lo = earliest // NS
   if lo + kind_at(rules, lo).offset == midnight then return earliest, "" end
@@ -1731,7 +1746,9 @@ function Time.parse_date(text: string, zone?: Time.Zone): integer | nil, string
     local mid = (lo + hi) // 2
     if mid + kind_at(rules, mid).offset >= midnight then hi = mid else lo = mid end
   end
-  return instant(hi, 0)
+  local ns, range_why = instant(hi, 0)
+  if ns == nil then return refuse(range_why) end
+  return ns, ""
 end
 
 local SHORT_DAYS <const> = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
@@ -1801,8 +1818,10 @@ function Time.parse_http(text: string): integer | nil, string
     expect(cur, " GMT", "after the time")
   end
   finish(cur)
-  if cur.why ~= nil then return nil, cur.why end
-  return moment(c, 0)
+  if cur.why ~= nil then return refuse(cur.why) end
+  local ns, why = moment(c, 0)
+  if ns == nil then return refuse(why) end
+  return ns, ""
 end
 
 --- The most seconds a duration's exact part holds, so its nanoseconds
@@ -1825,7 +1844,7 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
     sign = first == "-" and -1 or 1
     at = 2
   end
-  if at > #text then return nil, "expected a duration such as 1y2mo3d4h5m6s, not nothing" end
+  if at > #text then return refuse("expected a duration such as 1y2mo3d4h5m6s, not nothing") end
   local units = { "y", "mo", "d", "h", "m", "s" }
   local seen = 0
   local values: {integer} = { 0, 0, 0, 0, 0, 0 }
@@ -1833,10 +1852,11 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
   while at <= #text do
     local digits = text:match("^%d+", at)
     if digits == nil then
-      return nil, ("expected a number at byte %d of the duration"):format(at)
+      return refuse(("expected a number at byte %d of the duration"):format(at))
     end
     if #digits > 9 then
-      return nil, ("the number at byte %d has %s: at most 9"):format(at, String.counted(#digits, "digit"))
+      return refuse(("the number at byte %d has %s: at most 9"):format(at,
+        String.counted(#digits, "digit")))
     end
     local number = math.tointeger(tonumber(digits))
     at = at + #digits
@@ -1851,18 +1871,18 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
     if text:sub(at, at) == "." then
       local frac = text:match("^%.(%d+)s", at)
       if frac == nil or #frac > 9 then
-        return nil, ("expected 1 to 9 digits of fraction and then \"s\" at byte %d"):format(at)
+        return refuse(("expected 1 to 9 digits of fraction and then \"s\" at byte %d"):format(at))
       end
       fraction = fraction_ns(frac)
       at = at + 1 + #frac
       unit = 6
     end
     if unit == 0 then
-      return nil, ("expected a unit y, mo, d, h, m or s at byte %d of the duration"):format(at)
+      return refuse(("expected a unit y, mo, d, h, m or s at byte %d of the duration"):format(at))
     end
     if unit <= seen then
-      return nil, ("unit %s at byte %d is repeated or out of order: y, mo, d, h, m, s"):format(
-        units[unit], at)
+      return refuse(("unit %s at byte %d is repeated or out of order: y, mo, d, h, m, s"):format(
+        units[unit], at))
     end
     seen = unit
     values[unit] = number
@@ -1870,7 +1890,7 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
   end
   local seconds = values[4] * 3600 + values[5] * 60 + values[6]
   if seconds > MAX_SPAN_S or (seconds == MAX_SPAN_S and fraction > math.maxinteger % NS) then
-    return nil, "the hours, minutes and seconds are more than 292 years"
+    return refuse("the hours, minutes and seconds are more than 292 years")
   end
   return {
     years = sign * values[1], months = sign * values[2], days = sign * values[3],

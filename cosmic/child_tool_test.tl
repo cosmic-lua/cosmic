@@ -247,6 +247,19 @@ end
   assert(assert(r.stdout):find("^false "), r.stdout)
 end
 
+--- A handle that has settled has no process left to signal, and the
+--- refusal, which is no system call's, names the module.
+local function test_stopping_a_reaped_child_names_the_module()
+  local relaunch = assert(Proc.relaunch())
+  local argv = { table.unpack(relaunch.argv) }
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = "local _ = 1"
+  local h = assert(Child.start(argv, { env = relaunch.env, fds = relaunch.fds }))
+  assert(h:wait())
+  local stopped, why = h:stop()
+  assert(stopped == false and why == "child: process already reaped", tostring(why))
+end
+
 --- A child started with a `sandbox` has only what it unveils, a path
 --- at the name `at` gives it, and is held there with every process it
 --- starts; a relative unveiled path is refused. Where the kernel will not
@@ -275,7 +288,7 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
     -- Only as a kernel that cannot sandbox refuses.
     local refused = false
     for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
-      if trouble == "start: " .. sys.errno_message(errno) then refused = true end
+      if trouble == "child: start: " .. sys.errno_message(errno) then refused = true end
     end
     assert(refused, trouble)
     return
@@ -346,7 +359,7 @@ end
   local started = this_program.program({ fixture, report },
     { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
-  local cancelled = "true cancelled by signal " .. tostring(sys.SIGTERM)
+  local cancelled = "true child: cancelled by signal " .. tostring(sys.SIGTERM)
   local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
     "3 false", tostring(sys.SIGTERM) }, "|")
   local got = Fs.read(report)
@@ -563,6 +576,6 @@ end
     " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
-  assert(got == table.concat({ "true cancelled by signal " .. term, term, "4", term }, "|"),
+  assert(got == table.concat({ "true child: cancelled by signal " .. term, term, "4", term }, "|"),
     tostring(got))
 end

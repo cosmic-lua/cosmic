@@ -46,6 +46,13 @@ local function said(words: {string}): string
   return ran.out
 end
 
+--- That a complaint opens `cosmic: time: ` and does not repeat it: the
+--- failures of cosmic.time under it come without their own `time: `.
+local function says_time_once(err: string)
+  local _, count = err:gsub("time: ", "")
+  assert(count == 1, err)
+end
+
 local function test_now_reads_the_clock_in_the_host_zone_by_default()
   assert(said({ "now" }) == "2026-03-08T21:00:00+09:00\n")
   assert(said({ "now", "--zone", "America/New_York" }) == "2026-03-08T08:00:00-04:00\n")
@@ -198,6 +205,7 @@ local function test_a_day_a_month_lacks_is_an_error_unless_clamped()
   assert(refused.code == 1 and refused.out == "", refused.out)
   assert(refused.err:find("2026-02 has no day 31", 1, true), refused.err)
   assert(refused.err:find("--clamp", 1, true), refused.err)
+  says_time_once(refused.err)
   assert(said({ "add", "2026-01-31", "1mo", "--clamp", "--zone", "UTC" }) == "2026-02-28T00:00:00+00:00\n")
   assert(said({ "add", "2028-01-31", "1mo", "--clamp", "--zone", "UTC" }) == "2028-02-29T00:00:00+00:00\n")
   assert(said({ "add", "2026-03-31", "-1mo", "--clamp", "--zone", "UTC" }) == "2026-02-28T00:00:00+00:00\n")
@@ -208,11 +216,13 @@ end
 local function test_an_add_with_no_answer_exits_1()
   local far = run({ "add", "2262-01-01", "1y", "--zone", "UTC" })
   assert(far.code == 1 and far.out == "", far.err)
+  says_time_once(far.err)
   local exact = run({ "add", "2262-04-11T00:00:00Z", "999h" })
   assert(exact.code == 1 and exact.out == "", exact.out)
   -- A result in a gap under "reject".
   local gap = run({ "add", "2026-03-07T02:30", "1d", "--zone", "America/New_York", "--disambiguate", "reject" })
   assert(gap.code == 1 and gap.err:find("does not exist", 1, true), gap.err)
+  says_time_once(gap.err)
   assert(said({ "add", "2026-03-07T02:30", "1d", "--zone", "America/New_York" }) == "2026-03-08T03:30:00-04:00\n")
 end
 
@@ -243,6 +253,7 @@ local function test_a_bad_zone_is_refused()
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)
     assert(ran.err:find("cosmic: time: --", 1, true), ran.err)
+    says_time_once(ran.err)
   end
 end
 
@@ -251,6 +262,7 @@ local function test_a_bad_duration_is_refused()
     local ran = run({ "add", "2026-01-01", "--", text })
     assert(ran.code == 2 and ran.out == "", ("%q: %d %s"):format(text, ran.code, ran.out))
     assert(ran.err:find("cosmic: time: \"" .. text .. "\"", 1, true), ran.err)
+    says_time_once(ran.err)
   end
 end
 
@@ -262,6 +274,7 @@ local function test_a_bad_time_is_refused()
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)
     assert(ran.err:find("cosmic: time: ", 1, true), ran.err)
+    says_time_once(ran.err)
   end
 end
 

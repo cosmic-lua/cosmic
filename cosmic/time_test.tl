@@ -256,7 +256,7 @@ end
 
 local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   local none, why = Time.add_calendar(at("2024-01-31T00:00:00Z"), { months = 1 })
-  assert(none == nil and why == "2024-02 has no day 31; overflow \"clamp\" takes its last", why)
+  assert(none == nil and why == "time: 2024-02 has no day 31; overflow \"clamp\" takes its last", why)
   none, why = Time.add_calendar(at("2024-02-29T00:00:00Z"), { years = 1 }, nil, { overflow = "reject" })
   assert(none == nil and why:find("2025-02 has no day 29", 1, true) ~= nil, why)
   -- A step past the range on the way is not refused: the result is what counts.
@@ -384,7 +384,8 @@ local function test_a_text_that_stops_says_where_and_what_it_wanted()
   local function why(parse: function(string): (integer | nil, string), text: string): string
     local got, reason = parse(text)
     assert(got == nil, text)
-    return reason
+    assert(reason:sub(1, 6) == "time: ", reason)
+    return reason:sub(7)
   end
   local rfc = Time.parse_rfc3339
   assert(why(rfc, "2026-9-25T04:09:21Z") == "month: expected 2 digits at byte 6")
@@ -399,6 +400,50 @@ local function test_a_text_that_stops_says_where_and_what_it_wanted()
   assert(why(Time.parse_http, "Mon, 26 Jul 1997 05:00:00 UTC") == "expected \" GMT\" after the time at byte 26")
   assert(why(Time.parse_http, "Mon, 26 Jul 97 05:00:00 GMT") == "year: expected 4 digits at byte 13")
   assert(why(Time.parse_date, "2026-09-25x") == "unexpected text at byte 11")
+end
+
+--- Every failure this module answers opens `time: `, once: a moment out
+--- of range, a field, a calendar rule, a parser's, a duration's.
+local function test_a_returned_failure_names_the_module_once()
+  local function named(why: string | nil, rest: string)
+    assert(why ~= nil and why:sub(1, 6) == "time: ", tostring(why))
+    local _, count = why:gsub("time: ", "")
+    assert(count == 1, why)
+    assert(why:find(rest, 1, true) ~= nil, why)
+  end
+  local ns, why = Time.from_civil(civil(2026, 13, 1))
+  assert(ns == nil)
+  named(why, "month 13 is not 1 through 12")
+  ns, why = Time.from_civil(civil(2300, 1, 1))
+  assert(ns == nil)
+  named(why, "outside 1677-09-21")
+  ns, why = Time.add_calendar(0, { months = 1000000 })
+  assert(ns == nil)
+  named(why, "months 1000000 is not")
+  ns, why = Time.add_calendar(math.maxinteger, { days = 1 })
+  assert(ns == nil)
+  named(why, "outside")
+  ns, why = Time.parse_rfc3339("2026-09-25T04:09:21")
+  assert(ns == nil)
+  named(why, "expected \"Z\" or an offset at byte 20")
+  ns, why = Time.parse_rfc3339("2300-01-01T00:00:00Z")
+  assert(ns == nil)
+  named(why, "outside")
+  local zoned, zoned_why = Time.parse_rfc3339_zoned("2026-09-25T04:09:21Z[Nowhere/Nothing]")
+  assert(zoned == nil)
+  named(zoned_why, "suffix at byte 21")
+  ns, why = Time.parse_date("2026-02-30")
+  assert(ns == nil)
+  named(why, "day 30")
+  ns, why = Time.parse_http("Mox, 26 Jul 1997 05:00:00 GMT")
+  assert(ns == nil)
+  named(why, "expected a day name at byte 1")
+  local duration, duration_why = Time.parse_duration("")
+  assert(duration == nil)
+  named(duration_why, "expected a duration")
+  duration, duration_why = Time.parse_duration("5 minutes")
+  assert(duration == nil)
+  named(duration_why, "at byte 2")
 end
 
 local function test_format_date_is_the_utc_date()
