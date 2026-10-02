@@ -1,0 +1,155 @@
+# Build-facing API roadmap
+
+Planning snapshot: `9ac37cba3b2d626b79d7c217329b2020d76bccb6`, the final build-simplification queue tree. This is a new implementation series; the completed build reference remains separate. Keep this plan on the same never-merge draft PR #2521 and update its ledger as actual API names, release boundaries and validation settle.
+
+## Objective and boundaries
+
+Remove the eleven pin-dependent workarounds identified by the build review through the nine capabilities they need. Include the related cancellable SQLite busy wait and macOS storage flush. Preserve public compatibility, warm build/cache behavior, failure cleanup and independently verified publication. This is not a general error framework, new task runtime, cache-policy redesign or wholesale shell elimination project.
+
+All runtime spans are nanoseconds. Convert at raw interfaces that still count milliseconds; SQLite PRAGMA busy_timeout and sys.flock remain such interfaces. Elapsed_ms reports and workflow epoch-second cache cutoffs retain their separate units.
+
+Repository contracts require an existing fallible public API to return exactly `(value, string)` or `(boolean, string)`. A code added as a third result, or a record replacing the existing reason, is incompatible. Where callers need machine-readable outcomes, add a concrete operation result record returned as one value; retain existing convenience functions and their behavior. Do not add a generic Result type or diagnostic-text parser. Programmer errors still raise; operating failures are results. Preserve the recent error-prefix and argument-validation conventions.
+
+No standalone bootstrap or CI consumer may call a new API until ci/cosmic-driver.pin names a downloaded, digest-verified, executed release containing it. Each pin advance rechecks every literal pin-dependent TODO, not only this plan's list. Include every item the selected release unblocks. Existing source-tree consumers may migrate with their API. Use the existing convenience wrapper as a real consumer of an additive outcome API where that keeps one implementation. Do not invent dummy callers, compatibility casts, or export-check exceptions to make an unused API pass. Any unavoidable temporary export exception needs a concrete pin dependency, explicit independent review, and removal in the pin migration under the repository's existing rules.
+
+## Sequence
+
+| PR | Scope | Dependency / release boundary | Readiness |
+| --- | --- | --- | --- |
+| A1 | Structured executable lookup | Independent; bootstrap consumer waits for A4 | Ready for implementation after plan review |
+| A2 | Snapshot SQLite execution outcomes | Independent; native rebuild/work consumers migrate now | Ready after plan review |
+| A3 | Structured HTTP download outcomes with URL-neutral reasons | Preserve incoming stream surface; bootstrap consumer waits for A4 | Ready after plan review |
+| A4 | Verified release and structured-failure consumer migration | A1–A3 published; retires four pin TODOs | Release-gated |
+| B1 | Guard signal provenance | C signal-state review; standalone consumer waits for B5 | Design constraints below |
+| B2 | Explicit bounded draining after child cancellation | Preserve Reader contract; CI consumer waits for B5 | Design/API review required |
+| B3 | Interruptible SQLite busy waits | A2 outcomes; use existing guard notification | Ready once A2 lands |
+| B4 | Tool-owned cache maintenance command | Existing cache schemas and policies preserved | Small command contract to finalize |
+| B5 | Verified release and cancellation/cache consumer migration | B1–B4 published; retires three pin TODOs plus SQL wait workaround | Release-gated |
+| C1 | Fs.append | Independent additive operation | Ready |
+| C2 | Explicit macOS full storage flush | Narrow platform binding + typed wrapper if needed | Ready with platform tests |
+| C3 | Filesystem-wide flush and measured patch publication | Preserve fallback durability; consumer waits for C7 | Benchmark decision required |
+| C4 | Username lookup | Independent typed system binding | Ready |
+| C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive | Independent adversarial review required |
+| C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying | Independent adversarial review required |
+| C7 | Verified release and remaining consumers | C1–C6 published; retires four pin TODOs | Release-gated |
+| D1 | Final API/build audit and documentation | All preceding PRs merged | Planned |
+
+Preparation can overlap on disjoint files. Publish serially against actual merged main. If a sensible reviewed slice can land earlier, split it and update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
+
+## A1: executable lookup with an explicit outcome
+
+Add `Proc.find_result(name, path?) -> Proc.FindResult`, with a closed kind `resolved`, `not_found`, or `not_executable`, a path when resolved (or the first non-executable candidate when relevant), and a human reason for refusal. `resolved` means a selected executable spelling, not a guarantee that a slash-containing path exists or can execute. Use this operation-specific record name and one flat discriminant.
+
+Keep Proc.find as the existing `(string | nil, string)` convenience wrapper over the same search implementation. Preserve PATH ordering, empty elements/current directory, unset versus explicitly empty PATH, permission checks for the running user, and the current behavior that an input containing `/` is passed through rather than checked at lookup time. Do not change this search behavior while exposing its existing classification. Allocation on the legacy hot path should not grow unnecessarily; share search mechanics rather than materializing redundant records.
+
+Tests distinguish missing, inaccessible/non-executable, directories, a later executable candidate after an unusable one, explicit paths, empty names and PATH edge cases. Keep exact legacy diagnostics tests. A4 changes Zig's shell-status decision to kind, retaining 126/127 and removing the Proc.find text workaround.
+
+## A2: SQLite result codes attached to the operation
+
+Add `handle:exec_result(sql) -> Sqlite.ExecResult`: a single immutable snapshot containing primary SQLite code, extended SQLite code and human reason. `code == Sqlite.OK` is success; do not duplicate that as an ok boolean. Expose the few named codes actual consumers need, rather than forcing numeric literals or publishing an unused full constant catalog. Keep handle:exec's exact boolean/reason contract and cheap success path; both enter the same C execution operation.
+
+Capture codes and text before another SQLite call can overwrite them. A mutable `last_error()` accessor is insufficient: work.begin_waiting currently sets a new busy timeout immediately after failed BEGIN, and cleanup/finalization may also change the connection's error. Do not parse sqlite3_errmsg or manufacture a code for an ordinary Lua validation error. Preserve raw extended detail without confusing SQLITE_BUSY and SQLITE_LOCKED; BUSY_SNAPSHOT can require rollback. Document and test retry policy separately from exposing codes. Never automatically retry arbitrary multi-statement exec: earlier statements may already have committed effects.
+
+Migrate build.work.begin_waiting and build.rebuild_lock's BEGIN decisions in this PR. The standalone build.zig consumer waits for A4. The existing shared-cache query/corruption classification is a related actual consumer, but an exec-only API does not solve failures of prepare/step/open. During API review, either add the smallest query outcome operations needed by those callers as a separate A2b, or explicitly keep their existing TODOs; do not claim that every SQLite text classifier disappeared. B4 must not delete unknown/busy databases based on guessed text.
+
+Use independent connections/processes for busy exclusion; cover LOCKED separately where reproducible, malformed database, invalid SQL, read-only denial, success after failure, and a captured failure surviving later successful PRAGMA/finalization. Exercise checked-core allocation paths and ensure C-owned error memory is released even when Lua allocation fails.
+
+## A3: HTTP download classification and URL ownership
+
+Add `Http.download_result(url, path, options?) -> Http.DownloadResult` as one flat record. Its kind is `downloaded`, `http_status`, `digest_mismatch`, or `failed`; the reason is empty on success, status is present only on HTTP rejection, and algorithm/expected/actual only on digest mismatch. These are the classifications the consumer actually needs. Do not also add an ok boolean, generic nested Error, or a catalog of curl codes. Compute the outcome at its failure site, never by parsing old diagnostic wording. Other transport, storage and cancellation failures retain their reason under `failed`; broader classification requires an actual caller and an available typed source.
+
+Make the new result's reason URL-neutral: this operation adds no caller URL prefix. This is not a promise to redact arbitrary underlying curl diagnostics. The caller already owns each mirror URL; status and digest fields carry machine data. Preserve existing Http.download's boolean/reason surface and legacy formatting through a compatibility wrapper. Do not silently remove useful URL context from every old caller. Both APIs share the actual streaming/download implementation, keeping bounded memory, hash verification, modes, atomic rename, abort cleanup and concurrent publishers.
+
+Tests cover status rejection, both digest algorithms, malformed digest options, transport failure, output open/write/sync/rename refusal, cancellation, existing target preservation and zero temporary litter. Prove that changing diagnostic wording cannot change mirror retry classification. A4 migrates ZigFetch to result.kind and URL-neutral reason, removing both its digest parser and URL-prefix stripping/contracts exception. Existing mirror budget, fallback retry policy and native-nanosecond limits stay unchanged.
+
+## A4: first release boundary
+
+Select a green published release containing A1–A3, download/hash/execute it, then update the pin and all newly unblocked consumers atomically. Retire the four pin TODOs in Zig lookup, Zig's SQLite lock, ZigFetch digest classification and URL stripping. Run real standalone bin/zig, cold/missing-digest fetch paths, native help/notes and CI driver checks on the selected binary. Recheck the inventory before pinning: unrelated newly published APIs can enlarge this migration.
+
+## B1: signal provenance, without promising information POSIX does not supply
+
+Extend the guard with an additive event snapshot API, for example `guard:take_event() -> Child.SignalEvent | nil`, while retaining take/cancelled/release numeric behavior. The event records signal number and raw si_code, plus sender PID/UID only when valid for that delivery. Keep signal-handler writes async-signal-safe, pair number and origin from the same event, and preserve nested-guard, ignored-disposition and re-raise semantics, including fresh/last-signal behavior after close.
+
+Important limitation: si_code can distinguish an explicitly sent signal from kernel delivery on supported hosts; it cannot distinguish kill(pid, SIGINT) from kill(-pgid, SIGINT) solely by sender metadata. Do not claim a perfect 'only this process received it' bit. Specify a conservative policy for terminal/unknown origin and test it before changing Zig's late-signal behavior. Use actual targeted signal, process-group signal and PTY-generated Ctrl-C cases on Linux/macOS, plus signal-at-child-exit races and nested guards. B5 migrates the late unpassed SIGINT decision only once the proven event semantics support it.
+
+## B2: drain final child output after cancellation
+
+Keep ordinary Stream.Reader failures sticky, as documented. Do not make every read ignore a caught guard. Add a child-owned, explicitly bounded drain operation (provisional `handle:drain(options)`) that can consume already queued and subsequent shutdown output under a monotonic timeout and byte limit after cancellation. Its callback/sink and result must remain concrete and small; the result says EOF/limit/timeout and bytes copied, while genuine I/O failure remains distinguishable. Resolve the exact surface in a design review before editing.
+
+The drain must service stdout and stderr fairly, avoid deadlock at capture_limit, preserve ordering within each stream, avoid replaying already delivered bytes, and stop when an escaped descendant merely holds a pipe open. It must not resurrect a closed handle or hide a real sticky read error. Only transient guard interruption may be bypassed, within the explicitly selected shutdown scope. Child.wait(timeout) kills/reaps on expiry; wait_any(timeout) does not—tests must use the right primitive.
+
+Test a child trap that prints a final line after SIGTERM; a guard-cancelled read before the drain; both streams filling; cancellation before any output; child exit versus inherited open pipe; byte/time limits; callback failure and descriptor cleanup. B5 replaces CI fuzz's output-file polling with this bounded pipe lifecycle while retaining its saved log, tail, fair signal checks and final report. Do not add a public abstraction only to reconstruct the old polling loop.
+
+## B3: cancellable SQLite busy wait
+
+Add `handle:busy_timeout(timeout_ns)` (or an equally small documented method) installing a core busy handler that checks the existing innermost guard signal notification without consuming it, sleeps in bounded intervals, and honors one monotonic budget. Keep the old PRAGMA surface and default behavior compatible; document that setting PRAGMA busy_timeout replaces SQLite's handler and callers selecting cancellation must use the new method afterward.
+
+Expose cancellation accurately through the operation outcome from A2. SQLite's busy callback stopping can return SQLITE_BUSY, so preserve a separate internal cancellation flag for the current operation instead of relabeling every BUSY as interrupted. Do not allow an old operation's cancellation flag to contaminate the next one. A signal remains available to the caller's guard. Roll back/close correctly on every path; never release another process's lock.
+
+Migrate source-tree rebuild waits with the API, and Zig's standalone wait in B5. Tests use a real lock holder and delivered signal; assert prompt interruption well inside the configured long wait, ordinary busy timeout, eventual acquisition, nested guard handling, and successful subsequent statements. Avoid brittle exact-millisecond assertions.
+
+## B4: tool-owned cache maintenance
+
+Add a build-owned command, provisionally `cosmic cache trim compiles|verdicts PATH --since-ns N --json`. It runs from explicit paths without discovering/staging/rebuilding the candidate project. Its implementation belongs beside shared_compiles/shared_verdicts/shared_sqlite and uses their format definitions. It must be callable from the pinned driver even when the candidate build fails or has no executable.
+
+Return structured counts, bytes, reached/untouched state and unknown formats; keep CLI failure status truthful. CI's current best-effort policy (report failed maintenance without failing an otherwise good leg) remains in CI orchestration. Preserve exact trim semantics: since threshold, whole-unless-reached distinction, compiled/parsed versus verdict/store tables, unknown/unstamped tables kept, writer-versus-trim concurrency, WAL handling, set-aside cleanup and stable row digest independent of used_ns. Do not trim arbitrary SQLite databases merely because they contain a used_ns column. An older pinned tool encountering a newer unknown schema must retain it and explain that decision.
+
+Move only ownership of trim/format knowledge in this first command PR. Cache restore/save/merge-queue precedence, source attestation and candidate-local database rejection remain unchanged. If digest/fresh-count outputs depend on format details, expose the smallest companion inspect operation rather than leaving CI to reconstruct those schemas. Merging caches is not implicitly in scope.
+
+Test missing files, empty and used caches, old/current/unknown schema, busy/read-only/corrupt files, interrupted trim, repeated identical results and exact current CI golden-policy outcomes. Measure both no-op command startup and substantial-cache trim. Prove execution from a directory with a deliberately unbuildable candidate and no candidate o/bin/cosmic. B5 advances the pin, replaces CI's direct trim schema access and removes the pin TODO.
+
+## C1–C3: append and durability
+
+C1 adds `Fs.append(path, bytes, mode?) -> boolean, string`, matching Fs.write's argument style. Use O_APPEND, handle short writes, always close, preserve the first failure, and apply mode only on creation. Do not promise whole-record atomicity for arbitrarily large writes split across syscalls. Test missing/existing files, binary data, permission failure, partial writes/close failure and concurrent appenders with bounded records. C7 migrates Images.append and the driver's whole-file summary rewrite where semantics match.
+
+C2 adds a narrowly named raw macOS full-flush operation (for example sys.full_fsync(fd)), with normal effect/error/errno shape and explicit unsupported behavior elsewhere. Avoid exposing generic untyped fcntl solely for one command. Use it at the typed durability boundary when requested; existing Fs.fsync retains its contract. Test dispatch/error propagation on macOS and checked allocation/descriptor handling. A test can prove the required syscall was selected and its failure propagated, not simulate physical power-loss durability.
+
+C3 adds sys.syncfs(fd) on Linux with explicit ENOSYS on unsupported hosts; do not silently substitute machine-wide sync(), which has different scope and may not report errors. Keep per-file/directory fsync fallback and C2's macOS full-flush requirement. Benchmark representative cold patched-tree misses on the same host before deciding whether to activate the fast path: syncfs may flush unrelated dirty work on the filesystem and can lose the intended performance advantage. Flush data/modes and containing directories before publishing payload; keep the final cache-directory rename persistence step. Failure before publication leaves no final tree. Retain gate/owner lifecycle and digest identities. Do not change warm-hit work or vendor cache names.
+
+## C4–C5: identity lookup and unrestricted credential drop
+
+C4 adds typed username lookup, e.g. `Proc.user(name) -> Proc.User | nil, string`, using getpwnam_r where available, with uid/gid and only fields the consumer needs. Missing account is nil with empty reason, lookup failure is nil with reason, malformed input raises. Perform lookup before entering any filesystem sandbox, because NSS may need system files or services. No shell invocation. Bound buffer growth, handle NSS errors, copy data before temporary buffers disappear, and test real known/missing users plus controlled error cases.
+
+C5 adds `Child.Options.credentials = { user = uid, group = gid }` for launching with the ordinary filesystem and no supplementary groups. Existing Sandbox.user/group require unveil and retain their meaning; reject ambiguous combinations. In the child, clear supplementary groups before setgid/setuid, drop privilege irreversibly, report each failure through the existing spawn-status pipe before exec, and never fall back to root. Document inherited environment/cwd/fd behavior explicitly. Test actual uid/gid/groups, inability to regain root, inaccessible files, malformed/missing options, failed drop with no child program execution, and interaction with process groups/guards. CI must include a suitable privileged job; an unprivileged test cannot prove a root-to-user transition by simulation alone.
+
+C7 ports run-local only after both APIs are in the pin. Keep snapshot, ownership, cache seeding and phase behavior; preserve proper failure on this session's restricted UID mapping. The current shell uses a mixture of source-tree driver and pin mechanisms: document the chosen launcher explicitly rather than changing that boundary accidentally. Dropping root must be available on supported platforms or fail clearly; do not turn missing support into a green privileged run.
+
+## C6: noexec scratch as a declaration
+
+Add a narrow `Test.needs { noexec = true }` capability with one documented writable scratch location supplied by the harness (provisional `$COSMIC_TEST_NOEXEC`). Keep normal scratch executable. Add corresponding core sandbox mount support with explicit noexec flags, inherited by descendants; all declaration parsing, effective inputs, key material, host capability and worker environment paths must agree. A changed policy bumps the harness epoch and updates acknowledgments.
+
+Prove writing and reading succeed there while executing an executable file fails with EACCES; prove normal scratch still executes and escaping through a bind/symlink cannot turn the declared directory executable. Unsupported hosts count a clear skip where permitted and fail held-sandbox runs; never substitute an executable directory. C7 migrates the noexec launcher fixture to the declared capability, removes broad environment/host-mount discovery, and preserves native macOS coverage according to its supported sandbox contract.
+
+## Release waves, reviews and acceptance
+
+A4, B5 and C7 each name the exact green release SHA and verified asset digest, inventory all pin TODOs, execute the selected binary, and exercise both standalone bootstrap and separate CI project. Never merge an API consumer first and hope a later release repairs the pin. Each API PR has an implementation agent and a different adversarial reviewer; changes to C identity/signal/mount behavior need an independent security/lifetime review. Root verifies exact tree/SHA and green required branch/merge-queue checks before auto-merge.
+
+Run AGENTS formatting/type/whole-tree gates, appropriate focused tests and the required 30-second full-suite attempt. Core changes build native/checked/all release targets and run allocation tests. Fixture changes require run-local plus remote unprivileged/native/sandbox fixtures. Record local namespace/UID/socket limitations without weakening tests. Keep performance evidence on identical-source checkouts: warm zero compiles/reads, fresh shared-cache reuse, exact artifact equality across matching trees, unchanged cache-hit paths, and targeted syscall/throughput measurements for changed hot operations.
+
+D1 verifies all nine groups/eleven pin TODOs and both related waits/flush needs are either implemented and migrated or explicitly re-scoped with evidence. Check command help, API docs, contract exemptions, public export allowlist, pin, CI and comments together. Run integrated lock/cancellation/cache/durability/noexec scenarios and retain the plan as a living reference. Report remaining unrelated TODOs without treating them as unfinished work in this series.
+
+## Concurrent source changes
+
+PR #2543's codec and Stream.transform changes are already included in 9ac37cba. PR #2544 inspected at a6c6ce32 renames Reader.read's max argument to max_bytes across stream/HTTP/child/net/archive surfaces and updates child validation wording and harness acknowledgment. It does not remove the sticky guard cancellation in Child.pipe_reader, so B2 remains necessary. Rebase onto its actual merge if it lands; preserve max_bytes and incoming acknowledgments. Do not reapply either external API cleanup under this roadmap.
+
+## Execution ledger
+
+| Step | Implementation PR | State | Evidence |
+| --- | --- | --- | --- |
+| A1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| A2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| A3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| A4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C6 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
