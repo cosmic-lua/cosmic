@@ -1,0 +1,132 @@
+file: tl.tl
+note: `record`, `interface` and `enum` are names as well as keywords, and tl read any of them after `local x =` as the type declaration syntax 0.7.1 dropped, so `local category = record` failed with "use 'local record category'" where `record` was a loop variable. Read one as that syntax only where a whole, clean type body with something declared in it follows, which no expression and statements after it spell but an enum's strings closing a block (`enum "a" end`, a call); the same test replaces the table value's, which also took `{ v = enum "a" }`, a call, for a nested enum. The look for a body reads copies of the tokens, made as it reads them, and ends at a token error recovery inserts or at a `where`, so it leaves the tokens as they were for the expression the parse goes on to read and costs no more than the tokens it reads
+--- find
+local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
+   local next_word = ps.tokens[i].tk
+   if next_word == "record" or next_word == "interface" then
+      local skip_i, e = skip(ps, i, skip_type_body)
+      if e then
+         fail(ps, i, next_word == "record"
+                     and "syntax error: this syntax is no longer valid; declare nested record inside a record"
+                     or  "syntax error: cannot declare interface inside a table; use a statement")
+         return skip_i, new_node(ps, i, "error_node")
+      end
+   elseif next_word == "enum" and ps.tokens[i + 1].kind == "string" then
+      i = failskip(ps, i, "syntax error: this syntax is no longer valid; declare nested enum inside a record", skip_type_body)
+      return i, new_node(ps, i - 1, "error_node")
+   end
+--- replace
+-- Raised by a look ahead's tokens to end it early.
+local look_ended = {}
+
+-- Is a look ahead running? One begun within another (a body's
+-- `macroexp` holds a function holding `local y = record`) answers none:
+-- its tokens would read through the other's, a call deeper for each.
+local looking = false
+
+-- What parse makes of the tokens from i on, or nil where it fails, run
+-- on copies so that it leaves the parse to come as it was: a type
+-- argument list's `>>` is rewritten to `>` (`record < n >> 1`). The
+-- copies are made as they are first read, so a look costs what it
+-- reads, and it ends where it would cost more: at a token inserted to
+-- recover from an error (a `>` missing at a line break), which shifts
+-- every token after it and means the parse fails anyway, and at a
+-- `where`, whose clause is an expression, function bodies and all, in
+-- which a look of its own could begin.
+local function look_ahead<T>(ps: ParseState, i: integer, parse: function(ParseState, integer): (integer, T)): T
+   if looking then
+      return nil
+   end
+   local base = ps.tokens
+   local tokens: {Token} = setmetatable({} as {Token}, {
+      __index = function(t: {Token}, j: integer): Token
+         local tk = base[j]
+         if j < i or not tk then
+            return tk
+         end
+         if tk.tk == "where" then
+            error(look_ended)
+         end
+         local copy: Token = { x = tk.x, y = tk.y, tk = tk.tk, kind = tk.kind, comments = tk.comments }
+         rawset(t, j, copy)
+         return copy
+      end,
+      __newindex = function(_: {Token}, _: integer, _: Token)
+         error(look_ended)
+      end,
+      __len = function(_: {Token}): integer
+         return #base
+      end,
+   } as metatable<{Token}>)
+   local err_ps: ParseState = {
+      filename = ps.filename,
+      tokens = tokens,
+      errs = {},
+      required_modules = {},
+      parse_lang = ps.parse_lang,
+   }
+   looking = true
+   local ok, raised, result = pcall(parse, err_ps, i)
+   looking = false
+   if not ok then
+      if raised ~= look_ended then
+         error(raised, 0)
+      end
+      return nil
+   end
+   if #err_ps.errs > 0 then
+      return nil
+   end
+   return result as T
+end
+
+-- Does the `record`, `interface` or `enum` at i start a type in the
+-- syntax 0.7.1 dropped (`local Point = record ... end`), rather than
+-- name a variable? Each is a name as well as a keyword, so it does only
+-- where a type body parses after it with no error and declares
+-- something: a field, a metamethod or an enum value. Neither an
+-- expression nor the statements after one parse as such a body: a
+-- field (`x: T`) is no statement, and a nested type needs `local`. An
+-- empty old declaration (`record end`), or one with a mistake in its
+-- body or a `where` clause, is read as a name and loses the hint.
+--
+-- Strings that close a block after `enum` (`enum "a" end`) read both
+-- ways, as an enum and as calls of a function the name holds. They stay
+-- the enum: every old enum declaration is spelled so, and would lose
+-- its hint to a reading that serves only such a call.
+local function is_old_type_syntax(ps: ParseState, i: integer): boolean
+   if ps.tokens[i].tk == "enum" then
+      -- An enum body is strings and its `end`, so look at the tokens
+      -- rather than parse one: a parse records an error for each other
+      -- token and goes on to the next `end`.
+      local j = i + 1
+      while ps.tokens[j].kind == "string" do
+         j = j + 1
+      end
+      return j > i + 1 and ps.tokens[j].tk == "end"
+   end
+   local tn = ps.tokens[i].tk as BodyTypeName
+   local t = look_ahead(ps, i, function(lps: ParseState, li: integer): integer, GenericType | FirstOrderType
+      return parse_type_body(lps, li + 1, li, {}, tn)
+   end)
+   if not t then
+      return false
+   end
+   local def = t is GenericType and t.t or t
+   return def is RecordLikeType
+      and (#def.field_order > 0 or #(def.meta_field_order or {}) > 0)
+end
+
+local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
+   local next_word = ps.tokens[i].tk
+   if (next_word == "record" or next_word == "interface") and is_old_type_syntax(ps, i) then
+      local skip_i = skip(ps, i, skip_type_body)
+      fail(ps, i, next_word == "record"
+                  and "syntax error: this syntax is no longer valid; declare nested record inside a record"
+                  or  "syntax error: cannot declare interface inside a table; use a statement")
+      return skip_i, new_node(ps, i, "error_node")
+   elseif next_word == "enum" and is_old_type_syntax(ps, i) then
+      i = failskip(ps, i, "syntax error: this syntax is no longer valid; declare nested enum inside a record", skip_type_body)
+      return i, new_node(ps, i - 1, "error_node")
+   end
+--- end
