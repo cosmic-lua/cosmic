@@ -240,6 +240,25 @@ local function test_a_dangling_reference_is_named()
     table.concat(found, "\n"))
 end
 
+--- A name `cosmic docs` answers as removed is still a stale reference: a
+--- page that names it, as a symbol or in a `cosmic docs` span, is
+--- reported with what replaces it.
+local function test_a_page_naming_a_removed_symbol_is_stale()
+  local db = projection({
+    row("cosmic.net", "", "module", "",
+      "Sockets. See `Net.pair` and `cosmic docs Net.pair`, and `Net.unix`."),
+    row("cosmic.net", "Net", "record", "local record Net", ""),
+    row("cosmic.net", "unix", "function", "function Net.unix(path: string): string",
+      "A socket file's address."),
+  })
+  local found = docs_checks.references(db, {}, { "test" }, {})
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(#mentioning(found, "`Net.pair` names a removed symbol: Net.pair was removed: " ..
+    "listen at a socket file") == 1, table.concat(found, "\n"))
+  assert(#mentioning(found, "`cosmic docs Net.pair` names a removed symbol: Net.pair was removed") == 1,
+    table.concat(found, "\n"))
+end
+
 --- A help text is read as the module docs are, and reports under the
 --- name of what prints it.
 local function test_a_help_text_is_held_to_the_same_references()

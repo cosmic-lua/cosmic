@@ -6,11 +6,9 @@
 --- another module that shares the removed name's last words, which is
 --- what the search answered before.
 
-local Test = require("cosmic.test")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
-
-Test.needs{ reads = { "core" } }
+local teal = require("build.teal")
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -150,4 +148,36 @@ local function test_a_live_name_keeps_its_page(dir: string)
   for _, entry in ipairs(searched) do
     assert(entry.kind ~= "removed", entry.source_symbol)
   end
+end
+
+--- The page says a member's replacement in the words the compiler's
+--- hint does (build.teal's `replacement`, which reads the same catalog:
+--- this test requires it through build.docs), so the sentence that is
+--- spelled twice cannot drift.
+local function test_the_page_says_what_the_compiler_hint_says(dir: string)
+  local view = assert(docs.view({ fixture.database(dir, tree()) }))
+  for _, case in ipairs({
+    { "Net.pair", "invalid key 'pair' in record 'Net' of type Net", "cosmic.net" },
+    { "Http.upload", "invalid key 'upload' in record 'Http' of type Http", "cosmic.http" },
+    { "Net.Pair", "unknown type Net.Pair", "cosmic.net" },
+  }) do
+    local owner = case[1]:match("^(%a+)%.")
+    local bound = "local " .. owner .. " = require(\"" .. case[3] .. "\")\nreturn " ..
+      case[1] .. "\n"
+    local hint = teal.replacement(case[2], bound, 2, 8)
+    local found = assert(docs.lookup(view, case[1]))
+    assert(hint ~= nil and found[1].text == hint,
+      case[1] .. ": " .. tostring(hint) .. " ~= " .. tostring(found[1].text))
+  end
+end
+
+--- A removed member is answered whether or not the view holds the module
+--- it left: a project's view, or a tree, need not carry it.
+local function test_a_removed_member_is_answered_without_its_module(dir: string)
+  local view = assert(docs.view({ fixture.database(dir, {
+    ["cosmic/codec.tl"] = module("codec", "Codec"),
+  }) }))
+  local found = assert(docs.lookup(view, "Net.pair"))
+  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(page(view, found):find("Net.pair was removed: listen at a socket file", 1, true))
 end
