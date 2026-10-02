@@ -389,13 +389,14 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "another connection owns it" },
     { code = 6, extended_code = 6, reason = "database table is locked" },
     { code = 1, extended_code = 1, reason = "busy appears in this unrelated failure" },
+    { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "interrupted", cancelled = true },
   }
   local statuses, attempts, closures: {integer}, {integer}, {integer} = {}, {}, {}
   for i, outcome in ipairs(outcomes) do
     local calls, closes = 0, 0
     Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
       local fake = {
-        exec = function(_self: any, _sql: string): boolean, string return true, "" end,
+        busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end,
         exec_result = function(_self: any, sql: string): Sqlite.ExecResult
           assert(sql == "BEGIN IMMEDIATE")
           calls = calls + 1
@@ -416,5 +417,6 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   assert(statuses[1] == 7 and attempts[1] == 2)
   assert(statuses[2] == 1 and attempts[2] == 1)
   assert(statuses[3] == 1 and attempts[3] == 1)
+  assert(statuses[4] == 1 and attempts[4] == 1 and closures[4] == 1)
   assert(closures[1] == 1 and closures[2] == 1 and closures[3] == 1)
 end
