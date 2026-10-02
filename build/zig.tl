@@ -368,21 +368,6 @@ local function locate(root: string): string | nil, string
   return Zig.ensure_installed(root, cache, install.path, install.pin, install.host)
 end
 
---- [`Fs.cache_dir`] with `environment`'s variables (the process's own
---- when nil), for this file, which runs on the pinned release and is
---- also checked and run against the tree.
-local function cache_dir(tool: string, environment: {string:string} | nil): string | nil, string
-  -- TODO: once ci/cosmic-driver.pin names a release whose Fs.cache_dir
-  -- takes `{ environment = environment }`, call that here and drop this
-  -- function.
-  if environment == nil then return Fs.cache_dir(tool) end
-  -- The release's takes the variables themselves, the tree's an options
-  -- table holding them: one table both read, so it passes neither by type.
-  local named = Fs.cache_dir as any as function(string, any): string | nil, string
-  return named(tool, { environment = environment,
-    XDG_CACHE_HOME = environment.XDG_CACHE_HOME, HOME = environment.HOME })
-end
-
 --- Where one of zig's caches is: `variable` from `environment` (the
 --- process's own when nil) when set, else `tool` in this user's cosmic
 --- cache directory, made as [`Fs.cache_dir`] makes it, else `fallback`.
@@ -400,7 +385,7 @@ local function located(variable: string, tool: string, fallback: string,
   if given ~= nil and given ~= "" then
     return given
   end
-  local made, _ = cache_dir(tool, environment)
+  local made, _ = Fs.cache_dir(tool, { environment = environment })
   if made ~= nil then return made end
   return fallback
 end
@@ -561,16 +546,9 @@ function Zig.child_status(result: Child.Result): integer
   return result.code or 1
 end
 
--- A millisecond and a minute in nanoseconds, written out: the pinned
--- release's cosmic.time has no `ms` or `minutes` to write them with.
--- TODO: write every span here through Time.ms and Time.minutes, and
--- drop MS and MINUTE, once ci/cosmic-driver.pin names a release whose
--- cosmic.time has them.
-local MS <const> = 1000 * 1000
-local MINUTE <const> = 60 * 1000 * MS
-
-local POLL_NS <const> = 20 * MS
-local PASS_ON_NS <const> = 250 * MS
+local MS <const> = Time.ms(1)
+local POLL_NS <const> = Time.ms(20)
+local PASS_ON_NS <const> = Time.ms(250)
 
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
@@ -668,7 +646,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   if result == nil then
     log:complain(argv[1] .. ": " .. trouble)
     if caught ~= nil and unpassed ~= 0 then
-      local _, _ = sys.kill(sys.getpid(), unpassed)
+      local _, _ = sys.kill(Proc.pid(), unpassed)
     end
     return 1
   end
@@ -677,7 +655,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
     signal = unpassed
   end
   if caught ~= nil and signal ~= nil and signal ~= 0 then
-    local _, _ = sys.kill(sys.getpid(), signal)
+    local _, _ = sys.kill(Proc.pid(), signal)
   end
   return Zig.child_status(result)
 end
@@ -739,15 +717,10 @@ local function patch(root: string, project: string): string | nil, string
   return manifest, ""
 end
 
---- The checkout's rebuild lock, as build/rebuild_lock.tl holds it --
---- a lock on `o/rebuild.lock`, its holder's pid and role a line each in
---- `o/rebuild.lock.pid` -- which this file, run standalone, cannot
---- require. It takes the lock's SQLite half alone, an fcntl lock, which
---- keeps out a tool holding the whole lock whether the system keeps
---- flock apart from fcntl locks (Linux, where that tool takes both) or
---- not (macOS, where its flock conflicts with this).
--- TODO: take the flock half too, as build/rebuild_lock.tl does, once
--- ci/cosmic-driver.pin names a cosmic whose cosmic.sys carries flock.
+--- The checkout's rebuild lock, as build/rebuild_lock.tl holds it.
+--- This standalone entry point takes flock first and SQLite's transaction
+--- only where flock_kind says the two lock kinds are apart. The SQL half
+--- remains for older checkouts and bisects, whose tools take it alone.
 local lock_name <const> = "/o/rebuild.lock"
 local holder_name <const> = "/o/rebuild.lock.pid"
 
@@ -766,7 +739,7 @@ local doing: {string:string} = {
 }
 
 --- How long a waiting boot waits in one go before it says it still is.
-local reminder_ns <const> = 5 * MINUTE
+local reminder_ns <const> = Time.minutes(5)
 
 --- Whether `given`, the words after bin/zig, is a build of a step that
 --- boots, writing the working database under o/ beside a tool: `boot`,
@@ -797,26 +770,13 @@ function Zig.holder(root: string): string
     end
   end
   local who = "another cosmic run"
-  if pid ~= nil and pid ~= sys.getpid() then
+  if pid ~= nil and pid ~= Proc.pid() then
     local alive, _ = sys.kill(pid, 0)
     if alive then
       who = "another cosmic run (pid " .. tostring(pid) .. ")"
     end
   end
   return who .. " in this checkout " .. doing[role]
-end
-
---- `Sqlite.open(path, { writable = true })`, spelled for the release this
---- file runs on and the tree it is checked against: the release's open
---- takes a boolean, the tree's an options table. The table is truthy to
---- the one and read by the other, and the cast keeps neither from
---- refusing the call by type.
-local function open_writable(path: string): Sqlite.Handle | nil, string
-  -- TODO: once ci/cosmic-driver.pin names a release whose Sqlite.open
-  -- takes `{ writable = true }`, call that where this is called and drop
-  -- this.
-  local open = Sqlite.open as any as function(string, any): Sqlite.Handle | nil, string
-  return open(path, { writable = true })
 end
 
 --- Whether `trouble`, from beginning a transaction, says another
@@ -849,90 +809,88 @@ local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string 
   return nil, path .. ": " .. trouble
 end
 
---- Takes `db`'s transaction for a boot, or goes on under the parent's
---- hold when the lock is busy and its handoff names this same file.
---- A waiting boot reports its holder every few minutes until admitted.
-local function hold(db: Sqlite.Handle, root: string,
-    environment: {string:string}): boolean | nil, string
-  local path = root .. lock_name
-  local taken, trouble = begin(db, path, 0)
-  if taken == "busy" then
-    -- The variable names the lock's file by the holder's own spelling
-    -- of its root, so it is told apart by the file it names.
-    local handed = environment[handed_variable]
-    if handed ~= nil and handed ~= "" then
-      local given, _ = sys.stat(handed)
-      local own, _ = sys.stat(path)
-      if given ~= nil and own ~= nil and given.dev == own.dev and given.ino == own.ino then
-        return false, ""
-      end
-    end
-    log:complain(Zig.holder(root) .. "; waiting for it (one run at a time holds " ..
-      path .. ")")
-    local waited_ns = 0
-    while taken == "busy" do
-      taken, trouble = begin(db, path, reminder_ns)
-      if taken == "busy" then
-        waited_ns = waited_ns + reminder_ns
-        local minutes = waited_ns // MINUTE
-        log:complain("still waiting, " .. tostring(minutes) ..
-          (minutes == 1 and " minute" or " minutes") .. " on: " ..
-          Zig.holder(root) .. " (one run at a time holds " .. path .. ")")
-      end
-    end
-  end
-  if taken == nil then
-    return nil, trouble
-  end
-  -- Written aside and moved into place, so a waiting run reads a whole
-  -- one or the one before.
-  local aside = root .. holder_name .. "." .. tostring(sys.getpid())
-  local written, _ = Fs.write(aside, tostring(sys.getpid()) .. "\nrebuild\n")
-  if written then
-    local _, _ = Fs.rename(aside, root .. holder_name)
-  end
-  return true, ""
+--- Owns both halves until the callback ends, including on an exception.
+--- No second descriptor is closed while the SQL half is held: closing
+--- any descriptor of that inode releases this process's fcntl locks.
+local record Lock
+  fd: integer
+  db: Sqlite.Handle | nil
+  metamethod __close: function(Lock)
 end
 
---- Owns the boot's SQLite handle through acquisition, handoff and the
---- whole build. Every return and exception closes it here; the callback
---- receives the environment that hands the held lock to the boot bridge.
+local lock_mt: metatable<Lock> = {
+  __close = function(self: Lock)
+    if self.db ~= nil then local _, _ = self.db:close() end
+    local _, _ = sys.close(self.fd)
+  end,
+}
+
+local function take(lock: Lock, path: string, wait_ns: integer): string | nil, string
+  local started = Time.monotonic_ns()
+  local flocked, trouble, errno = sys.flock(lock.fd, "exclusive", Time.ceil(wait_ns, MS))
+  if not flocked then
+    if sys.errno_name(errno) == "ETIMEDOUT" then return "busy", "" end
+    return nil, path .. ": " .. trouble
+  end
+  local kind, kind_trouble = sys.flock_kind(lock.fd)
+  if kind == nil then return nil, path .. ": " .. kind_trouble end
+  if kind == "apart" then
+    if lock.db == nil then
+      local db, db_trouble = Sqlite.open(path, { writable = true })
+      if db == nil then return nil, path .. ": " .. db_trouble end
+      lock.db = db
+    end
+    local left = math.max(0, wait_ns - (Time.monotonic_ns() - started))
+    return begin(lock.db, path, left)
+  end
+  return "held", ""
+end
+
+--- Takes the boot's lock, or accepts a parent's handoff only when it
+--- names the held descriptor's inode. One wait budget covers both halves.
 function Zig.with_lock(root: string, environment: {string:string},
     run: function({string:string}): integer): integer
   local made, made_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    log:complain(root .. "/o: " .. made_trouble)
-    return 1
-  end
+  if not made then log:complain(root .. "/o: " .. made_trouble); return 1 end
   local path = root .. lock_name
-  -- SQLite opens a file it cannot write read-only, where a transaction
-  -- locks nothing: refused here instead. Closed before SQLite's lock is
-  -- taken, since a close drops this process's fcntl locks on the file.
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
-  if fd == nil then
-    log:complain(path .. ": " .. open_trouble)
-    return 1
-  end
-  local _, _ = sys.close(fd)
-  local db, db_trouble = open_writable(path)
-  if db == nil then
-    log:complain(path .. ": " .. db_trouble)
-    return 1
-  end
-  local ok, status = pcall(function(): integer
-    local taken, trouble = hold(db, root, environment)
-    if taken == nil then
-      log:complain(trouble)
-      return 1
+  if fd == nil then log:complain(path .. ": " .. open_trouble); return 1 end
+  local opened: Lock = { fd = fd }
+  local lock <close> = setmetatable(opened, lock_mt)
+  local taken, trouble = take(lock, path, 0)
+  local handed = false
+  if taken == "busy" then
+    local given_path = environment[handed_variable]
+    if given_path ~= nil and given_path ~= "" then
+      local given, _ = sys.stat(given_path)
+      local own, _ = sys.fstat(fd)
+      handed = given ~= nil and own ~= nil and given.dev == own.dev and given.ino == own.ino
     end
-    local env: {string:string} = {}
-    for key, value in pairs(environment) do env[key] = value end
-    env[handed_variable] = path
-    return run(env)
-  end)
-  local _, _ = db:close()
-  if not ok then error(status, 0) end
-  return status
+    if not handed then
+      log:complain(Zig.holder(root) .. "; waiting for it (one run at a time holds " .. path .. ")")
+      local waited_ns = 0
+      while taken == "busy" do
+        taken, trouble = take(lock, path, reminder_ns)
+        if taken == "busy" then
+          waited_ns = waited_ns + reminder_ns
+          local minutes = waited_ns // Time.minutes(1)
+          log:complain("still waiting, " .. tostring(minutes) ..
+            (minutes == 1 and " minute" or " minutes") .. " on: " ..
+            Zig.holder(root) .. " (one run at a time holds " .. path .. ")")
+        end
+      end
+    end
+  end
+  if taken == nil then log:complain(trouble); return 1 end
+  if not handed then
+    local aside = root .. holder_name .. "." .. tostring(Proc.pid())
+    local written, _ = Fs.write(aside, tostring(Proc.pid()) .. "\nrebuild\n")
+    if written then local _, _ = Fs.rename(aside, root .. holder_name) end
+  end
+  local env: {string:string} = {}
+  for key, value in pairs(environment) do env[key] = value end
+  env[handed_variable] = path
+  return run(env)
 end
 
 --- The whole entry point, over `argv` as the entry-point contract

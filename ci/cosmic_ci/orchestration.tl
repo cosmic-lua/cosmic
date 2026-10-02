@@ -8,7 +8,6 @@ local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
-local PinTime = require("cosmic_ci.pin_time")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
 local RunNames = require("cosmic_ci.run_names")
@@ -114,21 +113,21 @@ local epoch_file <const> = "build/harness_epoch.tl"
 
 --- How long a git command [`harness_moved`] runs may take: a local
 --- lookup, or a fetch of one commit.
-local git_timeout_ms <const> = 60 * 1000
+local git_timeout_ns <const> = Time.seconds(60)
 
 --- Runs git in the checkout at `root`, never asking for credentials
---- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ms`: what it
+--- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ns`: what it
 --- printed, or nil and why it failed, its own stderr among it.
 local function git(root: string, words: {string}): string | nil, string
   local argv = { "/usr/bin/env", "git", "-C", root }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local env = Env.all()
   env.GIT_TERMINAL_PROMPT = "0"
-  local result, trouble = Child.run(argv, PinTime.options({ env = env, stdout = "capture",
-    stderr = "capture" }, git_timeout_ms))
+  local result, trouble = Child.run(argv, { env = env, stdout = "capture",
+    stderr = "capture", timeout_ns = git_timeout_ns })
   if result == nil then return nil, "git " .. words[1] .. ": " .. trouble end
   if result.timed_out then
-    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ms // 1000) .. " s"
+    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ns // Time.seconds(1)) .. " s"
   end
   if not result.ok then
     return nil, "git " .. words[1] .. ": exit " .. tostring(result.code) .. ": " ..
@@ -243,19 +242,6 @@ local function environment(extra?: {string:string}): {string:string}
     all.COSMIC_TEST_SANDBOX = "1"
     all.COSMIC_SANDBOX = "must"
   end
-  -- Where the leg has no sandbox but stands on verdicts all the same
-  -- (COSMIC_CI_DECLARED_KEYS, the macOS leg), every operation is given
-  -- COSMIC_TEST_KEY=declared, which only the pinned driver's `cosmic
-  -- test` reads, for the fixtures it runs: without it, that release keys
-  -- each test by what it was seen to read, which no other checkout
-  -- shares. The tree's own tool, which runs the leg's suites, keys every
-  -- unsandboxed run by declaration and reads it nowhere. A fixture's run
-  -- takes it back out ([`Orchestration.fixture`]), and a test's own
-  -- `cosmic test` is not given it (`test.worker_environment`).
-  -- TODO: drop COSMIC_TEST_KEY here, and from [`Orchestration.fixture`] and
-  -- orchestration_test.tl, once ci/cosmic-driver.pin names a release
-  -- that keys every unsandboxed run by declaration (plan 4.2's PR 3).
-  if all.COSMIC_CI_DECLARED_KEYS == "1" then all.COSMIC_TEST_KEY = "declared" end
   return all
 end
 
@@ -373,7 +359,7 @@ local function operation(c: Context, phase: string, command: {string},
     child_environment.COSMIC_AUTO_BOOT = "0"
   end
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
-    env = child_environment, timeout_ms = timeout,
+    env = child_environment, timeout_ns = timeout,
     output = output, error = error_output }).code
 end
 
@@ -416,7 +402,7 @@ local function record_suite(c: Context, name: string, code: integer, out: string
       phase = c.phase or "", suite = name,
       status = status, exit_code = code,
       tests = figures.tests, modules = figures.modules, ran = figures.ran,
-      stood = figures.stood, every = figures.every, assumed = figures.assumed,
+      stood = figures.stood, every = figures.every,
       shared = figures.shared, failed = figures.failed,
       elapsed_ms = figures.elapsed_ms, sandbox = figures.sandbox,
       parts = figures.parts, held = figures.held })
@@ -434,15 +420,15 @@ end
 
 -- Whole-project guards include compilation and test-runner overhead. The
 -- direct children inside them have the shorter bounds defined by fixture.tl.
-local product_test_timeout_ms <const> = 60000
-local format_test_timeout_ms <const> = 300000
+local product_test_timeout_ns <const> = Time.seconds(60)
+local format_test_timeout_ns <const> = Time.seconds(300)
 -- The sandboxed fixtures (`sandboxed_fixtures`) take 6 to 28 s where
 -- they run, under ci/run-local on a loaded four-core host (launcher 6 s,
 -- runtime 10 s, identity 28 s), and 4 to 6 s where their verdicts stand;
 -- each bound is several times that.
-local launcher_test_timeout_ms <const> = 60000
-local launcher_noexec_test_timeout_ms <const> = 60000
-local self_rebuild_test_timeout_ms <const> = 180000
+local launcher_test_timeout_ns <const> = Time.seconds(60)
+local launcher_noexec_test_timeout_ns <const> = Time.seconds(60)
+local self_rebuild_test_timeout_ns <const> = Time.seconds(180)
 -- Each self-rebuild test rebuilds the tool (about 20 s, several at once),
 -- past the runner's default 30 s per test on a loaded machine.
 local self_rebuild_per_test_timeout_s <const> = "120"
@@ -452,23 +438,23 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- about twice over (80 s alone on four cores; the sixth case, the last of
 -- these, adds about 20 to 30 s to the fixture), so each runs apart from
 -- the self-rebuild file's.
-local fixed_point_test_timeout_ms <const> = 300000
+local fixed_point_test_timeout_ns <const> = Time.seconds(300)
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes.
-local checked_suite_timeout_ms <const> = 600000
+local checked_suite_timeout_ns <const> = Time.seconds(600)
 local fixed_point_per_test_timeout_s <const> = "240"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
 -- TODO: lower these bounds once CI's own runs show the fixture's time
 -- without the core's C compile they were sized for (about 110 s of it).
-local self_driven_test_timeout_ms <const> = 600000
+local self_driven_test_timeout_ns <const> = Time.seconds(600)
 local self_driven_per_test_timeout_s <const> = "480"
-local runtime_test_timeout_ms <const> = 90000
+local runtime_test_timeout_ns <const> = Time.seconds(90)
 -- The sandbox probe starts six trivial children; its bound is the
 -- tree's own load, which a booted tree has already paid.
-local sandbox_probe_timeout_ms <const> = 60000
-local identity_test_timeout_ms <const> = 120000
+local sandbox_probe_timeout_ns <const> = Time.seconds(60)
+local identity_test_timeout_ns <const> = Time.seconds(120)
 -- The identity suite takes 21-30 s whole on macOS, and 35 s at worst, past
 -- the runner's default 30 s per test. Its focused-embed step takes 21 s of
 -- that alone and is a test of its own. The two run at once on a runner of
@@ -482,7 +468,7 @@ local identity_per_test_timeout_s <const> = "60"
 -- the checked cosmic under ci/run-local on a 4-core host, once 41 s.
 -- TODO: lower this bound once CI's own runs show the step's time
 -- without that reparse; it is still sized for it.
-local checked_compile_timeout_ms <const> = 300000
+local checked_compile_timeout_ns <const> = Time.seconds(300)
 
 -- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
 -- tests on a four-core runner (1872 tests), after a build of up to 25 s
@@ -491,7 +477,7 @@ local checked_compile_timeout_ms <const> = 300000
 -- bound is about twice that. Each test gets far less than the whole run,
 -- so a test that hangs is ended and named by the runner, not hidden under
 -- a cancelled run.
-local suite_timeout_ms <const> = 270000
+local suite_timeout_ns <const> = Time.seconds(270)
 local suite_test_timeout_s <const> = "10"
 
 local function copy_flat_tl_dir(source: string, destination: string)
@@ -610,7 +596,6 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string,
   -- for a key to name. A release that keys every unsandboxed run by
   -- declaration keys it so anyway, and it shares nothing all the same
   -- (COSMIC_VERDICT_CACHE=0); it declares the whole environment it reads.
-  env.COSMIC_TEST_KEY = nil
   return env
 end
 
@@ -631,7 +616,7 @@ function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir:
 end
 
 local function fixture_test(c: Context, work: string, name: string,
-    source: string, timeout_ms: integer, extra: {string:string}): integer
+    source: string, timeout_ns: integer, extra: {string:string}): integer
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
   local project = fixture_project(c, work)
@@ -642,7 +627,7 @@ local function fixture_test(c: Context, work: string, name: string,
   -- to say much, and an unsandboxed one's are keyed by nothing.
   local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
-      "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
+      "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ns, project,
     Orchestration.fixture_run(source, environment(extra), diagnostics .. "/tmp",
       work .. "/fixture-compiles.db"))
   record_suite(c, "fixture " .. name, status, out)
@@ -682,7 +667,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- The checked artifact's manifest entry, as the contract's decoder
   -- reads it (as ci/fixtures/product_test.tl reads the product's).
   local s = capture_small(c, "checked manifest entry",
-    { decoder, "--inspect", cosmic }, entry, 30000)
+    { decoder, "--inspect", cosmic }, entry, Time.seconds(30))
   if s ~= 0 then return s end
   local found = Fixture.entry(Fixture.inspection(entry),
     assert(math.tointeger(tonumber(target_id))), 2)
@@ -735,7 +720,7 @@ local function checked_suite(c: Context, target: string, work: string,
   local context = work .. "/checked-context.txt"
   s = capture_small(c, "checked runtime context", { cosmic, "-e",
     "local Store = require('cosmic.store'); print(Store.meta('runtime_context'), " ..
-    "Store.meta('host'), Store.meta('host_image'))" }, context, 30000)
+    "Store.meta('host'), Store.meta('host_image'))" }, context, Time.seconds(30))
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
     "checked artifact did not execute the checked raw core: " .. read(context))
@@ -775,7 +760,7 @@ local function checked_suite(c: Context, target: string, work: string,
   local compiled = work .. "/checked-compile.txt"
   s = capture_small(c, "checked tool entry", { cosmic,
     c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
-    compiled, checked_compile_timeout_ms)
+    compiled, checked_compile_timeout_ns)
   if s ~= 0 then return s end
   assert(read(compiled) == expected,
     "the checked cosmic reads another manifest entry: " .. read(compiled))
@@ -805,7 +790,7 @@ local function checked_suite(c: Context, target: string, work: string,
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    checked_suite_timeout_ms, c.root, checked_environment)
+    checked_suite_timeout_ns, c.root, checked_environment)
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
@@ -849,7 +834,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
       read(c.root .. "/ci/testdata/portable/work_db_integrity.tl"))
     return logged(c, label .. " integrity",
       { cosmic, "work_db_integrity.tl", "--recover-copy", "build.db" },
-      out .. "/integrity.out", out .. "/integrity.err", 30000, inspect)
+      out .. "/integrity.out", out .. "/integrity.err", Time.seconds(30), inspect)
   end)
   local removed, remove_trouble = Fs.remove_tree(inspect)
   assert(removed and not exists(inspect),
@@ -877,7 +862,7 @@ local function suite(c: Context, name: string, executable: string,
   local argv: {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
-    suite_timeout_ms, c.root, values)
+    suite_timeout_ns, c.root, values)
   record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snap_called, snap_answer = pcall(snapshot, c, diagnostics,
@@ -1036,7 +1021,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/darwin-test.out"
   local status = logged(c, "darwin suite", argv, out,
-    p.local_diagnostics .. "/darwin-test.err", suite_timeout_ms, c.root, values)
+    p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root, values)
   record_suite(c, "darwin", status, out)
   if status ~= 0 then
     Fs.put(Fs.stderr, "darwin suite: failed (status " .. status .. ")\n")
@@ -1107,7 +1092,7 @@ local function phase_sandbox(p: PlatformContext): integer
   local c = p.operation
   local report = p.work .. "/sandbox-probe.md"
   local s = capture_small(c, "sandbox probe", { p.root .. "/o/bin/cosmic",
-    "build/sandbox_probe.tl" }, report, sandbox_probe_timeout_ms)
+    "build/sandbox_probe.tl" }, report, sandbox_probe_timeout_ns)
   if s ~= 0 then return s end
   local said = read(report)
   ContextEnv.summarize("## Sandbox probe (" .. c.worker .. ")\n\n" .. said .. "\n")
@@ -1194,7 +1179,7 @@ local function phase_assemble(p: PlatformContext): integer
   write(work .. "/cosmic.before.sha256", hash(product .. "/cosmic") .. "\n")
   write(work .. "/product.before.sha256", read(product .. "/hashes.sha256"))
   s = fixture_test(c, work, "format-contract", "format",
-    format_test_timeout_ms, {
+    format_test_timeout_ns, {
     COSMIC_FIXTURE_ROOT = root,
     COSMIC_FIXTURE_FORMAT = contract .. "/format",
     COSMIC_FIXTURE_TARGET = target,
@@ -1214,7 +1199,7 @@ local function phase_assemble(p: PlatformContext): integer
     product .. "/cosmic.db", runtime, work .. "/runtime-setup") == runtime,
     "runtime setup returned the wrong output")
   s = fixture_test(c, work, "product-verification", "product",
-    product_test_timeout_ms, {
+    product_test_timeout_ns, {
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_FIXTURE_TARGET = target,
     COSMIC_FIXTURE_FORMAT = contract .. "/format",
@@ -1297,7 +1282,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
       function(): boolean, string return Fs.chmod(cache, 0x140) end)
     if locked ~= 0 then return locked end
     local help = checked(portable_context, "read-only cache execution",
-      { executable, "help" }, 30000, fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
+      { executable, "help" }, Time.seconds(30), fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
     local restored = step(portable_context, "portable cache restore mode",
       function(): boolean, string return Fs.chmod(cache, 0x1c0) end)
     if help ~= 0 then return help end
@@ -1342,7 +1327,7 @@ local function phase_fixtures(p: PlatformContext): integer
       "(COSMIC_CI_SELF_REBUILD=skip)\n")
   else
     s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
-      self_rebuild_test_timeout_ms, {
+      self_rebuild_test_timeout_ns, {
       COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_RUNTIME = runtime,
       COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
@@ -1360,36 +1345,36 @@ local function phase_fixtures(p: PlatformContext): integer
       "(COSMIC_CI_FIXED_POINT=skip)\n")
   else
     s = fixture_test(c, work, "fixed-point-regression", "fixed_point",
-      fixed_point_test_timeout_ms, {
+      fixed_point_test_timeout_ns, {
       COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
     }); if s ~= 0 then return s end
   end
   s = fixture_test(c, work, "self-driven-regression", "self_driven",
-    self_driven_test_timeout_ms, {
+    self_driven_test_timeout_ns, {
     COSMIC_FIXTURE_SOURCE = source,
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
-    runtime_test_timeout_ms, {
+    runtime_test_timeout_ns, {
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_FIXTURE_RUNTIME = runtime,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "launcher-regression", "launcher",
-    launcher_test_timeout_ms, {
+    launcher_test_timeout_ns, {
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
     COSMIC_FIXTURE_TARGET = target,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
-    launcher_noexec_test_timeout_ms, {
+    launcher_noexec_test_timeout_ns, {
     COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
     COSMIC_FIXTURE_TARGET = target,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "identity-regression", "identity",
-    identity_test_timeout_ms, {
+    identity_test_timeout_ns, {
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_FIXTURE_RUNTIME = runtime,
     COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,

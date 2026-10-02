@@ -169,28 +169,6 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
-  ["build/zig_fetch.tl:ZigFetch.limits"] =
-    "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
-    "whose Http.Options counts its limits in milliseconds and seconds " ..
-    "where the tree's counts nanoseconds: no one declaration fits both, " ..
-    "so the table of both is read as the tree's record",
-  ["build/zig.tl:open_writable"] =
-    "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
-    "whose Sqlite.open is (string, boolean) where the tree's is (string, " ..
-    "OpenOptions): no one declaration fits both, a typed local is refused " ..
-    "by the release (got record, expected boolean), and a record field " ..
-    "holding the function would only hide the same cast",
-  ["build/zig.tl:cache_dir"] =
-    "bin/zig runs this file on the release ci/cosmic-driver.pin names, " ..
-    "whose Fs.cache_dir takes the environment's variables where the tree's " ..
-    "takes an options table holding them: no one declaration fits both, so " ..
-    "one table that holds both is passed through an untyped reference",
-  ["eval/check/notes.tl:open_writable"] =
-    "eval/check/notes runs this file on the release ci/cosmic-driver.pin " ..
-    "names, whose Sqlite.open is (string, boolean) where the tree's is " ..
-    "(string, OpenOptions): no one declaration fits both, a typed local is " ..
-    "refused by the release (got record, expected boolean), and a record " ..
-    "field holding the function would only hide the same cast",
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..

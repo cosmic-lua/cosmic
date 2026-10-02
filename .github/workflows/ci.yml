@@ -212,9 +212,8 @@
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
         # macOS keys verdicts by what each test declares all the same, as
-        # the tree's tool keys every unsandboxed run (the pinned driver,
-        # for its fixtures, under the COSMIC_TEST_KEY=declared
-        # orchestration.tl sets): a Linux leg's sandbox holds the same
+        # both the tree's tool and pinned driver key every unsandboxed
+        # run: a Linux leg's sandbox holds the same
         # declaration, so one that lies fails there first.
         COSMIC_CI_DECLARED_KEYS: "${{ matrix.image && '0' || '1' }}",
         # Pushes and the merge queue stand on verdicts; a manual and the
@@ -304,8 +303,8 @@
         {
           name: "name the zig build cache, and the run's start",
           id: "names",
-          shell: "sh",
-          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-${{ matrix.name }}-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
+          uses: "./.github/actions/cache-names",
+          with: {leg: "${{ matrix.name }}"},
         },
 
         # The newest entry for this vendor part: `full` with this core
@@ -446,7 +445,7 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/driver-checked",
-            key: "driver-checked-v2-${{ matrix.name }}-${{ matrix.image && 'container' || steps.names.outputs.image }}-${{ steps.host-id.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/workflows/ci.yml') }}",
+            key: "driver-checked-v2-${{ matrix.name }}-${{ matrix.image && 'container' || steps.names.outputs.image }}-${{ steps.host-id.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/actions/cache-names/**', '.github/workflows/ci.yml') }}",
             "lookup-only": true,
           },
         },
@@ -973,8 +972,8 @@
         {
           name: "name the zig build cache, and the run's start",
           id: "names",
-          shell: "sh",
-          run: "echo \"vendor=zig-build-linux-x86_64-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"; echo \"compiles=compiles-branch-linux-x86_64-${{ hashFiles('build/**/*.tl', '!build/**/*_test.tl', 'vendor/tl/PIN', 'vendor/lua/PIN', 'patch/tl/**', 'patch/lua/**') }}-\" >> \"$GITHUB_OUTPUT\"",
+          uses: "./.github/actions/cache-names",
+          with: {leg: "linux-x86_64"},
         },
         {
           name: "restore zig build outputs",
@@ -1077,7 +1076,7 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/driver-checked",
-            key: "driver-checked-v2-linux-x86_64-container-${{ steps.driver-host.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/workflows/ci.yml') }}",
+            key: "driver-checked-v2-linux-x86_64-container-${{ steps.driver-host.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/actions/cache-names/**', '.github/workflows/ci.yml') }}",
             "lookup-only": true,
           },
         },
