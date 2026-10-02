@@ -1,3 +1,4 @@
+local Time = require("cosmic.time")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
@@ -10,12 +11,15 @@ local function test_runner_records_without_aliasing_subject(tmp: string)
     worker = "worker", run = "run", attempt = "1", candidate = candidate }
   local function execute(phase: string, argv: {string}, timeout?: integer): Runner.Outcome
     return Runner.operation(c, phase, { argv = argv, cwd = candidate,
-      timeout_ms = timeout or 1000 })
+      timeout_ns = timeout or Time.seconds(1) })
   end
   assert(execute("success", { "/bin/sh", "-c", "exit 0" }).code == 0)
   assert(execute("exit", { "/bin/sh", "-c", "exit 23" }).code == 23)
   assert(execute("start", { "/missing/command" }).status == "start-error")
-  assert(execute("timeout", { "/bin/sh", "-c", "sleep 30" }, 20).code == 124)
+  assert(execute("delayed-success", { "/bin/sh", "-c", "sleep 0.05" }, Time.seconds(1)).code == 0)
+  local timed = execute("timeout", { "/bin/sh", "-c", "sleep 30" }, Time.ms(20))
+  assert(timed.code == 124 and timed.elapsed_ns >= Time.ms(10) and
+    timed.elapsed_ns < Time.seconds(5), "timeout did not preserve its nanosecond duration")
   assert(Fs.write(candidate .. "/o.db", "candidate state"))
   local database_exists = Predicate.exists(c.database)
   assert(database_exists and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
@@ -31,7 +35,7 @@ local function test_runner_owns_input_and_retained_output(tmp: string)
   local outcome = Runner.execute({
     argv = { "/bin/sh", "-c", "cat; printf error-bytes >&2" }, cwd = tmp,
     input = tmp .. "/input", output = tmp .. "/out", error = tmp .. "/err",
-    timeout_ms = 1000,
+    timeout_ns = Time.seconds(1),
   })
   assert(outcome.code == 0 and assert(Fs.read(tmp .. "/out")) == "input bytes")
   assert(assert(Fs.read(tmp .. "/err")) == "error-bytes")
@@ -103,7 +107,7 @@ local function test_execute_passes_more_descriptors(tmp: string)
   local fd = assert(Fs.open_read(tmp .. "/eight"))
   local outcome = Runner.execute({
     argv = { "/bin/sh", "-c", "cat <&8" }, cwd = tmp,
-    output = tmp .. "/out", fds = { [8] = fd }, timeout_ms = 1000,
+    output = tmp .. "/out", fds = { [8] = fd }, timeout_ns = Time.seconds(1),
   })
   assert(Fs.close(fd))
   assert(outcome.code == 0 and assert(Fs.read(tmp .. "/out")) == "on eight",

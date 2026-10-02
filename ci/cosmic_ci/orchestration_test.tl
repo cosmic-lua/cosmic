@@ -1,3 +1,4 @@
+local Time = require("cosmic.time")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
@@ -6,7 +7,6 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
-local SqliteOpen = require("cosmic_ci.sqlite_open")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
 
@@ -198,7 +198,7 @@ chmod 755 o/bin/cosmic
       TARGET = "x86_64-linux-musl",
       COSMIC_ZIG_CACHE_SEED = seed, COSMIC_CI_SELFTEST_REPLAY_FAILURE = "true",
       TMPDIR = tmp .. "/temporary",
-    }), 10000)
+    }), Time.seconds(10))
   assert(outcome.result.code == 23, "suite failure was not primary")
   assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
@@ -426,8 +426,7 @@ local function test_an_unsandboxed_fixture_neither_reads_nor_writes_shared_verdi
   local Orchestration = require("cosmic_ci.orchestration")
   local env: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push",
     COSMIC_TEST_SANDBOX = "1", COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
-    COSMIC_BUILD_CACHE = tmp .. "/build.db", COSMIC_FIXTURE_SOURCE = tmp .. "/source",
-    COSMIC_TEST_KEY = "declared" }
+    COSMIC_BUILD_CACHE = tmp .. "/build.db", COSMIC_FIXTURE_SOURCE = tmp .. "/source" }
   Orchestration.shares(env)
   assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
   local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
@@ -436,7 +435,6 @@ local function test_an_unsandboxed_fixture_neither_reads_nor_writes_shared_verdi
     "the fixture shares the leg's compiles, not its fixtures' own")
   assert(fixture.COSMIC_TEST_NO_SHARED == "1", "the fixture may stand on shared verdicts")
   assert(fixture.COSMIC_TEST_SANDBOX == "0" and fixture.TMPDIR == tmp .. "/tmp")
-  assert(fixture.COSMIC_TEST_KEY == nil, "the fixture is keyed by a declaration it does not keep")
   assert(fixture.COSMIC_FIXTURE_SOURCE == tmp .. "/source")
 end
 
@@ -474,7 +472,7 @@ local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: s
   local Orchestration = require("cosmic_ci.orchestration")
   local legs: {string:{string:string}} = {
     linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must" },
-    macos = { COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_KEY = "declared" },
+    macos = { COSMIC_CI_DECLARED_KEYS = "1" },
   }
   for leg, values in pairs(legs) do
     local function env(): {string:string}
@@ -489,11 +487,9 @@ local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: s
     assert(sandboxed.COSMIC_TEST_NO_SHARED == nil, leg .. ": a push's fixture stands on nothing")
     assert(sandboxed.COSMIC_TEST_SANDBOX == values.COSMIC_TEST_SANDBOX,
       leg .. ": the fixture's workers are not held as the leg's are")
-    assert(sandboxed.COSMIC_TEST_KEY == values.COSMIC_TEST_KEY,
-      leg .. ": the fixture is not keyed as the leg's suites are")
     local plain = Orchestration.fixture_run("self_driven", env(), tmp .. "/tmp", tmp .. "/c.db")
     assert(plain.COSMIC_VERDICT_CACHE == "0" and plain.COSMIC_TEST_NO_SHARED == "1" and
-      plain.COSMIC_TEST_SANDBOX == "0" and plain.COSMIC_TEST_KEY == nil,
+      plain.COSMIC_TEST_SANDBOX == "0",
       leg .. ": an unsandboxed fixture shares verdicts")
     local bare = env()
     bare.COSMIC_FIXTURE_PRODUCT = nil
@@ -839,7 +835,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       "chmod 755 o/bin/cosmic\n", 493)
     local database = runner_temp .. "/cosmic-ci/operations.db"
     if case.broken then
-      local db = assert(SqliteOpen.writable(database))
+      local db = assert(Sqlite.open(database, { writable = true }))
       assert(db:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY)"))
       assert(db:close())
     end
@@ -1212,31 +1208,20 @@ local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
     all_env.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
 end
 
---- The macOS leg's suites (COSMIC_CI_DECLARED_KEYS=1, no sandbox) stand
---- on shared verdicts in a push's run and the merge queue's, keyed by
---- what each test declares (COSMIC_TEST_KEY=declared): an unsandboxed
---- run keyed by what it read shares none, so without the switch the
---- leg would run every test there. Its scheduled run runs every test
---- and stands on none, and a fixture, which shares no verdict, is not
---- keyed by declarations. A Linux leg is given no switch: sandboxed, it keys
---- by declarations already.
+--- The macOS leg's suites stand on shared verdicts in pushes and the
+--- merge queue, keyed by each test's declarations. Scheduled runs and
+--- unsandboxed fixtures stand on none.
 local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   for _, event in ipairs({ "push", "merge_group" }) do
     local words, env = Orchestration.suite_run({
       COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_HARNESS_MOVED = "0",
-      COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "", COSMIC_TEST_KEY = "" })
+      COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "" })
     assert(table.concat(words, " ") == "test", event .. ": the macOS leg ran --all")
     assert(env.COSMIC_TEST_NO_SHARED == nil, event .. ": the macOS leg stands on no shared verdict")
-    assert(env.COSMIC_TEST_KEY == "declared", event .. ": COSMIC_TEST_KEY=" ..
-      tostring(env.COSMIC_TEST_KEY))
     assert(env.COSMIC_CI_DECLARED_KEYS == nil, event .. ": the suite was given the driver's switch")
     assert((env.COSMIC_TEST_SANDBOX or "") == "" and env.COSMIC_SANDBOX ~= "must",
       event .. ": the macOS leg's suite was held to a sandbox")
-    local _, linux = Orchestration.suite_run({
-      COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "1",
-      COSMIC_CI_DECLARED_KEYS = "0", COSMIC_TEST_KEY = "" })
-    assert((linux.COSMIC_TEST_KEY or "") == "", event .. ": a Linux leg was given COSMIC_TEST_KEY")
   end
   local all, scheduled = Orchestration.suite_run({ COSMIC_CI_EVENT = "schedule",
     COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
@@ -1245,7 +1230,6 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
   local _, pushed = Orchestration.suite_run({ COSMIC_CI_EVENT = "push",
     COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
   local fixture = Orchestration.fixture(pushed, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
-  assert(fixture.COSMIC_TEST_KEY == nil, "a fixture was keyed by declarations")
   assert(fixture.COSMIC_TEST_NO_SHARED == "1" and fixture.COSMIC_VERDICT_CACHE == "0")
 end
 
@@ -1283,7 +1267,7 @@ local function test_a_listed_module_runs_where_it_would_stand(tmp: string)
   assert(Fs.mkdirs(project))
   assert(Fs.write(project .. "/a_test.tl", "local function test_a()\n  assert(true)\nend\n"))
   assert(Fs.write(project .. "/b_test.tl", "local function test_b()\n  assert(true)\nend\n"))
-  local env = Fixture.environment({ COSMIC_TEST_SANDBOX = "0", COSMIC_TEST_KEY = "declared",
+  local env = Fixture.environment({ COSMIC_TEST_SANDBOX = "0",
     COSMIC_VERDICT_CACHE = "0", COSMIC_TEST_ALL = "", COSMIC_TEST_NO_SHARED = "",
     COSMIC_SANDBOX = "", TMPDIR = tmp })
   local function run(label: string, words: {string}): string

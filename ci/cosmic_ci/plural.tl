@@ -2,15 +2,14 @@
 --- ci/ runs on the pinned driver release, which cannot require the tree's
 --- own build.plural.
 
+local String = require("cosmic.string")
 local record Plural
 end
 
 --- `count` and `singular`, the noun made plural (by an `s`, or by
 --- `several` when the plural is not that) unless `count` is 1.
 function Plural.count(count: integer, singular: string, several?: string): string
-  -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.string has
-  -- `counted`, return that.
-  return count .. " " .. (count == 1 and singular or several or singular .. "s")
+  return String.counted(count, singular, several)
 end
 
 --- `singular`, or its plural, as `count` asks, for a line that prints the

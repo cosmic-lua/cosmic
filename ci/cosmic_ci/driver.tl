@@ -22,7 +22,7 @@ end
 local function run(argv: {string}): integer
   local phase, timeout_text, executable = argv[1], argv[2], argv[3]
   assert(phase and timeout_text and executable,
-    "usage: driver.tl run PHASE TIMEOUT_MS -- EXECUTABLE [ARG...]")
+    "usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE [ARG...]")
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
@@ -31,7 +31,7 @@ local function run(argv: {string}): integer
   local runner: Runner.Context = { database = context.db, worker = context.worker,
     run = context.run, attempt = context.attempt, candidate = context.root }
   return Runner.operation(runner, phase, { argv = command, cwd = context.root,
-    timeout_ms = timeout }).code
+    timeout_ns = timeout }).code
 end
 
 local function clean(value: string): string
@@ -98,7 +98,7 @@ end
 
 local commands: {string:Command} = {
   run = { about = "run a command as one recorded operation of the phase",
-    usage = "PHASE TIMEOUT_MS -- EXECUTABLE [ARG...]", handler = run },
+    usage = "PHASE TIMEOUT_NS -- EXECUTABLE [ARG...]", handler = run },
   summarize = { about = "write the operations recorded so far as a table",
     usage = "", handler = summarize },
   ["compiles-trim"] = { about = "trim the build cache to the compiles used since SINCE, digest it, and count those RESTORED lacks",

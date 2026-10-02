@@ -6,7 +6,6 @@
 
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local ZigFetch = require("build.zig_fetch")
 
@@ -15,7 +14,7 @@ local function test_a_failed_install_leaves_no_scratch_directory(tmp: string)
   local zig, trouble = ZigFetch.install(cache, cache .. "/0.16.0-x86_64-linux", "0.16.0",
     "x86_64-linux", nil)
   assert(zig == nil and trouble:find("sha256", 1, true) ~= nil)
-  assert(#assert(Fs.list(cache)) == 0, "a .work directory was left behind")
+  assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate", "a scratch wrapper was left behind")
 end
 
 local function test_sources_try_a_few_shuffled_mirrors_then_ziglang_org()
@@ -160,13 +159,9 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tm
   -- minutes and a 2 s pause in, the 118 s left.
   assert(seen[1].timeout_ns == Time.minutes(3), tostring(seen[1].timeout_ns))
   assert(seen[3].timeout_ns == Time.seconds(118), tostring(seen[3].timeout_ns))
-  -- The pinned release reads the same limits in milliseconds and seconds.
-  local pinned = seen[3] as {string:integer}
-  assert(pinned.timeout_ms == 118 * 1000 and pinned.connect_timeout_ms == 10 * 1000, tostring(pinned.timeout_ms))
-  assert(pinned.low_speed_seconds == 20, tostring(pinned.low_speed_seconds))
   assert(seen[1].low_speed_bytes == 64 * 1024)
   for _, i in ipairs({ 2, 4, 5 }) do
-    assert(seen[i].timeout_ns == nil and (seen[i] as {string:integer}).timeout_ms == nil,
+    assert(seen[i].timeout_ns == nil,
       "the fallback has a ceiling")
     assert(seen[i].low_speed_bytes == 1024 and seen[i].low_speed_ns == Time.seconds(60))
   end
@@ -200,31 +195,26 @@ local function test_fetch_sees_a_real_mismatch(tmp: string)
   assert(Fs.exists(tmp .. "/z") == false)
 end
 
-local function test_sweep_removes_a_dead_installs_scratch_but_not_a_live_one(tmp: string)
+local function test_sweep_removes_only_a_provably_dead_owner(tmp: string)
   local cache = tmp .. "/cache"
-  -- Beyond any real pid limit, so no process can hold it.
-  local dead = cache .. "/.work.2147483646"
-  assert(Fs.mkdirs(dead .. "/zig-x"))
-  assert(Fs.write(dead .. "/zig-x/zig", "partial"))
-  local live = cache .. "/.work." .. tostring(sys.getpid())
-  assert(Fs.mkdirs(live))
-  assert(Fs.mkdirs(cache .. "/0.16.0-x86_64-linux"))
-  ZigFetch.sweep(cache)
+  local dead = cache .. "/.scratch.dead"
+  assert(Fs.mkdirs(dead))
+  assert(Fs.write(dead .. "/owner", ""))
+  local missing = cache .. "/.scratch.missing"
+  assert(Fs.mkdirs(missing))
+  local legacy = cache .. "/.work.2147483646"
+  assert(Fs.mkdirs(legacy))
+  local _, _ = ZigFetch.install(cache, cache .. "/install", "0.16.0", "x86_64-linux", nil)
   assert(Fs.exists(dead) == false)
-  assert(Fs.exists(live) == true)
-  assert(Fs.exists(cache .. "/0.16.0-x86_64-linux") == true)
+  assert(Fs.exists(missing) == true)
+  assert(Fs.exists(legacy) == true)
 end
 
---- The limits are given to both releases in the units each reads, each
---- span rounded up so that none but 0 reads as none.
-local function test_limits_are_rounded_up_for_the_release_that_counts_in_milliseconds_and_seconds()
+local function test_limits_preserve_native_nanoseconds()
   local options = ZigFetch.limits(Time.ms(1500) + 1, 1024, Time.ms(1500), Time.ms(7) + 1)
   assert(options.connect_timeout_ns == Time.ms(1500) + 1 and options.low_speed_ns == Time.ms(1500))
-  local pinned = options as any as {string:integer}
-  assert(pinned.connect_timeout_ms == 1501, tostring(pinned.connect_timeout_ms))
-  assert(pinned.timeout_ms == 8, tostring(pinned.timeout_ms))
-  assert(pinned.low_speed_seconds == 2, tostring(pinned.low_speed_seconds))
-  assert(pinned.low_speed_bytes == 1024)
-  local brief = ZigFetch.limits(1, 1024, 1) as any as {string:integer}
-  assert(brief.connect_timeout_ms == 1 and brief.low_speed_seconds == 1 and brief.timeout_ms == nil)
+  assert(options.timeout_ns == Time.ms(7) + 1)
+  assert(options.low_speed_bytes == 1024)
+  local brief = ZigFetch.limits(1, 1024, 1)
+  assert(brief.connect_timeout_ns == 1 and brief.low_speed_ns == 1 and brief.timeout_ns == nil)
 end
