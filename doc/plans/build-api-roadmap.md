@@ -183,7 +183,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
 | C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | merged | actual0b111618/tree19b9b089; branch36988568683 and queue36989013309 all green; independently verified all eight privileged modes and database boundary on x86/ARM/Alpine |
 | C6 | [#2585](https://github.com/cosmic-lua/cosmic/pull/2585) | merged | c6e5966d/treeeec1975c; corrected branch37041482218 and full queue37041999545 green; all3380 native tests ran without skips on x86/ARM/Alpine and checked, including3 noexec cases; all8 credential proof modes passed on all3 Linux legs |
-| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | reviewed and published; CI-gated auto-merge | 7a56246a/tree4e8b93a0; actual immutable C6 release doubly verified and pinned, 78 CI/60 root tests pass independently, whole663/63 checks clean; native consumer branch/queue proofs pending |
+| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | native CI exposed root runtime handoff; correction in review | 7a56246a/tree4e8b93a0 pins doubly verified C6; branch37045199979 macOS/checked pass, all3 Linux fail required root runner proof with cached-core EACCES; native suites and8 credential modes pass; no retries or gate bypass |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -687,3 +687,16 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   checks preserve12 keys/1354 files, with raw manifests retained. #2586 is
   ready, auto-merge enabled only through required branch/queue CI. Native
   root runner, credential, Linux noexec and Darwin flush proofs remain gates.
+
+- 2026-10-02 UTC: C7 branch `37045199979` passed macOS and checked,
+  but all three Linux legs failed the required root-runner proof at
+  `ci/run_local.tl:141` with EACCES. Native suites and all eight credential
+  API proof modes passed first. `Proc.relaunch` supplies the physical cached
+  core path, whose root-owned0500 file/private parent cannot be executed
+  after dropping credentials; handed descriptors alone do not grant path
+  access or executable mode. This is a real root-runner integration issue.
+  A separately reviewed consumer-only correction will grant one read-only
+  runtime copy per credentialed invocation, retain the same artifact and
+  startup identity checks, and clean up under the existing cancellation
+  guard. Ordinary unprivileged runs do no staging. Root cache permissions,
+  native proof and merge gates remain unchanged; no blind retry.
