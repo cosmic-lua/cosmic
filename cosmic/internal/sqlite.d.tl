@@ -5,6 +5,11 @@
 --- method.
 
 local record sqlite
+  record ExecResult
+    code: integer
+    extended_code: integer
+    reason: string
+  end
   --- One prepared statement. It keeps its handle alive while it is
   --- open. Every call on a finalized statement raises.
   record Statement
@@ -60,6 +65,9 @@ local record sqlite
     --- those prepares exactly one statement. Reach for [`Sqlite.run`]
     --- once a value needs binding.
     exec: function(Handle, sql: string): boolean, string
+    --- Executes once and snapshots the result before another operation
+    --- changes it. Embedded NUL raises; exec returns false and a reason.
+    exec_result: function(Handle, sql: string): ExecResult
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement | nil, string
     --- Closes the connection; closing one already closed does nothing.

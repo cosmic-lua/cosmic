@@ -416,17 +416,6 @@ local function busy_timeout(ns: integer): string
   return "PRAGMA busy_timeout = " .. tostring(Time.ceil(ns, Time.ms(1)))
 end
 
---- Whether `trouble`, from beginning a transaction, says another
---- connection holds the write lock rather than something wrong with the
---- file. SQLite gives its reason only as text, which build.shared_compiles'
---- `busy` reads the same way.
--- TODO: tell SQLITE_BUSY by its code once cosmic.sqlite answers a
--- failure's result code beside its message, here and in
--- build.shared_compiles' `busy`.
-local function locked(trouble: string): boolean
-  return trouble:find("locked", 1, true) ~= nil
-end
-
 --- Begins the run's transaction on `db`, the working database at `path`,
 --- waiting up to `wait_ns` for another run that holds it and saying so
 --- after `notice_ns`. The handle keeps the long wait for every statement
@@ -436,16 +425,16 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
   if not noticed then
     return false, notice_trouble
   end
-  local begun, trouble = db:exec("BEGIN IMMEDIATE")
+  local begun = db:exec_result("BEGIN IMMEDIATE")
   local timed, time_trouble = db:exec(busy_timeout(wait_ns))
   if not timed then
     return false, time_trouble
   end
-  if begun then
+  if begun.code == Sqlite.OK then
     return true, ""
   end
-  if not locked(trouble) then
-    return false, trouble
+  if begun.code ~= Sqlite.BUSY then
+    return false, begun.reason
   end
   log:complain("another cosmic run holds " .. path .. "; waiting for it")
   local waited, wait_trouble = db:exec("BEGIN IMMEDIATE")

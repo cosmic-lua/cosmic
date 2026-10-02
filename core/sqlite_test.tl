@@ -426,3 +426,67 @@ local function test_limit_sets_a_named_limit_and_answers_the_old_one()
   handle:close()
   raises(handle.limit, handle, "attached", 0)
 end
+
+local function test_exec_result_captures_codes_and_reason_before_later_operations()
+  local handle = memory()
+  assert(handle:exec("CREATE TABLE t (x UNIQUE); INSERT INTO t VALUES (1)"))
+  local result = handle:exec_result("INSERT INTO t VALUES (1)")
+  assert(result.code == 19 and result.extended_code == 2067, "UNIQUE keeps its extended constraint code")
+  local reason = result.reason
+  assert(reason:find("UNIQUE constraint failed", 1, true))
+  local success = handle:exec_result("PRAGMA busy_timeout = 0")
+  assert(success.code == Sqlite.OK and success.extended_code == Sqlite.OK and success.reason == "")
+  assert(handle:close())
+  assert(result.code == 19 and result.extended_code == 2067 and result.reason == reason)
+end
+
+local function test_exec_result_distinguishes_a_same_connection_lock()
+  local handle = memory()
+  assert(handle:exec("CREATE TABLE t (x); INSERT INTO t VALUES (1), (2)"))
+  local statement = prepared(handle, "SELECT * FROM t")
+  assert(statement:step() == "row")
+  local locked = handle:exec_result("DROP TABLE t")
+  assert(locked.code == 6 and locked.extended_code == 6, "SQLITE_LOCKED is not SQLITE_BUSY")
+  assert(locked.code ~= Sqlite.BUSY and locked.reason ~= "")
+  statement:finalize()
+  assert(handle:exec_result("DROP TABLE t").code == Sqlite.OK)
+  assert(locked.code == 6 and locked.reason ~= "", "finalizing changed the snapshot")
+  assert(handle:close())
+end
+
+local function test_exec_result_does_not_retry_or_rollback_a_partial_batch()
+  local handle = memory()
+  assert(handle:exec("CREATE TABLE t (x)"))
+  local result = handle:exec_result("INSERT INTO t VALUES (1); SELECT * FROM missing; INSERT INTO t VALUES (2)")
+  assert(result.code == 1 and result.reason:find("missing", 1, true))
+  local rows = assert(Sqlite.text_rows(handle, "SELECT x FROM t"))
+  assert(#rows == 1 and rows[1][1] == "1")
+  local ok, reason = handle:exec("SELECT * FROM missing")
+  assert(not ok and reason == result.reason, "legacy failure wording changed")
+  assert(handle:close())
+end
+
+local function test_exec_result_refuses_nul_and_a_closed_handle()
+  local handle = memory()
+  local ok, reason = handle:exec("SELECT 1\0; SELECT 2")
+  assert(not ok and reason == "SQL contains an embedded NUL byte")
+  raises_saying("sqlite: SQL contains an embedded NUL byte", handle.exec_result, handle, "SELECT 1\0; SELECT 2")
+  assert(handle:close())
+  raises_saying("sqlite: the database handle is closed", handle.exec_result, handle, "SELECT 1")
+end
+
+local function test_exec_result_reports_readonly_and_malformed_databases(tmp: string)
+  local path = tmp .. "/db"
+  local created = assert(Sqlite.open(path, { writable = true }))
+  assert(created:exec("CREATE TABLE t (x)"))
+  assert(created:close())
+  local readonly = assert(Sqlite.open(path))
+  local denied = readonly:exec_result("INSERT INTO t VALUES (1)")
+  assert(denied.code == 8 and denied.reason ~= "", "SQLITE_READONLY was not retained")
+  assert(readonly:close())
+  assert(Fs.write(tmp .. "/bad", string.rep("not a database", 32)))
+  local bad = assert(Sqlite.open(tmp .. "/bad"))
+  local malformed = bad:exec_result("SELECT * FROM sqlite_schema")
+  assert(malformed.code == 26 and malformed.reason ~= "", "SQLITE_NOTADB was not retained")
+  assert(bad:close())
+end
