@@ -13,6 +13,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
+local Url = require("cosmic.url")
 
 --- Requests to a closed local port, which a loopback alone answers:
 --- the worker runs offline, and is keyed. The tests that start the
@@ -242,6 +243,25 @@ local function test_a_url_with_a_nul_byte_is_refused()
   -- curl reads the URL as a C string, which would stop at the NUL
   local response, trouble = Http.open(url .. "\0.evil/", { script = {} })
   assert(response == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+end
+
+local function test_a_url_with_a_space_or_control_byte_is_refused_naming_url_escape()
+  local response, trouble = Http.open(url .. "a b", { script = {} })
+  assert(response == nil)
+  assert(trouble == "http: the URL holds a space at byte 21; escape a path segment or query value with Url.escape",
+    trouble)
+  local got, why = Http.get(url .. "?q=\n", { script = {} })
+  assert(got == nil and why:find("control byte 0x0a at byte 23; ", 1, true), why)
+  got, why = Http.request("PUT", url .. "\127", { script = {} })
+  assert(got == nil and why:find("control byte 0x7f at byte 20; ", 1, true), why)
+end
+
+local function test_a_url_escaped_with_url_escape_is_sent_as_written()
+  local response = assert(Http.open(url .. Url.escape("a b/c"), { script = { reply("200 OK", "", "ok") } }))
+  assert(response.status == 200)
+  local sent = response:sent()
+  response:close()
+  assert(sent:find("GET /a%20b%2Fc HTTP/1.1\r\n", 1, true), sent)
 end
 
 -- A pattern no two nearby offsets share, so a byte out of place shows.
