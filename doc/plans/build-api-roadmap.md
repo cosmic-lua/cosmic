@@ -183,7 +183,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
 | C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | merged | actual0b111618/tree19b9b089; branch36988568683 and queue36989013309 all green; independently verified all eight privileged modes and database boundary on x86/ARM/Alpine |
 | C6 | [#2585](https://github.com/cosmic-lua/cosmic/pull/2585) | merged | c6e5966d/treeeec1975c; corrected branch37041482218 and full queue37041999545 green; all3380 native tests ran without skips on x86/ARM/Alpine and checked, including3 noexec cases; all8 credential proof modes passed on all3 Linux legs |
-| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | native CI exposed root runtime handoff; correction in review | 7a56246a/tree4e8b93a0 pins doubly verified C6; branch37045199979 macOS/checked pass, all3 Linux fail required root runner proof with cached-core EACCES; native suites and8 credential modes pass; no retries or gate bypass |
+| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | reviewed runtime handoff correction published; CI-gated auto-merge | 1ab64010/treee5356823 fixes actual cached-core EACCES with root-only scoped copy; independently19 runner tests, whole663/63 and formatting pass; pin unchanged and fresh native branch/queue proofs required |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -700,3 +700,21 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   startup identity checks, and clean up under the existing cancellation
   guard. Ordinary unprivileged runs do no staging. Root cache permissions,
   native proof and merge gates remain unchanged; no blind retry.
+
+- 2026-10-02 UTC: independently reviewed C7 correction published as
+  `1ab64010`/`e5356823`, parent `7a56246a`. Only the runner, its tests and
+  native proof change. Credentialed root invocations copy the3,212,656-byte
+  actual native core once in64KiB chunks into root-owned0711 scratch with
+  a0555 executable; all probes reuse it. The copied core's descriptor and
+  executable inode agree; original artifact/database/startup metadata and
+  cached relaunch tables are preserved. Normal unprivileged runs do no
+  staging. Cleanup remains inside the cancellation guard. No zero-cost claim,
+  shared-cache permission change, new API or pin change.
+  Author and reviewer each ran all19 focused tests, including actual copied
+  core startup, descriptor/cache preservation, read-failure and cancellation
+  cleanup. Native proof additionally checks target access/nonwritability,
+  one-copy reuse/removal and unchanged original cache. Fresh boot, formatting,
+  root663/CI63 whole checks pass; full30 exits124 without assertion after
+  clean cancellation. Exact changed-path TODO query finds only the retained
+  state-pruning follow-up, now `ci/run_local.tl:112`; none added. Required
+  native root success and branch/queue checks still gate automatic merge.
