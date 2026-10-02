@@ -426,6 +426,28 @@ The independent review identified this delivery split:
 Proceed with 3a and 3b after step 1, as separate reviewed PRs. This changes
 sequencing only where the work is independent of the blocked access capability.
 
+The reviewed 3a entry point is `cosmic db --format`, a metadata-only mode.
+It must bypass dispatch's ancestor-tree discovery as well as the command's
+stale/rebuild, module-discovery and ordinary reporting paths. Ancestor discovery
+itself queries `files`; ordinary reporting evaluates table counts and `dbstat`.
+Preserve caller-relative paths, and prevent dispatch's usage-error fallback from
+starting a rebuild. Exercise this through real CLI dispatch from a subdirectory.
+
+Read fixed `main.sqlite_schema` queries and `PRAGMA main.application_id` /
+`main.user_version` on an ordinary already-open SQLite handle. Borrowed runtime
+store handles deny these header queries; report that denial as an error and
+leave their authorizer unchanged. Do not use `table_list` or `table_xinfo` as a
+first filter: the pinned SQLite may initialize supplied views while answering
+them. Match frozen canonical ordinary-table DDL for `meta`, `modules`, `imports`
+and `decls`, including known production-writer forms. Unfamiliar equivalent SQL
+remains unrecognized; do not introduce a SQL normalizer. A matching legacy base
+layout establishes neither producer authenticity nor complete integrity or
+metadata retention. Keep working-database recognition separate. Required-name
+view/virtual-table/generated-column substitutions must fail recognition, while
+unrelated schema objects must never be evaluated. Cover project, carried,
+application and closure outputs, shadowing by temporary/attached objects,
+foreign headers, future versions, malformed declared versions and query errors.
+
 ### 4. Lossless imports, provider resolution, and safe closure policy
 
 Extend analysis, working storage and shipped storage together with edge roles,
@@ -628,7 +650,7 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | --- | --- | --- | --- |
 | 0 Baseline/harness | Merged | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), merge `c41d73db391fef74518ebb93e9cc05902e154ca2` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push and merge-queue CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
 | 0.5 Runtime VFS capability | Blocked before implementation | — | Reproduced on baseline; separate design review accepted one-shot registration. Implementation agent stopped by automated cybersecurity check; no retry or workaround. |
-| 1 Structural decoder | In progress | — | Separate implementer and adversarial reviewer assigned; source baseline is merged step 0. No VFS, store authority or new artifact-access changes. |
+| 1 Structural decoder | Draft; performance blocks merge | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), head `40203127ca9f7ee4668eceb8e85bdec2cc11a9d6` | Independent code review approved local `1c091ee` (identical tree). All required push CI passed, including checked/Linux/macOS legs. Fifteen-workload measurements, five follow-ups and the final eight-invocation pinned crossover round are retained. Startup's cumulative paired median remains +0.036 ms, interval [+0.018, +0.051] ms; calibration/tail/noise issues also remain. The predeclared protocol stopped unresolved. No auto-merge or further discretionary local reruns. No VFS, store authority or new artifact-access changes. |
 | 2 Artifact handles | Pending | — | — |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
 | 3a Existing database recognition | Planned independent work | — | Read-only dependency review complete; no new access APIs. |
@@ -665,3 +687,51 @@ main branch; the implementation source parent was `3f239b1`. The archive records
 the precise source/script limitations of the first run. Cold I/O, peak RSS,
 isolated projection and complete-repository performance remain open evidence
 dimensions. There are no new code TODOs in step 0.
+
+Step-1 evidence archive prepared locally: `step-1-decoder.tar.gz`.
+SHA-256 `6b43c859ee8e0bc03af99e07ba8b46c5b48959c5f1f072d92316271b80a3bbb6`
+(654,605 bytes; 16,080 measured observations plus checked warmups).
+Automatic approval review rejected uploading this raw archive to GitHub because
+explicit authorization to disclose its fixtures, logs, host metadata and
+validation records was not established. The archive is not in this branch;
+upload awaits the user's review and authorization. This summary can be published
+independently. The rejected upload has not been retried through another mechanism.
+The archive preserves all raw samples and checked warmups, exact identities,
+counters, fixtures, query plans, validation logs, remote CI results and diagnostic
+sources. The implementation tree is `ffee49b92914a969fe43c4053ca589772f121ee0`,
+based on merged `c41d73d`; its local and published commit identities differ only
+because publication used the GitHub API. Artifact sizes are 15,040,560 and
+15,061,040 bytes (+20,480), an allowed increase.
+
+The final predeclared round used the unchanged controller, comparison code and
+artifacts, 200 pairs per invocation, the existing automatic repeat only, inherited
+CPU-0 affinity, and both artifact assignments for four unresolved workloads.
+Reversed A/A and A/B labels are remapped to candidate-minus-parent before judgment.
+All eight invocations had valid outputs/counters and zero recorded cgroup
+throttling increments. Pinning does not establish exclusive host ownership.
+Earlier observations and pinned/unpinned strata remain visible. No workload met
+all criteria of the resolution protocol; the source was not changed during it.
+
+| Workload | All-retained pairs | Paired median difference, ms | 95% interval, ms | Remaining issue |
+| --- | ---: | ---: | --- | --- |
+| Tool startup | 960 | +0.03611 | [+0.01819, +0.05101] | Positive median interval; tail and orientation warnings |
+| Portable packaging | 560 | +0.06656 | [-0.22039, +0.47716] | Tail +1.734 ms exceeds existing A/A resolution 0.452 ms |
+| Reverse imports | 1,060 | -0.07767 | [-0.10096, -0.04581] | Biased calibration and cumulative tail disagreement |
+| Outgoing uses | 860 | -0.06562 | [-0.09394, -0.02223] | Dispersion and retained repeat-tail warning |
+
+Untimed instrumentation of both parsers on both exact artifacts found identical
+readsets for a given input. The candidate requires 11 reads / 25,018 bytes versus
+the parent's 12 / 29,802. Added decoder I/O therefore does not explain the shift;
+CPU/layout cost and controller/scheduling effects have not been separated.
+Proceed only with a concrete implementation investigation or a more controlled
+runner, not repeated local sampling until a favorable result appears.
+
+A separate statistical review found two generic harness concerns. The empirical
+p95 veto uses a median-confidence radius; its null false-inconclusive probability
+need not disappear with more samples. Also, the binomial recurrence underflows
+at 1,075 samples; cumulative evaluation here explicitly refuses more than 1,074
+and the largest retained comparison has 1,060. Neither finding waives a positive
+startup interval. A harness correction requires a separate reviewed change with
+candidate-blind null/detection and coverage validation, stable large-sample ranks,
+honest finite-sample tail bounds, and assessment of automatic repetition. No
+comparison thresholds were changed for this candidate.
