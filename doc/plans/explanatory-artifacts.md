@@ -349,7 +349,11 @@ The assigned implementation agent was stopped by an automated cybersecurity
 check while preparing this step. No implementation changes were made, and the
 blocked action has not been retried through another agent or mechanism. This
 prerequisite is unresolved; the remaining architecture series must not be
-reported complete.
+reported complete. The user has authorized proceeding with independent work.
+Step 1 changes only parsing and host-selection factoring; it neither retries
+this blocked action nor adds access to databases. Step 2 remains gated on 0.5.
+Later schema-only changes may be split out after their independence is reviewed
+and this dependency map is updated explicitly.
 
 ### 1. Structural artifact decoder independent of host selection
 
@@ -554,7 +558,8 @@ the final ledger and links; it is not a vehicle to merge documentation or code.
 | --- | --- |
 | 0 | Baseline access |
 | 1 | 0 |
-| 2 | 1 |
+| 0.5 | 0; execution-service block unresolved |
+| 2 | 1, 0.5 |
 | 3 | 2; release/pin if bootstrap starts calling the new API |
 | 4 | 3 |
 | 5 | 3 and span integration with 4 |
@@ -578,9 +583,9 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 
 | Step | Status | PR / merge | Review and evidence |
 | --- | --- | --- | --- |
-| 0 Baseline/harness | In merge queue | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), head `c7682e4` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
+| 0 Baseline/harness | Merged | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), merge `c41d73db391fef74518ebb93e9cc05902e154ca2` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push and merge-queue CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
 | 0.5 Runtime VFS capability | Blocked before implementation | — | Reproduced on baseline; separate design review accepted one-shot registration. Implementation agent stopped by automated cybersecurity check; no retry or workaround. |
-| 1 Structural decoder | Pending | — | — |
+| 1 Structural decoder | In progress | — | Separate implementer and adversarial reviewer assigned; source baseline is merged step 0. No VFS, store authority or new artifact-access changes. |
 | 2 Artifact handles | Pending | — | — |
 | 3 Schema/reader contract | Pending | — | — |
 | 4 Dependencies/providers | Pending | — | — |
