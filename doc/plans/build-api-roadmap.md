@@ -177,12 +177,12 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | merged | 55724526/treeb3c0574f; branch36977328228 and queue36977805814 green; exact queue tree independently approved; native80 and checked56 pass |
 | B4b | [#2578](https://github.com/cosmic-lua/cosmic/pull/2578) | merged | 79c38a7a/tree44c25249; branch36979110720 and queue36979424775 green; exact queue tree independently approved; native63/checked35 pass; matching three artifacts |
 | B5 | [#2579](https://github.com/cosmic-lua/cosmic/pull/2579) | merged | 46e71ef1/tree26150b97; corrected branch36982541211 and queue36982884252 all green including nativeDarwin; actual release/pin and independently reviewed live-waiter cleanup proofs complete |
-| C1 | [#2580](https://github.com/cosmic-lua/cosmic/pull/2580) | branch green, queued | branch36984019009 green; queue36984430825 candidate957147ab/treef08d1667 exact approved; native focused60/independentchecked20 and whole654 zero; all B5 files preserved |
-| C2 | [#2581](https://github.com/cosmic-lua/cosmic/pull/2581) | branch green, queued | branch36984107521 green with verified nativeDarwin full_fsync success; cumulative queue36984579239 candidate004331f1/tree2e95771b includes C1/C4 and matches independently approved union |
-| C3 | pending | measurement-gated; API held | pilot3c84d35b/tree33a14bac statically approved on79c38a7a; 13guard checks pass, no timings; actualC2 alignment/runtime gates before temporary CI; positive pilot requires calibrated confirmation |
-| C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | branch green, queued | branch36984198489 green; cumulative queue36984578014 candidateb5349e2c/tree02eed572 includes C1 and matches independently approved union; local full30 retained inherited Unix-socket EPERM/timeout |
-| C5 | pending | integrating reviewed C API union | original08a1d96c and shared-method integration94c954283 approved; refreshed synthetic union preparation/nativechecked review underway; actual joined main and privileged CI proof required |
-| C6 | pending | locally approved | 42823b63/tree7c4ad967; independent native150/checked14 and harness9 pass with three honest mount skips; native Linux proof and fresh combined epoch required |
+| C1 | [#2580](https://github.com/cosmic-lua/cosmic/pull/2580) | merged | 957147ab/treef08d1667; branch36984019009 and queue36984430825 green; exact approved tree, native60/independentchecked20 and whole654 zero |
+| C2 | [#2581](https://github.com/cosmic-lua/cosmic/pull/2581) | merged | 004331f1/tree2e95771b; branch36984107521 and cumulative queue36984579239 green; independently verified actual native Darwin full_fsync success; exact C1/C4/C2 union |
+| C3 | [#2584](https://github.com/cosmic-lua/cosmic/pull/2584) | draft experiment; auto-merge off | 7f6d2cf5/treea566529e on actual004331f1; exact independent approval for experiment only; native66/checked20 and 13 guard checks pass; useful native pilot then calibrated confirmation required, otherwise defer |
+| C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
+| C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | published; CI-gated auto-merge | baa938cc/tree587341de on actual004331f1; independently approved exact tree; native122/checked16/whole657 zero; actual privileged Linux proof required in CI before merge |
+| C6 | pending | final preparation approved | 70bdcab1/tree94b7b46e; fresh epoch15-e83f51b3 retires14; native166/checked19/whole658 zero; independent40 native/8 checked with three honest mount skips; actual C5 parent alignment and native Linux proof remain |
 | C7 | pending | final append source preparation approved | af3034c3/treeb4dd338a on reviewed B5; third CacheTrim append caller migrated; local C driver67 author/40 independent CI pass, 9 partial-prefix injection cases pass; CI62 zero; actual C release/pin/native proofs remain |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
@@ -506,3 +506,20 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   also prevents process exit from masking a descriptor leak. Native44 and
   checked44 passed; independent9 lock tests passed. No production, pin, timeout
   or platform-skip change; fresh required CI must verify the Darwin path.
+
+- 2026-10-02 UTC: C1/C4/C2 merged after independent exact-tree and cumulative
+  queue review, with all branch and queue checks green. Actual joined main is
+  `004331f1`/`2e95771b`. C2's native macOS job exercised positive F_FULLFSYNC,
+  descriptor lifetime and closed-descriptor rejection; this is syscall evidence,
+  not a power-loss durability claim. Thirteen API production PRs are merged.
+  C5 published as #2583 on that exact parent, approved tree `587341de`, with
+  privileged Linux proof required before automatic merge. C6 preparation has
+  independent source/native/checked approval and fresh epoch `15-e83f51b3`, but
+  must align after actual C5 merge and execute native mount proofs in CI.
+
+- 2026-10-02 UTC: C3 published as draft experiment #2584, auto-merge disabled,
+  approved tree `a566529e` on actual joined main. Its temporary instrumentation
+  must never merge. Six-pair timing is only a pilot: positive results require
+  reviewed A/A calibration and at least 30 A/B pairs plus real consumer/error
+  scope review; invalid, noisy or unhelpful evidence means explicit deferral.
+  Current production patch synchronization and bootstrap pin are unchanged.
