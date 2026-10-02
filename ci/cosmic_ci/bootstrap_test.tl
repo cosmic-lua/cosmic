@@ -23,12 +23,26 @@ end
 --- CI runner that alone has taken over 2 s: a few seconds is too little.
 local driver_timeout = Time.seconds(60)
 
+--- How long any other child may take: only a hang reaches it. A retry in
+--- bin/cosmic-bootstrap pauses 2 s, and copies and hashes this whole
+--- program on each attempt (through perl's shasum on macOS); a slow or
+--- loaded runner multiplies all of that. It is held under the 30 s a
+--- test of cosmic_ci gets (ci.yml's "check the pinned CI driver" sets no
+--- COSMIC_TEST_TIMEOUT), so a hang in a test's first call is named by
+--- that call's own failure and its output; one later in a test may meet
+--- the runner's end first.
+local child_timeout = Time.seconds(20)
+
+--- The bound `driver.tl run` is given for a trivial /bin/sh child, which
+--- only a hang reaches: this is no test of how fast the shell starts.
+local trivial_timeout = tostring(Time.seconds(10))
+
 local function call(argv: {string}, cwd: string, output: string,
     extra?: {string:string}, timeout?: integer): Child.Result
   local fd = assert(Fs.open_write(output))
   local result, trouble = Child.run(argv, {
     cwd = cwd, env = environment(extra), stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = timeout or Time.seconds(5),
+    process_group = true, timeout_ns = timeout or child_timeout,
   })
   assert(Fs.close(fd))
   return (assert(result, trouble))
@@ -383,12 +397,12 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
       driver_timeout)
   end
   local spaced = tmp .. "/path with spaces"
-  assert(run("success", tostring(Time.seconds(1)), { "/bin/sh", "-c",
+  assert(run("success", trivial_timeout, { "/bin/sh", "-c",
     "test \"$PWD\" = \"$1\"; printf ok > \"$2\"", "sh",
     candidate, spaced }).ok)
   assert(assert(Fs.read(spaced)) == "ok", "success child lost cwd or spaced argv")
-  assert(run("nonzero", tostring(Time.seconds(1)), { "/bin/sh", "-c", "exit 23" }).code == 23)
-  assert(run("start-failure", tostring(Time.seconds(1)), { "/definitely/not/a/command" }).code == 1)
+  assert(run("nonzero", trivial_timeout, { "/bin/sh", "-c", "exit 23" }).code == 23)
+  assert(run("start-failure", trivial_timeout, { "/definitely/not/a/command" }).code == 1)
   assert(run("timeout", tostring(Time.ms(20)), { "/bin/sh", "-c", "sleep 30" }).code == 124)
 
   local ready = tmp .. "/ready"
@@ -403,7 +417,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   end
   assert(Predicate.exists(ready), "interrupted operation never started")
   assert(child:stop())
-  local stopped = assert(child:wait(Time.seconds(5)))
+  local stopped = assert(child:wait(child_timeout))
   assert(Fs.close(fd))
   assert(not stopped.ok, "interrupted driver succeeded")
 
@@ -430,7 +444,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(Fs.mkdirs(symlink_runner_temp .. "/cosmic-ci"))
   assert(call({ "/bin/ln", "-s", sentinel,
     symlink_runner_temp .. "/cosmic-ci/operations.db" }, tmp, tmp .. "/db-ln.out").ok)
-  local linked = call({ runner, driver, "run", "symlink-db", tostring(Time.seconds(1)),
+  local linked = call({ runner, driver, "run", "symlink-db", trivial_timeout,
       "--", "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
     driver_context(candidate, symlink_runner_temp), driver_timeout)
   assert(not linked.ok, "symlink operation database was accepted")
