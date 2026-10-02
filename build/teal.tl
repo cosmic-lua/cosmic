@@ -517,6 +517,64 @@ local function integer_hint(source: string, y: integer, x: integer): string | ni
     ".0' or 'local " .. name .. ": number = " .. literal .. "' to hold a number"
 end
 
+--- What [`teal.replacement`] says of a number where an integer was
+--- expected, when no declaration explains it: a cast is what a reader
+--- reaches for, and it only silences the checker.
+local integer_conversion <const> = "'as integer' converts nothing: math.tointeger(x) does " ..
+  "(nil unless x is whole), and // divides integers to an integer"
+
+--- The globals tl's standard library declares, by name, as its
+--- prelude in vendor/tl/tl.tl spells them: a local of one of these names
+--- hides it.
+local standard_globals <const>: {string:boolean} = {
+  arg = true, assert = true, collectgarbage = true, coroutine = true,
+  debug = true, dofile = true, error = true, getmetatable = true, io = true,
+  ipairs = true, load = true, loadfile = true, math = true, next = true,
+  os = true, package = true, pairs = true, pcall = true, print = true,
+  rawequal = true, rawget = true, rawlen = true, rawset = true,
+  require = true, select = true, setmetatable = true, string = true,
+  table = true, tonumber = true, tostring = true, type = true, utf8 = true,
+  xpcall = true,
+}
+
+--- Those of [`standard_globals`] that are libraries, each a record the
+--- checker names after itself (`invalid key 'nope' in record 'table' of
+--- type table`): one named so but of another type is a local hiding it.
+local standard_libraries <const>: {string:boolean} = {
+  coroutine = true, debug = true, io = true, math = true, os = true,
+  package = true, string = true, table = true, utf8 = true,
+}
+
+--- The hint for the checker refusing one nominal type for another
+--- whose last name is the same (`Store is not a Kv.Store`, or, both
+--- shown alike, `Store (defined in :7) is not a Store (defined in
+--- kv.tl:3)`): two declarations made two types, and only one of them
+--- should be. The example names the qualified one when the message
+--- shows one.
+local function same_named(msg: string): string | nil
+  local given, wanted = msg:match(
+    "([%a_][%w_.]*) %(defined in [^)]*%) is not a ([%a_][%w_.]*) %(defined in [^)]*%)$")
+  if given == nil then
+    given, wanted = msg:match("([%a_][%w_.]*) is not a ([%a_][%w_.]*)$")
+  end
+  if given == nil then
+    return nil
+  end
+  local name = given:match("[%a_][%w_]*$")
+  if name ~= wanted:match("[%a_][%w_]*$") then
+    return nil
+  end
+  local said = "two distinct types are both named " .. name .. ": "
+  local qualified = given:find(".", 1, true) ~= nil and given or
+    wanted:find(".", 1, true) ~= nil and wanted or nil
+  if qualified ~= nil then
+    return said .. "use " .. qualified .. " rather than declaring " .. name ..
+      " again, as 'local type " .. name .. " = " .. qualified .. "'"
+  end
+  return said .. "declare it in one module and name that one elsewhere, as 'local type " ..
+    name .. " = Kv." .. name .. "' where Kv is that module's require"
+end
+
 --- What [`replacement`] reads of [`cosmic.removed`].
 local record Catalog
   names: {string:string}
@@ -594,14 +652,50 @@ end
 --- declaration with an annotation, a non-literal (or negative, or
 --- hexadecimal) initializer or several names, a global, a field
 --- (`t.n = ...`), a multiple assignment (`a, b = ...`), or a source that
---- does not parse.
+--- does not parse. Any other number where an integer was expected (an
+--- argument, a declaration, a return value, `tonumber(s)`, `a / b`) is
+--- told the conversions, since `as integer` only silences the checker.
+---
+--- A local, argument or loop variable shadowing one of
+--- [`standard_globals`] is told to rename it, and a refused index of one
+--- named for a library but of another type (`table.insert` where `table`
+--- is a local of the program's) that the name is a local hiding it.
+---
+--- One nominal type refused for another of the same last name
+--- (`Store is not a Kv.Store`) is told they are two types, and an
+--- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
+--- `Kv` itself is the module's record type.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
-  if msg == "in assignment: got number, expected integer" then
+  if msg:match("got number, expected integer$") or
+      msg:match("got number %(inferred at [^)]*%), expected integer$") then
     -- TODO: hint a table field too (`local t = {n = 0}; t.n = t.n + 0.5`,
     -- `t.n` an "op" node here): it waits on the checker's inferred type of
     -- a record field being readable from the AST; the parser alone does
     -- not give it.
-    return integer_hint(source, y, x)
+    local inferred = msg == "in assignment: got number, expected integer" and
+      integer_hint(source, y, x) or nil
+    return inferred or integer_conversion
+  end
+  local shadowed = msg:match("^%a+ shadows previous declaration of '([%a_][%w_]*)'$")
+  if shadowed ~= nil and standard_globals[shadowed] then
+    return "this hides the standard library's " .. shadowed .. " for the rest of its scope: rename it"
+  end
+  local hidden, seen = msg:match("^invalid key '[^']*' in record '([%a_][%w_]*)' of type (.+)$")
+  if hidden == nil then
+    hidden, seen = msg:match("^cannot index key '[^']*' in variable '([%a_][%w_]*)' of type (.+)$")
+  end
+  if hidden ~= nil and standard_libraries[hidden] and seen ~= hidden then
+    return "'" .. hidden .. "' here is a local that hides the standard library's " ..
+      hidden .. ": rename it"
+  end
+  local same = same_named(msg)
+  if same ~= nil then
+    return same
+  end
+  local outer, inner = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
+  if outer ~= nil and outer == inner and module_bound(source, outer) ~= nil then
+    return outer .. " is itself the type of the record its module returns: write " ..
+      outer .. ", not " .. outer .. "." .. inner
   end
   local given, owner, option = msg:match(
     "^argument %d+: got (%a+), expected ([%a_][%w_]*)%.([%a_][%w_]*)$")

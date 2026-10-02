@@ -60,6 +60,11 @@ local function hint_for(source: string): string | nil, string
   return nil, "no such error"
 end
 
+--- What [`teal.replacement`] says of a number where an integer was
+--- expected when no declaration explains it.
+local converted = "'as integer' converts nothing: math.tointeger(x) does " ..
+  "(nil unless x is whole), and // divides integers to an integer"
+
 local function said(name: string, line: integer, literal: string): string
   return name .. " is an integer, inferred from 'local " .. name .. " = " .. literal ..
     "' at line " .. line .. "; write 'local " .. name .. " = " .. literal ..
@@ -86,32 +91,34 @@ end
 
 --- The name is resolved, not searched for: a same-named local of a
 --- closed function or block, or in a string or a comment, is not the
---- declaration, and a parameter or loop variable is not one either.
+--- declaration, and a parameter or loop variable is not one either:
+--- each is told only the conversions.
 local function test_an_integer_hint_names_the_declaration_in_scope()
   local closed = "local function f()\n  local n = 0\n  return n\nend\n" ..
     "local function g(n: integer): integer\n  n = n / 2\n  return n\nend\nprint(f(), g(1))\n"
-  assert(hint_for(closed) == nil)
+  assert(hint_for(closed) == converted)
   local looped = "local n = 0\nfor n = 1, 3 do\n  n = n / 2\nend\nprint(n)\n"
-  assert(hint_for(looped) == nil)
+  assert(hint_for(looped) == converted)
   local block = "do\n  local n = 0\n  print(n)\nend\nlocal n: integer = 1\nn = n / 2\nprint(n)\n"
-  assert(hint_for(block) == nil)
+  assert(hint_for(block) == converted)
   local shadowed = "local n = 0\ndo\n  local n = 1\n  n = n / 2\n  print(n)\nend\nprint(n)\n"
   assert(hint_for(shadowed) == said("n", 3, "1"))
   local text = "local s = [[\nlocal q = 0\n]]\n-- local q = 0\nlocal q: integer = 1\nq = q / 2\nprint(s, q)\n"
-  assert(hint_for(text) == nil)
+  assert(hint_for(text) == converted)
 end
 
---- No hint says a false thing: an annotated or uninitialized
---- declaration, a computed initializer, several names, a field, a
---- multiple assignment (and its neighbours), or a table's own
---- `name = ...` line.
+--- No hint names a declaration falsely: an annotated or uninitialized
+--- declaration, a computed initializer, several names, a field or a
+--- multiple assignment is told only the conversions, and a neighbour
+--- of a multiple assignment or a table's own `name = ...` line does not
+--- stand for a declaration.
 local function test_an_integer_hint_never_misleads()
-  assert(hint_for("local x: integer = 0\nx = x / 2\nprint(x)\n") == nil)
-  assert(hint_for("local x: integer\nx = 1\nx = x / 2\nprint(x)\n") == nil)
-  assert(hint_for("local x = #arg\nx = x / 2\nprint(x)\n") == nil)
-  assert(hint_for("local x, y = 0, 1\nx = x / 2\nprint(x, y)\n") == nil)
-  assert(hint_for("local t = {n = 0}\nt.n = t.n + 0.5\nprint(t)\n") == nil)
-  assert(hint_for("local a, b = 0, 0\na, b = 1.5, 2\nprint(a, b)\n") == nil)
+  assert(hint_for("local x: integer = 0\nx = x / 2\nprint(x)\n") == converted)
+  assert(hint_for("local x: integer\nx = 1\nx = x / 2\nprint(x)\n") == converted)
+  assert(hint_for("local x = #arg\nx = x / 2\nprint(x)\n") == converted)
+  assert(hint_for("local x, y = 0, 1\nx = x / 2\nprint(x, y)\n") == converted)
+  assert(hint_for("local t = {n = 0}\nt.n = t.n + 0.5\nprint(t)\n") == converted)
+  assert(hint_for("local a, b = 0, 0\na, b = 1.5, 2\nprint(a, b)\n") == converted)
   assert(hint_for("local a = 0\nlocal b = 0\nprint(a)\nlocal a2 = 1.5; b = b + 0.5\nprint(b, a2)\n")
     == said("b", 2, "0"))
   assert(hint_for("local n = 0\nlocal t = {\n  n = 1,\n}\nn = n / 2\nprint(t, n)\n")
@@ -135,11 +142,11 @@ end
 local function test_an_integer_hint_reads_repeat_and_method_scopes()
   assert(hint_for("local x = 0\nrepeat\n  x = x / 2\nuntil x < 1\nprint(x)\n") == said("x", 1, "0"))
   assert(hint_for("repeat\n  local x: integer = 0\n  x = x / 2\nuntil x < 1\nlocal x = 0\nprint(x)\n")
-    == nil)
+    == converted)
   -- The checker refuses a method's `self` for another reason, so ask
   -- [`teal.replacement`] for the integer message at the literal's position.
   assert(teal.replacement(integer_msg,
-    "local self = 0\nfunction R:m()\n  self = 1.5\nend\n", 3, 10) == nil)
+    "local self = 0\nfunction R:m()\n  self = 1.5\nend\n", 3, 10) == converted)
 end
 
 --- The type errors the checker reports for `source`, failing the test
@@ -392,4 +399,122 @@ local function test_a_refusal_quotes_no_catalog_this_test_does_not_hold()
   assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash",
     'local Hash = require("cosmic.hash")\nreturn Hash.hex\n', 2, 13) == nil)
   assert(package.loaded["cosmic.removed"] == nil)
+end
+
+--- What [`teal.replacement`] says for the first diagnostic the checker
+--- reports for `source` (an error or a warning) whose message is
+--- `msg`: "no such diagnostic" when it reports none.
+local function replacement_for(source: string, msg: string): string | nil
+  local built = assert(teal.load())
+  local _, result = built.gen(source, nil, nil, "tl")
+  local found = result ~= nil
+  for _, group in ipairs(found and { result.type_errors, result.warnings } or {}) do
+    for _, e in ipairs(group) do
+      if e.msg == msg then
+        return teal.replacement(e.msg, source, e.y, e.x)
+      end
+    end
+  end
+  return "no such diagnostic"
+end
+
+--- A number where an integer was expected -- a call's argument, a
+--- declaration, a return value, `tonumber(s)` or `/` -- is told the
+--- conversions, not a cast, which only silences the checker.
+local function test_a_number_for_an_integer_names_the_conversions()
+  local f = "local function f(n: integer): integer\n  return n\nend\n"
+  assert(replacement_for(f .. "print(f(tonumber('3')))\n",
+    "argument 1: got number, expected integer") == converted)
+  assert(replacement_for("local n: integer = tonumber('3')\nprint(n)\n",
+    "in local declaration: n: got number, expected integer") == converted)
+  assert(replacement_for("local function g(): integer\n  return 7 / 2\nend\nprint(g())\n",
+    "in return value: got number, expected integer") == converted)
+  assert(replacement_for("local m: {string:integer} = {x = 7 / 2}\nprint(m)\n",
+    "in local declaration: m: in map value: got number, expected integer") == converted)
+  assert(teal.replacement("argument 1: got number (inferred at :2:11), expected integer",
+    "", 3, 9) == converted)
+  assert(teal.replacement("argument 1: got string, expected integer", "", 1, 1) == nil)
+end
+
+local hides_table = "this hides the standard library's table for the rest of its scope: rename it"
+
+--- A local, argument, loop variable or local function named for a
+--- standard global is told what it hides where it is declared, and a
+--- library's name used as one (`table.insert` on a local `table`) that
+--- the name is a local.
+local function test_a_standard_global_shadowed_is_named_where_declared()
+  local shadows = "variable shadows previous declaration of 'table'"
+  assert(replacement_for("local table = {1}\nprint(#table)\n", shadows) == hides_table)
+  assert(replacement_for("local function f(table: {integer}): integer\n  return #table\nend\n" ..
+    "print(f({}))\n", shadows) == hides_table)
+  assert(replacement_for("for _, table in ipairs({{1}}) do\n  print(#table)\nend\n", shadows)
+    == hides_table)
+  assert(replacement_for("local function print(s: string)\n  io.stderr:write(s)\nend\nprint('x')\n",
+    "function shadows previous declaration of 'print'") ==
+    "this hides the standard library's print for the rest of its scope: rename it")
+  assert(replacement_for("local tonumber = 1\nprint(tonumber)\n",
+    "variable shadows previous declaration of 'tonumber'") ==
+    "this hides the standard library's tonumber for the rest of its scope: rename it")
+  assert(teal.replacement("variable shadows previous declaration of 'total' " ..
+    "(originally declared at 1:7)", "", 2, 7) == nil)
+  assert(replacement_for("local table = {1}\ntable.insert(table, 2)\n",
+    "cannot index key 'insert' in variable 'table' of type {integer}") ==
+    "'table' here is a local that hides the standard library's table: rename it")
+  local record_named_table = "local record Rows\n  n: integer\nend\n" ..
+    "local table: Rows = {n = 1}\ntable.insert(table, 2)\n"
+  assert(replacement_for(record_named_table, "invalid key 'insert' in record 'table' of type Rows")
+    == "'table' here is a local that hides the standard library's table: rename it")
+  assert(replacement_for("table.nope({})\n", "invalid key 'nope' in record 'table' of type table")
+    == nil)
+end
+
+--- tl checked no value named for a simple type for shadowing, and so
+--- never warned of one named `string`, the string library
+--- (patch/tl/32-a-value-named-string-shadows.txt). `any` and `thread`
+--- are interfaces, which no value hides, and a localized `string` hides
+--- nothing.
+local function test_a_value_named_string_shadows_the_library()
+  local shadows = "variable shadows previous declaration of 'string'"
+  local hides = "this hides the standard library's string for the rest of its scope: rename it"
+  assert(replacement_for("local string = 5\nprint(string)\n", shadows) == hides)
+  assert(replacement_for("local function f(string: string): string\n  return string\nend\n" ..
+    "print(f('a'))\n", shadows) == hides)
+  assert(replacement_for("local string = string\nprint(string.upper('a'))\n", shadows)
+    == "no such diagnostic")
+  local built = assert(teal.load())
+  local _, result = built.gen("local any = 1\nlocal thread = 2\nprint(any, thread)\n", nil, nil, "tl")
+  local warnings = assert(result).warnings
+  assert(#warnings == 0, warnings[1] ~= nil and warnings[1].msg or "")
+end
+
+--- One nominal type refused for another of the same name is told they
+--- are two types, naming the qualified one when the message shows it.
+local function test_two_types_of_one_name_are_told_apart()
+  local nested = "local record Kv\n  record Store\n    n: integer\n  end\nend\n" ..
+    "local record Store\n  n: integer\nend\n" ..
+    "local function put(s: Kv.Store): Kv.Store\n  return s\nend\n" ..
+    "local s: Store = {n = 1}\nprint(put(s))\n"
+  assert(replacement_for(nested, "argument 1: Store is not a Kv.Store") ==
+    "two distinct types are both named Store: use Kv.Store rather than declaring Store " ..
+    "again, as 'local type Store = Kv.Store'")
+  local scoped = "local record Store\n  n: integer\nend\n" ..
+    "local function put(s: Store): Store\n  return s\nend\n" ..
+    "do\n  local record Store\n    n: integer\n  end\n  local s: Store = {n = 1}\n  print(put(s))\nend\n"
+  local twice = "two distinct types are both named Store: declare it in one module and name " ..
+    "that one elsewhere, as 'local type Store = Kv.Store' where Kv is that module's require"
+  assert(replacement_for(scoped,
+    "argument 1: Store (defined in :8) is not a Store (defined in :1)") == twice)
+  assert(teal.replacement("argument 1: Store (defined in :7) is not a Store " ..
+    "(defined in /abs/path/kv.tl:3)", "", 8, 8) == twice)
+  assert(teal.replacement("argument 1: Store is not a Kv.Entry", "", 1, 1) == nil)
+end
+
+--- `Kv.Kv` for a module bound to `Kv` is told `Kv` is the type; a name
+--- no `require` binds is not.
+local function test_a_module_type_named_twice_is_told_its_name()
+  local source = 'local Kv = require("kv")\nlocal k: Kv.Kv = Kv\nreturn k\n'
+  assert(teal.replacement("unknown type Kv.Kv", source, 2, 10) ==
+    "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv")
+  assert(teal.replacement("unknown type Kv.Kv", "local Kv = {}\nlocal k: Kv.Kv\n", 2, 10) == nil)
+  assert(teal.replacement("unknown type Kv.Store", source, 2, 10) == nil)
 end
