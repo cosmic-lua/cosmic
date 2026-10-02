@@ -103,7 +103,8 @@ local record Cli
   --- canonical text, in place: run it after editing rather than
   --- formatting by hand -- checking along the way that rendering it
   --- again would change nothing further, and refusing a file it does
-  --- not. It also builds the tree and parenthesizes every `assert(...)`
+  --- not. It also builds the tree, failing where the build refuses it,
+  --- with the compiler's reasons, and parenthesizes every `assert(...)`
   --- the type checker says passes on more values than its place can
   --- take -- `(assert(...))` keeps only the first. It fails a link in a
   --- comment or a Markdown file -- `` [`x`] ``, `[text](target)` or

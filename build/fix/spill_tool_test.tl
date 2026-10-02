@@ -1,6 +1,7 @@
---- The case of build/fix/spill_test.tl that runs `cosmic fix` on a
---- project of its own, which wraps the assert the checker names. It
---- declares `tool` because it starts this program.
+--- The cases of build/fix/spill_test.tl that run `cosmic fix` on a
+--- project of its own, whose build wraps the assert the checker names
+--- and fails the run on any other refusal. It declares `tool` because
+--- it starts this program.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -38,4 +39,39 @@ local function test_fix_wraps_what_the_checker_names(tmp: string)
     'return "7", "" end\nreturn tonumber((assert(read())))\n')
   local again = fix(root, false)
   assert(again.ok and assert(again.stdout):find("0 fixed", 1, true), again.stdout)
+end
+
+--- A project the build refuses fails the run, `--check` or not, with
+--- the compiler's reasons: a PASS read as a tree that builds. Fixed,
+--- it passes.
+local function test_a_tree_the_build_refuses_fails(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", 'local x: integer = "no"\n\nreturn x\n'))
+  for _, check in ipairs({ true, false }) do
+    local failed = fix(root, check)
+    local out = assert(failed.stdout)
+    assert(not failed.ok, out)
+    assert(out:find("fix: FAIL  a.tl: the compiler refused it\na.tl:1:20: ", 1, true) ~= nil, out)
+    assert(out:find("fix: FAIL (the tree not building, ", 1, true) ~= nil, out)
+  end
+  assert(Fs.write(root .. "/a.tl", 'local x: integer = 1\n\nreturn x\n'))
+  local passed = fix(root, false)
+  assert(passed.ok, passed.stdout)
+end
+
+--- A `--check` counts a spill as a file to fix only in a file it
+--- covers: one in another file leaves the tree refused, and fails it.
+local function test_a_check_fails_on_a_spill_outside_it(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", "local x: integer = 1\n\nreturn x\n"))
+  assert(Fs.write(root .. "/b.tl", 'local function read(): string | nil, string return "7", "" end\n' ..
+    "return tonumber(assert(read()))\n"))
+  local started = this_program.program({ "fix", "--check", "a.tl" }, { cwd = root,
+    stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  local out = assert(result.stdout)
+  assert(not result.ok, out)
+  assert(out:find("fix: FAIL  b.tl: the compiler refused it", 1, true) ~= nil, out)
 end
