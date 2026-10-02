@@ -73,8 +73,8 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | 3. Build phase and cleanup ownership | [#2532](https://github.com/cosmic-lua/cosmic/pull/2532) | merged | e75cee04; branch and queue36942878305 green; independent approval |
 | 4. Reporting outside the acknowledged runner | [#2533](https://github.com/cosmic-lua/cosmic/pull/2533) | merged | 56637153; branch and queue36944097828 green; independent approval |
 | 5a. Bootstrap lock ownership preparation | [#2534](https://github.com/cosmic-lua/cosmic/pull/2534) | merged | 44518e84; branch and queue 36945326385 green; independent approval |
-| 5b. Pin, flock/scratch and obsolete adapters | [#2535](https://github.com/cosmic-lua/cosmic/pull/2535) | CI running | 8743ed67; reviewed CI assertion fix; tree 525904d2 |
-| 6a. CI cache-name policy | pending | integrated approval | 6cb7e856; unchanged patch, 38 workflow tests pass |
+| 5b. Pin, flock/scratch and obsolete adapters | [#2535](https://github.com/cosmic-lua/cosmic/pull/2535) | merged | 85e56208; corrected branch and queue36947886216 green |
+| 6a. CI cache-name policy | [#2536](https://github.com/cosmic-lua/cosmic/pull/2536) | CI running | f09bfd7f; reviewed tree2f2ca9ca on merged5b |
 | 6b. CI operation recording | pending | integrated approval | 9320ec4a; phase contracts independently checked; runner/parser tests pass |
 | 7. Zig graph construction | pending | integrated approval | ae0a2095; exact original patch and graph context preserved |
 | 8. Documentation and integrated audit | pending | integrated approval | e24a2ef1; final warm/fresh/byte-equality audit passed; remote CI pending |
@@ -602,3 +602,10 @@ restrictions remain explicit; remote native/checked/sandbox/queue gates must pas
   repeat15 stood in804ms, build356ms with zero compiles/reads. Tool and carried
   hashes remain unchanged; full projection changes only for the corrected test.
   Both worktrees are byte-identical and all database integrity checks pass.
+
+- 2026-10-02: corrected step5b #2535 merged as
+  85e562081065acdd405268f327f5371d9468f06e after branch36947515750
+  and queue36947886216 passed every required leg, including full checked-core
+  and Alpine. Step6a #2536 opened atf09bfd7f, exact reviewed tree2f2ca9ca,
+  with auto-merge enabled. Its final aligned boot reused499 parses/485 compiles
+  with zero fresh work; whole-tree636 files has zero findings.
