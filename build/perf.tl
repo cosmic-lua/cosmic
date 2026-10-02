@@ -3,7 +3,7 @@
 --- `bin/perf <baseline> <candidate> <new-output-directory> [pairs] [workload]` keeps
 --- executable copies, fixtures, commands, outputs and nanosecond observations.
 --- It first measures the baseline against itself, then alternates A/B and B/A.
---- A suspected regression or inconclusive reading gets one complete repeat.
+--- The sample count is fixed before observing any results; no adaptive repeat.
 --- Run with no other builds or benchmarks on the host. This does not control
 --- the OS page cache, measure peak RSS, or replace target/sandbox correctness CI.
 local Child = require("cosmic.child")
@@ -17,11 +17,18 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 local record Perf
+  record Interval
+    low: number | nil
+    high: number | nil
+    lower_bounded: boolean
+    upper_bounded: boolean
+  end
   record Distribution
     median: number
     p95: number
     low: number
     high: number
+    p95_interval: Interval
   end
   record Pair
     a: number
@@ -29,27 +36,72 @@ local record Perf
   end
 end
 
---- Median and a conservative, distribution-free interval for the median.
---- The rank comes from the exact binomial sign distribution, not a normal
---- approximation; ties make the interval more conservative.
+local rank_cache: {string:{integer}} = {}
+
+--- Relative binomial masses start at the mode, avoiding the underflow of
+--- p^n at large n. Each outward recurrence decreases; normalizing their sum
+--- gives both tails without subtracting a tiny probability from one.
+local function ranks(n: integer, numerator: integer, denominator: integer,
+                     tail_denominator: integer): integer, integer
+  local key = n .. ":" .. numerator .. ":" .. denominator .. ":" .. tail_denominator
+  local cached = rank_cache[key]
+  if cached ~= nil then return cached[1], cached[2] end
+  local mode = ((n + 1) * numerator) // denominator
+  local weights: {number} = {}
+  weights[mode + 1] = 1
+  for k = mode, 1, -1 do
+    weights[k] = weights[k + 1] * k * (denominator - numerator) /
+      ((n - k + 1) * numerator)
+  end
+  for k = mode, n - 1 do
+    weights[k + 2] = weights[k + 1] * (n - k) * numerator /
+      ((k + 1) * (denominator - numerator))
+  end
+  local total = 0.0
+  for _, weight in ipairs(weights) do total = total + weight end
+  local limit = total / tail_denominator
+  local cumulative, lower, upper = 0.0, 0, n + 1
+  for k = 0, n do
+    cumulative = cumulative + weights[k + 1]
+    if cumulative > limit then break end
+    lower = k + 1
+  end
+  cumulative = 0
+  for k = n, 0, -1 do
+    cumulative = cumulative + weights[k + 1]
+    if cumulative > limit then break end
+    upper = k
+  end
+  rank_cache[key] = { lower, upper }
+  return lower, upper
+end
+
+local function interval(low: number | nil, high: number | nil): Perf.Interval
+  assert(low == nil or (low == low and math.abs(low) < math.huge), "lower bound is not finite")
+  assert(high == nil or (high == high and math.abs(high) < math.huge), "upper bound is not finite")
+  return { low = low, high = high, lower_bounded = low ~= nil, upper_bounded = high ~= nil }
+end
+
+--- Median with a 95% sign interval, and p95 with a 97.5% order-statistic
+--- interval. The latter gives a joint 95% difference bound for two samples
+--- by Bonferroni, even when observations within each pair are dependent.
 function Perf.distribution(values: {number}): Perf.Distribution
   assert(#values >= 6, "at least six observations for a 95% median interval")
   local sorted: {number} = {}
-  for _, value in ipairs(values) do sorted[#sorted + 1] = value end
+  for _, value in ipairs(values) do
+    assert(value == value and math.abs(value) < math.huge, "observations must be finite")
+    sorted[#sorted + 1] = value
+  end
   table.sort(sorted)
   local n = #sorted
   local middle = (n + 1) // 2
   local median = sorted[middle]
-  if n % 2 == 0 then median = (median + sorted[middle + 1]) / 2 end
-  local probability, cumulative, rank = 2.0 ^ (-n), 0.0, 1
-  for k = 0, n // 2 do
-    cumulative = cumulative + probability
-    if cumulative > 0.025 then break end
-    rank = k + 1
-    probability = probability * (n - k) / (k + 1)
-  end
+  if n % 2 == 0 then median = median / 2 + sorted[middle + 1] / 2 end
+  local lower, upper = ranks(n, 1, 2, 40)
+  local tail_lower, tail_upper = ranks(n, 19, 20, 80)
   return { median = median, p95 = sorted[math.ceil(n * 0.95)],
-    low = sorted[rank], high = sorted[n - rank + 1] }
+    low = sorted[lower], high = sorted[upper],
+    p95_interval = interval(sorted[tail_lower], sorted[tail_upper]) }
 end
 
 local record Reading
@@ -61,8 +113,14 @@ local record Reading
   calibration_deviation: Perf.Distribution
   candidate_deviation: Perf.Distribution
   tail_delta: number
+  tail_interval: Perf.Interval
+  calibration_tail_delta: number
+  calibration_tail_interval: Perf.Interval
+  tail_noise: number | nil
+  sample_count: integer
+  calibration_count: integer
   status: string
-  needs_review: boolean
+  reasons: {string}
 end
 
 local function deviations(values: {number}, median: number): Perf.Distribution
@@ -71,11 +129,29 @@ local function deviations(values: {number}, median: number): Perf.Distribution
   return Perf.distribution(out)
 end
 
---- Classify paired differences against the A/A practical resolution. A wide
---- interval is inconclusive; a slower tail cannot be hidden by the median.
+local function difference(a: Perf.Interval, b: Perf.Interval): Perf.Interval
+  local al, ah, bl, bh = a.low, a.high, b.low, b.high
+  local low, high: number | nil, number | nil
+  if bl ~= nil and ah ~= nil then low = bl - ah end
+  if bh ~= nil and al ~= nil then high = bh - al end
+  return interval(low, high)
+end
+
+local function radius(bounds: Perf.Interval): number | nil
+  local low, high = bounds.low, bounds.high
+  if low == nil or high == nil then return nil end
+  return math.max(math.abs(low), math.abs(high))
+end
+
+--- A fixed-sample screen for detected slowdown, not an equivalence test.
+--- A wholly positive median or tail interval cannot pass; each statistic's
+--- own A/A uncertainty distinguishes regression from unresolved evidence.
 function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
   local noise, a, b, deltas: {number}, {number}, {number}, {number} = {}, {}, {}, {}
-  for _, pair in ipairs(calibration) do noise[#noise + 1] = pair.b - pair.a end
+  local ca, cb: {number}, {number} = {}, {}
+  for _, pair in ipairs(calibration) do
+    noise[#noise + 1], ca[#ca + 1], cb[#cb + 1] = pair.b - pair.a, pair.a, pair.b
+  end
   for _, pair in ipairs(samples) do
     a[#a + 1], b[#b + 1] = pair.a, pair.b
     deltas[#deltas + 1] = pair.b - pair.a
@@ -83,20 +159,39 @@ function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
   local calibrated = Perf.distribution(noise)
   local resolution = math.max(math.abs(calibrated.low), math.abs(calibrated.high))
   local left, right, delta = Perf.distribution(a), Perf.distribution(b), Perf.distribution(deltas)
-  local tail = right.p95 - left.p95
+  local cleft, cright = Perf.distribution(ca), Perf.distribution(cb)
+  local tail = difference(left.p95_interval, right.p95_interval)
+  local ctail = difference(cleft.p95_interval, cright.p95_interval)
+  local tail_resolution = radius(ctail)
   local calibration_deviation = deviations(noise, calibrated.median)
   local candidate_deviation = deviations(deltas, delta.median)
-  local status = "inconclusive"
-  local unbiased = calibrated.low <= 0 and calibrated.high >= 0
-  if unbiased and delta.low > resolution then
+  local reasons: {string} = {}
+  local median_unbiased = calibrated.low <= 0 and calibrated.high >= 0
+  local ctl, cth, tl, th = ctail.low, ctail.high, tail.low, tail.high
+  local tail_unbiased = ctl ~= nil and cth ~= nil and ctl <= 0 and cth >= 0
+  local enough = #samples >= 200 and #calibration >= 200
+  if not enough then reasons[#reasons + 1] = "exploratory_sample_count" end
+  if tl == nil or th == nil or tail_resolution == nil then reasons[#reasons + 1] = "unbounded_tail_interval" end
+  if not median_unbiased then reasons[#reasons + 1] = "biased_median_calibration" end
+  if not tail_unbiased then reasons[#reasons + 1] = "biased_tail_calibration" end
+  if delta.low > 0 then reasons[#reasons + 1] = "positive_median_interval" end
+  if tl ~= nil and tl > 0 then reasons[#reasons + 1] = "positive_tail_interval" end
+  -- Centered deviations share an estimated center: this remains a heuristic
+  -- noise veto, not a confidence interval for population dispersion.
+  if candidate_deviation.low > calibration_deviation.high then
+    reasons[#reasons + 1] = "increased_dispersion"
+  end
+  local status = #reasons == 0 and "pass" or "inconclusive"
+  if enough and ((median_unbiased and delta.low > resolution) or
+      (tail_unbiased and tl ~= nil and tail_resolution ~= nil and tl > tail_resolution)) then
     status = "regression"
-  elseif unbiased and delta.low <= 0 and
-      candidate_deviation.low <= calibration_deviation.high and tail <= resolution then
-    status = "pass"
   end
   return { a = left, b = right, delta = delta, noise = resolution,
     calibration = calibrated, calibration_deviation = calibration_deviation,
-    candidate_deviation = candidate_deviation, tail_delta = tail, status = status }
+    candidate_deviation = candidate_deviation, tail_delta = right.p95 - left.p95,
+    tail_interval = tail, calibration_tail_delta = cright.p95 - cleft.p95,
+    calibration_tail_interval = ctail, tail_noise = tail_resolution,
+    sample_count = #samples, calibration_count = #calibration, status = status, reasons = reasons }
 end
 
 local record Fixture
@@ -132,6 +227,16 @@ local record Observation
   stderr: string
   before: {string}
   after: {string}
+end
+
+local function json_bounds(value: any): any
+  if not value is {any:any} then return value end
+  local copy: {any:any} = {}
+  for key, item in pairs(value) do copy[key] = json_bounds(item) end
+  if value.lower_bounded == false then copy.low = Json.null end
+  if value.upper_bounded == false then copy.high = Json.null end
+  if value.calibration_tail_interval ~= nil and value.tail_noise == nil then copy.tail_noise = Json.null end
+  return copy
 end
 
 local function save(path: string, value: any)
@@ -353,16 +458,16 @@ end
 --- unresolved comparison. Neither is a passing performance gate.
 function Perf.main(argv: {integer:string}): integer
   if argv[1] == nil or argv[2] == nil or argv[3] == nil or argv[6] ~= nil then
-    print("usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs>=30] [workload]")
+    print("usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs=200] [workload]")
     return 1
   end
-  local count: integer = 30
+  local count: integer = 200
   if argv[4] ~= nil then
     local parsed = tonumber(argv[4])
     assert(parsed ~= nil, "pairs must be a number")
     count = math.tointeger(parsed)
   end
-  assert(count ~= nil and count >= 30 and count <= 200, "pairs must be an integer from 30 to 200")
+  assert(count ~= nil and count >= 30 and count <= 2000, "pairs must be an integer from 30 to 2000")
   local selected: {Workload} = {}
   for _, w in ipairs(workloads()) do
     if argv[5] == nil or argv[5] == w.name then selected[#selected + 1] = w end
@@ -390,6 +495,7 @@ function Perf.main(argv: {integer:string}): integer
   local metadata: {string:any} = { cache = "warm OS page cache, fresh process per command",
     sandbox = "unsandboxed fixtures; no shared compile or verdict cache",
     cold_io = "unmeasured", peak_rss = "unmeasured", pairs = count,
+    protocol = "fixed-sample-v2", adaptive_repeat = false, exploratory = count < 200,
     host = assert(sys.uname()), cpu_features = sys.cpu_features(),
     controller_sqlite = Sqlite.version, cpuinfo = cpuinfo,
     kernel = kernel, artifacts = artifacts,
@@ -407,7 +513,7 @@ function Perf.main(argv: {integer:string}): integer
     binaries[i] = retained
     artifacts[i] = { input = input, retained = retained, sha256 = Hash.hex_sha256(bytes), bytes = #bytes }
   end
-  save(output .. "/metadata.json", metadata)
+  save(output .. "/metadata.json", json_bounds(metadata))
   local a = fixture(binaries[1], output .. "/a")
   local aa = fixture(binaries[1], output .. "/aa")
   local b = fixture(binaries[2], output .. "/b")
@@ -427,34 +533,22 @@ function Perf.main(argv: {integer:string}): integer
   else
     metadata.supervisor_with_true_ns = "unmeasured: /usr/bin/true unavailable"
   end
-  save(output .. "/metadata.json", metadata)
+  save(output .. "/metadata.json", json_bounds(metadata))
   local raw: {Observation} = {}
   local summaries: {string:Reading} = {}
   local failed = false
+  local stride = ((count + 4) // 2) * 2
   for index, w in ipairs(selected) do
-    local calibration = run_pairs(a, aa, w, "aa", count, raw, index * 10000)
-    local samples = run_pairs(a, b, w, "ab", count, raw, index * 10000 + 1000)
+    local calibration = run_pairs(a, aa, w, "aa", count, raw, index * stride * 2)
+    local samples = run_pairs(a, b, w, "ab", count, raw, index * stride * 2 + stride)
     local compared = Perf.compare(calibration, samples)
-    save(output .. "/" .. w.name .. "-first.json", compared)
-    if compared.status ~= "pass" then
-      local recalibrated = run_pairs(a, aa, w, "repeat-aa", count, raw, index * 10000 + 2000)
-      local repeated = run_pairs(a, b, w, "repeat-ab", count, raw, index * 10000 + 3000)
-      local repeat_reading = Perf.compare(recalibrated, repeated)
-      save(output .. "/" .. w.name .. "-repeat.json", repeat_reading)
-      local tail_disagreement = (compared.tail_delta > compared.noise) ~=
-        (repeat_reading.tail_delta > repeat_reading.noise)
-      for _, sample in ipairs(recalibrated) do calibration[#calibration + 1] = sample end
-      for _, sample in ipairs(repeated) do samples[#samples + 1] = sample end
-      compared = Perf.compare(calibration, samples)
-      compared.needs_review = tail_disagreement
-    end
     summaries[w.name] = compared
     failed = failed or compared.status ~= "pass"
     save(output .. "/raw.json", raw)
-    save(output .. "/summary.json", summaries)
+    save(output .. "/summary.json", json_bounds(summaries))
     print(string.format("%s: %s; median %.3f -> %.3f ms; A/A resolution %.3f ms",
       w.name, compared.status, compared.a.median / 1e6, compared.b.median / 1e6, compared.noise / 1e6))
-    if compared.needs_review then print(w.name .. ": needs_review: the two empirical tail readings disagree") end
+    if #compared.reasons > 0 then print(w.name .. ": " .. table.concat(compared.reasons, ", ")) end
   end
   return failed and 2 or 0
 end
