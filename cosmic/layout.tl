@@ -40,10 +40,16 @@ local record Layout
   --- outside at all. The build refuses a require that breaks this.
   --- `cosmic.*` is the standard library's, never a project's
   require: string
+  --- a guide: a Markdown file directly under doc/guides/ (not in a
+  --- directory below it) is a test of its own. Each block tagged `teal`
+  --- or `lua` is an example that compiles, and runs when a block tagged
+  --- `output` after it says what it prints; doc/guides/<name>.md is
+  --- `cosmic docs doc.guides.<name>`
+  guides: string
 end
 
 local layout: Layout = {
-  Example = "Example", tests = "tests", require = "require",
+  Example = "Example", tests = "tests", require = "require", guides = "guides",
 }
 
 return layout

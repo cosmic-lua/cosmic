@@ -47,39 +47,64 @@ local record Cli
   --- this binary runs from -- the digest a release's SHA256SUMS names
   --- it by and its notes cite -- with nothing built or checked
   version: string
-  --- `cosmic test [options] [selector...]`: builds the tree in the working
-  --- directory, then runs every test it defines (`cosmic docs
-  --- cosmic.layout` says where tests and examples live). `cosmic docs`
-  --- shows an example under every symbol it calls. A selector narrows
-  --- the run to the modules it names, a file, a module name, or a
-  --- directory; `<file or module>:<name>` to the
-  --- one test of that name, `test_*` or an example's, and one no test
-  --- there has is refused. Each test runs
-  --- in a process of its own, and fails if it runs past its timeout;
-  --- what a failing test printed is shown beneath it. A test whose
-  --- verdict still stands is not run again: one this checkout reached,
-  --- in o/build.db, or one any checkout of the same content did, which
-  --- every sandboxed run shares through $XDG_CACHE_HOME/cosmic/verdicts
-  --- (~/.cache/cosmic/verdicts): COSMIC_VERDICT_CACHE names another
-  --- file, and COSMIC_VERDICT_CACHE=0 turns it off. A run whose workers
-  --- are not sandboxed (COSMIC_TEST_SANDBOX=0, or macOS) shares only
-  --- through a file COSMIC_VERDICT_CACHE names. A module is not
-  --- compiled again either, nor a source parsed, where any checkout
-  --- compiled or parsed the same, through $XDG_CACHE_HOME/cosmic/build
-  --- (~/.cache/cosmic/build): COSMIC_BUILD_CACHE names another file, and
-  --- COSMIC_BUILD_CACHE=0 turns it off. The tree is the working directory,
-  --- unless that has no o/cosmic.db and an ancestor below the home
-  --- directory has one whose build staged the working directory: then it
-  --- is that ancestor, named on stderr, and paths are read from the
-  --- working directory. COSMIC_TREE=<dir> names the tree outright, `.`
-  --- for the working directory
+  --- `cosmic test [options] [selector...]`: builds the tree in the
+  --- working directory, then runs every test it defines. A test is one
+  --- of three things (`cosmic docs cosmic.layout` says where each lives):
+  ---
+  --- - a top-level `local function test_*` of a `<name>_test.tl` file,
+  ---   which fails when it raises an error, so `assert` is enough;
+  --- - a function of the record named `Example` that a
+  ---   `<name>_example.tl` file returns, which `cosmic docs` also shows
+  ---   under every symbol it calls;
+  --- - a block tagged `teal` or `lua` in a guide, doc/guides/<name>.md,
+  ---   which compiles, and runs when a block tagged `output` after it
+  ---   says what it prints.
+  ---
+  --- Beside `tally.tl`, say, a file `tally_test.tl`:
+  ---
+  ---     local Tally = require("tally")
+  ---
+  ---     local function test_words()
+  ---       assert(Tally.words("a b  c") == 3)
+  ---     end
+  ---
+  --- `cosmic test tally_test.tl` runs that file's tests, and `cosmic test
+  --- tally_test.tl:test_words` that one. A selector narrows the run to
+  --- the modules it names: a file, a module name (`tally_test`), or a
+  --- directory; `<file or module>:<name>` to the one test of that name,
+  --- `test_*` or an example's, and one no test there has is refused.
+  --- Each test runs in a process of its own, and fails if it runs past
+  --- its timeout; what a failing test printed is shown beneath it.
+  ---
+  --- A test whose verdict still stands is not run again: one this
+  --- checkout reached, in o/build.db, or one any checkout of the same
+  --- content did, which every sandboxed run shares through
+  --- $XDG_CACHE_HOME/cosmic/verdicts (~/.cache/cosmic/verdicts):
+  --- COSMIC_VERDICT_CACHE names another file, and COSMIC_VERDICT_CACHE=0
+  --- turns it off. A run whose workers are not sandboxed
+  --- (COSMIC_TEST_SANDBOX=0, or macOS) shares only through a file
+  --- COSMIC_VERDICT_CACHE names.
+  ---
+  --- A module is not compiled again either, nor a source parsed, where
+  --- any checkout compiled or parsed the same, through
+  --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
+  --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0
+  --- turns it off.
+  ---
+  --- The tree is the working directory, unless that has no o/cosmic.db
+  --- and an ancestor below the home directory has one whose build
+  --- staged the working directory: then it is that ancestor, named on
+  --- stderr, and paths are read from the working directory.
+  --- COSMIC_TREE=<dir> names the tree outright, `.` for the working
+  --- directory
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in
   --- the working directory structurally, then writes it back out as
   --- canonical text, in place: run it after editing rather than
   --- formatting by hand -- checking along the way that rendering it
   --- again would change nothing further, and refusing a file it does
-  --- not. It also builds the tree and parenthesizes every `assert(...)`
+  --- not. It also builds the tree, failing where the build refuses it,
+  --- with the compiler's reasons, and parenthesizes every `assert(...)`
   --- the type checker says passes on more values than its place can
   --- take -- `(assert(...))` keeps only the first. It fails a link in a
   --- comment or a Markdown file -- `` [`x`] ``, `[text](target)` or
@@ -252,8 +277,8 @@ local record Cli
   --- that refusal and a member not in the archive write nothing: an
   --- unsafe entry stops the extraction after the entries before it,
   --- which stay written. `create <out> <path>...` packs the paths and what is under
-  --- them, sorted by name, as a zip or a gzip tar, by the extension of
-  --- out (`.zip`, `.tar.gz`, `.tgz`); `--reproducible` fixes every
+  --- them, sorted by name, as a zip, a gzip tar or a plain tar, by the
+  --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
   --- modification time (tar 0, zip 1980) so the same tree packs to the
   --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
   --- encoder for either. Paths must be relative and stay under the
@@ -423,8 +448,9 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
-  --- `cosmic help [verb | exit]`: with no word, an index of every verb,
-  --- one line each, and where to read more. `cosmic help <verb>`
+  --- `cosmic help [verb | exit]`: with no word, the guides to start
+  --- from, an index of every verb, one line each, and where to read
+  --- more. `cosmic help <verb>`
   --- prints that verb's full text, options and exit codes. `cosmic help
   --- exit` prints the verdict lines and exit codes every verb shares.
   --- `cosmic <verb> --help` is `cosmic help <verb>`

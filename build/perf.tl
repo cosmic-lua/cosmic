@@ -1,0 +1,462 @@
+--- Paired, warm-cache artifact measurements, controlled by a fixed Cosmic.
+---
+--- `bin/perf <baseline> <candidate> <new-output-directory> [pairs] [workload]` keeps
+--- executable copies, fixtures, commands, outputs and nanosecond observations.
+--- It first measures the baseline against itself, then alternates A/B and B/A.
+--- A suspected regression or inconclusive reading gets one complete repeat.
+--- Run with no other builds or benchmarks on the host. This does not control
+--- the OS page cache, measure peak RSS, or replace target/sandbox correctness CI.
+local Child = require("cosmic.child")
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Json = require("cosmic.json")
+local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
+
+local record Perf
+  record Distribution
+    median: number
+    p95: number
+    low: number
+    high: number
+  end
+  record Pair
+    a: number
+    b: number
+  end
+end
+
+--- Median and a conservative, distribution-free interval for the median.
+--- The rank comes from the exact binomial sign distribution, not a normal
+--- approximation; ties make the interval more conservative.
+function Perf.distribution(values: {number}): Perf.Distribution
+  assert(#values >= 6, "at least six observations for a 95% median interval")
+  local sorted: {number} = {}
+  for _, value in ipairs(values) do sorted[#sorted + 1] = value end
+  table.sort(sorted)
+  local n = #sorted
+  local middle = (n + 1) // 2
+  local median = sorted[middle]
+  if n % 2 == 0 then median = (median + sorted[middle + 1]) / 2 end
+  local probability, cumulative, rank = 2.0 ^ (-n), 0.0, 1
+  for k = 0, n // 2 do
+    cumulative = cumulative + probability
+    if cumulative > 0.025 then break end
+    rank = k + 1
+    probability = probability * (n - k) / (k + 1)
+  end
+  return { median = median, p95 = sorted[math.ceil(n * 0.95)],
+    low = sorted[rank], high = sorted[n - rank + 1] }
+end
+
+local record Reading
+  a: Perf.Distribution
+  b: Perf.Distribution
+  delta: Perf.Distribution
+  noise: number
+  calibration: Perf.Distribution
+  calibration_deviation: Perf.Distribution
+  candidate_deviation: Perf.Distribution
+  tail_delta: number
+  status: string
+  needs_review: boolean
+end
+
+local function deviations(values: {number}, median: number): Perf.Distribution
+  local out: {number} = {}
+  for _, value in ipairs(values) do out[#out + 1] = math.abs(value - median) end
+  return Perf.distribution(out)
+end
+
+--- Classify paired differences against the A/A practical resolution. A wide
+--- interval is inconclusive; a slower tail cannot be hidden by the median.
+function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
+  local noise, a, b, deltas: {number}, {number}, {number}, {number} = {}, {}, {}, {}
+  for _, pair in ipairs(calibration) do noise[#noise + 1] = pair.b - pair.a end
+  for _, pair in ipairs(samples) do
+    a[#a + 1], b[#b + 1] = pair.a, pair.b
+    deltas[#deltas + 1] = pair.b - pair.a
+  end
+  local calibrated = Perf.distribution(noise)
+  local resolution = math.max(math.abs(calibrated.low), math.abs(calibrated.high))
+  local left, right, delta = Perf.distribution(a), Perf.distribution(b), Perf.distribution(deltas)
+  local tail = right.p95 - left.p95
+  local calibration_deviation = deviations(noise, calibrated.median)
+  local candidate_deviation = deviations(deltas, delta.median)
+  local status = "inconclusive"
+  local unbiased = calibrated.low <= 0 and calibrated.high >= 0
+  if unbiased and delta.low > resolution then
+    status = "regression"
+  elseif unbiased and delta.low <= 0 and
+      candidate_deviation.low <= calibration_deviation.high and tail <= resolution then
+    status = "pass"
+  end
+  return { a = left, b = right, delta = delta, noise = resolution,
+    calibration = calibrated, calibration_deviation = calibration_deviation,
+    candidate_deviation = candidate_deviation, tail_delta = tail, status = status }
+end
+
+local record Fixture
+  binary: string
+  root: string
+  host: string
+  portable: string
+  host_tool: string
+  logs: string
+  env: {string:string}
+end
+
+local record Workload
+  name: string
+  args: {string}
+  batch: integer
+  executable: string
+  change: boolean
+  ran: integer
+  stood: integer
+end
+
+local record Observation
+  phase: string
+  workload: string
+  pair: integer
+  label: string
+  elapsed_ns: integer
+  batch: integer
+  argv: {string}
+  cwd: string
+  stdout: string
+  stderr: string
+  before: {string}
+  after: {string}
+end
+
+local function save(path: string, value: any)
+  assert(Fs.write(path, assert(Json.encode(value, { pretty = true })) .. "\n"))
+end
+
+local function command(argv: {string}, fixture: Fixture): Child.Result
+  local result, trouble = Child.run(argv, { cwd = fixture.root, env = fixture.env,
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
+  if result == nil then
+    save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
+    error(trouble)
+  end
+  if not result.ok or result.truncated then
+    save(fixture.logs .. "/failure.json", { argv = argv, result = result })
+    error(table.concat(argv, " ") .. ": " .. (result.stderr or "") .. (result.stdout or ""))
+  end
+  return result
+end
+
+local function leaf(fixture: Fixture, value: integer)
+  assert(Fs.write(fixture.root .. "/leaf.tl", "local record Leaf end\n" ..
+    "function Leaf.value(): integer return " .. value .. " end\nreturn Leaf\n"))
+  assert(Fs.set_mtime(fixture.root .. "/leaf.tl", 1000000000, value))
+end
+
+local function latest_build(fixture: Fixture): {string}
+  local db = assert(Sqlite.open(fixture.root .. "/o/build.db"))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT compiled, cached, read, verdict, run FROM builds ORDER BY run DESC LIMIT 1"))
+  assert(db:close())
+  assert(#rows == 1 and rows[1][4] == "PASS", "missing successful build counters")
+  return rows[1]
+end
+
+local function fixture(binary: string, root: string): Fixture
+  assert(Fs.mkdirs(root .. "/cmd/noop"))
+  assert(Fs.mkdirs(root .. "/o/perf"))
+  local env = Env.all()
+  for name in pairs(env) do
+    if name:sub(1, 7) == "COSMIC_" then env[name] = nil end
+  end
+  env.COSMIC_AUTO_BOOT = "0"
+  env.COSMIC_BUILD_CACHE = "0"
+  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_PORTABLE_CACHE = root .. "/o/portable-cache"
+  local f: Fixture = { binary = binary, root = root, host = root .. "/host",
+    portable = root .. "/portable", host_tool = root .. "/host-tool",
+    logs = root .. "/o/perf", env = env }
+  leaf(f, 1)
+  assert(Fs.write(root .. "/branch.tl", [[local Leaf = require("leaf")
+local record Branch end
+function Branch.value(): integer return Leaf.value() end
+return Branch
+]]))
+  assert(Fs.write(root .. "/spare.tl", [[local record Spare end
+function Spare.value(): integer return 7 end
+return Spare
+]]))
+  assert(Fs.write(root .. "/branch_test.tl", [[local Branch = require("branch")
+local function test_value() assert(Branch.value() > 0) end
+]]))
+  assert(Fs.write(root .. "/spare_test.tl", [[local Spare = require("spare")
+local function test_value() assert(Spare.value() == 7) end
+]]))
+  assert(Fs.write(root .. "/cmd/noop/main.tl", [[local Branch = require("branch")
+local Spare = require("spare")
+return function(_argv: {string}): integer
+  assert(Branch.value() > 0 and Spare.value() == 7)
+  return 0
+end
+]]))
+  -- Stage can trust these old, explicitly different timestamps immediately;
+  -- no-op samples must not include its two-second freshly-written-file path.
+  for _, path in ipairs({ "branch.tl", "spare.tl", "branch_test.tl", "spare_test.tl", "cmd/noop/main.tl" }) do
+    assert(Fs.set_mtime(root .. "/" .. path, 1000000000))
+  end
+  local setup: {Child.Result} = {}
+  setup[#setup + 1] = command({ binary, "build", "--host" }, f)
+  assert(Fs.write(f.host, assert(Fs.read(root .. "/o/bin/noop")), 493))
+  setup[#setup + 1] = command({ binary, "build" }, f)
+  assert(Fs.write(f.portable, assert(Fs.read(root .. "/o/bin/noop")), 493))
+  setup[#setup + 1] = command({ binary, "test" }, f)
+  setup[#setup + 1] = command({ binary, "test" }, f)
+  -- Produce a native tool from its own trusted core, preserving its database.
+  -- This is setup, not part of a startup timing.
+  local source = "local A=require('build.artifact'); local F=require('cosmic.fs'); " ..
+    "local p=assert(A.split(assert(F.read(" .. Json.quote(binary) .. ")))); " ..
+    "assert(F.write(" .. Json.quote(f.host_tool) ..
+    ",assert(A.host_program(assert(A.trusted_core()),p.database)),493))"
+  setup[#setup + 1] = command({ binary, "-e", source }, f)
+  save(f.logs .. "/setup.json", setup)
+  local facts = [[local A=require('build.artifact'); local J=require('cosmic.json');
+local H=require('cosmic.hash'); local S=require('cosmic.store');
+local c=assert(A.trusted_core()); print(assert(J.encode({
+  sqlite=require('cosmic.sqlite').version, core_sha256=H.hex_sha256(c.bytes),
+  target=c.target_id, configuration=c.configuration_id,
+  runtime_basis=S.meta('runtime_basis'), boot_hash=S.meta('boot_hash')})))]]
+  local information = command({ binary, "-e", facts }, f)
+  assert(Fs.write(f.logs .. "/runtime.json", information.stdout or ""))
+  local compiler = command({ binary, "sql", "--store",
+    "SELECT key,CAST(value AS TEXT) AS identity FROM meta WHERE key IN ('compiler','compiled_by') ORDER BY key" }, f)
+  assert(Fs.write(f.logs .. "/compiler.tsv", compiler.stdout or ""))
+  local plans = command({ binary, "sql", "--store",
+    "EXPLAIN QUERY PLAN SELECT path FROM imports WHERE requires='cosmic.sqlite'" }, f)
+  assert(Fs.write(f.logs .. "/query-plan.txt", (plans.stdout or "") .. (plans.stderr or "")))
+  return f
+end
+
+local function workloads(): {Workload}
+  return {
+    { name = "portable_startup", args = {}, batch = 5, executable = "portable" },
+    { name = "host_startup", args = {}, batch = 5, executable = "host" },
+    { name = "tool_startup", args = { "-e", "" }, batch = 5 },
+    { name = "native_tool_startup", args = { "-e", "" }, batch = 5, executable = "host_tool" },
+    { name = "first_require", args = { "-e", "assert(require('cosmic.sqlite'))" }, batch = 5 },
+    { name = "require_closure", args = { "-e", "assert(require('cosmic.sqlite')); " ..
+      "assert(require('cosmic.json')); assert(require('cosmic.child'))" }, batch = 5 },
+    { name = "exact_docs", args = { "docs", "Fs.read" }, batch = 1 },
+    { name = "uses", args = { "uses", "Fs.read" }, batch = 1 },
+    { name = "reverse_imports", args = { "sql", "--store",
+      "SELECT path FROM imports WHERE requires='cosmic.sqlite' ORDER BY path" }, batch = 1 },
+    { name = "outgoing_uses", args = { "sql", "--store",
+      "SELECT module,symbol,line FROM uses WHERE from_module='cosmic.sqlite' ORDER BY module,symbol,line" }, batch = 1 },
+    { name = "embed_portable", args = { "build" }, batch = 1 },
+    { name = "embed_host", args = { "build", "--host" }, batch = 1 },
+    { name = "noop_test", args = { "test" }, batch = 1, ran = 0, stood = 2 },
+    { name = "full_fixture_test", args = { "test" }, batch = 1, ran = 2, stood = 0 },
+    { name = "leaf_edit_test", args = { "test" }, batch = 1, change = true, ran = 1, stood = 1 },
+  }
+end
+
+local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
+                       label: string): Observation
+  local executable = f.binary
+  if w.executable == "portable" then executable = f.portable
+  elseif w.executable == "host" then executable = f.host
+  elseif w.executable == "host_tool" then executable = f.host_tool end
+  local argv = { executable }
+  for _, word in ipairs(w.args) do argv[#argv + 1] = word end
+  if w.change then
+    -- Never revisit a content-addressed verdict from an earlier sample.
+    leaf(f, pair + 1000)
+  end
+  if w.name == "full_fixture_test" then
+    local db = assert(Sqlite.open(f.root .. "/o/build.db", { writable = true }))
+    assert(db:exec("DELETE FROM verdicts"))
+    assert(db:close())
+  end
+  local before = latest_build(f)
+  local result: Child.Result
+  local start = Time.monotonic_ns()
+  for _ = 1, w.batch do result = command(argv, f) end
+  local elapsed = Time.monotonic_ns() - start
+  local stdout, stderr = result.stdout or "", result.stderr or ""
+  local observation: Observation = { phase = phase, workload = w.name, pair = pair, label = label,
+    elapsed_ns = elapsed, batch = w.batch, argv = argv, cwd = f.root,
+    stdout = stdout, stderr = stderr, before = before }
+  save(f.logs .. "/current.json", observation)
+  if w.name == "exact_docs" then
+    assert(stdout:find("Fs.read", 1, true), "docs did not return Fs.read")
+  elseif w.name == "uses" then
+    assert(stdout:find("cosmic/", 1, true) and stdout:find(".tl:", 1, true), "uses returned no locations")
+  elseif w.name == "reverse_imports" then
+    assert(stdout:find("cosmic.store", 1, true), "reverse imports omitted cosmic.store")
+  elseif w.name == "outgoing_uses" then
+    assert(stdout:find("cosmic.", 1, true), "outgoing uses returned no symbols")
+  elseif w.name:find("startup", 1, true) or w.name:find("require", 1, true) then
+    assert(stdout == "" and stderr == "", "startup/require unexpectedly produced output")
+  end
+  if w.ran ~= nil then
+    local ran, stood = (stdout .. stderr):match("; (%d+) ran, (%d+) stood")
+    assert(tonumber(ran) == w.ran and tonumber(stood) == w.stood,
+      w.name .. ": unexpected test counters: " .. stdout .. stderr)
+    assert(not (stdout .. stderr):find("test: SKIP", 1, true), "fixture skipped a test")
+  end
+  if w.name == "embed_portable" or w.name == "embed_host" or w.ran ~= nil then
+    local after = latest_build(f)
+    assert(tonumber(after[5]) > tonumber(before[5]), "build did not record a fresh run")
+    assert(tonumber(after[1]) + tonumber(after[2]) == 6, "build lost fixture modules")
+    if w.change then
+      assert(tonumber(after[1]) > 0 and tonumber(after[3]) > 0, "leaf edit read/compiled no modules")
+    else
+      assert(after[1] == "0" and after[3] == "0", w.name .. ": no-op read/compiled modules")
+    end
+    save(f.logs .. "/counters.json", { before = before, after = after })
+    observation.after = after
+  end
+  return observation
+end
+
+local function run_pairs(a: Fixture, b: Fixture, w: Workload, phase: string,
+                         count: integer, raw: {Observation}, offset: integer): {Perf.Pair}
+  local paired: {Perf.Pair} = {}
+  local observations: {Observation} = {}
+  -- Three discarded warmups follow exactly the same preparation and checks.
+  for i = 1, count + 3 do
+    local first, second: Observation, Observation
+    if i % 2 == 1 then
+      first = measure(a, w, phase, offset + i, "a")
+      second = measure(b, w, phase, offset + i, "b")
+    else
+      second = measure(b, w, phase, offset + i, "b")
+      first = measure(a, w, phase, offset + i, "a")
+    end
+    observations[#observations + 1], observations[#observations + 2] = first, second
+    save(a.logs .. "/" .. phase .. "-" .. w.name .. ".json", observations)
+    if i > 3 then
+      raw[#raw + 1], raw[#raw + 2] = first, second
+      paired[#paired + 1] = { a = first.elapsed_ns / w.batch, b = second.elapsed_ns / w.batch }
+    end
+  end
+  return paired
+end
+
+--- Run independently retained artifacts in new fixture directories. Status 1
+--- means a command/counter failed; status 2 means a measured regression or an
+--- unresolved comparison. Neither is a passing performance gate.
+function Perf.main(argv: {integer:string}): integer
+  if argv[1] == nil or argv[2] == nil or argv[3] == nil or argv[6] ~= nil then
+    print("usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs>=30] [workload]")
+    return 1
+  end
+  local count: integer = 30
+  if argv[4] ~= nil then
+    local parsed = tonumber(argv[4])
+    assert(parsed ~= nil, "pairs must be a number")
+    count = math.tointeger(parsed)
+  end
+  assert(count ~= nil and count >= 30 and count <= 200, "pairs must be an integer from 30 to 200")
+  local selected: {Workload} = {}
+  for _, w in ipairs(workloads()) do
+    if argv[5] == nil or argv[5] == w.name then selected[#selected + 1] = w end
+  end
+  assert(#selected > 0, "unknown workload: " .. (argv[5] or ""))
+  local output = argv[3]
+  local exists, exists_trouble = Fs.exists(output)
+  assert(exists ~= nil, exists_trouble)
+  assert(not exists, "output directory must not already exist")
+  assert(Fs.mkdirs(output))
+  output = assert(Fs.absolute(output))
+  local binaries: {string} = {}
+  local artifacts: {any} = {}
+  local cpuinfo, _ = Fs.read("/proc/cpuinfo")
+  local kernel, _ = Fs.read("/proc/version")
+  local controller = assert(Proc.executable())
+  local script = assert(Fs.absolute(argv[0]))
+  local pin_path = script:gsub("/build/perf.tl$", "/ci/cosmic-driver.pin")
+  local pin, _ = Fs.read(pin_path)
+  local timer: {number} = {}
+  for _ = 1, 100 do
+    local start = Time.monotonic_ns()
+    timer[#timer + 1] = Time.monotonic_ns() - start
+  end
+  local metadata: {string:any} = { cache = "warm OS page cache, fresh process per command",
+    sandbox = "unsandboxed fixtures; no shared compile or verdict cache",
+    cold_io = "unmeasured", peak_rss = "unmeasured", pairs = count,
+    host = assert(sys.uname()), cpu_features = sys.cpu_features(),
+    controller_sqlite = Sqlite.version, cpuinfo = cpuinfo,
+    kernel = kernel, artifacts = artifacts,
+    controller = { path = controller, sha256 = Hash.hex_sha256((assert(Fs.read(controller)))), pin = pin },
+    script_sha256 = Hash.hex_sha256((assert(Fs.read(script)))),
+    workload = argv[5] or "all",
+    timer_overhead_ns = Perf.distribution(timer),
+    baseline_commit = Env.get("COSMIC_PERF_BASELINE_COMMIT"),
+    candidate_commit = Env.get("COSMIC_PERF_CANDIDATE_COMMIT") }
+  for i = 1, 2 do
+    local input = assert(Fs.absolute(argv[i]))
+    local bytes = assert(Fs.read(input))
+    local retained = output .. "/artifact-" .. i
+    assert(Fs.write(retained, bytes, 493))
+    binaries[i] = retained
+    artifacts[i] = { input = input, retained = retained, sha256 = Hash.hex_sha256(bytes), bytes = #bytes }
+  end
+  save(output .. "/metadata.json", metadata)
+  local a = fixture(binaries[1], output .. "/a")
+  local aa = fixture(binaries[1], output .. "/aa")
+  local b = fixture(binaries[2], output .. "/b")
+  local afacts = assert(Json.decode_object((assert(Fs.read(a.logs .. "/runtime.json")))))
+  local bfacts = assert(Json.decode_object((assert(Fs.read(b.logs .. "/runtime.json")))))
+  assert(afacts.target == bfacts.target and afacts.configuration == bfacts.configuration,
+    "baseline and candidate must use the same target/configuration")
+  local has_true, _ = Fs.exists("/usr/bin/true")
+  if has_true then
+    local supervisor: {number} = {}
+    for _ = 1, 30 do
+      local start = Time.monotonic_ns()
+      command({ "/usr/bin/true" }, a)
+      supervisor[#supervisor + 1] = Time.monotonic_ns() - start
+    end
+    metadata.supervisor_with_true_ns = Perf.distribution(supervisor)
+  else
+    metadata.supervisor_with_true_ns = "unmeasured: /usr/bin/true unavailable"
+  end
+  save(output .. "/metadata.json", metadata)
+  local raw: {Observation} = {}
+  local summaries: {string:Reading} = {}
+  local failed = false
+  for index, w in ipairs(selected) do
+    local calibration = run_pairs(a, aa, w, "aa", count, raw, index * 10000)
+    local samples = run_pairs(a, b, w, "ab", count, raw, index * 10000 + 1000)
+    local compared = Perf.compare(calibration, samples)
+    save(output .. "/" .. w.name .. "-first.json", compared)
+    if compared.status ~= "pass" then
+      local recalibrated = run_pairs(a, aa, w, "repeat-aa", count, raw, index * 10000 + 2000)
+      local repeated = run_pairs(a, b, w, "repeat-ab", count, raw, index * 10000 + 3000)
+      local repeat_reading = Perf.compare(recalibrated, repeated)
+      save(output .. "/" .. w.name .. "-repeat.json", repeat_reading)
+      local tail_disagreement = (compared.tail_delta > compared.noise) ~=
+        (repeat_reading.tail_delta > repeat_reading.noise)
+      for _, sample in ipairs(recalibrated) do calibration[#calibration + 1] = sample end
+      for _, sample in ipairs(repeated) do samples[#samples + 1] = sample end
+      compared = Perf.compare(calibration, samples)
+      compared.needs_review = tail_disagreement
+    end
+    summaries[w.name] = compared
+    failed = failed or compared.status ~= "pass"
+    save(output .. "/raw.json", raw)
+    save(output .. "/summary.json", summaries)
+    print(string.format("%s: %s; median %.3f -> %.3f ms; A/A resolution %.3f ms",
+      w.name, compared.status, compared.a.median / 1e6, compared.b.median / 1e6, compared.noise / 1e6))
+    if compared.needs_review then print(w.name .. ": needs_review: the two empirical tail readings disagree") end
+  end
+  return failed and 2 or 0
+end
+
+return Perf

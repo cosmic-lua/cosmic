@@ -98,7 +98,7 @@ local Tally = require("tally")
 
 local log = Log.new("tally")
 
-return function(argv: {integer:string}): integer
+return function(argv: {string}): integer
   local parsed, why = Flags.parse(argv, 1, { ["--lines"] = false })
   if parsed == nil then
     log:complain(why)

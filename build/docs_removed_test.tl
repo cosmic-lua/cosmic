@@ -79,7 +79,7 @@ end
 
 --- A member a module no longer has, by the module's last name, in
 --- either case or in full, answers what replaces it, as the compiler
---- says it; `Codec.encoder` no longer answers the verb's [`verb.encoder`].
+--- says it; `Codec.encoder` does not answer the verb's [`verb.encoder`].
 local function test_a_removed_member_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   for _, query in ipairs({ "Net.pair", "net.pair", "cosmic.net.pair" }) do
