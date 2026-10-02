@@ -172,8 +172,8 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | A4 | [#2552](https://github.com/cosmic-lua/cosmic/pull/2552) | merged | 3511e6cd/tree0c00b3b3; branch36959640308 and queue36959944853 green; verified release and four consumer migrations complete |
 | B1 | included in #2554 | completed as policy correction | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
-| B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | CI running | fd834a8e/tree668c3b95; reviewed on actual B2a with incoming #2548/#2553 intact; auto-merge enabled; epoch14 |
-| B3 | pending | locally approved on A4/B2b | 7aa69c15/tree2093cb5d; 90 native, 53 checked and 17 independent integration cases pass; only the combined SQLite acknowledgment changed |
+| B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
+| B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | CI running | 9d5dc39b/tree589e1f47; exact approved patch on actual B2b merge; final harness9 pass; auto-merge enabled |
 | B4a | pending | locally approved on combined B3 | 7e24382e/treeea9d1654; native44 and independent allocation/harness integration checks pass; special SQLite paths preserved |
 | B4b | pending | locally approved on combined B4a | bbc82140/treed98c1d87; ten non-harness files unchanged; native31 integration and independent checked14 pass |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -383,3 +383,21 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   unchanged; incoming #2557 argv documentation and #2558 old `_inputs` refusal
   removal add five preserved files. The separate #2555 child-object refactor
   is not present; its overlap has been inspected for later integration.
+
+- 2026-10-02 UTC: B2b merged as `f4c30c3d`/`0a398186` after required
+  branch `36962413125` and queue `36962779158` passed. B3 now aligns to this
+  actual parent for publication.
+- 2026-10-02 UTC: local C7 preparation driver `726572ca`/`faef5ef5` is
+  independently approved for development only. It combines reviewed C1/C2/C4/C5/C6
+  APIs with no C3 and an unchanged pin. Fresh boot reused 516 parses/502
+  compiles with zero new compilation; 34 focused cases passed. Independent
+  worktrees produce identical executable, carried and projection bytes and six
+  clean database checks. Native credential/noexec proof and published-release
+  verification are still required; its provisional epoch is not a production
+  integration token.
+
+- 2026-10-02 UTC: B3 published as #2564 at `9d5dc39b`, exact approved
+  tree `589e1f47`, based on B2b merge `f4c30c3d`. Static independent review
+  verified unchanged patches and the five preserved incoming files; final
+  harness checks passed 9/9 with zero warm compilation/reads. Auto-merge is
+  enabled, subject to required branch and queue checks.
