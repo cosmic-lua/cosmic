@@ -687,3 +687,23 @@ local function test_sqlite_existing_only_open_releases_every_refused_allocation(
   end
   assert(sys.lstat(tmp .. "/missing.db") == nil, "a refusal created the missing database")
 end
+
+--- Building a full-flush failure answer under allocation refusal must
+--- not consume the caller's descriptor or leak another one.
+local function test_full_fsync_preserves_its_descriptor_under_allocation_failure(tmp: string)
+  if not checked then return end
+  local fd = assert(sys.open(tmp .. "/full-flush", sys.O_CREAT | sys.O_RDWR, 420))
+  assert(sys.write(fd, "data"))
+  local darwin = assert(sys.uname()).sysname == "Darwin"
+  local before = next_descriptor(tmp)
+  under_every_failure(function()
+    local ok, why, errno = sys.full_fsync(fd)
+    if darwin then assert(ok, why) else assert(ok == false and errno == sys.ENOSYS) end
+  end, function() assert(sys.fstat(fd), "full_fsync consumed the caller's descriptor") end)
+  assert(next_descriptor(tmp) == before, "full_fsync leaked a descriptor")
+  assert(sys.close(fd))
+  under_every_failure(function()
+    local ok, why, errno = sys.full_fsync(fd)
+    assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS))
+  end)
+end
