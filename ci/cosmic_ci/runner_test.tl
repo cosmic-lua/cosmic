@@ -4,6 +4,13 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
 local Sqlite = require("cosmic.sqlite")
 
+--- The bound for a child that should finish at once (`exit 0`, a `cat`):
+--- only a hang reaches it, so it leaves a slow or loaded runner room. It
+--- stays under the 30 s a test of cosmic_ci gets (ci.yml's "check the
+--- pinned CI driver" sets no COSMIC_TEST_TIMEOUT), so a hang fails here,
+--- recorded, rather than by the runner ending the test.
+local hang_guard = Time.seconds(20)
+
 local function test_runner_records_without_aliasing_subject(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
   assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
@@ -11,12 +18,12 @@ local function test_runner_records_without_aliasing_subject(tmp: string)
     worker = "worker", run = "run", attempt = "1", candidate = candidate }
   local function execute(phase: string, argv: {string}, timeout?: integer): Runner.Outcome
     return Runner.operation(c, phase, { argv = argv, cwd = candidate,
-      timeout_ns = timeout or Time.seconds(1) })
+      timeout_ns = timeout or hang_guard })
   end
   assert(execute("success", { "/bin/sh", "-c", "exit 0" }).code == 0)
   assert(execute("exit", { "/bin/sh", "-c", "exit 23" }).code == 23)
   assert(execute("start", { "/missing/command" }).status == "start-error")
-  assert(execute("delayed-success", { "/bin/sh", "-c", "sleep 0.05" }, Time.seconds(1)).code == 0)
+  assert(execute("delayed-success", { "/bin/sh", "-c", "sleep 0.05" }).code == 0)
   local timed = execute("timeout", { "/bin/sh", "-c", "sleep 30" }, Time.ms(20))
   assert(timed.code == 124 and timed.elapsed_ns >= Time.ms(10) and
     timed.elapsed_ns < Time.seconds(5), "timeout did not preserve its nanosecond duration")
@@ -35,7 +42,7 @@ local function test_runner_owns_input_and_retained_output(tmp: string)
   local outcome = Runner.execute({
     argv = { "/bin/sh", "-c", "cat; printf error-bytes >&2" }, cwd = tmp,
     input = tmp .. "/input", output = tmp .. "/out", error = tmp .. "/err",
-    timeout_ns = Time.seconds(1),
+    timeout_ns = hang_guard,
   })
   assert(outcome.code == 0 and assert(Fs.read(tmp .. "/out")) == "input bytes")
   assert(assert(Fs.read(tmp .. "/err")) == "error-bytes")
@@ -109,7 +116,7 @@ local function test_execute_passes_more_descriptors(tmp: string)
   local fd = assert(Fs.open_read(tmp .. "/eight"))
   local outcome = Runner.execute({
     argv = { "/bin/sh", "-c", "cat <&8" }, cwd = tmp,
-    output = tmp .. "/out", fds = { [8] = fd }, timeout_ns = Time.seconds(1),
+    output = tmp .. "/out", fds = { [8] = fd }, timeout_ns = hang_guard,
   })
   assert(Fs.close(fd))
   assert(outcome.code == 0 and assert(Fs.read(tmp .. "/out")) == "on eight",
