@@ -146,14 +146,14 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     assert(Fs.mkdirs(env.TMPDIR))
     local started = Time.monotonic_ns()
     -- Every test's deadline counts from its worker's start, so the two
-    -- that end on their own must load and finish inside it too: three
+    -- that end on their own must load and finish inside it too: two
     -- seconds leaves a slow host room, while the hang's two runs, one a
-    -- mode, still fit inside this test's own deadline.
-    local result = invoke(root, output, { "--timeout", "3", "--jobs", "2" }, env)
+    -- mode, still fit inside the ten seconds CI gives this test.
+    local result = invoke(root, output, { "--timeout", "2", "--jobs", "2" }, env)
     local text = assert(Fs.read(output))
     assert(not result.ok, text)
     assert(Time.monotonic_ns() - started < Time.seconds(30), text)
-    assert(text:find("suite.hang_test test_hangs: timed out after 3 s", 1, true), text)
+    assert(text:find("suite.hang_test test_hangs: timed out after 2 s", 1, true), text)
     assert(text:find("suite.exits_test test_exits: the test process exited with status 0 " ..
       "before it reported", 1, true), text)
     assert(text:find("  | said something", 1, true), text)
