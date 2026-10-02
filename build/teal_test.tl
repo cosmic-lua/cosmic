@@ -499,7 +499,7 @@ local function test_a_standard_global_shadowed_is_named_where_declared()
   assert(replacement_for(record_named_table, "invalid key 'insert' in record 'table' of type Rows")
     == "'table' here is a local that hides the standard library's table: rename it")
   assert(replacement_for("table.nope({})\n", "invalid key 'nope' in record 'table' of type table")
-    == "did you mean 'move'? table's fields: concat, insert, move, pack, remove, sort, unpack")
+    == "table's fields: concat, insert, move, pack, remove, sort, unpack")
   -- cosmic withholds `io` from the checker ([`teal.withheld`]): a local
   -- of that name hides nothing.
   assert(teal.replacement("invalid key 'write' in record 'io' of type R", "", 3, 9) == nil)
@@ -585,6 +585,19 @@ local function test_a_missing_field_names_the_nearest()
   assert(replacement_for("local s = 'x'\nprint(s.lenn)\n", "invalid key 'lenn' in record 's' of type string")
     == "did you mean 'len'? string's fields: byte, char, dump, find, format, gmatch, gsub, len, " ..
       "lower, match and 7 more")
+  -- A field one edit past the limit is not offered: none for a key of
+  -- one letter, one for four.
+  assert(replacement_for("local t = {x = 1, y = 2}\nprint(t.z)\n",
+    "invalid key 'z' in record 't' of type record (x: integer; y: integer)")
+    == "t's fields: x, y")
+  assert(teal.replacement("invalid key 'nope' in record 'r' of type R", "", 1, 1, { "move" })
+    == "R's fields: move")
+  -- An inferred type is named without where it was inferred, and a
+  -- record no variable names as "the record".
+  assert(teal.replacement("invalid key 'lenn' in record 's' of type string \"x\" (inferred at :2:9)",
+    "", 1, 1, { "len" }) == "did you mean 'len'? string \"x\"'s fields: len")
+  assert(replacement_for("print(({a = 1}).b)\n", "invalid key 'b' in type record (a: integer)")
+    == "the record's fields: a")
   -- Without the fields the checker gives, nothing is guessed.
   assert(teal.replacement("invalid key 'alpah' in record 'r' of type R", "", 1, 1) == nil)
 end

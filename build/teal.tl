@@ -706,9 +706,9 @@ local function field_hint(key: string, owner: string, fields: {string}): string 
     for _, name in ipairs(sorted) do
       local d = distance(lower, name:lower())
       local e = d <= limit and distance(key, name) or math.huge
-      if d < best or (d == best and e < spelled) then
+      if d <= limit and (d < best or (d == best and e < spelled)) then
         best, spelled, near = d, e, { name }
-      elseif d == best and e == spelled then
+      elseif d <= limit and d == best and e == spelled then
         near[#near + 1] = name
       end
     end
@@ -735,8 +735,9 @@ end
 --- What [`MissingKey`] the checker's refusal `msg` names: `invalid key
 --- 'type' in record 'st' of type sys.Stat`, the same `in 'st' of
 --- interface type ...`, or `in type ...` for an expression that is no
---- variable. A module record described rather than named (`of type
---- record Module`, cosmic.cli's) is named by the variable.
+--- variable. A record described rather than named (`of type record
+--- Module`, cosmic.cli's) is named by the variable, or, with none, as
+--- "the record".
 local function missing_key(msg: string): MissingKey | nil
   local key, variable, owner = msg:match("^invalid key '(.-)' in record '([%a_][%w_]*)' of type (.+)$")
   if key == nil then
@@ -748,8 +749,11 @@ local function missing_key(msg: string): MissingKey | nil
   if key == nil then
     return nil
   end
-  if variable ~= nil and owner:match("^record ") then
-    owner = variable
+  -- A type the checker inferred carries where (`string "x" (inferred
+  -- at :2:9)`); the type is the name.
+  owner = owner:gsub(" %(inferred at [^)]*%)$", "")
+  if owner:match("^record ") then
+    owner = variable or "the record"
   end
   return { key = key, owner = owner }
 end
@@ -883,6 +887,9 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
       return alias .. "." .. key .. " was removed: " .. instead
     end
   end
+  -- TODO: hint a field a table literal names that its record lacks
+  -- (`in local declaration: r: unknown field alpah`) the same way: it
+  -- waits on a patch/tl record giving that error the record's fields too.
   -- TODO: hint a key a union's records lack (`cannot index key 'type'
   -- in type sys.Stat | nil`, an unchecked `Fs.stat(p).type`): the
   -- checker gives fields only for a single record (patch/tl/33d); the
