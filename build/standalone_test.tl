@@ -211,6 +211,17 @@ local function test_a_shadowing_record_is_not_told_a_replacement(tmp: string)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
 end
 
+--- A key a record lacks is told the field meant: `type` on a stat is
+--- `kind`, as the checker's fields for sys.Stat have it, and the fields
+--- follow.
+local function test_a_missing_field_names_the_field_meant(tmp: string)
+  local chunk, trouble = compile(tmp, "stat.tl",
+    'local Fs = require("cosmic.fs")\nlocal st = assert(Fs.stat("."))\nreturn st.type\n')
+  assert(chunk == nil)
+  assert(trouble:find("stat.tl:3:11: invalid key 'type' in record 'st' of type sys.Stat -- " ..
+    "did you mean 'kind'? sys.Stat's fields: atime, ", 1, true) ~= nil, trouble)
+end
+
 local function test_a_record_with_main_is_an_entry_point()
   local function main(): integer
     return 7

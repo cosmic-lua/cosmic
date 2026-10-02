@@ -1,0 +1,14 @@
+file: tl.tl
+note: an error refusing a key a record lacks carries that record's value fields, so the reader of the error (build.teal's `replacement`) can name the closest one; the message itself is unchanged
+--- find
+      tag: WarningKind
+
+      -- used temporarily for stable-sorting
+--- replace
+      tag: WarningKind
+
+      -- For a key a record lacks: the record's value fields, unordered.
+      fields: {string}
+
+      -- used temporarily for stable-sorting
+--- end

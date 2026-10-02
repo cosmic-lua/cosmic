@@ -7,6 +7,9 @@ local record compiler
     y: integer
     x: integer
     msg: string
+    -- For a key a record lacks (`invalid key ...`): the record's value
+    -- fields, unordered (patch/tl/33a).
+    fields: {string} | nil
   end
 
   -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's
