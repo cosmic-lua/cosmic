@@ -38,7 +38,7 @@ The execution ledger below is the sole status record.
 | C7 | Verified release and remaining consumers | C1/C2/C4–C6 published; C3 decision recorded; resolves four remaining pin dependencies |
 | D1 | Final API/build audit and documentation | All preceding PRs merged |
 
-Preparation can overlap on disjoint files. Publish serially against actual merged main. If a sensible reviewed slice can land earlier, split it and update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
+Preparation can overlap on disjoint files. Publish B steps serially against actual merged main. After B5's verified release and consumer migration merge, C1/C2/C4 may publish as three separately reviewed PRs from that same actual merged base. C2 shares no changed paths with the other two; C1/C4 touch separate Fs and Proc acknowledgment entries in the harness file, with no epoch change or API dependency. Preserve independent exact-tree reviews and every branch/queue gate, and review each cumulative queue candidate. Resolve and re-review any integration conflict before landing. Join after all three merge, then keep C5 and C6 serial. C3 retains its independent measurement decision; C7 retains the actual published-release barrier. This overlaps CI waiting without claiming faster builds or reduced runner work. If another sensible reviewed slice can land earlier, update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
 
 ## A1: executable lookup with an explicit outcome
 
@@ -174,7 +174,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
-| B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | refreshed CI running | f1d75a60/treeb3c0574f merges actualmain eb8ea8cc; original six feature blobs unchanged; native80 and independent checked56 pass; auto-merge enabled |
+| B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | branch green, queued | f1d75a60/treeb3c0574f merges actualmain eb8ea8cc; branch36977328228 green; queue55724526 exact-tree independently approved; native80 and checked56 pass |
 | B4b | pending | locally approved on prepared B4a | 1dfbcdc7/treec1c66559; native63 integration plus independent50 native/27 checked pass; matching artifacts; actual merged-parent alignment required |
 | B5 | pending | source preparation approved | a1439795/treeff2eba5b; independent46 CI and44 Zig tests pass; pin unchanged until verified B-wave release |
 | C1 | pending | locally approved | 938b3686/tree254eea31 prep preserves original668ef813 feature and incoming Fs changes; focused60 pass; final integration/publication after B5 |
@@ -477,3 +477,11 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   warm build did zero compiles/reads. Full 30-second attempt timed out without
   reported assertions and is not a complete-suite verdict. Auto-merge is
   enabled for fresh branch and merge-queue checks.
+
+- 2026-10-02 UTC: B4a refreshed branch run `36977328228` passed all five
+  platform jobs and entered queue run `36977805814` at candidate `55724526`.
+  C1/C2/C4 publication may overlap after actual B5 merge, following independent
+  path-overlap and dependency review. Their only shared path contains distinct
+  Fs/Proc acknowledgments that merge cleanly; C2 has no overlap. Keep separate
+  exact-tree and cumulative queue reviews, join before C5, and retain C5/C6
+  sequencing and C7's release verification. No runtime or test gate is removed.
