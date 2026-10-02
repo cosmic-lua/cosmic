@@ -4,36 +4,39 @@ Planning snapshot: `9ac37cba3b2d626b79d7c217329b2020d76bccb6`, the final build-s
 
 ## Objective and boundaries
 
-Remove the eleven pin-dependent workarounds identified by the build review through the nine capabilities they need. Include the related cancellable SQLite busy wait and macOS storage flush. Preserve public compatibility, warm build/cache behavior, failure cleanup and independently verified publication. This is not a general error framework, new task runtime, cache-policy redesign or wholesale shell elimination project.
+Resolve the eleven pin-dependent workarounds identified by the build review, implementing the capabilities actual consumers need and correcting assumptions disproved by review. Include the related cancellable SQLite busy wait and macOS storage flush. Preserve public compatibility, warm build/cache behavior, failure cleanup and independently verified publication. This is not a general error framework, new task runtime, cache-policy redesign or wholesale shell elimination project.
 
 All runtime spans are nanoseconds. Convert at raw interfaces that still count milliseconds; SQLite PRAGMA busy_timeout and sys.flock remain such interfaces. Elapsed_ms reports and workflow epoch-second cache cutoffs retain their separate units.
 
 Repository contracts require an existing fallible public API to return exactly `(value, string)` or `(boolean, string)`. A code added as a third result, or a record replacing the existing reason, is incompatible. Where callers need machine-readable outcomes, add a concrete operation result record returned as one value; retain existing convenience functions and their behavior. Do not add a generic Result type or diagnostic-text parser. Programmer errors still raise; operating failures are results. Preserve the recent error-prefix and argument-validation conventions.
 
-No standalone bootstrap or CI consumer may call a new API until ci/cosmic-driver.pin names a downloaded, digest-verified, executed release containing it. Each pin advance rechecks every literal pin-dependent TODO, not only this plan's list. Include every item the selected release unblocks. Existing source-tree consumers may migrate with their API. Keep existing convenience wrappers on the shared implementation. The public-export rule requires a caller outside the module or a runnable standard-library worked example; an internal wrapper alone does not earn an API. Use a meaningful source-tree consumer where available, otherwise document the intended typed classification in a runnable example under the existing rule. Do not invent dummy callers, compatibility casts, or export-check exceptions to make an unused API pass. Any unavoidable temporary export exception needs a concrete pin dependency, explicit independent review, and removal in the pin migration under the repository's existing rules.
+No standalone bootstrap or CI consumer may call a new API until ci/cosmic-driver.pin names a downloaded, digest-verified, executed release containing it. Each pin advance rechecks every literal pin-dependent TODO, not only this plan's list. Include every item the selected release unblocks. Existing source-tree consumers may migrate with their API. Keep existing convenience wrappers on the shared implementation. The public-export rule requires a caller outside the module or a runnable standard-library worked example; an internal wrapper alone does not earn an API. Use a meaningful source-tree consumer where available, otherwise document the intended typed classification in a runnable example under the existing rule. Do not invent dummy callers, compatibility casts, or export-check exceptions to make an unused API pass.
 
 ## Sequence
 
-| PR | Scope | Dependency / release boundary | Readiness |
-| --- | --- | --- | --- |
-| A1 | Structured executable lookup | Independent; bootstrap consumer waits for A4 | Ready for implementation after plan review |
-| A2 | Snapshot SQLite execution outcomes | Independent; native rebuild/work consumers migrate now | Ready after plan review |
-| A3 | Structured HTTP download outcomes with URL-neutral reasons | Preserve incoming stream surface; bootstrap consumer waits for A4 | Ready after plan review |
-| A4 | Verified release and structured-failure consumer migration | A1–A3 published; retires four pin TODOs | Release-gated |
-| B1 | Correct the overstated SIGINT provenance requirement | Preserve runtime policy; comment correction included in B2a | Independently respecified; no public provenance API |
-| B2a | Preserve genuine streamed I/O failures and document signal policy | Existing behavior correction; harness epoch update | Independently reviewed prerequisite |
-| B2b | Explicit bounded draining after child cancellation | B2a; preserve Reader contract; CI consumer waits for B5 | Entry-signal and lifecycle details under design review |
-| B3 | Interruptible SQLite busy waits | A2 outcomes; use existing guard notification | Ready once A2 lands |
-| B4 | Tool-owned cache maintenance command | Existing cache schemas and policies preserved | Small command contract to finalize |
-| B5 | Verified release and cancellation/cache consumer migration | B2a/B2b, B3 and B4 published; retires two pin TODOs plus SQL wait workaround; B1 corrected as policy | Release-gated |
-| C1 | Fs.append | Independent additive operation | Ready |
-| C2 | Explicit macOS full storage flush | Narrow platform binding + typed wrapper if needed | Ready with platform tests |
-| C3 | Filesystem-wide flush and measured patch publication | Preserve fallback durability; consumer waits for C7 | Benchmark decision required |
-| C4 | Username lookup | Independent typed system binding | Ready |
-| C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive | Independent adversarial review required |
-| C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying | Independent adversarial review required |
-| C7 | Verified release and remaining consumers | C1–C6 published; retires four pin TODOs | Release-gated |
-| D1 | Final API/build audit and documentation | All preceding PRs merged | Planned |
+The execution ledger below is the sole status record.
+
+| PR | Scope | Dependency / release boundary |
+| --- | --- | --- |
+| A1 | Structured executable lookup | Independent; bootstrap consumer waits for A4 |
+| A2 | Snapshot SQLite execution outcomes | Independent; native rebuild/work consumers migrate now |
+| A3 | Structured HTTP download outcomes with URL-neutral reasons | Preserve incoming stream surface; bootstrap consumer waits for A4 |
+| A4 | Verified release and structured-failure consumer migration | A1–A3 published; retires four pin TODOs |
+| B1 | Correct the overstated SIGINT provenance requirement | Preserve runtime policy; comment correction included in B2a |
+| B2a | Preserve genuine streamed I/O failures and document signal policy | Existing behavior correction; harness epoch update |
+| B2b | Explicit bounded draining after child cancellation | B2a; preserve Reader contract; CI consumer waits for B5 |
+| B3 | Interruptible SQLite busy waits | A2 outcomes; use existing guard notification |
+| B4a | Existing-only writable SQLite open | Small prerequisite for safe maintenance without CREATE |
+| B4b | Tool-owned cache maintenance command | B4a; supported formats retained, unknown/unreadable caches kept conservatively |
+| B5 | Verified release and cancellation/cache consumer migration | B2a/B2b, B3 and B4a/B4b published; retires two pin TODOs plus SQL wait workaround; B1 corrected as policy |
+| C1 | Fs.append | Independent additive operation |
+| C2 | Explicit macOS full storage flush | Narrow platform binding + typed wrapper if needed |
+| C3 | Filesystem-wide flush and measured patch publication | Preserve fallback durability; consumer waits for C7 |
+| C4 | Username lookup | Independent typed system binding |
+| C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive |
+| C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying |
+| C7 | Verified release and remaining consumers | C1–C6 published; retires four pin TODOs |
+| D1 | Final API/build audit and documentation | All preceding PRs merged |
 
 Preparation can overlap on disjoint files. Publish serially against actual merged main. If a sensible reviewed slice can land earlier, split it and update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
 
@@ -113,9 +116,11 @@ Expose cancellation accurately through the operation outcome from A2. SQLite's b
 
 Migrate source-tree rebuild waits with the API, and Zig's standalone wait in B5. Tests use a real lock holder and delivered signal; assert prompt interruption well inside the configured long wait, ordinary busy timeout, eventual acquisition, nested guard handling, and successful subsequent statements. Avoid brittle exact-millisecond assertions.
 
-## B4: tool-owned cache maintenance
+## B4a/B4b: tool-owned cache maintenance
 
-Add a build-owned command, provisionally `cosmic cache trim compiles|verdicts PATH --since-ns N --json`. It runs from explicit paths without discovering/staging/rebuilding the candidate project. Its implementation belongs beside shared_compiles/shared_verdicts/shared_sqlite and uses their format definitions. It must be callable from the pinned driver even when the candidate build fails or has no executable.
+B4a adds only `OpenOptions.create = false` to writable SQLite opens, omitting CREATE while preserving existing defaults and read-only behavior. Test missing paths, disappearance before open and existing-file access under the raw and public APIs. This capability is independently reviewed before the command consumes it.
+
+B4b adds a build-owned command, provisionally `cosmic cache trim compiles|verdicts PATH --since-ns N --json`. It runs from explicit paths without discovering/staging/rebuilding the candidate project. Its implementation belongs beside shared_compiles/shared_verdicts/shared_sqlite and uses their format definitions. It must be callable from the pinned driver even when the candidate build fails or has no executable.
 
 Return structured counts, bytes, reached/untouched state and unknown formats; keep CLI failure status truthful. CI's current best-effort policy (report failed maintenance without failing an otherwise good leg) remains in CI orchestration. Preserve exact trim semantics: since threshold, whole-unless-reached distinction, compiled/parsed versus verdict/store tables, unknown/unstamped tables kept, writer-versus-trim concurrency, WAL handling, set-aside cleanup and stable row digest independent of used_ns. Do not trim arbitrary SQLite databases merely because they contain a used_ns column. An older pinned tool encountering a newer unknown schema must retain it and explain that decision. Open existing files without CREATE to avoid a pre-stat/open race. Reject schema shapes whose triggers or foreign keys could mutate unknown tables. Require stopped writers from the caller and inspect checkpoint results; successful close alone does not prove WAL readiness.
 
@@ -166,13 +171,14 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | A3 | pending | prepared and independently approved | 9a3f8d4b/tree37787864; source Fetch consumer included; integrated review passed; actual A2 merge alignment and remote checks required |
 | A4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
-| B2a | pending | preparing | Genuine streamed-I/O failure prerequisite plus B1 policy comment; epoch update required |
+| B2a | pending | locally approved; release checkpoint pending | 3f10d7da/tree4a438ebc; 195 focused tests and independent 73 cases plus real closed-descriptor checks passed; epoch 13 |
 | B2b | pending | design approved; preparation waits for B2a | Entry freshness, captured-guard lifetime, exclusive consumption and error precedence reviewed; runnable child example earns export |
 | B3 | pending | local preparation | Paired design and implementation review; publication follows A4 |
-| B4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B4a | pending | local preparation | Minimal existing-only open option; separately reviewed native lifetime and default-compatibility coverage |
+| B4b | pending | local preparation | Command follows B4a; conservative file retention, format ownership and independent dispatch |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| C1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| C2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C1 | pending | local preparation | Additive append operation; publication after B5 |
+| C2 | pending | local preparation | Narrow Darwin full-flush operation; publication after B5; native platform gates required |
 | C3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -222,3 +228,14 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   error ordering and bounded zero-time behavior. Local B2a/B3 preparation may
   overlap A-wave CI; publication still follows A4. B2b waits for B2a's private
   ownership foundation and earns its export with a useful runnable child example.
+
+- 2026-10-02 UTC: B2a candidate `3f10d7da`, tree `4a438ebc`, independently
+  approved. 195 implementation tests and 73 independent cases passed; real
+  closed-descriptor failures remained sticky outside and inside Poll.run.
+  Whole-tree check passed; full-suite attempt hit the known host Unix-socket
+  refusal and 30-second timeout, so it is not a pass. Publication waits for A4.
+- 2026-10-02 UTC: split B4 into B4a's small existing-only open option and
+  B4b's command. Schema recognition, WAL readiness, digest framing and bare
+  dispatch deserve a focused command review separate from the C open flag.
+  This makes seventeen implementation/migration PRs plus D1's final audit.
+  C1/C2 local preparation may overlap CI, with their publication still after B5.
