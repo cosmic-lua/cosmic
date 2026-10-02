@@ -195,7 +195,7 @@ local function run_rebuild_case(fixture_dir: string,
       diagnostics)
     active[#active + 1] = child
 
-    await_ready(case_root, diagnostics, "first-" .. action, ready)
+    await_ready(case_root, diagnostics, "first-" .. action, ready, child)
     local entries_before = cache_entries(cache)
     assert(entries_before == 1,
       action .. ": expected exactly one cache entry before rebuild, found " ..
@@ -210,7 +210,7 @@ local function run_rebuild_case(fixture_dir: string,
     release(case_root, diagnostics, "first-" .. action, go)
     -- The rebuilt artifact starts once more at the same logical path.
     await_ready(case_root, diagnostics, "second-" .. action, ready,
-      rebuild_timeout_ns)
+      child, rebuild_timeout_ns)
     release(case_root, diagnostics, "second-" .. action, go)
 
     local result = finish(child)

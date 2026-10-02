@@ -53,17 +53,20 @@ local function test_tasks_take_turns_as_each_waits()
   assert(table.concat(seen, " ") == "main a1 b1 a2 b2", table.concat(seen, " "))
 end
 
+--- Each delay is armed from its own reading of the clock, so the times
+--- lie far enough apart that a host stalling less than 50 ms in all
+--- while it arms them still sees them end in order.
 local function test_delays_end_in_the_order_of_their_times()
   local order: {integer} = {}
   Poll.run(function()
-    for _, ms in ipairs({ 30, 10, 20 }) do
+    for _, ms in ipairs({ 150, 50, 100 }) do
       Poll.spawn(function()
         assert(Poll.delay(Time.ms(ms)))
         order[#order + 1] = ms
       end)
     end
   end)
-  assert(table.concat(order, " ") == "10 20 30", table.concat(order, " "))
+  assert(table.concat(order, " ") == "50 100 150", table.concat(order, " "))
 end
 
 local function test_a_readable_wait_ends_when_data_arrives(tmp: string)

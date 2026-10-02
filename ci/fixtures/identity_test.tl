@@ -2,6 +2,7 @@ local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 -- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
 -- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
@@ -134,7 +135,7 @@ local function run_build_race(project: string, cache: string,
       values, diagnostics)
     active[#active + 1] = child
 
-    await_ready(work, diagnostics, action, ready)
+    await_ready(work, diagnostics, action, ready, child)
     if action == "rename" then
       assert(Fs.rename(copy_path, work .. "/" .. action .. "-away"))
     else
@@ -260,7 +261,13 @@ end
 -- from a verdict, however many the file holds. It is a test of its own,
 -- apart from the primary project's, which reads nothing it writes. Alone
 -- it takes 21 s on a slow macOS runner, most of the 30 s the two take
--- together.
+-- together, and near a child's default 30 s bound (cosmic_ci/fixture.tl's).
+-- Its run is bounded by `focused_embed_timeout_ns` instead, under the
+-- 60 s the driver gives each identity test (cosmic_ci/orchestration.tl's
+-- `identity_per_test_timeout_s`), so a hang fails naming the run's
+-- output rather than by the runner ending the test.
+local focused_embed_timeout_ns <const> = Time.seconds(50)
+
 local function test_identity_focused_embed(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local work = tmp
@@ -275,7 +282,7 @@ local function test_identity_focused_embed(tmp: string)
     work .. "/focused-embed")
   local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
     "test", "build/embed_test.tl" }, focused, diagnostics,
-    { COSMIC_PORTABLE_CACHE = work .. "/cache" })
+    { COSMIC_PORTABLE_CACHE = work .. "/cache" }, focused_embed_timeout_ns)
   local cases = 0
   for _ in Fixture.read(focused .. "/build/embed_test.tl"):gmatch("\nlocal function test_") do
     cases = cases + 1

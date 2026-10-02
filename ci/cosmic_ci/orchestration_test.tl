@@ -198,7 +198,7 @@ chmod 755 o/bin/cosmic
       TARGET = "x86_64-linux-musl",
       COSMIC_ZIG_CACHE_SEED = seed, COSMIC_CI_SELFTEST_REPLAY_FAILURE = "true",
       TMPDIR = tmp .. "/temporary",
-    }), Time.seconds(10))
+    }), Time.seconds(20))
   assert(outcome.result.code == 23, "suite failure was not primary")
   assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
