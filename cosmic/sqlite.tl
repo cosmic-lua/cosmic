@@ -52,7 +52,13 @@ local record Sqlite
   --- and statement finalizers. `code` is the primary result code and
   --- `extended_code` retains its extended detail. Both are [`Sqlite.OK`]
   --- on success, with an empty `reason`; otherwise `reason` is for a
-  --- person. No statement is retried: earlier statements in a batch
+  --- person. `cancelled` says the busy handler installed by
+  --- `handle:busy_timeout(ns)` stopped this call for an unread guard
+  --- signal. SQLite's codes stay unchanged, usually BUSY; cancellation
+  --- does not imply SQLITE_INTERRUPT or a rollback. The signal remains
+  --- available to the guard. Reading that guard clears its notification
+  --- for later waits even though `guard:cancelled()` remembers it.
+  --- No statement is retried: earlier statements in a batch
   --- may already have changed the database when a later one fails.
   --- `handle:exec_result(sql)` returns this record alone. A closed
   --- handle or SQL containing a NUL raises; `handle:exec` returns
@@ -93,9 +99,11 @@ local record Sqlite
 
   --- How [`Sqlite.open`] opens a database.
   record OpenOptions
-    --- Opens for reading and writing, creating the file when it is
-    --- missing. Without it the database is read-only.
+    --- Opens for reading and writing. Without it the database is read-only.
     writable: boolean
+    --- With `writable`, creates a missing file unless explicitly false.
+    --- False refuses a missing named file; read-only opens never create.
+    create: boolean
     --- Opens read-only a database that nothing will change while it is
     --- open: see [`Sqlite.open`]. Giving it with `writable` raises.
     immutable: boolean
@@ -145,8 +153,11 @@ local record Sqlite
 end
 
 --- Opens the database file at `path`: read-only unless `opts.writable`
---- is true, in which case a missing file is created. Answers the handle,
+--- is true, in which case a missing file is created unless `opts.create`
+--- is false. Answers the handle,
 --- or `nil` and why. `opts` that is not a table raises.
+--- SQLite's special empty and `:memory:` paths still open temporary
+--- databases, including with `create = false`.
 ---
 --- `opts.immutable` opens a database that nothing will change while it
 --- is open, read-only and with no lock: no `-wal`, `-shm` or journal file
@@ -173,7 +184,7 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | n
     error("sqlite: open: options is a table such as { writable = true }, not a " ..
       type(given), 2)
   end
-  return sqlite.open(path, opts and opts.writable, opts and opts.immutable)
+  return sqlite.open(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end
 
 --- A writable database held in memory: it is gone when the handle

@@ -9,6 +9,7 @@ local record sqlite
     code: integer
     extended_code: integer
     reason: string
+    cancelled: boolean
   end
   --- One prepared statement. It keeps its handle alive while it is
   --- open. Every call on a finalized statement raises.
@@ -68,6 +69,16 @@ local record sqlite
     --- Executes once and snapshots the result before another operation
     --- changes it. Embedded NUL raises; exec returns false and a reason.
     exec_result: function(Handle, sql: string): ExecResult
+    --- Waits up to timeout_ns at locks, rounded up to milliseconds,
+    --- checking the innermost guard's unread signal without taking it.
+    --- Each exec, prepare, step, reset or finalize shares one budget
+    --- across its locking events, starting at the first contention.
+    --- Zero never sleeps. Negative/noninteger durations and borrowed
+    --- or closed handles raise. Without a guard, only the time limits it.
+    --- PRAGMA busy_timeout reads zero for this custom handler; writing
+    --- that pragma replaces it. Call this method again to reinstall it.
+    --- SQLite can refuse a lock without calling any busy handler.
+    busy_timeout: function(Handle, timeout_ns: integer)
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement | nil, string
     --- Closes the connection; closing one already closed does nothing.
@@ -103,8 +114,9 @@ local record sqlite
   --- nothing another process's write waits on. A `-wal` is never read,
   --- so a database with commits still in its `-wal` shows without them:
   --- open it the ordinary read-only way instead. Giving it with
-  --- `writable` raises.
-  open: function(path: string, writable?: boolean, immutable?: boolean): Handle | nil, string
+  --- `writable` raises. Writable opens create a missing file unless
+  --- `create` is explicitly false; read-only opens never create.
+  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle | nil, string
   --- The SQLite library's version, such as "3.53.4".
   version: string
 end

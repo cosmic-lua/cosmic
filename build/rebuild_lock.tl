@@ -139,14 +139,9 @@ local function take_sqlite(lock: Lock, path: string,
     return nil, path .. ": " .. db_trouble
   end
   lock.db = db
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring(Time.ceil(wait_ns, MS)))
-  if not timed then
-    return nil, path .. ": " .. time_trouble
-  end
-  -- TODO: end this wait at a signal a Child.guard catches, as the
-  -- flock's does, once cosmic.sqlite's busy wait checks for one.
+  db:busy_timeout(wait_ns)
   local begun = db:exec_result("BEGIN IMMEDIATE")
+  if begun.cancelled then return nil, "interrupted while waiting for " .. path end
   if begun.code == Sqlite.BUSY then return "busy", "" end
   if begun.code ~= Sqlite.OK then return nil, path .. ": " .. begun.reason end
   return "held", ""

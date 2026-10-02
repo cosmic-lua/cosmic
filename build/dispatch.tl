@@ -35,11 +35,19 @@ local log = verdict.log
 --- row is ever missing.
 --- @param verbs the verbs to print
 --- @return each verb's text, by verb
-local function verb_help(verbs: {string}): {string: string}
+local function verb_help(verbs: {string}, binary_only?: boolean): {string: string}
   local Cli = require("cosmic.cli")
   local docs = require("build.docs")
   local link_text = require("build.link_text")
-  local sources = docs.databases()
+  local sources: docs.Sources
+  if binary_only then
+    local handles = require("cosmic.store").databases()
+    local public: {boolean} = {}
+    for i = 1, #handles do public[i] = true end
+    sources = { handles = handles, public = public, opened = {} }
+  else
+    sources = docs.databases()
+  end
   local view, view_trouble = docs.view(sources.handles, sources.public)
   local out: {string: string} = {}
   if view == nil then
@@ -539,6 +547,15 @@ local function help(argv: {integer:string}, asked: string | nil): integer
   local plural = require("build.plural")
   local verb_list = require("build.verb_list")
   local started = Time.monotonic_ns()
+  -- Cache maintenance must remain usable when this directory's candidate
+  -- cannot build. Its help comes from this binary too, without opening a
+  -- candidate database or passing through the stale-tool guard.
+  if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
+    local spec = assert(verb_list.find("cache"))
+    log:say(verb_text("cache", { spec }, verb_help({ "cache" }, true).cache) .. "\n")
+    log:verdict("help", true, "1 verb, " .. clock.took(started))
+    return 0
+  end
   -- The staleness guard `test` applies: a fingerprint compare when the
   -- tool is fresh. Help reads build.docs, so an edit to it must rebuild.
   local code = require("build.reboot").stale_exit(argv)

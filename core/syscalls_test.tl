@@ -1910,3 +1910,76 @@ local function test_o_nofollow_refuses_a_final_link(tmp: string)
   failed(sys.open(tmp .. "/link", sys.O_RDONLY | sys.O_NOFOLLOW))
   sys.close((assert(sys.open(path, sys.O_RDONLY | sys.O_NOFOLLOW))))
 end
+
+--- Full storage flush is an explicit Darwin operation, not an alias for
+--- fsync elsewhere. The file remains the caller's on either outcome.
+local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: string)
+  local fd = create(tmp .. "/full-flush")
+  assert(sys.write(fd, "data"))
+  local ok, trouble, errno = sys.full_fsync(fd)
+  local names = assert(sys.uname())
+  if names.sysname == "Darwin" then
+    assert(ok == true and trouble == nil and errno == nil, tostring(trouble))
+  else
+    assert(ok == false, "unsupported full flush must not report success")
+    failed_with(sys.ENOSYS, ok, trouble, errno)
+  end
+  assert(sys.fstat(fd), "full_fsync closed its caller's descriptor")
+  assert(Fs.fsync(fd), "ordinary Fs.fsync remains available")
+  assert(sys.close(fd))
+  local closed, why, number = sys.full_fsync(fd)
+  assert(closed == false, "a closed descriptor must not be flushed")
+  failed_with(names.sysname == "Darwin" and sys.EBADF or sys.ENOSYS, closed, why, number)
+end
+
+--- Descriptor validation precedes platform dispatch, including on hosts
+--- that do not implement the operation.
+local function test_full_fsync_validates_its_descriptor()
+  raises(sys.full_fsync, {})
+  raises(sys.full_fsync, 1.5)
+  raises(sys.full_fsync, 1 << 40)
+end
+
+--- The raw boundary validates both IDs independently of Child.Options.
+local function test_spawn_credentials_reject_incomplete_and_reserved_ids()
+  for index, credentials in ipairs({
+    {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
+    { user = 1, group = -1 }, { user = 4294967295, group = 1 },
+    { user = 1.5, group = 1 } as raw_process.Credentials,
+  } as {raw_process.Credentials}) do
+    local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
+      nil, nil, nil, nil, nil, false, nil, nil, credentials)
+    assert(not ok and tostring(why):find("credentials", 1, true), tostring(index) .. ": " .. tostring(why))
+  end
+  local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
+    nil, nil, nil, nil, nil, false, nil, { offline = true }, { user = 1, group = 1 })
+  assert(not ok and tostring(why):find("credentials exclude", 1, true), tostring(why))
+end
+
+--- Even when the platform or caller cannot set credentials, refusal
+--- retains spawn's runtime-error shape and never executes the target.
+local function test_spawn_credentials_runtime_refusal(tmp: string)
+  local probe = probe_in(tmp)
+  local marker = tmp .. "/credential-exec"
+  local pid, trouble, errno = process.spawn(probe, { probe, "append " .. marker .. " wrong" },
+    nil, tmp .. "/absent", nil, nil, nil, false, nil, nil, { user = 65532, group = 65532 })
+  failed(pid, trouble, errno)
+  assert(not Fs.exists(marker))
+end
+
+local function test_noexec_scratch_requires_a_boolean_and_unveiling()
+  local invalid: {any} = { "yes", 1, {} }
+  for _, value in ipairs(invalid) do
+    local sandbox: raw_process.Sandbox = {}
+    local fields = sandbox as {string:any} -- cast: malformed input exercises raw validation
+    fields.noexec_scratch = value
+    local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+      nil, nil, nil, false, nil, sandbox)
+    assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true),
+      tostring(trouble))
+  end
+  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+    nil, nil, nil, false, nil, { noexec_scratch = true })
+  assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true),
+    tostring(trouble))
+end

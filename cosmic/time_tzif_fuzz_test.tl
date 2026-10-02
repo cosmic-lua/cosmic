@@ -127,15 +127,44 @@ local function crowded(src: Fuzz.Source): string
     string.pack(">i4BB", 0, 0, math.min(index, chars - 1)):rep(count), abbreviations })
 end
 
+--- What a linear read of the largest file `crowded` draws, 40000
+--- types, costs on this host: ten times the least of three reads of a
+--- tenth of it, 4000 types each naming a one-letter abbreviation, so a
+--- cost that grows faster than the length, which the reference would
+--- share, still leaves it short of the largest drawn read. Taken the
+--- first time a read is slow enough to ask.
+local reference_ns: integer = nil
+local function reference(): integer
+  if reference_ns == nil then
+    local count = 4000
+    local data = table.concat({ "TZif", "\0", ("\0"):rep(15),
+      string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6),
+      string.pack(">i4BB", 0, 0, 0):rep(count), "A\0", ("A"):rep(count * 6 - 2) })
+    local least = math.maxinteger
+    for _ = 1, 3 do
+      local started = Time.monotonic_ns()
+      pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
+      least = math.min(least, Time.monotonic_ns() - started)
+    end
+    reference_ns = 10 * least
+  end
+  return reference_ns
+end
+
 --- Whatever `data` is, reading it and asking the zone about moments
---- raises nothing, and a refusal says why. Reading takes time linear in
---- the length: under a second for anything drawn here.
+--- raises nothing, and a refusal says why. That a read is linear in
+--- the length is cosmic/time_zone_test.tl's to hold, by a ratio; here
+--- the bound is against a blowup: a read past a second must also be
+--- past twenty times a linear read of the largest drawn file on this
+--- host ([`reference`]), so a slow host (the checked core, a loaded one) does not fail
+--- it.
 local function total(data: string): boolean, string
   local started = Time.monotonic_ns()
   local ok, zone, why = pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
   local elapsed = Time.monotonic_ns() - started
-  if elapsed > NS then
-    return false, ("reading %d bytes took %d ms"):format(#data, elapsed // 1000000)
+  if elapsed > NS and elapsed > 20 * reference() then
+    return false, ("reading %d bytes took %d ms, a linear read of the largest %d ms"):format(
+      #data, elapsed // 1000000, reference() // 1000000)
   end
   if #data > 100000 then Fuzz.label("large") end
   if not ok then return false, "zone_from_tzif raised: " .. tostring(zone) end

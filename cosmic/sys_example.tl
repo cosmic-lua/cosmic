@@ -116,4 +116,21 @@ function Example.rmdir()
   print(Fs.is_dir(dir))
 end
 
+--- An explicit request for Darwin's device-cache flush. Unsupported
+--- platforms report ENOSYS; ordinary fsync is a separate choice, not an
+--- equivalent fallback. Neither result proves power-loss durability.
+function Example.full_fsync()
+  local dir, path = scratch()
+  local fd = assert(sys.open(path, sys.O_RDWR))
+  local ok, trouble, errno = sys.full_fsync(fd)
+  assert(sys.close(fd))
+  clean(dir, path)
+  if not ok and errno == sys.ENOSYS then
+    print("full storage flush is unavailable on this platform")
+  else
+    assert(ok, trouble)
+    print("full storage flush requested")
+  end
+end
+
 return Example

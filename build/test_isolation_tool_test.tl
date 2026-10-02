@@ -145,11 +145,15 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     env.COSMIC_TEST_SANDBOX = mode
     assert(Fs.mkdirs(env.TMPDIR))
     local started = Time.monotonic_ns()
-    local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" }, env)
+    -- Every test's deadline counts from its worker's start, so the two
+    -- that end on their own must load and finish inside it too: two
+    -- seconds leaves a slow host room, while the hang's two runs, one a
+    -- mode, still fit inside the ten seconds CI gives this test.
+    local result = invoke(root, output, { "--timeout", "2", "--jobs", "2" }, env)
     local text = assert(Fs.read(output))
     assert(not result.ok, text)
     assert(Time.monotonic_ns() - started < Time.seconds(30), text)
-    assert(text:find("suite.hang_test test_hangs: timed out after 1 s", 1, true), text)
+    assert(text:find("suite.hang_test test_hangs: timed out after 2 s", 1, true), text)
     assert(text:find("suite.exits_test test_exits: the test process exited with status 0 " ..
       "before it reported", 1, true), text)
     assert(text:find("  | said something", 1, true), text)
@@ -252,7 +256,10 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.code == 2, assert(Fs.read(output)))
   assert(assert(Fs.read(output)):find("COSMIC_TEST_TIMEOUT must be", 1, true))
-  env.COSMIC_TEST_TIMEOUT = "5"
+  -- Only that it parses matters: generous for a slow host's run of
+  -- fine_test, and short of this test's own deadline, so a hang there is
+  -- told by the nested run.
+  env.COSMIC_TEST_TIMEOUT = "20"
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
 end

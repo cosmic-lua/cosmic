@@ -1,8 +1,9 @@
 --- cosmic.http's tests that need the program itself, apart from
 --- cosmic/http_test.tl's so those stand while the tree moves:
 --- $SSL_CERT_FILE, which only a fresh process started from the program
---- reads. The CA roots the binary's own database carries are read in
---- cosmic/http_store_test.tl.
+--- reads, and a client in a process of its own beside a local
+--- server that sees the request as sent. The CA roots the binary's own
+--- database carries are read in cosmic/http_store_test.tl.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -143,4 +144,64 @@ end)
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find(".target", 1, true), "left behind: " .. name)
   end
+end
+
+--- A request [`Http.request`] sends to a local server, as the server
+--- read it, and what the client then printed: the status and body of
+--- the server's "done", or why it failed. The client runs in a process
+--- of its own, since a server in this one could not answer while the
+--- request blocks. Only a server sees what [`Http.request`] sends:
+--- the scripted transport's `sent` is a Response's, and the whole body
+--- it answers has none.
+local function served(tmp: string, method: string, body?: string): string, string
+  local script = tmp .. "/request.tl"
+  assert(Fs.write(script, [[
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+return function(argv: {string}): integer
+  local got, trouble = Http.request(argv[1], argv[2], { body = argv[3] })
+  Fs.put(Fs.stdout, got ~= nil and tostring(got.status) .. " " .. got.body or trouble)
+  return 0
+end
+]]))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(20) }))
+  local url = "http://127.0.0.1:" .. server.address.port .. "/items/1"
+  local args = { "--standalone", script, method, url }
+  if body ~= nil then args[#args + 1] = body end
+  local started = this_program.program(args, { stdout = "capture", stderr = "capture" })
+  local child <close> = assert(Child.start(started.argv, started.options))
+  local accepted, refused = server:accept()
+  if accepted == nil then
+    local died = child:wait(Time.seconds(5))
+    error(refused .. ": " .. tostring(died ~= nil and died.stderr))
+  end
+  local conn <close> = accepted
+  local request = ""
+  while not request:find("\r\n\r\n", 1, true) do request = request .. assert(conn:read()) end
+  local head_end = request:find("\r\n\r\n", 1, true) + 3
+  local length = tonumber(request:sub(1, head_end):lower():match("\r\ncontent%-length: *(%d+)") or "0")
+  while #request < head_end + length do request = request .. assert(conn:read()) end
+  assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"))
+  conn:close()
+  local result = assert(child:wait(Time.seconds(20)))
+  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  return request, result.stdout or ""
+end
+
+--- A PUT reaches the server as a PUT carrying its body, and its answer
+--- comes back whole.
+local function test_request_sends_a_put_with_its_body(tmp: string)
+  local request, said = served(tmp, "PUT", "new item")
+  assert(request:find("PUT /items/1 HTTP/1.1\r\n", 1, true) == 1, request)
+  assert(request:sub(-#"\r\n\r\nnew item") == "\r\n\r\nnew item", request)
+  assert(said == "200 done", said)
+end
+
+--- A DELETE reaches the server as a DELETE with no body.
+local function test_request_sends_a_delete(tmp: string)
+  local request, said = served(tmp, "DELETE")
+  assert(request:find("DELETE /items/1 HTTP/1.1\r\n", 1, true) == 1, request)
+  assert(request:sub(-4) == "\r\n\r\n", request)
+  assert(not request:lower():find("content-length", 1, true), request)
+  assert(said == "200 done", said)
 end

@@ -27,9 +27,13 @@ Fs.take(Fs.stdin, 1)
   return child
 end
 
+--- How long a wait for a child to end is given: a guard against a hang
+--- alone, generous for a slow host.
+local finish_ns <const> = Time.seconds(20)
+
 local function release(child: Child.Handle)
   assert(assert(child.stdin_stream):close())
-  assert(assert(child:wait(Time.seconds(5))).ok)
+  assert(assert(child:wait(finish_ns)).ok)
 end
 
 local function prepare(root: string, cache: string, patch: boolean)
@@ -96,7 +100,7 @@ require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
     assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate")
     release(gate)
     assert(lines:read() == "finished")
-    assert(assert(child:wait(Time.seconds(5))).ok)
+    assert(assert(child:wait(finish_ns)).ok)
     for _, name in ipairs((assert(Fs.list(cache)))) do
       assert(not name:match("^%.scratch%."), "a completed install retained scratch")
     end
@@ -121,7 +125,7 @@ print(path)
   end
   local published = ""
   for _, child in ipairs(children) do
-    local result = assert(child:wait(Time.seconds(10)))
+    local result = assert(child:wait(finish_ns))
     assert(result.ok, result.stderr)
     if published == "" then published = result.stdout or "" end
     assert(result.stdout == published)
@@ -171,6 +175,6 @@ end
     end
     assert(wrappers == 1, "another wrapper was created before ownership")
     release(first)
-    assert(assert(second:wait(Time.seconds(5))).ok)
+    assert(assert(second:wait(finish_ns)).ok)
   end
 end

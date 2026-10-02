@@ -771,13 +771,9 @@ end
 --- "held", "busy" when another run holds it, or nil and why for any
 --- other failure.
 local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string | nil, string
-  -- SQLite counts the timeout in milliseconds: rounded up, so none is no wait.
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring((wait_ns + MS - 1) // MS))
-  if not timed then
-    return nil, path .. ": " .. time_trouble
-  end
+  db:busy_timeout(wait_ns)
   local begun = db:exec_result("BEGIN IMMEDIATE")
+  if begun.cancelled then return nil, path .. ": interrupted while waiting for the write lock" end
   if begun.code == Sqlite.OK then
     return "held", ""
   end

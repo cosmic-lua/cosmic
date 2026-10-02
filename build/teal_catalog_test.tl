@@ -39,6 +39,9 @@ local function test_a_refusal_quotes_the_catalog()
   local source = 'local Hash = require("cosmic.hash")\nreturn Hash.hex\n'
   assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13) ==
     "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
+  -- A removed member's answer comes before the record's fields.
+  assert(teal.replacement("invalid key 'hex' in record 'Hash' of type Hash", source, 2, 13,
+    { "hmac", "sha256" }) == "Hash.hex was removed: " .. Removed.members["cosmic.hash.hex"])
   local cache = 'local Fs = require("cosmic.fs")\nreturn Fs.cache_path("zig")\n'
   assert(teal.replacement("invalid key 'cache_path' in record 'Fs' of type Fs", cache, 2, 11) ==
     "Fs.cache_path was removed: " .. Removed.members["cosmic.fs.cache_path"])

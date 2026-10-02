@@ -5,6 +5,7 @@ local Fuzz = require("cosmic_ci.fuzz")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 
 local function write(path: string, data: string, mode?: integer)
@@ -339,4 +340,122 @@ local function test_fuzz_streams_the_log_as_the_core_runs(tmp: string)
   assert(result.code == 0, tostring(result.code) .. "/" .. tostring(result.signal))
   assert(read(temp .. "/fuzz.status") == "0\n")
   assert(read(log):find("first\nsecond\n", 1, true), read(log))
+end
+
+local function test_fuzz_forwards_repeated_signals_and_keeps_each_trap(tmp: string)
+  local handle <close>, temp, log = start_fuzz(tmp, {
+    "#!/bin/sh", "n=0", "trap 'n=$((n+1)); echo trap$n; [ $n -lt 2 ] || exit 143' TERM",
+    "echo ready", "while :; do sleep 0.05; done",
+  })
+  assert(until_found(temp .. "/fuzz.out", "ready\n", 120))
+  assert(handle:stop(sys.SIGTERM))
+  assert(until_found(log, "trap1\n", 5), "first signal was not forwarded")
+  assert(handle:stop(sys.SIGTERM))
+  local result = assert(handle:wait(Time.seconds(30)))
+  assert(result.signal == sys.SIGTERM)
+  assert(read(temp .. "/fuzz.status") == "143\n")
+  assert(read(log):find("trap2\n", 1, true))
+  assert(read(temp .. "/fuzz.out") == read(log), "successful drains duplicated or omitted bytes")
+end
+
+local function test_fuzz_waits_after_output_eof_and_drains_a_finite_post_exit_tail(tmp: string)
+  local eof = tmp .. "/eof"
+  assert(Fs.mkdirs(eof))
+  local first <close>, temp = start_fuzz(eof, { "#!/bin/sh", "exec 1>&- 2>&-", "sleep 0.2", "exit 7" })
+  assert(assert(first:wait(Time.seconds(30))).code == 7)
+  assert(read(temp .. "/fuzz.status") == "7\n")
+  local setsid = Proc.find("setsid")
+  if setsid == nil then return end
+  local tail = tmp .. "/tail"
+  assert(Fs.mkdirs(tail))
+  local second <close>, tail_temp, log = start_fuzz(tail,
+    { "#!/bin/sh", "\"$FUZZ_SETSID\" /bin/sh -c 'echo ready > \"$FUZZ_TAIL_READY\"; sleep 0.2; echo final-tail' &",
+      "while [ ! -e \"$FUZZ_TAIL_READY\" ]; do sleep 0.01; done", "exit 3" },
+    { FUZZ_SETSID = setsid, FUZZ_TAIL_READY = tail .. "/ready" })
+  assert(assert(second:wait(Time.seconds(30))).code == 3)
+  assert(read(tail_temp .. "/fuzz.status") == "3\n")
+  assert(read(log) == "final-tail\n" and read(tail_temp .. "/fuzz.out") == read(log))
+end
+
+local function test_fuzz_output_exceeding_capture_limit_is_saved_without_truncation(tmp: string)
+  local handle <close>, temp, log = start_fuzz(tmp,
+    { "#!/bin/sh", "head -c 20000000 /dev/zero", "echo complete" })
+  assert(assert(handle:wait(Time.seconds(30))).code == 0)
+  assert(assert(Fs.stat(log)).size == 20000009)
+  assert(read(temp .. "/fuzz.out") == read(log))
+end
+
+local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp: string)
+  local root, temp = tmp .. "/checkout", tmp .. "/temp"
+  assert(Fs.mkdirs(root) and Fs.mkdirs(temp))
+  local original_open, original_tee = Fs.open_write, Stream.tee
+  local opened: integer = nil
+  Fs.open_write = function(path: string, mode?: integer): integer | nil, string
+    local fd, why = original_open(path, mode)
+    if path == temp .. "/fuzz.out" then opened = fd end
+    return fd, why
+  end
+  Stream.tee = function(_a: Stream.Writer, _b: Stream.Writer): Stream.Writer
+    error("injected sink constructor failure")
+  end
+  local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = Fs.stdout,
+    summarize = function(_text: string) end })
+  Fs.open_write, Stream.tee = original_open, original_tee
+  assert(not ok and tostring(why):find("injected sink constructor failure", 1, true))
+  assert(opened ~= nil)
+  local _, _, errno = sys.write(opened, "must be closed")
+  assert(errno == sys.EBADF, "the output descriptor leaked")
+end
+
+--- Exit can become visible inside drain before the sink fails. A bounded
+--- status observation keeps that actual code before handle cleanup runs.
+local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
+  local root, temp = tmp .. "/checkout", tmp .. "/temp"
+  fake_checkout(root, "0")
+  assert(Fs.mkdirs(temp))
+  local original = Child.start
+  local ended, closed = false, false
+  Child.start = function(_argv: {string}, _opts?: Child.Options): Child.Handle | nil, string
+    local fake: any = {
+      try_wait = function(): Child.TryWait
+        return ended and { finished = true, result = { ok = false, code = 17 } } or { finished = false }
+      end,
+      drain = function(_self: any, options: Child.DrainOptions): Child.DrainResult
+        assert(assert(options.stdout):write("saved-once\n"))
+        ended = true
+        return { kind = "failed", bytes = 11, reason = "injected sink failure" }
+      end,
+      stop = function(): boolean, string return true, "" end,
+    }
+    return setmetatable(fake, { __close = function() closed = true end }) as Child.Handle, ""
+  end
+  local log = assert(Fs.open_write(tmp .. "/log"))
+  local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = log,
+    summarize = function(_text: string) end })
+  Child.start = original
+  assert(Fs.close(log))
+  assert(not ok and tostring(why):find("injected sink failure", 1, true))
+  assert(closed and read(temp .. "/fuzz.status") == "17\n")
+  assert(read(temp .. "/fuzz.out") == "saved-once\n" and read(tmp .. "/log") == "saved-once\n")
+end
+
+local function test_an_escaped_writer_bounds_final_drain_without_replacing_child_status(tmp: string)
+  local setsid = Proc.find("setsid")
+  if setsid == nil then return end
+  local pid_file = tmp .. "/escaped-pid"
+  local handle <close>, temp = start_fuzz(tmp, {
+    "#!/bin/sh",
+    "\"$FUZZ_SETSID\" /bin/sh -c 'echo $$ > \"$FUZZ_ESCAPE_PID\"; sleep 30' &",
+    "while [ ! -e \"$FUZZ_ESCAPE_PID\" ]; do sleep 0.01; done",
+    "echo before-exit", "exit 23",
+  }, { FUZZ_SETSID = setsid, FUZZ_ESCAPE_PID = pid_file })
+  local ok, result = pcall(function(): Child.Result
+    return (assert(handle:wait(Time.seconds(30))))
+  end)
+  local pid = math.tointeger(tonumber(Fs.read(pid_file) or ""))
+  if pid ~= nil then local _, _ = sys.kill(-pid, sys.SIGKILL) end
+  assert(ok, result)
+  assert(not result.ok, "incomplete output was reported as successful")
+  assert(read(temp .. "/fuzz.status") == "23\n", "drain failure replaced the child's actual status")
+  assert(read(temp .. "/fuzz.out") == "before-exit\n")
 end

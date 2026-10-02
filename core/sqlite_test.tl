@@ -207,6 +207,65 @@ local function test_open_reports_a_path_it_cannot_open(tmp: string)
   failed(Sqlite.open(tmp .. "/missing.db"))
 end
 
+--- Maintenance must not recreate a cache that disappeared after discovery.
+local function test_existing_only_open_never_creates_a_missing_database(tmp: string)
+  for _, path in ipairs({ tmp .. "/missing.db", tmp .. "/missing/db" }) do
+    failed(Sqlite.open(path, { writable = true, create = false }))
+    assert(not Fs.exists(path))
+  end
+  assert(not Fs.exists(tmp .. "/missing"))
+  local path = tmp .. "/removed.db"
+  local made = assert(Sqlite.open(path, { writable = true }))
+  assert(made:exec("CREATE TABLE t (a)"))
+  assert(made:close())
+  assert(Fs.remove(path))
+  failed(Sqlite.open(path, { writable = true, create = false }))
+  assert(not Fs.exists(path))
+end
+
+--- Existing-only is writable, including WAL; it is not immutable mode.
+local function test_existing_only_open_can_commit_to_an_existing_database(tmp: string)
+  local path = tmp .. "/existing.db"
+  local made = assert(Sqlite.open(path, { writable = true }))
+  assert(made:exec("PRAGMA journal_mode=WAL; CREATE TABLE t (a)"))
+  assert(made:close())
+  local writer = assert(Sqlite.open(path, { writable = true, create = false }))
+  assert(writer:exec("BEGIN; INSERT INTO t VALUES (42); COMMIT"))
+  local reader = assert(Sqlite.open(path, { create = true }))
+  local rows = assert(Sqlite.rows(reader, "SELECT a FROM t"))
+  assert(#rows == 1 and rows[1][1].integer == 42)
+  failed(reader:exec("INSERT INTO t VALUES (43)"))
+  assert(reader:close())
+  assert(writer:close())
+end
+
+--- Disabling named-file creation preserves SQLite's temporary databases.
+local function test_existing_only_open_keeps_sqlites_temporary_paths()
+  for _, path in ipairs({ "", ":memory:" }) do
+    local db = assert(Sqlite.open(path, { writable = true, create = false }))
+    assert(db:exec("CREATE TABLE t (a); INSERT INTO t VALUES (42)"))
+    local rows = assert(Sqlite.rows(db, "SELECT a FROM t"))
+    assert(rows[1][1].integer == 42)
+    assert(db:close())
+  end
+end
+
+--- Creation defaults stay compatible and never make a read-only open writable.
+local function test_create_is_only_an_option_of_writable_open(tmp: string)
+  for i, options in ipairs({ { writable = true }, { writable = true, create = true } }) do
+    local db = assert(Sqlite.open(tmp .. "/created-" .. tostring(i), options))
+    assert(db:exec("CREATE TABLE t (a)"))
+    assert(db:close())
+  end
+  for _, create in ipairs({ false, true }) do
+    local path = tmp .. "/readonly.db"
+    failed(Sqlite.open(path, { create = create }))
+    failed(Sqlite.open(path, { create = create, immutable = true }))
+    assert(not Fs.exists(path))
+    raises(Sqlite.open, path, { writable = true, immutable = true, create = create })
+  end
+end
+
 --- The options are a table. A boolean would read as truthy through the
 --- raw binding, so a Lua caller passing `true` is refused rather than
 --- made writable.
@@ -446,6 +505,7 @@ local function test_exec_result_distinguishes_a_same_connection_lock()
   local statement = prepared(handle, "SELECT * FROM t")
   assert(statement:step() == "row")
   local locked = handle:exec_result("DROP TABLE t")
+  assert(locked.cancelled == false)
   assert(locked.code == 6 and locked.extended_code == 6, "SQLITE_LOCKED is not SQLITE_BUSY")
   assert(locked.code ~= Sqlite.BUSY and locked.reason ~= "")
   statement:finalize()
@@ -489,4 +549,17 @@ local function test_exec_result_reports_readonly_and_malformed_databases(tmp: st
   local malformed = bad:exec_result("SELECT * FROM sqlite_schema")
   assert(malformed.code == 26 and malformed.reason ~= "", "SQLITE_NOTADB was not retained")
   assert(bad:close())
+end
+
+local function test_busy_timeout_checks_its_duration_and_handle()
+  local handle = memory()
+  raises_saying("must be nonnegative", handle.busy_timeout, handle, -1)
+  raises(handle.busy_timeout, handle, 0.5)
+  raises(handle.busy_timeout, handle, math.huge)
+  handle:busy_timeout(math.maxinteger)
+  local result = handle:exec_result("SELECT 1")
+  assert(result.code == Sqlite.OK and result.cancelled == false)
+  handle:busy_timeout(0)
+  assert(handle:close())
+  raises_saying("database handle is closed", handle.busy_timeout, handle, 0)
 end

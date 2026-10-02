@@ -37,203 +37,77 @@ local function keys(path: string): {string}
   return out
 end
 
---- What the command says, on standard error, of the fixture's table
---- of another shape, which it keeps whole.
-local function unstamped(path: string): string
-  return "verdicts-trim: " .. path .. ": kept whole, with no used_ns column to trim by: declared_v9\n"
-end
-
-local function freelist(path: string): integer
-  local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "PRAGMA freelist_count"))
-  assert(db:close())
-  return math.tointeger(tonumber(rows[1][1])) or -1
-end
-
---- What a leg saves is what its own run relied on or reached: rows
---- under keys an earlier run reached go, an older format's with them,
---- and so does the space they took and the pages the cache's own bound
---- freed; the file keeps no log of its write-ahead mode to be saved.
-local function test_a_trim_keeps_only_what_the_run_reached(tmp: string)
-  local path = tmp .. "/verdicts.db"
-  cache(path, { 100, 100, 100, 999, 1000, 1001 })
-  -- As the cache's bound does: rows deleted, their pages kept free.
-  local db = assert(Sqlite.open(path, { writable = true }))
-  assert(Sqlite.run(db, "DELETE FROM declared_v1 WHERE key IN ('k2', 'k3')"))
-  assert(db:close())
-  assert(freelist(path) > 0, "the fixture freed no page")
-  local before = assert(Fs.stat(path)).size
-  local code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
-  assert(code == 0 and err == unstamped(path), err)
-  -- k5 and k6, and the table the trim cannot read by its use.
-  assert(out:find("kept 3 used since 1000, removed 3", 1, true) ~= nil, out)
-  assert(Fs.stat(path .. "-wal") == nil and Fs.stat(path .. "-shm") == nil,
-    "the trim left the cache's log")
-  assert(freelist(path) == 0, "the trim left free pages")
-  assert(assert(Fs.stat(path)).size <= before - 5 * 16384)
-  local left = keys(path)
-  assert(#left == 2 and left[1] == "k5" and left[2] == "k6", table.concat(left, ","))
-end
-
---- Every cache the save carries is trimmed -- the portable suite's
---- beside the others' -- but one the run reached none of keeps its
---- rows: its suite did not run, which says nothing of whether the next
---- run needs them.
-local function test_a_cache_the_run_never_reached_is_kept_whole(tmp: string)
-  cache(tmp .. "/verdicts.db", { 100, 1001 })
-  cache(tmp .. "/portable.db", { 100, 200 })
-  assert(Fs.write(tmp .. "/notes.txt", "not a cache"))
-  local code, out, err = Verdicts.command({ "1000" },
-    { COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db" })
-  assert(code == 0 and err == unstamped(tmp .. "/portable.db") .. unstamped(tmp .. "/verdicts.db"),
-    err)
-  assert(out:find("kept 2 used since 1000, removed 2; " .. tmp .. "/verdicts.db", 1, true) ~= nil,
-    out)
-  assert(out:find("kept all 4, none used since 1000 (no run reached it); " ..
-    tmp .. "/portable.db", 1, true) ~= nil, out)
-  assert(#keys(tmp .. "/verdicts.db") == 1)
-  assert(#keys(tmp .. "/portable.db") == 3)
-  assert(Fs.stat(tmp .. "/notes.txt") ~= nil)
-end
-
---- Where the variable names no file, or a directory holding no cache,
---- the command does nothing, and makes nothing; a SINCE that is no
---- count of seconds is the one thing it fails on.
-local function test_the_command_trims_nothing_it_is_not_given(tmp: string)
-  for _, env in ipairs({ {} as {string:string}, { COSMIC_VERDICT_CACHE = "0" },
-      { COSMIC_VERDICT_CACHE = "verdicts.db" },
-      { COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db" },
-      { COSMIC_VERDICT_CACHE = tmp .. "/missing/verdicts.db" } }) do
-    local code, out, err = Verdicts.command({ "5" }, env)
-    assert(code == 0 and err == "" and out:find("nothing to trim", 1, true) ~= nil, out .. err)
-  end
-  assert(#(assert(Fs.list(tmp))) == 0, "the command made a file")
-  local code, _, err = Verdicts.command({ "soon" }, { COSMIC_VERDICT_CACHE = tmp .. "/v.db" })
-  assert(code == 2 and err:find("SINCE", 1, true) ~= nil, err)
-  code, _, err = Verdicts.command({ "-1" }, { COSMIC_VERDICT_CACHE = tmp .. "/v.db" })
-  assert(code == 2 and err:find("SINCE", 1, true) ~= nil, err)
-end
-
---- A cache the trim cannot read fails no leg, as it fails no suite: the
---- command says why and removes a file that is no database, so no save
---- carries it on, and still trims the cache beside it; and what the
---- suites set aside as broken goes too.
-local function test_the_command_removes_what_is_broken(tmp: string)
-  local path = tmp .. "/verdicts.db"
-  assert(Fs.write(path, string.rep("not a database at all ", 512)))
-  cache(tmp .. "/portable.db", { 999, 1001 })
-  assert(Fs.write(tmp .. "/portable.db.corrupt-123", "broken"))
-  assert(Fs.write(tmp .. "/portable.db.corrupt-123-wal", "broken"))
-  local code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
-  assert(code == 0, "status " .. code)
-  assert(err:find("verdicts-trim: " .. path, 1, true) ~= nil and
-    err:find("removed", 1, true) ~= nil, err)
-  assert(Fs.stat(path) == nil, "the corrupt cache is still there")
-  assert(out:find("set aside", 1, true) ~= nil, out)
-  assert(Fs.stat(tmp .. "/portable.db.corrupt-123") == nil and
-    Fs.stat(tmp .. "/portable.db.corrupt-123-wal") == nil)
-  assert(#keys(tmp .. "/portable.db") == 1, out)
-end
-
---- A table the trim matches but cannot trim, with no `used_ns` column
---- to trim it by (a format of the tool's it does not know), is kept
---- whole and said so, on standard error, rather than saved from run to
---- run unseen; a cache whose every table it can trim says nothing
---- there.
-local function test_a_table_without_its_use_is_kept_whole_and_said_so(tmp: string)
-  local path = tmp .. "/verdicts.db"
-  cache(path, { 100, 1001 })
-  local code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
-  assert(code == 0 and err == unstamped(path), err)
-  assert(out:find("kept 2 used since 1000, removed 2", 1, true) ~= nil, out)
-  local db = assert(Sqlite.open(path, { writable = true }))
-  local rows = assert(Sqlite.text_rows(db, "SELECT key FROM declared_v9"))
-  assert(#rows == 1 and rows[1][1] == "other", "the table was not kept whole")
-  assert(db:exec("DROP TABLE declared_v9"))
-  assert(db:close())
-  code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
-  assert(code == 0 and err == "", err)
-  assert(out:find("kept 1 used since 1000, removed 0", 1, true) ~= nil, out)
-end
-
---- The step output the command wrote to `file`, by name.
 local function outputs(file: string): {string:string}
   local out: {string:string} = {}
   for name, value in (Fs.read(file) or ""):gmatch("([%w_]+)=([^\n]*)\n") do out[name] = value end
   return out
 end
 
---- The command names what it leaves by a digest of its rows, the tail
---- of the key ci.yml saves them under: a run that reached the same rows
---- as the one before, stamping them again, names the same digest, and
---- so saves nothing new, whatever SQLite made of the file's pages; a
---- run that reached another row names another.
-local function test_the_command_names_the_rows_it_keeps_by_a_digest(tmp: string)
-  local first, again, other = tmp .. "/a", tmp .. "/b", tmp .. "/c"
-  for _, dir in ipairs({ first, again, other }) do assert(Fs.mkdirs(dir)) end
-  cache(first .. "/verdicts.db", { 100, 1001, 1002 })
-  -- The same rows, used later, in a file that held and lost more.
-  cache(again .. "/verdicts.db", { 100, 1600, 1700, 1800 })
-  local db = assert(Sqlite.open(again .. "/verdicts.db", { writable = true }))
-  assert(Sqlite.run(db, "DELETE FROM declared_v1 WHERE key = 'k4'"))
-  assert(db:close())
-  cache(other .. "/verdicts.db", { 100, 1001, 1002, 1003 })
-  local digests: {string} = {}
-  for i, dir in ipairs({ first, again, other }) do
-    local file = dir .. "/output"
-    local code, out, _ = Verdicts.command({ i == 1 and "1000" or "1001" },
-      { COSMIC_VERDICT_CACHE = dir .. "/verdicts.db", GITHUB_OUTPUT = file })
-    digests[i] = outputs(file).digest
-    assert(code == 0 and digests[i] ~= nil and #digests[i] == 64, out)
-    assert(out:find("digest " .. digests[i] .. " of 1 cache", 1, true) ~= nil, out)
-  end
-  -- Each keeps k2 and k3, and the table it cannot trim.
-  assert(digests[1] == digests[2], "the same rows named two digests")
-  assert(digests[1] ~= digests[3], "another row named the same digest")
-end
-
---- Given `whole`, as ci.yml's step is where the run failed, the command
---- trims nothing -- a run that stopped short saves what it restored
---- with what it reached -- but still removes what was set aside, and
---- still names the rows by their digest.
-local function test_whole_trims_nothing_but_names_a_digest(tmp: string)
+--- Future/unknown formats stay intact; supported declared rows still trim.
+local function test_trim_keeps_unknown_formats_and_reports_them(tmp: string)
   local path = tmp .. "/verdicts.db"
-  cache(path, { 100, 1001 })
-  assert(Fs.write(path .. ".corrupt-123", "broken"))
-  local code, out, err = Verdicts.command({ "whole" },
+  cache(path, { 999, 1000, 1001 })
+  local code, out, err = Verdicts.command({ "1000" },
     { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
-  assert(code == 0 and err == "", err)
-  assert(out:find("kept every row of " .. path, 1, true) ~= nil, out)
-  assert(Fs.stat(path .. ".corrupt-123") == nil, "what was set aside is still there")
-  assert(#keys(path) == 3, "a row was trimmed")
-  assert(#(outputs(tmp .. "/output").digest or "") == 64, "no digest")
+  assert(code == 0 and err:find("kept tables", 1, true), out .. err)
+  local left = keys(path)
+  assert(table.concat(left, ",") == "k2,k3,old", table.concat(left, ","))
+  assert(#(outputs(tmp .. "/output").digest or "") == 64)
 end
 
---- Where there is no cache there is nothing to save, and no digest to
---- name it by.
-local function test_no_cache_names_no_digest(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/empty"))
-  local code, out, _ = Verdicts.command({ "5" },
-    { COSMIC_VERDICT_CACHE = tmp .. "/empty/verdicts.db", GITHUB_OUTPUT = tmp .. "/output" })
-  assert(code == 0 and out:find("nothing to trim", 1, true) ~= nil, out)
-  assert(Fs.stat(tmp .. "/output") == nil, "a digest named nothing")
-end
-
---- A cache whose rows cannot be read, which `whole` leaves, is named
---- by its bytes, and said so: it is saved again rather than taken for
---- a cache of rows saved already.
-local function test_a_cache_it_cannot_read_is_digested_by_its_bytes(tmp: string)
+local function test_no_run_reached_and_whole_keep_all_rows(tmp: string)
   local path = tmp .. "/verdicts.db"
-  local digests: {string} = {}
-  for i, bytes in ipairs({ "not a database at all ", "nor is this one at all " }) do
-    assert(Fs.write(path, string.rep(bytes, 512)))
-    local file = tmp .. "/output" .. i
-    local code, _, err = Verdicts.command({ "whole" },
-      { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = file })
-    assert(code == 0 and err:find("digested by its bytes", 1, true) ~= nil, err)
-    digests[i] = outputs(file).digest
+  cache(path, { 1, 2 })
+  for _, since in ipairs({ "1000", "whole" }) do
+    local code, out, err = Verdicts.command({ since },
+      { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
+    assert(code == 0, out .. err)
+    assert(table.concat(keys(path), ",") == "k1,k2,old")
+    assert(#(outputs(tmp .. "/output").digest or "") == 64)
   end
-  assert(digests[1] ~= nil and digests[1] ~= digests[2], "two files named one digest")
+end
+
+local function test_corrupt_active_file_suppresses_the_entire_save_set(tmp: string)
+  local path = tmp .. "/verdicts.db"
+  local bytes = string.rep("not a database ", 512)
+  assert(Fs.write(path, bytes))
+  cache(tmp .. "/portable.db", { 1, 6 })
+  assert(Fs.write(tmp .. "/portable.db.corrupt-123", "retired"))
+  for _, since in ipairs({ "5", "whole" }) do
+    local code, _, err = Verdicts.command({ since },
+      { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
+    assert(code == 0 and err ~= "")
+    assert(Fs.read(path) == bytes)
+    assert(Fs.stat(tmp .. "/output") == nil)
+  end
+  assert(Fs.stat(tmp .. "/portable.db.corrupt-123") == nil)
+end
+
+local function test_digest_depends_on_rows_not_usage_stamps(tmp: string)
+  local digests: {string} = {}
+  for i, used in ipairs({ { 1, 6 }, { 1, 9 }, { 1, 6, 7 } }) do
+    local dir = tmp .. "/" .. i
+    assert(Fs.mkdirs(dir))
+    cache(dir .. "/verdicts.db", used)
+    local code, out, err = Verdicts.command({ "5" },
+      { COSMIC_VERDICT_CACHE = dir .. "/verdicts.db", GITHUB_OUTPUT = dir .. "/output" })
+    assert(code == 0, out .. err)
+    digests[i] = outputs(dir .. "/output").digest
+    assert(digests[i] ~= nil)
+  end
+  assert(digests[1] == digests[2] and digests[1] ~= digests[3])
+end
+
+local function test_no_cache_is_created_or_named_by_a_digest(tmp: string)
+  for _, path in ipairs({ "0", "relative", tmp .. "/absent/verdicts.db" }) do
+    local code, out, err = Verdicts.command({ "5" },
+      { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
+    assert(code == 0 and err == "" and out:find("nothing to trim", 1, true), out .. err)
+  end
+  assert(#assert(Fs.list(tmp)) == 0)
+  for _, since in ipairs({ "soon", "-1", "9223372037", "1.5" }) do
+    assert(Verdicts.command({ since }, { COSMIC_VERDICT_CACHE = tmp .. "/v.db" }) == 2)
+  end
 end
 
 --- The rows of `path`'s `declared_v1`, a line each: key, test and

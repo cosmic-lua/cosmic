@@ -913,7 +913,10 @@ struct request {
 /* Sets the request's method and body. GET, HEAD and POST use curl's
  * own options for them, so a redirect curl follows changes the method
  * exactly as RFC 9110 says (a 303, or a 301/302 after POST, becomes a
- * GET); any other method is sent as a custom one, still with the body. */
+ * GET); any other method is sent as a custom one, still with the body,
+ * and keeps it through a 301 or 302: curl sends that body as a POST's,
+ * and would otherwise turn the method into a GET there as it does a
+ * POST's. */
 static CURLcode set_method (struct transfer *t, const struct request *r,
                             const char **which) {
   CURL *easy = t->easy;
@@ -931,10 +934,12 @@ static CURLcode set_method (struct transfer *t, const struct request *r,
   }
   /* TODO: a string `body` with `method = "GET"` goes as a POST, since
    * CURLOPT_POSTFIELDS makes it one and GET is not named: name it too
-   * once a caller sends a GET with a body. */
+   * once a caller needs a GET with a body (Http.request refuses one
+   * until then). */
   if (method != NULL && strcmp(method, "POST") != 0 &&
       strcmp(method, "GET") != 0) {
     SET(CURLOPT_CUSTOMREQUEST, method);
+    SET(CURLOPT_POSTREDIR, (long)(CURL_REDIR_POST_301 | CURL_REDIR_POST_302));
   }
   return CURLE_OK;
 }

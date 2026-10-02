@@ -65,6 +65,11 @@ local record test_inputs
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
     nests: boolean
+    noexec: boolean
+    --- Whether this run proved private noexec scratch usable by this
+    --- worker's identity, and why not when requested but unavailable.
+    noexec_ready: boolean
+    noexec_trouble: string
     store: boolean
     --- Whether its worker is given the system's own paths
     --- ([`confine.worker_unveil`]), and its key the host's packages
@@ -292,7 +297,8 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, standalone = false, nests = false, store = false,
+    tool = false, lua = false, standalone = false, nests = false, noexec = false, noexec_ready = false,
+    noexec_trouble = "", store = false,
     system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
@@ -328,6 +334,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.lua = declared.lua == true
     out.standalone = declared.standalone == true
     out.nests = declared.nests == true
+    out.noexec = declared.noexec == true
     out.system = declared.system == true
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
@@ -501,6 +508,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if declared.lua then lines[#lines + 1] = "lua true" end
   if declared.standalone then lines[#lines + 1] = "standalone true" end
   if declared.nests then lines[#lines + 1] = "nests true" end
+  if declared.noexec then lines[#lines + 1] = "noexec true" end
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   list("caches", declared.caches or {})
@@ -515,6 +523,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
     env = needs.env or {}, network = needs.network or {},
     tool = needs.tool == true, lua = needs.lua == true,
     standalone = needs.standalone == true, nests = needs.nests == true,
+    noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
     caches = needs.caches or {} }
 end

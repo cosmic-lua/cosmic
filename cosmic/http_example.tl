@@ -23,6 +23,23 @@ function Example.get()
   assert(got.status == 200 and got.body == '{"ok":true}', got.body)
 end
 
+--- Any method, its response read whole: a PUT with a body, then a
+--- DELETE. The method is the first argument, case-sensitive as HTTP's
+--- are. A real call leaves `script` out:
+--- `Http.request("PUT", "https://example.com/items/1", { body = item })`.
+function Example.request()
+  local item = '{"name":"widget"}'
+  local put, trouble = Http.request("PUT", "http://example.test/items/1", {
+    headers = { ["Content-Type"] = "application/json" }, body = item,
+    script = { "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" } })
+  assert(put ~= nil, trouble)
+  local gone, why = Http.request("DELETE", "http://example.test/items/1",
+    { script = { "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n" } })
+  assert(gone ~= nil, why)
+  print(put.status, gone.status)
+  assert(put.status == 201 and gone.status == 204)
+end
+
 --- A body sent whole, here a gzip of a string, with the method and
 --- headers it needs; the response is read from the handle `open`
 --- answers, and closed by its `<close>` variable. A real call leaves

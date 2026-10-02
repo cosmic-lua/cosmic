@@ -333,7 +333,8 @@ local function full_spec(hostdir: string): declared_key.Spec
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
     env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    tool = true, lua = true, standalone = true, nests = true, store = true, system = true,
+    tool = true, lua = true, standalone = true, nests = true, noexec = true,
+    noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
     variables = { "DECLARED", "H" }, named = { H = true },
     spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
@@ -393,6 +394,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
         "digests the rest of once for: no input",
     })
   local effective_changes: {string:Change<declared_key.Spec>} = {
+    noexec = { change = function(s: declared_key.Spec) s.effective.noexec = false end },
+    noexec_ready = { change = function(s: declared_key.Spec) s.effective.noexec_ready = false end },
     files = { change = function(s: declared_key.Spec) s.effective.files["suite/data/a.txt"] = true end },
     reads = { change = function(s: declared_key.Spec)
       table.insert(s.effective.reads, "suite/unrelated.txt")
@@ -415,6 +418,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   each_field_moves("Effective", fields_of("build.test_inputs", "Effective"),
     function(): declared_key.Spec return full_spec(hostdir) end,
     function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
+      noexec_trouble = "diagnostic only: the noexec grant itself is keyed, and no pass is " ..
+        "kept when it is unavailable",
       env = declaration .. ", and `environment` by what the worker is given",
       network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
         "offline worker's own loopback answers",

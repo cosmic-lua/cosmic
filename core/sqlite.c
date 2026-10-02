@@ -1,5 +1,6 @@
 #include "sqlite.h"
 
+#include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 #include "lauxlib.h"
 #include "crypto.h"
 #include "memory.h"
+#include "process.h"
 #include "sqlite3.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
@@ -21,12 +23,39 @@ struct handle {
   /* Set when the connection belongs to someone else (the store): this
    * handle reads through it and never closes it. */
   int borrowed;
+  int64_t busy_ms;
+  int64_t deadline_ms;
+  int64_t pause_ms;
+  bool cancelled;
 };
 
 struct statement {
   sqlite3_stmt *stmt;
   sqlite3 *db;
+  struct handle *owner;
 };
+
+/* A budget belongs to one call, not one locking event: SQLite can ask
+ * again with count zero for another statement in the same exec. The
+ * clock is read only if the installed handler actually meets a lock. */
+static void begin_wait (struct handle *h) {
+  if (h->busy_ms < 0) return;
+  h->deadline_ms = -1;
+  h->pause_ms = 1;
+  h->cancelled = false;
+}
+
+static int wait_busy (void *context, int previous) {
+  (void)previous;
+  struct handle *h = context;
+  if (h->deadline_ms < 0) {
+    int64_t now = cosmic_now_ms();
+    h->deadline_ms = h->busy_ms > INT64_MAX - now ? INT64_MAX : now + h->busy_ms;
+  }
+  int status = cosmic_paused(h->deadline_ms, &h->pause_ms);
+  if (status == EINTR) h->cancelled = true;
+  return status == 0;
+}
 
 static int failed (lua_State *L, sqlite3 *db, int rc) {
   lua_pushnil(L);
@@ -275,6 +304,7 @@ static int sqlite_open (lua_State *L) {
   const char *path = luaL_checklstring(L, 1, &path_len);
   int writable = lua_toboolean(L, 2);
   int immutable = lua_toboolean(L, 3);
+  int create = lua_isnoneornil(L, 4) || lua_toboolean(L, 4);
   if (writable && immutable) {
     return luaL_error(L, "sqlite: a database cannot be both writable and immutable");
   }
@@ -288,8 +318,8 @@ static int sqlite_open (lua_State *L) {
    * is set only for the one URI this file builds itself, from an escaped
    * path and `immutable=1`, so `vfs=`, `off=` and `len=` are never parsed
    * out of a caller's path at all, not even refused. */
-  int flags = writable ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
-                       : SQLITE_OPEN_READONLY;
+  int flags = writable ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READONLY;
+  if (writable && create) flags |= SQLITE_OPEN_CREATE;
   const char *name = path;
   if (immutable) {
     name = immutable_uri(L, path, path_len); /* stays on the stack */
@@ -299,6 +329,10 @@ static int sqlite_open (lua_State *L) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = NULL;
   h->borrowed = 0;
+  h->busy_ms = -1;
+  h->deadline_ms = -1;
+  h->pause_ms = 1;
+  h->cancelled = false;
   luaL_setmetatable(L, HANDLE_TYPE);
 
   /* The program's own file named through a descriptor of it
@@ -325,8 +359,9 @@ static int sqlite_open (lua_State *L) {
 
 /* Both surfaces execute each statement once. SQLite stops at the first
  * failure; preceding statements may already have changed the database. */
-static int execute (sqlite3 *db, const char *sql) {
-  return sqlite3_exec(db, sql, NULL, NULL, NULL);
+static int execute (struct handle *h, const char *sql) {
+  begin_wait(h);
+  return sqlite3_exec(h->db, sql, NULL, NULL, NULL);
 }
 
 static int handle_exec (lua_State *L) {
@@ -341,7 +376,7 @@ static int handle_exec (lua_State *L) {
   }
   /* No message of exec's own: it would be a copy of the connection's,
    * held in a local across the push that can raise. */
-  int rc = execute(h->db, sql);
+  int rc = execute(h, sql);
   if (rc != SQLITE_OK) {
     return failed_effect(L, h->db, rc);
   }
@@ -358,13 +393,14 @@ static int handle_exec_result (lua_State *L) {
   if (memchr(sql, '\0', len) != NULL)
     return luaL_error(L, "sqlite: SQL contains an embedded NUL byte");
   struct cosmic_guard *message = cosmic_guard_push(L, release_message);
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 4);
   /* Allocating above can run finalizers, including one closing this
    * handle. Check it afterward; no Lua allocation occurs before the
    * result's codes and error text have been copied out of SQLite. */
   struct handle *h = checked_handle(L);
-  int rc = execute(h->db, sql);
+  int rc = execute(h, sql);
   int extended = rc == SQLITE_OK ? SQLITE_OK : sqlite3_extended_errcode(h->db);
+  bool cancelled = (rc & 0xff) == SQLITE_BUSY && h->cancelled;
   if (rc != SQLITE_OK) {
     const char *reason = sqlite3_errmsg(h->db);
     size_t size = strlen(reason) + 1;
@@ -378,11 +414,27 @@ static int handle_exec_result (lua_State *L) {
   lua_setfield(L, -2, "extended_code");
   lua_pushstring(L, message->resource == NULL ? "" : message->resource);
   lua_setfield(L, -2, "reason");
+  lua_pushboolean(L, cancelled);
+  lua_setfield(L, -2, "cancelled");
   return 1;
 }
 
-static int handle_prepare (lua_State *L) {
+static int handle_busy_timeout (lua_State *L) {
+  lua_Integer ns = luaL_checkinteger(L, 2);
+  if (ns < 0) return luaL_error(L, "sqlite: busy_timeout must be nonnegative");
   struct handle *h = checked_handle(L);
+  /* The owner's connection outlives a borrowed wrapper, and SQLite
+   * has no destructor for a busy handler's context. */
+  if (h->borrowed)
+    return luaL_error(L, "sqlite: cannot set busy_timeout on a borrowed handle");
+  h->busy_ms = ns / 1000000 + (ns % 1000000 != 0);
+  begin_wait(h);
+  sqlite3_busy_handler(h->db, wait_busy, h);
+  return 0;
+}
+
+static int handle_prepare (lua_State *L) {
+  checked_handle(L);
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
   if (len > INT_MAX) {
@@ -397,12 +449,17 @@ static int handle_prepare (lua_State *L) {
   }
   struct statement *s = lua_newuserdatauv(L, sizeof *s, 1);
   s->stmt = NULL;
-  s->db = h->db;
+  s->db = NULL;
+  s->owner = NULL;
   luaL_setmetatable(L, STATEMENT_TYPE);
   /* The statement holds a reference to its handle, so the handle cannot
    * be collected while a statement is still open on it. */
   lua_pushvalue(L, 1);
   lua_setiuservalue(L, -2, 1);
+  struct handle *h = checked_handle(L);
+  s->owner = h;
+  s->db = h->db;
+  begin_wait(h);
 
   const char *tail = NULL;
   int rc = sqlite3_prepare_v2(h->db, sql, (int)len, &s->stmt, &tail);
@@ -471,6 +528,10 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;
   h->borrowed = 1;
+  h->busy_ms = -1;
+  h->deadline_ms = -1;
+  h->pause_ms = 1;
+  h->cancelled = false;
   luaL_setmetatable(L, HANDLE_TYPE);
 }
 
@@ -576,6 +637,7 @@ static int statement_bind_blob (lua_State *L) {
 
 static int statement_step (lua_State *L) {
   struct statement *s = checked_statement(L);
+  begin_wait(s->owner);
   int rc = sqlite3_step(s->stmt);
   if (rc == SQLITE_ROW) {
     lua_pushstring(L, "row");
@@ -672,6 +734,7 @@ static int statement_bytes (lua_State *L) {
 
 static int statement_reset (lua_State *L) {
   struct statement *s = checked_statement(L);
+  begin_wait(s->owner);
   sqlite3_clear_bindings(s->stmt);
   int rc = sqlite3_reset(s->stmt);
   if (rc != SQLITE_OK) {
@@ -683,6 +746,7 @@ static int statement_reset (lua_State *L) {
 static int statement_finalize (lua_State *L) {
   struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
   if (s->stmt != NULL) {
+    begin_wait(s->owner);
     sqlite3_finalize(s->stmt);
     s->stmt = NULL;
   }
@@ -694,6 +758,7 @@ static const luaL_Reg handle_methods[] = {
   {"close", handle_close},   {"changes", handle_changes},
   {"last_insert_rowid", handle_last_insert_rowid},
   {"limit", handle_limit},
+  {"busy_timeout", handle_busy_timeout},
   {NULL, NULL},
 };
 

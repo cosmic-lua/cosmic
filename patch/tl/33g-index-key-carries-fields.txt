@@ -1,0 +1,17 @@
+file: tl.tl
+note: an index by a key a record lacks is refused with the record's fields on the error (33b, 33f)
+--- find
+      local meta_t = self:check_metamethod(anode, "__index", ra, b, a, b)
+      if meta_t then
+         return meta_t
+      end
+
+      return self.errs:invalid_at(bnode, errm, erra, errb)
+--- replace
+      local meta_t = self:check_metamethod(anode, "__index", ra, b, a, b)
+      if meta_t then
+         return meta_t
+      end
+
+      return self.errs:invalid_key_at(bnode, errfields, errm, erra, errb)
+--- end

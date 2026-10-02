@@ -1,0 +1,9 @@
+file: tl.tl
+note: an index by a key a record lacks keeps the fields 33h read, for the refusal type_check_index ends with (33g)
+--- find
+         errm, erra = e, a
+      elseif ra is RecordLikeType then
+--- replace
+         errm, erra, errfields = e, a, fields
+      elseif ra is RecordLikeType then
+--- end

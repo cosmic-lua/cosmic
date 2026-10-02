@@ -7,6 +7,7 @@ local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local State = require("cosmic_ci.state")
+local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local String = require("cosmic.string")
@@ -37,8 +38,10 @@ local report_lines <const> = 60
 local tail_lines <const> = 40
 local chunk <const> = 65536
 local poll_ns <const> = 100 * 1000 * 1000
---- How many chunks one round of the copy takes at most.
-local round_chunks <const> = 4
+--- One drain yields to signal/status supervision after this many bytes.
+local drain_bytes <const> = 4 * chunk
+--- An escaped descendant cannot keep the completed fuzz run draining forever.
+local final_output_ns <const> = 5 * 1000 * 1000 * 1000
 
 --- Every `*_fuzz_test.tl` under `root`, outside its top-level o/,
 --- vendor/ and ci/, as `./`-relative paths in byte order.
@@ -198,74 +201,70 @@ function Fuzz.cancelled_summary(tail: {string} | nil): string
     "~~~~\n" .. joined(tail or {}, tail_lines) .. "~~~~\n"
 end
 
---- Runs `argv` with both its streams written to `out`, copying what it
---- writes there to `log` as it goes, and answers its status as a shell
---- would: its exit code, 128 plus the signal that ended it, or, when it
---- could not start, 127 for an executable that is not there and 126 for
---- one that is. A SIGINT or SIGTERM this process gets meanwhile is
---- passed on to the child, and caught until `guard` closes. Each round
---- copies at most `round_chunks` chunks before it looks for a signal
---- and the child's exit again, so a child that writes faster than the
---- copy keeps up cannot hold a signal back. It sleeps only once the
---- copy has caught up, and copies the rest once the child has exited.
--- TODO: copy the child's output from a pipe as it arrives, rather than
--- polling the file it writes every `poll_ns`, once ci/cosmic-driver.pin
--- names a cosmic whose child stream a caller can read on after the
--- guard catches a signal: the pinned one's "stream" reader answers
--- "cancelled by signal N" to every read from then on, so what the child
--- writes once the signal is passed on (a trap's line, a cancelled
--- run's report) would be lost.
+--- Keeps merged output in `out` and offers it to `log` as it arrives.
+--- Each bounded drain yields to signal and exit supervision. After exit,
+--- one deadline bounds inherited writers; an incomplete drain is a driver
+--- failure, while any known child status remains available to be saved.
 local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
-    env: {string:string}, out: string, log: integer): integer
+    env: {string:string}, out: string, log: integer): integer | nil, string
   local out_fd = assert(Fs.open_write(out))
-  local tail_fd, trouble = Fs.open_read(out)
-  if tail_fd == nil then
-    Fs.close(out_fd)
-    error(trouble)
-  end
-  --- Copies up to `rounds` chunks, or all of it when nil, and answers
-  --- whether it reached the end of what has been written.
-  local function copy(rounds?: integer): boolean
-    local copied = 0
-    while rounds == nil or copied < rounds do
-      local bytes = assert(Fs.take(tail_fd, chunk))
-      if bytes == "" then return true end
-      assert(Fs.put(log, bytes))
-      copied = copied + 1
+  local status: integer = nil
+  local called, failure = pcall(function(): string
+    local sink = Stream.tee(Stream.to_fd(out_fd), Stream.to_fd(log))
+    local started, start_trouble = Child.start(argv, { cwd = cwd, env = env,
+      stdout = "stream", stderr = "stdout" })
+    if started == nil then
+      status = Fs.exists(argv[1]) and 126 or 127
+      local wrote, why = sink:write(argv[1] .. ": " .. start_trouble .. "\n")
+      return wrote and "" or why
     end
-    return false
-  end
-  local called, answer = pcall(function(): integer
-    local handle, start_trouble = Child.start(argv, { cwd = cwd, env = env,
-      stdout = out_fd, stderr = out_fd })
-    if handle == nil then
-      assert(Fs.put(out_fd, argv[1] .. ": " .. start_trouble .. "\n"))
-      copy()
-      local there = Fs.exists(argv[1])
-      return there and 126 or 127
+    local handle <close> = started
+    local function supervise(): string
+      local deadline: integer = nil
+      local eof = false
+      while true do
+        local signal = guard:take()
+        if signal ~= 0 then local _, _ = handle:stop(signal) end
+        local state, why = handle:try_wait()
+        if state == nil then return why end
+        if state.finished and status == nil then
+          status = state.result.code or (128 + (state.result.signal or 0))
+          deadline = Time.monotonic_ns() + final_output_ns
+        end
+        if eof then
+          if status ~= nil then return "" end
+          Time.sleep_ns(poll_ns)
+        else
+          local wait = poll_ns
+          if deadline ~= nil then
+            wait = math.min(wait, math.max(0, deadline - Time.monotonic_ns()))
+            if wait == 0 then return "fuzz output remained open after the child exited" end
+          end
+          local drained = handle:drain{ stdout = sink, timeout_ns = wait, max_bytes = drain_bytes }
+          if drained.kind == "failed" then return drained.reason end
+          eof = drained.kind == "eof"
+          -- limit, timeout and interrupted all resume supervision. A failed
+          -- sink may have saved more than it logged; its chunk is never replayed.
+        end
+      end
+      return ""
     end
-    local result: Child.Result = nil
-    while result == nil do
-      local caught_up = copy(round_chunks)
-      local taken = guard:take()
-      if taken ~= 0 then local _, _ = handle:stop(taken) end
-      local state = assert(handle:try_wait())
-      if state.finished then
-        result = state.result
-      elseif caught_up then
-        Time.sleep_ns(poll_ns)
+    local ran, why = pcall(supervise)
+    -- drain may have observed exit before a sink failed or raised. Keep
+    -- that actual status before scoped cleanup ends any remaining child.
+    if status == nil then
+      local observed, state = pcall(function(): Child.TryWait | nil return (handle:try_wait()) end)
+      if observed and state ~= nil and state.finished then
+        status = state.result.code or (128 + (state.result.signal or 0))
       end
     end
-    copy()
-    if result.code then return result.code end
-    return 128 + (result.signal or 0)
+    return ran and why or tostring(why)
   end)
-  local out_closed, out_trouble = Fs.close(out_fd)
-  local tail_closed, tail_trouble = Fs.close(tail_fd)
-  if not called then error(answer) end
-  assert(out_closed, out_trouble)
-  assert(tail_closed, tail_trouble)
-  return answer as integer
+  local closed, close_trouble = Fs.close(out_fd)
+  if not called then return status, tostring(failure) end
+  if failure ~= "" then return status, failure as string end
+  if not closed then return status, close_trouble end
+  return status, ""
 end
 
 --- Fuzzes every property `r.root` holds on its checked core, writing
@@ -292,8 +291,13 @@ function Fuzz.execute(r: Fuzz.Run): integer
     -- cancelled at its time limit still shows how far it got. A signal
     -- caught meanwhile is delivered again once the status is kept.
     local guard <close> = assert(Child.guard())
-    status = streamed(guard, argv, r.root, env, out, r.log)
-    assert(Fs.write(r.temp .. "/fuzz.status", tostring(status) .. "\n"))
+    local trouble: string
+    status, trouble = streamed(guard, argv, r.root, env, out, r.log)
+    if status ~= nil then
+      assert(Fs.write(r.temp .. "/fuzz.status", tostring(status) .. "\n"))
+    end
+    assert(trouble == "", trouble)
+    assert(status ~= nil, "fuzz child ended without a status")
   end
   if status ~= 0 then
     local next_chunk, close = chunks(out)
