@@ -113,4 +113,28 @@ end]]
   assert(assert(h:wait()).ok)
 end
 
+--- Both outputs forwarded in bounded rounds to separate borrowed Writers;
+--- a byte limit resumes the transfer without changing the child's status.
+function Example.drain()
+  local again = assert(Proc.relaunch())
+  local argv = { table.unpack(again.argv) }
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = [[
+local Fs = require("cosmic.fs")
+assert(Fs.put(1, "output\n"))
+assert(Fs.put(2, "diagnostic\n"))]]
+  local h <close> = assert(Child.start(argv,
+    { env = again.env, fds = again.fds, stdout = "stream", stderr = "stream" }))
+  local options: Child.DrainOptions = {
+    stdout = Stream.to_fd(Fs.stdout), stderr = Stream.to_fd(Fs.stderr),
+    timeout_ns = Time.seconds(5), max_bytes = 8,
+  }
+  while true do
+    local drained = h:drain(options)
+    if drained.kind == "eof" then break end
+    assert(drained.kind == "limit", drained.kind .. ": " .. drained.reason)
+  end
+  assert(assert(h:wait()).ok)
+end
+
 return Example

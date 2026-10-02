@@ -2,8 +2,8 @@
 --- to be, for the question ("what is in this release tarball?") that a
 --- script costs more than. It is [`cosmic.archive`] (which detects a zip
 --- or a plain, gzip, xz or bzip2 tar from the file's first bytes, not
---- its name, and refuses a member that would land outside the target),
---- [`cosmic.tar`], [`cosmic.zip`] and [`cosmic.compress`] behind a command
+--- its name, and refuses a member that would land outside the target,
+--- and writes the format a file's name asks for) behind a command
 --- line.
 ---
 --- Like `cosmic json` it ends in no verdict line: its standard output
@@ -16,13 +16,10 @@
 
 local Archive = require("cosmic.archive")
 local Cli = require("cosmic.cli")
-local Compress = require("cosmic.compress")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
-local Tar = require("cosmic.tar")
-local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -51,7 +48,7 @@ local spec = Cli.verbs.archive.spec
 
 local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
-  "cosmic archive create [--reproducible] <out.zip|out.tar.gz> <path>..."
+  "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar|out.zip> <path>..."
 
 --- What a run answers: an exit code and the complaint that goes with it
 --- (none for 0).
@@ -689,26 +686,6 @@ local record Item
   target: string
 end
 
---- "zip" or "tgz" for the extension of `out`, else nil and why not.
-local function format_of(out: string): string | nil, string
-  local lower = out:lower()
-  if lower:match("%.zip$") then return "zip", "" end
-  if lower:match("%.tar%.gz$") or lower:match("%.tgz$") then return "tgz", "" end
-  -- TODO: once cosmic.compress carries an xz encoder (it has only
-  -- `xz_decoder`), accept `.tar.xz` here, and `.tar.bz2` likewise once
-  -- it carries a bzip2 encoder (it has only `bz2_decoder`).
-  if lower:match("%.tar%.xz$") or lower:match("%.txz$") then
-    return nil, out .. ": cannot write .tar.xz, there is no xz encoder; use .tar.gz or .zip"
-  end
-  if lower:match("%.tar%.bz2$") or lower:match("%.tbz2?$") then
-    return nil, out .. ": cannot write .tar.bz2, there is no bzip2 encoder; use .tar.gz or .zip"
-  end
-  if lower:match("%.tar$") then
-    return nil, out .. ": plain .tar is not written; use .tar.gz or .zip"
-  end
-  return nil, out .. ": cannot tell the format from the name; end it in .zip or .tar.gz"
-end
-
 --- The items for the paths given, by name, sorted, and nil and an
 --- outcome when one cannot be archived.
 local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, Outcome
@@ -799,8 +776,8 @@ local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, stri
 end
 
 local function create(out: string, paths: {string}, reproducible: boolean, to: verb.Io): Outcome
-  local format, format_why = format_of(out)
-  if format == nil then return fail(bare.refused, format_why) end
+  local format, format_why = Archive.format_of(out)
+  if format == nil then return fail(bare.refused, bare_message(format_why)) end
   local skip_file: string | nil
   local present, _ = Fs.exists(out)
   if present then
@@ -810,19 +787,10 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   local items, trouble = gather(paths, skip_file)
   if items == nil then return trouble end
   local packed: {Item} = items
-  local file, file_why = Stream.create(out)
-  if file == nil then return fail(bare.refused, file_why) end
-  local writer: Stream.ArchiveWriter
-  if format == "zip" then
-    writer = Zip.writer(file, { deterministic = reproducible })
-  else
-    local codec, codec_why = Compress.deflater("gzip")
-    if codec == nil then
-      local _, _ = file:abort()
-      return fail(bare.refused, codec_why)
-    end
-    writer = Tar.writer(Stream.transform_writer(file, codec), { deterministic = reproducible })
-  end
+  -- Created only once the items are gathered: its temporary neighbor
+  -- would otherwise be gathered with them.
+  local writer, writer_why = Archive.create(out, { deterministic = reproducible })
+  if writer == nil then return fail(bare.refused, bare_message(writer_why)) end
   for _, item in ipairs(packed) do
     local ok: boolean
     local why: string
