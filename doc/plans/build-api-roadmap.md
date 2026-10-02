@@ -173,7 +173,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | CI running | 20569b76/tree5fd49ed6; exact reviewed patch on actual A4; incoming acknowledgments retained; auto-merge enabled; epoch13 |
 | B2b | pending | locally approved on A4/B2a | 3a2a6c6e/tree3ed45698; incoming #2551 preserved; 124 related and 45 independent integration tests passed; epoch14 |
-| B3 | pending | locally approved; release checkpoint pending | f13f2725/tree8efd806e; native/checked and independent lifetime/cancellation review passed; publication follows A4 |
+| B3 | pending | locally approved on A4/B2b | 7aa69c15/tree2093cb5d; 90 native, 53 checked and 17 independent integration cases pass; only the combined SQLite acknowledgment changed |
 | B4a | pending | locally approved | 6d1d3232/tree9f54b268; native/checked lifetime and default compatibility reviewed; special SQLite paths retain their existing behavior |
 | B4b | pending | local preparation | Command follows B4a; conservative file retention, format ownership and independent dispatch |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -181,7 +181,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
 | C4 | pending | locally approved | 73ae44e0/tree1a99265a; independent native/checked allocation, bounded growth and account-service failure review passed; publication after B5 |
-| C5 | pending | local preparation | Credential, capability and parent dumpability design reviewed; actual privileged CI proof required |
+| C5 | pending | exact-candidate review pending | 08a1d96c/treea28a267e; local native/checked/analyzer checks pass; actual privileged CI proof required |
 | C6 | pending | local preparation | Private noexec tmpfs and declaration/keying design reviewed; native sandbox CI proof required |
 | C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -315,3 +315,22 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   124 related tests and 45 independent cases passed, followed by 37 final
   harness/drain checks after retaining incoming #2551. Its mandatory full
   attempt timed out after keying 3,251 tests and is not counted as passing.
+
+- 2026-10-02 UTC: concurrent #2548 merged as `73ccf140` and #2553 as
+  `a08b16a2`. Their analyzer/catalog binding changes and archive/codec object
+  representation changes are retained in B2a queue `8e4a8992`/`ecc23d74`.
+  Independent review confirmed the four-file B2a patch and full harness epoch
+  are unchanged; a fresh boot plus 15 source-failure/harness cases passed.
+- 2026-10-02 UTC: C3's temporary CI measurement is independently approved
+  after separating timing-only comparisons from per-flush instrumentation,
+  verifying direct block-device backing and protecting existing outputs.
+  Script SHA256 `9dededf1c632ed8842490d7c69ee5d5ab061d42626b37f733108c4673f3ba6ee`;
+  temporary patch SHA256 `95fd8f219de26c68683695a4a41f11e9aee26158c82c20bb84f4e331d55ad6d2`.
+  Nothing is applied or published; production API approval still requires
+  representative native measurements at the C3 step.
+- 2026-10-02 UTC: B5's concrete migration design is independently approved.
+  Cache maintenance needs an outer signal guard spanning restored-snapshot
+  cleanup before redelivery, exact ordered result paths and alias checks before
+  deleting a snapshot. Fuzz capture uses bounded pipe draining, preserves known
+  child status and saved bytes on output failure, and never replays a chunk
+  partly delivered to its sinks.
