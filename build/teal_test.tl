@@ -326,58 +326,85 @@ local function test_a_keyword_named_variable_is_no_old_type_declaration()
   end
 end
 
---- The look for an old type body costs what it reads, not the rest of
---- the file: a file naming `record` or `enum` on many lines, or in
---- nested functions, compiles in about the time of one naming a plain
---- variable. A look that read past its body, copied or shifted every
---- token, or parsed the function bodies in a `where` clause would grow
---- with the square of the lines or double with each level; one begun
---- within another would read each token through every look around it.
-local function test_a_keyword_named_variable_costs_what_it_reads()
+local keyword_head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
+  "local function where(_x: any) end\nlocal function b() end\n"
+
+--- Each shape is a worker of its own: compiling all the pairs together
+--- nearly fills a checked worker's deadline before other tests compete.
+--- Keep each input and its plain-name comparison together, with the same
+--- size and ratio bound, so a slow look still fails within that deadline.
+local function keyword_cost(source: string)
   local built = assert(teal.load())
-  local head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
-    "local function where(_x: any) end\nlocal function b() end\n"
-  local function took(source: string): integer
+  local function took(input: string): integer
     local started = Time.monotonic_ns()
-    local _, result = built.gen(head .. source, nil, nil, "tl")
-    assert(#assert(result).syntax_errors == 0, source:sub(1, 200) ..
+    local _, result = built.gen(keyword_head .. input, nil, nil, "tl")
+    assert(#assert(result).syntax_errors == 0, input:sub(1, 200) ..
       tostring((result.syntax_errors[1] or {}).msg))
     return Time.monotonic_ns() - started
   end
-  local function repeated(line: string): string
-    local parts: {string} = {}
-    for k = 1, 2000 do
-      parts[#parts + 1] = (line:gsub("N", tostring(k)))
-    end
-    return table.concat(parts)
+  local t = took(source)
+  local base = took((source:gsub("record", "recd"):gsub("enum", "enmd")))
+  assert(t < base * 20 + 50000000, source:sub(1, 80) .. ": " .. t .. " ns against " .. base .. " ns")
+end
+
+local function repeated_keyword(line: string): string
+  local parts: {string} = {}
+  for k = 1, 2000 do
+    parts[#parts + 1] = (line:gsub("N", tostring(k)))
   end
+  return table.concat(parts)
+end
+
+--- A name after `=` must not make the enum look scan the rest of the file.
+local function test_enum_variable_costs_what_it_reads()
+  keyword_cost(repeated_keyword("local xN = enum\n"))
+end
+
+--- The table-value look has the same bound as a declaration's look.
+local function test_enum_table_value_costs_what_it_reads()
+  keyword_cost(repeated_keyword("local tN = { k = enum }\n"))
+end
+
+--- An incomplete type-argument look must not shift the remaining tokens.
+local function test_record_comparison_costs_what_it_reads()
+  keyword_cost(repeated_keyword("local xN = record < n\n"))
+end
+
+--- A look copies only tokens it reads, not the remaining token array.
+local function test_record_variable_costs_what_it_reads()
+  keyword_cost(repeated_keyword("local xN = record\n"))
+end
+
+local function test_record_in_functions_costs_what_it_reads()
+  keyword_cost(repeated_keyword("local function fN() local x = record return x end\n"))
+end
+
+--- A `where` call after the variable must not extend a type-body look.
+local function test_record_before_calls_costs_what_it_reads()
+  keyword_cost(repeated_keyword("local xN = record\nwhere(a)\n(b)()\nprint(xN)\n"))
+end
+
+--- Parsing the function bodies of a `where` clause during a look would
+--- double the work with each level.
+local function test_record_in_nested_where_calls_costs_what_it_reads()
   local nested = "local x0 = 1\n"
   for k = 1, 16 do
     nested = "local xN = record\nwhere(function()\n" .. nested .. "end)\nprint(xN)\n"
     nested = nested:gsub("xN", "x" .. k)
   end
+  keyword_cost(nested)
+end
+
+--- A look begun within another must not read each token through every
+--- look around it. The old declarations remain refused.
+local function test_nested_old_type_looks_cost_what_they_read()
   local within = "1"
   for k = 1, 120 do
     within = "(function(): integer local y" .. k .. " = record\n" ..
       "  f: function(integer): integer = macroexp(_a: integer): integer return " .. within .. " end\n" ..
       "end\nreturn 1 end)()"
   end
-  -- Old declarations nested in each other's bodies are refused, each
-  -- look reading the tokens itself rather than through the one around it.
-  assert(#syntax_errors(head .. "local x = " .. within .. "\nprint(x)\n") > 0)
-  for _, source in ipairs({
-    repeated("local xN = enum\n"),
-    repeated("local tN = { k = enum }\n"),
-    repeated("local xN = record < n\n"),
-    repeated("local xN = record\n"),
-    repeated("local function fN() local x = record return x end\n"),
-    repeated("local xN = record\nwhere(a)\n(b)()\nprint(xN)\n"),
-    nested,
-  }) do
-    local t = took(source)
-    local base = took((source:gsub("record", "recd"):gsub("enum", "enmd")))
-    assert(t < base * 20 + 50000000, source:sub(1, 80) .. ": " .. t .. " ns against " .. base .. " ns")
-  end
+  assert(#syntax_errors(keyword_head .. "local x = " .. within .. "\nprint(x)\n") > 0)
 end
 
 --- A test whose import closure does not hold [`cosmic.removed`] is not
