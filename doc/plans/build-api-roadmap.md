@@ -179,11 +179,11 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B5 | [#2579](https://github.com/cosmic-lua/cosmic/pull/2579) | merged | 46e71ef1/tree26150b97; corrected branch36982541211 and queue36982884252 all green including nativeDarwin; actual release/pin and independently reviewed live-waiter cleanup proofs complete |
 | C1 | [#2580](https://github.com/cosmic-lua/cosmic/pull/2580) | merged | 957147ab/treef08d1667; branch36984019009 and queue36984430825 green; exact approved tree, native60/independentchecked20 and whole654 zero |
 | C2 | [#2581](https://github.com/cosmic-lua/cosmic/pull/2581) | merged | 004331f1/tree2e95771b; branch36984107521 and cumulative queue36984579239 green; independently verified actual native Darwin full_fsync success; exact C1/C4/C2 union |
-| C3 | [#2584](https://github.com/cosmic-lua/cosmic/pull/2584) | draft experiment; auto-merge off | 7f6d2cf5/treea566529e on actual004331f1; exact independent approval for experiment only; native66/checked20 and 13 guard checks pass; useful native pilot then calibrated confirmation required, otherwise defer |
+| C3 | [#2584](https://github.com/cosmic-lua/cosmic/pull/2584) | deferred; experiment closed unmerged | sole confirmation37040643348 stopped before measurements on unrecognized Runner.Worker installation path; verified artifact11242461886; zero timing observations; no retry under declared policy, no unused API or fast path shipped |
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
 | C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | merged | actual0b111618/tree19b9b089; branch36988568683 and queue36989013309 all green; independently verified all eight privileged modes and database boundary on x86/ARM/Alpine |
-| C6 | pending | recovered exactly; current-main integration | original approved tree430eccbe checkpointed at5e5c1312 on codex/api-noexec-scratch; merged current0ec53d35 locally as979c0262/tree63ea479d; independent integration review and fresh boot/checks pending |
-| C7 | pending | recovering unpublished preparation | prior fe4101e0/tree7093ca8a approved, but temporary workspace was recycled before publication; retained literal source being restored and missing portions reconstructed under fresh independent review; actual C release/pin/native proofs remain |
+| C6 | [#2585](https://github.com/cosmic-lua/cosmic/pull/2585) | reviewed correction; CI-gated auto-merge | 8a849f07/treeeec1975c includes actual0ec53d35; nested sandbox test explicitlycwd=/ fixes deterministicENOENT; current x86 complementary shards pass all3380 tests held to sandboxing, including3 native noexec cases; fullbranch/queue pending |
+| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | draft; recovered source checkpointed and reviewed | 6a43b2b5/treed63d40c1 includes20 freshly reviewed consumer files and C6cwd correction; all subset blobs independently verified; pinB unchanged, actual C6 merge/release/pin/native consumer proofs required |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -610,3 +610,32 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   C7 retains substantial literal source and its contracts, but missing portions
   require reconstruction and fresh review; prior approval is not carried over
   to different bytes. Checkpoint coherent source remotely before long waits.
+
+- 2026-10-02 UTC: C3 confirmation was recovered byte-for-byte as approved
+  tree `9aa63759` and published once as `b4e0b936`. Run `37040643348`
+  stopped before any benchmark at an unexpected hosted Runner.Worker path.
+  Artifact `11242461886` has verified ZIP SHA256
+  `a43e988c7b9d1e16aea87f3095a6b2d350159ba6b9e2ef6c02e4e9024fa21921`;
+  completion is false with zero observations. This is a monitor coverage gap,
+  not evidence of a performance regression/noisy host. Per the declared rule,
+  C3 is deferred without retry. #2584 is closed unmerged, auto-merge off;
+  retain current fsync and precise follow-up, with no unused syscall shipped.
+
+- 2026-10-02 UTC: C6 #2585 branch exposed deterministic nested fixture setup:
+  absent cwd inherited `/tree`, which that narrower sandbox does not expose.
+  Reviewed one-line correction `8a849f07`/`eec1975c` chooses `/`; runtime and
+  assertions are unchanged. Corrected x86 shards ran all3380 tests without
+  skips under held sandboxing, proving the three mount cases; branch/queue
+  completion is still required. A malformed local staging DB was preserved
+  and its cause remains unassigned; a fresh same-source worktree plus shared
+  compile cache passed integrity checks. Host-only raw socket/process failures
+  remain explicit, not reported as suite passes.
+
+- 2026-10-02 UTC: C7 recovery is complete and checkpointed in draft #2586.
+  Combined tree `d63d40c1` has byte-identical blobs from three newly reviewed
+  subsets: append/README28 independent tests, runner15, patch21 and
+  orchestration35. Review caught and repaired missing test grants/scheduling
+  and cleanup-before-append coverage. The combined tree retains all current
+  APIs, epoch, incoming timing fixes and C6cwd correction. No old approval was
+  carried over different source. Final integrated checks, actual immutable C
+  release double verification, pin update and native platform proofs remain.
