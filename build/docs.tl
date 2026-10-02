@@ -23,6 +23,7 @@ local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
+local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
@@ -63,6 +64,10 @@ local record docs
     --- The record each module's value is typed as (`""` for none), by
     --- module, as [`value_record`] reads it, cached as `use_counts` is.
     value_records: {string: string}
+    --- The module each module binds each name to, by module and name,
+    --- as [`symbol_index.add_bound`] reads them: nil until a type's
+    --- reference asks, then cached as `use_counts` is.
+    bound: {string: string} | nil
   end
 
   --- One worked example, matched to a symbol by content rather than by
@@ -823,15 +828,6 @@ end
 local function has_docs(db: Sqlite.Handle): boolean | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
-  if rows == nil then return nil, trouble end
-  return #rows > 0, ""
-end
-
---- Whether `db` holds `bound`: a database built before it existed
---- names no module a type's qualifier is bound to.
-local function has_bound(db: Sqlite.Handle): boolean | nil, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'bound'")
   if rows == nil then return nil, trouble end
   return #rows > 0, ""
 end
@@ -1988,24 +1984,19 @@ local function type_source(view: docs.View): alias_members.Source<docs.Entry>
         { text(module), text(name) })
     end,
     bound = function(module: string, name: string): string | nil, string
+      local cached = view.bound
+      if cached ~= nil then
+        return cached[module .. "\n" .. name]
+      end
+      local index = symbol_index.new()
       for _, db in ipairs(view.databases) do
-        local held, held_trouble = has_bound(db)
-        if held == nil then
-          return nil, held_trouble
-        end
-        if held then
-          local rows, trouble = Sqlite.text_rows(db,
-            "SELECT requires FROM bound WHERE path = ?1 AND name = ?2",
-            { text(module), text(name) })
-          if rows == nil then
-            return nil, trouble
-          end
-          if #rows > 0 then
-            return rows[1][1], ""
-          end
+        local ok, trouble = symbol_index.add_bound(index, db, "")
+        if not ok then
+          return nil, trouble
         end
       end
-      return nil
+      view.bound = index.bound
+      return index.bound[module .. "\n" .. name]
     end,
     under = function(target: docs.Entry): {docs.Entry} | nil, string
       return members_under(view, target)
@@ -2045,7 +2036,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | n
   local methods: {string} = {}
   local values: {string} = {}
   for _, reference in ipairs(references) do
-    local target, target_trouble = alias_members.resolved(type_source(view), entry.module, reference)
+    local target, target_trouble = alias_members.resolved(type_source(view), entry, reference)
     if target == nil and target_trouble ~= nil then
       return nil, target_trouble
     end

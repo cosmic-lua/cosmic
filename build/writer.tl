@@ -488,6 +488,15 @@ local dropped_modules <const> =
   "dropped(path) AS (SELECT path FROM whole.modules " ..
   "EXCEPT SELECT path FROM carried) "
 
+--- The type a doc row `d` of a `cosmic.internal.*` module is or is
+--- under, as a public declaration spells it after the name its module
+--- binds the internal one to: `Handle` of [`sqlite.Handle`] and of
+--- [`Handle.exec`].
+local nested_type <const> =
+  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
+  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
+  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END)"
+
 --- The condition under which a doc row `d` of a `cosmic.internal.*`
 --- module is a nested type -- [`sqlite.Handle`] -- or a member of one
 --- ([`Handle.exec`]) that a public declaration reaches: an alias
@@ -496,10 +505,6 @@ local dropped_modules <const> =
 --- module binds `d`'s to ([`build.analyzer.Bound`]). [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
 --- resolution ([`build.docs`]) reads them.
-local nested_type <const> =
-  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
-  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
-  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END)"
 local carried_internal_types =
   "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..

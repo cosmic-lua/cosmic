@@ -92,37 +92,94 @@ local function bound_type<T is alias_members.Declared>(source: alias_members.Sou
   return source.exported(other, rest)
 end
 
---- The record, interface or enum that `reference`, written in `module`,
---- names: one the module declares, or one another module exports under
---- the name its qualifier is bound to there ([`Stream.ArchiveEntry`] of
+--- What a reference names of the types its module declares
+--- ([`scoped`]): the type itself (`found`), or the type its first name
+--- is (`holder`), which hides any module the file binds that name to.
+local record Scoped<T>
+  found: T | nil
+  holder: T | nil
+end
+
+--- What `reference`, written in the declaration of `module` whose
+--- source symbol is `written`, names of the types the module declares,
+--- as Teal scopes a type's name: under each record that encloses it,
+--- innermost first, then at the top. Neither field set when it names
+--- none; nil and why when `source` cannot be read.
+local function scoped<T is alias_members.Declared>(source: alias_members.Source<T>,
+                                                     module: string, written: string,
+                                                     reference: string): Scoped<T> | nil, string
+  local stem = reference:match("^([%w_]+)%.")
+  local scope = written:match("^(.*)%.[^.]*$") or ""
+  while true do
+    local prefix = scope ~= "" and scope .. "." or ""
+    local found, trouble = source.declared(module, prefix .. reference)
+    if found == nil and trouble ~= nil then
+      return nil, trouble
+    end
+    -- A declaration does not name itself: `type Options = Options` in a
+    -- record names the `Options` outside it.
+    if found ~= nil and found.source_symbol ~= written then
+      return { found = found }, ""
+    end
+    if stem ~= nil then
+      local holder, holder_trouble = source.declared(module, prefix .. stem)
+      if holder_trouble ~= nil then
+        return nil, holder_trouble
+      end
+      if holder ~= nil and holder.source_symbol ~= written then
+        return { holder = holder }, ""
+      end
+    end
+    if scope == "" then
+      return {}, ""
+    end
+    scope = scope:match("^(.*)%.[^.]*$") or ""
+  end
+end
+
+--- The record, interface or enum that `reference`, written in the
+--- declaration `from`, names: one its module declares, as Teal scopes
+--- the name ([`scoped`]), or one another module exports under the name
+--- its qualifier is bound to there ([`Stream.ArchiveEntry`] of
 --- [`cosmic.archive`], where `local Stream = require("cosmic.stream")`;
 --- `raw_sqlite.Handle`, [`sqlite.Handle`] of [`cosmic.internal.sqlite`]),
 --- followed on through each alias it meets ([`Compress.Stream`]), in any
 --- module. Nil when it names none, or past `DEPTH` aliases, which a
 --- cycle of them reaches; nil and why when `source` cannot be read.
 function alias_members.resolved<T is alias_members.Declared>(source: alias_members.Source<T>,
-                                                           module: string,
+                                                           from: T,
                                                            reference: string): T | nil, string
   local depth = 0
   while true do
-    local found, found_trouble = source.declared(module, reference)
-    if found == nil and found_trouble ~= nil then
-      return nil, found_trouble
+    local named, named_trouble = scoped(source, from.module, from.source_symbol, reference)
+    if named == nil then
+      return nil, named_trouble
     end
-    if found == nil then
-      found, found_trouble = bound_type(source, module, reference)
+    local found, found_trouble, holder = named.found, "", named.holder
+    if holder ~= nil then
+      -- The first name is a type of the module's own: `Stream.X` under
+      -- `type Stream = Y` is `Y.X`.
+      local onward = not concrete(holder) and alias_members.references(holder)[1] or nil
+      if onward == nil or depth >= DEPTH then
+        return nil
+      end
+      from, reference, depth = holder, onward .. reference:match("%..*$"), depth + 1
+    else
+      if found == nil then
+        found, found_trouble = bound_type(source, from.module, reference)
+      end
+      if found == nil then
+        return nil, found_trouble
+      end
+      if concrete(found) then
+        return found, ""
+      end
+      local onward = alias_members.references(found)[1]
+      if onward == nil or depth >= DEPTH then
+        return nil
+      end
+      from, reference, depth = found, onward, depth + 1
     end
-    if found == nil then
-      return nil, found_trouble
-    end
-    if concrete(found) then
-      return found, ""
-    end
-    local onward = alias_members.references(found)[1]
-    if onward == nil or depth >= DEPTH then
-      return nil
-    end
-    module, reference, depth = found.module, onward, depth + 1
   end
 end
 
@@ -134,7 +191,7 @@ function alias_members.named<T is alias_members.Declared>(source: alias_members.
   local out: {T} = {}
   for _, owner in ipairs(owners) do
     for _, reference in ipairs(alias_members.references(owner)) do
-      local target, target_trouble = alias_members.resolved(source, owner.module, reference)
+      local target, target_trouble = alias_members.resolved(source, owner, reference)
       if target == nil and target_trouble ~= nil then
         return nil, target_trouble
       end

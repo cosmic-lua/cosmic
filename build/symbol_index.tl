@@ -10,6 +10,7 @@
 --- [`cosmic.cli.order`]). A name alone never comes here:
 --- it names a declaration of its own file ([`build.link_resolve`]).
 
+local Sqlite = require("cosmic.sqlite")
 local alias_members = require("build.alias_members")
 local type link_resolve = require("build.link_resolve")
 
@@ -42,7 +43,7 @@ local record symbol_index
   --- source symbol (`types`) and, exported, by module and symbol
   --- (`exported`), and a field or value by module and the source symbol
   --- it is declared under (`under`); and the module each module binds
-  --- each name to, by module and name (`bound`, [`symbol_index.bind`]).
+  --- each name to, by module and name (`bound`, [`symbol_index.add_bound`]).
   record Index
     modules: {string: boolean}
     exact: {string: {Row}}
@@ -91,13 +92,31 @@ function symbol_index.module(index: symbol_index.Index, module: string)
   index.modules[module] = true
 end
 
---- Records that `module`'s own block binds `name` to the module
---- `requires`: a row of `bound` ([`build.schema`]). The first database
---- read that binds the name answers, as [`build.docs`] reads them.
-function symbol_index.bind(index: symbol_index.Index, module: string, name: string,
-                           requires: string)
-  local key = module .. "\n" .. name
-  if index.bound[key] == nil then index.bound[key] = requires end
+--- Adds to `index` each name a module binds to another, the rows of
+--- `bound` ([`build.schema`]) of the database `db` holds under
+--- `qualifier` (`""` or `"out."`), where it holds that table: one
+--- written before it existed binds none. The first database read that
+--- binds a name answers for it, as [`build.docs`] reads them.
+function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
+                                qualifier: string): boolean, string
+  local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
+    "sqlite_schema WHERE type = 'table' AND name = 'bound'")
+  if held == nil then
+    return false, held_trouble
+  end
+  if #held == 0 then
+    return true, ""
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
+  if rows == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(rows) do
+    local key = row[1] .. "\n" .. row[2]
+    if index.bound[key] == nil then index.bound[key] = row[3] end
+  end
+  return true, ""
 end
 
 --- Adds a row of `docs` to `index` (`symbol` `""` for the module's own

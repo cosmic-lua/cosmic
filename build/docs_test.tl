@@ -1976,7 +1976,9 @@ end
 --- `type Entry = B.Entry` and `record Item is B.Entry`: the page lists
 --- what it takes, each member answers to its own dotted name once, an
 --- alias of that alias in a third module follows on, and a cycle of
---- aliases across modules names nothing.
+--- aliases across modules names nothing. A type the module declares
+--- under the bound name, in a record enclosing the reference, hides the
+--- bound module there.
 local function test_a_type_takes_members_through_a_required_module(dir: string)
   local db = built(dir, {
     ["cosmic/base.tl"] = source(
@@ -2007,6 +2009,24 @@ local function test_a_type_takes_members_through_a_required_module(dir: string)
       "end",
       "",
       "return User"),
+    ["cosmic/shadow.tl"] = source(
+      "--- Shadows.",
+      "local B = require(\"cosmic.base\")",
+      "",
+      "local record Shadow",
+      "  --- Its own B.",
+      "  record B",
+      "    --- Its own entry.",
+      "    record Entry",
+      "      --- Its mark.",
+      "      mark: integer",
+      "    end",
+      "  end",
+      "  --- The nested B's entry.",
+      "  type Entry = B.Entry",
+      "end",
+      "",
+      "return Shadow"),
     ["cosmic/third.tl"] = source(
       "--- Thirds.",
       "local type U = require(\"cosmic.user\")",
@@ -2063,6 +2083,11 @@ local function test_a_type_takes_members_through_a_required_module(dir: string)
   assert(found("Third.Entry.open") == "cosmic.third Third.Entry.open open: function(Entry): string",
     found("Third.Entry.open"))
   assert(found("LoopA.A.path") == "", found("LoopA.A.path"))
+  assert(found("Shadow.Entry.mark") == "cosmic.shadow Shadow.Entry.mark mark: integer",
+    found("Shadow.Entry.mark"))
+  -- Base.Entry.path, which answers by its last names, is not Shadow's.
+  assert(not found("Shadow.Entry.path"):find("cosmic.shadow", 1, true),
+    found("Shadow.Entry.path"))
 end
 
 --- A binary carries a user guide as its own doc row, with no module

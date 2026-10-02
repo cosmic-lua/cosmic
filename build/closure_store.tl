@@ -15,8 +15,9 @@
 --- writer's need not. What the writer writes reaches a store only
 --- through rows and orderings the address digests
 --- ([`closure_store.basis`]): each module's columns, the stored (deflated)
---- source's bytes among them, and each module's own docs, catalog and
---- examples in the order the projection holds them. The order across
+--- source's bytes among them, and each module's own imports, names
+--- bound, docs, uses, catalog, examples and links in the order the
+--- store takes them. The order across
 --- modules is this module's (`closed`). So an edit to the writer -- a
 --- query of the projection, a table only the projection fills -- moves
 --- only the addresses of the stores whose rows it moves.
@@ -35,11 +36,12 @@ local record closure_store
   --- Each module is a line naming its path, kind, file, source hash and
   --- tests, then the digests of its bytecode, of its source as stored
   --- (deflated, by [`build.writer`]), and of the rows a store carries of
-  --- it: its imports, docs, uses, catalog, examples and links (those it
-  --- makes), each in the order the store takes them within the module
-  --- (or file). Each declaration is a line naming its path and the
-  --- digests of its source as stored, of its docs and of its links, and
-  --- it records the declarations it requires. A digest covers what
+  --- it: its imports, the names it binds, its docs, uses, catalog,
+  --- examples and links (those it makes), each in the order the store
+  --- takes them within the module (or file). Each declaration is a line
+  --- naming its path and the digests of its source as stored, of its
+  --- docs, of its links and of the names it binds, and it records the
+  --- declarations it requires. A digest covers what
   --- every store holds alike: the `meta` rows it keeps (`closure_meta`).
   ---
   --- What the compiler made of a module is held by what it made, not by
@@ -157,10 +159,13 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     -- its path, or, for its examples, by its file.
     local carried: {{string:string}} = {}
     local by_file: {boolean} = {}
-    -- The links' digests, which a declaration's line takes too.
+    -- The links' and the names' digests, which a declaration's line
+    -- takes too.
     local linked: {string:string} = {}
+    local bound: {string:string} = {}
     for _, group in ipairs({
       { "path", "requires", "imports", "requires" },
+      { "path", "name requires", "bound", "name" },
       { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
       { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
       { "module", "kind symbol message text file line", "catalog", "id" },
@@ -174,6 +179,7 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
       if digests == nil then return nil, group_trouble end
       carried[#carried + 1] = digests
       if group[3] == "links" then linked = digests end
+      if group[3] == "bound" then bound = digests end
       by_file[#carried] = group[1] == "file"
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
@@ -204,10 +210,10 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     for i, row in ipairs(names) do basis.pairable[i] = row[1] end
     for _, row in ipairs(decl_rows) do
       basis.decls[row[1]] = "decl " .. row[1] .. " " .. row[2] .. " " .. (declared[row[1]] or "") ..
-        " " .. (linked[row[1]] or "")
+        " " .. (linked[row[1]] or "") .. " " .. (bound[row[1]] or "")
       basis.decl_requires[row[1]] = closure_store.required_by(row[3])
     end
-    basis.shared = Hash.hex_sha256("closure-store-5\n" .. shared[1][1])
+    basis.shared = Hash.hex_sha256("closure-store-6\n" .. shared[1][1])
     return basis, ""
   end
   local basis, read_trouble = read()

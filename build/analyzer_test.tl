@@ -1008,8 +1008,9 @@ local function test_distinct_import_aliases_share_canonical_identity()
 end
 
 --- The names the chunk's own block binds to a module, once each, in
---- order: by `local` and by `local type`. One bound twice there, or
---- bound to a require only in a nested block, is left out.
+--- order: by `local` and by `local type`. One bound twice there, bound
+--- to a require only in a nested block, declared with a type of its own,
+--- or bound by a `require` a local function shadows, is left out.
 local function test_finds_the_names_the_chunk_binds_to_a_module()
   local found = assert(analyzer.analyze(built, lines({
     'local Stream = require("cosmic.stream")',
@@ -1024,7 +1025,10 @@ local function test_finds_the_names_the_chunk_binds_to_a_module()
     '  local Fs = require("cosmic.fs")',
     '  return Fs',
     'end',
-    'return { plain = plain, f = f }',
+    'local Typed: Thing = require("cosmic.time")',
+    'local function require(name: string): string return name end',
+    'local Shadowed = require("cosmic.proc")',
+    'return { plain = plain, f = f, Typed = Typed, Shadowed = Shadowed }',
   }), "fixture.tl"))
   local seen: {string} = {}
   for _, each in ipairs(found.bound) do seen[#seen + 1] = each.name .. "=" .. each.module end

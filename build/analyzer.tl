@@ -1282,7 +1282,8 @@ end
 --- require("m")` or `local type name = require("m")`. A name the block
 --- binds twice, or to anything else besides, is left out: which binding
 --- a type declared under it reads depends on where, and a reader of the
---- rows knows only the type's module.
+--- rows knows only the type's module. So is one declared with a type of
+--- its own (`local B: T = require("m")`), whose `B.X` is `T`'s.
 local function bound_of(bindings: {scopes.Binding}): {analyzer.Bound}
   local count: {string: integer} = {}
   for _, each in ipairs(bindings) do
@@ -1290,7 +1291,7 @@ local function bound_of(bindings: {scopes.Binding}): {analyzer.Bound}
   end
   local out: {analyzer.Bound} = {}
   for _, each in ipairs(bindings) do
-    if each.top and each.module ~= "" and count[each.name] == 1 then
+    if each.top and each.module ~= "" and not each.annotated and count[each.name] == 1 then
       out[#out + 1] = { name = each.name, module = each.module }
     end
   end
