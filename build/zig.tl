@@ -771,6 +771,8 @@ end
 --- "held", "busy" when another run holds it, or nil and why for any
 --- other failure.
 local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string | nil, string
+  -- TODO: use busy_timeout and ExecResult.cancelled once
+  -- ci/cosmic-driver.pin names a cosmic with cancellable SQLite busy waits.
   -- SQLite counts the timeout in milliseconds: rounded up, so none is no wait.
   local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
     tostring((wait_ns + MS - 1) // MS))

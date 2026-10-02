@@ -622,11 +622,13 @@ end
 local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_failure()
   if not checked then return end
   local db = assert(Sqlite.memory())
+  db:busy_timeout(Time.ms(10))
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   for _, sql in ipairs({ "SELECT 1", "SELECT * FROM missing" }) do
     local ended = under_every_failure(function()
       local result = db:exec_result(sql)
+      assert(result.cancelled == false)
       assert((result.code == Sqlite.OK) == (sql == "SELECT 1"))
       assert((result.reason == "") == (sql == "SELECT 1"))
     end)
@@ -635,4 +637,21 @@ local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_fa
   end
   assert(db:exec("SELECT 1"))
   assert(db:close())
+end
+
+local function test_prepared_statements_keep_the_busy_handlers_owner_under_allocation_failure()
+  if not checked then return end
+  local db = assert(Sqlite.memory())
+  db:busy_timeout(Time.ms(10))
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local statement = assert(db:prepare("SELECT 1"))
+    assert(statement:step() == "row")
+    assert(statement:reset())
+    statement:finalize()
+  end)
+  assert(ended > 0)
+  assert_c_heap(bytes, blocks, "a prepared statement's busy handler")
+  assert(db:close(), "a refused operation left a prepared statement open")
 end
