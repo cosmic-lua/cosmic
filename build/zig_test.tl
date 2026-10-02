@@ -6,7 +6,10 @@
 --- ([`build.stand_in`]). The tests
 --- that start bin/zig are build/zig_tool_test.tl's.
 
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local rebuild_lock = require("build.rebuild_lock")
@@ -134,18 +137,18 @@ local function test_resolve_searches_path_for_a_bare_name(tmp: string)
   assert(Fs.write(tmp .. "/a/tool", "not executable", 0x1a4))
   assert(Fs.write(tmp .. "/b/tool", "#!/bin/sh\n", 0x1ed))
   local path = tmp .. "/missing:" .. tmp .. "/a:" .. tmp .. "/b"
-  local found, why = Zig.resolve("tool", path)
-  assert(found == tmp .. "/b/tool" and why == "")
+  local found = Zig.resolve("tool", path)
+  assert(found.kind == "resolved" and found.path == tmp .. "/b/tool" and found.reason == "")
   -- A name with a slash is used as it is, never searched for.
-  assert(Zig.resolve("./tool", path) == "./tool")
+  assert(Zig.resolve("./tool", path).path == "./tool")
 end
 
 local function test_resolve_tells_a_missing_name_from_an_unrunnable_one(tmp: string)
-  local none, missing = Zig.resolve("no-such-tool", tmp)
-  assert(none == nil and missing == "no-such-tool: not found", missing)
+  local missing = Zig.resolve("no-such-tool", tmp)
+  assert(missing.kind == "not_found" and missing.reason == "no-such-tool: not found", missing.reason)
   assert(Fs.write(tmp .. "/plain", "not executable", 0x1a4))
-  local plain, denied = Zig.resolve("plain", tmp)
-  assert(plain == nil and denied == tmp .. "/plain: not executable", denied)
+  local denied = Zig.resolve("plain", tmp)
+  assert(denied.kind == "not_executable" and denied.reason == tmp .. "/plain: not executable", denied.reason)
 end
 
 local function test_exec_status_is_the_shells()
@@ -354,4 +357,64 @@ local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
     error("a boot ran without a writable lock")
   end)
   assert(status == 1)
+end
+
+local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/zig.tl", "-- stand-in"))
+  local real_find, real_get = Proc.find_result, Env.get
+  local calls = 0
+  local reply: Proc.FindResult = { kind = "not_executable", path = "tool", reason = "tool: not found" }
+  Proc.find_result = function(_name: string, _path?: string): Proc.FindResult
+    calls = calls + 1
+    return reply
+  end
+  Env.get = function(name: string): string | nil
+    if name == "COSMIC_ZIG" then return "tool" end
+    return nil
+  end
+  local denied = Zig.main({ [0] = tmp .. "/build/zig.tl", "version" })
+  reply = { kind = "not_found", reason = "tool: not executable" }
+  local missing = Zig.main({ [0] = tmp .. "/build/zig.tl", "version" })
+  Proc.find_result, Env.get = real_find, real_get
+  assert(denied == 126 and missing == 127 and calls == 2)
+end
+
+local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: string)
+  local real_open, real_kind = Sqlite.open, sys.flock_kind
+  sys.flock_kind = function(_fd: integer): string | nil, string, integer
+    return "apart", "", 0
+  end
+  local outcomes: {Sqlite.ExecResult} = {
+    { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "another connection owns it" },
+    { code = 6, extended_code = 6, reason = "database table is locked" },
+    { code = 1, extended_code = 1, reason = "busy appears in this unrelated failure" },
+  }
+  local statuses, attempts, closures: {integer}, {integer}, {integer} = {}, {}, {}
+  for i, outcome in ipairs(outcomes) do
+    local calls, closes = 0, 0
+    Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
+      local fake = {
+        exec = function(_self: any, _sql: string): boolean, string return true, "" end,
+        exec_result = function(_self: any, sql: string): Sqlite.ExecResult
+          assert(sql == "BEGIN IMMEDIATE")
+          calls = calls + 1
+          if calls == 1 then return outcome end
+          return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
+        end,
+        close = function(_self: any): boolean, string
+          closes = closes + 1
+          return true, ""
+        end,
+      }
+      return fake as Sqlite.Handle, ""
+    end
+    statuses[i] = Zig.with_lock(tmp .. "/" .. i, {}, function(_env: {string:string}): integer return 7 end)
+    attempts[i], closures[i] = calls, closes
+  end
+  Sqlite.open, sys.flock_kind = real_open, real_kind
+  assert(statuses[1] == 7 and attempts[1] == 2)
+  assert(statuses[2] == 1 and attempts[2] == 1)
+  assert(statuses[3] == 1 and attempts[3] == 1)
+  assert(closures[1] == 1 and closures[2] == 1 and closures[3] == 1)
 end

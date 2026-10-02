@@ -13,7 +13,7 @@
 --- cache miss.
 ---
 --- The tarball `zig-<host>-<version>.tar.xz` is downloaded, checked by
---- [`Http.download`]'s `sha256` option, from a few of zig's community
+--- [`Http.download_result`]'s `sha256` option, from a few of zig's community
 --- mirrors and then `https://ziglang.org/download/<version>/`, retried in
 --- rounds ([`ZigFetch.sources`], [`ZigFetch.fetch`]). It goes into a
 --- uniquely named scratch wrapper under `cache`, is extracted with
@@ -29,7 +29,6 @@
 local Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
@@ -38,10 +37,10 @@ local SECOND <const> = Time.seconds(1)
 local record ZigFetch
   --- What [`ZigFetch.fetch`] downloads with, pauses with (for
   --- nanoseconds) and reads the time from (in nanoseconds):
-  --- [`Http.download`], [`sys.nanosleep`] and [`Time.monotonic_ns`]
+  --- [`Http.download_result`], [`sys.nanosleep`] and [`Time.monotonic_ns`]
   --- unless a test says otherwise.
   record Fetcher
-    download: function(url: string, path: string, opts: Http.Options): boolean, string
+    download: function(url: string, path: string, opts: Http.Options): Http.DownloadResult
     sleep: function(ns: integer)
     now: function(): integer
   end
@@ -224,7 +223,7 @@ end
 --- `CONNECT_TIMEOUT_NS`). Once the budget is spent the mirrors are
 --- skipped and the fallback is tried one last time.
 ---
---- Each attempt starts from no file at `path` ([`Http.download`] writes a
+--- Each attempt starts from no file at `path` ([`Http.download_result`] writes a
 --- fresh temporary file and renames it into place only once the digest
 --- matches). A mirror that served the wrong bytes is not asked again;
 --- one that failed any other way is, in the next round. The fallback is
@@ -234,7 +233,7 @@ end
 --- each source, its last trouble and how long that attempt ran.
 function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     via?: ZigFetch.Fetcher): boolean, string
-  local download = via ~= nil and via.download or Http.download
+  local download = via ~= nil and via.download or Http.download_result
   local sleep = via ~= nil and via.sleep or real_sleep
   local now = via ~= nil and via.now or Time.monotonic_ns
   local deadline = now() + BUDGET_NS
@@ -243,27 +242,16 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   local attempts = 0
   local out_of_time = false
 
-  local function attempt(url: string, opts: Http.Options): boolean
+  local function attempt(url: string, opts: Http.Options): Http.DownloadResult
     attempts = attempts + 1
     local _, _ = Fs.remove(path)
     opts.sha256 = sha256
     local started = now()
-    local ok, trouble = download(url, path, opts)
-    if ok then
-      return true
+    local result = download(url, path, opts)
+    if result.kind ~= "downloaded" then
+      last[url] = result.reason .. " (after " .. tostring((now() - started) // SECOND) .. " s)"
     end
-    -- Http.download names the URL itself for some failures; the
-    -- report names each source once.
-    -- TODO: keep `trouble` whole, and drop this function's entry in
-    -- build.contracts' `parsing`, once ci/cosmic-driver.pin names a
-    -- cosmic whose Http.download leaves the URL, which its caller
-    -- already holds, out of every reason; today's names it beside an
-    -- HTTP status alone.
-    if String.starts_with(trouble, url .. ": ") then
-      trouble = trouble:sub(#url + 3)
-    end
-    last[url] = trouble .. " (after " .. tostring((now() - started) // SECOND) .. " s)"
-    return false
+    return result
   end
 
   local fallback = urls[#urls]
@@ -278,26 +266,21 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
         if left <= 0 then
           out_of_time = true
         else
-          local ok = attempt(url, ZigFetch.limits(math.min(CONNECT_TIMEOUT_NS, left),
+          local result = attempt(url, ZigFetch.limits(math.min(CONNECT_TIMEOUT_NS, left),
             MIRROR_LOW_SPEED_BYTES, MIRROR_LOW_SPEED_NS, math.min(MIRROR_TIMEOUT_NS, left)))
-          if ok then
+          if result.kind == "downloaded" then
             return true, ""
           end
-          -- TODO: tell a digest mismatch apart by something other than
-          -- Http.download's message text, once ci/cosmic-driver.pin names
-          -- a cosmic whose Http.download reports which failure it hit
-          -- apart from the text (test_fetch_sees_a_real_mismatch fails if
-          -- the text changes first).
-          if last[url]:find("sha256 mismatch", 1, true) ~= nil then
+          if result.kind == "digest_mismatch" then
             wrong[url] = true
           end
         end
       end
     end
     if fallback ~= nil then
-      local ok = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
+      local result = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
         FALLBACK_LOW_SPEED_NS))
-      if ok then
+      if result.kind == "downloaded" then
         return true, ""
       end
     end

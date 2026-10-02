@@ -29,7 +29,7 @@ local record analysis_schema
 end
 
 analysis_schema.tables = {
-  "parsed", "requires", "tests", "catalog", "docs", "refs", "examples", "test_inputs", "links",
+  "parsed", "requires", "tests", "catalog", "docs", "refs", "bound", "examples", "test_inputs", "links",
 }
 
 analysis_schema.statements = {
@@ -92,6 +92,11 @@ analysis_schema.statements = {
                                      member TEXT NOT NULL,
                                      line INTEGER NOT NULL,
                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS bound (source_hash TEXT NOT NULL,
+                                      ordinal INTEGER NOT NULL,
+                                      name TEXT NOT NULL,
+                                      module TEXT NOT NULL,
+                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS examples (source_hash TEXT NOT NULL,
                                          ordinal INTEGER NOT NULL,
                                          name TEXT NOT NULL,
