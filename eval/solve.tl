@@ -50,6 +50,10 @@ local writable: {string} = { "project", "tmp", "config", "home" }
 --- /sys, /opt, /home, /root, /mnt and /var are left out: the CLI runs
 --- without them, and ~/.claude, a synced skills directory (/mnt/skills)
 --- and every checkout of this repository live there.
+-- TODO: keep /etc/claude-code (Claude Code's managed settings and
+-- CLAUDE.md, which it reads whatever CLAUDE_CONFIG_DIR says) from the
+-- solver once cosmic.child's unveil can hide a path under one it gives;
+-- until then eval/README.md asks for a host without it.
 local system: {string} = { "/usr", "/bin", "/lib", "/lib64", "/etc", "/dev/null", "/dev/zero",
   "/dev/full", "/dev/random", "/dev/urandom", "/proc" }
 
@@ -218,6 +222,13 @@ function Solve.status(result: Child.Result): integer
   return 128 + (result.signal or 0)
 end
 
+--- The command, run in the solver's sandbox, that exits 0 only when
+--- the sandbox's /proc does not show `host_pid`, a pid outside its pid
+--- namespace: when that /proc is its own.
+function Solve.proc_probe(host_pid: integer): {string}
+  return { "/bin/sh", "-c", "test ! -e /proc/" .. tostring(host_pid) }
+end
+
 local function complain(message: string)
   local _, _ = Fs.put(Fs.stderr, "solve: " .. message .. "\n")
 end
@@ -315,6 +326,23 @@ function Solve.main(argv: {integer: string}): integer
   local host = sys.environ()
   local env = Solve.environment(host, arena, program.path)
   local unveil = Solve.unveil(arena, program, Solve.host_reads(env), exists)
+  -- Where the kernel refuses the sandbox a procfs of its own, cosmic.child
+  -- binds the host's /proc read-only instead (core/syscalls.c's
+  -- place_proc), and through it the solver could read every host
+  -- process's environment and reach the checkout by /proc/<pid>/root.
+  -- This process is outside the sandbox's pid namespace, so its pid
+  -- shows under /proc there only when that /proc is the host's.
+  local probe, probe_trouble = Child.run(Solve.proc_probe(Proc.pid()), { env = {},
+    cwd = arena .. "/project", stdin = "null", stdout = "null", stderr = "null",
+    sandbox = { unveil = unveil } })
+  if probe == nil then
+    complain(probe_trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
+    return 2
+  elseif Solve.status(probe) ~= 0 then
+    complain("the sandbox's /proc is the host's, not its own; not running the solver there " ..
+      "(eval/README.md has the manual launch)")
+    return 2
+  end
   local outputs: {integer} = {}
   for _, name in ipairs({ "transcript.jsonl", "stderr" }) do
     local out, wtrouble = Fs.open_write(arena .. "/" .. name, 0x1a4)

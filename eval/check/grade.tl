@@ -176,6 +176,11 @@ function Grader.evidence(path: string): Grader.Evidence | nil, string
   return { tests = tests, examples = examples }, ""
 end
 
+local function exists(path: string): boolean
+  local present, _ = Fs.exists(path)
+  return present == true
+end
+
 --- Runs one step, its output kept in the arena as check-<n>.out and
 --- shown beneath the step when it fails. A step is a command, or a
 --- function standing for one under `label`, answering whether it
@@ -225,6 +230,10 @@ end
 local function fix_check(g: Grade, cosmic: string, project: string)
   local journal = project .. "/JOURNAL.md"
   local aside = g.dir .. "/JOURNAL.md.aside"
+  -- A grading killed during the step left the journal aside.
+  if exists(aside) and not exists(journal) then
+    local _, _ = Fs.rename(aside, journal)
+  end
   local moved, _ = Fs.rename(journal, aside)
   command_step(g, { cosmic, "fix", "--check" }, project)
   if moved then
@@ -270,6 +279,18 @@ local function expect(g: Grade, want: string, args: {string})
   else
     fail(g, label(g, args) .. ": exit " .. status(result) .. ", got '" .. got ..
       "', wanted '" .. want .. "'; stderr: " .. first_line(result.stderr or ""))
+  end
+end
+
+--- Checks that the executable exits 0, whatever it prints: for a
+--- command whose task promises no output of it.
+local function succeeds(g: Grade, args: {string})
+  local result = run(g, args)
+  if status(result) == 0 then
+    ok(label(g, args) .. " -> exit 0")
+  else
+    fail(g, label(g, args) .. ": exit " .. status(result) .. "; stderr: " ..
+      first_line(result.stderr or ""))
   end
 end
 
@@ -327,11 +348,6 @@ local function write(g: Grade, path: string, data: string)
   end
 end
 
-local function exists(path: string): boolean
-  local present, _ = Fs.exists(path)
-  return present == true
-end
-
 local function is_executable(path: string): boolean
   local st, _ = Fs.stat(path)
   return st ~= nil and st.kind == "file" and st.mode & 0x49 ~= 0
@@ -353,8 +369,9 @@ local function since_ms(started: integer): integer
   return (Time.monotonic_ns() - started) // Time.ms(1)
 end
 
-local function sleep_until(started: integer, ms: integer)
-  local left = started + Time.ms(ms) - Time.monotonic_ns()
+--- Sleeps until `deadline` on the monotonic clock.
+local function sleep_until(deadline: integer)
+  local left = deadline - Time.monotonic_ns()
   if left > 0 then
     local _, _ = Time.sleep_ns(left)
   end
@@ -531,7 +548,8 @@ local function notes_expect(g: Grade, want: string, args: {string}, env?: {strin
   end
   local what = table.concat(shown_args, " ")
   local result, trouble = Child.run(argv_of(g, args), { cwd = g.empty, env = env or {},
-    stdout = "capture", stderr = "stdout" })
+    stdout = "capture", stderr = "stdout", process_group = g.own_group,
+    timeout_ns = g.timeout_ns })
   local code = result ~= nil and status(result) or 127
   local got = result ~= nil and trimmed(result.stdout or "") or trouble
   if code == 0 and got == want then
@@ -552,7 +570,7 @@ local function notes(g: Grade)
   -- The message must be the tool's own: a launcher or runtime failure
   -- also exits non-zero with something on stderr.
   local result, _ = Child.run(argv_of(g, { "rm", "9" }), { cwd = g.empty, env = {},
-    stdout = "null", stderr = "capture" })
+    stdout = "null", stderr = "capture", process_group = g.own_group, timeout_ns = g.timeout_ns })
   local err = result ~= nil and result.stderr or ""
   local _, _ = Fs.write(g.dir .. "/check.err", err)
   if result ~= nil and status(result) == 0 then
@@ -627,7 +645,7 @@ local function pack(g: Grade)
   }
   for _, ext in ipairs({ "tar", "tar.gz", "tgz", "zip" }) do
     local archive = "out." .. ext
-    expect(g, "", { "create", archive, "src" })
+    succeeds(g, { "create", archive, "src" })
     local data, _ = Fs.read(g.empty .. "/" .. archive)
     if data == nil or not magic[ext](data) then
       fail(g, archive .. " is not a " .. ext .. " file")
@@ -637,7 +655,7 @@ local function pack(g: Grade)
     expect(g, want_list, { "list", archive })
     expect(g, want_sum, { "sum", archive })
     local dest = "dest-" .. ext
-    expect(g, "", { "extract", archive, dest })
+    succeeds(g, { "extract", archive, dest })
     local whole = true
     for _, f in ipairs(files) do
       local got, _ = Fs.read(g.empty .. "/" .. dest .. "/" .. f[1])
@@ -658,9 +676,8 @@ local function pack(g: Grade)
   write(g, "evil.tar", ustar("ok.txt", "fine\n") .. ustar("../evil.txt", "escaped\n")
     .. string.rep("\0", 1024))
   local err = refuses(g, { "extract", "evil.tar", "dest-evil" })
-  if not err:find("evil", 1, true) then
-    fail(g, "extract evil.tar did not name the entry ../evil.txt")
-  end
+  check(g, err:find("../evil.txt", 1, true) ~= nil, "extract evil.tar names the entry ../evil.txt",
+    first_line(err))
   local escaped, _ = Fs.exists(g.empty .. "/evil.txt")
   if escaped then
     fail(g, "extract evil.tar wrote evil.txt outside its destination")
@@ -770,11 +787,11 @@ local function kv(g: Grade)
   end
   local base = "http://127.0.0.1:" .. port
 
-  expect(g, "", { "put", base .. "/alpha", "hello" })
+  succeeds(g, { "put", base .. "/alpha", "hello" })
   expect(g, "hello", { "get", base .. "/alpha" })
-  expect(g, "", { "put", base .. "/beta", "two words" })
+  succeeds(g, { "put", base .. "/beta", "two words" })
   expect(g, "two words", { "get", base .. "/beta" })
-  expect(g, "", { "rm", base .. "/alpha" })
+  succeeds(g, { "rm", base .. "/alpha" })
   refuses(g, { "get", base .. "/alpha" })
   refuses(g, { "rm", base .. "/alpha" })
 
@@ -855,7 +872,10 @@ local function number_of(value: any): number
   return nil
 end
 
-local function jobs_main(g: Grade, w: string)
+--- Runs main.json and checks its report and what its jobs left;
+--- answers when, on the monotonic clock, the timed-out job's grandchild
+--- would have written w/late had it outlived its job.
+local function jobs_main(g: Grade, w: string): integer
   local started = Time.monotonic_ns()
   jobfile(g, "w/main.json", {
     first = { cmd = sh("echo first-out; echo first-err >&2; : > " .. w .. "/first.done") },
@@ -885,7 +905,7 @@ local function jobs_main(g: Grade, w: string)
   local report, trouble = jobs_report(result)
   if report == nil then
     fail(g, label(g, args) .. ": " .. trouble .. "; stderr: " .. first_line(result.stderr or ""))
-    return
+    return started + Time.ms(took + 2600)
   end
   each_job(g, report, "status", { first = "ok", second = "ok", envcheck = "ok", here = "ok",
     flaky = "ok", broken = "failed", missing = "failed", after_broken = "skipped",
@@ -916,20 +936,27 @@ local function jobs_main(g: Grade, w: string)
     log == nil and "no such file" or "got '" .. trimmed(log or "") .. "'")
   check(g, not (result.stdout or ""):find("first-out", 1, true),
     "a job's output stays out of jobs's stdout")
+  -- slow waits its turn among ten jobs three at a time; without its
+  -- start, it may have started as late as the run ended.
+  return started + Time.ms(math.floor(slow_start or took) + 2600)
 end
 
-local function jobs_interrupt(g: Grade, w: string)
+--- Runs term.json and sends it SIGTERM; answers when the interrupted
+--- job's grandchild would have written w/term.late had it outlived its
+--- job, or 0 when it never started.
+local function jobs_interrupt(g: Grade, w: string): integer
   jobfile(g, "w/term.json", {
     long = { cmd = sh("(/bin/sleep 1.5; : > " .. w .. "/term.late) & /bin/sleep 30") },
     quick = { cmd = sh(": > " .. w .. "/quick.done") },
     next = { cmd = sh(": > " .. w .. "/next.ran"), needs = { "long" } },
   })
   local args = { "run", "w/term.json" }
+  local started = Time.monotonic_ns()
   local handle, trouble = Child.start(argv_of(g, args), { cwd = g.empty, env = {},
     stdout = "capture", stderr = "capture", stdin = "null", process_group = false })
   if handle == nil then
     fail(g, label(g, args) .. " did not start: " .. trouble)
-    return
+    return 0
   end
   local deadline = Time.monotonic_ns() + Time.seconds(3)
   while not exists(w .. "/quick.done") and Time.monotonic_ns() < deadline do
@@ -941,19 +968,22 @@ local function jobs_interrupt(g: Grade, w: string)
   local result, _ = handle:wait(Time.seconds(5))
   local took = since_ms(signalled)
   local _, _ = handle:close()
+  -- long starts with the run; it has no needs.
+  local late = started + Time.ms(1500 + 600)
   if result == nil or result.timed_out then
     fail(g, label(g, args) .. " was still running 5 s after SIGTERM")
-    return
+    return late
   end
   check(g, status(result) ~= 0 and took < 3000, label(g, args) .. " ended on SIGTERM in " ..
     took .. " ms, exit " .. status(result), "wanted a non-zero exit within 3 s")
   local report, rtrouble = jobs_report(result)
   if report == nil then
     fail(g, "report after SIGTERM: " .. rtrouble)
-    return
+    return late
   end
   each_job(g, report, "status", { long = "interrupted", quick = "ok", next = "skipped" })
   check(g, not exists(w .. "/next.ran"), "no job starts after SIGTERM")
+  return late
 end
 
 local function jobs_refusals(g: Grade, w: string)
@@ -1023,14 +1053,14 @@ end
 local function jobs(g: Grade)
   local w = g.empty .. "/w"
   local _, _ = Fs.mkdirs(w)
-  local started = Time.monotonic_ns()
-  jobs_main(g, w)
-  jobs_interrupt(g, w)
+  -- The timed-out job's grandchild writes w/late 2 s after the job
+  -- started, and the interrupted one's w/term.late 1.5 s after it did,
+  -- unless they were killed with their jobs: each is looked for once
+  -- its own time, with 600 ms to spare, has passed.
+  local main_late = jobs_main(g, w)
+  local term_late = jobs_interrupt(g, w)
   jobs_refusals(g, w)
-  -- The timed-out job's grandchild writes w/late 2 s after it started,
-  -- and the interrupted one's w/term.late 1.5 s after it did, unless
-  -- they were killed with their jobs.
-  sleep_until(started, 2600)
+  sleep_until(math.max(main_late, term_late))
   check(g, not exists(w .. "/late"), "a timed-out job's own children are killed with it")
   check(g, not exists(w .. "/term.late"), "an interrupted job's own children are killed with it")
   jobs_parallel(g)
@@ -1372,8 +1402,9 @@ local TASKS <const>: {string: Task} = {
   pack = { checks = pack, timeout = 10, null_stdin = false, own_group = true, stale = {} },
   ledger = { checks = ledger, timeout = 10, null_stdin = false, own_group = true, stale = {} },
   kv = { checks = kv, timeout = 10, null_stdin = false, own_group = true, stale = {} },
-  -- These two drive processes and sockets: a job's leftovers must
-  -- outlive its run for a check to find them.
+  -- jobs's checks look for what a job left after its run, so it must
+  -- outlive the run; both drive processes and sockets that wait out
+  -- timeouts of their own, so a run may take longer.
   jobs = { checks = jobs, timeout = 15, null_stdin = true, own_group = false, stale = {} },
   mirror = { checks = mirror, timeout = 15, null_stdin = true, own_group = false, stale = {} },
 }

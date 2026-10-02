@@ -105,7 +105,9 @@ holding only
   or a script's directory and its interpreter;
 - read-only, `/usr` (and the links `/bin`, `/lib`, `/lib64` into it) and
   `/etc`, for the shell, the tools its Bash calls start, the loader, and
-  passwd, resolv.conf and the CA store; `/dev/null`, `zero`, `full`,
+  passwd, resolv.conf and the CA store (and so `/etc/claude-code`,
+  Claude Code's managed settings, on a host that has them: check that
+  it does not); `/dev/null`, `zero`, `full`,
   `random` and `urandom`; a `/proc` of its own pid namespace;
 - the CA bundle `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS` name, and, in a
   Claude Code cloud session, `/home/claude/.claude/remote/.oauth_token`
@@ -134,7 +136,9 @@ The sandbox needs Linux with user namespaces the caller may make: where
 Claude Code cloud session (gVisor, running as root) has them, and the
 solver there is uid 0 of its own namespace; a host whose policy refuses
 them to an unprivileged user (Ubuntu's AppArmor restriction) does not.
-Where the kernel refuses one, eval/solve fails before the solver starts
+Where the kernel refuses one, or gives the sandbox the host's `/proc`
+in place of one of its own (a container that masks `/proc`), eval/solve
+fails before the solver starts
 rather than running it unconfined. There, and on macOS, launch by hand
 as below, where the isolation is by convention only: an empty `CLAUDE_CONFIG_DIR` leaves out
 user skills, plugins, hooks and instructions (credentials still come
@@ -284,7 +288,9 @@ To add a task: write `eval/task/<task>.md`, a function `<task>(g)` in
 grade.tl's section for it, built from the helpers above them (`expect`,
 `refuses`, `help`, `run`, `write`, `check`, and for a server `serves`,
 `stops` and `exchange`), an entry in `TASKS` (how long one run may take,
-and whether its stdin is /dev/null and its children outlive it), and
+whether its stdin is /dev/null and its children outlive it, and the
+files a solver's own runs leave in the project that would answer for
+the executable), and
 `eval/check/<task>`, a copy of a sibling naming the task. Before running
 a model on it, grade a reference solution and a few broken ones (a
 mutation for each check that matters) and see each fail where it should.

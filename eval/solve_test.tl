@@ -94,3 +94,8 @@ local function test_the_status_is_what_timeout_would_record()
   assert(Solve.status({ signal = 9, ok = false, timed_out = true, captured = {}, truncated = false }) == 124)
   assert(Solve.status({ signal = 15, ok = false, timed_out = false, captured = {}, truncated = false }) == 143)
 end
+
+local function test_the_proc_probe_looks_for_a_pid_outside_the_sandbox()
+  local probe = Solve.proc_probe(4242)
+  assert(probe[1] == "/bin/sh" and probe[3] == "test ! -e /proc/4242", probe[3])
+end

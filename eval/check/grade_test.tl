@@ -141,13 +141,14 @@ local function test_an_arena_without_a_project_fails_every_task(dir: string)
   end
 end
 
---- A build that fails runs no binary, whichever task it is.
+--- A build that fails runs no earlier binary, whichever task it is.
 local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic",
     "[build] eprint build: FAIL\n[build] exit 1\nexit 0"))
   for _, name in ipairs({ "pack", "ledger", "kv", "jobs", "mirror" }) do
+    assert(stand_in.place(probe, dir .. "/project/o/bin/" .. name, "print 1"))
     local status, said = graded(name, dir)
     assert(status == 1, said)
     assert(said:find("skip o/bin/" .. name .. ": cosmic build failed", 1, true), said)

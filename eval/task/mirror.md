@@ -54,7 +54,8 @@ server over HTTP/1.1 and a client that mirrors a directory from one:
   others: while one connection sits open having sent half a request,
   other clients are still answered promptly.
 - `pull <url> <dest>`: mirrors the directory a `serve` serves at
-  `<url>` (like `http://127.0.0.1:8080/` or `http://127.0.0.1:8080/sub`)
+  `<url>` (like `http://127.0.0.1:8080/`, `http://127.0.0.1:8080` or
+  `http://127.0.0.1:8080/sub`)
   into `<dest>`, recursively, creating directories as needed. A file
   already in `<dest>` whose SHA-256 matches the listing's is skipped;
   any other is downloaded and checked against the listing's `sha256`.
