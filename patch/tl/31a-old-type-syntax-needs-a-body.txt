@@ -1,0 +1,74 @@
+file: tl.tl
+note: `record`, `interface` and `enum` are names as well as keywords, and tl read any of them after `local x =` as the type declaration syntax 0.7.1 dropped, so `local category = record` failed with "use 'local record category'" where `record` was a loop variable. Read one as that syntax only where a whole, clean type body with something declared in it follows, which no expression and statements after it spell but an enum's strings closing a block (`enum "a" end`, a call); the same test replaces the table value's, which also took `{ v = enum "a" }`, a call, for a nested enum
+--- find
+local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
+   local next_word = ps.tokens[i].tk
+   if next_word == "record" or next_word == "interface" then
+      local skip_i, e = skip(ps, i, skip_type_body)
+      if e then
+         fail(ps, i, next_word == "record"
+                     and "syntax error: this syntax is no longer valid; declare nested record inside a record"
+                     or  "syntax error: cannot declare interface inside a table; use a statement")
+         return skip_i, new_node(ps, i, "error_node")
+      end
+   elseif next_word == "enum" and ps.tokens[i + 1].kind == "string" then
+      i = failskip(ps, i, "syntax error: this syntax is no longer valid; declare nested enum inside a record", skip_type_body)
+      return i, new_node(ps, i - 1, "error_node")
+   end
+--- replace
+-- Does the `record`, `interface` or `enum` at i start a type in the
+-- syntax 0.7.1 dropped (`local Point = record ... end`), rather than
+-- name a variable? Each is a name as well as a keyword, so it does only
+-- where a type body parses after it with no error and declares
+-- something: a field, a metamethod or an enum value. No expression and
+-- the statements after it parse so, since a field (`x: T`) is no
+-- statement and a nested type needs `local`, but a call of the name
+-- with strings that closes a block (`enum "a" end`), which stays read
+-- as the old syntax. An old declaration with a mistake in its body
+-- loses the hint instead.
+local function is_old_type_syntax(ps: ParseState, i: integer): boolean
+   local err_ps: ParseState = {
+      filename = ps.filename,
+      tokens = ps.tokens,
+      errs = {},
+      required_modules = {},
+      parse_lang = ps.parse_lang,
+   }
+   local tn = ps.tokens[i].tk as BodyTypeName
+   if not parse_type_body_fns[tn] then
+      return false
+   end
+   local _, t = parse_type_body(err_ps, i + 1, i, {}, tn)
+   if not t or #err_ps.errs > 0 then
+      return false
+   end
+   local def = t is GenericType and t.t or t
+   if def is EnumType then
+      return next(def.enumset) ~= nil
+   elseif def is RecordLikeType then
+      if #def.field_order > 0 then
+         return true
+      end
+      -- A `where` clause stores `__is`, and `where(x)` is a call.
+      for _, name in ipairs(def.meta_field_order or {}) do
+         if name ~= "__is" then
+            return true
+         end
+      end
+   end
+   return false
+end
+
+local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
+   local next_word = ps.tokens[i].tk
+   if (next_word == "record" or next_word == "interface") and is_old_type_syntax(ps, i) then
+      local skip_i = skip(ps, i, skip_type_body)
+      fail(ps, i, next_word == "record"
+                  and "syntax error: this syntax is no longer valid; declare nested record inside a record"
+                  or  "syntax error: cannot declare interface inside a table; use a statement")
+      return skip_i, new_node(ps, i, "error_node")
+   elseif next_word == "enum" and is_old_type_syntax(ps, i) then
+      i = failskip(ps, i, "syntax error: this syntax is no longer valid; declare nested enum inside a record", skip_type_body)
+      return i, new_node(ps, i - 1, "error_node")
+   end
+--- end

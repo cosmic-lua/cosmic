@@ -242,6 +242,67 @@ local function test_return_types_end_before_the_next_parameter()
     tostring((result.type_errors[1] or result.syntax_errors[1] or {}).msg))
 end
 
+--- `record`, `interface` and `enum` name variables as well as start
+--- types: one after `=` is read as the type syntax 0.7.1 dropped only
+--- where a type body declaring something follows it (patch/tl's
+--- 31a-old-type-syntax-needs-a-body.txt and 31b), so a loop's
+--- `record` can be assigned, and the old declaration still says what
+--- to write instead.
+local function test_a_keyword_named_variable_is_no_old_type_declaration()
+  local built = assert(teal.load())
+  local code, result = built.gen("local rows = { 1 }\n" ..
+    "for _, record in ipairs(rows) do\n" ..
+    "  local category = record\n" ..
+    "  local t = { v = record }\n" ..
+    "  print(category, t.v)\n" ..
+    "end\n", nil, nil, "tl")
+  assert(#assert(result).syntax_errors == 0 and #result.type_errors == 0,
+    tostring((result.syntax_errors[1] or result.type_errors[1] or {}).msg))
+  local printed: {string} = {}
+  local env = setmetatable({
+    print = function(a: any, b: any) printed[#printed + 1] = tostring(a) .. " " .. tostring(b) end,
+  } as {string:any}, { __index = _G as {string:any} })
+  assert(load(assert(code), "repro", "t", env))()
+  assert(printed[1] == "1 1" and #printed == 1, table.concat(printed, "; "))
+  for _, word in ipairs({ "record", "interface", "enum" }) do
+    for _, source in ipairs({
+      "local x = WORD\nprint(x)\n",
+      "local x = WORD.field\nprint(x)\n",
+      "local x = WORD:method()\nprint(x)\n",
+      "local x = WORD\nx:m()\n",
+      "local x = WORD < 3, WORD > 2\nprint(x)\n",
+      "local x = WORD is string\nprint(x)\n",
+      "if WORD then local x = WORD end\n",
+      "if WORD then local x = WORD is string end\n",
+      "print(WORD)\n",
+      "local t = { WORD }\nprint(t)\n",
+      "local t = { v = WORD, w = 1 }\nprint(t)\n",
+      "local t = { v = WORD \"a\" }\nprint(t)\n",
+      "local b = WORD == nil\nprint(b)\n",
+      "global g = WORD\n",
+    }) do
+      local found = syntax_errors((source:gsub("WORD", word)))
+      assert(#found == 0, source:gsub("WORD", word) .. table.concat(found, "; "))
+    end
+  end
+  for _, case in ipairs({
+    { "local Point = record\n  x: number\nend\n", "use 'local record Point'" },
+    { "global Point = record\n  x: number\nend\n", "use 'global record Point'" },
+    { "local P = record <T>\n  x: T\nend\n", "use 'local record P'" },
+    { "local I = interface\n  metamethod __call: function(I)\nend\n", "use 'local interface I'" },
+    { "local E = enum\n  \"a\"\n  \"b\"\nend\n", "use 'local enum E'" },
+    { "local t = { P = record\n  x: number\nend }\n", "declare nested record inside a record" },
+    { "local t = { E = enum \"a\" end }\n", "declare nested enum inside a record" },
+    { "local F = functiontype(number): string\n", "use 'local type F = function('" },
+  }) do
+    local found = syntax_errors(case[1])
+    assert(found[1] ~= nil and found[1]:find(case[2], 1, true) ~= nil,
+      case[1] .. table.concat(found, "; "))
+  end
+  local found = syntax_errors("local f = functiontype\nprint(f)\n")
+  assert(#found == 0, table.concat(found, "; "))
+end
+
 --- A test whose import closure does not hold [`cosmic.removed`] is not
 --- told what the catalog says: build.teal names it by no `require` a
 --- parse records, so no closure that reaches build.teal holds it, and
