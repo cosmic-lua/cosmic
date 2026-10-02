@@ -883,6 +883,11 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
       return alias .. "." .. key .. " was removed: " .. instead
     end
   end
+  -- TODO: hint a key a union's records lack (`cannot index key 'type'
+  -- in type sys.Stat | nil`, an unchecked `Fs.stat(p).type`): the
+  -- checker gives fields only for a single record (patch/tl/33d); the
+  -- fix is fields for each record member, and for one holding nil a
+  -- hint to check for nil before naming any field.
   local missing = missing_key(msg)
   if missing ~= nil and fields ~= nil then
     return field_hint(missing.key, missing.owner, fields)
