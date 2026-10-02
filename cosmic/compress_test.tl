@@ -402,16 +402,16 @@ local function bz2_decoder(): Compress.Stream return (assert(Compress.bz2_decode
 local function xz_decoder(): Compress.Stream return (assert(Compress.xz_decoder())) end
 
 -- Feeds `data` in one update and drains it the way the contract asks,
--- asserting no call returns more than `max` bytes. Returns the whole
+-- asserting no call returns more than `max_bytes` bytes. Returns the whole
 -- output, and what `finish` alone gave.
-local function drain(stream: Compress.Stream, data: string, max: integer): string, string
+local function drain(stream: Compress.Stream, data: string, max_bytes: integer): string, string
   local parts: {string} = {}
-  local out = assert(stream:update(data, max))
+  local out = assert(stream:update(data, max_bytes))
   while true do
-    assert(#out <= max, #out .. " bytes from one update, limit " .. max)
+    assert(#out <= max_bytes, #out .. " bytes from one update, limit " .. max_bytes)
     parts[#parts + 1] = out
     if not stream:pending() then break end
-    out = assert(stream:update("", max))
+    out = assert(stream:update("", max_bytes))
   end
   local last = assert(stream:finish())
   parts[#parts + 1] = last

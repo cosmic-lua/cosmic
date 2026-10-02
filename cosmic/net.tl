@@ -291,7 +291,7 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
       limit = wait_ns
     end,
     read = function(_self: Net.Conn, max_bytes?: integer): string | nil, string
-      if max_bytes ~= nil and max_bytes <= 0 then error("net: max_bytes must be positive", 2) end
+      if max_bytes ~= nil and max_bytes <= 0 then error("net: read's max_bytes must be positive", 2) end
       if not open then return nil, "net: the connection is closed" end
       if read_failure ~= "" then return nil, read_failure end
       while true do

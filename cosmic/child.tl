@@ -891,7 +891,7 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local failed: string
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    if max_bytes ~= nil and max_bytes < 1 then error("child: a read needs a max_bytes of at least 1", 2) end
+    if max_bytes ~= nil and max_bytes < 1 then error("child: read's max_bytes must be positive", 2) end
     if failed then return nil, failed end
     if closed then return nil, closed_reader end
     while pipe.size == 0 do

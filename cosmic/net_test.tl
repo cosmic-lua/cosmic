@@ -240,7 +240,7 @@ local function test_a_degenerate_read_or_shutdown_raises_at_the_caller(tmp: stri
   local accepted = p.accepted
   for _, max_bytes in ipairs({ 0, -1 }) do
     local ok, why: boolean, any = pcall(function() local _, _ = accepted:read(max_bytes) end)
-    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: max_bytes must be positive$") ~= nil,
+    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: read's max_bytes must be positive$") ~= nil,
       tostring(why))
   end
   local shut, shut_why: boolean, any = pcall(function()
