@@ -74,7 +74,7 @@ local function gen(tail: Tail): function(Fuzz.Source): string
     local manifest, trailer = tail.manifest, tail.trailer
     local cut, junk = 0, ""
     local edits = 0
-    repeat
+    while Fuzz.more(src, edits, 4) do
       edits = edits + 1
       local what = src:int(1, 5)
       if what == 1 then
@@ -93,7 +93,7 @@ local function gen(tail: Tail): function(Fuzz.Source): string
         cut = Fuzz.pick(src, { 1, 16, 4096, #tail.database })
         junk = Fuzz.bytes(src, 64)
       end
-    until not Fuzz.more(src, edits, 4)
+    end
     return Fuzz.pack({ manifest, trailer, tostring(cut), junk })
   end
 end
@@ -131,10 +131,17 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
         stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) })
       if r == nil then return false, "run: " .. trouble end
       if r.timed_out then return false, "hung past 10 s" end
-      if r.ok and r.stdout == "ok\n" then return true, "" end
+      if r.ok and r.stdout == "ok\n" then
+        Fuzz.label("ran")
+        return true, ""
+      end
       local said = tostring(r.stderr)
-      if r.code == 2 and said:sub(1, 8) == "cosmic: " then return true, "" end
+      if r.code == 2 and said:sub(1, 8) == "cosmic: " then
+        Fuzz.label("refused")
+        return true, ""
+      end
       return false, ("exit %s, signal %s: %s"):format(tostring(r.code), tostring(r.signal), said)
     end,
+    requires = { "ran", "refused" },
   })
 end

@@ -293,6 +293,21 @@ local function write_format_fixture(argv: {string}): integer
   assert(Fs.write(output .. ".prefix", prefix))
   assert(Fs.write(output .. ".a", program_a))
   assert(Fs.write(output .. ".b", program_b))
+  for line in records:gmatch("[^\n]+") do
+    local id, configuration, target = line:match("^(%d+)\t(%d+)\t[^\t]+\t([^\t]+)\t")
+    assert(id ~= nil and configuration ~= nil and target ~= nil)
+    local bytes = assert(cores[target])
+    local host = assert(artifact.host_program({
+      target_id = assert(math.tointeger(tonumber(id))),
+      configuration_id = assert(math.tointeger(tonumber(configuration))),
+      bytes = bytes,
+      digest = Hash.sha256(bytes),
+    }, database_a))
+    assert(Fs.write(output .. ".host-" .. target, host))
+    local subset_prefix = assert(artifact.prefix(line, cores))
+    local subset = assert(artifact.program(subset_prefix, database_a))
+    assert(Fs.write(output .. ".subset-" .. target, subset))
+  end
   return 0
 end
 

@@ -86,6 +86,11 @@ struct cosmic_portable {
   struct cosmic_portable_entry selected;
 };
 
+enum cosmic_artifact_format {
+  COSMIC_ARTIFACT_PORTABLE,
+  COSMIC_ARTIFACT_HOST
+};
+
 #define COSMIC_ARTIFACT_PATH_CAPACITY 4096u
 
 /* One portable artifact descriptor, owned until its database closes. */
@@ -103,6 +108,20 @@ struct cosmic_artifact {
    * checks at startup; a host program only when its identity is asked for. */
   int core_checked;
 };
+
+/*
+ * Validates framing, ranges, identities and padding for the given format,
+ * without choosing a core or requiring this build's release targets. Nonzero
+ * target and configuration IDs need not be known to this build. On success
+ * `selected` remains zero; on failure every byte of *out is zero and *error
+ * optionally names the rejected invariant. Success clears *error.
+ *
+ * This checks only the SQLite header, not database integrity, and does not
+ * validate core digests or native executable headers. The caller keeps fd
+ * open and its contents unchanged while using the resulting ranges.
+ */
+bool cosmic_artifact_decode (int fd, enum cosmic_artifact_format format,
+                             struct cosmic_portable *out, const char **error);
 
 /*
  * Decodes and validates the file currently held open by fd.  target_id and
