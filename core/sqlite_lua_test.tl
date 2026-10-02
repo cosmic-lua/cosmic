@@ -47,6 +47,7 @@ for size = 1, 256 do
   collectgarbage("collect")
   collectgarbage("stop")
   local db = assert(Sqlite.memory())
+  db:busy_timeout(1000000)
   local during, closed = false, false
   local marker = setmetatable({}, { __gc = function()
     if during then
@@ -67,7 +68,7 @@ for size = 1, 256 do
     assert(tostring(result):find("database handle is closed", 1, true), tostring(result))
     overlapped = true
   elseif ok then
-    assert(result.code == Sqlite.OK and result.extended_code == Sqlite.OK and result.reason == "")
+    assert(result.code == Sqlite.OK and result.extended_code == Sqlite.OK and result.reason == "" and result.cancelled == false)
   else
     error(result)
   end

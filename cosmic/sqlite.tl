@@ -52,7 +52,13 @@ local record Sqlite
   --- and statement finalizers. `code` is the primary result code and
   --- `extended_code` retains its extended detail. Both are [`Sqlite.OK`]
   --- on success, with an empty `reason`; otherwise `reason` is for a
-  --- person. No statement is retried: earlier statements in a batch
+  --- person. `cancelled` says the busy handler installed by
+  --- `handle:busy_timeout(ns)` stopped this call for an unread guard
+  --- signal. SQLite's codes stay unchanged, usually BUSY; cancellation
+  --- does not imply SQLITE_INTERRUPT or a rollback. The signal remains
+  --- available to the guard. Reading that guard clears its notification
+  --- for later waits even though `guard:cancelled()` remembers it.
+  --- No statement is retried: earlier statements in a batch
   --- may already have changed the database when a later one fails.
   --- `handle:exec_result(sql)` returns this record alone. A closed
   --- handle or SQL containing a NUL raises; `handle:exec` returns

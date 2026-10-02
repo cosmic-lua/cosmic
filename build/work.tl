@@ -410,26 +410,15 @@ local wait_ns <const> = Time.minutes(30)
 --- How long a run waits for that transaction before it says so.
 local notice_ns <const> = Time.seconds(1)
 
---- The statement that sets SQLite's busy timeout to `ns`, which it
---- counts in milliseconds: rounded up, so a wait is never none.
-local function busy_timeout(ns: integer): string
-  return "PRAGMA busy_timeout = " .. tostring(Time.ceil(ns, Time.ms(1)))
-end
-
 --- Begins the run's transaction on `db`, the working database at `path`,
 --- waiting up to `wait_ns` for another run that holds it and saying so
 --- after `notice_ns`. The handle keeps the long wait for every statement
 --- after ([`work.begin`]'s transactions among them).
 local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
-  local noticed, notice_trouble = db:exec(busy_timeout(notice_ns))
-  if not noticed then
-    return false, notice_trouble
-  end
+  db:busy_timeout(notice_ns)
   local begun = db:exec_result("BEGIN IMMEDIATE")
-  local timed, time_trouble = db:exec(busy_timeout(wait_ns))
-  if not timed then
-    return false, time_trouble
-  end
+  db:busy_timeout(wait_ns)
+  if begun.cancelled then return false, "interrupted while waiting for the write lock" end
   if begun.code == Sqlite.OK then
     return true, ""
   end
@@ -437,10 +426,9 @@ local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
     return false, begun.reason
   end
   log:complain("another cosmic run holds " .. path .. "; waiting for it")
-  local waited, wait_trouble = db:exec("BEGIN IMMEDIATE")
-  if not waited then
-    return false, wait_trouble
-  end
+  local waited = db:exec_result("BEGIN IMMEDIATE")
+  if waited.cancelled then return false, "interrupted while waiting for the write lock" end
+  if waited.code ~= Sqlite.OK then return false, waited.reason end
   return true, ""
 end
 
@@ -459,11 +447,7 @@ function work.open(root: string): work.Handle | nil, string
   end
   -- Before the schema is made: a run meeting a fresh file another is
   -- making its tables in waits for that run's lock here.
-  local timed, time_trouble = db:exec(busy_timeout(wait_ns))
-  if not timed then
-    local _, _ = db:close()
-    return nil, path .. ": " .. time_trouble
-  end
+  db:busy_timeout(wait_ns)
   local encoded, encode_trouble = db:exec("PRAGMA encoding = 'UTF-8'")
   if not encoded then
     local _, _ = db:close()
@@ -560,10 +544,11 @@ end
 --- Opens another transaction on the run, for a phase that comes after
 --- the projection: the test runner's records, written together.
 function work.begin(handle: work.Handle): boolean, string
-  local begun, trouble = handle.db:exec("BEGIN IMMEDIATE")
-  if not begun then
-    return false, trouble
+  local begun = handle.db:exec_result("BEGIN IMMEDIATE")
+  if begun.cancelled then
+    return false, "interrupted while waiting for " .. handle.root .. "/o/build.db"
   end
+  if begun.code ~= Sqlite.OK then return false, begun.reason end
   handle.inside = true
   return true, ""
 end
