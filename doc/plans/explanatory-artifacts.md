@@ -371,7 +371,7 @@ fixtures across supported formats/targets. Startup A/B and `ci/run-local` pass.
 
 Introduce ownership-safe descriptor/range handles and read-only SQLite access
 without registering modules. Allow two independent artifacts to be attached to
-one query connection. Keep the running store's path separate. Dependencies: 1.
+one query connection. Keep the running store's path separate. Dependencies: 1 and 0.5.
 
 Acceptance: join rows from two different artifacts, open the same file twice,
 close handles in different orders, collect an owner while consumers remain,
@@ -400,6 +400,32 @@ that cannot execute locally, does not evaluate hostile views/triggers, and does
 not weaken direct-only SQL functions. Existing startup remains cheap. Document
 reader/writer/runtime compatibility separately and test the bootstrap matrix.
 
+The independent review identified this delivery split:
+
+- **3a, recognition (requires 0):** a small reader accepts an already-open
+  SQLite handle and recognizes a narrowly supported legacy shipped layout,
+  the working database, unrelated SQLite, or an unsupported marked version.
+  Its first consumer is the existing `cosmic db` command. Inspect schema
+  metadata and required column contracts without evaluating supplied views,
+  generated expressions, or triggers. Do not change generic `sql --db`, open
+  executables, or add startup queries. Focused fixtures cover each category,
+  missing relations, and malformed contracts; measure inspection latency.
+- **3b, additive identification (requires 3a):** stamp the current compatible
+  shipped layout with documented `application_id` and `user_version` values.
+  Existing writers state output kind and what analysis they actually retain;
+  an empty retained relation differs from omitted information. Cover project,
+  carried, application and closure outputs, deterministic `VACUUM INTO`, old
+  pinned drivers, and closure identity calculations. Measure packaging and
+  repeated projection; report the one-time cache refresh separately.
+- **3c, complete artifact integration (requires 2 and 3b):** independent
+  executable inspection and runtime compatibility enforcement remain gated.
+  Old binaries ignore schema versions; additive version-1 metadata cannot
+  retroactively make them reject a future incompatible format. Original
+  step-3 acceptance remains open until this integration lands.
+
+Proceed with 3a and 3b after step 1, as separate reviewed PRs. This changes
+sequencing only where the work is independent of the blocked access capability.
+
 ### 4. Lossless imports, provider resolution, and safe closure policy
 
 Extend analysis, working storage and shipped storage together with edge roles,
@@ -417,6 +443,20 @@ closed projection cannot silently omit a runtime provider. Test indirect forms
 and builtin/special loader behavior used by the actual tree. Measure graph
 derivation, no-op and incremental rebuild, and closure computation. Verify cold,
 warm and shared-parse-cache paths produce identical complete facts.
+
+A further independent slice is **4a, working import occurrences (requires 0;
+execute after 3b)**. Preserve literal requested names, spans and type/runtime
+roles before `Ast.all_requires` deduplicates them. Record supported computed
+forms as unknown rather than falsely resolved. Keep `all_requires` ordering,
+shipped imports, provider selection and closure behavior unchanged. Evolve the
+analysis relation, working schema and shared parse serialization together.
+Two imports on one line remain separate; comments and strings are not imports;
+fresh/local/shared parsing produces identical facts. Avoid a second full AST
+walk and measure parse misses, shared-cache hits, no-op and leaf-edit builds.
+`sql --build` provides an existing consumer of the additional facts.
+
+The remaining **4b** retains original provider/linking/shipped-store acceptance
+and depends on completed 3c plus 4a. Completing 4a does not complete step 4.
 
 ### 5. Declaration identity, exports, and precise references
 
@@ -560,8 +600,11 @@ the final ledger and links; it is not a vehicle to merge documentation or code.
 | 1 | 0 |
 | 0.5 | 0; execution-service block unresolved |
 | 2 | 1, 0.5 |
-| 3 | 2; release/pin if bootstrap starts calling the new API |
-| 4 | 3 |
+| 3a | 0; execute after 1 |
+| 3b | 3a |
+| 3c (completes 3) | 2, 3b; release/pin if bootstrap calls the new API |
+| 4a | 0; execute after 3b |
+| 4b (completes 4) | 3c, 4a |
 | 5 | 3 and span integration with 4 |
 | 6 | 4, 5 |
 | 7 | 4, 5, 6 |
@@ -587,8 +630,11 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | 0.5 Runtime VFS capability | Blocked before implementation | — | Reproduced on baseline; separate design review accepted one-shot registration. Implementation agent stopped by automated cybersecurity check; no retry or workaround. |
 | 1 Structural decoder | In progress | — | Separate implementer and adversarial reviewer assigned; source baseline is merged step 0. No VFS, store authority or new artifact-access changes. |
 | 2 Artifact handles | Pending | — | — |
-| 3 Schema/reader contract | Pending | — | — |
-| 4 Dependencies/providers | Pending | — | — |
+| 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
+| 3a Existing database recognition | Planned independent work | — | Read-only dependency review complete; no new access APIs. |
+| 3b Additive format metadata | Planned independent work | — | Reader-first rollout; existing compatible table layout. |
+| 4 Dependencies/providers | Pending; split below | — | Original acceptance remains open until 4b. |
+| 4a Working import occurrences | Planned independent work | — | Retain existing dependency/closure semantics; preserve richer facts in analysis. |
 | 5 Declarations/references | Pending | — | — |
 | 6 Derivation/identities | Pending | — | — |
 | 7 Projection/sealing | Pending | — | — |
