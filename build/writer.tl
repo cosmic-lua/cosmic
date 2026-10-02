@@ -78,6 +78,17 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
+--- The names each planned module and each declaration binds to a
+--- module ([`build.analyzer.Bound`]), kept whatever the module they
+--- name: a project's binds the standard library's.
+local insert_bound =
+  "INSERT OR IGNORE INTO out.bound (path, name, requires) " ..
+  "SELECT m.path, b.name, b.module " ..
+  "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
+  "WHERE kind = 'decl') m " ..
+  "JOIN inputs i ON i.path = m.path " ..
+  "JOIN bound b ON b.source_hash = i.source_hash ORDER BY m.path, b.name"
+
 --- The documented symbols ([`build.analyzer.DocEntry`]) found while parsing
 --- each planned module and each declaration ([`cosmic.sys`]'s only source
 --- is the C header it is generated from), in module order and then
@@ -290,6 +301,7 @@ local function project(handle: work.Handle, path: string,
     end
     statements[#statements + 1] = insert_modules
     statements[#statements + 1] = insert_imports
+    statements[#statements + 1] = insert_bound
     statements[#statements + 1] =
       "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
       "WHERE kind = 'decl' ORDER BY path"
@@ -476,29 +488,34 @@ local dropped_modules <const> =
   "dropped(path) AS (SELECT path FROM whole.modules " ..
   "EXCEPT SELECT path FROM carried) "
 
+--- The type a doc row `d` of a `cosmic.internal.*` module is or is
+--- under, as a public declaration spells it after the name its module
+--- binds the internal one to: `Handle` of [`sqlite.Handle`] and of
+--- [`Handle.exec`].
+local nested_type <const> =
+  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
+  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
+  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END)"
+
 --- The condition under which a doc row `d` of a `cosmic.internal.*`
 --- module is a nested type -- [`sqlite.Handle`] -- or a member of one
 --- ([`Handle.exec`]) that a public declaration reaches: an alias
 --- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
---- raw_http.Options`), whose page lists them. [`symbols.shown_docs`]
+--- raw_http.Options`), whose page lists them, through the name its
+--- module binds `d`'s to ([`build.analyzer.Bound`]). [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
 --- resolution ([`build.docs`]) reads them.
 local carried_internal_types =
   "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
   "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
-  "EXISTS (SELECT 1 FROM whole.docs p WHERE " ..
+  "EXISTS (SELECT 1 FROM whole.docs p " ..
+  "JOIN whole.bound b ON b.path = p.module AND b.requires = d.module WHERE " ..
   symbols.public_only("p.module", true) .. " AND " ..
   "(p.signature GLOB 'type * = *' OR p.signature GLOB '*record * is *' OR " ..
   "p.signature GLOB '*interface * is *') AND " ..
-  "(p.signature GLOB '*[ _]' || substr(d.module, 17) || '.' || " ..
-  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
-  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
-  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END) OR " ..
-  "p.signature GLOB '*[ _]' || substr(d.module, 17) || '.' || " ..
-  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
-  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
-  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END) || ',*')))"
+  "(p.signature GLOB '*[ ,]' || b.name || '.' || " .. nested_type .. " OR " ..
+  "p.signature GLOB '*[ ,]' || b.name || '.' || " .. nested_type .. " || ',*')))"
 
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from
@@ -516,6 +533,8 @@ local carry: {string} = {
   dropped_modules .. "INSERT INTO main.imports SELECT * FROM whole.imports " ..
     "WHERE path NOT IN dropped AND requires NOT IN dropped " ..
     "ORDER BY path, requires",
+  dropped_modules .. "INSERT INTO main.bound SELECT * FROM whole.bound " ..
+    "WHERE path NOT IN dropped ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..

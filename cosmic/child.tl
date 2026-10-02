@@ -242,6 +242,8 @@ local record Pipe
   --- is then a queue, read from `head` and written at `tail`, and
   --- `size` is how much of it is unread.
   streamed: boolean
+  --- The first terminal read or raw poll failure, after any queued bytes.
+  failure: string
   head: integer
   tail: integer
 end
@@ -259,7 +261,9 @@ local record Handle
   --- group still holding it cannot hold a read up. A wait leaves them
   --- to read on; `close` ends them once what is queued is read. While
   --- the innermost open guard has caught a signal, a read or a write
-  --- fails with "child: cancelled by signal N", as a wait does.
+  --- fails with "child: cancelled by signal N", as a wait does. A read
+  --- or raw poll failure follows the bytes already queued, then remains
+  --- the reader's failure on later reads.
   stdout_stream: Stream.Reader | nil
   --- See `stdout_stream`.
   stderr_stream: Stream.Reader | nil
@@ -532,6 +536,13 @@ local function end_stream(stream: Pipe)
   end
 end
 
+--- Keep a source failure apart from a Reader's sticky cancellation:
+--- another operation can discover it while that Reader stays cancelled.
+local function fail_stream(stream: Pipe, trouble: string)
+  if stream.streamed and stream.failure == nil then stream.failure = trouble end
+  end_stream(stream)
+end
+
 local function end_input(self: Handle)
   close_fd(self._input_fd)
   self._input_fd = nil
@@ -589,10 +600,10 @@ local record Service
   ready: function(Entry)
   --- Gives up on it, once the wait found a descriptor gone bad: it
   --- cannot be serviced, so it is ended rather than spun on.
-  broken: function(Entry)
+  broken: function(Entry, string)
 end
 
-local function nothing(_: Entry) end
+local function nothing(_: Entry, _trouble?: string) end
 
 local services: {Kind:Service} = {
   output = {
@@ -604,16 +615,16 @@ local services: {Kind:Service} = {
       if stream.streamed and e.owner._limit - stream.size < want then
         want = e.owner._limit - stream.size
       end
-      local data, _, errno = sys.read(stream.fd, want)
+      local data, trouble, errno = sys.read(stream.fd, want)
       if data == nil then
-        if errno ~= sys.EAGAIN and errno ~= sys.EINTR then end_stream(stream) end
+        if errno ~= sys.EAGAIN and errno ~= sys.EINTR then fail_stream(stream, trouble) end
       elseif data == "" then
         end_stream(stream)
       else
         keep(e.owner, stream, data)
       end
     end,
-    broken = function(e: Entry) end_stream(e.output) end,
+    broken = function(e: Entry, trouble: string) fail_stream(e.output, trouble) end,
   },
   input = {
     live = function(e: Entry): boolean return e.owner._input_fd == e.fd end,
@@ -629,7 +640,7 @@ local services: {Kind:Service} = {
         end_input(h)
       end
     end,
-    broken = function(e: Entry) end_input(e.owner) end,
+    broken = function(e: Entry, _trouble: string) end_input(e.owner) end,
   },
   feed = {
     live = function(e: Entry): boolean return e.owner._feed_fd == e.fd end,
@@ -727,6 +738,7 @@ local function pump(entries: {Entry}, timeout_ns: integer,
     return false, ""
   end
   local revents: {integer}
+  local trouble = ""
   if in_run then
     local answers, why: {integer}, string
     local function look()
@@ -739,11 +751,14 @@ local function pump(entries: {Entry}, timeout_ns: integer,
     revents = answers
   else
     -- Rounded up: a wait with time left polls for at least a millisecond.
-    local polled, _ = sys.poll(fds, events, timeout_ns >= 0 and Time.ceil(timeout_ns, MS) or -1)
-    revents = polled
+    local polled, why = sys.poll(fds, events, timeout_ns >= 0 and Time.ceil(timeout_ns, MS) or -1)
+    revents, trouble = polled, why
   end
   if revents == nil then
-    for _, e in ipairs(entries) do services[e.kind].broken(e) end
+    for _, e in ipairs(entries) do
+      local service = services[e.kind]
+      if service.live(e) then service.broken(e, trouble) end
+    end
     return true, ""
   end
   local moved = false
@@ -916,6 +931,10 @@ function PipeReader:read(max_bytes?: integer): string | nil, string
   if self.closed then return nil, closed_reader end
   local child, pipe = self.child, self.pipe
   while pipe.size == 0 do
+    if pipe.failure ~= nil then
+      self.failed = pipe.failure
+      return nil, self.failed
+    end
     if pipe.fd == nil then return nil, "" end
     local why = interrupted(child)
     if why ~= "" then

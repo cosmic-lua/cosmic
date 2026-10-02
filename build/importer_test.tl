@@ -1147,7 +1147,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   -- and the tree parsed again.
   before, after, recorded, kept = boot(function(cut: work.Handle)
     for _, table_name in ipairs({ "parsed", "requires", "tests", "catalog", "docs",
-                                  "refs", "examples", "test_inputs" }) do
+                                  "refs", "bound", "examples", "test_inputs" }) do
       assert(cut.db:exec("DELETE FROM " .. table_name .. " WHERE source_hash IN " ..
         "(SELECT source_hash FROM inputs WHERE path = 'build.ast')"))
     end
