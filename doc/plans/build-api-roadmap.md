@@ -36,7 +36,7 @@ The execution ledger below is the sole status record.
 | C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive |
 | C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying |
 | C7 | Verified release and remaining consumers | C1/C2/C4–C6 published; C3 decision recorded; five post-B5 pin TODO sites across four groups, plus Context/Darwin consumers |
-| D1 | [#2590](https://github.com/cosmic-lua/cosmic/pull/2590) | independently audited; CI-gated auto-merge | b064b895/tree94fd94f9; final two-tree cache/artifact/integrity and actual-parent vendor audit approved; documentation+5/-7 only; branch37051449851 and queue remain required |
+| D1 | [#2590](https://github.com/cosmic-lua/cosmic/pull/2590) | merged; final audit complete | 437ecf40/tree94fd94f9, sole parent8f43b4d7; independently audited exact source, branch37051449851 and queue37051743944 all green; selected roadmap complete with explicit C3 deferral |
 
 Preparation can overlap on disjoint files. Publish B steps serially against actual merged main. After B5's verified release and consumer migration merge, C1/C2/C4 may publish as three separately reviewed PRs from that same actual merged base. C2 shares no changed paths with the other two; C1/C4 touch separate Fs and Proc acknowledgment entries in the harness file, with no epoch change or API dependency. Preserve independent exact-tree reviews and every branch/queue gate, and review each cumulative queue candidate. Resolve and re-review any integration conflict before landing. Join after all three merge, then keep C5 and C6 serial. C3 retains its independent measurement decision; C7 retains the actual published-release barrier. This overlaps CI waiting without claiming faster builds or reduced runner work. If another sensible reviewed slice can land earlier, update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
 
@@ -764,3 +764,18 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   no assertion before clean cancellation; it is not a full-suite pass.
   Preservation/determinism evidence is not a speedup claim. D1 is approved
   for required green branch/queue auto-merge; reference #2521 stays unmerged.
+
+- 2026-10-02 UTC: D1 merged at19:13:37UTC as
+  `437ecf40f4c5b74187ebe00ee8f4dd55d0ca2363`, exact independently audited
+  tree `94fd94f99680c1f0cf212bc4d8f11c87a2ff6d2b`, sole parent actual
+  C7 `8f43b4d751da5635b9902ee89e94ea2e4603467e`. Branch `37051449851`
+  and queue `37051743944` passed every required platform and aggregate
+  check. No incoming source change moved the audited endpoint. Independent
+  Git and GitHub merge receipts agree. All selected API implementation and
+  consumer steps plus final audit are complete: sixteen production PRs plus
+  D1, following the ten completed original build-system PRs. C3 remains an
+  explicit evidence-based deferral, with the experiment closed unmerged and
+  current fsync behavior retained; unrelated follow-ups remain named TODOs.
+  #2521 was verified open, draft, unmerged and auto-merge off, and stays the
+  living reference. No further implementation or validation gate is pending
+  for the selected roadmap.
