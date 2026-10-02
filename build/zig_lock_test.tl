@@ -1,4 +1,4 @@
---- The bootstrap's SQLite-only lock against another process. fcntl
+--- The bootstrap's lock against a SQLite-only older process. fcntl
 --- locks belong to a process, so another handle here cannot prove that
 --- the lock excludes an older tool or survives a handoff.
 
@@ -28,8 +28,19 @@ local wait = %d
 if wait < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(wait) end
 ]]
 
-local function start(root: string, wait_ns: integer): Child.Handle, string
-  local started = this_program.program({ "-e", sql_tool:format(root, wait_ns) },
+local flock_tool = [[
+local Fs = require("cosmic.fs")
+local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
+local fd = assert(sys.open(%q .. "/o/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
+if not sys.flock(fd, "exclusive", 0) then print("busy"); return end
+print("held")
+local wait = %d
+if wait < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(wait) end
+]]
+
+local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
+  local started = this_program.program({ "-e", (flock and flock_tool or sql_tool):format(root, wait_ns) },
     { stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   local line = assert(Stream.lines(assert(child.stdout_stream)):read())
@@ -160,4 +171,31 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   Env.get, Zig.snapshot = get, snapshot
   assert(not ok and trouble == "snapshot failed", tostring(trouble))
   assert(probe(root) == "held", "main retained its lock after a snapshot exception")
+end
+
+local function test_a_boot_holds_flock_and_releases_it_on_return(tmp: string)
+  local root = tree(tmp)
+  assert(Zig.with_lock(root, {}, function(): integer
+    local child, said = start(root, 0, true)
+    finish(child)
+    assert(said == "busy", "a flock-only process entered the boot's lock")
+    return 0
+  end) == 0)
+  local child, said = start(root, 0, true)
+  finish(child)
+  assert(said == "held", "the bootstrap retained its flock")
+end
+
+local function test_a_handoff_keeps_a_flock_only_parents_hold(tmp: string)
+  local root = tree(tmp)
+  local old, said = start(root, -1, true)
+  assert(said == "held")
+  assert(Zig.with_lock(root, { COSMIC_REBUILD_LOCK_HANDED = root .. "/./o/rebuild.lock" },
+    function(): integer
+      local child, probe_said = start(root, 0, true)
+      finish(child)
+      assert(probe_said == "busy")
+      return 0
+    end) == 0)
+  finish(old)
 end

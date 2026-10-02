@@ -179,14 +179,11 @@ end
 --- Where COSMIC_VERDICT_CACHE names no file, it shares nothing: it
 --- neither makes nor reads the cache every sandboxed checkout shares by
 --- default, so another checkout at the same path runs every test again,
---- and the summary says so. The retired COSMIC_TEST_KEY, which CI's
---- driver still sets for the release it pins, changes nothing, whatever
---- it says.
+--- and the summary says so.
 local function test_an_unenforced_run_shares_only_through_a_named_cache(tmp: string)
   local env = environment("")
   env.COSMIC_VERDICT_CACHE = nil
   env.XDG_CACHE_HOME = tmp .. "/xdg"
-  env.COSMIC_TEST_KEY = "observed-ish"
   checkout(tmp .. "/first")
   local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
   assert(first:find(UNSHARED, 1, true), first)

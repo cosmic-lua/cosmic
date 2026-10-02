@@ -7,9 +7,9 @@ local function test_child_timeout_retains_diagnostics(tmp: string)
   local started = Time.monotonic_ns()
   local called, failure = pcall(Fixture.run, "timeout",
     { "/bin/sh", "-c", "printf 'before timeout\\n'; exec sleep 30" },
-    tmp, diagnostics, nil, 500)
+    tmp, diagnostics, nil, Time.ms(500))
   local elapsed = Time.monotonic_ns() - started
-  assert(not called and elapsed < 5000 * 1000000,
+  assert(not called and elapsed < Time.seconds(5),
     "fixture timeout did not remain bounded")
   local diagnostic = tostring(failure)
   assert(diagnostic:find("timed_out=true", 1, true),

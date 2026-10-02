@@ -1,7 +1,6 @@
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
-local SqliteOpen = require("cosmic_ci.sqlite_open")
 
 local record State
   schema: string
@@ -21,7 +20,6 @@ local record State
     ran: integer
     stood: integer
     every: integer
-    assumed: integer
     shared: integer
     failed: integer
     elapsed_ms: integer
@@ -52,7 +50,7 @@ CREATE TABLE IF NOT EXISTS suite_runs (
   id INTEGER PRIMARY KEY, worker TEXT NOT NULL, run TEXT NOT NULL,
   attempt TEXT NOT NULL, phase TEXT NOT NULL, suite TEXT NOT NULL,
   status TEXT NOT NULL, exit_code INTEGER, tests INTEGER, modules INTEGER,
-  ran INTEGER, stood INTEGER, every INTEGER, assumed INTEGER, shared INTEGER,
+  ran INTEGER, stood INTEGER, every INTEGER, shared INTEGER,
   failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, host_features TEXT,
   host TEXT, system TEXT, runtime TEXT, compiler TEXT, harness TEXT,
   launcher TEXT, program TEXT, held TEXT, store TEXT);
@@ -94,7 +92,7 @@ local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
 end
 
 function State.open(path: string): Sqlite.Handle
-  local db = assert(SqliteOpen.writable(path)); assert(db:exec(State.schema))
+  local db = assert(Sqlite.open(path, { writable = true })); assert(db:exec(State.schema))
   -- A table written before a key part or `held` was gains its column.
   local present = suite_columns_of(db)
   local wanted: {string} = { "held" }
@@ -143,10 +141,10 @@ State.key_parts = {
 --- `suite_runs`' columns before its key parts, in order.
 State.suite_columns = { "worker", "run", "attempt", "phase", "suite",
   "status", "exit_code", "tests", "modules", "ran", "stood", "every",
-  "assumed", "shared", "failed", "elapsed_ms", "sandbox" }
+  "shared", "failed", "elapsed_ms", "sandbox" }
 
 local integer_columns: {string:boolean} = { exit_code = true, tests = true,
-  modules = true, ran = true, stood = true, every = true, assumed = true,
+  modules = true, ran = true, stood = true, every = true,
   shared = true, failed = true, elapsed_ms = true }
 
 --- The rows of `suite_runs` in `db`, in the order written; none where
@@ -204,7 +202,7 @@ function State.suite(path: string, row: State.SuiteRun)
     text(row.attempt), text(row.phase), text(row.suite), text(row.status),
     maybe_integer(row.exit_code), maybe_integer(row.tests),
     maybe_integer(row.modules), maybe_integer(row.ran), maybe_integer(row.stood),
-    maybe_integer(row.every), maybe_integer(row.assumed),
+    maybe_integer(row.every),
     maybe_integer(row.shared), maybe_integer(row.failed),
     maybe_integer(row.elapsed_ms), maybe_text(row.sandbox) }
   local parts = row.parts or {}
