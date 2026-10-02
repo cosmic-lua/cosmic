@@ -340,51 +340,68 @@ end
 --- token, or parsed the function bodies in a `where` clause would grow
 --- with the square of the lines or double with each level; one begun
 --- within another would read each token through every look around it.
-local function test_a_keyword_named_variable_costs_what_it_reads()
+--- Each shape is a test of its own: together they compile fourteen
+--- files of thousands of lines, which on the checked core passes a
+--- test's whole time.
+local keyword_head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
+  "local function where(_x: any) end\nlocal function b() end\n"
+
+local function costs_what_it_reads(source: string)
   local built = assert(teal.load())
-  local head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
-    "local function where(_x: any) end\nlocal function b() end\n"
-  local function took(source: string): integer
+  local function took(text: string): integer
     local started = Time.monotonic_ns()
-    local _, result = built.gen(head .. source, nil, nil, "tl")
-    assert(#assert(result).syntax_errors == 0, source:sub(1, 200) ..
+    local _, result = built.gen(keyword_head .. text, nil, nil, "tl")
+    assert(#assert(result).syntax_errors == 0, text:sub(1, 200) ..
       tostring((result.syntax_errors[1] or {}).msg))
     return Time.monotonic_ns() - started
   end
-  local function repeated(line: string): string
-    local parts: {string} = {}
-    for k = 1, 2000 do
-      parts[#parts + 1] = (line:gsub("N", tostring(k)))
-    end
-    return table.concat(parts)
+  local t = took(source)
+  local base = took((source:gsub("record", "recd"):gsub("enum", "enmd")))
+  assert(t < base * 20 + 50000000, source:sub(1, 80) .. ": " .. t .. " ns against " .. base .. " ns")
+end
+
+--- `line` 2000 times, each `N` in it the line's number.
+local function repeated(line: string): string
+  local parts: {string} = {}
+  for k = 1, 2000 do
+    parts[#parts + 1] = (line:gsub("N", tostring(k)))
   end
-  local nested = "local x0 = 1\n"
-  for k = 1, 16 do
-    nested = "local xN = record\nwhere(function()\n" .. nested .. "end)\nprint(xN)\n"
-    nested = nested:gsub("xN", "x" .. k)
-  end
+  return table.concat(parts)
+end
+
+local function test_an_enum_named_variable_costs_what_it_reads()
+  costs_what_it_reads(repeated("local xN = enum\n"))
+  costs_what_it_reads(repeated("local tN = { k = enum }\n"))
+end
+
+local function test_a_record_named_variable_costs_what_it_reads()
+  costs_what_it_reads(repeated("local xN = record < n\n"))
+  costs_what_it_reads(repeated("local xN = record\n"))
+end
+
+local function test_a_record_named_variable_in_a_function_costs_what_it_reads()
+  costs_what_it_reads(repeated("local function fN() local x = record return x end\n"))
+  costs_what_it_reads(repeated("local xN = record\nwhere(a)\n(b)()\nprint(xN)\n"))
+end
+
+--- Old declarations nested in each other's bodies are refused, each
+--- look reading the tokens itself rather than through the one around
+--- it; and a `where` around each of sixteen levels does not double the
+--- cost with each.
+local function test_nested_record_named_variables_cost_what_they_read()
   local within = "1"
   for k = 1, 120 do
     within = "(function(): integer local y" .. k .. " = record\n" ..
       "  f: function(integer): integer = macroexp(_a: integer): integer return " .. within .. " end\n" ..
       "end\nreturn 1 end)()"
   end
-  -- Old declarations nested in each other's bodies are refused, each
-  -- look reading the tokens itself rather than through the one around it.
-  assert(#syntax_errors(head .. "local x = " .. within .. "\nprint(x)\n") > 0)
-  for _, source in ipairs({
-    repeated("local xN = enum\n"),
-    repeated("local tN = { k = enum }\n"),
-    repeated("local xN = record < n\n"),
-    repeated("local xN = record\n"),
-    repeated("local function fN() local x = record return x end\n"),
-    repeated("local xN = record\nwhere(a)\n(b)()\nprint(xN)\n"),
-    nested,
-  }) do
-    local t = took(source)
-    local base = took((source:gsub("record", "recd"):gsub("enum", "enmd")))
-    assert(t < base * 20 + 50000000, source:sub(1, 80) .. ": " .. t .. " ns against " .. base .. " ns")
+  assert(#syntax_errors(keyword_head .. "local x = " .. within .. "\nprint(x)\n") > 0)
+  local nested = "local x0 = 1\n"
+  for k = 1, 16 do
+    nested = "local xN = record\nwhere(function()\n" .. nested .. "end)\nprint(xN)\n"
+    nested = nested:gsub("xN", "x" .. k)
   end
+  costs_what_it_reads(nested)
 end
 
 --- A test whose import closure does not hold [`cosmic.removed`] is not
