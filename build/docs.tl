@@ -23,6 +23,7 @@ local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
+local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
@@ -63,6 +64,10 @@ local record docs
     --- The record each module's value is typed as (`""` for none), by
     --- module, as [`value_record`] reads it, cached as `use_counts` is.
     value_records: {string: string}
+    --- The module each module binds each name to, by module and name,
+    --- as [`symbol_index.add_bound`] reads them: nil until a type's
+    --- reference asks, then cached as `use_counts` is.
+    bound: {string: string} | nil
   end
 
   --- One worked example, matched to a symbol by content rather than by
@@ -1964,7 +1969,7 @@ end
 --- The rows of `view` that [`build.alias_members`] follows a
 --- declaration through, each read from whichever database holds it.
 local function type_source(view: docs.View): alias_members.Source<docs.Entry>
-  local types = "d.kind IN ('record', 'interface', 'enum') "
+  local types = "(d.kind IN ('record', 'interface', 'enum') OR d.signature GLOB 'type * = *') "
   return {
     declared = function(module: string, name: string): docs.Entry | nil, string
       return first_declared(view,
@@ -1972,11 +1977,26 @@ local function type_source(view: docs.View): alias_members.Source<docs.Entry>
         "AND " .. types .. "ORDER BY d.id LIMIT 1",
         { text(module), text(name) })
     end,
-    alias = function(name: string): docs.Entry | nil, string
+    exported = function(module: string, name: string): docs.Entry | nil, string
       return first_declared(view,
-        "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol = ?1 " ..
-        "AND d.signature GLOB 'type * = *' AND d.exported = 1 ORDER BY d.id LIMIT 1",
-        { text(name) })
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.symbol = ?2 " ..
+        "AND d.exported = 1 AND " .. types .. "ORDER BY d.id LIMIT 1",
+        { text(module), text(name) })
+    end,
+    bound = function(module: string, name: string): string | nil, string
+      local cached = view.bound
+      if cached ~= nil then
+        return cached[module .. "\n" .. name]
+      end
+      local index = symbol_index.new()
+      for _, db in ipairs(view.databases) do
+        local ok, trouble = symbol_index.add_bound(index, db, "")
+        if not ok then
+          return nil, trouble
+        end
+      end
+      view.bound = index.bound
+      return index.bound[module .. "\n" .. name]
     end,
     under = function(target: docs.Entry): {docs.Entry} | nil, string
       return members_under(view, target)
@@ -2016,7 +2036,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | n
   local methods: {string} = {}
   local values: {string} = {}
   for _, reference in ipairs(references) do
-    local target, target_trouble = alias_members.resolved(type_source(view), entry.module, reference)
+    local target, target_trouble = alias_members.resolved(type_source(view), entry, reference)
     if target == nil and target_trouble ~= nil then
       return nil, target_trouble
     end

@@ -30,7 +30,7 @@ local record Tar
     open: function(Entry): Stream.Reader | nil, string
   end
 
-  record Reader is Stream.ArchiveReader
+  interface Reader is Stream.ArchiveReader
     --- The next entry, or nil and `""` once the archive's two zero
     --- blocks are reached (or the stream simply ends there). An error
     --- is sticky: every later call returns it again.
@@ -49,7 +49,7 @@ local record Tar
   --- Once any call fails, the underlying Stream.Writer is aborted and every
   --- later call, `close` included, returns that failure: a half-written
   --- archive is never committed. A call after `close` fails too.
-  record Writer is Stream.ArchiveWriter
+  interface Writer is Stream.ArchiveWriter
     --- Adds a regular file at `path` with `data` as its body. A
     --- [`Stream.Reader`] body needs `opts.size`, since a tar header
     --- states a size before its body, and is read to that many bytes,
@@ -71,6 +71,14 @@ local record Tar
     abort: function(self: Writer): boolean, string
   end
 end
+
+-- A Reader or Writer here is made as cosmic/stream.tl's "How an object of
+-- this module is made" says: a record of its own per kind, implementing the
+-- public interface it answers, with its methods on that record and its
+-- state in fields. The one exception is an entry's `open`, which needs the
+-- reader that made it: it is a closure of that reader, shared by all its
+-- entries through their metatable, so that an entry stays the one table of
+-- the fields its public record declares.
 
 local BLOCK <const> = 512
 
@@ -341,16 +349,18 @@ local READ_AHEAD <const> = 1 << 16
 --- a read per body and a seek per padding. A read at least that big
 --- with nothing held goes straight through, and a skip past what is
 --- held goes to the underlying Reader's own skip.
-local record Buffered is Stream.Reader
+local record BufferedReader is Stream.Reader
   raw: Stream.Reader
   buf: string
   at: integer
+  read: function(BufferedReader, max_bytes?: integer): string | nil, string
+  skip: function(BufferedReader, n: integer): boolean, string
+  close: function(BufferedReader): boolean, string
 end
 
-local Buffered_methods: {string:any} = {}
-local buffered_mt: metatable<Buffered> = { __index = Buffered_methods }
+local buffered_reader_mt: metatable<BufferedReader> = { __index = BufferedReader }
 
-Buffered_methods.read = function(self: Buffered, max_bytes: integer): string | nil, string
+function BufferedReader:read(max_bytes?: integer): string | nil, string
   local buf, at = self.buf, self.at
   local avail = #buf - at + 1
   if avail <= 0 then
@@ -367,7 +377,7 @@ Buffered_methods.read = function(self: Buffered, max_bytes: integer): string | n
   return buf:sub(at, at + n - 1), ""
 end
 
-Buffered_methods.skip = function(self: Buffered, n: integer): boolean, string
+function BufferedReader:skip(n: integer): boolean, string
   local avail = #self.buf - self.at + 1
   if n <= avail then
     self.at = self.at + n
@@ -377,20 +387,28 @@ Buffered_methods.skip = function(self: Buffered, n: integer): boolean, string
   return Stream.skip(self.raw, n - avail)
 end
 
-Buffered_methods.close = function(self: Buffered): boolean, string
+function BufferedReader:close(): boolean, string
   self.buf, self.at = "", 1
   return self.raw:close()
 end
 
-local function buffered(raw: Stream.Reader): Buffered
-  return setmetatable({ raw = raw, buf = "", at = 1 }, buffered_mt)
+local function buffered(raw: Stream.Reader): BufferedReader
+  local b: BufferedReader = setmetatable({ raw = raw, buf = "", at = 1 }, buffered_reader_mt)
+  return b
 end
 
---- What a reader shares with the bodies it hands out: an entry's body
---- reads through `raw`, and counts down `pending_skip`, only while
---- `generation` is still the one it was opened in.
-local record ReaderState
+--- What [`Tar.reader`] answers. Its entries' bodies share its state:
+--- a body reads through `src`, and counts down `pending_skip`, only
+--- while `generation` is still the one it was opened in.
+local record EntryReader is Tar.Reader
+  --- What the reader was given, which `close` closes, and what the
+  --- headers and bodies are read through.
   raw: Stream.Reader
+  src: BufferedReader
+  pax_global: {string:string}
+  ended: boolean
+  closed: boolean
+  failed: string
   pending_skip: integer
   generation: integer
   --- The entry `next` last returned, and whether it has been opened.
@@ -398,23 +416,28 @@ local record ReaderState
   opened: boolean
   --- The current entry's body size, as its header gave it.
   size: integer
+  --- What every entry of this reader gets as its metatable.
+  entry_mt: metatable<Tar.Entry>
+  next: function(EntryReader): Tar.Entry | nil, string
+  close: function(EntryReader): boolean, string
 end
 
---- An entry's body: a Reader bounded to the entry's size, whose
---- methods live on one shared metatable rather than in closures made
---- per entry.
-local record Body is Stream.Reader
-  state: ReaderState
+local entry_reader_mt: metatable<EntryReader> = { __index = EntryReader }
+
+--- An entry's body: a Reader bounded to the entry's size.
+local record BodyReader is Stream.Reader
+  state: EntryReader
   generation: integer
   left: integer
   failed: string
   closed: boolean
+  read: function(BodyReader, max_bytes?: integer): string | nil, string
+  close: function(BodyReader): boolean, string
 end
 
-local Body_methods: {string:any} = {}
-local body_mt: metatable<Body> = { __index = Body_methods }
+local body_reader_mt: metatable<BodyReader> = { __index = BodyReader }
 
-Body_methods.read = function(self: Body, max_bytes: integer): string | nil, string
+function BodyReader:read(max_bytes?: integer): string | nil, string
   if self.failed then return nil, self.failed end
   if self.closed then return refuse("the entry body is closed") end
   local state = self.state
@@ -425,7 +448,7 @@ Body_methods.read = function(self: Body, max_bytes: integer): string | nil, stri
   if left <= 0 then return nil, "" end
   local want = max_bytes or chunk_size
   if want > left then want = left end
-  local chunk, rtrouble = state.raw:read(want)
+  local chunk, rtrouble = state.src:read(want)
   if chunk == nil then
     self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
     return nil, self.failed
@@ -435,127 +458,125 @@ Body_methods.read = function(self: Body, max_bytes: integer): string | nil, stri
   return chunk, ""
 end
 
-Body_methods.close = function(self: Body): boolean, string
+function BodyReader:close(): boolean, string
   self.closed = true
   return true, ""
 end
 
+--- Keeps `trouble` as the reader's failure, or "tar: read failed" when
+--- it is "", and answers it.
+local function fail(self: EntryReader, trouble: string): nil, string
+  self.failed = trouble ~= "" and trouble or "tar: read failed"
+  return nil, self.failed
+end
+
+function EntryReader:next(): Tar.Entry | nil, string
+  if self.failed then return nil, self.failed end
+  if self.closed then return refuse("the reader is closed") end
+  if self.ended then return nil, "" end
+  local src = self.src
+  self.generation = self.generation + 1
+  self.current = nil
+  local skipped, dtrouble = Stream.skip(src, self.pending_skip)
+  self.pending_skip = 0
+  -- The skip's own reason says whether the archive ended early or a
+  -- read failed; this says what was being done.
+  if not skipped then return fail(self, "tar: cannot skip to the next entry: " .. dtrouble) end
+
+  local long_name: string | nil
+  local long_link: string | nil
+  local pax_local: {string:string} | nil
+
+  while true do
+    local block, at_eof, trouble = read_block_or_eof(src)
+    if at_eof then
+      self.ended = true
+      return nil, ""
+    end
+    if block == nil then return fail(self, trouble) end
+    local chksum = numeric_at(block, 149, 8)
+    if chksum == 0 and is_zero_block(block) then
+      local _second, _second_eof, strouble = read_block_or_eof(src)
+      if strouble ~= "" then return fail(self, strouble) end
+      self.ended = true
+      return nil, ""
+    end
+    if header_sum(block) ~= chksum then
+      return fail(self, "tar: bad header checksum")
+    end
+    local typeflag = block:sub(157, 157)
+    if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
+      local special_size = numeric_at(block, 125, 12)
+      if special_size == nil then return fail(self, out_of_range("size")) end
+      local data, rtrouble = read_special_body(src, special_size)
+      if data == nil then return fail(self, rtrouble) end
+      if typeflag == "L" or typeflag == "K" then
+        local value, ltrouble = long_field(data)
+        if value == nil then return fail(self, ltrouble) end
+        if typeflag == "L" then long_name = value else long_link = value end
+      elseif typeflag == "x" then
+        pax_local = parse_pax(data)
+      else
+        for key, value in pairs(parse_pax(data)) do self.pax_global[key] = value end
+      end
+    else
+      local f, ftrouble = parse_header(block, long_name, long_link, pax_local, self.pax_global)
+      if f == nil then return fail(self, ftrouble) end
+      self.pending_skip = f.size + padding_of(f.size)
+      local entry: Tar.Entry = setmetatable({
+        path = f.name,
+        kind = f.kind,
+        mode = f.mode,
+        size = f.size,
+        mtime = f.mtime,
+        linkpath = f.linkname,
+        uid = f.uid,
+        gid = f.gid,
+        typeflag = typeflag,
+      }, self.entry_mt)
+      self.current = entry
+      self.opened = false
+      self.size = f.size
+      return entry, ""
+    end
+  end
+end
+
+function EntryReader:close(): boolean, string
+  if self.closed then return true, "" end
+  self.closed = true
+  self.generation = self.generation + 1
+  self.current = nil
+  return self.raw:close()
+end
+
 --- A streaming reader over `raw`'s tar bytes. Closing it closes `raw`.
 function Tar.reader(raw: Stream.Reader): Tar.Reader
-  local ended = false
-  local failed: string
-  local closed = false
-  local pax_global: {string:string} = {}
-  local src = buffered(raw)
-  local state: ReaderState = {
-    raw = src, pending_skip = 0, generation = 0, opened = false, size = 0,
-  }
-  local tr: Tar.Reader = {}
-
-  local function fail(trouble: string): nil, string
-    failed = trouble ~= "" and trouble or "tar: read failed"
-    return nil, failed
-  end
-
+  local r: EntryReader = setmetatable({
+    raw = raw, src = buffered(raw), pax_global = {}, ended = false, closed = false,
+    pending_skip = 0, generation = 0, opened = false, size = 0,
+  }, entry_reader_mt)
   -- Every entry this reader makes shares one `open`, through its
-  -- metatable: only the current entry can be opened, and only once.
-  local entry_mt: metatable<Tar.Entry> = {
+  -- metatable: only the current entry can be opened, and only once. It
+  -- is one closure for the whole reader, not one for each entry, and
+  -- the entry's fields stay those [`Tar.Entry`] declares.
+  r.entry_mt = {
     __index = {
       open = function(e: Tar.Entry): Stream.Reader | nil, string
-        if e ~= state.current then return refuse("entry is no longer current") end
+        if e ~= r.current then return refuse("entry is no longer current") end
         -- A second `open` on the same entry would share `left` and
         -- `pending_skip` with the first and read wherever that one
         -- left off, silently -- refuse it.
-        if state.opened then return refuse("entry already opened once") end
-        state.opened = true
-        local body: Body = setmetatable({
-          state = state, generation = state.generation, left = state.size, closed = false,
-        }, body_mt)
+        if r.opened then return refuse("entry already opened once") end
+        r.opened = true
+        local body: BodyReader = setmetatable({
+          state = r, generation = r.generation, left = r.size, closed = false,
+        }, body_reader_mt)
         return body, ""
       end,
     },
   }
-
-  tr.next = function(_self: Tar.Reader): Tar.Entry | nil, string
-    if failed then return nil, failed end
-    if closed then return refuse("the reader is closed") end
-    if ended then return nil, "" end
-    state.generation = state.generation + 1
-    state.current = nil
-    local skipped, dtrouble = Stream.skip(src, state.pending_skip)
-    state.pending_skip = 0
-    -- The skip's own reason says whether the archive ended early or a
-    -- read failed; this says what was being done.
-    if not skipped then return fail("tar: cannot skip to the next entry: " .. dtrouble) end
-
-    local long_name: string | nil
-    local long_link: string | nil
-    local pax_local: {string:string} | nil
-
-    while true do
-      local block, at_eof, trouble = read_block_or_eof(src)
-      if at_eof then
-        ended = true
-        return nil, ""
-      end
-      if block == nil then return fail(trouble) end
-      local chksum = numeric_at(block, 149, 8)
-      if chksum == 0 and is_zero_block(block) then
-        local _second, _second_eof, strouble = read_block_or_eof(src)
-        if strouble ~= "" then return fail(strouble) end
-        ended = true
-        return nil, ""
-      end
-      if header_sum(block) ~= chksum then
-        return fail("tar: bad header checksum")
-      end
-      local typeflag = block:sub(157, 157)
-      if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
-        local special_size = numeric_at(block, 125, 12)
-        if special_size == nil then return fail(out_of_range("size")) end
-        local data, rtrouble = read_special_body(src, special_size)
-        if data == nil then return fail(rtrouble) end
-        if typeflag == "L" or typeflag == "K" then
-          local value, ltrouble = long_field(data)
-          if value == nil then return fail(ltrouble) end
-          if typeflag == "L" then long_name = value else long_link = value end
-        elseif typeflag == "x" then
-          pax_local = parse_pax(data)
-        else
-          for key, value in pairs(parse_pax(data)) do pax_global[key] = value end
-        end
-      else
-        local f, ftrouble = parse_header(block, long_name, long_link, pax_local, pax_global)
-        if f == nil then return fail(ftrouble) end
-        state.pending_skip = f.size + padding_of(f.size)
-        local entry: Tar.Entry = setmetatable({
-          path = f.name,
-          kind = f.kind,
-          mode = f.mode,
-          size = f.size,
-          mtime = f.mtime,
-          linkpath = f.linkname,
-          uid = f.uid,
-          gid = f.gid,
-          typeflag = typeflag,
-        }, entry_mt)
-        state.current = entry
-        state.opened = false
-        state.size = f.size
-        return entry, ""
-      end
-    end
-  end
-
-  tr.close = function(_self: Tar.Reader): boolean, string
-    if closed then return true, "" end
-    closed = true
-    state.generation = state.generation + 1
-    state.current = nil
-    return raw:close()
-  end
-
-  return tr
+  return r
 end
 
 ------------------------------------------------------------------
@@ -634,109 +655,140 @@ local function pax_header(real_name: string, records: string): string
     records .. pad_bytes(#records)
 end
 
+--- What a body is copied to: the writer's sink, which keeps a write's
+--- failure.
+local record BodyWriter is Stream.Writer
+  sink: Stream.Sticky
+  write: function(BodyWriter, string): boolean, string
+  close: function(BodyWriter): boolean, string
+  abort: function(BodyWriter): boolean, string
+end
+
+local body_writer_mt: metatable<BodyWriter> = { __index = BodyWriter }
+
+function BodyWriter:write(data: string): boolean, string
+  return self.sink:put(data)
+end
+
+function BodyWriter:close(): boolean, string
+  return true, ""
+end
+
+function BodyWriter:abort(): boolean, string
+  return true, ""
+end
+
+--- What [`Tar.writer`] answers.
+local record EntryWriter is Tar.Writer
+  sink: Stream.Sticky
+  deterministic: boolean
+  add_file: function(EntryWriter, path: string, data: string | Stream.Reader,
+    opts?: Stream.EntryOptions): boolean, string
+  add_dir: function(EntryWriter, path: string, opts?: Stream.EntryOptions): boolean, string
+  add_symlink: function(EntryWriter, path: string, target: string, opts?: Stream.EntryOptions): boolean, string
+  close: function(EntryWriter): boolean, string
+  abort: function(EntryWriter): boolean, string
+end
+
+local entry_writer_mt: metatable<EntryWriter> = { __index = EntryWriter }
+
+local function put_entry(self: EntryWriter, path: string, typeflag: string, size: integer,
+    mode: integer, mtime: integer, linkname: string): boolean, string
+  local sink = self.sink
+  local ok, trouble = sink:usable()
+  if not ok then return false, trouble end
+  local refusal = nul_refusal(path, "in a path")
+  if refusal == "" then refusal = nul_refusal(linkname, "in a link target") end
+  if refusal ~= "" then return false, refusal end
+  if self.deterministic then mtime = 0 end
+  local prefix, name, fits = split_ustar(path)
+  local link_fits = #linkname <= 100
+  local size_fits = size < OCTAL_11_LIMIT
+  local mtime_fits = mtime >= 0 and mtime < OCTAL_11_LIMIT
+  if not (fits and link_fits and size_fits and mtime_fits) then
+    local records: {string} = {}
+    if not fits then records[#records + 1] = pax_record("path", path) end
+    if not link_fits then records[#records + 1] = pax_record("linkpath", linkname) end
+    if not size_fits then records[#records + 1] = pax_record("size", tostring(size)) end
+    if not mtime_fits then records[#records + 1] = pax_record("mtime", tostring(mtime)) end
+    ok, trouble = sink:put(pax_header(path, table.concat(records)))
+    if not ok then return false, trouble end
+    if not fits then prefix, name = "", path:sub(-100) end
+  end
+  local header_size = size_fits and size or 0
+  local header_mtime = mtime_fits and mtime or (mtime < 0 and 0 or OCTAL_11_LIMIT - 1)
+  local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
+    header_mtime, linkname:sub(1, 100))
+  return sink:put(header)
+end
+
+function EntryWriter:add_file(path: string, data: string | Stream.Reader,
+    fopts?: Stream.EntryOptions): boolean, string
+  fopts = fopts or {}
+  local size = fopts.size
+  if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
+    error("tar: opts.size must be an integer of at least 0", 2)
+  end
+  if size == nil then
+    if data is string then
+      size = #data
+    else
+      return false, "tar: add_file needs opts.size for a Reader body"
+    end
+  end
+  local mode = fopts.mode or 0x1a4
+  local mtime = fopts.mtime or 0
+  local ok, trouble = put_entry(self, path, "0", size, mode, mtime, "")
+  if not ok then return false, trouble end
+  local sink = self.sink
+  if data is string then
+    if #data ~= size then
+      return sink:fail("tar: add_file: body is " .. String.counted(#data, "byte") .. ", not " .. String.counted(size, "byte"))
+    end
+    ok, trouble = sink:put(data)
+    if not ok then return false, trouble end
+  else
+    local body_sink: BodyWriter = setmetatable({ sink = sink }, body_writer_mt)
+    ok, trouble = Stream.copy_n(data, body_sink, size)
+    if not ok then
+      -- A failed write is the sink's already, said as the Writer said it.
+      local usable, failure = sink:usable()
+      if not usable then return false, failure end
+      return sink:fail("tar: add_file: " .. trouble)
+    end
+  end
+  return sink:put(pad_bytes(size))
+end
+
+function EntryWriter:add_dir(path: string, fopts?: Stream.EntryOptions): boolean, string
+  fopts = fopts or {}
+  local mode = fopts.mode or 0x1ed
+  local mtime = fopts.mtime or 0
+  local dirpath = path:sub(-1) == "/" and path or (path .. "/")
+  return put_entry(self, dirpath, "5", 0, mode, mtime, "")
+end
+
+function EntryWriter:add_symlink(path: string, target: string, fopts?: Stream.EntryOptions): boolean, string
+  fopts = fopts or {}
+  local mode = fopts.mode or 0x1ff
+  local mtime = fopts.mtime or 0
+  return put_entry(self, path, "2", 0, mode, mtime, target)
+end
+
+function EntryWriter:close(): boolean, string
+  return self.sink:close(string.rep("\0", 2 * BLOCK))
+end
+
+function EntryWriter:abort(): boolean, string
+  return self.sink:abort()
+end
+
 --- A streaming writer over `w`.
 function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   opts = opts or {}
-  local deterministic = opts.deterministic or false
-  local sink = Stream.sticky(w, "tar")
-  local tw: Tar.Writer = {}
-  -- What a body is copied to: the sink, which keeps a write's failure.
-  local body_sink: Stream.Writer = {}
-  body_sink.write = function(_self: Stream.Writer, data: string): boolean, string
-    return sink:put(data)
-  end
-  body_sink.close = function(_self: Stream.Writer): boolean, string return true, "" end
-  body_sink.abort = body_sink.close
-
-  local function put_entry(path: string, typeflag: string, size: integer,
-      mode: integer, mtime: integer, linkname: string): boolean, string
-    local ok, trouble = sink:usable()
-    if not ok then return false, trouble end
-    local refusal = nul_refusal(path, "in a path")
-    if refusal == "" then refusal = nul_refusal(linkname, "in a link target") end
-    if refusal ~= "" then return false, refusal end
-    if deterministic then mtime = 0 end
-    local prefix, name, fits = split_ustar(path)
-    local link_fits = #linkname <= 100
-    local size_fits = size < OCTAL_11_LIMIT
-    local mtime_fits = mtime >= 0 and mtime < OCTAL_11_LIMIT
-    if not (fits and link_fits and size_fits and mtime_fits) then
-      local records: {string} = {}
-      if not fits then records[#records + 1] = pax_record("path", path) end
-      if not link_fits then records[#records + 1] = pax_record("linkpath", linkname) end
-      if not size_fits then records[#records + 1] = pax_record("size", tostring(size)) end
-      if not mtime_fits then records[#records + 1] = pax_record("mtime", tostring(mtime)) end
-      ok, trouble = sink:put(pax_header(path, table.concat(records)))
-      if not ok then return false, trouble end
-      if not fits then prefix, name = "", path:sub(-100) end
-    end
-    local header_size = size_fits and size or 0
-    local header_mtime = mtime_fits and mtime or (mtime < 0 and 0 or OCTAL_11_LIMIT - 1)
-    local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
-      header_mtime, linkname:sub(1, 100))
-    return sink:put(header)
-  end
-
-  tw.add_file = function(_self: Tar.Writer, path: string, data: string | Stream.Reader,
-      fopts?: Stream.EntryOptions): boolean, string
-    fopts = fopts or {}
-    local size = fopts.size
-    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
-      error("tar: opts.size must be an integer of at least 0", 2)
-    end
-    if size == nil then
-      if data is string then
-        size = #data
-      else
-        return false, "tar: add_file needs opts.size for a Reader body"
-      end
-    end
-    local mode = fopts.mode or 0x1a4
-    local mtime = fopts.mtime or 0
-    local ok, trouble = put_entry(path, "0", size, mode, mtime, "")
-    if not ok then return false, trouble end
-    if data is string then
-      if #data ~= size then
-        return sink:fail("tar: add_file: body is " .. String.counted(#data, "byte") .. ", not " .. String.counted(size, "byte"))
-      end
-      ok, trouble = sink:put(data)
-      if not ok then return false, trouble end
-    else
-      ok, trouble = Stream.copy_n(data, body_sink, size)
-      if not ok then
-        -- A failed write is the sink's already, said as the Writer said it.
-        local usable, failure = sink:usable()
-        if not usable then return false, failure end
-        return sink:fail("tar: add_file: " .. trouble)
-      end
-    end
-    return sink:put(pad_bytes(size))
-  end
-
-  tw.add_dir = function(_self: Tar.Writer, path: string, fopts?: Stream.EntryOptions): boolean, string
-    fopts = fopts or {}
-    local mode = fopts.mode or 0x1ed
-    local mtime = fopts.mtime or 0
-    local dirpath = path:sub(-1) == "/" and path or (path .. "/")
-    return put_entry(dirpath, "5", 0, mode, mtime, "")
-  end
-
-  tw.add_symlink = function(_self: Tar.Writer, path: string, target: string,
-      fopts?: Stream.EntryOptions): boolean, string
-    fopts = fopts or {}
-    local mode = fopts.mode or 0x1ff
-    local mtime = fopts.mtime or 0
-    return put_entry(path, "2", 0, mode, mtime, target)
-  end
-
-  tw.close = function(_self: Tar.Writer): boolean, string
-    return sink:close(string.rep("\0", 2 * BLOCK))
-  end
-
-  tw.abort = function(_self: Tar.Writer): boolean, string
-    return sink:abort()
-  end
-
+  local tw: EntryWriter = setmetatable({
+    sink = Stream.sticky(w, "tar"), deterministic = opts.deterministic or false,
+  }, entry_writer_mt)
   return tw
 end
 

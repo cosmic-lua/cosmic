@@ -90,7 +90,7 @@ local function test_a_removed_cli_map_names_the_verb_record_field(tmp: string)
   assert(trouble:find("Cli.options was removed: use Cli.verbs[verb].spec", 1, true) ~= nil, trouble)
 end
 
---- A boolean passed where a parameter now takes a record is told what to
+--- A boolean passed where a parameter takes a record is told what to
 --- write, under the alias the file gave the module; one passed where the
 --- record is not the module's own is told nothing more.
 local function test_a_boolean_for_a_record_argument_names_the_record(tmp: string)

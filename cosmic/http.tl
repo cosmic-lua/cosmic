@@ -248,19 +248,26 @@ local function respond(handle: raw_http.Handle): Http.Response
   return response
 end
 
+--- The level `error` raises a refusal of `opts` at from [`counted`]:
+--- past [`raw_options`], the local function that called it ([`opened`]
+--- or [`downloading`]) and the public entry point that called that
+--- itself, at the entry point's caller. No call on that path is a tail
+--- call, which would leave no level of its own.
+local CALLER <const> = 5
+
 --- `ns` as the count of `unit` nanoseconds the raw module takes, rounded
 --- up so that a span above 0 is never the 0 that curl reads as no limit;
---- nil stays nil, the raw module's default. Raises, naming `name` as the
---- raw module's own refusals do, for what is no integer from 0 to
---- `most_ns`.
+--- nil stays nil, the raw module's default. Raises at the caller of the
+--- public entry point (`CALLER`), naming `name` as the raw module's own
+--- refusals do, for what is no integer from 0 to `most_ns`.
 local function counted(ns: integer | nil, unit: integer, most_ns: integer,
     name: string): integer | nil
   if ns == nil then return nil end
   if math.type(ns) ~= "integer" then
-    error(("http: opts.%s must be an integer"):format(name), 4)
+    error(("http: opts.%s must be an integer"):format(name), CALLER)
   end
   if ns < 0 or ns > most_ns then
-    error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), 4)
+    error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), CALLER)
   end
   return Time.ceil(ns, unit)
 end
@@ -288,7 +295,9 @@ local function raw_options(opts: Http.Options | nil, method?: string): raw_http.
   }
 end
 
---- [`Http.open`], `method` standing in for `opts.method` when given.
+--- [`Http.open`]'s work, which each public entry point that opens
+--- calls itself (`CALLER`); `method`, when given, stands in for
+--- `opts.method`.
 local function opened(url: string, opts: Http.Options | nil, method: string | nil): Http.Response | nil, string
   local handle, trouble = http.open(url, raw_options(opts, method))
   if handle == nil then
@@ -297,12 +306,8 @@ local function opened(url: string, opts: Http.Options | nil, method: string | ni
   return respond(handle), ""
 end
 
---- [`opened`], then the whole body read at once.
-local function whole(url: string, opts: Http.Options | nil, method: string | nil): Http.Body | nil, string
-  local response, trouble = opened(url, opts, method)
-  if response == nil then
-    return nil, trouble
-  end
+--- `response`'s whole body, read and closed, as [`Http.Body`].
+local function whole(response: Http.Response): Http.Body | nil, string
   local body, read_trouble = Stream.read_all(response)
   local _, _ = response:close()
   if body == nil then
@@ -316,7 +321,11 @@ end
 --- returns `nil, ""` for a clean end, or use [`Http.request`] (or
 --- [`Http.get`]) to read it all at once.
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
-  return opened(url, opts, nil)
+  local response, trouble = opened(url, opts, nil)
+  if response == nil then
+    return nil, trouble
+  end
+  return response, ""
 end
 
 --- Sends a GET for `url` and reads the whole body: [`Http.request`]
@@ -333,7 +342,11 @@ function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   if opts ~= nil and opts.body ~= nil then
     error("http: Http.get sends no body; send one with Http.request(method, url, { body = ... })", 2)
   end
-  return whole(url, opts, nil)
+  local response, trouble = opened(url, opts, nil)
+  if response == nil then
+    return nil, trouble
+  end
+  return whole(response)
 end
 
 --- Sends `method` to `url`, with `opts.body` when given, and reads the
@@ -369,7 +382,11 @@ function Http.request(method: string, url: string, opts?: Http.Options): Http.Bo
   if opts ~= nil and opts.body ~= nil and (method == "GET" or method == "HEAD") then
     error(("http: Http.request sends no body with %s"):format(method), 2)
   end
-  return whole(url, opts, method)
+  local response, trouble = opened(url, opts, method)
+  if response == nil then
+    return nil, trouble
+  end
+  return whole(response)
 end
 
 --- A Reader over a Response that fails with "interrupted" once
@@ -420,19 +437,10 @@ local pending_mt: metatable<PendingDownload> = {
   end,
 }
 
---- Downloads `url` to `path`, streaming
---- to a fresh temporary file beside it ([`Stream.create`]'s, so two
---- downloads never share one and a planted symlink is never followed)
---- and renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.sha256` or `opts.sha512` is given, verified: a
---- reader never sees a partial file at the final name. Fails on a
---- non-2xx status (a redirect `opts.follow` already took does not count)
---- or a checksum mismatch, and removes the temporary file on every
---- failure, `opts.cancelled` answering true ("interrupted", as a
---- caught signal says it) included.
---- Returns a classified outcome; [`Http.download`] gives the same operation
---- as a boolean and reason, including the caller URL on an HTTP rejection.
-function Http.download_result(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+--- [`Http.download_result`]'s work, which each public entry point that
+--- downloads calls itself (`CALLER`).
+local function downloading(url: string, path: string,
+                           opts: Http.Options | nil): Http.DownloadResult
   opts = opts or {}
   local given: {{Hash.Algorithm, string}} = {
     { "sha256", opts.sha256 or "" },
@@ -448,6 +456,9 @@ function Http.download_result(url: string, path: string, opts?: Http.Options): H
     end
   end
   local pending <close>: PendingDownload = setmetatable({}, pending_mt)
+  -- `opts` is checked here, so a refusal is raised at `CALLER`; the open
+  -- goes through [`Http.open`], which finds nothing more to refuse.
+  local _ = raw_options(opts)
   local response, open_trouble = Http.open(url, opts)
   pending.response = response
   if response == nil then return { kind = "failed", reason = open_trouble } end
@@ -489,13 +500,30 @@ function Http.download_result(url: string, path: string, opts?: Http.Options): H
   return { kind = "downloaded", reason = "" }
 end
 
+--- Downloads `url` to `path`, streaming
+--- to a fresh temporary file beside it ([`Stream.create`]'s, so two
+--- downloads never share one and a planted symlink is never followed)
+--- and renaming into place only once the transfer is complete, synced to
+--- disk and, when `opts.sha256` or `opts.sha512` is given, verified: a
+--- reader never sees a partial file at the final name. Fails on a
+--- non-2xx status (a redirect `opts.follow` already took does not count)
+--- or a checksum mismatch, and removes the temporary file on every
+--- failure, `opts.cancelled` answering true ("interrupted", as a
+--- caught signal says it) included.
+--- Returns a classified outcome; [`Http.download`] gives the same operation
+--- as a boolean and reason, including the caller URL on an HTTP rejection.
+function Http.download_result(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+  local result = downloading(url, path, opts)
+  return result
+end
+
 --- Downloads as `curl -fLo` or `wget` would: [`Http.download_result`]'s
 --- streaming, verified and atomic download as
 --- `true, ""`, or `false` and a reason. An HTTP rejection's reason starts
 --- with `url`; a checksum mismatch names `path`, the algorithm and both
 --- digests. Other failures retain their underlying reason.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
-  local result = Http.download_result(url, path, opts)
+  local result = downloading(url, path, opts)
   if result.kind == "downloaded" then return true, "" end
   if result.kind == "http_status" then
     return false, url .. ": HTTP " .. tostring(result.status)

@@ -345,7 +345,8 @@ end
 --- reader asks it for outside cosmic's own tree -- the public standard
 --- library's -- and, of every other doc row, those the catalog's
 --- guidance joins to: the doc comment of the function an error came
---- from. A dropped module's rows go even so.
+--- from, and the internal type a public alias names through the module
+--- it binds. A dropped module's rows go even so.
 local function test_the_carried_docs_are_the_public_standard_library_s(tmp: string)
   local whole = tmp .. "/whole.db"
   local db = assert(Sqlite.open(whole, { writable = true }))
@@ -366,13 +367,19 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
       "('cosmic.internal.fs', 'open', 'raw.open', 1, 'field', '', 'Opens.', 'f', 1), " ..
       "('cosmic.internal.fs', 'Other', 'raw.Other', 1, 'record', '', 'Unreached.', 'f', 1), " ..
       "('cosmic.internal.fs', 'Other.n', 'raw.Other.n', 1, 'field', '', 'Unreached.', 'f', 1), " ..
-      "('cosmic.fs', 'Fs.Stat', 'Fs.Stat', 1, 'field', 'type Stat = raw_fs.Stat', 'A stat.', 'f', 1), " ..
+      "('cosmic.fs', 'Fs.Stat', 'Fs.Stat', 1, 'field', 'type Stat = Native.Stat', 'A stat.', " ..
+      "'f', 1), " ..
       "('cosmic.fs_example', 'Example.read', 'Example.read', 1, 'function', '', " ..
       "'Shows it.', 'f', 1), " ..
       "('build.work', 'work.open', 'work.open', 1, 'function', '', " ..
       "'Opens the working database.', 'f', 1), " ..
       "('build.tree', 'tree.is_own', 'tree.is_own', 1, 'function', '', " ..
       "'Whether a tree is cosmic.', 'f', 1)",
+    -- The name cosmic.fs binds the internal module to is no spelling of
+    -- the module's own.
+    "INSERT INTO bound (path, name, requires) VALUES " ..
+      "('cosmic.fs', 'Native', 'cosmic.internal.fs'), " ..
+      "('cosmic.fs_example', 'Fs', 'cosmic.fs')",
     "INSERT INTO catalog (kind, module, symbol, message, text, file, line) " ..
       "VALUES ('error', 'build.work', 'work.open', 'cannot open', NULL, 'f', 1)",
     "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
@@ -405,6 +412,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   local uses = column("SELECT from_module || '>' || module AS v FROM uses " ..
     "ORDER BY module, symbol, from_module, line")
   local examples = column("SELECT module AS v FROM examples ORDER BY id")
+  local bound = column("SELECT path || ':' || name AS v FROM bound ORDER BY path")
   local linked = column("SELECT from_module || ':' || line || '>' || module || path AS v " ..
     "FROM links ORDER BY from_file, line")
   local indexed = column("SELECT d.module AS v FROM docs_fts JOIN docs d " ..
@@ -416,6 +424,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
     "the docs carried: " .. docs)
   assert(uses == "cosmic.fs>cosmic.fs", "the uses carried: " .. uses)
   assert(examples == "cosmic.fs", "the examples carried: " .. examples)
+  assert(bound == "cosmic.fs:Native", "the names bound carried: " .. bound)
   -- A link to a file names one of the tree's own, which a project lacks.
   assert(linked == "cosmic.fs:5>cosmic.fs", "the links carried: " .. linked)
   assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)

@@ -290,6 +290,48 @@ local function test_a_member_through_an_alias_or_a_typed_value_is_a_row(dir: str
   assert(db:close())
 end
 
+--- A member a type takes from another module's type, through the name
+--- its module binds that module to, is a row under the type's module.
+local function test_a_member_through_a_required_modules_type_is_a_row(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/base.tl"] = source(
+      "--- Bases.",
+      "local record Base",
+      "  --- One entry.",
+      "  interface Entry",
+      "    --- Its path.",
+      "    path: string",
+      "  end",
+      "end",
+      "",
+      "return Base"),
+    ["cosmic/user.tl"] = source(
+      "--- Users.",
+      "local B = require(\"cosmic.base\")",
+      "",
+      "local record User",
+      "  --- An entry, as the base has it.",
+      "  type Entry = B.Entry",
+      "  --- An entry of its own.",
+      "  record Item is B.Entry",
+      "  end",
+      "end",
+      "",
+      "return User"),
+    ["build/boot.tl"] = source(
+      "local User = require(\"cosmic.user\")",
+      "",
+      "-- [`User.Entry.path`], [`cosmic.user.Item.path`]; not [`User.Item.size`].",
+      "return User"),
+  })
+  same(rows(db, "SELECT from_file, line, column, module, symbol FROM links " ..
+    "WHERE from_file = 'build/boot.tl' ORDER BY line, column"), {
+    "build/boot.tl 3 4 cosmic.user Entry.path",
+    "build/boot.tl 3 25 cosmic.user Item.path",
+  })
+  assert(db:close())
+end
+
 --- The links of `out`'s files that are no module, each as
 --- `file:line:column source kind symbol path#anchor`.
 local function file_links(out: string): {string}
@@ -566,6 +608,65 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
   local page = table.concat(assert(docs.render(view, found[1])), "\n")
   assert(page:find("\n  linked from 3 places; cosmic uses Fs.read", 1, true) ~= nil, page)
   assert(db:close())
+end
+
+--- A project's type that extends a standard library type, and a link
+--- to a member a library type takes from another library module's, are
+--- resolved through the names each module binds: the project's own,
+--- from its projection, and the library's, from the library.
+local function test_a_projects_links_through_required_modules_are_rows(tmp: string)
+  local stdlib = fixture.database(tmp, {
+    ["cosmic/stream.tl"] = source(
+      "--- Streams.",
+      "local record Stream",
+      "  --- One entry.",
+      "  interface ArchiveEntry",
+      "    --- Its path.",
+      "    path: string",
+      "  end",
+      "end",
+      "",
+      "return Stream"),
+    ["cosmic/archive.tl"] = source(
+      "--- Archives.",
+      "local Stream = require(\"cosmic.stream\")",
+      "",
+      "local record Archive",
+      "  --- An entry.",
+      "  type Entry = Stream.ArchiveEntry",
+      "end",
+      "",
+      "return Archive"),
+  })
+  local streams: link_index.Library = { identity = "docs streams",
+    databases = function(): {Sqlite.Handle} | nil, string return { stdlib } end }
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet.tl", source(
+    "--- Greets each [`greet.Entry.path`]; see [`cosmic.archive.Entry.path`].",
+    "local S = require(\"cosmic.stream\")",
+    "",
+    "local record greet",
+    "  --- An entry it greets.",
+    "  record Entry is S.ArchiveEntry",
+    "  end",
+    "end",
+    "",
+    "return greet")))
+  local handle = assert(work.open(root))
+  local out = root .. "/o/cosmic.db"
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "link-index-test"))
+  assert(writer.write_result(handle, out, result, nil, streams))
+  assert(work.close(handle))
+  local db = assert(Sqlite.open(out))
+  same(rows(db, "SELECT from_file, line, column, module, symbol FROM links " ..
+    "ORDER BY from_file, line, column"), {
+    "greet.tl 1 17 greet Entry.path",
+    "greet.tl 1 43 cosmic.archive Entry.path",
+  })
+  assert(db:close())
+  assert(stdlib:close())
 end
 
 --- What determines the library's docs signs a project's projection: a
