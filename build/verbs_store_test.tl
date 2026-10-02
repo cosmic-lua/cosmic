@@ -156,6 +156,33 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(bare:find("\nMore:\n", 1, true) and bare:find("\nQuick tools:\n", 1, true), bare)
 end
 
+--- The index names the guides to start from, each by a `cosmic docs`
+--- command that shows it, ahead of the verbs.
+local function test_help_starts_from_the_guides(tmp: string)
+  local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
+  local verbs = assert(all:find("\nRunning code:\n", 1, true), all)
+  for _, guide in ipairs({ "doc.guides.quickstart", "doc.guides.project" }) do
+    local at = all:find("`cosmic docs " .. guide .. "`", 1, true)
+    assert(at ~= nil and at < verbs, guide .. ":\n" .. all)
+    local page = verbs_fixture.expect(tmp, "docs", { "docs", guide }, 0).stdout or ""
+    assert(String.starts_with(page, guide .. " ("), page)
+  end
+end
+
+--- `cosmic help test` says what a test is and how to run one before
+--- how verdicts and compiles are kept and how the tree is found.
+local function test_help_of_test_leads_with_writing_one(tmp: string)
+  local out = verbs_fixture.expect(tmp, "help", { "help", "test" }, 0).stdout or ""
+  local caching = assert(out:find("COSMIC_VERDICT_CACHE", 1, true), out)
+  for _, first in ipairs({ "`<name>_test.tl`", "`<name>_example.tl`", "doc/guides/",
+      "\n    local function test_", "tally_test.tl:test_words" }) do
+    local at = out:find(first, 1, true)
+    assert(at ~= nil and at < caching, first .. ":\n" .. out)
+  end
+  local tree = assert(out:find("COSMIC_TREE", 1, true), out)
+  assert(caching < tree and tree < assert(out:find("\n  --all ", 1, true)), out)
+end
+
 --- What each verb's spec says of it (build/verb_spec.tl) is what `cosmic
 --- help <verb>` prints: what it takes, and how a bare verb exits.
 local function test_help_prints_what_each_spec_says(tmp: string)
