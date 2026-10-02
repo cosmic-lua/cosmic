@@ -806,11 +806,13 @@ local function test_several_qualified_names_are_each_looked_up(dir: string)
   assert(not missing.found, missing.said)
   assert(missing.said == "nothing named or documented as 'Nope.unheard', 1 named", missing.said)
   assert(answered(missing):find("cosmic.fs Fs.read (", 1, true), answered(missing))
+  assert(answered(missing):find("\nNothing named or documented as 'Nope.unheard'.", 1, true),
+    answered(missing))
 end
 
 --- `cosmic` alone, which a search finds in nearly every comment, lists
 --- the standard library's modules instead, a line each, ahead of a name
---- a tree's own module gives a symbol.
+--- a tree's own module gives a symbol; no words list every module.
 local function test_cosmic_alone_lists_the_standard_library(dir: string)
   local db = built(dir, fs_tree({
     ["build/tool.tl"] = source(
@@ -824,6 +826,9 @@ local function test_cosmic_alone_lists_the_standard_library(dir: string)
       "",
       "return Tool"),
   }))
+  local all = assert(docs.answer(view({ db }), {}))
+  assert(all.found and all.said == "4 modules", all.said)
+  assert(answered(all):find("build.tool  A tool of the tree's own.", 1, true), answered(all))
   for _, word in ipairs({ "cosmic", "cosmic." }) do
     local answer = assert(docs.answer(view({ db }), { word }))
     local text = answered(answer)
@@ -860,6 +865,9 @@ local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
   end
   assert(whole == 5 and listed == 3, whole .. " whole, " .. listed .. " listed:\n" .. text)
   assert(text:find("3 more; narrow the search", 1, true), text)
+  local near = assert(docs.answer(view({ db }), { "sentinel", "number", "unheard" }))
+  assert(answered(near):find("No entry has every word of 'sentinel number unheard'; closest matches:",
+    1, true), answered(near))
 end
 
 --- A name counts as documented by an example only when the example

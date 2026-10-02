@@ -120,8 +120,8 @@ local record docs
     lines: {string}
     --- Whether every word found something: the verdict's pass.
     found: boolean
-    --- What the verdict counts ("2 named", "7 found"), or, when a word
-    --- found nothing, what it was.
+    --- What the verdict counts ("2 named", "7 found"), led, when a
+    --- word found nothing, by which words did.
     said: string
   end
 
@@ -2349,8 +2349,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
 end
 
 --- How many entries a search shows whole, when nothing is named
---- exactly; the rest it lists a line each. A broad word ("cosmic",
---- "file") touches dozens of entries, each a page with its examples.
+--- exactly; the rest it lists a line each. A search ("read whole
+--- file") touches dozens of entries, each a page with its examples.
+--- What a query names exactly is shown whole however many there are:
+--- the reader asked for each of them by name.
 local SHOWN_WHOLE <const> = 5
 
 --- How long the note after a listed entry's heading runs.
@@ -2423,6 +2425,26 @@ local function index_lines(index: {docs.Summary}, limit?: integer): {string}
   return lines
 end
 
+--- The queries `cosmic docs <words...>` looks up, each as
+--- [`docs.lookup`] answers it: every word alone when there are several
+--- and each is a qualified name, else the words together. Nil for no words or
+--- `cosmic` alone, which [`docs.answer`] answers with a list of modules.
+function docs.asked(words: {string}): {string} | nil
+  local query = table.concat(words, " ")
+  if query == "" or query == "cosmic" or query == "cosmic." then
+    return nil
+  end
+  if #words < 2 then
+    return { query }
+  end
+  for _, word in ipairs(words) do
+    if not qualified(word) then
+      return { query }
+    end
+  end
+  return words
+end
+
 --- What `cosmic docs <words...>` prints, short of the verdict line:
 --- - no words: every module ([`docs.index`]);
 --- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
@@ -2435,7 +2457,8 @@ end
 --- Nil and why when a database cannot be read.
 function docs.answer(view: docs.View, words: {string}): docs.Answer | nil, string
   local query = table.concat(words, " ")
-  if query == "" or query == "cosmic" or query == "cosmic." then
+  local asked = docs.asked(words)
+  if asked == nil then
     local index, index_trouble = docs.index(view)
     if index == nil then
       return nil, index_trouble
@@ -2459,11 +2482,7 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer | nil, strin
     lines[#lines + 1] = hint
     return { lines = lines, found = true, said = plural.count(#index, "module") }, ""
   end
-  local each = #words > 1
-  for _, word in ipairs(words) do
-    if not qualified(word) then each = false end
-  end
-  local asked: {string} = each and words or { query }
+  local each = #asked > 1
   local lines: {string} = {}
   local naming, standing, related = 0, 0, 0
   local missed: {string} = {}

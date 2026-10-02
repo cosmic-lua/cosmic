@@ -221,21 +221,25 @@ local function test_a_dangling_reference_is_named()
     "Things, made and counted. See `Thing.add` and `cosmic docs Thing.add`,",
     "`cosmic docs <module>` and `cosmic help <verb>`; not `Thing.gone`,",
     "`cosmic docs Thing.nothing` or `cosmic help nosuch`. `Other.name` is",
-    "no module's.",
+    "no module's. `cosmic docs cosmic` lists the library, and",
+    "`cosmic docs Thing.add Thing.none` looks up each name.",
   }, "\n")
   local db = projection(rows)
   local found = docs_checks.references(db, {}, { "test" }, {})
-  assert(#found == 3, table.concat(found, "\n"))
+  assert(#found == 4, table.concat(found, "\n"))
+  assert(#mentioning(found, "`cosmic docs Thing.add Thing.none` finds nothing") == 1,
+    table.concat(found, "\n"))
   assert(#mentioning(found, "`Thing.gone` names no symbol") == 1, table.concat(found, "\n"))
   assert(#mentioning(found, "`cosmic docs Thing.nothing` finds nothing") == 1, table.concat(found, "\n"))
   assert(#mentioning(found, "`cosmic help nosuch` names no verb") == 1, table.concat(found, "\n"))
 
   found = docs_checks.references(db, {}, { "test" }, {
-    ["Thing.gone"] = "kept", ["cosmic docs Thing.nothing"] = "kept", ["cosmic help nosuch"] = "kept" })
+    ["Thing.gone"] = "kept", ["cosmic docs Thing.nothing"] = "kept", ["cosmic help nosuch"] = "kept",
+    ["cosmic docs Thing.add Thing.none"] = "kept" })
   assert(#found == 0, table.concat(found, "\n"))
   found = docs_checks.references(db, {}, { "test" }, {
     ["Thing.gone"] = "kept", ["cosmic docs Thing.nothing"] = "kept", ["cosmic help nosuch"] = "kept",
-    ["Thing.add"] = "resolves now" })
+    ["cosmic docs Thing.add Thing.none"] = "kept", ["Thing.add"] = "resolves now" })
   assert(#found == 1 and found[1]:find("`Thing.add` is allowed to dangle", 1, true) ~= nil,
     table.concat(found, "\n"))
 end
