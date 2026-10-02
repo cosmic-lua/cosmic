@@ -7,8 +7,9 @@ local Sqlite = require("cosmic.sqlite")
 --- The bound for a child that should finish at once (`exit 0`, a `cat`):
 --- only a hang reaches it, so it leaves a slow or loaded runner room. It
 --- stays under the 30 s a test of cosmic_ci gets (ci.yml's "check the
---- pinned CI driver" sets no COSMIC_TEST_TIMEOUT), so a hang fails here,
---- recorded, rather than by the runner ending the test.
+--- pinned CI driver" sets no COSMIC_TEST_TIMEOUT), so a hang in a test's
+--- first wait fails here, recorded, rather than by the runner ending the
+--- test.
 local hang_guard = Time.seconds(20)
 
 local function test_runner_records_without_aliasing_subject(tmp: string)

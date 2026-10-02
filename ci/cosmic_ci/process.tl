@@ -14,7 +14,8 @@ local child_wait_timeout_ns <const> = Time.seconds(30)
 -- runner makes several times slower. The bound only guards a hang, and
 -- stays under the runner's default 30 s for a test, which the runtime
 -- and launcher fixtures get (cosmic_ci/orchestration.tl sets them no
--- COSMIC_TEST_TIMEOUT), so a hang fails here, naming the handshake.
+-- COSMIC_TEST_TIMEOUT), so a hang in a test's first handshake fails
+-- here, naming it.
 local handshake_timeout_ns <const> = Time.seconds(20)
 
 local record Process
@@ -168,7 +169,7 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
     local ended = assert(child.handle:wait())
     error(label .. ": " .. child.label .. " exited before it was ready (code=" ..
       tostring(ended.code) .. "; signal=" .. tostring(ended.signal) ..
-      "); stdout=" .. child.out .. "; stderr=" .. child.err)
+      "); stdout=" .. child.out .. "; stderr=" .. child.err, 0)
   end
   assert(answer == "ready\n", label .. ": startup hook readiness differs")
 end

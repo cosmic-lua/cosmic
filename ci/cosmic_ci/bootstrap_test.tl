@@ -28,8 +28,9 @@ local driver_timeout = Time.seconds(60)
 --- program on each attempt (through perl's shasum on macOS); a slow or
 --- loaded runner multiplies all of that. It is held under the 30 s a
 --- test of cosmic_ci gets (ci.yml's "check the pinned CI driver" sets no
---- COSMIC_TEST_TIMEOUT), so a hang is named by this call's own failure
---- and its output, not by the runner ending the test.
+--- COSMIC_TEST_TIMEOUT), so a hang in a test's first call is named by
+--- that call's own failure and its output; one later in a test may meet
+--- the runner's end first.
 local child_timeout = Time.seconds(20)
 
 --- The bound `driver.tl run` is given for a trivial /bin/sh child, which
