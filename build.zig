@@ -2,7 +2,7 @@
 //! vendor trees bin/zig writes first (build/patch.tl).
 //!
 //!     bin/zig build cores     the core for all three targets
-//!     bin/zig build boot      the host core, then the boot bridge
+//!     bin/zig build boot      all release cores, then the boot bridge
 //!
 //! Everything lands under `o/`. Run it through [`bin/zig`], which pins the
 //! compiler and names zig's two caches, which every checkout shares
@@ -612,7 +612,7 @@ pub fn build(b: *std.Build) void {
     }
 
     const cores = b.step("cores", "build the core for every target");
-    const boot = b.step("boot", "build the host core, then bridge into Teal");
+    const boot = b.step("boot", "build all release cores, then bridge into Teal");
     const portable_hook_cores = b.step(
         "portable-hook-cores",
         "build release and retained-artifact test fixture cores",
@@ -630,15 +630,7 @@ pub fn build(b: *std.Build) void {
     // The Target array above remains the only target list.
     var records: []const u8 = "";
     for (targets) |t| {
-        records = b.fmt("{s}{d}\t{d}\t{s}\t{s}\t{s}\t{s}\n", .{
-            records,
-            t.id,
-            release_configuration.id,
-            release_configuration.name,
-            t.name,
-            t.uname_os,
-            t.uname_arch,
-        });
+        records = b.fmt("{s}{s}", .{ records, targetRecord(b, t, release_configuration, t.name) });
     }
     const generated = b.addWriteFiles();
     const target_records = generated.add("targets.tsv", records);
@@ -657,16 +649,14 @@ pub fn build(b: *std.Build) void {
         .Debug,
         null,
     );
-    const native_format_install = b.addInstallFile(
-        native_format_decoder.getEmittedBin(),
+    installFixture(
+        b,
+        portable_format_fixtures,
+        native_format_decoder,
         "portable-fixture/format/format-test-native",
-    );
-    const portable_format_native = b.step(
         "portable-format-native",
         "build the native portable-format decoder",
     );
-    portable_format_native.dependOn(&native_format_install.step);
-    portable_format_fixtures.dependOn(&native_format_install.step);
     portable_format_fixtures.dependOn(&install_target_records.step);
 
     for (targets) |t| {
@@ -679,16 +669,14 @@ pub fn build(b: *std.Build) void {
             .ReleaseFast,
             t,
         );
-        const target_format_install = b.addInstallFile(
-            target_format_decoder.getEmittedBin(),
+        installFixture(
+            b,
+            portable_format_fixtures,
+            target_format_decoder,
             b.fmt("portable-fixture/format/format-test-{s}", .{t.name}),
-        );
-        const target_format_step = b.step(
             b.fmt("portable-format-{s}", .{t.name}),
             b.fmt("build the {s} portable-format decoder", .{t.name}),
         );
-        target_format_step.dependOn(&target_format_install.step);
-        portable_format_fixtures.dependOn(&target_format_install.step);
 
         const payload = launcherHelper(
             b,
@@ -697,16 +685,14 @@ pub fn build(b: *std.Build) void {
             "test/portable/launcher_payload.c",
             resolved,
         );
-        const payload_install = b.addInstallFile(
-            payload.getEmittedBin(),
+        installFixture(
+            b,
+            portable_launcher_fixtures,
+            payload,
             b.fmt("portable-fixture/launcher/payload-{s}", .{t.name}),
-        );
-        const payload_step = b.step(
             b.fmt("portable-launcher-payload-{s}", .{t.name}),
             b.fmt("build the {s} launcher payload", .{t.name}),
         );
-        payload_step.dependOn(&payload_install.step);
-        portable_launcher_fixtures.dependOn(&payload_install.step);
 
         const socket = launcherHelper(
             b,
@@ -715,16 +701,14 @@ pub fn build(b: *std.Build) void {
             "test/portable/launcher_socket_fd.c",
             resolved,
         );
-        const socket_install = b.addInstallFile(
-            socket.getEmittedBin(),
+        installFixture(
+            b,
+            portable_launcher_fixtures,
+            socket,
             b.fmt("portable-fixture/launcher/socket-{s}", .{t.name}),
-        );
-        const socket_step = b.step(
             b.fmt("portable-launcher-socket-{s}", .{t.name}),
             b.fmt("build the {s} launcher socket helper", .{t.name}),
         );
-        socket_step.dependOn(&socket_install.step);
-        portable_launcher_fixtures.dependOn(&socket_install.step);
     }
     portable_launcher_fixtures.dependOn(&install_target_records.step);
 
@@ -843,7 +827,7 @@ pub fn build(b: *std.Build) void {
     // and on the list of the calls it is to cover.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const analyzed = b.step("analyze", "run the static analyzer over the tree's own C");
-    analyze(b, analyzed, own, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson);
+    analyze(b, analyzed, sources);
     // The checked build is where CI already looks for what the release
     // build would only do quietly; the analyzer's findings are the same
     // kind of thing, found without running anything.
@@ -858,16 +842,8 @@ pub fn build(b: *std.Build) void {
     );
     const checked_name = b.fmt("sanitized-{s}", .{checked_target.name});
     const checked_records = generated.add("sanitized-targets.tsv", b.fmt(
-        "{s}{d}\t{d}\t{s}\t{s}\t{s}\t{s}\n",
-        .{
-            records,
-            checked_target.id,
-            sanitized_configuration.id,
-            sanitized_configuration.name,
-            checked_name,
-            checked_target.uname_os,
-            checked_target.uname_arch,
-        },
+        "{s}{s}",
+        .{ records, targetRecord(b, checked_target, sanitized_configuration, checked_name) },
     ));
     const checked_records_install = b.addInstallFile(
         checked_records,
@@ -892,6 +868,31 @@ pub fn build(b: *std.Build) void {
     portable_hook_cores.dependOn(cores);
 
     b.getInstallStep().dependOn(cores);
+}
+
+fn targetRecord(b: *std.Build, target: Target, configuration: Configuration, name: []const u8) []const u8 {
+    return b.fmt("{d}\t{d}\t{s}\t{s}\t{s}\t{s}\n", .{
+        target.id,
+        configuration.id,
+        configuration.name,
+        name,
+        target.uname_os,
+        target.uname_arch,
+    });
+}
+
+fn installFixture(
+    b: *std.Build,
+    group: *std.Build.Step,
+    executable: *std.Build.Step.Compile,
+    path: []const u8,
+    name: []const u8,
+    description: []const u8,
+) void {
+    const install = b.addInstallFile(executable.getEmittedBin(), path);
+    const step = b.step(name, description);
+    step.dependOn(&install.step);
+    group.dependOn(&install.step);
 }
 
 fn requiredTargetMask() u64 {
@@ -1000,21 +1001,12 @@ fn patched(b: *std.Build, trees: []const u8, name: []const u8) std.Build.LazyPat
 fn analyze(
     b: *std.Build,
     step: *std.Build.Step,
-    own: *Own,
-    lua: std.Build.LazyPath,
-    sqlite: std.Build.LazyPath,
-    miniz: std.Build.LazyPath,
-    mbedtls: std.Build.LazyPath,
-    bzip2: std.Build.LazyPath,
-    xz: std.Build.LazyPath,
-    cares: std.Build.LazyPath,
-    curl: std.Build.LazyPath,
-    yyjson: std.Build.LazyPath,
+    sources: Sources,
 ) void {
     const extra = [_][]const u8{
         "entry.c", "startup_hook.c", "testing.c", "testing_checked.c",
     };
-    const crypto = mbedtls.path(b, "tf-psa-crypto");
+    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
     for (core_sources ++ extra) |file| {
         // -S, not -c: `zig cc` would take the analyzer's report for an
         // object and try to link it; as assembly it is left alone.
@@ -1033,19 +1025,19 @@ fn analyze(
             b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
             b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
         });
-        run.addPrefixedDirectoryArg("-I", own.include());
-        run.addPrefixedDirectoryArg("-I", lua.path(b, "src"));
-        run.addPrefixedDirectoryArg("-I", sqlite);
-        run.addPrefixedDirectoryArg("-I", miniz);
+        run.addPrefixedDirectoryArg("-I", sources.own.include());
+        run.addPrefixedDirectoryArg("-I", sources.lua.path(b, "src"));
+        run.addPrefixedDirectoryArg("-I", sources.sqlite);
+        run.addPrefixedDirectoryArg("-I", sources.miniz);
         for (crypto_include_dirs) |dir| {
             run.addPrefixedDirectoryArg("-I", crypto.path(b, dir));
         }
-        run.addPrefixedDirectoryArg("-I", mbedtls.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", bzip2);
-        run.addPrefixedDirectoryArg("-I", xz.path(b, "src/liblzma/api"));
-        run.addPrefixedDirectoryArg("-I", cares.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", curl.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", yyjson.path(b, "src"));
+        run.addPrefixedDirectoryArg("-I", sources.mbedtls.path(b, "include"));
+        run.addPrefixedDirectoryArg("-I", sources.bzip2);
+        run.addPrefixedDirectoryArg("-I", sources.xz.path(b, "src/liblzma/api"));
+        run.addPrefixedDirectoryArg("-I", sources.cares.path(b, "include"));
+        run.addPrefixedDirectoryArg("-I", sources.curl.path(b, "include"));
+        run.addPrefixedDirectoryArg("-I", sources.yyjson.path(b, "src"));
         run.addArg("-o");
         _ = run.addOutputFileArg(b.fmt("{s}.analysis", .{file}));
         // The tree's own file, so a finding names it: a file argument's

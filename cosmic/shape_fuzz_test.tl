@@ -7,7 +7,6 @@
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
-local json_raw = require("build.json_raw")
 local Shape = require("cosmic.shape")
 
 --- Reads a recipe a byte at a time; past its end every byte is 0.
@@ -204,6 +203,28 @@ local function check_total(input: string): boolean, string
   return true, ""
 end
 
+--- `value` with each hole of a list, which a null read without a stand-in
+--- leaves, written as [`Json.null`], so that it encodes.
+local function filled(value: any): any
+  if not (value is {any: any}) then return value end
+  local top = 0
+  local listed = true
+  for k in pairs(value) do
+    if k is integer and k > top then top = k elseif not (k is integer) then listed = false end
+  end
+  local out: {any: any} = Json.is_array(value) and Json.array() as {any: any} or {}
+  if listed then
+    for i = 1, top do
+      local v = filled(value[i])
+      if v == nil then v = Json.null end
+      out[i] = v
+    end
+  else
+    for k, v in pairs(value) do out[k] = filled(v) end
+  end
+  return out
+end
+
 --- A value that fits, encoded and decoded, with nulls kept or not:
 --- the decoded value still fits, its answer is its shape, and the answer
 --- re-encodes and reads back as itself.
@@ -220,7 +241,7 @@ local function check_json(input: string): boolean, string
   local out, err: any, string = Shape.into(decoded, spec)
   if err ~= "" then return false, ("%s no longer fits: %s"):format(text, err) end
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
-  local again_text, aerr = json_raw.encode(out, { sparse_as_null = true })
+  local again_text, aerr = Json.encode(filled(out))
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
   -- Read back as it was first read: under `any` the answer keeps
   -- [`Json.null`], which only the same `null_value` reads back as itself.
