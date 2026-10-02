@@ -175,6 +175,19 @@ local record Net
     --- [`Net.serve`] waits for too. What it raises, [`Net.serve`] raises,
     --- having closed every listener.
     on_ready: function(addresses: {Address}, server: Server)
+    --- Called once, as the server begins to stop -- at [`Server.stop`],
+    --- or at a SIGINT or SIGTERM its guard caught -- in a task of the
+    --- server's run, with the server, once every listener is closed;
+    --- never where the server fails or raises before it stops. It is
+    --- where a protocol ends what need not finish, closing the idle
+    --- connections it tracks, so a client holding one idle does not
+    --- hold the drain for all of `grace_ns`, or for ever where it is
+    --- nil. It is to close, not to wait: the drain, and `grace_ns`,
+    --- begin once it returns, and a wait it makes holds them. A second
+    --- signal cancels its wait ([`Poll.Task.cancel`]) as it ends the
+    --- grace. What it raises goes to [`ServeSpec.on_error`], with its
+    --- stack, and the server stops all the same.
+    on_stop: function(server: Server)
     --- Given what the protocol raised for a connection, with its stack,
     --- or why a listener failed to accept; nil to write each to stderr.
     --- What it raises, [`Net.serve`] raises, having closed every listener
@@ -182,15 +195,17 @@ local record Net
     on_error: function(trouble: string)
   end
 
-  --- A server [`Net.serve`] runs, handed to its [`ServeSpec.on_ready`].
+  --- A server [`Net.serve`] runs, handed to its [`ServeSpec.on_ready`]
+  --- and [`ServeSpec.on_stop`].
   record Server
     --- Where each listener listens, as [`ServeSpec.on_ready`] was given.
     addresses: {Address}
     --- Stops the server, from any task of its run: every listener is
-    --- closed at once, and [`Net.serve`] returns once every task of its
-    --- run has ended, the connections still open after `grace_ns`
-    --- closed and their tasks killed. Stopping a server that is stopping
-    --- does nothing.
+    --- closed at once, [`ServeSpec.on_stop`] is called in a task of its
+    --- own, and [`Net.serve`] returns once every task of its run has
+    --- ended, the connections still open after `grace_ns` closed and
+    --- their tasks killed. Stopping a server that is stopping does
+    --- nothing.
     stop: function(Server)
   end
 end
@@ -591,7 +606,7 @@ end
 --- rather than being ignored.
 local SPEC_FIELDS <const>: {string: boolean} = {
   listeners = true, serve = true, limits = true, timeout_ns = true, grace_ns = true,
-  on_ready = true, on_error = true,
+  on_ready = true, on_error = true, on_stop = true,
 }
 
 --- A field a spec once held, and what to do instead, so a program that
@@ -648,7 +663,7 @@ local function checked_spec(spec: any)
   for _, field in ipairs({ "timeout_ns", "grace_ns" }) do
     Poll.checked_ns(spec[field], "net", "spec." .. field, 3)
   end
-  for _, field in ipairs({ "on_ready", "on_error" }) do
+  for _, field in ipairs({ "on_ready", "on_error", "on_stop" }) do
     local fn = spec[field]
     if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
   end
@@ -671,6 +686,8 @@ end
 --- to a task that never started open.
 local record Serving
   spec: Net.ServeSpec
+  --- The server handed to [`on_ready`] and [`on_stop`].
+  server: Net.Server
   --- The most connections open at once.
   most: integer
   open: integer
@@ -685,6 +702,8 @@ local record Serving
   --- Waits on `guard`: its first signal stops the server, and the next
   --- ends the grace.
   watcher: Poll.Task
+  --- Runs [`on_stop`], from the stop until it returns.
+  stopper: Poll.Task
   --- Waits out the grace while the server drains.
   grace: Poll.Task
   --- Set once a signal has ended the grace.
@@ -783,6 +802,7 @@ end
 --- once `grace_ns` has passed, or a signal has ended the grace, are
 --- killed where they wait, their connections closed first.
 local function drain(s: Serving)
+  if s.stopper ~= nil then local _, _ = s.stopper:join() end
   if not s.hurried then
     local grace = s.spec.grace_ns
     local deadline = grace ~= nil and Time.monotonic_ns() + grace or nil
@@ -825,6 +845,16 @@ local function stop(s: Serving)
     if not closed then report(s, why) end
     if a.task ~= nil then a.task:cancel() end
   end
+  local on_stop = s.spec.on_stop
+  if on_stop ~= nil then
+    -- A task of its own, so neither a wait in it nor what on_error
+    -- raises lands in the task that called stop: a connection's,
+    -- whose failures are its own.
+    s.stopper = Poll.spawn(function()
+      local ok, trouble: boolean, any = xpcall(on_stop, traced, s.server)
+      if not ok then report(s, tostring(trouble)) end
+    end)
+  end
   if s.waiter ~= nil then s.waiter:cancel() end
 end
 
@@ -839,6 +869,7 @@ local function watch(s: Serving)
       stop(s)
     else
       s.hurried = true
+      if s.stopper ~= nil then s.stopper:cancel() end
       if s.grace ~= nil then s.grace:cancel() end
     end
   end
@@ -866,6 +897,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     addresses = addresses,
     stop = function(_self: Net.Server) stop(s) end,
   }
+  s.server = server
   resume_accepting(s)
   s.watcher = Poll.spawn(function() watch(s) end)
   if spec.on_ready ~= nil then spec.on_ready(addresses, server) end

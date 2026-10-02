@@ -238,6 +238,7 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   refused({ listeners = { address }, serve = echo, timeout_ms = 5 }, "spec has no field timeout_ms")
   refused({ listeners = { address }, serve = echo, grace_ms = 5 }, "spec has no field grace_ms")
   refused({ listeners = { address }, serve = echo, on_ready = true }, "spec.on_ready must be")
+  refused({ listeners = { address }, serve = echo, on_stop = true }, "spec.on_stop must be")
   refused({ listeners = { address }, serve = echo, grace = 10 }, "spec has no field grace")
   Poll.run(function()
     local ok, why = pcall(Net.serve, { listeners = { address }, serve = echo } as Net.ServeSpec)
@@ -549,4 +550,159 @@ local function test_the_longest_grace_drains_the_connections_open(tmp: string)
   }
   assert(ok and why == "", why)
   assert(answer == "slow", answer)
+end
+
+--- on_stop is called once, however often the server is stopped, in a
+--- task of the run with the server, once the listener is closed and
+--- before the connection in flight has finished.
+local function test_on_stop_runs_once_at_stop(tmp: string)
+  local path = tmp .. "/s.sock"
+  local calls = 0
+  local finished = false
+  local seen: {string} = {}
+  local serving: Net.Server
+  assert(Net.serve{
+    listeners = { Net.unix(path) },
+    serve = function(conn: Net.Conn)
+      local line = assert(Stream.lines(conn):read())
+      serving:stop()
+      assert(Poll.delay(Time.ms(50)))
+      assert(conn:write(line .. "\n"))
+      finished = true
+    end,
+    on_stop = function(server: Net.Server)
+      calls = calls + 1
+      seen[#seen + 1] = tostring(server == serving)
+      seen[#seen + 1] = tostring(Poll.in_task())
+      seen[#seen + 1] = tostring(Fs.stat(path) == nil)
+      seen[#seen + 1] = tostring(finished)
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      serving = server
+      local c <close> = client(addresses[1])
+      assert(c.conn:write("slow\n"))
+      assert(c.lines:read() == "slow")
+      server:stop()
+    end,
+  })
+  assert(calls == 1, tostring(calls))
+  assert(table.concat(seen, ",") == "true,true,true,false", table.concat(seen, ","))
+end
+
+--- SIGTERM calls on_stop as `stop` does, once.
+local function test_on_stop_runs_once_at_sigterm(tmp: string)
+  local path = tmp .. "/s.sock"
+  local calls = 0
+  -- Closed only where an assertion fails first: released below otherwise.
+  local outer <close> = assert(Child.guard())
+  assert(Net.serve{
+    listeners = { Net.unix(path) },
+    serve = echo,
+    on_stop = function(_server: Net.Server) calls = calls + 1 end,
+    on_ready = function(_addresses: {Net.Address}, server: Net.Server)
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+      until_gone(path)
+      server:stop()
+    end,
+  })
+  assert(calls == 1, tostring(calls))
+  assert(outer:release() == sys.SIGTERM)
+end
+
+--- How long a server takes to return once stopped with one client
+--- connected and idle, its protocol tracking the connections waiting
+--- for a line and, where `closing`, closing them in on_stop; and what
+--- the idle client read at the end.
+local function stopped_with_an_idle_client(tmp: string, closing: boolean,
+    grace_ns: integer): integer, string
+  local idle: {Net.Conn: boolean} = {}
+  local stopped_at = 0
+  local idle_client: Client
+  local spec: Net.ServeSpec = {
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    grace_ns = grace_ns,
+    serve = function(conn: Net.Conn)
+      local lines = Stream.lines(conn)
+      while true do
+        idle[conn] = true
+        local line = lines:read()
+        idle[conn] = nil
+        if line == nil then return end
+        assert(conn:write(line .. "\n"))
+      end
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      idle_client = client(addresses[1])
+      assert(idle_client.conn:write("hello\n"))
+      assert(idle_client.lines:read() == "hello")
+      stopped_at = Time.monotonic_ns()
+      server:stop()
+    end,
+  }
+  if closing then
+    spec.on_stop = function(_server: Net.Server)
+      for conn in pairs(idle) do local _, _ = conn:close() end
+    end
+  end
+  assert(Net.serve(spec))
+  local took = Time.monotonic_ns() - stopped_at
+  local ended, why = idle_client.lines:read()
+  local _, _ = idle_client.conn:close()
+  return took, tostring(ended) .. "," .. why
+end
+
+--- A protocol that closes its idle connections in on_stop lets the
+--- server return at once with an idle client connected, though its
+--- grace is long; without it the idle client holds the drain for all
+--- of grace_ns.
+local function test_on_stop_closing_idle_connections_ends_the_drain_at_once(tmp: string)
+  local took, ended = stopped_with_an_idle_client(tmp, true, Time.seconds(10))
+  assert(took < Time.seconds(2), tostring(took))
+  assert(ended == "nil,", ended)
+  took, ended = stopped_with_an_idle_client(tmp, false, Time.ms(200))
+  assert(took >= Time.ms(200), tostring(took))
+  assert(ended == "nil,", ended)
+end
+
+--- What on_stop raises goes to on_error, with its stack, and the
+--- server stops all the same.
+local function test_a_raising_on_stop_reaches_on_error_and_the_server_stops(tmp: string)
+  local path = tmp .. "/s.sock"
+  local troubles: {string} = {}
+  local ok, why = Net.serve{
+    listeners = { Net.unix(path) },
+    serve = echo,
+    on_stop = function(_server: Net.Server) error("on_stop failed") end,
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
+    on_ready = function(_addresses: {Net.Address}, server: Net.Server) server:stop() end,
+  }
+  assert(ok and why == "", why)
+  assert(#troubles == 1, tostring(#troubles))
+  assert(troubles[1]:find("net_serve_test:%d+: on_stop failed") ~= nil, troubles[1])
+  assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
+  assert(Fs.stat(path) == nil, "the socket file was left")
+end
+
+--- A second signal cancels a wait on_stop makes, as it ends the grace,
+--- and the server returns.
+local function test_a_second_signal_cancels_on_stops_wait(tmp: string)
+  local path = tmp .. "/s.sock"
+  local waited = ""
+  -- Closed only where an assertion fails first: released below otherwise.
+  local outer <close> = assert(Child.guard())
+  assert(Net.serve{
+    listeners = { Net.unix(path) },
+    serve = echo,
+    on_stop = function(_server: Net.Server)
+      local _, why = Poll.delay(Time.seconds(30))
+      waited = why
+    end,
+    on_ready = function(_addresses: {Net.Address}, _server: Net.Server)
+      assert(sys.kill(sys.getpid(), sys.SIGINT))
+      until_gone(path)
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    end,
+  })
+  assert(waited == Poll.CANCELLED, waited)
+  assert(outer:release() == sys.SIGTERM)
 end
