@@ -1,0 +1,5 @@
+#!/bin/sh
+# Compare retained executables from one fixed controller, outside either tree.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/build/perf.tl" "$@"
