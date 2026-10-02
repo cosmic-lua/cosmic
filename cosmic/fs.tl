@@ -244,6 +244,44 @@ function Fs.write(path: string, data: string, mode?: integer): boolean, string
   return file:close()
 end
 
+local record AppendFile
+  metamethod __close: function(AppendFile)
+  fd: integer
+end
+
+local append_mt: metatable<AppendFile> = {
+  __close = function(self: AppendFile)
+    if self.fd < 0 then return end
+    local fd = self.fd
+    self.fd = -1
+    local _, _ = sys.close(fd)
+  end,
+}
+
+--- Appends `data` in place, creating `path` if missing, with `mode`
+--- (default 0644, less the umask). An existing file keeps its inode and
+--- mode, and a symlink is followed. Empty data still creates a missing
+--- file. Each write starts at the file's current end, but short writes
+--- can interleave with another appender, and a failure can leave a
+--- prefix appended. Nothing is synced; use [`Fs.write`] to replace a
+--- file atomically instead. Answers true and an empty reason on success,
+--- or false and a reason naming `path`; a write failure wins over a
+--- close failure.
+function Fs.append(path: string, data: string, mode?: integer): boolean, string
+  if type(data) ~= "string" then error("fs: append data must be a string", 2) end
+  local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt)
+  local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
+  if fd == nil then return false, path .. ": " .. trouble end
+  file.fd = fd
+  local ok, why = write_all(fd, data, "")
+  -- close can report failure after releasing the descriptor: never retry it.
+  file.fd = -1
+  local closed, close_trouble = sys.close(fd)
+  if not ok then return false, path .. ": " .. why end
+  if not closed then return false, path .. ": " .. close_trouble end
+  return true, ""
+end
+
 --- Metadata for a path, or nil and an error if it cannot be inspected.
 function Fs.stat(path: string): sys.Stat | nil, string
   local st, trouble = sys.stat(path)

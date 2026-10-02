@@ -29,6 +29,18 @@ function Example.read()
   assert(Fs.remove_tree(dir))
 end
 
+--- Add log records with [`Fs.append`], preserving what is already there.
+function Example.append()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path = dir .. "/log"
+  assert(Fs.append(path, "started\n"))
+  assert(Fs.append(path, "finished\n"))
+  local data = assert(Fs.read(path))
+  print(data)
+  assert(data == "started\nfinished\n", data)
+  assert(Fs.remove_tree(dir))
+end
+
 --- What `stat` says of a file: its kind and its size in bytes. `mode`
 --- holds the permission bits too (`mode & 0xfff`, as `chmod` sets them),
 --- less the umask for a file just made.
