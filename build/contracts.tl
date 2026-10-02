@@ -162,11 +162,7 @@ local exempt: {string: string} = {
     "trouble, which a caller reports beside the handle's result",
 }
 
-local parsing: {string: string} = {
-  ["build/zig_fetch.tl:ZigFetch.fetch.attempt"] =
-    "bin/zig runs on the release ci/cosmic-driver.pin names, whose " ..
-    "Http.download names the URL in one failure's reason and no other",
-}
+local parsing: {string: string} = {}
 
 local casts: {string: string} = {
   ["build/sandbox_probe.tl:raw_process_table"] =

@@ -754,3 +754,204 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   assert(not bad_why:find("sha256", 1, true), bad_why)
   assert(Fs.stat(other) == nil, "the target was created")
 end
+
+local function test_download_result_success_has_no_failure_fields(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local data = string.rep("new", 100000)
+  local result = Http.download_result(url, path, { script = { reply("200 OK", "", data) },
+    sha256 = Hash.hex_sha256(data):upper(), sha512 = Codec.hex(Hash.digest("sha512", data)):upper() })
+  assert(result.kind == "downloaded" and result.reason == "")
+  assert(result.status == nil and result.algorithm == nil and result.expected == nil and result.actual == nil)
+  assert(Fs.read(path) == data and #assert(Fs.list(tmp)) == 1)
+  assert(select("#", Http.download(url, path, { script = { reply("200 OK", "", data) } })) == 2)
+end
+
+local function test_download_result_status_is_typed_and_url_neutral(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  for _, status in ipairs({ 302, 404, 503 }) do
+    local options: Http.Options = { follow = false,
+      script = { reply(tostring(status) .. " sha256 mismatch", "", "ignored") } }
+    local result = Http.download_result(url, path, options)
+    assert(result.kind == "http_status" and result.status == status)
+    assert(result.reason == "HTTP " .. tostring(status), result.reason)
+    assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
+    local ok, why = Http.download(url, path, options)
+    assert(not ok and why == url .. ": HTTP " .. tostring(status), why)
+    assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  end
+end
+
+local function test_download_result_checksums_keep_typed_digests_and_legacy_text(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do
+    for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", algorithm == "sha256" and 64 or 128) }) do
+      local options: Http.Options = { script = { reply("200 OK", "", "body") } }
+      if algorithm == "sha256" then options.sha256 = expected else options.sha512 = expected end
+      local result = Http.download_result(url, path, options)
+      local actual = Codec.hex(Hash.digest(algorithm, "body"))
+      assert(result.kind == "digest_mismatch" and result.status == nil)
+      assert(result.algorithm == algorithm and result.expected == expected:lower() and result.actual == actual)
+      local reason = path .. ": " .. algorithm .. " mismatch: want " .. expected:lower() .. ", got " .. actual
+      assert(result.reason == reason, result.reason)
+      local ok, why = Http.download(url, path, options)
+      assert(not ok and why == reason, why)
+      assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+    end
+  end
+  local empty = Http.download_result(url, path, { sha256 = "", sha512 = "",
+    script = { reply("200 OK", "", "unchecked") } })
+  assert(empty.kind == "downloaded" and Fs.read(path) == "unchecked")
+end
+
+local function test_download_result_bad_checksum_shape_raises_before_publication(tmp: string)
+  local path = tmp .. "/got"
+  local options: Http.Options = { sha256 = true as string, script = {} }
+  local ok = pcall(Http.download_result, url, path, options)
+  assert(not ok and #assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_transport_and_create_failures_are_not_status(tmp: string)
+  local failed = Http.download_result("file:///not-http", tmp .. "/got")
+  assert(failed.kind == "failed" and failed.reason ~= "" and failed.status == nil)
+  local path = tmp .. "/missing/HTTP 404 sha256 mismatch"
+  local result = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  assert(result.kind == "failed" and result.status == nil and result.algorithm == nil)
+  assert(result.reason:find(path, 1, true) == 1, result.reason)
+  assert(#assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_write_and_sync_failures_abort_without_classifying_text(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local real_write, real_sync = sys.write, sys.fsync
+  local reason = "HTTP 503: sha256 mismatch: want x, got y"
+  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+    return nil, reason, 0
+  end
+  local written = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  sys.write = real_write
+  assert(written.kind == "failed" and written.reason == path .. ": " .. reason)
+  assert(written.status == nil and written.algorithm == nil)
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  sys.fsync = function(_fd: integer): boolean, string, integer
+    return false, reason, 0
+  end
+  local synced = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  sys.fsync = real_sync
+  assert(synced.kind == "failed" and synced.reason == path .. ": " .. reason)
+  assert(synced.status == nil and synced.algorithm == nil)
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_rename_failure_keeps_target_and_removes_stage(tmp: string)
+  local path = tmp .. "/directory"
+  assert(Fs.mkdirs(path))
+  assert(Fs.write(path .. "/kept", "old"))
+  local result = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  assert(result.kind == "failed" and result.reason ~= "")
+  assert(Fs.read(path .. "/kept") == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_cancel_and_callback_exception_keep_target(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  for _, at in ipairs({ 1, 2, 3 }) do
+    local asked = 0
+    local result = Http.download_result(url, path, {
+      script = { reply("200 OK", "", "body") },
+      cancelled = function(): boolean
+        asked = asked + 1
+        return asked == at
+      end,
+    })
+    assert(result.kind == "failed" and result.reason == "interrupted")
+    assert(result.status == nil and result.algorithm == nil)
+    assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  end
+  local options: Http.Options = { script = { reply("200 OK", "", "body") },
+    cancelled = function(): boolean error("callback failed") end }
+  local ok, why = pcall(Http.download_result, url, path, options)
+  assert(not ok and tostring(why):find("callback failed", 1, true), tostring(why))
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_truncated_body_preserves_existing_target(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local result = Http.download_result(url, path, { script = {
+    "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort",
+  } })
+  assert(result.kind == "failed" and result.reason ~= "")
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local hashing = Stream.hashing
+  local reason = "sha512 mismatch: digest engine failed"
+  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
+    local writer, why = hashing(algorithm)
+    if writer == nil then return nil, why end
+    writer.digest = function(_self: Stream.Hashing): string | nil, string
+      return nil, reason
+    end
+    return writer, ""
+  end
+  local result = Http.download_result(url, path, { sha256 = Hash.hex_sha256("body"),
+    script = { reply("200 OK", "", "body") } })
+  Stream.hashing = hashing
+  assert(result.kind == "failed" and result.reason == reason)
+  assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_preserves_underlying_url_text_without_classifying_it(tmp: string)
+  local open = Http.open
+  local reason = url .. ": HTTP 404; sha256 mismatch in transport diagnostic"
+  Http.open = function(_url: string, _opts?: Http.Options): Http.Response | nil, string
+    return nil, reason
+  end
+  local result = Http.download_result(url, tmp .. "/got")
+  local ok, why = Http.download(url, tmp .. "/got")
+  Http.open = open
+  assert(result.kind == "failed" and result.reason == reason)
+  assert(result.status == nil and result.algorithm == nil)
+  assert(not ok and why == reason and #assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_guard_interruption_stays_available(tmp: string)
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local result = Http.download_result(url, tmp .. "/got", { script = { reply("200 OK", "", "body") } })
+  local caught = assert(guard:release())
+  assert(result.kind == "failed" and result.reason == "interrupted")
+  assert(caught == sys.SIGINT and #assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_interleaved_publishers_own_their_staged_files(tmp: string)
+  local path = tmp .. "/got"
+  for _, mismatch in ipairs({ false, true }) do
+    local published = false
+    local result = Http.download_result(url, path, {
+      script = { reply("200 OK", "", "outer") },
+      sha256 = mismatch and string.rep("0", 64) or Hash.hex_sha256("outer"),
+      cancelled = function(): boolean
+        if not published then
+          published = true
+          local other = Http.download_result(url, path, { script = { reply("200 OK", "", "inner") } })
+          assert(other.kind == "downloaded", other.reason)
+          assert(Fs.read(path) == "inner")
+        end
+        return false
+      end,
+    })
+    local expected: Http.DownloadKind = mismatch and "digest_mismatch" or "downloaded"
+    assert(result.kind == expected, result.reason)
+    assert(Fs.read(path) == (mismatch and "inner" or "outer"))
+    assert(#assert(Fs.list(tmp)) == 1, "one publisher left its staged file behind")
+  end
+end
