@@ -71,9 +71,7 @@ end
 function Context.summarize(text: string)
   local output = Env.get("GITHUB_STEP_SUMMARY")
   if output and output ~= "" then
-    local output_exists = Predicate.exists(output)
-    local existing = output_exists and assert(Fs.read(output)) or ""
-    assert(Fs.write(output, existing .. text))
+    assert(Fs.append(output, text))
   else
     assert(Fs.put(Fs.stdout, text))
   end

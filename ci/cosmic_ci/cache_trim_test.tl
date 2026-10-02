@@ -81,13 +81,15 @@ local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: s
   assert(ok and err:find("injected inaccessible path", 1, true), err)
   assert(Fs.read(restored) == "owned" and Fs.stat(tmp .. "/output") == nil)
   request.restored = nil
-  Fs.exists = function(name: string): boolean | nil, string
-    if name == tmp .. "/output" then return nil, "injected output failure" end
-    return original(name)
+  local append = Fs.append
+  Fs.append = function(name: string, _text: string, _mode?: integer): boolean, string
+    return false, name .. ": injected output failure"
   end
-  ok, _, err = pcall(mocked, request, { GITHUB_OUTPUT = tmp .. "/output" }, payload)
-  Fs.exists = original
-  assert(ok and err:find("injected output failure", 1, true), err)
+  local out: any
+  ok, out, err = pcall(mocked, request, { GITHUB_OUTPUT = tmp .. "/output" }, payload)
+  Fs.append = append
+  assert(ok and tostring(out):find("digest", 1, true), out)
+  assert(err == "diagnosticcompiles-trim: " .. tmp .. "/output: injected output failure\n", err)
 end
 
 local function test_repeated_commands_do_not_mutate_the_cached_relaunch(tmp: string)
@@ -169,4 +171,55 @@ local function test_report_file_order_must_match_the_whole_requested_set(tmp: st
   Json.array(value.files)
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, (assert(Json.encode(value))))
   assert(err:find("another file set", 1, true) and Fs.stat(tmp .. "/output") == nil)
+end
+
+local function test_save_outputs_append_without_replacing_or_reading(tmp: string)
+  local path, target, link = tmp .. "/cache.db", tmp .. "/output", tmp .. "/link"
+  local prefix = string.rep("earlier=\0value\n", 100000)
+  assert(Fs.write(target, prefix, 0x180))
+  assert(Fs.symlink(target, link))
+  local before = assert(Fs.stat(target))
+  local request: CacheTrim.Request = { family = "compiles", paths = { path }, since_ns = 1,
+    whole = false, restored = tmp .. "/restored.db" }
+  assert(Fs.write(request.restored, "owned snapshot"))
+  local value = encoded(path)
+  value.fresh = 2
+  local payload = assert(Json.encode(value))
+  local read, append, calls = Fs.read, Fs.append, 0
+  Fs.append = function(name: string, text: string, mode?: integer): boolean, string
+    calls = calls + 1
+    assert(Fs.exists(request.restored) == false, "snapshot cleanup followed publication")
+    assert(name == link and text == "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
+    return append(name, text, mode)
+  end
+  Fs.read = function(name: string): string | nil, string
+    assert(name ~= link and name ~= target, "output reread its existing bytes")
+    return read(name)
+  end
+  local ok, out, err = pcall(mocked, request, { GITHUB_OUTPUT = link }, payload)
+  Fs.read, Fs.append = read, append
+  assert(ok and calls == 1 and err == "diagnostic", err)
+  assert(tostring(out):find("2 compiles", 1, true), out)
+  local after = assert(Fs.stat(target))
+  assert(before.ino == after.ino and before.mode == after.mode)
+  assert(Fs.readlink(link) == target)
+  assert(Fs.read(target) == prefix .. "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
+end
+
+local function test_partial_output_failure_keeps_the_report_and_does_not_retry(tmp: string)
+  local path, output = tmp .. "/cache.db", tmp .. "/output"
+  assert(Fs.write(output, "earlier=value\n"))
+  local request: CacheTrim.Request = { family = "compiles", paths = { path }, since_ns = 1, whole = false }
+  local payload = assert(Json.encode(encoded(path)))
+  local append, calls = Fs.append, 0
+  Fs.append = function(name: string, text: string, mode?: integer): boolean, string
+    calls = calls + 1
+    assert(append(name, text:sub(1, 3), mode))
+    return false, name .. ": injected append failure"
+  end
+  local ok, out, err = pcall(mocked, request, { GITHUB_OUTPUT = output }, payload)
+  Fs.append = append
+  assert(ok and calls == 1 and tostring(out):find("digest", 1, true), out)
+  assert(err == "diagnosticcompiles-trim: " .. output .. ": injected append failure\n", err)
+  assert(Fs.read(output) == "earlier=value\ndig")
 end
