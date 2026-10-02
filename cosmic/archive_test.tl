@@ -884,6 +884,7 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
   }
   for name, format in pairs(named) do
     local path = tmp .. "/" .. name
+    assert(Archive.format_of(path) == (format == "gzip" and "tar.gz" or format), name)
     pack((assert(Archive.create(path))))
     assert(sniffed(path) == format, name .. ": " .. sniffed(path))
     local r = assert(Archive.open(path))
@@ -946,6 +947,8 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
     ["a.tbz2"] = "no bzip2 encoder",
   }
   for name, says in pairs(cases) do
+    local format, format_why = Archive.format_of(name)
+    assert(format == nil and format_why:find(says, 1, true), format_why)
     local w, why = Archive.create(dir .. "/" .. name)
     assert(w == nil, name)
     assert(why:find("^archive: ") and why:find(name, 1, true) and why:find(says, 1, true), why)

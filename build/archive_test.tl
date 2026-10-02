@@ -606,7 +606,12 @@ local function test_create_refuses_xz_bzip2_and_what_it_cannot_name(tmp: string)
   assert(bz.code == 2 and bz.err:find("no bzip2 encoder", 1, true), bz.err)
   local unknown = in_dir(src, { "create", tmp .. "/x.data", "loose.txt" })
   assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar or .zip", 1, true), unknown.err)
-  assert(not Fs.exists(tmp .. "/x.data"))
+end
+
+local function test_create_refuses_the_name_before_it_reads_the_paths(tmp: string)
+  local src = make_tree(tmp)
+  local ran = in_dir(src, { "create", tmp .. "/x.tar.xz", "nosuch" })
+  assert(ran.code == 2 and ran.err:find("no xz encoder", 1, true), ran.err)
 end
 
 local function test_create_writes_a_plain_tar(tmp: string)

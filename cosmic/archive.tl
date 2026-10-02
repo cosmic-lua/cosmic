@@ -38,6 +38,14 @@ local record Archive
   --- declared in [`cosmic.stream`] for the reason [`Entry`] is.
   type Writer = Stream.ArchiveWriter
 
+  --- What [`Archive.create`] writes: a tar compressed with gzip, a
+  --- plain tar, or a zip.
+  enum Format
+    "tar.gz"
+    "tar"
+    "zip"
+  end
+
   record CreateOptions
     --- Writes every entry's time as the format's own zero, so the same
     --- calls make the same bytes, as [`Tar.WriterOptions`] and
@@ -236,9 +244,12 @@ end
 -- writers
 ------------------------------------------------------------------
 
---- The format the name `path` asks for -- "zip", "tar" or "tar.gz" --
---- or nil and why there is none.
-local function format_of(path: string): string | nil, string
+--- The format [`Archive.create`] would write at `path`, from the
+--- suffix the name ends in, whatever its case: `.tar.gz` or `.tgz`,
+--- `.tar`, `.zip`. Any other name is nil and why, naming the suffixes
+--- it knows. Nothing is read or created, so a caller can refuse a name
+--- before doing work for it.
+function Archive.format_of(path: string): Archive.Format | nil, string
   local lower = path:lower()
   if lower:match("%.zip$") then return "zip", "" end
   if lower:match("%.tar%.gz$") or lower:match("%.tgz$") then return "tar.gz", "" end
@@ -247,12 +258,12 @@ local function format_of(path: string): string | nil, string
   -- `xz_decoder`), write `.tar.xz` here, and `.tar.bz2` likewise once
   -- it carries a bzip2 encoder (it has only `bz2_decoder`).
   if lower:match("%.tar%.xz$") or lower:match("%.txz$") then
-    return nil, "cannot write .tar.xz, there is no xz encoder; use .tar.gz, .tgz, .tar or .zip"
+    return refuse(path .. ": cannot write .tar.xz, there is no xz encoder; use .tar.gz, .tgz, .tar or .zip")
   end
   if lower:match("%.tar%.bz2$") or lower:match("%.tbz2?$") then
-    return nil, "cannot write .tar.bz2, there is no bzip2 encoder; use .tar.gz, .tgz, .tar or .zip"
+    return refuse(path .. ": cannot write .tar.bz2, there is no bzip2 encoder; use .tar.gz, .tgz, .tar or .zip")
   end
-  return nil, "cannot tell the format from the name; end it in .tar.gz, .tgz, .tar or .zip"
+  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar or .zip")
 end
 
 --- A writer of a new archive at `path`, of the format its name ends
@@ -268,8 +279,8 @@ end
 ---     assert(w:add_file("README", "read me first"))
 ---     assert(w:close())
 function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Writer | nil, string
-  local format, why = format_of(path)
-  if format == nil then return refuse(path .. ": " .. why) end
+  local format, why = Archive.format_of(path)
+  if format == nil then return nil, why end
   local deterministic = opts ~= nil and opts.deterministic or false
   local codec: Compress.Stream
   if format == "tar.gz" then

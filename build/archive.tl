@@ -3,7 +3,7 @@
 --- script costs more than. It is [`cosmic.archive`] (which detects a zip
 --- or a plain, gzip, xz or bzip2 tar from the file's first bytes, not
 --- its name, and refuses a member that would land outside the target,
---- and writes one of the format its name asks for) behind a command
+--- and writes the format a file's name asks for) behind a command
 --- line.
 ---
 --- Like `cosmic json` it ends in no verdict line: its standard output
@@ -776,6 +776,8 @@ local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, stri
 end
 
 local function create(out: string, paths: {string}, reproducible: boolean, to: verb.Io): Outcome
+  local format, format_why = Archive.format_of(out)
+  if format == nil then return fail(bare.refused, bare_message(format_why)) end
   local skip_file: string | nil
   local present, _ = Fs.exists(out)
   if present then
