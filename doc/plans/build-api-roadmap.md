@@ -181,9 +181,9 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C2 | [#2581](https://github.com/cosmic-lua/cosmic/pull/2581) | merged | 004331f1/tree2e95771b; branch36984107521 and cumulative queue36984579239 green; independently verified actual native Darwin full_fsync success; exact C1/C4/C2 union |
 | C3 | [#2584](https://github.com/cosmic-lua/cosmic/pull/2584) | draft experiment; auto-merge off | 7f6d2cf5/treea566529e on actual004331f1; exact independent approval for experiment only; native66/checked20 and 13 guard checks pass; useful native pilot then calibrated confirmation required, otherwise defer |
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
-| C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | branch green; queued | corrected95e804da/tree19b9b089; branch36988568683 green; queue36989013309 candidate0b111618 exact approved; actual x86/ARM database boundary and all eight privileged modes independently verified |
-| C6 | pending | final preparation approved | 2bfa8674/tree430eccbe retains both C5 CI corrections; runtime identical to approved70bdcab1; epoch15-e83f51b3; native166/checked19/whole658 zero, independent40/8 with three honest mount skips; actual C5 merge and native mount CI required |
-| C7 | pending | final append source preparation approved | af3034c3/treeb4dd338a on reviewed B5; third CacheTrim append caller migrated; local C driver67 author/40 independent CI pass, 9 partial-prefix injection cases pass; CI62 zero; actual C release/pin/native proofs remain |
+| C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | merged | actual0b111618/tree19b9b089; branch36988568683 and queue36989013309 all green; independently verified all eight privileged modes and database boundary on x86/ARM/Alpine |
+| C6 | pending | recovered exactly; current-main integration | original approved tree430eccbe checkpointed at5e5c1312 on codex/api-noexec-scratch; merged current0ec53d35 locally as979c0262/tree63ea479d; independent integration review and fresh boot/checks pending |
+| C7 | pending | recovering unpublished preparation | prior fe4101e0/tree7093ca8a approved, but temporary workspace was recycled before publication; retained literal source being restored and missing portions reconstructed under fresh independent review; actual C release/pin/native proofs remain |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -591,3 +591,22 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   A narrow read-only privileged metadata helper may read fixed process
   identity/accounting fields when the ordinary runner cannot; benchmark
   execution stays unprivileged. Exact implementation review remains pending.
+
+- 2026-10-02 UTC: C5 merged as `0b111618`/`19b9b089` at09:32UTC after
+  branch and full queue passed; actual privileged success and all seven
+  injected refusal modes were independently verified on x86, ARM and Alpine.
+  Fourteen API production PRs are now merged. External timing PRs #2568,
+  #2569, #2570 and #2576 subsequently advanced main to `0ec53d35`; preserve
+  their ratio/event-based tests and CI timeout behavior during integration.
+
+- 2026-10-02 UTC: execution stalled at the C6 tree publication handoff.
+  During the pause the transient workspace was recycled, removing unpublished
+  checkouts and local logs. Merged PRs, CI evidence and this reference remain
+  intact. Retained complete C6 file contents reproduce exact approved tree
+  `430eccbe`, now checkpointed remotely at `5e5c1312`. Its current-main merge
+  `979c0262`/`63ea479d` is being independently reviewed and freshly checked.
+  C3 confirmation source is being reconstructed from deterministic retained
+  operations and must match its approved blobs/tree before the sole run.
+  C7 retains substantial literal source and its contracts, but missing portions
+  require reconstruction and fresh review; prior approval is not carried over
+  to different bytes. Checkpoint coherent source remotely before long waits.
