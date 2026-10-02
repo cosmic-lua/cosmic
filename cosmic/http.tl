@@ -375,10 +375,8 @@ function Http.request(method: string, url: string, opts?: Http.Options): Http.Bo
     error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
        format(method, opts.method), 2)
   end
-  -- A HEAD answers no body, so one sent with it is a mistake.
-  -- TODO: send a GET with a body once a caller needs one; core/http.c's
-  -- set_method must then name GET, as its TODO says, or the body
-  -- goes as a POST.
+  -- core/http.c's set_method drops a body sent with HEAD, and sends one
+  -- with GET as a POST (its TODO says when that changes).
   if opts ~= nil and opts.body ~= nil and (method == "GET" or method == "HEAD") then
     error(("http: Http.request sends no body with %s"):format(method), 2)
   end

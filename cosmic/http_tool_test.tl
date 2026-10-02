@@ -1,9 +1,9 @@
 --- cosmic.http's tests that need the program itself, apart from
 --- cosmic/http_test.tl's so those stand while the tree moves:
 --- $SSL_CERT_FILE, which only a fresh process started from the program
---- reads, and a client in a process of its own beside a local server
---- that sees the request as sent. The CA roots the binary's own database carries are read in
---- cosmic/http_store_test.tl.
+--- reads, and a client in a process of its own beside a local
+--- server that sees the request as sent. The CA roots the binary's own
+--- database carries are read in cosmic/http_store_test.tl.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -150,7 +150,9 @@ end
 --- read it, and what the client then printed: the status and body of
 --- the server's "done", or why it failed. The client runs in a process
 --- of its own, since a server in this one could not answer while the
---- request blocks.
+--- request blocks. Only a server sees what [`Http.request`] sends:
+--- the scripted transport's `sent` is a Response's, and the whole body
+--- it answers has none.
 local function served(tmp: string, method: string, body?: string): string, string
   local script = tmp .. "/request.tl"
   assert(Fs.write(script, [[
