@@ -1939,3 +1939,29 @@ local function test_full_fsync_validates_its_descriptor()
   raises(sys.full_fsync, 1.5)
   raises(sys.full_fsync, 1 << 40)
 end
+
+--- Filesystem-wide synchronization is explicit on Linux and unavailable
+--- elsewhere; it never takes ownership of the supplied descriptor.
+local function test_syncfs_has_native_or_unsupported_effect_shape(tmp: string)
+  local fd = create(tmp .. "/filesystem-flush")
+  assert(sys.write(fd, "data"))
+  local ok, trouble, errno = sys.syncfs(fd)
+  local linux = assert(sys.uname()).sysname == "Linux"
+  if linux then
+    assert(ok == true and trouble == nil and errno == nil, tostring(trouble))
+  else
+    assert(ok == false, "unsupported filesystem flush must not report success")
+    failed_with(sys.ENOSYS, ok, trouble, errno)
+  end
+  assert(sys.fstat(fd), "syncfs closed its caller's descriptor")
+  assert(sys.close(fd))
+  local closed, why, number = sys.syncfs(fd)
+  assert(closed == false)
+  failed_with(linux and sys.EBADF or sys.ENOSYS, closed, why, number)
+end
+
+local function test_syncfs_validates_its_descriptor()
+  raises(sys.syncfs, {})
+  raises(sys.syncfs, 1.5)
+  raises(sys.syncfs, 1 << 40)
+end

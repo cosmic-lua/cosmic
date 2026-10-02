@@ -707,3 +707,23 @@ local function test_full_fsync_preserves_its_descriptor_under_allocation_failure
     assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS))
   end)
 end
+
+--- Allocation refusal in the effect's answer leaves the filesystem
+--- descriptor owned by its caller and allocates no leaked resource.
+local function test_syncfs_preserves_its_descriptor_under_allocation_failure(tmp: string)
+  if not checked then return end
+  local fd = assert(sys.open(tmp .. "/filesystem-flush", sys.O_CREAT | sys.O_RDWR, 420))
+  assert(sys.write(fd, "data"))
+  local linux = assert(sys.uname()).sysname == "Linux"
+  local before = next_descriptor(tmp)
+  under_every_failure(function()
+    local ok, why, errno = sys.syncfs(fd)
+    if linux then assert(ok, why) else assert(ok == false and errno == sys.ENOSYS) end
+  end, function() assert(sys.fstat(fd), "syncfs consumed the caller's descriptor") end)
+  assert(next_descriptor(tmp) == before, "syncfs leaked a descriptor")
+  assert(sys.close(fd))
+  under_every_failure(function()
+    local ok, why, errno = sys.syncfs(fd)
+    assert(ok == false and why ~= "" and errno == (linux and sys.EBADF or sys.ENOSYS))
+  end)
+end

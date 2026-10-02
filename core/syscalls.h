@@ -678,6 +678,18 @@ COSMIC_SYSCALL(fsync, 1);
 COSMIC_SYSCALL(full_fsync, 1);
 
 /*
+ * --- Flushes pending data and metadata on the descriptor's entire
+ * --- filesystem, including other files. A failure may report their
+ * --- writeback errors too. Linux only: ENOSYS elsewhere, without a
+ * --- fallback to a system-wide sync.
+ * ---@param fd integer a descriptor on the filesystem to flush
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(syncfs, 1);
+
+/*
  * --- Sets a descriptor's file to exactly `length` bytes, cutting it
  * --- short or extending it with zero bytes.
  * ---@param fd integer the descriptor, open for writing

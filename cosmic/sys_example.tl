@@ -133,4 +133,20 @@ function Example.full_fsync()
   end
 end
 
+--- A Linux filesystem-wide flush includes other files on the same
+--- filesystem. Use it only when that wider scope is intended.
+function Example.syncfs()
+  local dir, path = scratch()
+  local fd = assert(sys.open(path, sys.O_RDWR))
+  local ok, trouble, errno = sys.syncfs(fd)
+  assert(sys.close(fd))
+  clean(dir, path)
+  if not ok and errno == sys.ENOSYS then
+    print("filesystem-wide flush is unavailable on this platform")
+  else
+    assert(ok, trouble)
+    print("filesystem-wide flush completed")
+  end
+end
+
 return Example

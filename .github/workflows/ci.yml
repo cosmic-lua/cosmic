@@ -493,6 +493,28 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform boot",
         },
 
+        # Temporary C3 diagnostic: remove both steps and the script before merge.
+        {
+          name: "measure filesystem flush strategies (temporary)",
+          id: "syncfs-diagnostic",
+          if: "matrix.name == 'linux-x86_64' && matrix.shard != '2/2'",
+          "working-directory": ".",
+          shell: "sh",
+          "timeout-minutes": 5,
+          run: "python3 .github/scripts/syncfs-diagnostic.py \"$GITHUB_WORKSPACE\" \"$RUNNER_TEMP/syncfs-diagnostic\"",
+        },
+        {
+          name: "preserve filesystem flush measurements (temporary)",
+          if: "always() && steps.syncfs-diagnostic.outputs.output_created == 'true' && matrix.name == 'linux-x86_64' && matrix.shard != '2/2'",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "syncfs-diagnostic-${{ env.COSMIC_WORKER }}",
+            path: "${{ runner.temp }}/syncfs-diagnostic/*.json*\n${{ runner.temp }}/syncfs-diagnostic/patch-*.tl\n${{ runner.temp }}/syncfs-diagnostic/driver.log\n",
+            "if-no-files-found": "warn",
+            "retention-days": 7,
+          },
+        },
+
         # In the merge queue, the run ahead of this one tests this run's
         # base, which main has saved no verdicts of yet: the restore took
         # main's newest, a change or more behind. That run's leg keeps its

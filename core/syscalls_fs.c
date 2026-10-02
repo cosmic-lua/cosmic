@@ -945,6 +945,19 @@ COSMIC_SYSCALL(full_fsync, 1) {
 #endif
 }
 
+COSMIC_SYSCALL(syncfs, 1) {
+  int fd = cosmic_checkfd(L, 1);
+#if defined(__linux__)
+  if (syscall(SYS_syncfs, fd) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+#else
+  (void)fd;
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
 /* How deep `tree_digest` walks: a tree deeper than this is digested as
  * special, since what lies below goes unseen. */
 #define TREE_DEPTH_MAX 128
