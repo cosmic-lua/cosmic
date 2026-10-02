@@ -173,9 +173,9 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B1 | included in #2554 | completed as policy correction | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
-| B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | CI running | 9d5dc39b/tree589e1f47; exact approved patch on actual B2b merge; final harness9 pass; auto-merge enabled |
-| B4a | pending | locally approved on combined B3 | 7e24382e/treeea9d1654; native44 and independent allocation/harness integration checks pass; special SQLite paths preserved |
-| B4b | pending | locally approved on combined B4a | bbc82140/treed98c1d87; ten non-harness files unchanged; native31 integration and independent checked14 pass |
+| B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
+| B4a | pending | locally approved; integrating current main | 5a8438de/tree353cfefd; native44 and independent allocation/harness integration checks pass; special SQLite paths preserved |
+| B4b | pending | locally approved; integrating current main | ca2cc26c/tree14b4feb8; ten non-harness files unchanged; native31 integration and independent checked14 pass |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
@@ -401,3 +401,11 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   verified unchanged patches and the five preserved incoming files; final
   harness checks passed 9/9 with zero warm compilation/reads. Auto-merge is
   enabled, subject to required branch and queue checks.
+
+- 2026-10-02 UTC: B3 merged as `3fbe396a` after successful branch and
+  merge-queue CI. B4 integration now targets actual main `58059883`, preserving
+  the subsequently merged child/net/poll object refactor, HTTP request API and
+  parser correction. Implementation and independent review have resumed in
+  separate worktrees. B5 and C7 consumer migrations remain in preparation;
+  their local drivers are not published-release evidence. C3 remains held
+  pending a useful real-filesystem performance result.
