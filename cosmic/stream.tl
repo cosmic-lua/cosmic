@@ -123,10 +123,18 @@ local record Stream
     --- codec's last output and writes nothing of it when the codec
     --- refuses. So a stream of at most `n` writes that the codec
     --- refuses writes nothing at all, and a longer one may have
-    --- written the output of every write but its last `n`. A write's
-    --- output is held whole, whatever it expands to and whether or not
-    --- it is empty; a `write("")` is no write and moves nothing. A
-    --- negative or non-integer `hold` raises.
+    --- written the output of every write but its last `n`.
+    ---
+    --- The guarantee is in the caller's writes, not in bytes: a caller
+    --- that wants a window of input bytes held back must chunk its
+    --- writes to that size (as `cosmic codec` does with
+    --- [`Stream.read_up_to`]), since a short write holds as much of the
+    --- window as a long one. A write's output is held whole, whatever
+    --- it expands to and whether or not it is empty.
+    ---
+    --- An empty write differs: with `hold` it is skipped, no write and
+    --- the codec not called, whereas without `hold` `write("")` still
+    --- calls `update("")`. A negative or non-integer `hold` raises.
     hold: integer
   end
 
@@ -1084,7 +1092,9 @@ end
 --- without finishing the codec. A decoder's held output is drained
 --- (`update("")` while `pending()`) after each write and before
 --- `finish`, so each write to `writer` stays bounded however far the
---- input expands.
+--- input expands. That bound holds only without `hold`: with it, a
+--- write's drained output is held and written whole, and `close`
+--- commits everything held and the codec's last output in one write.
 ---
 --- `opts.hold = n` holds back the output of the last `n` writes, so a
 --- refusal that comes before `n` more writes have gone through leaves
@@ -1139,14 +1149,14 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
     if hold > 0 and #data == 0 then return true, "" end
     local ok, trouble = feed(data)
     if not ok then
-      failed = trouble
+      failed, held = trouble, {}
       return false, trouble
     end
     return true, ""
   end
   w.abort = function(_self: Stream.Writer): boolean, string
     if closed then return true, "" end
-    closed = true
+    closed, held = true, {}
     return writer:abort()
   end
   w.close = function(_self: Stream.Writer): boolean, string
@@ -1165,6 +1175,7 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
         if not ok then failed = why end
       end
     end
+    held = {}
     if failed then
       local _, _ = writer:abort()
       return false, failed

@@ -603,7 +603,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local coder = decode and verb.decoding(request.name, request.lenient)
     or encoding(request.name, request.wrap)
   local source = request.file or "standard input"
-  -- Why a write to `to.out` failed, which tells it from a coder's refusal.
+  -- A Writer over `to.out`, local because no Stream helper adapts a
+  -- function to a Writer and no other verb needs one. `lost` is why a
+  -- write failed, which tells it from a coder's refusal.
   local lost: string | nil
   local standard_output: Stream.Writer = {
     write = function(_self: Stream.Writer, text: string): boolean, string

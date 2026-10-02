@@ -671,6 +671,75 @@ local function test_transform_writer_hold_is_dropped_by_abort()
   assert(not ok)
 end
 
+--- A Writer that refuses the write that brings its text to `limit`
+--- bytes or more: for a test of a sink that fails as held output is
+--- released.
+local function failing_after(limit: integer): Recorded
+  local r = recording()
+  local inner = r.write
+  r.write = function(self: Stream.Writer, data: string): boolean, string
+    if #r.got + #data >= limit then return false, "sink full" end
+    return inner(self, data)
+  end
+  return r
+end
+
+local function test_transform_writer_hold_reports_a_sink_that_fails_as_a_write_is_released()
+  local out = failing_after(1)
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("a"))
+  local ok, trouble = w:write("bc")
+  assert(not ok and trouble == "sink full", trouble)
+  ok, trouble = w:close()
+  assert(not ok and trouble == "sink full", trouble)
+  assert(out.got == "" and out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_reports_a_sink_that_fails_at_the_commit()
+  local out = failing_after(3)
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  local ok, trouble = w:close()
+  assert(not ok and trouble == "sink full", trouble)
+  assert(out.got == "" and out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_closes_once()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  assert(w:close())
+  assert(w:close())
+  assert(out.got == "AB.")
+  local ok = w:write("cd")
+  assert(not ok)
+  -- A close that failed answers its failure again.
+  w = Stream.transform_writer(recording(), strict(true), { hold = 1 })
+  assert(w:write("ab"))
+  local _, first = w:close()
+  local again, second = w:close()
+  assert(again == false and second == first and first == "cut short", second)
+end
+
+local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
+  -- The second call of one write, the drain, refuses.
+  local calls = 0
+  local t: Stream.Transform = {}
+  t.update = function(_self: Stream.Transform, _chunk: string): string | nil, string
+    calls = calls + 1
+    if calls == 2 then return nil, "drain failed" end
+    return "x", ""
+  end
+  t.pending = function(_self: Stream.Transform): boolean return true end
+  t.finish = function(_self: Stream.Transform): string | nil, string return "", "" end
+  local out = recording()
+  local w = Stream.transform_writer(out, t, { hold = 1 })
+  local ok, trouble = w:write("ab")
+  assert(not ok and trouble == "drain failed", trouble)
+  assert(out.got == "")
+  assert(not w:close() and out.ended == "aborted")
+end
+
 local function test_transform_writer_hold_does_not_count_an_empty_write()
   local out = recording()
   local w = Stream.transform_writer(out, strict(), { hold = 1 })
