@@ -1,3 +1,4 @@
+local Time = require("cosmic.time")
 local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -8,7 +9,7 @@ local Plural = require("cosmic_ci.plural")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
 -- well under a second. Native decoder compilation opts into its larger bound.
-local default_child_timeout_ms <const> = 30000
+local default_child_timeout_ns <const> = Time.seconds(30)
 
 local record Fixture
   record Target
@@ -153,13 +154,13 @@ end
 
 function Fixture.call_with_environment(label: string, argv: {string},
     directory: string, diagnostics: string, environment: {string:string},
-    timeout_ms?: integer, input?: string,
+    timeout_ns?: integer, input?: string,
     fds?: {integer:integer}): Fixture.Outcome
   Fixture.mkdir(diagnostics)
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
   local outcome = Runner.execute({ argv = argv, cwd = directory,
-    env = environment, timeout_ms = timeout_ms or default_child_timeout_ms,
+    env = environment, timeout_ns = timeout_ns or default_child_timeout_ns,
     input = input, output = out, error = err, fds = fds })
   if not outcome.result then
     error(label .. ": could not start: " .. tostring(outcome.trouble) ..
@@ -192,10 +193,10 @@ function Fixture.call_with_descriptors(label: string, argv: {string},
 end
 
 function Fixture.call(label: string, argv: {string}, directory: string,
-    diagnostics: string, extra?: {string:string}, timeout_ms?: integer,
+    diagnostics: string, extra?: {string:string}, timeout_ns?: integer,
     input?: string): Fixture.Outcome
   return Fixture.call_with_environment(label, argv, directory, diagnostics,
-    Fixture.environment(extra), timeout_ms, input)
+    Fixture.environment(extra), timeout_ns, input)
 end
 
 --- The streams of a call that succeeded; one that did not raises, naming
@@ -213,10 +214,10 @@ function Fixture.succeeded(label: string, outcome: Fixture.Outcome): Fixture.Cap
 end
 
 function Fixture.run(label: string, argv: {string}, directory: string,
-    diagnostics: string, extra?: {string:string}, timeout_ms?: integer,
+    diagnostics: string, extra?: {string:string}, timeout_ns?: integer,
     input?: string): Fixture.Capture
   return Fixture.succeeded(label, Fixture.call(label, argv, directory,
-    diagnostics, extra, timeout_ms, input))
+    diagnostics, extra, timeout_ns, input))
 end
 
 function Fixture.contains(path: string, expected: string)

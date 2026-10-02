@@ -1,3 +1,4 @@
+local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 
 local Test = require("cosmic.test")
@@ -12,7 +13,7 @@ Test.needs{ env = { "*" } }
 -- A rebuild from a fresh tree compiles all of it (about 20 s on a
 -- runner), and one whose compiler moved compiles it again on
 -- re-entry; the driver bounds each test here (orchestration.tl).
-local rebuild_timeout_ms <const> = 150000
+local rebuild_timeout_ns <const> = Time.seconds(150)
 
 local function count_occurrences(text: string, needle: string): integer
   local count = 0
@@ -64,7 +65,7 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
     end
     local outcome = Fixture.call_with_environment("fixed-point-" .. name ..
       "-" .. stage, { program, "docs", "cosmic.child" }, tree, diagnostics,
-      values, rebuild_timeout_ms)
+      values, rebuild_timeout_ns)
     assert(outcome.result.code == 0, name .. ": " .. stage ..
       ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
     local err = Fixture.read(outcome.err)

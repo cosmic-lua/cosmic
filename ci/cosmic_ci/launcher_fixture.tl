@@ -1,3 +1,4 @@
+local Time = require("cosmic.time")
 --- What launcher_test.tl and launcher_noexec_test.tl share: the
 --- launcher contract's artifact, copied where a case may run it, and
 --- how a case runs it.
@@ -5,7 +6,7 @@ local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
-local child_timeout_ms <const> = 30000
+local child_timeout_ns <const> = Time.seconds(30)
 
 local record LauncherFixture
   record Context
@@ -74,7 +75,7 @@ end
 function LauncherFixture.run(ctx: Context, label: string, cache?: string,
     extra?: {string:string}, program?: string): Fixture.Outcome
   return Fixture.call_with_environment(label, { program or ctx.artifact }, ctx.work,
-    ctx.diagnostics, LauncherFixture.environment(cache, extra), child_timeout_ms)
+    ctx.diagnostics, LauncherFixture.environment(cache, extra), child_timeout_ns)
 end
 
 --- The one public core a cache holds: a plain file whose name does not

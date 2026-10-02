@@ -199,17 +199,6 @@ local timeout_variable = "COSMIC_TEST_TIMEOUT"
 --- while still ending a hung test well inside any whole-run budget.
 local default_timeout_s = 30
 
---- The switch that once chose how an unsandboxed run keyed its
---- verdicts: by what each test was seen to read, or, set to "declared",
---- by what it declares.
---- Every run keys by declaration now, so it is read nowhere; a worker is
---- still not given it ([`test.worker_environment`]), since CI's driver
---- sets it on the macOS leg for the pinned release it runs, which does.
--- TODO: drop `retired_switch` once ci/cosmic-driver.pin names a release
--- that keys every unsandboxed run by declaration (plan 4.2's PR 3), and
--- ci/cosmic_ci/orchestration.tl's `environment` no longer sets it.
-local retired_switch <const> = "COSMIC_TEST_KEY"
-
 --- A selector without its trailing slashes and leading "./".
 local function normalized(selector: string): string
   if selector == "" then return selector end
@@ -1662,8 +1651,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 ---   pause one startup of a fixture runtime for a handshake and belong to
 ---   this process's own launch, not to every worker it starts;
 --- - what `launch_only` names; and
---- - COSMIC_TEST_NO_SHARED, and the retired COSMIC_TEST_KEY
----   (`retired_switch`);
+--- - COSMIC_TEST_NO_SHARED;
 ---
 --- and with the shared verdict cache off (`COSMIC_VERDICT_CACHE=0`) and
 --- the shared compiles too (`COSMIC_BUILD_CACHE=0`).
@@ -1684,13 +1672,8 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- its own.
   shared_compiles.turn_off(out)
   -- Nor does it take this run's choice not to stand on them: a test
-  -- that runs `cosmic test` says for itself what that run does. Nor the
-  -- switch CI's driver still sets on the macOS leg for the pinned
-  -- release it runs (`retired_switch`): a test that declares the whole
-  -- environment would be keyed by it, and a release's `cosmic test` a
-  -- test starts would key as CI's suites do.
+  -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
-  out[retired_switch] = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
   -- test starts holds none of this run's.
   return rebuild_lock.unhanded(out)

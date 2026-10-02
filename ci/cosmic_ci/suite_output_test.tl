@@ -1,5 +1,4 @@
 local Sqlite = require("cosmic.sqlite")
-local SqliteOpen = require("cosmic_ci.sqlite_open")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 
@@ -17,7 +16,7 @@ local function test_a_passing_sandboxed_run()
     "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n")
   assert(figures.verdict == "pass" and figures.tests == 1994 and figures.modules == 193)
   assert(figures.ran == 0 and figures.stood == 1994 and figures.shared == 0)
-  assert(figures.every == 0 and figures.assumed == 0 and figures.failed == 0)
+  assert(figures.every == 0 and figures.failed == 0)
   assert(figures.elapsed_ms == 2385 and figures.sandbox == "sandboxed", figures.sandbox)
   local parts = assert(figures.parts)
   assert(parts["host features"] == "0123456789abcdef" and parts.host == "aaaaaaaaaaaa")
@@ -31,11 +30,11 @@ end
 --- there -- `skipped`, which no row keeps -- leaves the rest read by place.
 local function test_a_pass_with_every_optional_count()
   local figures = SuiteOutput.parse("test: PASS (40 tests, 3 modules; 12 ran, 28 stood, " ..
-    "3 skipped (this host could not check them), 2 run every time (no key holds them), 5 assumed (--all runs them), " ..
+    "3 skipped (this host could not check them), 2 run every time (no key holds them), " ..
     "20 of them on another checkout's verdict, 901 ms; unsandboxed (COSMIC_TEST_SANDBOX=0), " ..
     "sharing no verdicts)\n")
   assert(figures.ran == 12 and figures.stood == 28 and figures.every == 2)
-  assert(figures.assumed == 5 and figures.shared == 20 and figures.elapsed_ms == 901)
+  assert(figures.shared == 20 and figures.elapsed_ms == 901)
   assert(figures.sandbox == "unsandboxed (COSMIC_TEST_SANDBOX=0), sharing no verdicts",
     figures.sandbox)
   assert(figures.parts == nil)
@@ -113,7 +112,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(State.suite_rows(db)[1].held == figures.held)
   assert(db:close())
   local old = tmp .. "/old.db"
-  local handle = assert(SqliteOpen.writable(old))
+  local handle = assert(Sqlite.open(old, { writable = true }))
   assert(handle:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY, worker TEXT, " ..
     "run TEXT, attempt TEXT, phase TEXT, suite TEXT, status TEXT, exit_code INTEGER, " ..
     "tests INTEGER, modules INTEGER, ran INTEGER, stood INTEGER, every INTEGER, " ..
@@ -192,7 +191,7 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
     suite = "local", status = SuiteOutput.status(figures, 0), exit_code = 0,
     tests = figures.tests, modules = figures.modules, ran = figures.ran,
     stood = figures.stood, shared = figures.shared, every = figures.every,
-    assumed = figures.assumed, failed = figures.failed, elapsed_ms = figures.elapsed_ms,
+    failed = figures.failed, elapsed_ms = figures.elapsed_ms,
     sandbox = figures.sandbox, parts = figures.parts })
   State.suite(path, { worker = "linux-x86_64", run = "7", attempt = "1", phase = "fixtures",
     suite = "fixture runtime|regression", status = "timeout", exit_code = 124 })
@@ -213,7 +212,7 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
     "|  |  |  |  |  |  |", 1, true), text)
   -- An operations database from before the table has no rows.
   local old = tmp .. "/old.db"
-  local handle = assert(SqliteOpen.writable(old))
+  local handle = assert(Sqlite.open(old, { writable = true }))
   assert(handle:exec("CREATE TABLE operation_events (id INTEGER PRIMARY KEY)"))
   assert(#State.suite_rows(handle) == 0)
   assert(handle:close())

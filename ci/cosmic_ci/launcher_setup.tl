@@ -1,7 +1,8 @@
+local Time = require("cosmic.time")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 
-local native_build_timeout_ms <const> = 120000
+local native_build_timeout_ns <const> = Time.seconds(120)
 
 local record LauncherSetup
 end
@@ -24,14 +25,14 @@ function LauncherSetup.build(root: string, output: string,
     Fixture.run("payload-" .. target.name,
       { root .. "/bin/zig", "build",
         "portable-launcher-payload-" .. target.name },
-      root, diagnostics, nil, native_build_timeout_ms)
+      root, diagnostics, nil, native_build_timeout_ns)
     Fixture.copy(root .. "/o/portable-fixture/launcher/payload-" ..
       target.name, output .. "/payloads/payload-" .. target.name)
   end
   Fixture.run("socket-" .. worker_target,
     { root .. "/bin/zig", "build",
       "portable-launcher-socket-" .. worker_target },
-    root, diagnostics, nil, native_build_timeout_ms)
+    root, diagnostics, nil, native_build_timeout_ns)
   Fixture.copy(root .. "/o/portable-fixture/launcher/socket-" .. worker_target,
     output .. "/payloads/socket-" .. worker_target, 0x1ed)
   Fixture.run("fixture-write", { root .. "/o/bin/cosmic",
