@@ -174,7 +174,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
-| B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | queue failure under investigation | c8b310c0/tree08e1e7b2; branch36972386841 green; queue36972776038 passed four platforms but checked parser timing test hit30s; not merged, auto-merge off |
+| B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | waits for parser test repair #2577 | c8b310c0/tree08e1e7b2; branch36972386841 green; queue36972776038 passed four platforms but checked parser timing test hit30s; not merged, auto-merge off |
 | B4b | pending | locally approved on prepared B4a | 1dfbcdc7/treec1c66559; native63 integration plus independent50 native/27 checked pass; matching artifacts; actual merged-parent alignment required |
 | B5 | pending | source preparation approved | a1439795/treeff2eba5b; independent46 CI and44 Zig tests pass; pin unchanged until verified B-wave release |
 | C1 | pending | locally approved | 938b3686/tree254eea31 prep preserves original668ef813 feature and incoming Fs changes; focused60 pass; final integration/publication after B5 |
@@ -439,3 +439,21 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   of tracked or force-staged files matching ignore rules. Actual credentials,
   noexec and Darwin flush success remain native CI gates. B5's concurrent-host
   timing samples are diagnostics only, not performance conclusions.
+
+- 2026-10-02 UTC: the parser queue failure is addressed separately in #2577,
+  remote `600558c0`, independently approved tree `04eee27f`. Exact parent and
+  SQLite candidate workers took 18.136s and 18.167s in isolation. Eight named
+  workers retain every original input, syntax assertion, 20x-plus-50ms ratio
+  and 30-second deadline. The largest checked worker now takes about 7s;
+  separate initialization adds about 1.3s of aggregate worker time in the
+  measured run. A real quadratic token-copy mutation still fails the ratio
+  assertion (20.975s against a 0.737s control). No production code changes.
+  Whole-tree checks passed; mandatory full attempt timed out honestly. #2577
+  has auto-merge enabled; #2573 needs fresh integration and CI after it merges.
+  This is an additional infrastructure prerequisite, not another API.
+- 2026-10-02 UTC: C1/C2/C4/C5/C6 source integration is independently statically
+  reviewed at `80ea4f72`/`a595af10` on `cfb0e8fb`. Incoming shared Child methods,
+  drain ownership, raw spawn argument 11 and analyzer bound metadata are
+  preserved. This is preparation only: no builds ran during parser timing,
+  the C6 epoch remains deliberately bare, and final-base acknowledgments,
+  runtime checks and native security/durability proofs remain mandatory.
