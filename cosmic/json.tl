@@ -238,7 +238,7 @@ function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, strin
   if opts == nil then
     text, err = raw.encode(value)
   else
-    text, err = raw.encode(value, opts.pretty, nil, nil, opts.max_depth)
+    text, err = raw.encode(value, opts.pretty, opts.max_depth)
   end
   if text == nil then return refuse(err) end
   return text, ""

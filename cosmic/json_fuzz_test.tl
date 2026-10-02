@@ -3,8 +3,6 @@
 --- text RFC 8259 reads, JSON5 reads the same; encode is total on any
 --- Lua value, and what it writes decodes back to the same value; the
 --- depth limits hold exactly; and JSON Lines is total and round-trips.
---- The encoder's options that only the core keeps ([`build.json_raw`]) are
---- drawn too.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 ---
 --- yyjson itself is fuzzed upstream. What these reach is this tree's
@@ -13,7 +11,6 @@
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
-local json_raw = require("build.json_raw")
 
 --- Well-formed and nearly well-formed texts to mutate: every shape the
 --- walk builds, the number and string corners, and JSON5's forms.
@@ -136,17 +133,31 @@ local function gen_text(src: Fuzz.Source): string
   return Fuzz.mutate(src, base, shape == 1 and 8 or 1)
 end
 
---- The options every check re-encodes with: whatever decoded, JSON can
---- say, since a stand-in holds every null and NaN becomes `null`.
-local CANONICAL <const>: json_raw.Options = { nan_as_null = true, sparse_as_null = true, max_depth = 1000 }
+--- The options every check re-encodes with.
+local CANONICAL <const>: Json.EncodeOptions = { max_depth = 1000 }
+
+--- `value` as it re-encodes: a decoded value holds NaN and the
+--- infinities where JSON5 wrote them, which `encode` refuses, so each
+--- becomes [`Json.null`]. Every null is a stand-in, never a hole, in what
+--- the checks decode.
+local function finite(value: any): any
+  if value is number then
+    if value ~= value or value == math.huge or value == -math.huge then return Json.null end
+    return value
+  end
+  if not (value is {any: any}) then return value end
+  local out: {any: any} = Json.is_array(value) and Json.array() as {any: any} or {}
+  for k, v in pairs(value) do out[k] = finite(v) end
+  return out
+end
 
 --- `value`'s canonical text, which must re-read as itself.
 local function canonical(value: any, where: string): string | nil, string
-  local text, err = json_raw.encode(value, CANONICAL)
+  local text, err = Json.encode(finite(value), CANONICAL)
   if text == nil then return nil, where .. ": decoded, but did not encode: " .. err end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
   if berr ~= "" then return nil, where .. ": encode wrote what decode refuses: " .. berr end
-  local again, aerr = json_raw.encode(back, CANONICAL)
+  local again, aerr = Json.encode(finite(back), CANONICAL)
   if again ~= text then
     return nil, where .. ": not a fixed point: " .. text .. " -> " .. tostring(again or aerr)
   end
@@ -366,17 +377,10 @@ local function recipe_value(r: Recipe, depth: integer, parent: {any: any}): any
   return print
 end
 
-local function recipe_options(r: Recipe): json_raw.Options
+local function recipe_options(r: Recipe): Json.EncodeOptions
   local bits = next_byte(r)
-  local opts: json_raw.Options = {
-    pretty = bits & 1 ~= 0,
-    sorted = bits & 2 == 0,
-    nan_as_null = bits & 4 ~= 0,
-    sparse_as_null = bits & 8 ~= 0,
-    ascii = bits & 64 ~= 0,
-  }
-  if bits & 16 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
-  if opts.pretty and bits & 32 ~= 0 then opts.indent = "\t" end
+  local opts: Json.EncodeOptions = { pretty = bits & 1 ~= 0 }
+  if bits & 2 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
   return opts
 end
 
@@ -384,7 +388,7 @@ local function encode_holds(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local opts = recipe_options(r)
   local value = recipe_value(r, 0, nil)
-  local ok, text, err = pcall(json_raw.encode, value, opts)
+  local ok, text, err = pcall(Json.encode, value, opts)
   if not ok then return false, "raised: " .. tostring(text) end
   Fuzz.label(text ~= nil and "encoded" or "refused")
   if text == nil then
@@ -395,14 +399,9 @@ local function encode_holds(input: string): boolean, string
     return true, ""
   end
   if err ~= "" then return false, "a success with a message: " .. err end
-  if opts.ascii and text:find("[\128-\255]") then
-    return false, "ascii wrote a byte past ASCII: " .. text
-  end
-  local same: json_raw.Options = { nan_as_null = opts.nan_as_null,
-    sparse_as_null = opts.sparse_as_null, max_depth = opts.max_depth }
-  local expected, eerr = json_raw.encode(value, same)
+  local expected, eerr = Json.encode(value, { max_depth = opts.max_depth })
   if expected == nil then
-    return false, "encoded laid out or unsorted, but not canonically: " .. eerr
+    return false, "encoded laid out, but not compactly: " .. eerr
   end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
   if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end
@@ -478,14 +477,14 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
       end
       local written: {string} = {}
       for i = 1, #values do
-        local line, eerr = json_raw.encode(values[i], { nan_as_null = true })
+        local line, eerr = Json.encode(finite(values[i]))
         if line == nil then return false, "decoded line " .. i .. " did not encode: " .. eerr end
         written[i] = line .. "\n"
       end
       local text = table.concat(written)
       local back, berr = Json.decode_lines(text, { null_value = Json.null })
       if back == nil then return false, "encoded lines are what decode_lines refuses: " .. berr end
-      local a, b = json_raw.encode(values, CANONICAL), json_raw.encode(back, CANONICAL)
+      local a, b = Json.encode(finite(values), CANONICAL), Json.encode(finite(back), CANONICAL)
       if a ~= b then return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b) end
       return true, ""
     end,
