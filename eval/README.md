@@ -84,15 +84,61 @@ of the solver's project. The prompt varies only in arena paths.
 ## Claude Code
 
 Use a fresh noninteractive session, without resume or inherited project
-instructions. Set `dir` to the absolute arena path and `model` explicitly.
-The existing tool allowlist makes local tools usable without prompts.
-An empty `CLAUDE_CONFIG_DIR` leaves out user skills, plugins, hooks and
-instructions (credentials still come from the environment); a cloud
-session also sets `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
-`CLAUDE_ADDITIONAL_DIRECTORIES` and `CLAUDE_CODE_SYNC_SKILLS`, which can
-bring the checkout's instructions or a synced cosmic skill back in, so
-unset them. Probe once with `claude -p "list your skills"` under the same
-settings before trusting the setup.
+instructions, and set the model explicitly. [`eval/solve`] launches it
+for an arena in a sandbox, and writes `transcript.jsonl`, `stderr`,
+`started_at`, `finished_at` and `exit_code` beside PROMPT.md:
+
+```sh
+eval/solve "$dir" --model "$model"    # --max-turns 60 --timeout 600 by default
+```
+
+The sandbox is cosmic.child's (`unveil`, as `cosmic test` holds its
+workers): the solver, and every process it starts, has a root of its own
+holding only
+
+- the arena's `project/`, `tmp/` (its `TMPDIR`), and `config/` and
+  `home/` (its `CLAUDE_CONFIG_DIR` and `HOME`, fresh each run, outside
+  `project/`), to change; the arena's `bin/`, read-only;
+- the `claude` found on PATH, links resolved: a native executable alone,
+  or a script's directory and its interpreter;
+- read-only, `/usr` (and the links `/bin`, `/lib`, `/lib64` into it) and
+  `/etc`, for the shell, the tools its Bash calls start, the loader, and
+  passwd, resolv.conf and the CA store; `/dev/null`, `zero`, `full`,
+  `random` and `urandom`; a `/proc` of its own pid namespace;
+- the CA bundle `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS` name, and, in a
+  Claude Code cloud session, `/home/claude/.claude/remote/.oauth_token`
+  alone, without which the CLI is not logged in;
+- a `/tmp` of its own, gone with it: a stray `/tmp/x` write lands
+  nowhere on the host.
+
+No checkout of this repository, `~/.claude`, `~/.cache/cosmic`, skills
+directory (`/mnt/skills`, `/home/claude/.claude/skills`), other arena or
+user config is there to read. Its environment is the proxy variables,
+the CA bundle variables, any Anthropic credential or endpoint variable
+the host sets, and its own PATH (the arena's `bin/` first), `HOME`,
+`CLAUDE_CONFIG_DIR` and `TMPDIR`, and nothing else: the variables a
+cloud session sets that bring the checkout's instructions or a synced
+skill back in (`CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
+`CLAUDE_ADDITIONAL_DIRECTORIES`, `CLAUDE_CODE_SYNC_SKILLS`) are never
+passed. It does not isolate the network: the solver reaches the API
+through the host's network and proxy, and so could fetch anything the
+proxy allows; the prompt's rule and the transcript still govern that.
+The solver runs as the caller's user, in a user namespace of its own,
+holding no capability, with every path but the arena's four mounted
+read-only.
+
+The sandbox needs Linux with user namespaces the caller may make: where
+`cosmic test` sandboxes its workers, eval/solve sandboxes the solver. A
+Claude Code cloud session (gVisor, running as root) has them, and the
+solver there is uid 0 of its own namespace; a host whose policy refuses
+them to an unprivileged user (Ubuntu's AppArmor restriction) does not.
+Where the kernel refuses one, eval/solve fails before the solver starts
+rather than running it unconfined. There, and on macOS, launch by hand
+as below, where the isolation is by convention only: an empty `CLAUDE_CONFIG_DIR` leaves out
+user skills, plugins, hooks and instructions (credentials still come
+from the environment), and the three variables above are unset. Probe
+once with `claude -p "list your skills"` under the same settings before
+trusting the setup.
 
 ```sh
 config=$(mktemp -d)
@@ -107,6 +153,11 @@ cd "$dir/project" && env -u CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD \
   --max-turns 60 --output-format stream-json --verbose \
   < /dev/null > "$dir/transcript.jsonl" 2> "$dir/stderr"
 ```
+
+Record `deadline_method` as [`eval/solve`] or `timeout 600`. Either way,
+run [`eval/summarize`] over the transcript: its list of paths outside the
+arena is the second line of evidence, naming what the sandbox refused
+as well as what the manual launch let through.
 
 `eval/summarize <transcript.jsonl>` is specifically a Claude stream-json
 reader. Beyond turns, tool calls, minutes and cost it counts failed tool
@@ -223,4 +274,5 @@ ranking. Then:
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`eval/arena`]: arena
 [`eval/journal.md`]: journal.md
+[`eval/solve`]: solve
 [`eval/summarize`]: summarize
