@@ -59,3 +59,19 @@ local function test_a_tree_the_build_refuses_fails(tmp: string)
   local passed = fix(root, false)
   assert(passed.ok, passed.stdout)
 end
+
+--- A `--check` counts a spill as a file to fix only in a file it
+--- covers: one in another file leaves the tree refused, and fails it.
+local function test_a_check_fails_on_a_spill_outside_it(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", "local x: integer = 1\n\nreturn x\n"))
+  assert(Fs.write(root .. "/b.tl", 'local function read(): string | nil, string return "7", "" end\n' ..
+    "return tonumber(assert(read()))\n"))
+  local started = this_program.program({ "fix", "--check", "a.tl" }, { cwd = root,
+    stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  local out = assert(result.stdout)
+  assert(not result.ok, out)
+  assert(out:find("fix: FAIL  b.tl: the compiler refused it", 1, true) ~= nil, out)
+end

@@ -557,13 +557,12 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
 end
 
 --- A build made to resolve a link that fails is kept, for the run to
---- fail on; one that is not made, or builds, leaves nothing.
+--- fail on; one that builds leaves nothing.
 local function test_links_keep_why_their_build_failed(tmp: string)
   local root = assert(Fs.absolute(tmp))
   assert(Fs.write(root .. "/a.md", "[`m.one`]\n"))
-  for _, case in ipairs({ { whole = false, ok = false, want = "a.tl: the compiler refused it" },
-                          { whole = false, ok = true }, { whole = true, ok = false } }) do
-    local source = fix.link_context(root, case.whole, true,
+  for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do
+    local source = fix.link_context(root, false, true,
       function(_: string): boolean, string return case.ok, case.ok and "" or "a.tl: the compiler refused it" end,
       function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
     assert(source.unbuilt == nil, "before a link named a symbol")

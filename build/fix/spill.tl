@@ -39,8 +39,8 @@ local record spill
   --- What a build of the tree said ([`spill.check`]).
   record Built
     sites: Sites
-    --- Why the build refused the tree, its diagnostics as the
-    --- compiler wrote them; "" when it builds.
+    --- Why the build refused the tree: the compiler's diagnostics, or
+    --- each test module it refused; "" when it builds.
     refused: string
   end
 end

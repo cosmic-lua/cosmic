@@ -1036,10 +1036,11 @@ local function fix_verb(argv: {integer:string}): integer
       break
     end
     refused = checked.refused
-    spilled = next(checked.sites) ~= nil
+    spilled = false
     local wrapped = false
     for name, at in pairs(checked.sites) do
       local file = chosen_files[root .. "/" .. name]
+      if file ~= nil then spilled = true end
       if file ~= nil and not checking then
         local source, read_trouble = Fs.read(file)
         local out, wrap_trouble: string, string
@@ -1079,9 +1080,10 @@ local function fix_verb(argv: {integer:string}): integer
 
   -- A tree the build refuses fails the run, saying why: a PASS would
   -- read as a tree that builds, which `cosmic test` then refuses. A
-  -- check whose build names spills counts files to fix instead, since
-  -- the checker reports each spill with an error of its own; over the
-  -- whole tree, the tree checks' projection refuses it.
+  -- check whose build names a spill in a file it covers counts that
+  -- file to fix instead, since the checker reports each spill with an
+  -- error of its own; over the whole tree, the tree checks' projection
+  -- refuses it.
   local unbuilt: string | nil = nil
   if not picked.whole and refused ~= "" and not (checking and spilled) then
     unbuilt = refused
