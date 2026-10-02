@@ -356,6 +356,56 @@ coverage is the existing suite's, unchanged and passing; no new cases were added
 for them. No harness-epoch bump: every verdict key holds the core digest, which
 this change moves. Step 2 is no longer gated on 0.5.
 
+The resumed independent review at main `0ec53d3500fb51e5a4f23b6ba7699807c261b392`
+approved this implementation and verified successful CI for the exact PR head
+and current main. One coverage limitation belongs in step 2: the new regression
+skips host-format starts because their relaunch description has no artifact
+descriptor. Both formats use the reviewed VFS path; add a direct host-format
+denial case when expanding the artifact-access test matrix.
+
+### 0.6. Repair performance inference before resuming decoder acceptance
+
+This is a separate prerequisite discovered while measuring step 1. It changes
+the benchmark's statistical implementation and protocol, not the decoder. Branch
+from current main, use separate implementation and adversarial review, and land
+it before integrating and measuring the decoder against the refreshed parent.
+The previous positive startup interval remains an unresolved historical finding.
+
+- Replace the binomial recurrence that underflows at 1,075 observations with a
+  stable computation; independently verify exact ranks through 2,000 samples.
+- Give each p95 an order-statistic interval. Allocate four one-sided error
+  budgets of 0.0125 to derive a joint 95% interval for the candidate-minus-parent
+  p95 difference. Keep its calibration and uncertainty separate from median
+  calibration. Unbounded intervals mean insufficient tail information.
+- Use a fixed 200-pair default and require at least 200 pairs for a gate pass.
+  Remove adaptive repetition from the inferential dataset. Smaller runs are
+  exploratory. A later experiment must be declared separately before collection.
+- Any wholly positive candidate median or p95 interval remains nonpassing.
+  Biased calibration and the existing dispersion diagnostic remain blockers.
+  Report upper slowdown bounds and both median/tail resolutions; a pass means
+  no detected slowdown at that resolution, not equivalence or zero regression.
+- Validate against fixed, candidate-blind populations and seeds before timing
+  artifacts: independent/common-delay normal, exponential, lognormal and mixture
+  nulls; location changes; tail-only changes; variance changes; order/correlation
+  stress cases. Use 5,000 repetitions and report Monte Carlo uncertainty, coverage,
+  false regression/inconclusive rates, and detection power. For the reviewed
+  supported independent cases, require coverage at least 94%, false regressions
+  at most 6%, and null passes at least 80%; strong location changes of one standard
+  deviation must block at least 95% at 200 pairs, and the specified 10%-mixture
+  tail doubling at least 85% at 400 pairs. Report 5%/10% location-shift power as
+  advisory. Fix the exact populations and seeds before simulation. A missed
+  criterion requires investigation, not relaxing it after observing results.
+
+Acceptance also includes repository formatting/type/tests, the prescribed full
+suite attempt, independent code and statistical review, required CI and explicit
+low-sample limitations. Preserve previous conclusions without reclassifying the
+old candidate under a newly chosen threshold. The renewed integration experiment
+will identify its new main parent, candidate, controller and environment before
+running, and use fixtures under `/tmp` to avoid background synchronization of
+actively written benchmark databases and JSON files. Do not stop or modify the
+platform's synchronization service. Raw evidence is not to be published, per the
+user's instruction; publish concise results and limitations only.
+
 ### 1. Structural artifact decoder independent of host selection
 
 Factor validated framing/range/core enumeration from host/configuration
@@ -380,6 +430,7 @@ replace/unlink paths after open, and exercise open/close/allocation failures.
 No stale registration, use-after-close, descriptor leak or module shadowing;
 held test workers cannot recover omitted store contents by reopening the program
 or attaching an artifact URI, on either sandboxed or unsandboxed runs;
+include explicit portable and host-format reopening-denial cases;
 untrusted path/range inputs cannot expose the running artifact or escape worker
 read restrictions. Startup/load A/B and relevant sanitizers pass.
 
@@ -620,8 +671,9 @@ the final ledger and links; it is not a vehicle to merge documentation or code.
 | Step | Requires |
 | --- | --- |
 | 0 | Baseline access |
-| 1 | 0 |
+| 1 | 0; renewed performance acceptance after 0.6 |
 | 0.5 | 0 (merged) |
+| 0.6 | 0; execute before resuming 1 |
 | 2 | 1, 0.5 |
 | 3a | 0; execute after 1 |
 | 3b | 3a |
@@ -652,7 +704,8 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | 0 Baseline/harness | Merged | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), merge `c41d73db391fef74518ebb93e9cc05902e154ca2` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push and merge-queue CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
 | 0.5 Runtime VFS capability | Merged | [#2572](https://github.com/cosmic-lua/cosmic/pull/2572), merge `eb8ea8ccc04b00ab8d4f6909cfe04a4de3426fa7` | Reproduced on pinned release and in a held sandboxed worker. Separate adversarial review: no blocking findings; comment/doc suggestions applied. Full suite 3,299 tests pass; `fix --check .`, sanitized build, `ci/run-local` (all stages incl. fixtures) and all push/merge-queue CI pass. `bin/perf` vs parent `5805988`: 15/17 pass at 30 pairs; `exact_docs` and `embed_host` inconclusive on tails only, both pass in predeclared 100-pair reruns. One run with a mistyped parent commit discarded before review. Raw evidence kept locally, not published. No new TODOs. |
 | 1 Structural decoder | Draft; performance blocks merge | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), head `40203127ca9f7ee4668eceb8e85bdec2cc11a9d6` | Independent code review approved local `1c091ee` (identical tree). All required push CI passed, including checked/Linux/macOS legs. Fifteen-workload measurements, five follow-ups and the final eight-invocation pinned crossover round are retained. Startup's cumulative paired median remains +0.036 ms, interval [+0.018, +0.051] ms; calibration/tail/noise issues also remain. The predeclared protocol stopped unresolved. No auto-merge or further discretionary local reruns. No VFS, store authority or new artifact-access changes. |
-| 2 Artifact handles | Pending | — | — |
+| 0.6 Performance inference | In progress | — | Separate implementer and statistical reviewer assigned on refreshed main `0ec53d3`. Fixed-sample/tail-bound contract and candidate-blind validation criteria agreed before implementation or new artifact timings. Historical step-1 finding remains open. |
+| 2 Artifact handles | Pending | — | VFS prerequisite reviewed and complete; add direct host-format reopening-denial coverage. |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
 | 3a Existing database recognition | Planned independent work | — | Read-only dependency review complete; no new access APIs. |
 | 3b Additive format metadata | Planned independent work | — | Reader-first rollout; existing compatible table layout. |
@@ -689,15 +742,15 @@ the precise source/script limitations of the first run. Cold I/O, peak RSS,
 isolated projection and complete-repository performance remain open evidence
 dimensions. There are no new code TODOs in step 0.
 
-Step-1 evidence archive prepared locally: `step-1-decoder.tar.gz`.
+Step-1 evidence archive originally prepared locally: `step-1-decoder.tar.gz`.
 SHA-256 `6b43c859ee8e0bc03af99e07ba8b46c5b48959c5f1f072d92316271b80a3bbb6`
 (654,605 bytes; 16,080 measured observations plus checked warmups).
-Automatic approval review rejected uploading this raw archive to GitHub because
-explicit authorization to disclose its fixtures, logs, host metadata and
-validation records was not established. The archive is not in this branch;
-upload awaits the user's review and authorization. This summary can be published
-independently. The rejected upload has not been retried through another mechanism.
-The archive preserves all raw samples and checked warmups, exact identities,
+Automatic approval review rejected uploading this raw archive to GitHub. The
+user subsequently instructed us not to publish the evidence. The upload will not
+be retried. The previous scratch workspace has since expired; this restored
+workspace has the published summaries but not that raw archive or its binaries.
+The historical findings below remain unresolved and are not relabeled as passing.
+The archive contained all raw samples and checked warmups, exact identities,
 counters, fixtures, query plans, validation logs, remote CI results and diagnostic
 sources. The implementation tree is `ffee49b92914a969fe43c4053ca589772f121ee0`,
 based on merged `c41d73d`; its local and published commit identities differ only
