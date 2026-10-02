@@ -456,6 +456,10 @@ local function exchange(port: integer, request: string): string | nil, string
     local head, rest = got:match("^(.-\r\n\r\n)(.*)$")
     if head ~= nil then
       local length = math.tointeger(tonumber(head:lower():match("\ncontent%-length:%s*(%d+)")))
+      -- RFC 9110 forbids a Content-Length on a 204, which has no body.
+      if length == nil and head:match("^HTTP/1%.[01] 204") then
+        length = 0
+      end
       if length == nil then
         local _, _ = conn:close()
         return nil, "no Content-Length in " .. first_line(head)
@@ -576,7 +580,7 @@ end
 
 local TASKS <const>: {string: function(Grade)} = { pack = pack, ledger = ledger, kv = kv }
 
-function Tasks.grade(name: string, dir: string): integer
+local function grade(name: string, dir: string): integer
   local project = dir .. "/project"
   local cosmic = dir .. "/bin/cosmic"
   local is_project, project_trouble = Fs.is_dir(project)
@@ -638,7 +642,7 @@ function Tasks.main(argv: {integer: string}): integer
     return 2
   end
   local absolute, _ = Fs.absolute(dir)
-  return Tasks.grade(name, absolute or dir)
+  return grade(name, absolute or dir)
 end
 
 return Tasks

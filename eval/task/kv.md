@@ -29,7 +29,7 @@ served over HTTP, with its own client:
   - `GET /`: `200`, every key set, one per line, sorted.
   - Anything else: `400` or `405`.
   Keys are one path segment of letters, digits, `-` and `_`. Every
-  response carries a correct `Content-Length`. One slow or idle client
+  response but a `204` carries a correct `Content-Length`. One slow or idle client
   must not hold up the others: while one connection sits open having
   sent half a request, other clients are still answered promptly.
 - `put <url> <value>`, `get <url>`, `rm <url>`: the client, where

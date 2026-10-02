@@ -31,7 +31,8 @@ tool that summarizes a CSV file of transactions as JSON:
   object per calendar month that has transactions, in ascending order:
   `{"month": "YYYY-MM", "total_cents": <integer>, "categories":
   {"<category>": <integer cents>, ...}}`. `rows` counts the
-  transactions included, `skipped` the records that were refused.
+  transactions included, `skipped` every record that was refused,
+  whatever its date.
 - Options, which may come before or after `<file>`:
   - `--zone <name>`: an IANA time zone name such as `America/New_York`.
     Months, and the dates below, are calendar dates in that zone; the
