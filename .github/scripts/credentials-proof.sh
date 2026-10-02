@@ -7,8 +7,11 @@ root=$(pwd -P)
 proof=$(mktemp -d)
 trap 'rm -rf "$proof"' EXIT HUP INT TERM
 chmod 755 "$proof"
-mkdir "$proof/secret" "$proof/target"
-chmod 700 "$proof/secret" "$proof/target"
+mkdir "$proof/secret" "$proof/target" "$proof/cache"
+chmod 700 "$proof/secret" "$proof/target" "$proof/cache"
+# The root proof must not reuse or re-own the ordinary runner's cache.
+export XDG_CACHE_HOME="$proof/cache"
+export COSMIC_PORTABLE_CACHE="$proof/cache/cores"
 printf 'grant\n' > "$proof/secret/file"
 chmod 600 "$proof/secret/file"
 chown 65532:65532 "$proof/target"
