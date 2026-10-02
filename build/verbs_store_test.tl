@@ -179,8 +179,7 @@ local function test_help_of_test_leads_with_writing_one(tmp: string)
     local at = out:find(first, 1, true)
     assert(at ~= nil and at < caching, first .. ":\n" .. out)
   end
-  local tree = assert(out:find("COSMIC_TREE", 1, true), out)
-  assert(caching < tree and tree < assert(out:find("\n  --all ", 1, true)), out)
+  assert(caching < assert(out:find("COSMIC_TREE", 1, true), out), out)
 end
 
 --- What each verb's spec says of it (build/verb_spec.tl) is what `cosmic

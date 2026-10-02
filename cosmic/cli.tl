@@ -56,9 +56,9 @@ local record Cli
   --- - a function of the record named `Example` that a
   ---   `<name>_example.tl` file returns, which `cosmic docs` also shows
   ---   under every symbol it calls;
-  --- - a block tagged `teal` in a guide, doc/guides/<name>.md, which
-  ---   compiles, and runs when a block tagged `output` after it says
-  ---   what it prints.
+  --- - a block tagged `teal` or `lua` in a guide, doc/guides/<name>.md,
+  ---   which compiles, and runs when a block tagged `output` after it
+  ---   says what it prints.
   ---
   --- Beside `tally.tl`, say, a file `tally_test.tl`:
   ---
