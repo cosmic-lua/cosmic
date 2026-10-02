@@ -604,10 +604,17 @@ local function test_create_refuses_xz_bzip2_and_what_it_cannot_name(tmp: string)
   assert(not Fs.exists(tmp .. "/x.tar.xz"))
   local bz = in_dir(src, { "create", tmp .. "/x.tar.bz2", "loose.txt" })
   assert(bz.code == 2 and bz.err:find("no bzip2 encoder", 1, true), bz.err)
-  local plain = in_dir(src, { "create", tmp .. "/x.tar", "loose.txt" })
-  assert(plain.code == 2 and plain.err:find(".tar.gz or .zip", 1, true), plain.err)
   local unknown = in_dir(src, { "create", tmp .. "/x.data", "loose.txt" })
-  assert(unknown.code == 2 and unknown.err:find("end it in .zip or .tar.gz", 1, true), unknown.err)
+  assert(unknown.code == 2 and unknown.err:find("end it in .tar.gz, .tgz, .tar or .zip", 1, true), unknown.err)
+  assert(not Fs.exists(tmp .. "/x.data"))
+end
+
+local function test_create_writes_a_plain_tar(tmp: string)
+  local src = make_tree(tmp)
+  local ran = in_dir(src, { "create", tmp .. "/x.tar", "loose.txt" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  local listed = run({ "list", tmp .. "/x.tar" })
+  assert(listed.code == 0 and listed.out:find("loose.txt\t5\t", 1, true), listed.out .. listed.err)
 end
 
 local function test_create_refuses_paths_that_would_extract_outside(tmp: string)

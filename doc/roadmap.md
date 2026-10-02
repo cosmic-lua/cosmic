@@ -174,6 +174,12 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
+- an `Archive.add_tree(writer, dir, opts?)` that walks a directory into an
+  [`Archive.create`] writer, once a caller needs one. `cosmic archive
+  create` ([`build/archive.tl`]) is the only walk today, and it gathers and
+  checks every path (a FIFO refused by name, the output skipped) before
+  creating the archive and prints each name it packs, which a plain walk
+  would not do for it.
 - `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `doc` and `embed` exist only as build internals under
@@ -270,11 +276,13 @@ four-producer provenance join.
   disappear from this file. Record context, the decision, rejected alternatives,
   and consequences; amend a record when the decision changes.
 
+[`Archive.create`]: ../cosmic/archive.tl
 [`Archive.extract`]: ../cosmic/archive.tl
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
 [`build.receivers`]: ../build/receivers.tl
+[`build/archive.tl`]: ../build/archive.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
 [`build/contracts.tl`]: ../build/contracts.tl

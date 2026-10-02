@@ -867,3 +867,89 @@ local function test_list_reader_lists_a_reader_to_its_end_and_closes_it()
   assert(listed == nil and trouble ~= "", tostring(trouble))
   assert(closes[1] == 1, "closed " .. closes[1] .. " times")
 end
+
+--- The format a name asks for, as the archive's first bytes say it:
+--- what [`Archive.create`] wrote under each name.
+local function sniffed(path: string): string
+  local head = assert(Fs.read(path)):sub(1, 262)
+  if head:sub(1, 2) == "PK" then return "zip" end
+  if head:sub(1, 2) == "\31\139" then return "gzip" end
+  if head:sub(258, 262) == "ustar" then return "tar" end
+  return "unknown"
+end
+
+local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it_back(tmp: string)
+  local named: {string:string} = {
+    ["a.tar"] = "tar", ["a.tar.gz"] = "gzip", ["A.TGZ"] = "gzip", ["a.zip"] = "zip", ["A.Zip"] = "zip",
+  }
+  for name, format in pairs(named) do
+    local path = tmp .. "/" .. name
+    pack((assert(Archive.create(path))))
+    assert(sniffed(path) == format, name .. ": " .. sniffed(path))
+    local r = assert(Archive.open(path))
+    local seen: {string} = {}
+    while true do
+      local e, why = r:next()
+      if e == nil then assert(why == "", name .. ": " .. why); break end
+      seen[#seen + 1] = e.path .. ":" .. e.kind
+      if e.path == "d/b.txt" then
+        assert(Stream.read_all((assert(e:open()))) == "bravo", name)
+      end
+    end
+    assert(r:close())
+    assert(table.concat(seen, " ") == "d/:dir d/a.txt:file d/b.txt:file d/l:symlink",
+      name .. ": " .. table.concat(seen, " "))
+  end
+end
+
+local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+    local path = tmp .. "/" .. name
+    local w = assert(Archive.create(path))
+    assert(w:add_file("x", "y"))
+    assert(not Fs.exists(path), name .. ": there before close")
+    assert(w:close())
+    assert(Fs.exists(path), name)
+  end
+end
+
+local function test_create_aborted_leaves_nothing_behind(tmp: string)
+  local dir = tmp .. "/out"
+  assert(Fs.mkdirs(dir))
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+    local w = assert(Archive.create(dir .. "/" .. name))
+    assert(w:add_file("x", "y"))
+    assert(w:abort())
+  end
+  local left = assert(Fs.list(dir))
+  assert(#left == 0, table.concat(left, ","))
+end
+
+local function test_create_deterministic_writes_the_same_bytes_whatever_the_times(tmp: string)
+  for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
+    for i, mtime in ipairs({ 1700000000, 1234567890 }) do
+      local w = assert(Archive.create(tmp .. "/" .. i .. name, { deterministic = true }))
+      assert(w:add_file("x", "y", { mtime = mtime }))
+      assert(w:close())
+    end
+    assert(Fs.read(tmp .. "/1" .. name) == Fs.read(tmp .. "/2" .. name), name)
+  end
+end
+
+local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tmp: string)
+  local dir = tmp .. "/out"
+  assert(Fs.mkdirs(dir))
+  local cases: {string:string} = {
+    ["a.data"] = "end it in .tar.gz, .tgz, .tar or .zip",
+    ["a"] = "end it in .tar.gz, .tgz, .tar or .zip",
+    ["a.tar.xz"] = "no xz encoder",
+    ["a.tbz2"] = "no bzip2 encoder",
+  }
+  for name, says in pairs(cases) do
+    local w, why = Archive.create(dir .. "/" .. name)
+    assert(w == nil, name)
+    assert(why:find("^archive: ") and why:find(name, 1, true) and why:find(says, 1, true), why)
+  end
+  local left = assert(Fs.list(dir))
+  assert(#left == 0, table.concat(left, ","))
+end
