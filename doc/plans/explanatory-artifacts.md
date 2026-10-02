@@ -329,6 +329,28 @@ concurrent workloads; commands demonstrably exercise the stated paths; baseline
 startup, require, packaging, rebuild, test and size results recorded. Reviewer
 checks that cache hits and auto-rebuild do not distort the measurements.
 
+### 0.5. Close the existing runtime database reopening capability
+
+Read-only preparation for independent artifact handles confirmed that the
+runtime VFS registration can currently be reused by raw SQL after `Store.hold`
+has denied a module read. Repair this before adding new inspection capabilities.
+The reviewed design consumes the trusted registration after a successful VFS
+open copies its validated descriptor/range into the SQLite file; existing file
+ownership stays unchanged. No pathname or URI becomes a reusable capability.
+
+An independent reviewer accepted the design. Required regressions include the
+actual raw-SQL reopening attempt, repeated attempts, successful attachment of a
+test-owned ordinary database, authorized/denied store reads, host and portable
+startup, descriptor lifetime, rename/unlink behavior, and refusal of supplied
+offset parameters. Explain any harness-epoch decision against the runtime/core
+identity already present in verdict keys.
+
+The assigned implementation agent was stopped by an automated cybersecurity
+check while preparing this step. No implementation changes were made, and the
+blocked action has not been retried through another agent or mechanism. This
+prerequisite is unresolved; the remaining architecture series must not be
+reported complete.
+
 ### 1. Structural artifact decoder independent of host selection
 
 Factor validated framing/range/core enumeration from host/configuration
@@ -556,7 +578,8 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 
 | Step | Status | PR / merge | Review and evidence |
 | --- | --- | --- | --- |
-| 0 Baseline/harness | In progress | Implementation PR pending | Separate implementer and adversarial reviewer; six statistical tests pass. First valid 30-pair suite: 14/15 workloads pass; portable packaging tail inconclusive. No merge authorized by this result. |
+| 0 Baseline/harness | In merge queue | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), head `c7682e4` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
+| 0.5 Runtime VFS capability | Blocked before implementation | — | Reproduced on baseline; separate design review accepted one-shot registration. Implementation agent stopped by automated cybersecurity check; no retry or workaround. |
 | 1 Structural decoder | Pending | — | — |
 | 2 Artifact handles | Pending | — | — |
 | 3 Schema/reader contract | Pending | — | — |
@@ -578,3 +601,16 @@ predeclared A/A calibration and one complete repeat for nonpassing workloads.
 Initial and repeated samples and summaries remain available; the combined
 estimate cannot erase conflicting tail evidence from human review. Size growth
 remains advisory. Missing measurement dimensions are listed above.
+
+Step-0 retained evidence: [step-0-performance.tar.gz](evidence/step-0-performance.tar.gz),
+SHA-256 `995a8ccd3028ee71b5e2a5413c3a5b0b40c79fb81f70de253ed074469c9c4b0f`.
+The archive includes raw timings, warmups, counters, identities, query plans,
+fixtures and a README. It preserves the initial inconclusive reading and the
+predeclared follow-up. Baseline/candidate artifact sizes are 14,995,504 and
+15,024,176 bytes (+28,672). The packaging follow-up's paired median difference
+is -0.691 ms, 95% interval [-2.116, +0.387] ms, with p95 126.575 -> 119.218 ms.
+The comparator is the published `8e4a899` release, not relabeled as the moving
+main branch; the implementation source parent was `3f239b1`. The archive records
+the precise source/script limitations of the first run. Cold I/O, peak RSS,
+isolated projection and complete-repository performance remain open evidence
+dimensions. There are no new code TODOs in step 0.
