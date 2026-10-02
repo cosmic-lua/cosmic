@@ -539,6 +539,44 @@ show eight fewer allocation requests and 736 fewer requested bytes than the
 original feature. It leaves the lazy Artifact metatable unchanged and has its
 own allocation-failure/sanitizer checks; no timing benefit is yet established.
 
+### 1.6. Balanced stateful performance fixtures
+
+The step-1.5 completed-run audit found a deterministic matching flaw in the
+harness. `docs` and `uses` trigger rebuild bookkeeping, even with no sources
+read or compiled. One baseline fixture participates in both A/A and A/B while
+its comparators participate once. Before uses A/A, their build-run counters are
+410 and 207; at the end, the shared fixture has 2,846 recorded builds versus
+1,425 in each comparator, occupying 17 versus 9 history-table pages. This is
+unequal prior workload state, not evidence of unequal source compilation.
+It does not establish the cause, sign or size of the observed timing bias.
+Keep all previous observations and conclusions; do not reinterpret the current
+inconclusive result as passing or claim runner invalidity.
+
+Make a separate generic harness correction: use four independent fixtures with
+matched initialization and lifecycle, one pair for A/A and one for A/B. Each
+fixture participates in only one phase and receives the same warmup and retained
+command counts as its partner. Verify identical prior build-run counts and
+expected no-read/no-compile behavior for docs/uses as well as the existing build
+and test workloads. Preserve alternating order, sample and warmup counts,
+statistics, confidence levels, dispersion/calibration checks and all-pass gate.
+Do not add forced GC, changed workloads, or other method changes to this repair.
+Exercise the actual lifecycle with deterministic state assertions; incidental
+smoke-test timings cannot satisfy an inferential gate.
+
+Publish and independently review/test this correction as a separate draft PR
+first. Freeze its standalone harness, unchanged pinned controller and updated
+independent audit before a new step-1.5 study against the same original parent
+and layout candidate. This materially corrected method is a new declared
+experiment, not an unchanged-input retry; preserve the old protocol/results.
+It promises no favorable result. After the layout prerequisite passes and
+merges, integrate the harness PR onto that parent and independently measure it
+before merge. Then integrate and measure step 2 against the exact main containing
+both prerequisites. This order isolates the layout change from the harness
+module's own carried bytes. The reference plan remains draft and never merges.
+Earlier experiments retain their recorded outcomes, but their later stateful
+workloads now carry this matching limitation; final cumulative performance
+acceptance must use the corrected method.
+
 ### 2. Independent read-only artifact handles and multi-attachment
 
 Introduce ownership-safe descriptor/range handles and read-only SQLite access
@@ -841,7 +879,8 @@ the final ledger and links; it is not a vehicle to merge documentation or code.
 | 0.5 | 0 (merged) |
 | 0.6 | 0; execute before resuming 1 |
 | 1.5 | 1; narrow part of 12 advanced after step-2 diagnosis |
-| 2 | 1, 0.5; integrate and remeasure after 1.5 |
+| 1.6 | Review/test before renewed 1.5 measurement; integrate and measure after 1.5 merge |
+| 2 | 1, 0.5; integrate and remeasure after 1.5 and 1.6 |
 | 3a | 0; execute after 2 |
 | 3b | 3a |
 | 3c (completes 3) | 2, 3b; release/pin if bootstrap calls the new API |
@@ -872,8 +911,9 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | 0.5 Runtime VFS capability | Merged | [#2572](https://github.com/cosmic-lua/cosmic/pull/2572), merge `eb8ea8ccc04b00ab8d4f6909cfe04a4de3426fa7` | Reproduced on pinned release and in a held sandboxed worker. Separate adversarial review: no blocking findings; comment/doc suggestions applied. Full suite 3,299 tests pass; `fix --check .`, sanitized build, `ci/run-local` (all stages incl. fixtures) and all push/merge-queue CI pass. `bin/perf` vs parent `5805988`: 15/17 pass at 30 pairs; `exact_docs` and `embed_host` inconclusive on tails only, both pass in predeclared 100-pair reruns. One run with a mistyped parent commit discarded before review. Raw evidence kept locally, not published. No new TODOs. |
 | 1 Structural decoder | Merged | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), merge `1eb04d803553988fb523eaec5c3b9a5ac7e268d6` | Conflict-free integration preserves the six-file decoder change; separate source review approves. Fresh boots, native/production format fixtures, release and checked focused tests, sanitizer/analyzer, 661-file whole-tree and 59-file CI checks pass. Local full suite timed out with diagnosed host restrictions; normal CI driver chown was refused. All required exact-head and merge-queue CI passes. Frozen 200-pair experiment passed all 15 workloads; independent review verified 12,000 observations plus 180 warmups and recomputed every statistic. Current results and limits below; older positive intervals remain historical evidence. No new TODOs. |
 | 0.6 Performance inference | Merged | [#2588](https://github.com/cosmic-lua/cosmic/pull/2588), merge `117d49cdc61746c6be375d399f2c92650d551c1b` | Independent statistical/source review approved identical local tree `ee1493a4`. All 42 configurations / 210,000 frozen simulation trials met criteria: supported null passes 93.16–94.24%, minimum interval coverage 95.50%, strong location block 100%, doubled tail block 95.08%. Thirteen focused tests and 660-file check pass. Prescribed local full suite timed out with host failures; the three opaque assertions were diagnosed identically on parent/candidate as denied socket sends and confined compiler starts. All required push and merge-queue CI passed. Core bytes unchanged against the PR parent; database +16 KiB. Small noisy shifts retain limited detection power. Historical step-1 finding remains open. |
-| 2 Artifact handles | Draft; performance blocks merge | [#2591](https://github.com/cosmic-lua/cosmic/pull/2591), head `9d2b2c1974fe8a1bc57e8d2d48f47114bc9bccd5`, parent `8f43b4d751da5635b9902ee89e94ea2e4603467e` | Independent review approves the exact published tree: owned handles, lazy inspection VFS, CLI joins, host/portable alias denial, explicit artifact-only connections and immutable-input contract. Focused 21 pass (12 ran, 9 stood); checked 13 pass, all ran, including allocation failures. Removing the first-use metatable safeguard makes its regression fail. Analyzer and whole-tree/CI-tree checks pass. Full 30-second attempt times out with host EROFS/EPERM and three previously diagnosed derived assertions; updated local CI cannot start its nonroot credential preflight (EPERM). Remote CI found only a missing Artifact instance in the declaration-surface fixture; a separately reviewed test-only correction now passes release and checked declaration guards (12 ran each), with unchanged executable bytes. No added TODOs. Frozen 200-pair all-15-workload protocol updated only for the corrected commit identity; the previous record remains untouched and collected no samples. Corrected-head CI passed. The fixed experiment completed once: 5 pass, 8 inconclusive, 2 regression; independent audit validated all observations and counters. Native tool startup paired median +0.0567 ms [0.0308, 0.0858], fixture test execution +1.5889 ms [0.9065, 2.2066]; both lower bounds exceed A/A resolution. Eight other workloads have wholly positive median intervals. No invalidity, input changes, residuals or cgroup throttling. Keep this result; diagnose shared startup/SQLite initialization with untimed counts before a concrete fix and separately declared experiment. Candidate grows 49,152 bytes. Later main `437ecf40` is independently reviewed roadmap-only documentation; no separately measured queued-artifact claim. |
-| 1.5 Module lookup layout | Design review; separate prerequisite | — | Untimed mapping ties the 12 extra reads to unrelated wide comparison records. Evaluate a narrow rowid-layout change with compatibility, deterministic-output and cache-invalidation coverage before a separately frozen performance experiment. |
+| 2 Artifact handles | Draft; performance blocks merge | [#2591](https://github.com/cosmic-lua/cosmic/pull/2591), head `9d2b2c1974fe8a1bc57e8d2d48f47114bc9bccd5`, parent `8f43b4d751da5635b9902ee89e94ea2e4603467e` | Independent review approves the exact published tree: owned handles, lazy inspection VFS, CLI joins, host/portable alias denial, explicit artifact-only connections and immutable-input contract. Focused 21 pass (12 ran, 9 stood); checked 13 pass, all ran, including allocation failures. Removing the first-use metatable safeguard makes its regression fail. Analyzer and whole-tree/CI-tree checks pass. Full 30-second attempt times out with host EROFS/EPERM and three previously diagnosed derived assertions; updated local CI cannot start its nonroot credential preflight (EPERM). Remote CI found only a missing Artifact instance in the declaration-surface fixture; a separately reviewed test-only correction now passes release and checked declaration guards (12 ran each), with unchanged executable bytes. No added TODOs. Frozen 200-pair all-15-workload protocol updated only for the corrected commit identity; the previous record remains untouched and collected no samples. Corrected-head CI passed. The fixed experiment completed once: 5 pass, 8 inconclusive, 2 regression; independent audit validated all observations and counters. Native tool startup paired median +0.0567 ms [0.0308, 0.0858], fixture test execution +1.5889 ms [0.9065, 2.2066]; both lower bounds exceed A/A resolution. Eight other workloads have wholly positive median intervals. No invalidity, input changes, residuals or cgroup throttling. Keep this result; diagnose shared startup/SQLite initialization with untimed counts before a concrete fix and separately declared experiment. Candidate grows 49,152 bytes. Later main `437ecf40` is independently reviewed roadmap-only documentation; no separately measured queued-artifact claim. Separate preallocation correction now published as `5e008b58` (tree `9ddbfeeb`), with 55 release and 59 checked tests all run and passing, sanitizer/analyzer and whole-tree/CI-tree checks passing. Full attempt and local CI remain host-blocked; no added TODOs. Renewed remote CI passed; feature measurement against the future merged layout parent remains required. |
+| 1.5 Module lookup layout | Draft; calibration blocks merge | [#2592](https://github.com/cosmic-lua/cosmic/pull/2592), head `f7aa71c1581255f86c815b5f599eb545b4eb7901`, parent `437ecf40` | Exact tree independently reviewed. NULL/duplicate constraints, actual loader reads, all five producer determinism and schema-sensitive cache tests pass. Four old/pinned/new core-layout combinations pass. Whole-tree 666 and CI-tree 63 checks pass. Prescribed sequential full run times out with host failures; two additional isolation/todos assertions reproduce identically on parent. Initial concurrent check was discarded; clean sequential checks and database integrity checks pass. Normal local CI credential preflight is blocked by EPERM. No added TODOs. Untimed audit confirms identical native core and loaded module inventories/payloads, 162 to 32 total reads and 119 to zero unloaded-module overflow reads. This establishes the mechanism, not timing. Database shrinks 192,512 bytes. All required exact-head remote CI passes. The separately frozen fixed-200 experiment completed once in 502.648 seconds: 14 pass, 1 inconclusive, no regression. The sole nonpass is uses A/A median calibration +0.2811 ms [0.0324, 0.6272], despite candidate paired median -3.3948 ms [-3.6017, -3.1690] and p95 upper change -1.5023 ms. The gate remains blocked; no unchanged-input retry or threshold relaxation. Runner reports no invalidity, changed inputs, descendants or cgroup throttle events. Independent completed-run audit validates all 12,000 observations and 180 warmups and confirms the block. A separately justified fixture-balance repair is described below; no causal attribution of the calibration bias is established. |
+| 1.6 Balanced performance fixtures | Design reviewed; implementation pending | — | Four independent histories and stateful-query counter checks; no statistics or threshold changes. Corrected standalone harness must be reviewed/frozen before a new layout experiment. |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
 | 3a Existing database recognition | Planned independent work | — | Read-only dependency review complete; no new access APIs. |
 | 3b Additive format metadata | Planned independent work | — | Reader-first rollout; existing compatible table layout. |
