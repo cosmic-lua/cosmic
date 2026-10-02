@@ -710,13 +710,23 @@ local function test_wait_any_ends_a_child_past_its_start_timeout()
   assert(r.timed_out and about(began, Time.ms(100)), ms_since(began))
 end
 
+--- A child that exits by itself after its start's deadline, before
+--- anything waits on it, was not ended for it: its Result is its own.
+local function test_a_child_that_exited_past_its_start_timeout_is_not_timed_out()
+  local h <close> = assert(Child.start(lua(sleep(200) .. "return 4", nil,
+    { timeout_ns = Time.ms(50) })))
+  local _, _ = Time.sleep_ns(Time.seconds(1))
+  local r = assert(h:wait())
+  assert(r.code == 4 and not r.timed_out, tostring(r.code))
+end
+
 --- `try_wait` past a start's deadline ends the child and answers it
 --- finished; before it, the child runs on.
 local function test_try_wait_ends_a_child_past_its_start_timeout()
-  local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = Time.ms(100) })))
+  local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = Time.ms(300) })))
   local look = assert(h:try_wait())
   assert(not look.finished)
-  local _, _ = Time.sleep_ns(Time.ms(150))
+  local _, _ = Time.sleep_ns(Time.ms(350))
   look = assert(h:try_wait())
   assert(look.finished and look.result.timed_out, "try_wait left the child past its deadline")
 end

@@ -230,12 +230,15 @@ local record Options
   --- How long the child may run, from its start, before it is ended as
   --- an expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
   --- SIGKILL, its group included -- its Result `timed_out`. Nil for no
-  --- limit. [`Child.run`] waits for it. A started child is ended for it
-  --- by whatever waits on it once it has passed: its handle's `wait`
-  --- (with a timeout of its own or not), [`try_wait`], [`Child.wait_any`],
-  --- or a read or write of its streams. No timer runs meanwhile, so a
-  --- child nothing waits on runs past it until something does, or its
-  --- handle closes; [`Handle.drain`] does not end it.
+  --- limit. [`Child.run`]'s wait ends the child at it. A started child
+  --- is ended for it by whatever waits on it once it has passed: its
+  --- handle's `wait` (with a timeout of its own or not), [`try_wait`],
+  --- [`Child.wait_any`], or a read or write of its streams. A child that
+  --- exited by itself before that is not `timed_out`. Nothing ends it
+  --- while nothing waits on it, as no thread runs here but the caller's:
+  --- it runs past the deadline until something waits, or its handle
+  --- closes. [`Handle.drain`], which ends no process, does not end it
+  --- either: a loop over it asks [`try_wait`] to have the deadline kept.
   timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
@@ -383,7 +386,8 @@ local record Handle
   --- bounds. EOF requires closed pipes, including escaped writers. A previous
   --- guard cancellation may be bypassed only after its signal was taken; a
   --- fresh signal interrupts without being consumed. Ordinary Reader failures
-  --- remain sticky. No process is ended, reaped to completion, or timed out.
+  --- remain sticky. No process is ended, reaped to completion, or timed out,
+  --- past the child's own [`Options.timeout_ns`] or not.
   --- Concurrent reads/drains raise. Sink failure may have written a prefix;
   --- it ends the selected read ends, and the caller still owns child cleanup.
   --- The deadline bounds pipe waits, not arbitrary code in a Writer. A zero
@@ -2018,8 +2022,9 @@ end
 --- running: a timeout is `done == nil and trouble == Poll.TIMEOUT`, and
 --- any other trouble beside a nil `done` is a failure. A handle whose
 --- own [`Options.timeout_ns`] passes first is ended, as an expired
---- [`Handle.wait`] ends it, and answered settled, its Result
---- `timed_out`. In a task of
+--- [`Handle.wait`] ends it -- which waits for it to go, so the call
+--- can outlast its own `timeout_ns` by the grace period -- and is
+--- answered settled, its Result `timed_out`. In a task of
 --- [`Poll.run`] that is cancelled, it answers nil and
 --- [`Poll.CANCELLED`], the handles left running too. A `timeout_ns`
 --- below 0 or past [`Poll.MOST_NS`] raises.
