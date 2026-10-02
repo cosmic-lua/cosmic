@@ -523,3 +523,52 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   reviewed A/A calibration and at least 30 A/B pairs plus real consumer/error
   scope review; invalid, noisy or unhelpful evidence means explicit deferral.
   Current production patch synchronization and bootstrap pin are unchanged.
+
+- 2026-10-02 UTC: C5's first CI run `36986815659` passed macOS/checked
+  but all three Linux credential proofs stopped before the driver: the root
+  launcher correctly refused the ordinary runner's cache owner. Reviewed
+  correction `106323cf`/`5a6b438f` gives only the proof a private root-owned
+  XDG/portable cache; no launcher rule, API or assertion changed. Workflow38
+  and independent eight-mode launcher/filter smoke pass; real transitions
+  remain native CI gates. The required local full30 still times out and its
+  inherited Unix-socket EPERM assertion remains explicitly recorded.
+
+- 2026-10-02 UTC: C3 pilot branch `36986823523` passed, including native
+  measurement job `110773641557`. Artifact `11218161072`, ZIP SHA256
+  `abada3e8e2f70e8bd97e5d3dc5c30987b178ba46bf770f7026dd8d42bbc8ab13`,
+  has independently checked 24 timing and eight diagnostic rows, exact keys,
+  modes and payload manifests, and zero warm writes/flushes. The observed
+  direct Azure ext4 disk uses nobarrier/data=writeback/journal_async_commit;
+  results describe this configuration and imply no physical durability.
+  All six pairs favor syncfs: median paired difference -428.237ms for vendors
+  and -620.003ms for many small files. This is promising pilot evidence only.
+
+  **Explicit plan adjustment:** the native pilot now justifies one additional
+  bounded confirmation push on draft #2584. This changes our earlier runner-
+  efficiency rule; it is a benchmark-motivated run, not an already-required
+  event. No matrix expansion, workflow dispatch, automatic retry or auto-merge.
+  Independent protocol approval is recorded at SHA256
+  `fae3d5a17a1880dd81ad7518ef8da1814cc7e2e8b1b9038d5caa4f0f923524ce`.
+  Final measurement implementation still needs separate adversarial approval.
+
+  The existing first x86 Linux leg retains its five-minute cap and an inclusive
+  internal 280-second stop. Fixed per-dataset A/A then A/B calibration each
+  has three warmup pairs and 30 measured alternating pairs: 240 measured,
+  24 warmup and eight separate diagnostic executions overall. Preserve every
+  observation and independent manifest, with no outlier removal, replacement,
+  sample reduction or partial acceptance. Require 6GiB/750k inode headroom,
+  immutable optimized tool/core/source/pin/configuration identities, matching
+  native storage facts and monitored quiet guest execution. Monitoring stays
+  outside child decision timing; missing visibility, interference, deadline,
+  mismatches or incomplete persistence invalidate the attempt.
+
+  Both datasets must have unbiased A/A calibration; the entire paired median
+  interval for A/B must exceed the A/A practical resolution in the beneficial
+  direction. Use existing perf definitions, dispersion and empirical p95
+  vetoes, plus chronological/order/drift review. Incomplete, noisy, conflicting
+  or confounded results mean explicit deferral, without another automatic run.
+  Positive confirmation remains limited to the measured filesystem/workload;
+  adoption separately requires consumer/error-scope and generalization review.
+  Remove all temporary measurement code before any production merge, then
+  require fresh ordinary CI and merge queue checks. Production patch behavior
+  and the pin remain unchanged throughout this experiment.
