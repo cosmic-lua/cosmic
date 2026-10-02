@@ -119,11 +119,22 @@ local record Cli
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable under o/bin/ for each
   --- cmd/<name>/main.tl it holds -- or only those under the paths --
-  --- o/bin/<name>, which runs on its own, with nothing beside it -- see
-  --- cmd. It runs on every supported system, and carries this binary's
-  --- CA roots and time zones: `cosmic refresh --binary o/bin/<name> -o
-  --- <copy>` writes a copy with newer ones later. The tree is found as
-  --- `test` finds it
+  --- o/bin/<name> -- see cmd. That one file is the whole program: copied
+  --- alone to a host with no cosmic, it runs with an empty environment
+  --- (`env -i ./name`) on every supported system. It is a /bin/sh
+  --- launcher, which `file` calls a shell script, with a core for each
+  --- system and the program appended; the launcher calls uname, stat
+  --- and the like from the PATH (the shell's default when none is set),
+  --- and a host's first run copies its core into a private cache:
+  --- $COSMIC_PORTABLE_CACHE, else $XDG_CACHE_HOME/cosmic/cores, else
+  --- the home directory's cache, else $TMPDIR, or /tmp, under
+  --- cosmic-cores-<uid>. `--host` writes this system's core and the
+  --- program alone, which the kernel runs directly -- no shell, PATH or
+  --- cache -- but only on this system and processor: the choice for a
+  --- container with no /bin/sh or a host with nowhere to write. Either
+  --- carries this binary's CA roots and time zones: `cosmic refresh
+  --- --binary o/bin/<name> -o <copy>` writes a copy with newer ones
+  --- later. The tree is found as `test` finds it
   build: string
   --- `cosmic db [path...]`: what the three databases under o/ hold,
   --- table by table -- rows, pages, bytes -- how the last few builds

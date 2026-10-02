@@ -589,8 +589,10 @@ local function walk(root: string, skip: function(string, string, string): boolea
   return found, ""
 end
 
---- Every file under a root, sorted, as paths relative to that root, as
---- `find root -type f` lists them: a link is neither listed nor
+--- Every file under a root, sorted, as `find root -type f` lists them
+--- but relative to `root`: no leading `/` or `./` (`a.txt`,
+--- `css/main.css`), so `root .. "/" .. path` names the file. Only a
+--- regular file is listed (`-type f`): a link is neither listed nor
 --- walked into, whatever it leads to.
 --- `skip` is asked about each entry's relative path, its bare name
 --- second, and what the listing says it is third, as [`Fs.stat`]'s
@@ -602,9 +604,10 @@ function Fs.walk(root: string,
   return walk(root, skip, false)
 end
 
---- Every file under a root as [`Fs.walk`] lists them, but with each link
---- taken for what it leads to, as `find -L root -type f` lists them: a
---- link to a file is listed as a file, under the link's own path, and a
+--- Every file under a root as [`Fs.walk`] lists them -- relative to
+--- `root`, sorted, regular files alone -- but with each link taken for
+--- what it leads to, as `find -L root -type f` lists them: a link to a
+--- file is listed as a file, under the link's own path, and a
 --- link to a directory is walked into. A link that leads nowhere (or to
 --- a device, a socket or a pipe) is not listed. A directory already
 --- being walked, reached again through a link (`loop -> .`), is not
