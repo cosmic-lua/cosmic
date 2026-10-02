@@ -7,6 +7,7 @@
 --- filesystem.
 local type compiler = require("build.compiler")
 local teal = require("build.teal")
+local Time = require("cosmic.time")
 
 --- A field written through the capsule reaches the loaded compiler:
 --- the capsule itself never holds it, and reading it back through the
@@ -309,6 +310,37 @@ local function test_a_keyword_named_variable_is_no_old_type_declaration()
   end
   local found = syntax_errors("local f = functiontype\nprint(f)\n")
   assert(#found == 0, table.concat(found, "; "))
+end
+
+--- The look for an old type body costs what it reads, not the rest of
+--- the file: a file of many lines naming `record` or `enum` compiles
+--- in about the time of one with `1` in their place, where reading on
+--- to the next `end`, copying the tokens, or inserting a `>` after
+--- `record < n` made the time grow with the square of the lines.
+local function test_a_keyword_named_variable_costs_what_it_reads()
+  local built = assert(teal.load())
+  local function took(head: string, line: string): integer
+    local parts: {string} = { head }
+    for n = 1, 3000 do
+      parts[#parts + 1] = (line:gsub("N", tostring(n)))
+    end
+    local started = Time.monotonic_ns()
+    local _, result = built.gen(table.concat(parts), nil, nil, "tl")
+    assert(#assert(result).syntax_errors == 0, head .. line .. tostring((result.syntax_errors[1] or {}).msg))
+    return Time.monotonic_ns() - started
+  end
+  local head = "local record, enum, n = 1, 1, 2\n"
+  local base = took(head, "local xN = 1\n")
+  for _, line in ipairs({
+    "local xN = enum\n",
+    "local tN = { k = enum }\n",
+    "local xN = record < n\n",
+    "local xN = record\n",
+    "local function fN() local x = record return x end\n",
+  }) do
+    local t = took(head, line)
+    assert(t < base * 20, line .. ": " .. t .. " ns against " .. base .. " ns for `1`")
+  end
 end
 
 --- A test whose import closure does not hold [`cosmic.removed`] is not

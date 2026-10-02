@@ -1,5 +1,5 @@
 file: tl.tl
-note: `record`, `interface` and `enum` are names as well as keywords, and tl read any of them after `local x =` as the type declaration syntax 0.7.1 dropped, so `local category = record` failed with "use 'local record category'" where `record` was a loop variable. Read one as that syntax only where a whole, clean type body with something declared in it follows, which no expression and statements after it spell but an enum's strings closing a block (`enum "a" end`, a call); the same test replaces the table value's, which also took `{ v = enum "a" }`, a call, for a nested enum
+note: `record`, `interface` and `enum` are names as well as keywords, and tl read any of them after `local x =` as the type declaration syntax 0.7.1 dropped, so `local category = record` failed with "use 'local record category'" where `record` was a loop variable. Read one as that syntax only where a whole, clean type body with something declared in it follows, which no expression and statements after it spell but an enum's strings closing a block (`enum "a" end`, a call); the same test replaces the table value's, which also took `{ v = enum "a" }`, a call, for a nested enum. The look for a body reads copies of the tokens, which error recovery would otherwise rewrite under the expression the parse goes on to read
 --- find
 local function parse_table_value(ps: ParseState, i: integer): integer, Node, integer
    local next_word = ps.tokens[i].tk
@@ -20,24 +20,71 @@ local function parse_table_value(ps: ParseState, i: integer): integer, Node, int
 -- syntax 0.7.1 dropped (`local Point = record ... end`), rather than
 -- name a variable? Each is a name as well as a keyword, so it does only
 -- where a type body parses after it with no error and declares
--- something: a field, a metamethod or an enum value. No expression and
--- the statements after it parse so, since a field (`x: T`) is no
--- statement and a nested type needs `local`, but a call of the name
--- with strings that closes a block (`enum "a" end`), which stays read
--- as the old syntax. An old declaration with a mistake in its body
--- loses the hint instead.
+-- something: a field, a metamethod or an enum value. Neither an
+-- expression nor the statements after one parse as such a body: a
+-- field (`x: T`) is no statement, and a nested type needs `local`. An
+-- empty old declaration (`record end`), or one with a mistake in its
+-- body, is read as a name and loses the hint.
 --
--- The parse runs on copies of the tokens from i on: recovering from an
--- error inserts tokens (a `>` missing at a line break), and a type
--- argument list's `>>` is rewritten to `>`, either of which would
--- change how `record < n >> 1` or `record < n` before a line break
--- reads as the expression it is.
+-- Strings that close a block after `enum` (`enum "a" end`) read both
+-- ways, as an enum and as calls; they stay the enum, whose hint names
+-- what to write, since neither reading can be told from the other.
 local function is_old_type_syntax(ps: ParseState, i: integer): boolean
-   local tokens: {Token} = table.move(ps.tokens, 1, i - 1, 1, {})
-   for j = i, #ps.tokens do
-      local tk = ps.tokens[j]
-      tokens[j] = { x = tk.x, y = tk.y, tk = tk.tk, kind = tk.kind, comments = tk.comments }
+   if ps.tokens[i].tk == "enum" then
+      -- An enum body is strings and its `end`, so look at the tokens
+      -- rather than parse one: a parse records an error for each other
+      -- token and goes on to the next `end`.
+      local j = i + 1
+      while ps.tokens[j].kind == "string" do
+         j = j + 1
+      end
+      return j > i + 1 and ps.tokens[j].tk == "end"
    end
+   -- A type's argument list is names, with `is` and a dotted name for a
+   -- constraint, closed by `>`. Anything else after `<` (`record < n`
+   -- before a line break) is a comparison, and a parse would insert the
+   -- `>` it misses, which moves every token after it.
+   if ps.tokens[i + 1].tk == "<" then
+      local j = i + 2
+      while ps.tokens[j].kind == "identifier" or ps.tokens[j].tk == ","
+         or ps.tokens[j].tk == "is" or ps.tokens[j].tk == "." do
+         j = j + 1
+      end
+      if ps.tokens[j].tk ~= ">" then
+         return false
+      end
+   end
+   -- The parse reads copies of the tokens from i on, each made when it
+   -- is first read: recovering from an error inserts a token (a `>`
+   -- missing at a line break), and a type argument list's `>>` is
+   -- rewritten to `>`, either of which would change how `record < n >>
+   -- 1`, or `record < n` before a line break, reads as the expression it
+   -- is. A failing parse stops at the first token that is no part of a
+   -- body, so this costs what it reads, not the rest of the file, but
+   -- for an inserted token, which shifts every copy after it: the check
+   -- on `<` above keeps the one an expression would meet out.
+   local base = ps.tokens
+   local len = #base
+   local tokens: {Token} = setmetatable({} as {Token}, {
+      __index = function(t: {Token}, j: integer): Token
+         local tk = base[j]
+         if j < i or not tk then
+            return tk
+         end
+         local copy: Token = { x = tk.x, y = tk.y, tk = tk.tk, kind = tk.kind, comments = tk.comments }
+         rawset(t, j, copy)
+         return copy
+      end,
+      __newindex = function(t: {Token}, j: integer, tk: Token)
+         rawset(t, j, tk)
+         if j > len then
+            len = j
+         end
+      end,
+      __len = function(_: {Token}): integer
+         return len
+      end,
+   } as metatable<{Token}>)
    local err_ps: ParseState = {
       filename = ps.filename,
       tokens = tokens,
@@ -46,17 +93,12 @@ local function is_old_type_syntax(ps: ParseState, i: integer): boolean
       parse_lang = ps.parse_lang,
    }
    local tn = ps.tokens[i].tk as BodyTypeName
-   if not parse_type_body_fns[tn] then
-      return false
-   end
    local _, t = parse_type_body(err_ps, i + 1, i, {}, tn)
    if not t or #err_ps.errs > 0 then
       return false
    end
    local def = t is GenericType and t.t or t
-   if def is EnumType then
-      return next(def.enumset) ~= nil
-   elseif def is RecordLikeType then
+   if def is RecordLikeType then
       if #def.field_order > 0 then
          return true
       end

@@ -13,5 +13,7 @@ note: a declaration's value is read as the dropped type syntax only where 31a's 
       if parse_type_body_fns[tn] and is_old_type_syntax(ps, i + 1) then
          local scope = node_name == "local_declaration" and "local" or "global"
          return failskip(ps, i + 1, "syntax error: this syntax is no longer valid; use '" .. scope .. " " .. next_word .. " " .. asgn.vars[1].tk .. "'", skip_type_body)
+      -- `functiontype(T)` reads both ways, as a type and as a call, and
+      -- stays the type, whose hint names what to write instead.
       elseif next_word == "functiontype" and ps.tokens[i + 2].tk == "(" then
 --- end
