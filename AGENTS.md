@@ -42,7 +42,8 @@
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-paths>`.
    `fix` checks syntax and tree equivalence; compilation (`cosmic test`, a
    boot) checks types and [`build/contracts.tl`]'s rules, which `fix` does
-   not report. A C
+   not report, but for failing when the build it makes to resolve a link
+   to a symbol fails. A C
    path is written back in Lua's own layout ([`build/c/layout.tl`]) and
    checked against the rules in [`build/c/rules.tl`] (see C, below).
    The checks only the whole tree can answer ([`build/tree_checks.tl`]:

@@ -130,6 +130,9 @@ local record fix
   record LinkSource
     context: link_resolve.Context
     close: function()
+    --- Why the build made to resolve a link failed, once one has: the
+    --- links then resolved against the last build, and the run fails.
+    unbuilt: string | nil
   end
 
   record Chosen
@@ -768,17 +771,17 @@ end
 --- own tree (`own`), a project with no `o/cosmic.db` once that build
 --- has run (one that failed, or a `rebuild_here` that made none) has no
 --- symbols of its own yet, which the context says rather than failing
---- links to them. `close` closes what was opened.
+--- links to them. `close` closes what was opened. A build that fails
+--- leaves why in `unbuilt`.
 function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
                           databases: function(): docs.Sources): fix.LinkSource
   local opened: docs.Sources | nil = nil
+  local source: fix.LinkSource
   local function open(): docs.View | nil, string
     if not whole then
       local rebuilt, rebuild_trouble = rebuild_here("fix")
-      if not rebuilt then
-        log:complain("fix: links: not rebuilt, resolving from the last build: " .. rebuild_trouble)
-      end
+      if not rebuilt then source.unbuilt = rebuild_trouble end
     end
     local found = databases()
     opened = found
@@ -797,7 +800,8 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
       end
     end
   end
-  return { context = links.context(root, open, unbuilt), close = close }
+  source = { context = links.context(root, open, unbuilt), close = close }
+  return source
 end
 
 --- `near`'s notes on the exported functions of `files`, each line
@@ -1139,6 +1143,7 @@ local function fix_verb(argv: {integer:string}): integer
   local laid_out: {string: boolean} = {}
   for _, file in ipairs(files) do laid_out[file] = true end
   local linked_out: fix.Linked
+  local unbuilt: string | nil = nil
   do
     -- Built even where no build has been made yet: this run has staged
     -- and compiled the directory already ([`spill.check`]), and a link
@@ -1149,6 +1154,11 @@ local function fix_verb(argv: {integer:string}): integer
     linked_out = fix.links(source.context, built, linked, checking and "check" or "write", facts,
       laid_out)
     source.close()
+    -- The compiler has said why on stderr; a PASS after it would read
+    -- as a tree that builds.
+    if source.unbuilt ~= nil then
+      unbuilt = "links: not rebuilt, resolved from the last build: " .. source.unbuilt
+    end
   end
   -- Held no longer than the links need them.
   facts = {}
@@ -1201,10 +1211,14 @@ local function fix_verb(argv: {integer:string}): integer
   for _, line in ipairs(redefined) do
     log:say("fix: FAIL  " .. line)
   end
+  if unbuilt ~= nil then
+    log:say("fix: FAIL  " .. unbuilt)
+  end
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
-  if #failures > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 then
+  if #failures > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
+      unbuilt ~= nil then
     local said: {string} = {}
     if #failures > 0 then
       said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
@@ -1222,6 +1236,9 @@ local function fix_verb(argv: {integer:string}): integer
     if #redefined > 0 then
       said[#said + 1] = plural.count(#redefined, "Markdown file") ..
         " whose definitions to rewrite (`cosmic fix` rewrites them)"
+    end
+    if unbuilt ~= nil then
+      said[#said + 1] = "the tree not building"
     end
     log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(started))
     return 1

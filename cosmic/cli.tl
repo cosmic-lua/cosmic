@@ -88,7 +88,10 @@ local record Cli
   --- declaration of its own file, one file, or, written in full
   --- (`module.member`), one symbol; in Markdown it also
   --- writes the definitions GitHub needs to show one, at the file's
-  --- end. It never lays out a Markdown or Zig file. The tree is found
+  --- end. A run that builds the tree to resolve a link to a symbol, and
+  --- whose build fails, fails too, the compiler's reasons on stderr:
+  --- types are otherwise `test`'s to check. It never lays out a
+  --- Markdown or Zig file. The tree is found
   --- as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
