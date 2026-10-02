@@ -176,8 +176,8 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
 | B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | merged | 55724526/treeb3c0574f; branch36977328228 and queue36977805814 green; exact queue tree independently approved; native80 and checked56 pass |
 | B4b | [#2578](https://github.com/cosmic-lua/cosmic/pull/2578) | merged | 79c38a7a/tree44c25249; branch36979110720 and queue36979424775 green; exact queue tree independently approved; native63/checked35 pass; matching three artifacts |
-| B5 | pending | awaiting actual release verification | source410305c3/tree54e917c2 approved; all12 blobs unchanged from a1439795; B4b actualmerge79c38a7a mainCI36980359851 running; corrected release procedure independently approved; pin unchanged |
-| C1 | pending | locally approved | 938b3686/tree254eea31 prep preserves original668ef813 feature and incoming Fs changes; focused60 pass; final integration/publication after B5 |
+| B5 | pending | actual release verified; final consumer gates running | author and reviewer separately downloaded/executed immutable next-79c38a7a; SHA256 97387765bb99f736dca1cf96fe62c20ae45c85fa30c423379c18c563cb0a2ab8; final atomic pin/consumer validation underway |
+| C1 | pending | refreshed preparation approved | 0aefc4c6/tree4dbe5272 on actual79c38a7a; all four Fs feature blobs unchanged; focused60 pass; final integration/publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
 | C4 | pending | locally approved | 73ae44e0/tree1a99265a; independent native/checked allocation, bounded growth and account-service failure review passed; publication after B5 |
@@ -485,3 +485,14 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   Fs/Proc acknowledgments that merge cleanly; C2 has no overlap. Keep separate
   exact-tree and cumulative queue reviews, join before C5, and retain C5/C6
   sequencing and C7's release verification. No runtime or test gate is removed.
+
+- 2026-10-02 UTC: B4b merged as `79c38a7a`/`44c25249` after green branch
+  `36979110720` and queue `36979424775`; main CI `36980359851` and publisher
+  `36980439643` also passed. Author and adversarial reviewer separately
+  downloaded all three assets of immutable release `401625559`,
+  `next-79c38a7a3bba6bdabdb6515853c23ffa61456598`. The 15,175,728-byte binary
+  has SHA256 `97387765bb99f736dca1cf96fe62c20ae45c85fa30c423379c18c563cb0a2ab8`,
+  matching GitHub's digest and both manifests. Tag/ancestry and actual publisher
+  source provenance match. Both executed the binary's B APIs and bare cache/help
+  in a broken project. B5 may now advance the pin atomically with every unblocked
+  consumer, subject to final actual-pin tests and independent exact-tree review.
