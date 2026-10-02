@@ -32,6 +32,10 @@ local record Stream
   interface Reader
     --- The next chunk of at most `max_bytes` bytes, or nil and `""` at the
     --- end, or nil and an error; see the module's description.
+    -- TODO: a `max_bytes` below 1 answers nil and "", a false end of
+    -- the stream, from Stream.from_string's and Stream.prepend's Readers
+    -- (so from a Lines' `rest` holding bytes read ahead); raise on it in
+    -- every Reader here instead, as Stream.lines does on its own.
     read: function(Reader, max_bytes?: integer): string | nil, string
     --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
@@ -945,6 +949,7 @@ function LineReader:read(): string | nil, string
 end
 
 function LineReader:each(): function(): string
+  if self.rested then error(rested, 2) end
   return function(): string
     local line, _ = self:read()
     return line
@@ -981,11 +986,10 @@ end
 function LineReader:rest(): Stream.Reader
   if self.rested then error(rested, 2) end
   self.rested = true
-  -- After a line, `parts` is empty: every read that held a piece of a
-  -- line returned it joined or failed, which drops it. So what is read
-  -- ahead is all in `chunk`.
-  local ahead = self.chunk:sub(self.at)
-  self.chunk, self.at = "", 1
+  -- `parts` is empty after a read that returned, but holds the start of
+  -- a line when the Reader raised in the middle of one.
+  local ahead = table.concat(self.parts) .. self.chunk:sub(self.at)
+  self.chunk, self.at, self.parts, self.held = "", 1, {}, 0
   if self.failed ~= "" or self.ended then
     local spent: SpentReader = setmetatable({ source = self.source, why = self.failed,
       closed = false }, spent_reader_mt)

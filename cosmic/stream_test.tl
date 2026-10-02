@@ -1017,6 +1017,26 @@ local function test_rest_after_a_failure_answers_the_failure()
   end
 end
 
+--- A Reader that raises in the middle of a line leaves that line's
+--- start with the lines, and `rest` gives it back before the rest.
+local function test_rest_after_a_raise_keeps_the_start_of_a_line()
+  local answers: {string | boolean} = { "a\npar", false, "tial\nbody" }
+  local next_answer = 0
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+    next_answer = next_answer + 1
+    local answer = answers[next_answer]
+    if answer == false then error("raised") end
+    return answer as string, ""
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local lines = Stream.lines(r)
+  assert(lines:read() == "a")
+  assert(not pcall(lines.read, lines))
+  local got = assert(Stream.read_all(lines:rest()))
+  assert(got == "partial\nbody", got)
+end
+
 --- `rest` ends the lines: a later `read`, `each` or `rest` raises
 --- rather than take bytes the Reader gave away; closing the Reader it
 --- gave closes the lines' Reader, once.
