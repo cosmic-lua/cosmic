@@ -345,15 +345,16 @@ startup, descriptor lifetime, rename/unlink behavior, and refusal of supplied
 offset parameters. Explain any harness-epoch decision against the runtime/core
 identity already present in verdict keys.
 
-The assigned implementation agent was stopped by an automated cybersecurity
-check while preparing this step. No implementation changes were made, and the
-blocked action has not been retried through another agent or mechanism. This
-prerequisite is unresolved; the remaining architecture series must not be
-reported complete. The user has authorized proceeding with independent work.
-Step 1 changes only parsing and host-selection factoring; it neither retries
-this blocked action nor adds access to databases. Step 2 remains gated on 0.5.
-Later schema-only changes may be split out after their independence is reviewed
-and this dependency map is updated explicitly.
+An earlier implementation attempt was stopped by an automated check on another
+system; the user judged that block spurious and authorized proceeding. The step
+landed in [#2572](https://github.com/cosmic-lua/cosmic/pull/2572): the first
+successful main-database open consumes the registration. Its new regression
+covers repeated raw-SQL reopening from a sandboxed worker without `store`
+(confirmed failing on the unfixed core) and an ordinary attachment on the same
+connection. Startup, descriptor lifetime, rename/unlink and offset-refusal
+coverage is the existing suite's, unchanged and passing; no new cases were added
+for them. No harness-epoch bump: every verdict key holds the core digest, which
+this change moves. Step 2 is no longer gated on 0.5.
 
 ### 1. Structural artifact decoder independent of host selection
 
@@ -620,7 +621,7 @@ the final ledger and links; it is not a vehicle to merge documentation or code.
 | --- | --- |
 | 0 | Baseline access |
 | 1 | 0 |
-| 0.5 | 0; execution-service block unresolved |
+| 0.5 | 0 (merged) |
 | 2 | 1, 0.5 |
 | 3a | 0; execute after 1 |
 | 3b | 3a |
@@ -649,7 +650,7 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | Step | Status | PR / merge | Review and evidence |
 | --- | --- | --- | --- |
 | 0 Baseline/harness | Merged | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), merge `c41d73db391fef74518ebb93e9cc05902e154ca2` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push and merge-queue CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
-| 0.5 Runtime VFS capability | Blocked before implementation | — | Reproduced on baseline; separate design review accepted one-shot registration. Implementation agent stopped by automated cybersecurity check; no retry or workaround. |
+| 0.5 Runtime VFS capability | Merged | [#2572](https://github.com/cosmic-lua/cosmic/pull/2572), merge `eb8ea8ccc04b00ab8d4f6909cfe04a4de3426fa7` | Reproduced on pinned release and in a held sandboxed worker. Separate adversarial review: no blocking findings; comment/doc suggestions applied. Full suite 3,299 tests pass; `fix --check .`, sanitized build, `ci/run-local` (all stages incl. fixtures) and all push/merge-queue CI pass. `bin/perf` vs parent `5805988`: 15/17 pass at 30 pairs; `exact_docs` and `embed_host` inconclusive on tails only, both pass in predeclared 100-pair reruns. One run with a mistyped parent commit discarded before review. Raw evidence kept locally, not published. No new TODOs. |
 | 1 Structural decoder | Draft; performance blocks merge | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), head `40203127ca9f7ee4668eceb8e85bdec2cc11a9d6` | Independent code review approved local `1c091ee` (identical tree). All required push CI passed, including checked/Linux/macOS legs. Fifteen-workload measurements, five follow-ups and the final eight-invocation pinned crossover round are retained. Startup's cumulative paired median remains +0.036 ms, interval [+0.018, +0.051] ms; calibration/tail/noise issues also remain. The predeclared protocol stopped unresolved. No auto-merge or further discretionary local reruns. No VFS, store authority or new artifact-access changes. |
 | 2 Artifact handles | Pending | — | — |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
