@@ -3,26 +3,32 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
-local this_program = require("build.this_program")
+local Fixture = require("cosmic_ci.fixture")
 local Test = require("cosmic.test")
 
---- The complete tool builds private fixtures; their portable launchers need
---- the system shell. The standalone controller is the declared source file.
-Test.needs{ tool = true, system = true, reads = { "build/perf.tl" } }
+--- The selected candidate, including its carried modules, and the controller
+--- source are both inputs. The CI driver is only the outer test supervisor;
+--- each candidate runs the controller and private fixtures itself.
+Test.needs{ system = true, host = {
+  "$COSMIC_FIXTURE_PERFORMANCE/program",
+  "$COSMIC_FIXTURE_PERFORMANCE/perf.tl",
+} }
+
+local function controller(): string
+  return (assert(Fs.read(Fixture.required("COSMIC_FIXTURE_PERFORMANCE") .. "/perf.tl")))
+end
 
 local function run(tmp: string, source: string): Child.Result
   local script = tmp .. "/controller.tl"
   assert(Fs.write(script, source))
-  local binary = assert(Proc.executable())
-  local started = this_program.program({ "--standalone", script, binary, binary, tmp .. "/results", "30", "uses" },
-    { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
-  return (assert(Child.run(started.argv, started.options)))
+  local binary = Fixture.required("COSMIC_FIXTURE_PERFORMANCE") .. "/program"
+  return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", "30", "uses" },
+    { cwd = tmp, env = Fixture.environment(), stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
 end
 
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)
-  local result = run(tmp, (assert(Fs.read("build/perf.tl"))))
+  local result = run(tmp, controller())
   assert(result.code == 2, (result.stderr or "") .. (result.stdout or ""))
   local metadata = assert(Json.decode_object((assert(Fs.read(tmp .. "/results/metadata.json")))))
   assert(metadata.protocol == "fixed-sample-v3" and metadata.exploratory == true)
@@ -47,7 +53,7 @@ local function test_independent_fixture_histories_match_through_warmups_and_samp
 end
 
 local function test_old_shared_parent_alias_is_rejected(tmp: string)
-  local source = assert(Fs.read("build/perf.tl"))
+  local source = controller()
   local changed, count = source:gsub("local samples = run_pairs%(parent,", "parent = a\n    local samples = run_pairs(parent,")
   assert(count == 1)
   local result = run(tmp, changed)

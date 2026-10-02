@@ -1625,7 +1625,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     same(step_name .. "'s if", our["if"], wanted)
   end
   -- It boots, checks the format (on a light run), builds the checked
-  -- core, and runs its suite, and no more.
+  -- core, and runs its suite and the bounded performance lifecycle fixture.
   local steps = checked.steps as {{string: any}}
   local ran: {string} = {}
   for _, step in ipairs(steps) do
@@ -1633,7 +1633,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     local phase = run is string and run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)$") or nil
     if phase ~= nil then ran[#ran + 1] = phase end
   end
-  assert(table.concat(ran, " ") == "boot format checked-build checked", "the checked job runs " .. table.concat(ran, " "))
+  assert(table.concat(ran, " ") == "boot format checked-build checked performance-checked", "the checked job runs " .. table.concat(ran, " "))
   local at = verdict_steps(steps)
   local _, suite = step_running(steps, "platform checked")
   local _, back = step_running(steps, "place-tree.sh --restore")

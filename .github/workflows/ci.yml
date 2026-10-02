@@ -1200,6 +1200,11 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
         {
+          name: "check performance fixture histories on the checked core",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
+        },
+        {
           name: "keep the suite's verdicts for the run behind in the queue",
           if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.checked-suite.outcome == 'success'",
           "continue-on-error": true,

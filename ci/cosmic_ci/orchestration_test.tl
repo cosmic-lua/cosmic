@@ -520,12 +520,14 @@ end
 
 --- A sandboxed fixture's verdict is shared across runs and commits, so
 --- its key must hold the parts of the product it exercises: each
---- declares the product's `prefix` -- its launcher, manifest and cores --
+--- normally declares the product's `prefix` -- its launcher, manifest and cores --
 --- by the variable the driver gives it, which keys the verdict by those
 --- bytes, and no other launcher's or core's verdict stands for it; and
 --- `product`, which checks the whole product, declares each of its
 --- files, while no other declares the product's `cosmic` or `cosmic.db`,
---- which it does not run. Each
+--- which it does not run. The performance fixture instead declares its
+--- entire candidate program and controller source: it exercises the carried
+--- database too. Each
 --- unsandboxed one declares the whole environment and nothing else:
 --- nothing holds it to a declaration, and it shares no verdict for one
 --- to key, but a release that keys every unsandboxed run by declaration
@@ -544,8 +546,14 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
       local host = declared_host(name)
-      assert(host["$COSMIC_FIXTURE_PRODUCT/prefix"],
-        name .. ": a sandboxed fixture's key does not hold the product's prefix")
+      if name == "performance" then
+        assert(host["$COSMIC_FIXTURE_PERFORMANCE/program"] and
+          host["$COSMIC_FIXTURE_PERFORMANCE/perf.tl"],
+          "performance fixture must key the full candidate and controller source")
+      else
+        assert(host["$COSMIC_FIXTURE_PRODUCT/prefix"],
+          name .. ": a sandboxed fixture's key does not hold the product's prefix")
+      end
       if name ~= "product" then
         for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
           assert(not host["$COSMIC_FIXTURE_PRODUCT/" .. whole],
@@ -914,8 +922,11 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
     local run = step.run
     local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
     if phase ~= nil then phases[#phases + 1] = phase end
+    if phase == "performance-checked" then
+      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "performance fixture must run only in full scope")
+    end
   end
-  assert(table.concat(phases, " ") == "boot format checked-build checked",
+  assert(table.concat(phases, " ") == "boot format checked-build checked performance-checked",
     "the checked job runs the phases " .. table.concat(phases, " "))
 end
 

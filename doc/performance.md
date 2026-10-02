@@ -108,3 +108,13 @@ distinct observation pair IDs. With the selected workload's one-based index,
 warmups), the recorded `leaf_value` is `1000 + index * stride + iteration`.
 The initial value is one. Thus each fixture sees new content each time, never
 an earlier content-addressed verdict, and both phases see matching inputs.
+
+The actual fixture lifecycle and old shared-parent regression cases run in
+[`ci/fixtures/performance_test.tl`], against the release candidate on each
+platform and the checked candidate in the checked job. Their 30-pair runs
+ignore elapsed times. CI gives these two cases 60 seconds each (150 seconds
+for the phase), while each controller child retains its 30-second bound.
+The ordinary suite keeps its 10-second deadline; that deadline had interrupted
+these process-heavy correctness cases on Linux and macOS.
+
+[`ci/fixtures/performance_test.tl`]: ../ci/fixtures/performance_test.tl
