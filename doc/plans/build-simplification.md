@@ -4,6 +4,10 @@ This is a living execution reference, held on a draft PR. **Do not merge this
 PR.** Implementation lands through the separate PRs below; this branch records
 their decisions, reviews, measurements, and merge commits.
 
+Build-simplification execution completed 2026-10-02 UTC: all ten implementation
+PRs merged after independent review and green branch/queue CI. This draft stays
+open and unmerged. The deferred API roadmap is the next authorized phase.
+
 Requested 2026-10-01. Initial review: main at
 `0471146cbb468f1771c117570baef3cd59d26776`.
 
@@ -77,7 +81,7 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | 6a. CI cache-name policy | [#2536](https://github.com/cosmic-lua/cosmic/pull/2536) | merged | aa80c513; branch 36948820584 and queue 36949098385 green |
 | 6b. CI operation recording | [#2538](https://github.com/cosmic-lua/cosmic/pull/2538) | merged | ffa5153a; branch 36949774016 and queue 36949996926 green; incoming #2537 preserved |
 | 7. Zig graph construction | [#2541](https://github.com/cosmic-lua/cosmic/pull/2541) | merged | e6dae362; branch 36950781338 and queue 36951064753 green; exact reviewed integrated tree e604447f |
-| 8. Documentation and integrated audit | [#2542](https://github.com/cosmic-lua/cosmic/pull/2542) | CI running | f5535e04; prepared-tree warm/fresh/byte-equality audit passed; remote CI pending |
+| 8. Documentation and integrated audit | [#2542](https://github.com/cosmic-lua/cosmic/pull/2542) | merged | 9ac37cba; corrected branch 36952501964 and queue 36952719742 green; exact audited tree 49f8c96c |
 
 ## PR 1: isolate the compiler and analyzer's semantic inputs
 
@@ -767,3 +771,24 @@ both checkouts. All six root SQLite integrity checks passed. Final queue hashes:
 
 Corrected branch run `36952501964` passed every required check. Final queue run
 `36952719742` tests this exact integrated tree; its merge result is recorded below.
+
+## Build-series completion
+
+Step 8 #2542 merged as `9ac37cba3b2d626b79d7c217329b2020d76bccb6`
+after corrected branch `36952501964` and final queue `36952719742` passed.
+All ten implementation PRs are merged, each separately implemented and
+adversarially reviewed. The final merged tree exactly equals the audited
+`49f8c96c7f4b773c0dc3be50ba2f4ffe26e0a3a6` tree above.
+
+The final queue passed all five platform test jobs. Its checked-core suite
+passed 3,183 tests: 2,166 ran and 1,017 stood under sandboxing. ARM ran all
+seven fixed-point cases and passed (none stood). Native Linux, ARM, macOS
+and Alpine checks, including fresh-source and provenance gates, were green.
+The earlier all-3,169 execution figures describe step 7, not this later queue;
+standing verdicts in the final queue are expected reuse of matching inputs.
+
+No acceptance work remains for the build-simplification series. All eighteen
+compatibility retirements unblocked by the selected pin were completed; the
+API gaps above are explicitly the next phase, authorized by the user after
+reviewing that roadmap. No extra abstraction or test framework is planned
+without a concrete need. This reference PR remains draft and must never merge.
