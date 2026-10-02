@@ -83,6 +83,7 @@ end
 local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: string)
   local ordinary, path = executable(tmp)
   local result, trouble = Child.run({ ordinary, "cat " .. path }, {
+    cwd = "/",
     sandbox = { unveil = { reads = { ordinary, "/noexec", "/proc", "/dev/null" },
       writes = { tmp } }, offline = true },
     stdout = "null", stderr = "capture", timeout_ns = Time.seconds(10),
