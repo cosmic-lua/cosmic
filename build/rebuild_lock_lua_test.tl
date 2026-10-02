@@ -24,13 +24,14 @@ Test.needs{ lua = true }
 
 --- Asks for the lock of the tree at the first `%q` as a tool from
 --- before the flock does, and prints "held" or "busy". A holder keeps
---- it for the `%d` milliseconds, or until its standard input ends when
---- that is negative.
+--- it for the `%d` nanoseconds, or until its standard input ends when
+--- that is negative, then writes o/let-go, still holding it, and exits.
 local old_tool = [[
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
-local db = assert(Sqlite.open(%q .. "/o/rebuild.lock", { writable = true }))
+local root = %q
+local db = assert(Sqlite.open(root .. "/o/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
 if not db:exec("BEGIN IMMEDIATE") then
   print("busy")
@@ -39,17 +40,20 @@ end
 print("held")
 local hold_ns = %d
 if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ns) end
+assert(Fs.write(root .. "/o/let-go", ""))
 ]]
 
 --- The same, as this tool does.
 local new_tool = [[
 local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
-local taken = require("build.rebuild_lock").take(%q, 0)
+local root = %q
+local taken = require("build.rebuild_lock").take(root, 0)
 print(taken)
 if taken ~= "held" then return end
 local hold_ns = %d
 if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Time.sleep_ns(hold_ns) end
+assert(Fs.write(root .. "/o/let-go", ""))
 ]]
 
 --- Asks once for the flock of the lock file of the tree at `%q`, as a
@@ -136,19 +140,20 @@ local function test_two_holders_exclude_one_another(tmp: string)
 end
 
 --- A run waiting for the lock takes it once its holder lets go, of
---- either kind, before the wait is out.
+--- either kind, before the wait is out, and not before: the holder's
+--- o/let-go, written before it lets go, is there by then.
 local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
   local root = tree(tmp)
   for _, script in ipairs({ old_tool, new_tool }) do
     local holder, said = start(script, root, Time.seconds(1))
     assert(said == "held", said)
-    local started_ns = Time.monotonic_ns()
-    local taken, trouble = rebuild_lock.take(root, Time.seconds(30))
-    local waited_ns = Time.monotonic_ns() - started_ns
+    local taken, trouble = rebuild_lock.take(root, Time.seconds(20))
+    local let_go = Fs.exists(root .. "/o/let-go")
     rebuild_lock.release()
     finish(holder)
     assert(taken == "held", tostring(taken) .. " " .. trouble)
-    assert(waited_ns >= Time.ms(100), "took a held lock after " .. tostring(waited_ns // Time.ms(1)) .. " ms")
+    assert(let_go == true, "took the lock while its holder held it")
+    assert(Fs.remove(root .. "/o/let-go"))
   end
 end
 

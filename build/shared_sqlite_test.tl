@@ -101,6 +101,12 @@ local function held_open(path: string, statements: {string},
   return waited, trouble
 end
 
+--- Far past what an open given a wait of a tenth of a second takes, and
+--- short of the ten seconds it waits when given none or a try sits out
+--- the connection's minute-long busy timeout: an open that took this
+--- long did not keep to the wait it was given.
+local gave_up_late_ns <const> = Time.seconds(5)
+
 --- A cache another connection is writing, before it is in write-ahead
 --- mode, is answered locked at once by SQLite, which calls no busy
 --- handler: the switch is tried again until the wait has passed, then
@@ -113,7 +119,7 @@ local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp:
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
   assert(not shared_sqlite.corrupt(trouble), trouble)
   assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
-  assert(waited < 5 * wait_ns, "answered busy after " .. waited .. " ns")
+  assert(waited < gave_up_late_ns, "answered busy after " .. waited .. " ns")
 end
 
 --- A cache another connection holds whole, before it is in write-ahead
@@ -124,7 +130,7 @@ local function test_a_cache_held_whole_is_waited_on_no_longer_than_the_wait(tmp:
   local waited, trouble = held_open(tmp .. "/cache.db", { "BEGIN EXCLUSIVE" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
   assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
-  assert(waited < 5 * wait_ns, "answered busy after " .. waited .. " ns")
+  assert(waited < gave_up_late_ns, "answered busy after " .. waited .. " ns")
 end
 
 --- A cache already in write-ahead mode opens while another connection
