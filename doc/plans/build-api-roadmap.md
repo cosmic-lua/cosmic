@@ -181,8 +181,8 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C2 | [#2581](https://github.com/cosmic-lua/cosmic/pull/2581) | merged | 004331f1/tree2e95771b; branch36984107521 and cumulative queue36984579239 green; independently verified actual native Darwin full_fsync success; exact C1/C4/C2 union |
 | C3 | [#2584](https://github.com/cosmic-lua/cosmic/pull/2584) | draft experiment; auto-merge off | 7f6d2cf5/treea566529e on actual004331f1; exact independent approval for experiment only; native66/checked20 and 13 guard checks pass; useful native pilot then calibrated confirmation required, otherwise defer |
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
-| C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | published; CI-gated auto-merge | baa938cc/tree587341de on actual004331f1; independently approved exact tree; native122/checked16/whole657 zero; actual privileged Linux proof required in CI before merge |
-| C6 | pending | final preparation approved | 70bdcab1/tree94b7b46e; fresh epoch15-e83f51b3 retires14; native166/checked19/whole658 zero; independent40 native/8 checked with three honest mount skips; actual C5 parent alignment and native Linux proof remain |
+| C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | branch green; queued | corrected95e804da/tree19b9b089; branch36988568683 green; queue36989013309 candidate0b111618 exact approved; actual x86/ARM database boundary and all eight privileged modes independently verified |
+| C6 | pending | final preparation approved | 2bfa8674/tree430eccbe retains both C5 CI corrections; runtime identical to approved70bdcab1; epoch15-e83f51b3; native166/checked19/whole658 zero, independent40/8 with three honest mount skips; actual C5 merge and native mount CI required |
 | C7 | pending | final append source preparation approved | af3034c3/treeb4dd338a on reviewed B5; third CacheTrim append caller migrated; local C driver67 author/40 independent CI pass, 9 partial-prefix injection cases pass; CI62 zero; actual C release/pin/native proofs remain |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
@@ -572,3 +572,22 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   Remove all temporary measurement code before any production merge, then
   require fresh ordinary CI and merge queue checks. Production patch behavior
   and the pin remain unchanged throughout this experiment.
+
+- 2026-10-02 UTC: C5 cache correction proved all eight actual privileged modes
+  on x86 and ARM, then the existing delayed database boundary caught proof
+  dispatch writing project metadata between snapshots. Reviewed placement fix
+  `95e804da`/`19b9b089` moves helper/proof after the unchanged boundary, matching
+  existing Darwin/format phases. Workflow39 and whole657 checks pass; an
+  independent regression enforces ordering and required Linux/root execution.
+  All branch checks passed in `36988568683`; queue `36989013309` candidate
+  `0b111618` exactly matches the approved tree and actual parent. C6 preparation
+  `2bfa8674` retains both fixture corrections with runtime/epoch unchanged.
+
+- 2026-10-02 UTC: C3 confirmation protocol refinement SHA256
+  `d66147e2d4d279b97e8cc617be5c3b9213e748bda008be9b86a30e1d9955ed70`
+  is independently approved for implementation preparation. It specifies
+  verified process/service identity and activity bounds, monitoring-gap
+  refusal, coordinator-only observation and bounded child/helper cleanup.
+  A narrow read-only privileged metadata helper may read fixed process
+  identity/accounting fields when the ordinary runner cannot; benchmark
+  execution stays unprivileged. Exact implementation review remains pending.
