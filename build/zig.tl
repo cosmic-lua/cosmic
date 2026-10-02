@@ -781,8 +781,7 @@ end
 
 --- Whether `trouble`, from beginning a transaction, says another
 --- connection holds the lock rather than something wrong with the file.
---- SQLite gives its reason only as text, which build/work.tl's `locked`
---- reads the same way.
+--- The pinned SQLite API gives its reason only as text.
 local function says_busy(trouble: string): boolean
   return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
 end
