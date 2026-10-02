@@ -706,3 +706,57 @@ local function test_a_second_signal_cancels_on_stops_wait(tmp: string)
   assert(waited == Poll.CANCELLED, waited)
   assert(outer:release() == sys.SIGTERM)
 end
+
+--- A server with on_stop stops from a coroutine a task made, as one
+--- without does: on_stop is called and Net.serve returns.
+local function test_on_stop_runs_when_stopped_from_a_coroutine(tmp: string)
+  local calls = 0
+  local stopped = ""
+  local serving: Net.Server
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    serve = function(conn: Net.Conn)
+      local _ = assert(Stream.lines(conn):read())
+      local ok, why: boolean, any = pcall(coroutine.wrap(function() serving:stop() end))
+      stopped = tostring(ok) .. "," .. tostring(why)
+    end,
+    on_stop = function(_server: Net.Server) calls = calls + 1 end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      serving = server
+      Poll.spawn(function()
+        local c <close> = client(addresses[1])
+        assert(c.conn:write("stop\n"))
+        local _, _ = c.lines:read()
+      end)
+    end,
+  })
+  assert(stopped == "true,nil", stopped)
+  assert(calls == 1, tostring(calls))
+end
+
+--- The grace begins once on_stop returns: a connection that finishes
+--- after on_stop's wait, within the grace from there, is not killed,
+--- though it outlasts the grace counted from the stop.
+local function test_the_grace_begins_once_on_stop_returns(tmp: string)
+  local answer = ""
+  assert(Net.serve{
+    listeners = { Net.unix(tmp .. "/s.sock") },
+    grace_ns = Time.ms(200),
+    serve = function(conn: Net.Conn)
+      local line = assert(Stream.lines(conn):read())
+      assert(Poll.delay(Time.ms(400)))
+      assert(conn:write(line .. "\n"))
+    end,
+    on_stop = function(_server: Net.Server) assert(Poll.delay(Time.ms(300))) end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      Poll.spawn(function()
+        local c <close> = client(addresses[1])
+        assert(c.conn:write("slow\n"))
+        assert(Poll.delay(Time.ms(10)))
+        server:stop()
+        answer = assert(c.lines:read())
+      end)
+    end,
+  })
+  assert(answer == "slow", answer)
+end

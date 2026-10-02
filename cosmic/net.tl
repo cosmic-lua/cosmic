@@ -185,8 +185,10 @@ local record Net
     --- nil. It is to close, not to wait: the drain, and `grace_ns`,
     --- begin once it returns, and a wait it makes holds them. A second
     --- signal cancels its wait ([`Poll.Task.cancel`]) as it ends the
-    --- grace. What it raises goes to [`ServeSpec.on_error`], with its
-    --- stack, and the server stops all the same.
+    --- grace, though not the wait of a task it spawned, which
+    --- [`Net.serve`] waits for too. What it raises goes to
+    --- [`ServeSpec.on_error`], with its stack, and the server stops all
+    --- the same.
     on_stop: function(server: Server)
     --- Given what the protocol raised for a connection, with its stack,
     --- or why a listener failed to accept; nil to write each to stderr.
@@ -686,8 +688,6 @@ end
 --- to a task that never started open.
 local record Serving
   spec: Net.ServeSpec
-  --- The server handed to [`on_ready`] and [`on_stop`].
-  server: Net.Server
   --- The most connections open at once.
   most: integer
   open: integer
@@ -695,14 +695,14 @@ local record Serving
   accepts: {Accepting}
   --- Each connection open, by the task serving it.
   conns: {Poll.Task: Net.Conn}
-  --- Waits, from [`on_ready`]'s end, for `stop` to cancel it.
+  --- Waits for `stop` to cancel it.
   waiter: Poll.Task
   --- Holds SIGINT and SIGTERM for the run.
   guard: Child.Guard
   --- Waits on `guard`: its first signal stops the server, and the next
   --- ends the grace.
   watcher: Poll.Task
-  --- Runs [`on_stop`], from the stop until it returns.
+  --- Waits for `waiter` to end, then runs [`on_stop`].
   stopper: Poll.Task
   --- Waits out the grace while the server drains.
   grace: Poll.Task
@@ -845,17 +845,7 @@ local function stop(s: Serving)
     if not closed then report(s, why) end
     if a.task ~= nil then a.task:cancel() end
   end
-  local on_stop = s.spec.on_stop
-  if on_stop ~= nil then
-    -- A task of its own, so neither a wait in it nor what on_error
-    -- raises lands in the task that called stop: a connection's,
-    -- whose failures are its own.
-    s.stopper = Poll.spawn(function()
-      local ok, trouble: boolean, any = xpcall(on_stop, traced, s.server)
-      if not ok then report(s, tostring(trouble)) end
-    end)
-  end
-  if s.waiter ~= nil then s.waiter:cancel() end
+  s.waiter:cancel()
 end
 
 --- Stops `s` at the first signal its guard takes, and ends its grace at
@@ -897,16 +887,27 @@ local function serving(spec: Net.ServeSpec): boolean, string
     addresses = addresses,
     stop = function(_self: Net.Server) stop(s) end,
   }
-  s.server = server
+  s.waiter = Poll.spawn(function()
+    while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
+  end)
+  local on_stop = spec.on_stop
+  if on_stop ~= nil then
+    -- Spawned here, not by `stop`, which may be called from a coroutine
+    -- a task made, where Poll.spawn raises. A task of its own, so the
+    -- watcher stays free to cancel a wait it makes at a second signal,
+    -- and what it raises is not taken for the failure of a connection
+    -- whose protocol called `stop`.
+    s.stopper = Poll.spawn(function()
+      local _, _ = s.waiter:join()
+      if not s.stopping then return end
+      local ok, trouble: boolean, any = xpcall(on_stop, traced, server)
+      if not ok then report(s, tostring(trouble)) end
+    end)
+  end
   resume_accepting(s)
   s.watcher = Poll.spawn(function() watch(s) end)
   if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
-  if not s.stopping then
-    s.waiter = Poll.spawn(function()
-      while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
-    end)
-    local _, _ = s.waiter:join()
-  end
+  local _, _ = s.waiter:join()
   drain(s)
   s.watcher:cancel()
   -- Released where a signal stopped the server, which has acted on it;
@@ -928,8 +929,8 @@ end
 --- task of its own, in a [`Poll.run`] of its own: so it cannot be called
 --- in a task of another. It returns true once [`Server.stop`] has been
 --- called, or a signal has stopped it, and every task of the run has
---- ended -- each connection's, and any [`ServeSpec.on_ready`] spawned
---- -- and false and why, having called nothing, where a listener cannot
+--- ended -- each connection's, and any [`ServeSpec.on_ready`] or
+--- [`ServeSpec.on_stop`] spawned -- and false and why, having called nothing, where a listener cannot
 --- listen or its signal guard cannot be opened, or, having served,
 --- where the guard cannot restore the dispositions it found. What
 --- [`ServeSpec.on_ready`] or [`ServeSpec.on_error`] raises, it raises,
