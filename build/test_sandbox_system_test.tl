@@ -23,9 +23,8 @@ local Test = require("cosmic.test")
 --- for where the host has them, beside what the plan gives every
 --- worker; `nests`, since a process it confines has a root of its own,
 --- as do the workers of a `cosmic test` it starts; `tool`: the plan
---- finds this program's core, a process confined is given the program
---- (the TODO above build.confine's `forbid_running`), and a case starts
---- it; and the variables that hold a run to sandboxing, which a case
+--- finds this program's core, a process confined is given the program,
+--- and a case starts it; and the variables that hold a run to sandboxing, which a case
 --- whose run sandboxed none of its workers reads to skip
 --- (build.sandbox_skip).
 Test.needs{
@@ -86,9 +85,11 @@ end
 --- what to declare -- where it checks the start's answer, and where a
 --- bare `assert` on it says nothing itself, as for a script whose `#!`
 --- names /bin/sh -- and one that declares it runs /bin/sh, its failure
---- its own, saying nothing of the sandbox.
+--- its own, saying nothing of the sandbox. A relative path or a URL a
+--- failure names is not taken for one the sandbox left out.
 local function test_a_host_program_a_sandboxed_test_does_not_declare_is_named(tmp: string)
-  if Fs.exists("/bin/sh") ~= true then return end -- no /bin/sh to start
+  -- No /bin/sh to start, or /etc/passwd to read.
+  if Fs.exists("/bin/sh") ~= true or Fs.exists("/etc/passwd") ~= true then return end
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/run.sh", "#!/bin/sh\nexit 0\n"))
@@ -116,7 +117,15 @@ local function test_script()
 end
 
 local function test_read()
-  assert(Fs.read("/etc/cosmic-no-such-file"))
+  assert(Fs.read("/etc/passwd"))
+end
+
+local function test_relative()
+  assert(Fs.read("suite/data/missing"))
+end
+
+local function test_url()
+  error("http://example.com/x: No such file or directory")
 end
 ]]))
   assert(Fs.write(root .. "/suite/declared_test.tl", [[
@@ -162,15 +171,21 @@ end
   assert(bare:find("assertion failed!\n  " .. start_hint, 1, true), bare)
   local why = failure("suite.undeclared_test test_why")
   assert(why:find("child: start: No such file or directory: " .. start_hint, 1, true), why)
-  local _, said = why:gsub(start_hint:gsub("%p", "%%%0"), "")
-  assert(said == 1, why)
+  local _, times = why:gsub(start_hint:gsub("%p", "%%%0"), "")
+  assert(times == 1, why)
   local script = failure("suite.undeclared_test test_script")
   assert(script:find("/tree/suite/run.sh is a script /bin/sh runs, and " .. start_hint, 1,
     true), script)
   local read = failure("suite.undeclared_test test_read")
-  assert(read:find("/etc/cosmic-no-such-file is not in this test's sandbox, which has " ..
+  assert(read:find("/etc/passwd is not in this test's sandbox, which has " ..
     "nothing of /etc: a test that reads the system's own files declares Test.needs " ..
     "{ system = true }", 1, true), read)
+  -- Neither the tail of a relative path nor a URL's is a path the
+  -- sandbox left out.
+  for _, test in ipairs({ "test_relative", "test_url" }) do
+    local said = failure("suite.undeclared_test " .. test)
+    assert(not said:find("sandbox", 1, true), said)
+  end
   local declared = failure("suite.declared_test test_declared")
   assert(declared:find("ran|3|end", 1, true), declared)
   assert(not declared:find("sandbox", 1, true), declared)

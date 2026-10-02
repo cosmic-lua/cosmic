@@ -484,9 +484,8 @@ end
 --- `programs`, it forbids running nothing, and holds the process only
 --- to that: a sandboxed worker whose module declares `tool` but not
 --- `nests` ([`cosmic.test`]). False and why where there is no Landlock.
--- TODO: let build/confine_tool_test.tl,
--- and build/test_sandbox_system_test.tl, declare `nests` alone,
--- dropping the `tool` they declare only to start what they confine,
+-- TODO: let build/confine_tool_test.tl declare `nests` alone,
+-- dropping the `tool` it declares only to start what it confines,
 -- once a confined process is given only what its worker has, `confine`
 -- narrowing its worker's inputs rather than adding to them: today
 -- `itself` is given to the process it confines, and a worker without
@@ -764,46 +763,65 @@ local function runnable(program: string): boolean
   return may
 end
 
---- What a test does to name the system's own paths, or another file of
---- the host, that it `use`s: what [`confine.unseen`] says to do.
-local function remedy(top: string, use: confine.Use): string
-  local system_path = false
+--- Whether `top`, a first part of a path, is one of the system's own
+--- paths (`system_paths`).
+local function system_path(top: string): boolean
   for _, given in ipairs(system_paths) do
-    if given == top then system_path = true end
+    if given == top then return true end
   end
-  if system_path and use == "starts" then
+  return false
+end
+
+--- What a test declares to be given `top`, the first part of a path it
+--- `use`s, for what [`confine.unseen`] says.
+local function remedy(top: string, use: confine.Use): string
+  if system_path(top) and use == "starts" then
     return "a test that starts a host program declares Test.needs { system = true } " ..
       "(see cosmic docs cosmic.test)"
-  elseif system_path then
+  elseif system_path(top) then
     return "a test that reads the system's own files declares Test.needs " ..
       "{ system = true }, or names the few it reads in `host` (see cosmic docs cosmic.test)"
   end
-  return "a test names each file of the host it " ..
-    (use == "starts" and "starts, and each that reads," or "reads") ..
-    " in Test.needs { host = { ... } } (see cosmic docs cosmic.test)"
+  return "a test names each host file it starts or reads in Test.needs " ..
+    "{ host = { ... } } (see cosmic docs cosmic.test)"
 end
 
 --- Why a process in a sandboxed worker's sandbox (build/test_sandbox.tl)
 --- found nothing at the absolute `path` it `use`s, where the sandbox is
---- why: its root holds only what the worker was given, so nothing there
---- of the path's first part is a part of the host the test did not
---- declare -- the system's own paths where its module does not declare
---- `system`. A start meets the same in the `#!` interpreter of a script
---- that is there. Nil where the first part is there or the path is
---- relative: then what is missing is the test's own to report, as it is
---- unsandboxed, and the failure is left as it is. Only a caller in such
---- a sandbox asks: elsewhere a first part missing is the host's own.
+--- why: the sandbox's root holds only what the worker was given, so the
+--- path's first part missing there is the sandbox's doing. One of the
+--- system's own paths is given with /usr, which every Linux host has, so
+--- with /usr there it is the host that lacks it. A start meets the same
+--- in the `#!` interpreter of a script that is there. Nil where the path
+--- is relative or its first part is there: what is missing is then the
+--- test's own to report. Only a caller in such a sandbox asks: elsewhere
+--- a first part missing is the host's own.
+-- TODO: say the same of a program's ELF interpreter (its PT_INTERP,
+-- /lib64/ld-linux-x86-64.so.2), which a host program declared in `host`
+-- without `system` fails to start without, ENOENT: today the start says
+-- only that.
+-- TODO: say the same of a bare name (`Child.run({ "sh" })`), and of
+-- Proc.find's finding nothing on PATH, where the sandbox has none of
+-- the system's programs, once cosmic.child hears from the stand-in
+-- before it adds its own hint: today a sandboxed start of "sh" says
+-- Proc.find("sh") answers where a shell would find it, which there it
+-- does not.
 local function unseen(path: string, use: confine.Use): string | nil
   local first = path:match("^/+([^/]+)")
   if first == nil then return nil end
   local top = "/" .. first
   local there, _ = asked.lstat(top)
   if there == nil then
+    local usr, _ = asked.lstat("/usr")
+    if system_path(top) and usr ~= nil then return nil end
     return path .. " is not in this test's sandbox, which has nothing of " .. top .. ": " ..
       remedy(top, use)
   end
   if use ~= "starts" then return nil end
-  local fd, _ = asked.open(path, sys.O_RDONLY)
+  -- Only a regular file is read for its `#!`: a FIFO there would block.
+  local st, _ = asked.stat(path)
+  if st == nil or st.kind ~= "file" then return nil end
+  local fd, _ = asked.open(path, sys.O_RDONLY | sys.O_NONBLOCK)
   if fd == nil then return nil end
   local head, _ = asked.read(fd, 256)
   local _, _ = asked.close(fd)
@@ -854,10 +872,7 @@ local type Leave = function(): string | nil
 
 --- Stands in for the process table's `spawn` until the function this
 --- answers is called, which puts back what it stood in for and answers
---- the first spawn [`must_confine`] refused meanwhile, or nil; and,
---- beside it, the list into which each start that found nothing for what
---- a sandboxed worker's sandbox left out puts why ([`confine.unseen`]),
---- as it is heard. `own` holds
+--- the first spawn [`must_confine`] refused meanwhile, or nil. `own` holds
 --- the directories the running test owns, which a confined process may
 --- change: its own directory first, where a process it starts makes its
 --- temporary files ([`confine.test_directory`]). `sandboxed` says this
@@ -871,6 +886,10 @@ local type Leave = function(): string | nil
 --- not. A reference to the stand-in taken while it stood in starts a
 --- process as the process table's own does, once it no longer stands
 --- in -- or, under [`must_confine`], none.
+---
+--- Beside that function it answers a list that the stand-in fills, as
+--- each start that found nothing for what a sandboxed worker's sandbox
+--- left out fails, with why ([`confine.unseen`]).
 local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
   -- The call the stand-in wraps: what `spawn` was as it began.
   local spawn = process.spawn

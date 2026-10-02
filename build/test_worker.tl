@@ -743,7 +743,10 @@ local function unseen_note(message: string, heard: {string}): string
     lines[#lines + 1] = why
   end
   for _, why in ipairs(heard) do add(why) end
-  for path in message:gmatch("(/[^%s:'\"]+): " .. not_found:gsub("%p", "%%%0")) do
+  -- A path starts the message or follows a space, a quote or a
+  -- parenthesis: the tail of a relative path or a URL is none.
+  for path in ("\n" .. message):gmatch("[%s'\"(](/[^%s:'\"]+): " ..
+      not_found:gsub("%p", "%%%0")) do
     local why = unseen(path, "reads")
     if why ~= nil then add(why) end
   end
