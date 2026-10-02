@@ -75,7 +75,7 @@ local function test_lord_howe_moves_half_an_hour()
   says(howe, "2026-10-03T15:30:00Z", "2026-10-04T02:30:00+11:00", 39600, "+11", true)
   local skipped, why = Time.from_civil(civil(2026, 10, 4, 2, 15), howe)
   assert(skipped == nil and why ==
-    "2026-10-04T02:15 does not exist in Australia/Lord_Howe: clocks moved from +10:30 to +11:00", why)
+    "time: 2026-10-04T02:15 does not exist in Australia/Lord_Howe: clocks moved from +10:30 to +11:00", why)
 end
 
 local function test_kolkata_is_half_past_with_no_changes()
@@ -91,7 +91,7 @@ local function test_apia_skipped_a_whole_day()
   says(apia, "2011-12-30T10:00:00Z", "2011-12-31T00:00:00+14:00", 50400, "+14", true)
   local v, why = Time.from_civil(civil(2011, 12, 30, 12), apia)
   assert(v == nil and why ==
-    "2011-12-30T12:00 does not exist in Pacific/Apia: clocks moved from -10:00 to +14:00", why)
+    "time: 2011-12-30T12:00 does not exist in Pacific/Apia: clocks moved from -10:00 to +14:00", why)
   assert(Time.from_civil(civil(2011, 12, 30, 12), apia, { disambiguation = "later" }) ==
     at("2011-12-30T22:00:00Z"))
   assert(Time.from_civil(civil(2011, 12, 30, 12), apia, { disambiguation = "earlier" }) ==
@@ -128,9 +128,9 @@ local function test_disambiguation_resolves_gaps_and_folds()
   local gap, fold = civil(2026, 3, 8, 2, 30), civil(2026, 11, 1, 1, 30)
   local v, why = Time.from_civil(gap, ny)
   assert(v == nil and why ==
-    "2026-03-08T02:30 does not exist in America/New_York: clocks moved from -05:00 to -04:00", why)
+    "time: 2026-03-08T02:30 does not exist in America/New_York: clocks moved from -05:00 to -04:00", why)
   v, why = Time.from_civil(fold, ny, { disambiguation = "reject" })
-  assert(v == nil and why == "2026-11-01T01:30 happens twice in America/New_York: clocks moved " ..
+  assert(v == nil and why == "time: 2026-11-01T01:30 happens twice in America/New_York: clocks moved " ..
     "from -04:00 to -05:00; disambiguation \"earlier\" or \"later\" picks one", why)
   local want: {Time.Disambiguation:{string}} = {
     earlier = { "2026-03-08T06:30:00Z", "2026-11-01T05:30:00Z" },
@@ -207,6 +207,38 @@ local function test_an_empty_zone_name_raises()
   assert(tostring(why):find("time_zone_test", 1, true), "blames the caller: " .. tostring(why))
   local from_text, local_why = Time.local_zone({ tz = ":posix/" })
   assert(from_text == nil and local_why:find("the zone name is empty", 1, true), tostring(local_why))
+end
+
+--- A zone's failures, however far down they arise -- a name, the
+--- database, a TZif file, a TZ string, a calendar moment in a gap -- open
+--- `time: ` once.
+local function test_a_zone_failure_names_the_module_once()
+  local function named(why: string | nil, rest: string)
+    assert(why ~= nil and why:sub(1, 6) == "time: " and why:sub(7, 12) ~= "time: ", tostring(why))
+    assert(why:find(rest, 1, true) ~= nil, why)
+  end
+  local z, why = Time.zone("a b")
+  assert(z == nil)
+  named(why, "zone name")
+  z, why = Time.zone("Nowhere/Nothing")
+  assert(z == nil)
+  named(why, "no time zone Nowhere/Nothing")
+  z, why = Time.zone_from_tzif("not a zone", "x")
+  assert(z == nil)
+  named(why, "truncated: a TZif header at byte 1")
+  z, why = Time.local_zone({ tz = "not a tz" })
+  assert(z == nil)
+  named(why, "TZ=not a tz names no zone this binary carries")
+  z, why = Time.local_zone({ tz = ":posix/" })
+  assert(z == nil)
+  named(why, "TZ=:posix/")
+  local ny = assert(Time.zone("America/New_York"))
+  local ns, gap_why = Time.from_civil(civil(2026, 3, 8, 2, 30), ny)
+  assert(ns == nil)
+  named(gap_why, "does not exist in America/New_York")
+  local date, date_why = Time.parse_date("2026-02-30", ny)
+  assert(date == nil)
+  named(date_why, "day 30")
 end
 
 local function test_zone_names_are_checked_before_any_file_is_read()

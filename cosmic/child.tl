@@ -259,7 +259,7 @@ local record Handle
   --- group still holding it cannot hold a read up. A wait leaves them
   --- to read on; `close` ends them once what is queued is read. While
   --- the innermost open guard has caught a signal, a read or a write
-  --- fails with "cancelled by signal N", as a wait does.
+  --- fails with "child: cancelled by signal N", as a wait does.
   stdout_stream: Stream.Reader | nil
   --- See `stdout_stream`.
   stderr_stream: Stream.Reader | nil
@@ -294,7 +294,7 @@ local record Handle
   --- leaves every child running. While a [`Child.guard`] is open, a
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
   --- way: a child that has not exited is ended and the wait answers nil
-  --- and "cancelled by signal N"; the guard keeps the signal, and a
+  --- and "child: cancelled by signal N"; the guard keeps the signal, and a
   --- later wait answers the ended child's Result. In a task of
   --- [`Poll.run`] that is cancelled, it answers nil and
   --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ns`
@@ -379,9 +379,16 @@ local active: Guard | nil
 --- delivers it, where that guard opened after it and so never saw it.
 local owed = 0
 
+--- What a failure of this module's own, no system call's, answers: nil
+--- and `why` under the module's name. A system call's message is
+--- passed on as it is, or after the step it failed in.
+local function refuse(why: string): nil, string
+  return nil, "child: " .. why
+end
+
 --- The message a wait or a run cancelled by `signal` answers.
 local function cancelled_by(signal: integer): string
-  return "cancelled by signal " .. tostring(signal)
+  return "child: cancelled by signal " .. tostring(signal)
 end
 
 --- Every pid a handle owns until the handle has settled it. Pids, not
@@ -777,12 +784,6 @@ end
 --- being killed, or a finalizer, no wait can yield, and they hold the
 --- thread in [`sys.poll`]: the cleanup there must finish too.
 local function end_child(self: Handle): Result | nil, string
-  -- TODO: this function's failures ("child did not reap after SIGKILL"),
-  -- and the other returned failures of this module that are its own and no
-  -- system call's ("process already reaped"), name no module, where
-  -- cosmic.zip and the rest answer `nil, "zip: ..."` through one local
-  -- `refuse(why)`; do the same here, and update the messages
-  -- cosmic/child*_test.tl pin.
   if self._result ~= nil then return self._result, "" end
   local status, trouble = exited(self)
   if status == nil and trouble ~= "" then return nil, trouble end
@@ -803,7 +804,7 @@ local function end_child(self: Handle): Result | nil, string
       if left ~= nil then
         local _, _ = pump(watching({ self }), left)
       elseif killed then
-        return nil, "child did not reap after SIGKILL"
+        return refuse("the child was not reaped after SIGKILL")
       else
         -- Only a child that ignored TERM gets here; the group's
         -- stragglers, if the leader honored it, are ended below.
@@ -862,7 +863,7 @@ local function end_child(self: Handle): Result | nil, string
   end
   self._result, self._closed = r, true
   if not cleared then
-    return nil, "process group " .. tostring(self.pid) .. " still has members after SIGKILL"
+    return refuse("process group " .. tostring(self.pid) .. " still has members after SIGKILL")
   end
   return r, ""
 end
@@ -1031,7 +1032,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   end
 
   function h:stop(signal?: integer): boolean, string
-    if self._closed then return false, "process already reaped" end
+    if self._closed then return false, "child: process already reaped" end
     local ok, trouble = sys.kill(target(self), signal or sys.SIGTERM)
     if not ok then return false, trouble end
     return true, ""
@@ -1253,7 +1254,7 @@ end
 --- guard closes, either signal is caught rather than acted on:
 --- `g:cancelled()` answers the last one delivered, 0 until one is.
 --- Only `h:wait` reads the guard -- it ends its child and answers
---- "cancelled by signal N" once a signal is caught -- and a stream's
+--- "child: cancelled by signal N" once a signal is caught -- and a stream's
 --- read or write, which fails with the same message and leaves the
 --- child running; [`Child.wait_any`] and `h:try_wait` do not, so a loop
 --- over them asks `g:cancelled()` each round. `g:take()` answers the
@@ -1538,7 +1539,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local slots, wire_trouble = wire(opts, wiring)
   if slots == nil then
     unwire(wiring, false)
-    return nil, "start: " .. wire_trouble
+    return refuse("start: " .. wire_trouble)
   end
   local extra: {integer:integer}
   for number, fd in pairs(slots) do
@@ -1570,7 +1571,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     elseif errno == sys.EINVAL or errno == sys.EMFILE then
       trouble = trouble .. descriptor_limit_hint(slots)
     end
-    return nil, "start: " .. trouble
+    return refuse("start: " .. trouble)
   end
   local h = make_handle(pid, grouped)
   h._limit = opts.capture_limit or DEFAULT_CAPTURE_LIMIT
@@ -1726,7 +1727,7 @@ end
 --- While the child runs, SIGINT and SIGTERM are held in a [`Child.guard`]:
 --- either one ends the child and its group, then the caller's
 --- dispositions are restored and the signal delivered again. The run
---- then answers nil and "cancelled by signal N". A run made while the
+--- then answers nil and "child: cancelled by signal N". A run made while the
 --- caller holds a [`Child.guard`] holds one inside it: a signal the
 --- caller's guard caught before the run began does not end it, and one
 --- that ends it is left to the caller's guard rather than delivered.
@@ -1741,7 +1742,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
     error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
   end
   local held, guard_trouble = opened()
-  if held == nil then return nil, "child: signal guard: " .. guard_trouble end
+  if held == nil then return refuse("signal guard: " .. guard_trouble) end
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.
   local guard <close>: Guard = held
@@ -1759,7 +1760,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   end
   -- Closing re-delivers a caught signal, after the cleanup above.
   local restored, restore_trouble = guard:close()
-  if not restored then return nil, "child: signal restore: " .. restore_trouble end
+  if not restored then return refuse("signal restore: " .. restore_trouble) end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
     return nil, cleanup_trouble or wait_trouble or cancelled_by(cancellation)
