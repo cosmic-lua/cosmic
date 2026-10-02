@@ -63,14 +63,16 @@ of the solver's project. The prompt varies only in arena paths.
   Record actual elapsed time and enforcement method. A turn cap is an
   additional runner-specific limit, not a claim of equal model budgets.
 - **Independent grading.** After the solver stops, run
-  `timeout 30 eval/check/notes <absolute-arena>` and save stdout/stderr as
-  `grade.log` outside `project/`. A timeout is distinct from an assertion
-  failure. The notes grader requires recorded tests and examples (including
-  guide doctests), checks formatting, builds exactly `o/bin/notes`, then
-  exercises it without supporting files or environment. The grader runs
-  on the pinned bootstrap cosmic, which is no solver dependency either;
-  run [`bin/cosmic-bootstrap`] once beforehand, so its first download is
-  not counted against the grader's 30 seconds.
+  `timeout 30 eval/check/<task> <absolute-arena>` (`timeout 60` for jobs
+  and mirror, whose checks wait out timeouts of their own) and save
+  stdout/stderr as `grade.log` outside `project/`. A timeout is distinct
+  from an assertion failure. The grader requires recorded tests and
+  examples (including guide doctests), checks formatting, builds exactly
+  `o/bin/<task>`, then exercises it without supporting files or
+  environment (see [grading](#grading)). It runs on the pinned bootstrap
+  cosmic, which is no solver dependency either; run
+  [`bin/cosmic-bootstrap`] once beforehand, so its first download is not
+  counted against the grader's time.
 - **Evidence.** Preserve the project and journal. Any path a tool call
   named outside the arena is a boundary breach to record. Preserve a full transcript
   where the runner supplies one; a journal is not a replacement transcript.
@@ -242,8 +244,9 @@ something the agent was never told. Beyond that bar, what has worked:
   with nothing beside it.
 - **Use the standard library that exists.** A task that needs a module
   cosmic does not have yet measures the gap, not the tool.
-- **Pair it with a grader** at `eval/check/<task>`, taking the arena
-  directory and ending in a verdict line.
+- **Pair it with checks** in the grader (below), run by
+  `eval/check/<task>`, which takes the arena directory and ends in a
+  verdict line.
 - **Say what, never how.** Name the outcome -- tests that pass, examples
   cosmic checks, code formatted the way cosmic formats it, a binary that
   runs alone -- and never the cosmic command that gets it. Finding the
@@ -253,6 +256,38 @@ something the agent was never told. Beyond that bar, what has worked:
   an empty environment; the task says so in the same words.
 - **Keep the journal contract out of the task.** It is the same for
   every task and lives in [`eval/journal.md`].
+
+## grading
+
+One grader, [`eval/check/grade.tl`], grades every task; each
+`eval/check/<task>` runs it for that task on the bootstrap cosmic with
+`--standalone`, which loads no module beside the file, so the plumbing
+and every task's checks live in that one file, requiring `cosmic.*`
+modules only. For each task it
+
+1. clears the runs `project/o/build.db` records, runs the arena's own
+   `bin/cosmic test`, and requires a passing test and a passing example
+   (or doctest) among the runs that test recorded;
+2. runs `cosmic fix --check` with `JOURNAL.md` set aside, and
+   `cosmic build`;
+3. copies `o/bin/<task>` -- only when that build passed and named it --
+   alone into the arena's `empty/`, and runs the task's checks there,
+   the executable with an empty environment but for a variable a check
+   names.
+
+Each step's output is kept in the arena as `check-<n>.out`, and a server
+task's as `check-serve.out`. Every check prints one `check: ok` or
+`check: FAIL` line, and the last line is `check: PASS` or `check: FAIL`,
+exiting 0 or 1.
+
+To add a task: write `eval/task/<task>.md`, a function `<task>(g)` in
+grade.tl's section for it, built from the helpers above them (`expect`,
+`refuses`, `help`, `run`, `write`, `check`, and for a server `serves`,
+`stops` and `exchange`), an entry in `TASKS` (how long one run may take,
+and whether its stdin is /dev/null and its children outlive it), and
+`eval/check/<task>`, a copy of a sibling naming the task. Before running
+a model on it, grade a reference solution and a few broken ones (a
+mutation for each check that matters) and see each fail where it should.
 
 ## reading a journal
 
@@ -273,6 +308,7 @@ ranking. Then:
 
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`eval/arena`]: arena
+[`eval/check/grade.tl`]: check/grade.tl
 [`eval/journal.md`]: journal.md
 [`eval/solve`]: solve
 [`eval/summarize`]: summarize

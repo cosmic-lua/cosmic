@@ -1,16 +1,20 @@
---- Grades the jobs and mirror tasks in an arena, as tasks.tl grades
---- pack, ledger and kv: the project's tests and format check pass, with
---- recorded tests and examples behind them, cosmic builds the task's
---- executable, and that executable, copied alone into an empty
---- directory, does what the task asks. These two drive processes and
---- sockets, so their checks time what the executable does as well as
---- reading what it answers.
+--- Grades a task in an arena: the project's tests and format check
+--- pass, with recorded tests and examples behind them, cosmic builds
+--- the task's executable, and that executable, copied alone into an
+--- empty directory and run there, does what the task asks.
 ---
----     cosmic --standalone eval/check/hard.tl <task> <dir>
+---     cosmic --standalone eval/check/grade.tl <task> <dir>
 ---
---- [`eval/check/jobs`] and `mirror` run this on the bootstrap cosmic:
---- it requires `cosmic.*` modules only. The arena's own `bin/cosmic`
---- does the testing and building.
+--- [`eval/check/notes`] and its siblings, one for each task under
+--- eval/task/, run this on the bootstrap cosmic, as bin/vendor runs
+--- build/vendor.tl. `--standalone` loads no module beside this file, so
+--- every task's checks live here, after the plumbing they share, and
+--- the file requires `cosmic.*` modules only. The arena's own
+--- `bin/cosmic` does the testing and building.
+---
+--- The executable runs with an empty environment -- no PATH, no HOME,
+--- no TMPDIR -- unless a check names one, so nothing beside it and
+--- nothing on PATH can help, as each task promises.
 local Child = require("cosmic.child")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -21,26 +25,77 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 
-local record Hard
+local record Grader
+  --- How many tests and examples passed.
+  record Evidence
+    tests: integer
+    examples: integer
+  end
+end
+
+--- One grading run: the arena, the task's executable and the empty
+--- directory it runs in, how it is run, and whether anything has failed
+--- yet.
+local record Grade
+  dir: string
+  name: string
+  exe: string
+  empty: string
+  steps: integer
+  failed: boolean
+  --- How long one run of the executable may take.
+  timeout_ns: integer
+  --- Whether each run's stdin is /dev/null rather than this process's.
+  null_stdin: boolean
+  --- Whether each run leads a process group of its own, ended with
+  --- it; without one, what a run leaves behind outlives it, as it
+  --- would outlive a shell's command, for a check to find.
+  own_group: boolean
 end
 
 local function say(line: string)
   local _, _ = Fs.put(Fs.stdout, "check: " .. line .. "\n")
 end
 
-local function status(result: Child.Result): integer
+local function ok(line: string)
+  say("ok   " .. line)
+end
+
+local function fail(g: Grade, line: string)
+  say("FAIL " .. line)
+  g.failed = true
+end
+
+--- Passes `line` when `holds`, else fails it with `why` after it.
+local function check(g: Grade, holds: boolean, line: string, why?: string)
+  if holds then
+    ok(line)
+  else
+    fail(g, line .. (why ~= nil and why ~= "" and ": " .. why or ""))
+  end
+end
+
+--- A child's exit as a shell reports it: its code, or 128 plus the
+--- signal that ended it.
+function Grader.status(result: Child.Result): integer
   if result.code ~= nil then
     return result.code
   end
   return 128 + (result.signal or 0)
 end
 
---- Whether a failure's stderr is cosmic's own rather than the tool's.
-local function failed_in_cosmic(err: string): boolean
+local status = Grader.status
+
+--- Whether a failure's stderr is cosmic's own -- a launcher or
+--- runtime failure -- rather than the tool's: a line of it starts with
+--- `cosmic`.
+function Grader.failed_in_cosmic(err: string): boolean
   return err:find("^cosmic") ~= nil or err:find("\ncosmic") ~= nil
 end
 
-local function built(output: string, name: string): boolean
+--- Whether `cosmic build`'s output names o/bin/<name> among the
+--- executables it wrote: `build: PASS (o/bin/notes, 433 ms)`.
+function Grader.built(output: string, name: string): boolean
   for line in output:gmatch("[^\n]+") do
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
@@ -58,11 +113,16 @@ local function first_line(text: string): string
   return text:match("^[^\n]*")
 end
 
+--- Text as `$(...)` gives it: without its trailing newlines.
 local function trimmed(text: string): string
   return (text:gsub("\n+$", ""))
 end
 
-local function reset_evidence(path: string): boolean, string
+--- Clears the runs a build database records, keeping its verdicts:
+--- `cosmic test` credits a verdict that still stands into runs again,
+--- so what `evidence` finds afterward is this grading's own. A
+--- database that is not there yet has nothing to clear.
+function Grader.reset_evidence(path: string): boolean, string
   local present, trouble = Fs.exists(path)
   if present == nil then
     return false, trouble
@@ -73,21 +133,23 @@ local function reset_evidence(path: string): boolean, string
   if db == nil then
     return false, otrouble
   end
-  local ok, etrouble = db:exec("delete from runs")
+  local done, etrouble = db:exec("delete from runs")
   local closed, close_trouble = db:close()
-  if not ok then return false, etrouble end
+  if not done then return false, etrouble end
   if not closed then return false, close_trouble end
   return true, ""
 end
 
-local function evidence(path: string): integer, integer, string
+--- How many tests and examples passed in the runs a build database
+--- records; a doctest is an example.
+function Grader.evidence(path: string): Grader.Evidence | nil, string
   local present, trouble = Fs.exists(path)
   if not present then
-    return 0, 0, present == nil and trouble or path .. ": no build database"
+    return nil, present == nil and trouble or path .. ": no build database"
   end
   local db, otrouble = Sqlite.open(path)
   if db == nil then
-    return 0, 0, otrouble
+    return nil, otrouble
   end
   local rows, rtrouble = Sqlite.text_rows(db, [[
     select i.kind, i.origin, count(*)
@@ -95,9 +157,11 @@ local function evidence(path: string): integer, integer, string
     where r.passed = 1
     group by i.kind, i.origin
   ]], {})
+  -- A read-only handle has nothing to lose in closing; the query's own
+  -- answer is the one that counts.
   local _, _ = db:close()
   if rows == nil then
-    return 0, 0, rtrouble
+    return nil, rtrouble
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do
@@ -109,36 +173,13 @@ local function evidence(path: string): integer, integer, string
       examples = examples + n
     end
   end
-  return tests, examples, ""
+  return { tests = tests, examples = examples }, ""
 end
 
-local record Grade
-  dir: string
-  name: string
-  exe: string
-  empty: string
-  steps: integer
-  failed: boolean
-end
-
-local function fail(g: Grade, line: string)
-  say("FAIL " .. line)
-  g.failed = true
-end
-
-local function ok(line: string)
-  say("ok   " .. line)
-end
-
---- Passes `line` when `holds`, else fails it with `why` after it.
-local function check(g: Grade, holds: boolean, line: string, why?: string)
-  if holds then
-    ok(line)
-  else
-    fail(g, line .. (why ~= nil and why ~= "" and ": " .. why or ""))
-  end
-end
-
+--- Runs one step, its output kept in the arena as check-<n>.out and
+--- shown beneath the step when it fails. A step is a command, or a
+--- function standing for one under `label`, answering whether it
+--- passed and what it printed. Answers whether it passed.
 local function step(g: Grade, label: string, work: function(out: integer): boolean): boolean
   g.steps = g.steps + 1
   local log = g.dir .. "/check-" .. g.steps .. ".out"
@@ -154,6 +195,7 @@ local function step(g: Grade, label: string, work: function(out: integer): boole
     return true
   end
   fail(g, label)
+  -- A log that cannot be read shows nothing under the failure.
   local read, _ = Fs.read(log)
   local text = read or ""
   if text ~= "" and text:sub(-1) ~= "\n" then
@@ -188,8 +230,7 @@ local function fix_check(g: Grade, cosmic: string, project: string)
   if moved then
     local back, trouble = Fs.rename(aside, journal)
     if not back then
-      say("FAIL could not put JOURNAL.md back from " .. aside .. ": " .. trouble)
-      g.failed = true
+      fail(g, "could not put JOURNAL.md back from " .. aside .. ": " .. trouble)
     end
   end
 end
@@ -203,13 +244,12 @@ local function argv_of(g: Grade, args: {string}): {string}
 end
 
 --- Runs the task's executable in the empty directory with `env` (an
---- empty environment by default), answering its result. Its process
---- group is this one's, so what it leaves behind outlives it as it
---- would outlive a shell's command, for a check to find.
+--- empty environment by default), answering its result.
 local function run(g: Grade, args: {string}, env?: {string: string}): Child.Result
-  local result, trouble = Child.run(argv_of(g, args), { cwd = g.empty, env = env or {},
-    stdout = "capture", stderr = "capture", stdin = "null", process_group = false,
-    timeout_ns = Time.seconds(15) })
+  local options: Child.Options = { cwd = g.empty, env = env or {}, stdout = "capture",
+    stderr = "capture", process_group = g.own_group, timeout_ns = g.timeout_ns }
+  if g.null_stdin then options.stdin = "null" end
+  local result, trouble = Child.run(argv_of(g, args), options)
   if result == nil then
     return { code = 127, ok = false, timed_out = false, stdout = "", stderr = trouble,
       captured = {}, truncated = false }
@@ -221,6 +261,18 @@ local function label(g: Grade, args: {string}): string
   return "./" .. g.name .. " " .. table.concat(args, " ")
 end
 
+--- Checks that the executable exits 0 printing exactly `want` on stdout.
+local function expect(g: Grade, want: string, args: {string})
+  local result = run(g, args)
+  local got = trimmed(result.stdout or "")
+  if status(result) == 0 and got == want then
+    ok(label(g, args) .. " -> " .. first_line(want))
+  else
+    fail(g, label(g, args) .. ": exit " .. status(result) .. ", got '" .. got ..
+      "', wanted '" .. want .. "'; stderr: " .. first_line(result.stderr or ""))
+  end
+end
+
 --- Checks that the executable fails with a message of its own on
 --- stderr, answering that message.
 local function refuses(g: Grade, args: {string}): string
@@ -230,7 +282,7 @@ local function refuses(g: Grade, args: {string}): string
     fail(g, label(g, args) .. " exited 0")
   elseif err == "" then
     fail(g, label(g, args) .. " said nothing on stderr")
-  elseif failed_in_cosmic(err) then
+  elseif Grader.failed_in_cosmic(err) then
     fail(g, label(g, args) .. " failed in cosmic, not in " .. g.name .. ": " .. first_line(err))
   else
     ok(label(g, args) .. " -> exit " .. status(result) .. ", stderr: " .. first_line(err))
@@ -238,6 +290,8 @@ local function refuses(g: Grade, args: {string}): string
   return err
 end
 
+--- Checks that `help` exits 0 printing usage that names every one of
+--- `words`.
 local function help(g: Grade, words: {string})
   local result = run(g, { "help" })
   local out = trimmed(result.stdout or "")
@@ -278,6 +332,11 @@ local function exists(path: string): boolean
   return present == true
 end
 
+local function is_executable(path: string): boolean
+  local st, _ = Fs.stat(path)
+  return st ~= nil and st.kind == "file" and st.mode & 0x49 ~= 0
+end
+
 local function field(value: any, key: string): any
   if value is {string: any} then
     return value[key]
@@ -315,6 +374,439 @@ local function same(a: any, b: any): boolean
   return a == b
 end
 
+-- servers
+
+--- Starts `./<name> <args>` in the empty directory, its output kept in
+--- the arena as check-serve.out, and waits up to 5 s for the line
+--- naming the port it listens on. Answers the server and its port, or
+--- nil once it has failed.
+local function serves(g: Grade, args: {string}): Child.Handle, integer
+  local what = g.name .. " " .. table.concat(args, " ")
+  local out_path = g.dir .. "/check-serve.out"
+  local out = assert(Fs.open_write(out_path))
+  local options: Child.Options = { cwd = g.empty, env = {}, stdout = out, stderr = out }
+  if g.null_stdin then options.stdin = "null" end
+  local server, trouble = Child.start(argv_of(g, args), options)
+  local _, _ = Fs.close(out)
+  if server == nil then
+    fail(g, what .. " did not start: " .. trouble)
+    return nil, 0
+  end
+  local deadline = Time.monotonic_ns() + Time.seconds(5)
+  while Time.monotonic_ns() < deadline do
+    local text, _ = Fs.read(out_path)
+    local found = text ~= nil and text:match("listening on 127%.0%.0%.1:(%d+)\n")
+    if found then
+      local port = math.tointeger(tonumber(found))
+      ok(what .. " -> listening on 127.0.0.1:" .. port)
+      return server, port
+    end
+    local _, _ = Time.sleep_ns(Time.ms(50))
+  end
+  local text, _ = Fs.read(out_path)
+  fail(g, what .. " printed no 'listening on 127.0.0.1:<port>' line in 5s: " ..
+    first_line(text or ""))
+  local _, _ = server:close()
+  return nil, 0
+end
+
+--- Checks that the server exits 0 within 3 s of SIGTERM.
+local function stops(g: Grade, server: Child.Handle)
+  local stopped, _ = server:stop()
+  local result, _ = server:wait(Time.seconds(3))
+  if not stopped or result == nil or result.timed_out then
+    fail(g, g.name .. " serve did not exit within 3s of SIGTERM")
+  elseif status(result) ~= 0 then
+    fail(g, g.name .. " serve exited " .. status(result) .. " on SIGTERM, not 0")
+  else
+    ok(g.name .. " serve exits 0 on SIGTERM")
+  end
+  local _, _ = server:close()
+end
+
+--- One response as the grader read it off the wire.
+local record Answer
+  status: integer
+  headers: {string: string}
+  body: string
+  --- Whether the server closed the connection after it.
+  closed: boolean
+end
+
+--- Sends `request` raw and reads one response: its head, then up to its
+--- Content-Length (none for a HEAD, a 304, or a 204 without one). With
+--- `to_close`, for a request that asked for its connection closed, it
+--- reads on past that until the server closes or 300 ms pass, so a body
+--- after a HEAD's headers shows, and a response with no length is read
+--- to its close; without, a response with no length is an error.
+local function exchange(port: integer, request: string, head_only: boolean,
+  to_close: boolean): Answer | nil, string
+  local conn, ctrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(3) })
+  if conn == nil then return nil, ctrouble end
+  local sent, strouble = conn:write(request)
+  if not sent then
+    local _, _ = conn:close()
+    return nil, strouble
+  end
+  local got = ""
+  local answer: Answer = nil
+  local body_length: integer = nil
+  while true do
+    if answer == nil then
+      local head, rest = got:match("^(.-)\r\n\r\n(.*)$")
+      if head ~= nil then
+        local code = math.tointeger(tonumber(head:match("^HTTP/1%.[01] (%d%d%d)")))
+        if code == nil then
+          local _, _ = conn:close()
+          return nil, "no status line: " .. first_line(head)
+        end
+        local headers: {string: string} = {}
+        for name, value in head:gmatch("\r\n([^:\r\n]+):[ \t]*([^\r\n]*)") do
+          headers[name:lower()] = String.trim(value)
+        end
+        answer = { status = code, headers = headers, body = rest, closed = false }
+        if head_only or code == 304 then
+          body_length = 0
+        else
+          body_length = math.tointeger(tonumber(headers["content-length"] or ""))
+          -- RFC 9110 forbids a Content-Length on a 204, which has no body.
+          if body_length == nil and code == 204 then
+            body_length = 0
+          end
+          if body_length == nil and not to_close then
+            local _, _ = conn:close()
+            return nil, "no Content-Length in " .. first_line(head)
+          end
+        end
+      end
+    end
+    if answer ~= nil and body_length ~= nil and #answer.body >= body_length then
+      break
+    end
+    local chunk, trouble = conn:read()
+    if chunk == nil then
+      local _, _ = conn:close()
+      if answer == nil then
+        return nil, trouble ~= "" and trouble or "closed before a response"
+      elseif trouble ~= "" and to_close then
+        return nil, trouble
+      end
+      answer.closed = true
+      return answer, ""
+    end
+    if answer == nil then got = got .. chunk else answer.body = answer.body .. chunk end
+  end
+  if to_close then
+    conn:set_timeout(Time.ms(300))
+    while true do
+      local chunk, _ = conn:read()
+      if chunk == nil then break end
+      answer.body = answer.body .. chunk
+    end
+    local again, trouble = conn:read()
+    answer.closed = again == nil and trouble == ""
+  end
+  local _, _ = conn:close()
+  return answer, ""
+end
+
+-- notes
+
+--- Runs [`./notes`] with nothing in its environment but `env`, and
+--- checks that it exits 0 printing exactly `want` on stdout and stderr
+--- together.
+local function notes_expect(g: Grade, want: string, args: {string}, env?: {string: string})
+  local shown_args: {string} = { "env -i" }
+  local names: {string} = {}
+  for name in pairs(env or {}) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    shown_args[#shown_args + 1] = name .. "=" .. env[name]
+  end
+  shown_args[#shown_args + 1] = "./notes"
+  for _, word in ipairs(args) do
+    shown_args[#shown_args + 1] = word
+  end
+  local what = table.concat(shown_args, " ")
+  local result, trouble = Child.run(argv_of(g, args), { cwd = g.empty, env = env or {},
+    stdout = "capture", stderr = "stdout" })
+  local code = result ~= nil and status(result) or 127
+  local got = result ~= nil and trimmed(result.stdout or "") or trouble
+  if code == 0 and got == want then
+    ok(what .. " -> " .. first_line(want))
+  else
+    fail(g, what .. ": exit " .. code .. ", got '" .. got .. "', wanted '" .. want .. "'")
+  end
+end
+
+--- add, list, search, rm, an unknown id, NOTES_DB and help.
+local function notes(g: Grade)
+  notes_expect(g, "1", { "add", "hello", "world" })
+  notes_expect(g, "2", { "add", "second", "note" })
+  notes_expect(g, "1\thello world\n2\tsecond note", { "list" })
+  notes_expect(g, "2\tsecond note", { "search", "second" })
+  notes_expect(g, "", { "rm", "1" })
+
+  -- The message must be the tool's own: a launcher or runtime failure
+  -- also exits non-zero with something on stderr.
+  local result, _ = Child.run(argv_of(g, { "rm", "9" }), { cwd = g.empty, env = {},
+    stdout = "null", stderr = "capture" })
+  local err = result ~= nil and result.stderr or ""
+  local _, _ = Fs.write(g.dir .. "/check.err", err)
+  if result ~= nil and status(result) == 0 then
+    fail(g, "rm of an unknown id exited 0")
+  elseif err == "" then
+    fail(g, "rm of an unknown id said nothing on stderr")
+  elseif Grader.failed_in_cosmic(err) then
+    fail(g, "rm 9 failed in cosmic, not in notes: " .. first_line(err))
+  else
+    ok("rm 9 -> non-zero exit, stderr: " .. first_line(err))
+  end
+  notes_expect(g, "2\tsecond note", { "list" })
+
+  local _, _ = Fs.remove(g.empty .. "/notes.db")
+  notes_expect(g, "1", { "add", "elsewhere" }, { NOTES_DB = "other.db" })
+  local st, _ = Fs.stat(g.empty .. "/other.db")
+  if st ~= nil and st.kind == "file" then
+    ok("NOTES_DB names the file")
+  else
+    fail(g, "NOTES_DB was not honored")
+  end
+  help(g, { "add", "list", "rm", "search" })
+end
+
+-- pack
+
+--- One ustar header and body for a file named `name` holding `data`.
+local function ustar(name: string, data: string): string
+  local function padded(text: string, width: integer): string
+    return text .. string.rep("\0", width - #text)
+  end
+  local function octal(n: integer, width: integer): string
+    return padded(string.format("%0" .. (width - 1) .. "o", n), width)
+  end
+  local head = padded(name, 100) .. octal(420, 8) .. octal(0, 8) .. octal(0, 8)
+    .. octal(#data, 12) .. octal(0, 12) .. "        " .. "0" .. padded("", 100)
+    .. "ustar\0" .. "00" .. padded("", 32) .. padded("", 32) .. octal(0, 8) .. octal(0, 8)
+    .. padded("", 155)
+  head = padded(head, 512)
+  local sum = 0
+  for i = 1, #head do
+    sum = sum + head:byte(i)
+  end
+  head = head:sub(1, 148) .. string.format("%06o\0 ", sum) .. head:sub(157)
+  local padding = (512 - #data % 512) % 512
+  return head .. data .. string.rep("\0", padding)
+end
+
+local function pack(g: Grade)
+  local bytes: {string} = {}
+  for i = 0, 255 do
+    bytes[#bytes + 1] = string.char(i)
+  end
+  local files: {{string}} = {
+    { "a.txt", "alpha\n" },
+    { "sub/b.txt", "bravo bravo\n" },
+    { "sub/deep/c.bin", table.concat(bytes) },
+  }
+  local listing, sums: {string}, {string} = {}, {}
+  for _, f in ipairs(files) do
+    write(g, "src/" .. f[1], f[2])
+    listing[#listing + 1] = #f[2] .. "\t" .. f[1]
+    sums[#sums + 1] = Hash.hex_sha256(f[2]) .. "\t" .. f[1]
+  end
+  local want_list = table.concat(listing, "\n")
+  local want_sum = table.concat(sums, "\n")
+  local magic: {string: function(string): boolean} = {
+    ["tar"] = function(s: string): boolean return s:sub(258, 262) == "ustar" end,
+    ["tar.gz"] = function(s: string): boolean return s:sub(1, 2) == "\31\139" end,
+    ["tgz"] = function(s: string): boolean return s:sub(1, 2) == "\31\139" end,
+    ["zip"] = function(s: string): boolean return s:sub(1, 4) == "PK\3\4" end,
+  }
+  for _, ext in ipairs({ "tar", "tar.gz", "tgz", "zip" }) do
+    local archive = "out." .. ext
+    expect(g, "", { "create", archive, "src" })
+    local data, _ = Fs.read(g.empty .. "/" .. archive)
+    if data == nil or not magic[ext](data) then
+      fail(g, archive .. " is not a " .. ext .. " file")
+    else
+      ok(archive .. " is a " .. ext .. " file")
+    end
+    expect(g, want_list, { "list", archive })
+    expect(g, want_sum, { "sum", archive })
+    local dest = "dest-" .. ext
+    expect(g, "", { "extract", archive, dest })
+    local whole = true
+    for _, f in ipairs(files) do
+      local got, _ = Fs.read(g.empty .. "/" .. dest .. "/" .. f[1])
+      if got ~= f[2] then
+        whole = false
+        fail(g, "extract " .. archive .. ": " .. dest .. "/" .. f[1] .. " differs")
+      end
+    end
+    if whole then ok("extract " .. archive .. " recreates every file") end
+  end
+  local gz, _ = Fs.read(g.empty .. "/out.tar.gz")
+  write(g, "data.bin", gz or "")
+  expect(g, want_list, { "list", "data.bin" })
+  refuses(g, { "create", "out.rar", "src" })
+  refuses(g, { "list", "src/a.txt" })
+  refuses(g, { "list", "missing.tar" })
+
+  write(g, "evil.tar", ustar("ok.txt", "fine\n") .. ustar("../evil.txt", "escaped\n")
+    .. string.rep("\0", 1024))
+  local err = refuses(g, { "extract", "evil.tar", "dest-evil" })
+  if not err:find("evil", 1, true) then
+    fail(g, "extract evil.tar did not name the entry ../evil.txt")
+  end
+  local escaped, _ = Fs.exists(g.empty .. "/evil.txt")
+  if escaped then
+    fail(g, "extract evil.tar wrote evil.txt outside its destination")
+  else
+    ok("extract evil.tar wrote nothing outside its destination")
+  end
+  help(g, { "create", "list", "sum", "extract" })
+end
+
+-- ledger
+
+local LEDGER_CSV <const> = table.concat({
+  "when,amount,category,note",
+  "2026-01-31T23:30:00-05:00,12.50,food,\"late dinner, downtown\"",
+  "2026-02-01T10:00:00Z,-3.5,food,refund",
+  "2026-02-15T12:00:00+01:00,1000,rent,\"multi",
+  "line \"\"note\"\"\"",
+  "not-a-date,5,food,bad",
+  "2026-03-01T00:30:00+01:00,0.25,misc,",
+  "2026-02-10T09:00:00Z,abc,food,bad amount",
+}, "\n") .. "\n"
+
+local function reports(g: Grade, args: {string}, want: string): string
+  local result = run(g, args)
+  local got, trouble = Json.decode(result.stdout or "")
+  local wanted = assert(Json.decode(want))
+  if status(result) ~= 0 then
+    fail(g, label(g, args) .. ": exit " .. status(result) .. "; stderr: " ..
+      first_line(result.stderr or ""))
+  elseif got == nil then
+    fail(g, label(g, args) .. ": stdout is no JSON (" .. trouble .. "): " ..
+      first_line(result.stdout or ""))
+  elseif not same(got, wanted) then
+    fail(g, label(g, args) .. ": got " .. trimmed(result.stdout or "") .. ", wanted " .. want)
+  else
+    ok(label(g, args) .. " -> " .. (want:gsub("%s*\n%s*", "")))
+  end
+  return result.stderr or ""
+end
+
+local function ledger(g: Grade)
+  write(g, "tx.csv", LEDGER_CSV)
+  local err = reports(g, { "report", "tx.csv" }, [[{"months":[
+    {"month":"2026-02","total_cents":100925,"categories":{"food":900,"rent":100000,"misc":25}}],
+    "rows":4,"skipped":2}]])
+  for _, line in ipairs({ "line 6", "line 8" }) do
+    if err:find(line .. "%f[^%d]") then
+      ok("stderr names " .. line)
+    else
+      fail(g, "stderr did not name " .. line .. ": " .. trimmed(err))
+    end
+  end
+  reports(g, { "report", "--zone", "America/New_York", "tx.csv" }, [[{"months":[
+    {"month":"2026-01","total_cents":1250,"categories":{"food":1250}},
+    {"month":"2026-02","total_cents":99675,"categories":{"food":-350,"rent":100000,"misc":25}}],
+    "rows":4,"skipped":2}]])
+  reports(g, { "report", "tx.csv", "--zone", "Europe/Berlin" }, [[{"months":[
+    {"month":"2026-02","total_cents":100900,"categories":{"food":900,"rent":100000}},
+    {"month":"2026-03","total_cents":25,"categories":{"misc":25}}],
+    "rows":4,"skipped":2}]])
+  reports(g, { "report", "tx.csv", "--zone", "Europe/Berlin", "--from", "2026-02-02",
+    "--to", "2026-03-01" }, [[{"months":[
+    {"month":"2026-02","total_cents":100000,"categories":{"rent":100000}},
+    {"month":"2026-03","total_cents":25,"categories":{"misc":25}}],
+    "rows":2,"skipped":2}]])
+  reports(g, { "report", "tx.csv", "--to", "2026-01-31", "--zone", "America/New_York" },
+    [[{"months":[{"month":"2026-01","total_cents":1250,"categories":{"food":1250}}],
+    "rows":1,"skipped":2}]])
+  write(g, "wrong.csv", "date,amount,category,note\n2026-01-01T00:00:00Z,1,a,\n")
+  refuses(g, { "report", "tx.csv", "--zone", "Mars/Olympus" })
+  refuses(g, { "report", "missing.csv" })
+  refuses(g, { "report", "wrong.csv" })
+  refuses(g, { "report", "tx.csv", "--from", "yesterday" })
+  help(g, { "report", "--zone", "--from", "--to" })
+end
+
+-- kv
+
+--- Sends `request` raw, and checks the status is one of `codes` and, when
+--- given, the body is `body`.
+local function answers(g: Grade, port: integer, request: string, codes: {string}, body?: string)
+  local what = first_line(request)
+  local answer, trouble = exchange(port, request, false, false)
+  if answer == nil then
+    fail(g, what .. ": " .. trouble)
+    return
+  end
+  local code = tostring(answer.status)
+  local matched = false
+  for _, c in ipairs(codes) do
+    if c == code then matched = true end
+  end
+  local got_body = trimmed(answer.body)
+  if not matched then
+    fail(g, what .. ": status " .. code .. ", wanted " .. table.concat(codes, " or "))
+  elseif body ~= nil and got_body ~= body then
+    fail(g, what .. ": body '" .. got_body .. "', wanted '" .. body .. "'")
+  else
+    ok(what .. " -> " .. code)
+  end
+end
+
+local function kv(g: Grade)
+  local server, port = serves(g, { "serve", "0" })
+  if server == nil then
+    return
+  end
+  local base = "http://127.0.0.1:" .. port
+
+  expect(g, "", { "put", base .. "/alpha", "hello" })
+  expect(g, "hello", { "get", base .. "/alpha" })
+  expect(g, "", { "put", base .. "/beta", "two words" })
+  expect(g, "two words", { "get", base .. "/beta" })
+  expect(g, "", { "rm", base .. "/alpha" })
+  refuses(g, { "get", base .. "/alpha" })
+  refuses(g, { "rm", base .. "/alpha" })
+
+  answers(g, port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", { "200" }, "beta")
+  answers(g, port, "PUT /raw HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc", { "204" })
+  answers(g, port, "GET /raw HTTP/1.1\r\nHost: x\r\n\r\n", { "200" }, "abc")
+  answers(g, port, "GET /nothing HTTP/1.1\r\nHost: x\r\n\r\n", { "404" })
+  answers(g, port, "POST /raw HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n", { "400", "405" })
+  answers(g, port, "DELETE /raw HTTP/1.1\r\nHost: x\r\n\r\n", { "204" })
+
+  -- A client that sends half a request and waits must not hold up the next.
+  local idle, itrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(3) })
+  if idle == nil then
+    fail(g, "idle connection: " .. itrouble)
+  else
+    local _, _ = idle:write("GET /beta HTTP/1.1\r\nHo")
+    local started = Time.monotonic_ns()
+    local result = run(g, { "get", base .. "/beta" })
+    local took = since_ms(started)
+    if status(result) == 0 and trimmed(result.stdout or "") == "two words" and took < 3000 then
+      ok("get while another client idles mid-request -> answered in " .. took .. " ms")
+    else
+      fail(g, "get while another client idles mid-request: exit " .. status(result) ..
+        " after " .. took .. " ms; stderr: " .. first_line(result.stderr or ""))
+    end
+    local _, _ = idle:close()
+  end
+
+  stops(g, server)
+  refuses(g, { "get", base .. "/beta" })
+  help(g, { "serve", "put", "get", "rm" })
+end
 -- jobs
 
 local function sh(script: string): {string}
@@ -547,83 +1039,16 @@ end
 
 -- mirror
 
---- One response as the grader read it off the wire.
-local record Answer
-  status: integer
-  headers: {string: string}
-  body: string
-  closed: boolean
-end
-
---- Reads one response to a request sent with `Connection: close`: up to
---- its Content-Length (none for a HEAD or a 304), then whatever follows
---- before the server closes, so a body after a HEAD's headers shows.
-local function receive(conn: Net.Conn, head_only: boolean): Answer | nil, string
-  local got = ""
-  local answer: Answer = nil
-  local body_length: integer = nil
-  while true do
-    if answer == nil then
-      local head, rest = got:match("^(.-)\r\n\r\n(.*)$")
-      if head ~= nil then
-        local code = math.tointeger(tonumber(head:match("^HTTP/1%.[01] (%d%d%d)")))
-        if code == nil then return nil, "no status line: " .. first_line(head) end
-        local headers: {string: string} = {}
-        for name, value in head:gmatch("\r\n([^:\r\n]+):[ \t]*([^\r\n]*)") do
-          headers[name:lower()] = String.trim(value)
-        end
-        answer = { status = code, headers = headers, body = rest, closed = false }
-        if head_only or code == 304 then
-          body_length = 0
-        else
-          body_length = math.tointeger(tonumber(headers["content-length"] or ""))
-        end
-      end
-    end
-    if answer ~= nil and body_length ~= nil and #answer.body >= body_length then
-      break
-    end
-    local chunk, trouble = conn:read()
-    if chunk == nil then
-      if trouble ~= "" or answer == nil then
-        return nil, trouble ~= "" and trouble or "closed before a response"
-      end
-      answer.closed = true
-      return answer, ""
-    end
-    if answer == nil then got = got .. chunk else answer.body = answer.body .. chunk end
-  end
-  conn:set_timeout(Time.ms(300))
-  while true do
-    local chunk, _ = conn:read()
-    if chunk == nil then break end
-    answer.body = answer.body .. chunk
-  end
-  local again, trouble = conn:read()
-  answer.closed = again == nil and trouble == ""
-  return answer, ""
-end
-
 --- One request to the server with `Connection: close`, and its answer.
 local function request(port: integer, method: string, target: string,
   headers?: {string: string}): Answer | nil, string
-  local conn, trouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(3) })
-  if conn == nil then return nil, trouble end
   local lines = { method .. " " .. target .. " HTTP/1.1", "Host: 127.0.0.1",
     "Connection: close" }
   local names: {string} = {}
   for name in pairs(headers or {}) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do lines[#lines + 1] = name .. ": " .. headers[name] end
-  local sent, strouble = conn:write(table.concat(lines, "\r\n") .. "\r\n\r\n")
-  if not sent then
-    local _, _ = conn:close()
-    return nil, strouble
-  end
-  local answer, rtrouble = receive(conn, method == "HEAD")
-  local _, _ = conn:close()
-  if answer == nil then return nil, rtrouble end
-  return answer, ""
+  return exchange(port, table.concat(lines, "\r\n") .. "\r\n\r\n", method == "HEAD", true)
 end
 
 local record Site
@@ -912,55 +1337,51 @@ local function mirror(g: Grade)
   mirror_files(site)
   for path, data in pairs(site.files) do write(g, "site/" .. path, data) end
   write(g, "secret.txt", "TOP SECRET\n")
-  local out_path = g.dir .. "/check-serve.out"
-  local out = assert(Fs.open_write(out_path))
-  local server, trouble = Child.start(argv_of(g, { "serve", "site", "0" }), { cwd = g.empty,
-    env = {}, stdout = out, stderr = out, stdin = "null" })
-  local _, _ = Fs.close(out)
+  local server, port = serves(g, { "serve", "site", "0" })
   if server == nil then
-    fail(g, "mirror serve site 0 did not start: " .. trouble)
     return
   end
-  local deadline = Time.monotonic_ns() + Time.seconds(5)
-  while Time.monotonic_ns() < deadline do
-    local text, _ = Fs.read(out_path)
-    local found = text ~= nil and text:match("listening on 127%.0%.0%.1:(%d+)\n")
-    if found then
-      site.port = math.tointeger(tonumber(found))
-      break
-    end
-    local _, _ = Time.sleep_ns(Time.ms(50))
-  end
-  if site.port == nil then
-    local text, _ = Fs.read(out_path)
-    fail(g, "mirror serve site 0 printed no 'listening on 127.0.0.1:<port>' line in 5s: " ..
-      first_line(text or ""))
-    local _, _ = server:close()
-    return
-  end
-  ok("mirror serve site 0 -> listening on 127.0.0.1:" .. site.port)
+  site.port = port
   mirror_requests(g, site)
   mirror_listings(g, site)
   mirror_pulls(g, site)
-
-  local stopped, _ = server:stop()
-  local result, _ = server:wait(Time.seconds(3))
-  if not stopped or result == nil or result.timed_out then
-    fail(g, "mirror serve did not exit within 3s of SIGTERM")
-  elseif status(result) ~= 0 then
-    fail(g, "mirror serve exited " .. status(result) .. " on SIGTERM, not 0")
-  else
-    ok("mirror serve exits 0 on SIGTERM")
-  end
-  local _, _ = server:close()
+  stops(g, server)
   refuses(g, { "pull", "http://127.0.0.1:" .. site.port .. "/", "gone" })
   mirror_lie(g)
   help(g, { "serve", "pull" })
 end
 
-local TASKS <const>: {string: function(Grade)} = { jobs = jobs, mirror = mirror }
+-- tasks
 
-local function grade(name: string, dir: string): integer
+--- A task the grader knows: its checks, run once the executable is
+--- copied into the empty directory, and how they run it.
+local record Task
+  checks: function(Grade)
+  --- How long one run of the executable may take, in seconds.
+  timeout: integer
+  null_stdin: boolean
+  own_group: boolean
+  --- Files of the project's a solver's own runs may leave behind, which
+  --- would answer for the executable if left there.
+  stale: {string}
+end
+
+local TASKS <const>: {string: Task} = {
+  notes = { checks = notes, timeout = 10, null_stdin = false, own_group = true,
+    stale = { "notes.db" } },
+  pack = { checks = pack, timeout = 10, null_stdin = false, own_group = true, stale = {} },
+  ledger = { checks = ledger, timeout = 10, null_stdin = false, own_group = true, stale = {} },
+  kv = { checks = kv, timeout = 10, null_stdin = false, own_group = true, stale = {} },
+  -- These two drive processes and sockets: a job's leftovers must
+  -- outlive its run for a check to find them.
+  jobs = { checks = jobs, timeout = 15, null_stdin = true, own_group = false, stale = {} },
+  mirror = { checks = mirror, timeout = 15, null_stdin = true, own_group = false, stale = {} },
+}
+
+--- Grades the arena at `dir` for the task `name`, printing a line per
+--- check and PASS or FAIL last; 0 when everything passed.
+function Grader.grade(name: string, dir: string): integer
+  local task = assert(TASKS[name], name)
   local project = dir .. "/project"
   local cosmic = dir .. "/bin/cosmic"
   local is_project, project_trouble = Fs.is_dir(project)
@@ -971,10 +1392,14 @@ local function grade(name: string, dir: string): integer
     return 1
   end
   local g: Grade = { dir = dir, name = name, exe = project .. "/o/bin/" .. name,
-    empty = dir .. "/empty", steps = 0, failed = false }
+    empty = dir .. "/empty", steps = 0, failed = false,
+    timeout_ns = Time.seconds(task.timeout), null_stdin = task.null_stdin, own_group = task.own_group }
+  for _, file in ipairs(task.stale) do
+    local _, _ = Fs.remove(project .. "/" .. file)
+  end
   local db = project .. "/o/build.db"
   step(g, "evidence reset " .. db, function(out: integer): boolean
-    local reset, trouble = reset_evidence(db)
+    local reset, trouble = Grader.reset_evidence(db)
     if not reset then
       local _, _ = Fs.put(out, trouble .. "\n")
     end
@@ -982,19 +1407,28 @@ local function grade(name: string, dir: string): integer
   end)
   command_step(g, { cosmic, "test" }, project)
   step(g, "evidence check " .. db, function(out: integer): boolean
-    local tests, examples, trouble = evidence(db)
-    local _, _ = Fs.put(out, "evidence: " .. tests .. " tests, " .. examples .. " examples " ..
-      trouble .. "\n")
-    return tests > 0 and examples > 0
+    local evidence, trouble = Grader.evidence(db)
+    if evidence == nil then
+      local _, _ = Fs.put(out, trouble .. "\n")
+      return false
+    end
+    local _, _ = Fs.put(out, "evidence: " .. evidence.tests .. " tests, " ..
+      evidence.examples .. " examples\n")
+    return evidence.tests > 0 and evidence.examples > 0
   end)
   fix_check(g, cosmic, project)
   local passed = command_step(g, { cosmic, "build" }, project)
+  -- Only a build that passed and names o/bin/<name> among what it wrote
+  -- vouches for the file: after a failed build, or one that no longer
+  -- builds it (cmd/<name> renamed away), an o/bin/<name> still there
+  -- is an earlier build's. It stays in place -- it is the solver's
+  -- deliverable, not the grader's to delete -- but it is not run.
+  -- A build log that cannot be read names no binary.
   local read, _ = Fs.read(g.dir .. "/check-" .. g.steps .. ".out")
-  local st, _ = Fs.stat(g.exe)
   if not passed then
     say("skip o/bin/" .. name .. ": cosmic build failed; not running an earlier build's binary")
-  elseif not built(read or "", name) or st == nil or st.kind ~= "file" then
-    fail(g, "cosmic build did not produce o/bin/" .. name)
+  elseif not Grader.built(read or "", name) or not is_executable(g.exe) then
+    fail(g, "cosmic build did not produce o/bin/" .. name .. "; a binary is cmd/<name>/main.tl")
   else
     local bytes, trouble = Fs.read(g.exe)
     local copied = bytes ~= nil
@@ -1004,7 +1438,7 @@ local function grade(name: string, dir: string): integer
     if not copied then
       fail(g, "could not copy " .. g.exe .. " into " .. g.empty .. ": " .. trouble)
     else
-      TASKS[name](g)
+      task.checks(g)
     end
   end
   if g.failed then
@@ -1015,14 +1449,19 @@ local function grade(name: string, dir: string): integer
   return 0
 end
 
-function Hard.main(argv: {integer: string}): integer
+function Grader.main(argv: {integer: string}): integer
   local name, dir = argv[1], argv[2]
   if name == nil or TASKS[name] == nil or dir == nil or argv[3] ~= nil then
-    local _, _ = Fs.put(Fs.stderr, "usage: eval/check/hard.tl jobs|mirror <dir>\n")
+    local names: {string} = {}
+    for each in pairs(TASKS) do names[#names + 1] = each end
+    table.sort(names)
+    local _, _ = Fs.put(Fs.stderr, "usage: eval/check/<task> <dir>, where <task> is one of " ..
+      table.concat(names, ", ") .. "\n")
     return 2
   end
+  -- The steps run in other directories, and name the arena's files.
   local absolute, _ = Fs.absolute(dir)
-  return grade(name, absolute or dir)
+  return Grader.grade(name, absolute or dir)
 end
 
-return Hard
+return Grader
