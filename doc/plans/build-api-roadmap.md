@@ -31,7 +31,7 @@ The execution ledger below is the sole status record.
 | B5 | Verified release and cancellation/cache consumer migration | B2a/B2b, B3 and B4a/B4b published; retires two pin TODOs plus SQL wait workaround; B1 corrected as policy |
 | C1 | Fs.append | Independent additive operation |
 | C2 | Explicit macOS full storage flush | Narrow platform binding + typed wrapper if needed |
-| C3 | Filesystem-wide flush and measured patch publication | Preserve fallback durability; consumer waits for C7 |
+| C3 | Measure filesystem-wide flush before adding its API or consumer | Preserve fallback durability; disk-backed evidence required; defer if unjustified |
 | C4 | Username lookup | Independent typed system binding |
 | C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive |
 | C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying |
@@ -134,7 +134,7 @@ C1 adds `Fs.append(path, bytes, mode?) -> boolean, string`, matching Fs.write's 
 
 C2 adds a narrowly named raw macOS full-flush operation (for example sys.full_fsync(fd)), with normal effect/error/errno shape and explicit unsupported behavior elsewhere. Avoid exposing generic untyped fcntl solely for one command. Use it at the typed durability boundary when requested; existing Fs.fsync retains its contract. Test dispatch/error propagation on macOS and checked allocation/descriptor handling. A test can prove the required syscall was selected and its failure propagated, not simulate physical power-loss durability.
 
-C3 adds sys.syncfs(fd) on Linux with explicit ENOSYS on unsupported hosts; do not silently substitute machine-wide sync(), which has different scope and may not report errors. Keep per-file/directory fsync fallback and C2's macOS full-flush requirement. Benchmark representative cold patched-tree misses on the same host before deciding whether to activate the fast path: syncfs may flush unrelated dirty work on the filesystem and can lose the intended performance advantage. Flush data/modes and containing directories before publishing payload; keep the final cache-directory rename persistence step. Failure before publication leaves no final tree. Retain gate/owner lifecycle and digest identities. Do not change warm-hit work or vendor cache names.
+C3 first measures the proposed filesystem-wide flush on representative storage. A local API candidate may enable the experiment, but publish sys.syncfs(fd) only when a concrete consumer is justified by the evidence; do not add an otherwise unused public API merely to satisfy the original list. If justified, use Linux syncfs with explicit ENOSYS on unsupported hosts and no silent machine-wide sync() substitute, whose scope and error reporting differ. If not, retain the existing per-file path and record the measured deferral. Keep per-file/directory fsync fallback and C2's macOS full-flush requirement. Benchmark representative cold patched-tree misses on the same host before deciding whether to activate the fast path: syncfs may flush unrelated dirty work on the filesystem and can lose the intended performance advantage. Flush data/modes and containing directories before publishing payload; keep the final cache-directory rename persistence step. Failure before publication leaves no final tree. Retain gate/owner lifecycle and digest identities. Do not change warm-hit work or vendor cache names.
 
 ## C4–C5: identity lookup and unrestricted credential drop
 
@@ -172,15 +172,15 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | A4 | pending | source preparation; release-gated | Four of eleven inventoried pin TODOs unblocked; actual published A3 release must be downloaded, hashed and executed before pin change |
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | pending | locally approved; release checkpoint pending | 3f10d7da/tree4a438ebc; 195 focused tests and independent 73 cases plus real closed-descriptor checks passed; epoch 13 |
-| B2b | pending | design approved; preparation waits for B2a | Entry freshness, captured-guard lifetime, exclusive consumption and error precedence reviewed; runnable child example earns export |
+| B2b | pending | locally approved after three review corrections | b48168c6/treed4522aad; exact sink selection, abandoned Reader state and fixed per-call bounds tested; epoch 14 |
 | B3 | pending | locally approved; release checkpoint pending | f13f2725/tree8efd806e; native/checked and independent lifetime/cancellation review passed; publication follows A4 |
 | B4a | pending | local preparation | Minimal existing-only open option; separately reviewed native lifetime and default-compatibility coverage |
 | B4b | pending | local preparation | Command follows B4a; conservative file retention, format ownership and independent dispatch |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| C1 | pending | local preparation | Additive append operation; publication after B5 |
-| C2 | pending | local preparation | Narrow Darwin full-flush operation; publication after B5; native platform gates required |
-| C3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| C4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
+| C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
+| C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
+| C4 | pending | local preparation | Minimal guarded username-to-uid/gid lookup; publication after B5 |
 | C5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C6 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -251,3 +251,27 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   HTTP option-refusal caller locations. Preserve their actual merged changes and
   review integration, including both download entry points. These are not API
   roadmap implementations; pending external heads are not copied into ours.
+
+- 2026-10-02 UTC: A3 queue candidate `b951ab95`, tree `02802767`, includes
+  merged Stream #2547 and no other delta beyond the four unchanged A3 files.
+  Independent fresh boot, 197 HTTP/Fetch/Stream tests and 20 late callback
+  failures with GC stopped passed without resource leaks. Queue CI remains
+  the merge gate.
+- 2026-10-02 UTC: B2b review reproduced and fixed three defects before
+  publication: missing stdout incorrectly selected the stderr sink, a Reader's
+  early pipe abandonment looked like real EOF, and a mutated byte limit could
+  bypass the original bound. Corrected `b48168c6`/`d4522aad` is approved; 86
+  independent focused tests passed. Synthetic queued 64-byte reads add about
+  65–75 ns/call; real 64-MiB transfer ranges overlap baseline. This is a bounded
+  safety cost, not a zero-overhead claim.
+- 2026-10-02 UTC: C3 overlay experiment used six alternating rounds on the
+  same runtime: 12 real vendor trees (1,354 files, 90 directories, 24,586,523
+  bytes) took median 419.971 ms with per-file fsync versus 424.654 ms with
+  syncfs; 2,001 small files took 187.495 versus 205.933 ms. Every payload hash,
+  mode and name matched; warm hits made no flush/write calls. Flush work was
+  already under 1 ms on this overlay host, so this does not establish real-disk
+  benefit or harm. Keep the API candidate and production fast path on hold.
+  A narrow temporary diagnostic on an already-required native CI run can
+  provide disk-backed evidence; remove diagnostic workflow changes before any
+  production merge. If no consumer is justified, document deferral instead of
+  shipping an unused capability.
