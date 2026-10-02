@@ -1450,8 +1450,7 @@ end
 --- at the chunk's top level, once, on a name a top-level `local` binds
 --- `require("cosmic.test")` to, with one table literal: `needs` reached
 --- any other way -- inside a function, under another name, handed a
---- value computed -- is refused, as is the older `local _inputs = { ... }`
---- form. Each field is held to its shape here.
+--- value computed -- is refused. Each field is held to its shape here.
 local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   local function at(node: ast.Node): string
     return (node.f or "") .. ":" .. tostring(node.y) .. ": test.needs: "
@@ -1464,13 +1463,6 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     if stmt.kind == "local_declaration" and stmt.vars ~= nil then
       for i, var in ipairs(stmt.vars) do
         local exps: ast.Node = stmt.exps
-        -- TODO: drop this refusal of the form `needs` replaced once no
-        -- branch still declares with it -- after the next release, say.
-        if var.tk == "_inputs" then
-          return nil, (stmt.f or "") .. ":" .. tostring(stmt.y) .. ": _inputs: a module " ..
-            "declares what its tests read with cosmic.test's needs now: " ..
-            "local Test = require(\"cosmic.test\") and Test.needs { ... }"
-        end
         if exps ~= nil and requires_test(exps[i]) then names[var.tk] = true end
       end
     elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" and
