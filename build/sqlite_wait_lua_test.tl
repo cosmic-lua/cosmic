@@ -6,8 +6,10 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local type Log = require("cosmic.log")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
+local verdict = require("build.verdict")
 local work = require("build.work")
 
 Test.needs{ lua = true }
@@ -32,13 +34,26 @@ assert(db:close())
   return holder
 end
 
-local function signal_after(ns: integer): Child.Handle
-  return child(([[
+--- A process that sends this one SIGTERM 100 ms after a line on its
+--- stdin ([`signal`]), answered once it has started and waits for that
+--- line: its start, however slow, comes before the wait it is to end.
+local function signaller(): Child.Handle
+  local sender = child(([[
+local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+print("ready")
+Fs.take(Fs.stdin, 1)
 Time.sleep_ns(%d)
 assert(sys.kill(%d, sys.SIGTERM))
-]]):format(ns, sys.getpid()))
+]]):format(Time.ms(100), sys.getpid()))
+  assert(Stream.lines(assert(sender.stdout_stream)):read() == "ready")
+  return sender
+end
+
+--- Tells a [`signaller`] to send its signal.
+local function signal(sender: Child.Handle)
+  assert(assert(sender.stdin_stream):write("\n"))
 end
 
 local function done(started: Child.Handle)
@@ -50,14 +65,13 @@ local function test_work_begin_stops_the_long_wait_and_can_be_used_again(tmp: st
   assert(work.commit(handle))
   local holder <close> = hold(tmp .. "/o/build.db")
   local guard <close> = assert(Child.guard())
-  local sender <close> = signal_after(Time.ms(100))
-  local started = Time.monotonic_ns()
+  local sender <close> = signaller()
+  signal(sender)
   local begun, reason = work.begin(handle)
-  local elapsed = Time.monotonic_ns() - started
-  local signal = guard:take()
+  local caught = guard:take()
   guard:release()
   assert(not begun and reason:find("interrupted", 1, true), reason)
-  assert(not handle.inside and signal == sys.SIGTERM and elapsed < Time.seconds(2))
+  assert(not handle.inside and caught == sys.SIGTERM)
   done(sender)
   assert(assert(holder.stdin_stream):close())
   done(holder)
@@ -71,17 +85,33 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
   local holder <close> = hold(tmp .. "/o/build.db")
   -- One signal meets the first brief BEGIN; the other meets its long
   -- retry after the one-second notice. Neither may become another retry.
-  for _, after in ipairs({ Time.ms(100), Time.ms(1300) }) do
+  -- The first is caught before the open, which its first BEGIN then
+  -- finds; the second is sent once the notice is given, so neither
+  -- meets the other phase however slow the host.
+  local log = verdict.log
+  local complain = log.complain
+  for _, retried in ipairs({ false, true }) do
+    local notices = 0
     local guard <close> = assert(Child.guard())
-    local sender <close> = signal_after(after)
-    local started = Time.monotonic_ns()
+    local sender: Child.Handle | nil
+    if retried then
+      sender = signaller()
+    else
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    end
+    log.complain = function(_: Log.Logger, _: string): boolean, string
+      notices = notices + 1
+      if sender ~= nil then signal(sender) end
+      return true, ""
+    end
     local opened, reason = work.open(tmp)
-    local elapsed = Time.monotonic_ns() - started
-    local signal = guard:take()
+    log.complain = complain
+    local caught = guard:take()
     guard:release()
     assert(opened == nil and reason:find("interrupted", 1, true), reason)
-    assert(signal == sys.SIGTERM and elapsed < after + Time.seconds(2))
-    done(sender)
+    assert(caught == sys.SIGTERM)
+    assert(notices == (retried and 1 or 0), notices .. " notices")
+    if sender ~= nil then done(sender) end
   end
   assert(assert(holder.stdin_stream):close())
   done(holder)
@@ -97,14 +127,15 @@ local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tm
   -- use the flock itself to exclude the SQLite holder, so either wait
   -- must still end at the guard and leave neither half held.
   local guard <close> = assert(Child.guard())
-  local sender <close> = signal_after(Time.ms(100))
-  local started = Time.monotonic_ns()
-  local taken, reason = rebuild_lock.take(tmp, Time.seconds(5))
-  local elapsed = Time.monotonic_ns() - started
-  local signal = guard:take()
+  local sender <close> = signaller()
+  signal(sender)
+  -- Long past the signal, however late it comes, and within the test's
+  -- deadline: a wait the signal did not end answers "busy".
+  local taken, reason = rebuild_lock.take(tmp, Time.seconds(15))
+  local caught = guard:take()
   guard:release()
-  assert(taken == nil and reason:find("interrupted", 1, true), reason)
-  assert(signal == sys.SIGTERM and elapsed < Time.seconds(2))
+  assert(taken == nil and reason:find("interrupted", 1, true), tostring(taken) .. " " .. reason)
+  assert(caught == sys.SIGTERM)
   done(sender)
   assert(assert(holder.stdin_stream):close())
   done(holder)

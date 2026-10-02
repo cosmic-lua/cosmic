@@ -361,15 +361,38 @@ local function test_a_streamed_output_is_read_after_the_wait()
   assert(read_all(assert(h.stdout_stream)) == "hellothere")
 end
 
+--- How long an escaped writer runs: past any read or wait that ends at
+--- its parent's exit, and within a test's deadline, so a read or wait
+--- that waited for it ends before that.
+local ESCAPED_MS <const> = 20000
+
+--- The pid an escaped writer's parent reports after "done ", which is
+--- ended once it has been asked whether it still runs: true when it
+--- did.
+local function ended_escaped(said: string): boolean
+  local pid = assert(math.tointeger(tonumber(said:match("^done (%d+)$"))), said)
+  local alive = sys.kill(pid, 0)
+  local _, _ = sys.kill(pid, sys.SIGKILL)
+  -- Reaped here where this process adopted it.
+  local _ = Child.end_strays()
+  return alive
+end
+
 --- A streamed output ends once the child has exited and nothing more
---- is waiting, though a descendant that left the group holds it open.
+--- is waiting, though a descendant that left the group holds it open:
+--- the read ends while that descendant still runs.
 local function test_an_escaped_writer_does_not_hold_up_a_read()
   local started = Time.monotonic_ns()
-  local h = assert(Child.start(lua(AGAIN .. "again('" .. sleep(3000) .. "') " .. FS ..
-    'Fs.put(1, "done") require("cosmic.sys").exit(0)', nil, { stdout = "stream" })))
-  assert(read_all(assert(h.stdout_stream)):sub(1, 4) == "done")
-  assert(Time.monotonic_ns() - started < Time.seconds(2))
+  local h = assert(Child.start(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
+    "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+    { stdout = "stream" })))
+  local said = read_all(assert(h.stdout_stream))
+  -- A zombie answers `kill(pid, 0)` too, where this process adopted
+  -- the descendant; then only the time tells the read waited for it.
+  local took = Time.monotonic_ns() - started
   assert(assert(h:wait(Time.seconds(5))).ok)
+  assert(ended_escaped(said), "the read ended only once the escaped writer had")
+  assert(took < Time.ms(ESCAPED_MS), "the read waited for the escaped writer")
 end
 
 --- Closing a streamed output early closes the pipe: a child still
@@ -561,14 +584,16 @@ local function test_end_strays_spares_a_stray_in_a_spared_group()
 end
 
 --- Completion is the leader's exit: a descendant that left the group
---- while holding the captured pipe cannot hold the wait open.
+--- while holding the captured pipe cannot hold the wait open. The run's
+--- timeout comes before the descendant ends, so a wait it held open
+--- times out.
 local function test_an_escaped_writer_does_not_hold_up_the_wait()
-  local started = Time.monotonic_ns()
-  local r = assert(Child.run(lua(AGAIN .. "again('" .. sleep(3000) .. "') " .. FS ..
-    'Fs.put(1, "done") require("cosmic.sys").exit(0)', nil,
-    { stdout = "capture", timeout_ns = Time.seconds(10) })))
-  assert(r.ok and assert(r.stdout):sub(1, 4) == "done")
-  assert(Time.monotonic_ns() - started < Time.seconds(2))
+  local r = assert(Child.run(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
+    "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+    { stdout = "capture", timeout_ns = Time.seconds(15) })))
+  local alive = ended_escaped(assert(r.stdout))
+  assert(r.ok and not r.timed_out, "the wait was held open: " .. tostring(r.stdout))
+  assert(alive, "the wait ended only once the escaped writer had")
 end
 
 local function test_wait_any_returns_the_first_to_finish()

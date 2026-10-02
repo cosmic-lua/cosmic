@@ -9,6 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 
@@ -119,7 +120,8 @@ end
 --- What the flipping child runs: a link at `LINK` swapped, again and
 --- again, between a plain file and the artifact's descriptor link, each
 --- time by a rename of a fresh link over it, until `STOP` is there,
---- and then left leading to the plain file.
+--- and then left leading to the plain file. It says "flipping" once it
+--- has swapped the link both ways.
 local flipper <const> = [==[
 local sys = require("cosmic.sys")
 local link, plain, through, stop = LINK, PLAIN, THROUGH, STOP
@@ -131,6 +133,7 @@ while true do
   sys.unlink(spare)
   assert(sys.symlink(i % 2 == 0 and plain or through, spare))
   assert(sys.rename(spare, link))
+  if i == 2 then print("flipping") end
 end
 -- Left leading to the plain file, where what the run read is judged.
 sys.unlink(spare)
@@ -140,11 +143,12 @@ assert(sys.rename(spare, link))
 
 --- What the calling child runs: a chmod, and an open that truncates,
 --- of the link as it flips, each many times, counting what each did.
---- It goes on past `least` calls until each call has met both ends,
---- for up to `bound_ns`: the flipper starts alongside it and, on a busy
---- or single processor, may not swap the link before `least` calls are
---- done. The bound stays well under a suite's per-test timeout, so an
---- end never met fails the assertions below rather than the clock.
+--- It starts once the flipper is flipping, and goes on past `least`
+--- calls until each call has met both ends, for up to `bound_ns`: on a
+--- busy or single processor the flipper may not run while `least` calls
+--- are made. The bound stays under the run's timeout and a suite's
+--- per-test one, so an end never met fails the assertions below rather
+--- than the clock.
 --- The chmod keeps the owner's access: a walk that meets a link as a
 --- rename replaces it can end at the link's directory (Linux 6.18
 --- does, a few times in 100000), which it changes too.
@@ -168,7 +172,7 @@ local function met()
   end
   return true
 end
-local least <const>, bound_ns <const> = 20000, 3 * 1000000000
+local least <const>, bound_ns <const> = 20000, 12 * 1000000000
 local deadline, i = Time.monotonic_ns() + bound_ns, 0
 while i < least or (not met() and Time.monotonic_ns() < deadline) do
   i = i + 1
@@ -221,11 +225,13 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] }
   local flipping = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e",
-    filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "capture",
+    filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "stream",
     stderr = "capture" }))
+  local said = Stream.lines(assert(flipping.stdout_stream)):read()
+  assert(said == "flipping", "the flipper did not start: " .. tostring(said))
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(caller, values) }, { env = env, fds = fds, stdout = "capture", stderr = "capture",
-    timeout_ns = Time.seconds(8) }))
+    timeout_ns = Time.seconds(20) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))
