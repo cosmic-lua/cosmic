@@ -36,7 +36,7 @@ The execution ledger below is the sole status record.
 | C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive |
 | C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying |
 | C7 | Verified release and remaining consumers | C1/C2/C4–C6 published; C3 decision recorded; five post-B5 pin TODO sites across four groups, plus Context/Darwin consumers |
-| D1 | pending | final documentation and audit in progress | Align narrow roadmap correction after actual C7 merge; two fresh same-candidate builds, cache/artifact/integrity/TODO audit and one actual-parent vendor materialization; separate exact-source/evidence review required |
+| D1 | [#2590](https://github.com/cosmic-lua/cosmic/pull/2590) | independently audited; CI-gated auto-merge | b064b895/tree94fd94f9; final two-tree cache/artifact/integrity and actual-parent vendor audit approved; documentation+5/-7 only; branch37051449851 and queue remain required |
 
 Preparation can overlap on disjoint files. Publish B steps serially against actual merged main. After B5's verified release and consumer migration merge, C1/C2/C4 may publish as three separately reviewed PRs from that same actual merged base. C2 shares no changed paths with the other two; C1/C4 touch separate Fs and Proc acknowledgment entries in the harness file, with no epoch change or API dependency. Preserve independent exact-tree reviews and every branch/queue gate, and review each cumulative queue candidate. Resolve and re-review any integration conflict before landing. Join after all three merge, then keep C5 and C6 serial. C3 retains its independent measurement decision; C7 retains the actual published-release barrier. This overlaps CI waiting without claiming faster builds or reduced runner work. If another sensible reviewed slice can land earlier, update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
 
@@ -237,7 +237,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 - 2026-10-02 UTC: split B4 into B4a's small existing-only open option and
   B4b's command. Schema recognition, WAL readiness, digest framing and bare
   dispatch deserve a focused command review separate from the C open flag.
-  This makes seventeen implementation/migration PRs plus D1's final audit.
+  With C3 explicitly deferred, this makes sixteen implementation/migration PRs plus D1's final audit.
   C1/C2 local preparation may overlap CI, with their publication still after B5.
 
 - 2026-10-02 UTC: A2 merged as `143b9926` after green branch and queue CI.
@@ -743,3 +743,24 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   bootstrap build, warm repeat, broad API suite or new benchmark is needed.
   Retain raw identities/manifests, treat timings as diagnostic and keep C3's
   explicit deferral. Reference #2521 remains open/draft/unmerged/auto-off.
+
+- 2026-10-02 UTC: D1 #2590 published at `b064b895`, independently
+  approved tree `94fd94f9`, parent actual C7 `8f43b4d7`. Only the roadmap's
+  stale Shape/JSON adoption claim and unused link definition change (+5/-7).
+  The initial docs audit caught that unused definition; its initialization
+  logs remain separate. The final audit uses corrected source `632c91eb`
+  in two fresh checkouts, both on the actual verified C6 bootstrap.
+  Each reused519 parses/505 compiles with zero new, staged654 files; root665
+  and CI63 checks passed. Each ran30 identity/writer/cache cases, then stood
+  on all30 in a warm repeat with zero compilation/parsing/staged reads.
+  Declared-key hashing separately read6/8 inputs. All three executable/
+  projection/carried artifacts match across four snapshots; six readonly
+  DB quick_checks passed. Final A/B and actual-parent vendor outputs match
+  all12 keys/1354 files, names/types/modes/bytes; final warm metadata and
+  maps are unchanged. A separate reviewer rehashed artifacts, all retained
+  vendor trees/manifests and repeated readonly DB checks.
+  Exact TODO queries:0 changed,216 repository entries in109 files,1 pin
+  dependency (deferred syncfs). Full30 exits124 after3397 keyed tests,
+  no assertion before clean cancellation; it is not a full-suite pass.
+  Preservation/determinism evidence is not a speedup claim. D1 is approved
+  for required green branch/queue auto-merge; reference #2521 stays unmerged.
