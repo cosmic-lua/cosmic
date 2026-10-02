@@ -346,10 +346,10 @@ local function pattern(total: integer, chunk: string): Stream.Reader, function()
   local left = total
   local peak = 0
   local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     peak = math.max(peak, collectgarbage("count") as integer)
     if left == 0 then return nil, "" end
-    local size = math.min(left, max or #chunk, #chunk)
+    local size = math.min(left, max_bytes or #chunk, #chunk)
     left = left - size
     return chunk:sub(1, size), ""
   end

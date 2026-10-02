@@ -388,6 +388,20 @@ local function test_closing_a_streamed_output_ends_a_writer()
   assert(not r.timed_out, "the writer was left blocked on the closed pipe")
 end
 
+--- A streamed output's `read` refuses a `max_bytes` below 1 by raising,
+--- and a read of a positive one still answers.
+local function test_a_streamed_output_refuses_a_max_bytes_below_one()
+  local h = assert(Child.start(lua(FS .. 'Fs.put(1, "x")', nil, { stdout = "stream", stderr = "null" })))
+  local stdout = assert(h.stdout_stream)
+  for _, bad in ipairs({ 0, -1 }) do
+    local ok, why: boolean, any = pcall(function() local _, _ = stdout:read(bad) end)
+    assert(not ok and tostring(why):find("child: read's max_bytes must be positive", 1, true) ~= nil,
+      tostring(why))
+  end
+  assert(read_all(stdout) == "x")
+  assert(assert(h:wait(Time.seconds(5))).ok)
+end
+
 --- A write to a child that has closed its stdin fails instead of ending
 --- this process, and keeps failing.
 local function test_writing_to_a_gone_stdin_stream_fails()

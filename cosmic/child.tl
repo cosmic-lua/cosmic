@@ -890,8 +890,8 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local closed = false
   local failed: string
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
-    if max ~= nil and max < 1 then error("child: a read needs a max of at least 1", 2) end
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    if max_bytes ~= nil and max_bytes < 1 then error("child: read's max_bytes must be positive", 2) end
     if failed then return nil, failed end
     if closed then return nil, closed_reader end
     while pipe.size == 0 do
@@ -913,7 +913,7 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
         if cancelled ~= "" then return nil, cancelled end
       end
     end
-    local want = max or CHUNK
+    local want = max_bytes or CHUNK
     local chunk = pipe.chunks[pipe.head]
     if #chunk <= want then
       pipe.chunks[pipe.head] = nil

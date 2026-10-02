@@ -563,10 +563,10 @@ local function test_an_option_curl_refuses_is_an_error_naming_it()
   assert(trouble:find("CURLOPT_URL", 1, true) ~= nil, trouble)
 end
 
-local function test_read_refuses_a_max_below_one()
+local function test_read_refuses_a_max_bytes_below_one()
   local response = assert(Http.open(url, { script = { reply("200 OK", "", "body") } }))
   local ok, why = pcall(response.read, response, 0)
-  assert(not ok and tostring(why):find("http: read's max must be positive", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("http: read's max_bytes must be positive", 1, true), tostring(why))
   response:close()
 end
 

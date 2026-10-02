@@ -12,10 +12,10 @@ local record Fake is Stream.Transform
   rest: function(Fake): string
 end
 
-local function drain(reader: Stream.Reader, max?: integer): string
+local function drain(reader: Stream.Reader, max_bytes?: integer): string
   local parts: {string} = {}
   while true do
-    local chunk, trouble = reader:read(max)
+    local chunk, trouble = reader:read(max_bytes)
     assert(trouble == "", trouble)
     if chunk == nil then break end
     parts[#parts + 1] = chunk
@@ -30,7 +30,7 @@ local function test_from_string_reads_the_whole_thing_and_then_eof()
   assert(chunk == nil and trouble == "")
 end
 
-local function test_from_string_honors_max()
+local function test_from_string_honors_max_bytes()
   local r = Stream.from_string("abcdefgh")
   assert(r:read(3) == "abc")
   assert(r:read(3) == "def")
@@ -831,8 +831,8 @@ end
 
 --- Every line [`Stream.lines`] gives `reader`, through `read`, and why it
 --- stopped.
-local function all_lines(reader: Stream.Reader, max?: integer): {string}, string
-  local lines = Stream.lines(reader, max)
+local function all_lines(reader: Stream.Reader, max_bytes?: integer): {string}, string
+  local lines = Stream.lines(reader, max_bytes)
   local got: {string} = {}
   while true do
     local line, trouble = lines:read()
@@ -845,7 +845,7 @@ end
 local function trickle(s: string): Stream.Reader
   local inner = Stream.from_string(s)
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
     return inner:read(1)
   end
   r.close = function(_self: Stream.Reader): boolean, string
@@ -933,8 +933,8 @@ end
 local function test_lines_stop_at_a_reader_failure()
   local inner = Stream.from_string("a\nb")
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
-    local chunk, trouble = inner:read(max)
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    local chunk, trouble = inner:read(max_bytes)
     if chunk == nil and trouble == "" then return nil, "boom" end
     return chunk, trouble
   end
@@ -979,12 +979,12 @@ local function failing(fails_at: integer): Failing
   return f
 end
 
---- A Reader that gives `chunks` one `read` at a time, whatever `max`
+--- A Reader that gives `chunks` one `read` at a time, whatever `max_bytes`
 --- asks, then fails with `failure` (an end of file when it is "").
 local function chunked(chunks: {string}, failure: string): Stream.Reader
   local at = 0
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
     at = at + 1
     if chunks[at] == nil then return nil, failure end
     return chunks[at], ""

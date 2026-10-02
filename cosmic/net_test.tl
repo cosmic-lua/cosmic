@@ -233,14 +233,14 @@ local function test_a_closed_connection_says_so_and_closes_again(tmp: string)
   assert(not shut and shut_trouble == "net: the connection is closed", shut_trouble)
 end
 
---- A `max` below 1 and a `how` of none of the three raise, at the line
+--- A `max_bytes` below 1 and a `how` of none of the three raise, at the line
 --- that called, in the module's own style.
 local function test_a_degenerate_read_or_shutdown_raises_at_the_caller(tmp: string)
   local p <close> = pair(tmp)
   local accepted = p.accepted
-  for _, max in ipairs({ 0, -1 }) do
-    local ok, why: boolean, any = pcall(function() local _, _ = accepted:read(max) end)
-    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: max must be positive$") ~= nil,
+  for _, max_bytes in ipairs({ 0, -1 }) do
+    local ok, why: boolean, any = pcall(function() local _, _ = accepted:read(max_bytes) end)
+    assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: read's max_bytes must be positive$") ~= nil,
       tostring(why))
   end
   local shut, shut_why: boolean, any = pcall(function()

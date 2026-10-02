@@ -480,7 +480,7 @@ end
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
   local n = 0
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
     if n >= rounds then return nil, "" end
     n = n + 1
     if each ~= nil then each(n) end
@@ -611,7 +611,7 @@ end
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
   local bad: Stream.Reader = {}
-  bad.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
     return nil, "disk on fire"
   end
   bad.close = function(_self: Stream.Reader): boolean, string return true, "" end

@@ -183,9 +183,9 @@ local function respond(handle: raw_http.Handle): Http.Response
     status = handle:status(),
     headers = handle:headers(),
     url = handle:url(),
-    read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
       if closed then return nil, "http: the response is closed" end
-      return handle:read(max)
+      return handle:read(max_bytes)
     end,
     close = function(_self: Stream.Reader): boolean, string
       closed = true
@@ -238,7 +238,7 @@ local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
 end
 
 --- Opens `url`, blocking until the final response's headers arrive.
---- The body is not read yet -- call `response:read(max)` until it
+--- The body is not read yet -- call `response:read(max_bytes)` until it
 --- returns `nil, ""` for a clean end, or use [`Http.get`] to read it
 --- all at once.
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
@@ -270,9 +270,9 @@ end
 --- body, so a body that came whole is still refused after a cancel.
 local function cancellable(response: Http.Response, cancelled: function(): boolean): Stream.Reader
   local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     if cancelled() then return nil, "interrupted" end
-    local chunk, why = response:read(max)
+    local chunk, why = response:read(max_bytes)
     if chunk ~= nil then return chunk, "" end
     if why == "" and cancelled() then return nil, "interrupted" end
     return nil, why

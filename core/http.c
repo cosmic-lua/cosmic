@@ -826,8 +826,8 @@ static int failed (lua_State *L, const char *why) {
 
 static int handle_read (lua_State *L) {
   struct transfer *t = checked(L);
-  lua_Integer max = luaL_optinteger(L, 2, 65536);
-  if (max <= 0) luaL_error(L, "http: read's max must be positive");
+  lua_Integer max_bytes = luaL_optinteger(L, 2, 65536);
+  if (max_bytes <= 0) luaL_error(L, "http: read's max_bytes must be positive");
 
   if (t->body_len == 0) {
     resume(t);
@@ -848,7 +848,7 @@ static int handle_read (lua_State *L) {
     }
   }
 
-  size_t n = (size_t)max < t->body_len ? (size_t)max : t->body_len;
+  size_t n = (size_t)max_bytes < t->body_len ? (size_t)max_bytes : t->body_len;
   lua_pushlstring(L, t->body, n);
   memmove(t->body, t->body + n, t->body_len - n);
   t->body_len -= n;

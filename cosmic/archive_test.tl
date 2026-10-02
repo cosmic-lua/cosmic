@@ -84,7 +84,7 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
   -- A source that answers a byte per read splits the peek across reads.
   local at = 1
   local source: Stream.Reader = {}
-  source.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+  source.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
     if at > #bytes then return nil, "" end
     at = at + 1
     return bytes:sub(at - 1, at - 1), ""

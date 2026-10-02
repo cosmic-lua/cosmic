@@ -3,8 +3,8 @@
 --- body in bounded memory, one chunk at a time, without caring whether
 --- the bytes come from a string, a descriptor, or a decompressor.
 ---
---- A Reader's `read` returns a non-empty chunk of at most `max` bytes
---- -- or, when `max` is omitted, of whatever size suits that Reader
+--- A Reader's `read` returns a non-empty chunk of at most `max_bytes` bytes
+--- -- or, when `max_bytes` is omitted, of whatever size suits that Reader
 --- (the rest of a string, 64 KiB of a file) -- or nil and `""` at end
 --- of file, or nil and an error. An error is sticky: every later
 --- `read` returns the same error rather than a false end of file.
@@ -30,9 +30,9 @@ local type raw_compress = require("cosmic.internal.compress")
 
 local record Stream
   interface Reader
-    --- The next chunk of at most `max` bytes, or nil and `""` at the
+    --- The next chunk of at most `max_bytes` bytes, or nil and `""` at the
     --- end, or nil and an error; see the module's description.
-    read: function(Reader, max?: integer): string | nil, string
+    read: function(Reader, max_bytes?: integer): string | nil, string
     --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
     --- Present only on a Reader that can move forward without reading
@@ -317,12 +317,12 @@ function Stream.from_string(s: string): Stream.Reader
   local at = 1
   local closed = false
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes: integer): string | nil, string
     if closed then return nil, closed_reader end
     if at > #s then return nil, "" end
-    local want = max or (#s - at + 1)
+    local want = max_bytes or (#s - at + 1)
     if want <= 0 then return nil, "" end
-    -- Clamped before it is added, so a huge `max` cannot wrap `stop`.
+    -- Clamped before it is added, so a huge `max_bytes` cannot wrap `stop`.
     if want > #s - at + 1 then want = #s - at + 1 end
     local stop = at + want - 1
     local chunk = s:sub(at, stop)
@@ -389,14 +389,14 @@ local function make_fd_reader(fd: integer, owned: boolean, opts: Stream.FdOption
     return Fs.close(fd)
   end
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes: integer): string | nil, string
     if failed then return nil, failed end
     if closed then return nil, closed_reader end
     if ended then return nil, "" end
     local deadline: integer = nil
     if opts.timeout_ns ~= nil then deadline = Time.monotonic_ns() + opts.timeout_ns end
     while true do
-      local data, trouble, errno = sys.read(fd, max or chunk_size)
+      local data, trouble, errno = sys.read(fd, max_bytes or chunk_size)
       if data ~= nil then
         if #data > 0 then return data, "" end
         ended = true
@@ -528,7 +528,7 @@ function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Strea
   end
 
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes: integer): string | nil, string
     if failed then return nil, failed end
     if closed then return nil, closed_reader end
     while at > #pending and not finished do
@@ -541,7 +541,7 @@ function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Strea
       pending, at = out, 1
     end
     if at > #pending then return nil, "" end
-    local want = max or chunk_size
+    local want = max_bytes or chunk_size
     local avail = #pending - at + 1
     if want >= avail then
       local piece = at == 1 and pending or pending:sub(at)
@@ -568,10 +568,10 @@ function Stream.limit(reader: Stream.Reader, n: integer): Stream.Reader
   local left = n
   local closed = false
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes: integer): string | nil, string
     if closed then return nil, closed_reader end
     if left <= 0 then return nil, "" end
-    local want = max or chunk_size
+    local want = max_bytes or chunk_size
     if want > left then want = left end
     local chunk, trouble = reader:read(want)
     if chunk == nil then return nil, trouble end
@@ -593,16 +593,16 @@ function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
   local at = 1
   local closed = false
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     if closed then return nil, closed_reader end
     if at <= #prefix then
-      local want = max or (#prefix - at + 1)
+      local want = max_bytes or (#prefix - at + 1)
       if want <= 0 then return nil, "" end
       local chunk = prefix:sub(at, at + want - 1)
       at = at + #chunk
       return chunk, ""
     end
-    return reader:read(max)
+    return reader:read(max_bytes)
   end
   r.close = function(_self: Stream.Reader): boolean, string
     if closed then return true, "" end

@@ -301,11 +301,11 @@ end
 local function chunked(bytes: string): Stream.Reader
   local at, turn = 1, 0
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     if at > #bytes then return nil, "" end
     turn = turn + 1
     local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1
-    if max ~= nil and max < size then size = max end
+    if max_bytes ~= nil and max_bytes < size then size = max_bytes end
     local chunk = bytes:sub(at, at + size - 1)
     at = at + #chunk
     return chunk, ""

@@ -282,11 +282,11 @@ end
 local Span_methods: {string:any} = {}
 local span_mt: metatable<Span> = { __index = Span_methods }
 
-Span_methods.read = function(self: Span, max: integer): string | nil, string
+Span_methods.read = function(self: Span, max_bytes: integer): string | nil, string
   if self.failed then return nil, self.failed end
   local left = self.left
   if left <= 0 then return nil, "" end
-  local want = max or chunk_size
+  local want = max_bytes or chunk_size
   if want > left then want = left end
   local chunk: string
   local held = self.held
@@ -335,9 +335,9 @@ end
 local Checked_methods: {string:any} = {}
 local checked_mt: metatable<Checked> = { __index = Checked_methods }
 
-Checked_methods.read = function(self: Checked, max: integer): string | nil, string
+Checked_methods.read = function(self: Checked, max_bytes: integer): string | nil, string
   if self.failed then return nil, self.failed end
-  local chunk, trouble = self.inner:read(max)
+  local chunk, trouble = self.inner:read(max_bytes)
   if chunk == nil then
     if trouble ~= "" then
       self.failed = trouble

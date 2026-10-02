@@ -13,7 +13,7 @@ local Time = require("cosmic.time")
 
 local Example = {}
 
---- Bytes already in memory, read as a stream: at most `max` bytes a
+--- Bytes already in memory, read as a stream: at most `max_bytes` bytes a
 --- `read`, and nil and `""` at the end.
 function Example.from_string()
   local r = Stream.from_string("hello, world")
