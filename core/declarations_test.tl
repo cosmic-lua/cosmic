@@ -18,6 +18,7 @@
 local Fs = require("cosmic.fs")
 local ast = require("build.ast")
 local gen_syscalls = require("build.gen_syscalls")
+local sql_artifact_fixture = require("build.sql_artifact_fixture")
 local teal = require("build.teal")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
@@ -242,13 +243,16 @@ local makers: {string: function(raw: {string: any}, tmp: string): Made} = {
     return { instances = { Socket = socket },
       release = function() call(members(socket).close, socket) end }
   end,
-  sqlite = function(raw: {string: any}): Made
+  sqlite = function(raw: {string: any}, tmp: string): Made
     local handle = assert(call(raw.open, ":memory:", true))
     local statement = assert(call(members(handle).prepare, handle, "SELECT 1"))
-    return { instances = { Handle = handle, Statement = statement },
+    local artifact = assert(call(raw.artifact,
+      sql_artifact_fixture.write(tmp, "artifact", "declaration")))
+    return { instances = { Artifact = artifact, Handle = handle, Statement = statement },
       release = function()
         call(members(statement).finalize, statement)
         call(members(handle).close, handle)
+        call(members(artifact).close, artifact)
       end }
   end,
 }
