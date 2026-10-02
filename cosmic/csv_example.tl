@@ -25,9 +25,9 @@ function Example.table()
   print(why) -- csv: line 2, column 1: the record has 1 field, the header 2
 end
 
---- Each row comes with the line its record began on, to name when the
---- caller refuses one: a quoted line break pushes later records down a
---- line, and a skipped blank line still counts.
+--- A row the caller refuses is named by its line: here the second
+--- row's record begins on line 5, after a quoted line break and a blank
+--- line.
 function Example.lines()
   local made = assert(Csv.table('id,note\n1,"two\nlines"\n\n2,x\n'))
   assert(made.rows[2].id == "2" and made.lines[1] == 2 and made.lines[2] == 5)

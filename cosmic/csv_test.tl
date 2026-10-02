@@ -159,7 +159,8 @@ local function test_each_row_carries_the_line_its_record_began_on()
   assert(lines_of("\n\na,b\n\n1,2\n\r\n3,4\n") == "5,7")
   -- A one-column file's interior blank line is a row on its own line.
   assert(lines_of("h\n1\n\n3\n\n") == "2,3,4")
-  -- A byte order mark is no line, and a lone CR does not end one.
+  -- A byte order mark is no line, and a lone CR, data inside a field,
+  -- does not end one.
   assert(lines_of("\xEF\xBB\xBFa,b\n1,2\n") == "2")
   assert(lines_of("a,b\n1\r2,3\n4,5\n") == "2,3")
   assert(lines_of("a\tb\n1\t\"\n\"\n3\t4\n", { delimiter = "\t" }) == "2,4")

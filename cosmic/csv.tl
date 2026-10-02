@@ -49,15 +49,11 @@
 ---
 --- `cosmic sql --from` names the columns of a data file by the same rule.
 ---
---- `table` also answers the line of the file each row's record began on,
+--- `table` also answers the line of the text each row's record began on,
 --- in `lines`, so a caller that refuses a row can say where it is. A line
 --- counts as the refusals above count it: a quoted line break starts a
 --- line, so a record that spans two pushes every later one down, and a
 --- skipped blank line is still a line.
----
----     local made = assert(Csv.table('id,note\n1,"two\nlines"\n\n2,x\n'))
----     -- made.lines is { 2, 5 }: record 1 began on line 2, ran onto 3, and
----     -- line 4 was blank
 
 --- What `read` found: the records, and the line each began on.
 local record Scan
@@ -266,14 +262,14 @@ function Csv.column_names(header: {string}, reserved?: {string}): {string}
   return names
 end
 
---- The header's names (see the module comment) and the rows of `text`:
---- its first record names the columns, and each record after it is a
---- table from column name to field, with the line it began on in `lines`
---- (see the module comment). Nil and why for what `parse` refuses,
---- and for a record whose field count is not the header's, naming the
---- line it began on and both counts; raises for a delimiter `parse` does.
---- Blank lines are read as the module comment says. Text with no records
---- has no columns, and a header alone has columns and no rows.
+--- The header's names and the rows of `text`, with the line each row
+--- began on in `lines`; names, blank lines and lines are as the module
+--- comment says. Its first record names the columns, and each record
+--- after it is a table from column name to field. Nil and why for what
+--- `parse` refuses, and for a record whose field count is not the
+--- header's, naming the line it began on and both counts; raises for a
+--- delimiter `parse` does. Text with no records has no columns, and a
+--- header alone has columns and no rows.
 function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
   local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)

@@ -393,6 +393,7 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
             expected[#expected + 1] = line
             written[#written + 1] = texts[1]
           end
+          -- A blank line in a one-column file is a row, not a gap.
           local blank = ending == "b" and width > 1
           out[#out + 1] = record .. (ending == "c" and "\r\n" or "\n") .. (blank and "\n" or "")
           local _, breaks = record:gsub("\n", "")
