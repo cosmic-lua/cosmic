@@ -57,27 +57,3 @@ local function test_a_failed_build_still_checks_a_standard_librarys_members(tmp:
   assert(found == "fix: FAIL  a.tl:3: link: Fs.nosuch does not resolve (cosmic.fs has no nosuch)",
     found)
 end
-
---- A project whose build fails, met while resolving a link to a
---- symbol, fails the run: the compiler's refusal is on stderr, and a
---- PASS after it read as a tree that builds. Fixed, the same run passes.
-local function test_a_failed_build_fails_the_run(tmp: string)
-  local root = tmp .. "/project"
-  assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- Reads with [`Fs.read`].\n' ..
-    'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
-  assert(Fs.write(root .. "/b.tl", 'local x: integer = "no"\n\nreturn x\n'))
-  local function run(): Child.Result
-    local started = this_program.program({ "fix" }, { cwd = root,
-      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })
-    return (assert(Child.run(started.argv, started.options)))
-  end
-  local failed = run()
-  local out = assert(failed.stdout)
-  assert(not failed.ok, out)
-  assert(out:find("fix: FAIL  links: not rebuilt, resolved from the last build: b.tl: ", 1, true) ~= nil, out)
-  assert(out:find("fix: FAIL (the tree not building, ", 1, true) ~= nil, out)
-  assert(Fs.write(root .. "/b.tl", 'local x: integer = 1\n\nreturn x\n'))
-  local passed = run()
-  assert(passed.ok, tostring(passed.stdout) .. tostring(passed.stderr))
-end

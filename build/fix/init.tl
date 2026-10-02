@@ -1027,14 +1027,18 @@ local function fix_verb(argv: {integer:string}): integer
   local listed: {string:boolean} = {}
   for _, file in ipairs(changed) do listed[file] = true end
   local rounds = 0
+  local refused = ""
+  local spilled = false
   while true do
-    local sites, check_trouble = spill.check(root)
-    if sites == nil then
+    local checked, check_trouble = spill.check(root)
+    if checked == nil then
       failures[#failures + 1] = "checking asserts: " .. check_trouble
       break
     end
+    refused = checked.refused
+    spilled = next(checked.sites) ~= nil
     local wrapped = false
-    for name, at in pairs(sites) do
+    for name, at in pairs(checked.sites) do
       local file = chosen_files[root .. "/" .. name]
       if file ~= nil and not checking then
         local source, read_trouble = Fs.read(file)
@@ -1071,6 +1075,16 @@ local function fix_verb(argv: {integer:string}): integer
       failures[#failures + 1] = "wrapping asserts did not settle after " .. plural.count(rounds, "build")
       break
     end
+  end
+
+  -- A tree the build refuses fails the run, saying why: a PASS would
+  -- read as a tree that builds, which `cosmic test` then refuses. A
+  -- check whose build names spills counts files to fix instead, since
+  -- the checker reports each spill with an error of its own; over the
+  -- whole tree, the tree checks' projection refuses it.
+  local unbuilt: string | nil = nil
+  if not picked.whole and refused ~= "" and not (checking and spilled) then
+    unbuilt = refused
   end
 
   -- Over the whole of cosmic's own tree, what only the whole tree can
@@ -1143,7 +1157,7 @@ local function fix_verb(argv: {integer:string}): integer
   local laid_out: {string: boolean} = {}
   for _, file in ipairs(files) do laid_out[file] = true end
   local linked_out: fix.Linked
-  local unbuilt: string | nil = nil
+  local links_unbuilt: string | nil = nil
   do
     -- Built even where no build has been made yet: this run has staged
     -- and compiled the directory already ([`spill.check`]), and a link
@@ -1154,10 +1168,9 @@ local function fix_verb(argv: {integer:string}): integer
     linked_out = fix.links(source.context, built, linked, checking and "check" or "write", facts,
       laid_out)
     source.close()
-    -- The compiler has said why on stderr; a PASS after it would read
-    -- as a tree that builds.
-    if source.unbuilt ~= nil then
-      unbuilt = "links: not rebuilt, resolved from the last build: " .. source.unbuilt
+    -- A refusal the build above met already fails the run.
+    if source.unbuilt ~= nil and unbuilt == nil then
+      links_unbuilt = "links: not rebuilt, resolved from the last build: " .. source.unbuilt
     end
   end
   -- Held no longer than the links need them.
@@ -1214,11 +1227,14 @@ local function fix_verb(argv: {integer:string}): integer
   if unbuilt ~= nil then
     log:say("fix: FAIL  " .. unbuilt)
   end
+  if links_unbuilt ~= nil then
+    log:say("fix: FAIL  " .. links_unbuilt)
+  end
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
   if #failures > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
-      unbuilt ~= nil then
+      unbuilt ~= nil or links_unbuilt ~= nil then
     local said: {string} = {}
     if #failures > 0 then
       said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
@@ -1239,6 +1255,9 @@ local function fix_verb(argv: {integer:string}): integer
     end
     if unbuilt ~= nil then
       said[#said + 1] = "the tree not building"
+    end
+    if links_unbuilt ~= nil then
+      said[#said + 1] = "the links' build failing"
     end
     log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(started))
     return 1

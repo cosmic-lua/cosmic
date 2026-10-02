@@ -79,7 +79,8 @@ local record Cli
   --- canonical text, in place: run it after editing rather than
   --- formatting by hand -- checking along the way that rendering it
   --- again would change nothing further, and refusing a file it does
-  --- not. It also builds the tree and parenthesizes every `assert(...)`
+  --- not. It also builds the tree, failing where the build refuses it,
+  --- with the compiler's reasons, and parenthesizes every `assert(...)`
   --- the type checker says passes on more values than its place can
   --- take -- `(assert(...))` keeps only the first. It fails a link in a
   --- comment or a Markdown file -- `` [`x`] ``, `[text](target)` or
@@ -88,10 +89,7 @@ local record Cli
   --- declaration of its own file, one file, or, written in full
   --- (`module.member`), one symbol; in Markdown it also
   --- writes the definitions GitHub needs to show one, at the file's
-  --- end. A run that builds the tree to resolve a link to a symbol, and
-  --- whose build fails, fails too, the compiler's reasons on stderr:
-  --- types are otherwise `test`'s to check. It never lays out a
-  --- Markdown or Zig file. The tree is found
+  --- end. It never lays out a Markdown or Zig file. The tree is found
   --- as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working

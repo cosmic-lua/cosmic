@@ -35,6 +35,14 @@ local record spill
   --- The positions the checker names, by file: each an `assert` call's
   --- own `(`, as "line:column".
   type Sites = {string:{string:boolean}}
+
+  --- What a build of the tree said ([`spill.check`]).
+  record Built
+    sites: Sites
+    --- Why the build refused the tree, its diagnostics as the
+    --- compiler wrote them; "" when it builds.
+    refused: string
+  end
 end
 
 spill.message = "assert(...) passes on every value it was given, not only " ..
@@ -83,14 +91,10 @@ function spill.wrap(built: compiler, source: string, name: string,
   return result.code, ""
 end
 
---- Builds the tree at `root` and returns the sites its refusal names,
---- none when it builds or when what stops it is something else; nil,
---- and why, for a tree that cannot be built at all.
--- TODO: say so when the build refuses the tree for anything but a
--- spill -- a type error, or a build.contracts rule -- rather than
--- answering none, so `cosmic fix` does not pass a tree `cosmic test`
--- then refuses; until then the build, not fix, is the gate for those.
-function spill.check(root: string): spill.Sites | nil, string
+--- Builds the tree at `root`: the sites its refusal names, and the
+--- refusal itself ("" when it builds); nil, and why, for a tree that
+--- cannot be built at all.
+function spill.check(root: string): spill.Built | nil, string
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return nil, own_trouble end
   local handle, open_trouble = work.open(root)
@@ -105,10 +109,9 @@ function spill.check(root: string): spill.Sites | nil, string
     Store.meta("compiler") or "", false, shared_compiles.for_build())
   local closed, close_trouble = work.close(handle)
   if not closed then return nil, close_trouble end
-  if result ~= nil then
-    return spill.sites(table.concat(result.refused, "\n")), ""
-  end
-  return spill.sites(compile_trouble), ""
+  local refused = compile_trouble
+  if result ~= nil then refused = table.concat(result.refused, "\n") end
+  return { sites = spill.sites(refused), refused = refused }, ""
 end
 
 return spill
