@@ -150,6 +150,15 @@ local record Stream
     --- Why the lines ended early, or "" when they have not: after an
     --- `each` loop, "" means every line was read.
     failure: function(Lines): string
+    --- The rest of the stream as a Reader, for a protocol that turns
+    --- from lines to bytes (a head, then a body): the bytes these lines
+    --- read ahead past the last line given, then whatever the Reader
+    --- has after them. Closing it closes the Reader, as
+    --- [`Stream.prepend`]'s does. It ends the lines: a later `read`,
+    --- `each` or `rest` raises, since a line read past it would take
+    --- bytes the Reader had already given. After a failure it answers
+    --- that failure on every read, and after the end, the end.
+    rest: function(Lines): Reader
   end
 
   --- A format writer's hold on the Writer it writes to: see
@@ -871,9 +880,12 @@ local record LineReader is Stream.Lines
   held: integer
   ended: boolean
   failed: string
+  -- Set once `rest` has given the stream away.
+  rested: boolean
   read: function(LineReader): string | nil, string
   each: function(LineReader): function(): string
   failure: function(LineReader): string
+  rest: function(LineReader): Stream.Reader
 end
 
 local line_reader_mt: metatable<LineReader> = { __index = LineReader }
@@ -889,7 +901,10 @@ local function fail(self: LineReader, why: string): nil, string
   return nil, why
 end
 
+local rested <const> = "stream: these lines ended at `rest`; read the Reader it gave"
+
 function LineReader:read(): string | nil, string
+  if self.rested then error(rested, 2) end
   if self.failed ~= "" then return nil, self.failed end
   local limit = self.limit
   while true do
@@ -940,6 +955,45 @@ function LineReader:failure(): string
   return self.failed
 end
 
+-- What `rest` gives once the Reader has nothing more to read through:
+-- `why` on every read ("" for the end), and the Reader closed on close.
+local record SpentReader is Stream.Reader
+  source: Stream.Reader
+  why: string
+  closed: boolean
+  read: function(SpentReader, max_bytes?: integer): string | nil, string
+  close: function(SpentReader): boolean, string
+end
+
+local spent_reader_mt: metatable<SpentReader> = { __index = SpentReader }
+
+function SpentReader:read(_max_bytes?: integer): string | nil, string
+  if self.closed then return nil, closed_reader end
+  return nil, self.why
+end
+
+function SpentReader:close(): boolean, string
+  if self.closed then return true, "" end
+  self.closed = true
+  return self.source:close()
+end
+
+function LineReader:rest(): Stream.Reader
+  if self.rested then error(rested, 2) end
+  self.rested = true
+  -- After a line, `parts` is empty: every read that held a piece of a
+  -- line returned it joined or failed, which drops it. So what is read
+  -- ahead is all in `chunk`.
+  local ahead = self.chunk:sub(self.at)
+  self.chunk, self.at = "", 1
+  if self.failed ~= "" or self.ended then
+    local spent: SpentReader = setmetatable({ source = self.source, why = self.failed,
+      closed = false }, spent_reader_mt)
+    return Stream.prepend(ahead, spent)
+  end
+  return Stream.prepend(ahead, self.source)
+end
+
 --- The lines of `reader`, read a chunk at a time: each piece of it
 --- ending in "\n", without the "\n", and the piece after the last "\n"
 --- when that is not empty, so "a\nb\n" and "a\nb" are both two lines.
@@ -949,6 +1003,13 @@ end
 --- `max_bytes` bytes (1 MiB by default) fails rather than grow without
 --- bound; a `max_bytes` that is no integer of at least 1 raises.
 --- `reader` is not closed.
+---
+--- The lines read `reader` ahead, a chunk at a time, and hold what they
+--- read past the last line given: `reader` itself has moved past it. A
+--- protocol that turns from lines to bytes (a head, then a body of a
+--- stated length) reads the bytes from [`Lines.rest`], never from
+--- `reader`, where a body already read ahead would never come and a
+--- read for it would wait for good.
 ---
 ---     local reader = assert(Stream.open("log.txt"))
 ---     local lines = Stream.lines(reader)
@@ -961,7 +1022,8 @@ function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
     error("stream: max_bytes must be an integer of at least 1", 2)
   end
   local lines: LineReader = setmetatable({ source = reader, limit = limit,
-    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "" }, line_reader_mt)
+    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "",
+    rested = false }, line_reader_mt)
   return lines
 end
 

@@ -77,6 +77,25 @@ function Example.lines()
   assert(Fs.remove_tree(dir))
 end
 
+--- A head of lines and then a body of the length it states, as an
+--- HTTP request has: the lines read ahead past the blank line, so the
+--- body is read from `rest`, which gives those bytes first, and not
+--- from the Reader. No "\n" ends the body, and none is waited for.
+function Example.rest()
+  local request = Stream.from_string("PUT /note HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello")
+  local lines = Stream.lines(request)
+  local length = 0
+  for line in lines:each() do
+    if line == "\r" then break end
+    local stated = line:match("^Content%-Length: (%d+)\r$")
+    if stated ~= nil then length = assert(math.tointeger(tonumber(stated))) end
+  end
+  assert(lines:failure() == "", lines:failure())
+  local body = assert(Stream.read_exact(lines:rest(), length))
+  print(body)
+  assert(body == "hello", body)
+end
+
 --- A stream written to an open descriptor: here standard output. A
 --- non-blocking one can be waited on for room, for as long as
 --- `timeout_ns`: here a named pipe nobody reads, which takes what it
