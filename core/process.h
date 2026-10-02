@@ -1,6 +1,6 @@
 /*
  * The process table: the calls [`cosmic.child`] starts, feeds and reaps a
- * child with, and the one [`cosmic.proc`] relaunches this program with.
+ * child with, and [`cosmic.proc`] looks up accounts and relaunches with.
  * Registered as the raw [`cosmic.internal.process`] module, which only
  * those wrappers (and [`build.confine`], which starts a test's sandboxed
  * children through it) are handed: none of it is public. A
@@ -119,6 +119,22 @@ _Noreturn void cosmic_sandbox_init (void);
 #ifndef COSMIC_CONSTANT
 #define COSMIC_CONSTANT(name)
 #endif
+
+/*
+ * --- The numeric identity of a named account.
+ * ---@class User
+ * ---@field uid integer the user identifier
+ * ---@field gid integer the primary group identifier
+ */
+
+/*
+ * --- Looks up a nonempty name without NUL bytes through getpwnam_r in this process. Only uid and gid are copied. The caller buffer grows up to 1 MiB; this bounds neither libc's own allocation nor directory-service latency. Missing is nil with an empty reason and errno 0; malformed names raise.
+ * ---@param name string the account name
+ * ---@return User|nil user the numeric identity, or nil when missing or lookup failed
+ * ---@return string error what went wrong, empty when missing
+ * ---@return integer errno the error number, 0 when missing
+ */
+COSMIC_SYSCALL(user, 1);
 
 /*
  * --- The paths a sandbox unveils, each absolute; at most `UNVEIL_MAX` in all.

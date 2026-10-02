@@ -4,6 +4,10 @@
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
+
+-- Account lookup can consult the host's directory service.
+Test.needs{ system = true }
 
 local Example = {}
 
@@ -36,6 +40,19 @@ function Example.find_result()
   assert(status("missing") == 127)
   assert(status(dir .. "/missing") == 0)
   assert(Fs.remove_tree(dir))
+end
+
+--- Resolve an explicit account with [`Proc.user`] before configuring a
+--- child's numeric identity. Missing and failed lookups are different.
+function Example.user()
+  local user, trouble = Proc.user("nobody")
+  if user ~= nil then
+    print("uid", user.uid, "gid", user.gid)
+  elseif trouble == "" then
+    print("no account named nobody")
+  else
+    error(trouble)
+  end
 end
 
 return Example
