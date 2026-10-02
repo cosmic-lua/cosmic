@@ -127,4 +127,23 @@ function Example.copy_tree()
   assert(Fs.remove_tree(dir))
 end
 
+--- Each path [`Fs.walk`] answers is relative to the root it was given,
+--- with no leading `./`, so a file is opened as `root .. "/" .. path`.
+function Example.walk()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local root = dir .. "/site"
+  assert(Fs.mkdirs(root .. "/css"))
+  assert(Fs.write(root .. "/index.html", "<p>hi</p>"))
+  assert(Fs.write(root .. "/css/main.css", "body {}"))
+  local paths = assert(Fs.walk(root))
+  local lines: {string} = {}
+  for _, path in ipairs(paths) do
+    local data = assert(Fs.read(root .. "/" .. path))
+    lines[#lines + 1] = path .. " " .. #data
+  end
+  print(table.concat(lines, "\n"))
+  assert(table.concat(lines, ",") == "css/main.css 7,index.html 9", table.concat(lines, ","))
+  assert(Fs.remove_tree(dir))
+end
+
 return Example
