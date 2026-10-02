@@ -655,3 +655,35 @@ local function test_prepared_statements_keep_the_busy_handlers_owner_under_alloc
   assert_c_heap(bytes, blocks, "a prepared statement's busy handler")
   assert(db:close(), "a refused operation left a prepared statement open")
 end
+
+--- Existing-only open shares the normal handle guard, on success and
+--- on refusal: an allocation failure must leave neither handle nor fd.
+local function test_sqlite_existing_only_open_releases_every_refused_allocation(tmp: string)
+  if not checked then return end
+  local path = tmp .. "/existing.db"
+  local made = assert(Sqlite.open(path, { writable = true }))
+  assert(made:exec("CREATE TABLE t (a)"))
+  assert(made:close())
+  collectgarbage("collect")
+  local before = next_descriptor(tmp)
+  local statements = testing.open_statements()
+  local bytes, blocks = testing.c_heap()
+  for _, present in ipairs({ true, false }) do
+    local target = present and path or tmp .. "/missing.db"
+    local ended = under_every_failure(function()
+      local db, why = Sqlite.open(target, { writable = true, create = false })
+      if present then
+        local held = assert(db, why)
+        assert(held:exec("SELECT 1"))
+        assert(held:close())
+      else
+        assert(db == nil and why ~= "", "a missing database must be refused")
+      end
+    end)
+    assert(ended > 0, "opening a database allocates")
+    assert(next_descriptor(tmp) == before, "an open left a descriptor behind")
+    assert(testing.open_statements() == statements, "an open left a statement behind")
+    assert_c_heap(bytes, blocks, "existing-only SQLite open")
+  end
+  assert(sys.lstat(tmp .. "/missing.db") == nil, "a refusal created the missing database")
+end

@@ -432,6 +432,18 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   -- stale.
   local gone: {string: string} = {}
   local function resolves(query: string): boolean
+    local words: {string} = {}
+    for word in query:gmatch("%S+") do words[#words + 1] = word end
+    local asked = docs.asked(words)
+    if asked == nil then
+      return true
+    end
+    if #asked > 1 then
+      for _, one in ipairs(asked) do
+        if not resolves(one) then return false end
+      end
+      return true
+    end
     local cached = answered[query]
     if cached == nil then
       local found, _ = docs.lookup(view, query)

@@ -229,7 +229,9 @@ only from a process that may still run its own core.
 [`core/vfs.c`](../../core/vfs.c) registers a small SQLite virtual file system.
 Its only main file is the validated database range on the retained artifact
 descriptor. Reads outside that range fail. The logical executable path is an
-opaque SQLite key; the VFS never reopens it.
+opaque SQLite key; the VFS never reopens it. The first open consumes the
+registration, so no later connection reaches the range, raw SQL's `ATTACH`
+naming the path through the VFS included.
 
 SQLite opens the range read-only with `immutable=1`. The runtime creates no
 journal beside the artifact. [`core/store.c`](../../core/store.c) installs the

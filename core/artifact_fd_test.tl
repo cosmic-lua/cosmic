@@ -14,6 +14,7 @@
 local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local gen_syscalls = require("build.gen_syscalls")
 local _child = require("cosmic.child")
@@ -277,4 +278,37 @@ local function test_a_worker_that_is_not_a_tool_cannot_open_the_program()
   if program == nil or artifact_fd() == nil or sys.getcwd() ~= "/tree" then return end
   local opened, _ = sys.open(program, sys.O_RDONLY)
   assert(opened == nil, "a worker that is not a tool opened " .. program)
+end
+
+--- `path` as a `file:` URI's path: every byte but an unreserved one or a
+--- slash percent-escaped.
+local function escaped(path: string): string
+  return (path:gsub("[^%w/%-%._~]", function(c: string): string
+    return string.format("%%%02X", c:byte())
+  end))
+end
+
+--- The program's database opens through core/vfs.c once, at start: a
+--- later connection naming the program's path through that VFS -- raw
+--- SQL's ATTACH, which reads a `file:` URI's `vfs=` on a connection
+--- opened for URIs, as an immutable one is -- is refused every time, so
+--- a test reads no module past build/test_worker.tl's hold on the
+--- store. An ordinary database still attaches on the same connection.
+local function test_the_program_s_database_cannot_be_reopened(tmp: string)
+  local program, _ = Proc.executable()
+  if program == nil or artifact_fd() == nil then return end
+  local path = tmp .. "/plain.db"
+  local writer = assert(Sqlite.open(path, { writable = true }))
+  assert(writer:exec("CREATE TABLE t (v TEXT)"))
+  assert(writer:close())
+  local db = assert(Sqlite.open(path, { immutable = true }))
+  local uri = "file:" .. escaped(program) .. "?vfs=cosmic&mode=ro&immutable=1"
+  for _ = 1, 2 do
+    local ok, trouble = db:exec("ATTACH '" .. uri .. "' AS program")
+    assert(not ok, "reopened the program's database through " .. uri)
+    assert(trouble ~= nil and trouble ~= "", "a refusal says why")
+  end
+  assert(db:exec("ATTACH 'file:" .. escaped(path) .. "?mode=ro' AS ordinary"))
+  assert(db:exec("SELECT count(*) FROM ordinary.t"))
+  assert(db:close())
 end

@@ -114,8 +114,9 @@ local record sqlite
   --- nothing another process's write waits on. A `-wal` is never read,
   --- so a database with commits still in its `-wal` shows without them:
   --- open it the ordinary read-only way instead. Giving it with
-  --- `writable` raises.
-  open: function(path: string, writable?: boolean, immutable?: boolean): Handle | nil, string
+  --- `writable` raises. Writable opens create a missing file unless
+  --- `create` is explicitly false; read-only opens never create.
+  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle | nil, string
   --- The SQLite library's version, such as "3.53.4".
   version: string
 end
