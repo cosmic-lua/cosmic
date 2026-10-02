@@ -370,16 +370,19 @@ function Json.members(t: {any:any}, gaps?: boolean): Json.Members
   return { layout = layout, keys = keys, extent = extent }
 end
 
+--- The escape `quote` writes for the one character `c` it escapes.
+local function escape(c: string): string
+  if c == '"' or c == "\\" then return "\\" .. c end
+  return ("\\u%04x"):format(c:byte())
+end
+
 --- `s` as a JSON string literal, for a message: `"` and `\\` escaped and
 --- every control character a `\u` escape, so a key or a value reads in
 --- a message as it did in the text. It is for messages and is not a
 --- JSON encoder: it answers for any bytes, UTF-8 or not, where `encode`
 --- refuses what is not UTF-8. Use [`Json.encode`] to write JSON.
 function Json.quote(s: string): string
-  return '"' .. s:gsub('[%c"\\]', function(c: string): string
-    if c == '"' or c == "\\" then return "\\" .. c end
-    return ("\\u%04x"):format(c:byte())
-  end) .. '"'
+  return '"' .. s:gsub('[%c"\\]', escape) .. '"'
 end
 
 return Json
