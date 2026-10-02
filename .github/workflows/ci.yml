@@ -495,7 +495,7 @@
 
         # Temporary C3 diagnostic: remove both steps and the script before merge.
         {
-          name: "measure filesystem flush strategies (temporary)",
+          name: "confirm filesystem flush strategies (temporary)",
           id: "syncfs-diagnostic",
           if: "matrix.name == 'linux-x86_64' && matrix.shard != '2/2'",
           "working-directory": ".",
@@ -509,7 +509,7 @@
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "syncfs-diagnostic-${{ env.COSMIC_WORKER }}",
-            path: "${{ runner.temp }}/syncfs-diagnostic/*.json*\n${{ runner.temp }}/syncfs-diagnostic/patch-*.tl\n${{ runner.temp }}/syncfs-diagnostic/driver.log\n",
+            path: "${{ runner.temp }}/syncfs-diagnostic/*.json*\n${{ runner.temp }}/syncfs-diagnostic/patch-*.tl\n${{ runner.temp }}/syncfs-diagnostic/manifests/*.json\n${{ runner.temp }}/syncfs-diagnostic/driver.log\n",
             "if-no-files-found": "warn",
             "retention-days": 7,
           },
