@@ -140,15 +140,15 @@ C3 first measures the proposed filesystem-wide flush on representative storage. 
 
 C4 adds typed username lookup, e.g. `Proc.user(name) -> Proc.User | nil, string`, using getpwnam_r where available, with uid/gid and only fields the consumer needs. Missing account is nil with empty reason, lookup failure is nil with reason, malformed input raises. Perform lookup before entering any filesystem sandbox, because NSS may need system files or services. No shell invocation. Bound buffer growth, handle NSS errors, copy data before temporary buffers disappear, and test real known/missing users plus controlled error cases.
 
-C5 adds `Child.Options.credentials = { user = uid, group = gid }` for launching with the ordinary filesystem and no supplementary groups. Existing Sandbox.user/group require unveil and retain their meaning; reject ambiguous combinations. In the child, clear supplementary groups before setgid/setuid, drop privilege irreversibly, report each failure through the existing spawn-status pipe before exec, and never fall back to root. Document inherited environment/cwd/fd behavior explicitly. Test actual uid/gid/groups, inability to regain root, inaccessible files, malformed/missing options, failed drop with no child program execution, and interaction with process groups/guards. CI must include a suitable privileged job; an unprivileged test cannot prove a root-to-user transition by simulation alone.
+C5 adds `Child.Options.credentials = { user = uid, group = gid }` for launching with the ordinary filesystem and no supplementary groups. Existing Sandbox.user/group require unveil and retain their meaning; reject ambiguous combinations. Require explicit nonzero user/group IDs. Reject offline and unveiled sandbox combinations, whose namespace IDs have different meanings. On Linux, set no_new_privs, clear supplementary groups, set all real/effective/saved GIDs and UIDs, and clear effective/permitted/inheritable capabilities. Keep the default spawn path unchanged and the post-clone path allocation-free. Report child credential-setup failure through the existing status pipe before exec; never fall back to root. Because CLONE_VM shares dumpability state, check its capture and restoration in the parent. A failed restoration must report failure and terminate/reap the owned child, but the child may already have executed. Do not promise a cleared bounding set; no_new_privs prevents exec from granting new privilege. Fail closed on unsupported Darwin mechanisms. Document inherited environment/cwd/fd authority explicitly. Test actual uid/gid/groups, inability to regain root, inaccessible files, malformed/missing options, failed drop with no child program execution, and interaction with process groups/guards. CI must include a suitable privileged job; an unprivileged test cannot prove a root-to-user transition by simulation alone.
 
 C7 ports run-local only after both APIs are in the pin. Keep snapshot, ownership, cache seeding and phase behavior; preserve proper failure on this session's restricted UID mapping. The current shell uses a mixture of source-tree driver and pin mechanisms: document the chosen launcher explicitly rather than changing that boundary accidentally. Dropping root must be available on supported platforms or fail clearly; do not turn missing support into a green privileged run.
 
 ## C6: noexec scratch as a declaration
 
-Add a narrow `Test.needs { noexec = true }` capability with one documented writable scratch location supplied by the harness (provisional `$COSMIC_TEST_NOEXEC`). Keep normal scratch executable. Add corresponding core sandbox mount support with explicit noexec flags, inherited by descendants; all declaration parsing, effective inputs, key material, host capability and worker environment paths must agree. A changed policy bumps the harness epoch and updates acknowledgments.
+Add a narrow `Test.needs { noexec = true }` capability with one documented writable scratch location supplied by the harness (provisional `$COSMIC_TEST_NOEXEC`). Keep normal scratch executable. Provide a private tmpfs at the fixed sandbox path `/noexec`, with no host-backed executable alias, and corresponding narrow noexec mount support inherited by descendants; all declaration parsing, effective inputs, key material, host capability and worker environment paths must agree. A changed policy bumps the harness epoch and updates acknowledgments.
 
-Prove writing and reading succeed there while executing an executable file fails with EACCES; prove normal scratch still executes and escaping through a bind/symlink cannot turn the declared directory executable. Unsupported hosts count a clear skip where permitted and fail held-sandbox runs; never substitute an executable directory. C7 migrates the noexec launcher fixture to the declared capability, removes broad environment/host-mount discovery, and preserves native macOS coverage according to its supported sandbox contract.
+Prove writing and reading succeed there while executing an executable file fails with EACCES; prove normal scratch still executes and escaping through a bind/symlink cannot turn the declared directory executable. Probe native execution refusal at the actual worker identity only for requesting modules; include the effective grant in keys and scrub the reserved environment variable when not granted, even under wildcard environment declarations. Unsupported hosts count a clear skip with no cached verdict where permitted and fail held-sandbox runs; never substitute an executable directory or disable ordinary sandboxing because this optional grant is unavailable. C7 migrates the noexec launcher fixture to the declared capability, removes broad environment/host-mount discovery, and preserves native macOS coverage according to its supported sandbox contract.
 
 ## Release waves, reviews and acceptance
 
@@ -180,7 +180,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
-| C4 | pending | local preparation | Minimal guarded username-to-uid/gid lookup; publication after B5 |
+| C4 | pending | locally approved | 73ae44e0/tree1a99265a; independent native/checked allocation, bounded growth and account-service failure review passed; publication after B5 |
 | C5 | pending | local preparation | Credential, capability and parent dumpability design reviewed; actual privileged CI proof required |
 | C6 | pending | local preparation | Private noexec tmpfs and declaration/keying design reviewed; native sandbox CI proof required |
 | C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -294,3 +294,11 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   named files; SQLite's empty and `:memory:` special paths keep their existing
   transient-database semantics. Corrected `6d1d3232`/`9f54b268` is independently
   approved with native and checked regression coverage.
+
+- 2026-10-02 UTC: incoming #2551 merged as `e2451ed3`, converting HTTP,
+  SQLite, filesystem and JSON object internals to shared methods. A4 queue
+  `3511e6cd`/`0c00b3b3` preserves all five incoming files and all six unchanged
+  A4 files. Independent actual-pin boot and 233 focused API/consumer tests
+  passed. The selected release stays `b951ab95`; #2551 adds no capability that
+  unblocks another pin TODO. Its new Fs/SQLite acknowledgments must survive
+  every later integration.
