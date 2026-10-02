@@ -194,6 +194,33 @@ function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
     sample_count = #samples, calibration_count = #calibration, status = status, reasons = reasons }
 end
 
+--- Require equal logical build histories, including discarded warmups. Physical
+--- pages and timings are deliberately not part of this state comparison.
+function Perf.check_history(a: {string}, b: {string})
+  assert(#a == 6 and #b == 6, "missing build history counters")
+  assert(a[5] == b[5] and a[6] == b[6], "unbalanced fixture build history")
+end
+
+--- Check the exact effect of a command outside its timed region. Reads and
+--- compilation belong only to the deliberate leaf mutation workload.
+function Perf.check_transition(before: {string}, after: {string}, builds: boolean, change: boolean)
+  assert(#before == 6 and #after == 6, "missing build history counters")
+  local delta = builds and 1 or 0
+  assert(tonumber(after[5]) == tonumber(before[5]) + delta and
+    tonumber(after[6]) == tonumber(before[6]) + delta, "unexpected build history transition")
+  assert(after[4] == "PASS", "fixture build failed")
+  if builds then
+    assert(tonumber(after[1]) + tonumber(after[2]) == 6, "build lost fixture modules")
+    if change then
+      assert(tonumber(after[1]) > 0 and tonumber(after[3]) > 0, "leaf edit read/compiled no modules")
+    else
+      assert(after[1] == "0" and after[2] == "6" and after[3] == "0", "no-op read/compiled modules")
+    end
+  else
+    for i = 1, 6 do assert(before[i] == after[i], "non-building command changed build counters") end
+  end
+end
+
 local record Fixture
   binary: string
   root: string
@@ -210,6 +237,7 @@ local record Workload
   batch: integer
   executable: string
   change: boolean
+  builds: boolean
   ran: integer
   stood: integer
 end
@@ -227,6 +255,7 @@ local record Observation
   stderr: string
   before: {string}
   after: {string}
+  leaf_value: integer
 end
 
 local function json_bounds(value: any): any
@@ -266,7 +295,7 @@ end
 local function latest_build(fixture: Fixture): {string}
   local db = assert(Sqlite.open(fixture.root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
-    "SELECT compiled, cached, read, verdict, run FROM builds ORDER BY run DESC LIMIT 1"))
+    "SELECT compiled, cached, read, verdict, run, (SELECT COUNT(*) FROM builds) FROM builds ORDER BY run DESC LIMIT 1"))
   assert(db:close())
   assert(#rows == 1 and rows[1][4] == "PASS", "missing successful build counters")
   return rows[1]
@@ -356,22 +385,22 @@ local function workloads(): {Workload}
     { name = "first_require", args = { "-e", "assert(require('cosmic.sqlite'))" }, batch = 5 },
     { name = "require_closure", args = { "-e", "assert(require('cosmic.sqlite')); " ..
       "assert(require('cosmic.json')); assert(require('cosmic.child'))" }, batch = 5 },
-    { name = "exact_docs", args = { "docs", "Fs.read" }, batch = 1 },
-    { name = "uses", args = { "uses", "Fs.read" }, batch = 1 },
+    { name = "exact_docs", builds = true, args = { "docs", "Fs.read" }, batch = 1 },
+    { name = "uses", builds = true, args = { "uses", "Fs.read" }, batch = 1 },
     { name = "reverse_imports", args = { "sql", "--store",
       "SELECT path FROM imports WHERE requires='cosmic.sqlite' ORDER BY path" }, batch = 1 },
     { name = "outgoing_uses", args = { "sql", "--store",
       "SELECT module,symbol,line FROM uses WHERE from_module='cosmic.sqlite' ORDER BY module,symbol,line" }, batch = 1 },
-    { name = "embed_portable", args = { "build" }, batch = 1 },
-    { name = "embed_host", args = { "build", "--host" }, batch = 1 },
-    { name = "noop_test", args = { "test" }, batch = 1, ran = 0, stood = 2 },
-    { name = "full_fixture_test", args = { "test" }, batch = 1, ran = 2, stood = 0 },
-    { name = "leaf_edit_test", args = { "test" }, batch = 1, change = true, ran = 1, stood = 1 },
+    { name = "embed_portable", builds = true, args = { "build" }, batch = 1 },
+    { name = "embed_host", builds = true, args = { "build", "--host" }, batch = 1 },
+    { name = "noop_test", builds = true, args = { "test" }, batch = 1, ran = 0, stood = 2 },
+    { name = "full_fixture_test", builds = true, args = { "test" }, batch = 1, ran = 2, stood = 0 },
+    { name = "leaf_edit_test", builds = true, args = { "test" }, batch = 1, change = true, ran = 1, stood = 1 },
   }
 end
 
 local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
-                       label: string): Observation
+                       label: string, leaf_value: integer): Observation
   local executable = f.binary
   if w.executable == "portable" then executable = f.portable
   elseif w.executable == "host" then executable = f.host
@@ -379,8 +408,8 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
   local argv = { executable }
   for _, word in ipairs(w.args) do argv[#argv + 1] = word end
   if w.change then
-    -- Never revisit a content-addressed verdict from an earlier sample.
-    leaf(f, pair + 1000)
+    -- Both phases see the same new content, never an earlier verdict.
+    leaf(f, leaf_value)
   end
   if w.name == "full_fixture_test" then
     local db = assert(Sqlite.open(f.root .. "/o/build.db", { writable = true }))
@@ -395,7 +424,8 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
   local stdout, stderr = result.stdout or "", result.stderr or ""
   local observation: Observation = { phase = phase, workload = w.name, pair = pair, label = label,
     elapsed_ns = elapsed, batch = w.batch, argv = argv, cwd = f.root,
-    stdout = stdout, stderr = stderr, before = before }
+    stdout = stdout, stderr = stderr, before = before, after = latest_build(f) }
+  if w.change then observation.leaf_value = leaf_value end
   save(f.logs .. "/current.json", observation)
   if w.name == "exact_docs" then
     assert(stdout:find("Fs.read", 1, true), "docs did not return Fs.read")
@@ -414,37 +444,29 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
       w.name .. ": unexpected test counters: " .. stdout .. stderr)
     assert(not (stdout .. stderr):find("test: SKIP", 1, true), "fixture skipped a test")
   end
-  if w.name == "embed_portable" or w.name == "embed_host" or w.ran ~= nil then
-    local after = latest_build(f)
-    assert(tonumber(after[5]) > tonumber(before[5]), "build did not record a fresh run")
-    assert(tonumber(after[1]) + tonumber(after[2]) == 6, "build lost fixture modules")
-    if w.change then
-      assert(tonumber(after[1]) > 0 and tonumber(after[3]) > 0, "leaf edit read/compiled no modules")
-    else
-      assert(after[1] == "0" and after[3] == "0", w.name .. ": no-op read/compiled modules")
-    end
-    save(f.logs .. "/counters.json", { before = before, after = after })
-    observation.after = after
-  end
+  Perf.check_transition(before, observation.after, w.builds, w.change)
+  save(f.logs .. "/counters.json", { before = before, after = observation.after })
   return observation
 end
 
 local function run_pairs(a: Fixture, b: Fixture, w: Workload, phase: string,
-                         count: integer, raw: {Observation}, offset: integer): {Perf.Pair}
+                         count: integer, raw: {Observation}, offset: integer, mutation_offset: integer): {Perf.Pair}
   local paired: {Perf.Pair} = {}
   local observations: {Observation} = {}
   -- Three discarded warmups follow exactly the same preparation and checks.
   for i = 1, count + 3 do
     local first, second: Observation, Observation
     if i % 2 == 1 then
-      first = measure(a, w, phase, offset + i, "a")
-      second = measure(b, w, phase, offset + i, "b")
+      first = measure(a, w, phase, offset + i, "a", mutation_offset + i)
+      second = measure(b, w, phase, offset + i, "b", mutation_offset + i)
     else
-      second = measure(b, w, phase, offset + i, "b")
-      first = measure(a, w, phase, offset + i, "a")
+      second = measure(b, w, phase, offset + i, "b", mutation_offset + i)
+      first = measure(a, w, phase, offset + i, "a", mutation_offset + i)
     end
     observations[#observations + 1], observations[#observations + 2] = first, second
     save(a.logs .. "/" .. phase .. "-" .. w.name .. ".json", observations)
+    Perf.check_history(first.before, second.before)
+    Perf.check_history(first.after, second.after)
     if i > 3 then
       raw[#raw + 1], raw[#raw + 2] = first, second
       paired[#paired + 1] = { a = first.elapsed_ns / w.batch, b = second.elapsed_ns / w.batch }
@@ -495,7 +517,7 @@ function Perf.main(argv: {integer:string}): integer
   local metadata: {string:any} = { cache = "warm OS page cache, fresh process per command",
     sandbox = "unsandboxed fixtures; no shared compile or verdict cache",
     cold_io = "unmeasured", peak_rss = "unmeasured", pairs = count,
-    protocol = "fixed-sample-v2", adaptive_repeat = false, exploratory = count < 200,
+    protocol = "fixed-sample-v3", adaptive_repeat = false, exploratory = count < 200,
     host = assert(sys.uname()), cpu_features = sys.cpu_features(),
     controller_sqlite = Sqlite.version, cpuinfo = cpuinfo,
     kernel = kernel, artifacts = artifacts,
@@ -513,10 +535,20 @@ function Perf.main(argv: {integer:string}): integer
     binaries[i] = retained
     artifacts[i] = { input = input, retained = retained, sha256 = Hash.hex_sha256(bytes), bytes = #bytes }
   end
+  local manifest = {
+    { id = "aa-a", phase = "aa", label = "a", artifact_index = 1, root = output .. "/aa-a" },
+    { id = "aa-b", phase = "aa", label = "b", artifact_index = 1, root = output .. "/aa-b" },
+    { id = "ab-a", phase = "ab", label = "a", artifact_index = 1, root = output .. "/ab-a" },
+    { id = "ab-b", phase = "ab", label = "b", artifact_index = 2, root = output .. "/ab-b" },
+  }
+  metadata.fixtures = manifest
+  metadata.counter_columns = { "compiled", "cached", "read", "verdict", "run", "builds" }
   save(output .. "/metadata.json", json_bounds(metadata))
-  local a = fixture(binaries[1], output .. "/a")
-  local aa = fixture(binaries[1], output .. "/aa")
-  local b = fixture(binaries[2], output .. "/b")
+  local fixtures: {Fixture} = {}
+  for _, entry in ipairs(manifest) do
+    fixtures[#fixtures + 1] = fixture(binaries[entry.artifact_index], entry.root)
+  end
+  local a, aa, parent, b = fixtures[1], fixtures[2], fixtures[3], fixtures[4]
   local afacts = assert(Json.decode_object((assert(Fs.read(a.logs .. "/runtime.json")))))
   local bfacts = assert(Json.decode_object((assert(Fs.read(b.logs .. "/runtime.json")))))
   assert(afacts.target == bfacts.target and afacts.configuration == bfacts.configuration,
@@ -539,8 +571,15 @@ function Perf.main(argv: {integer:string}): integer
   local failed = false
   local stride = ((count + 4) // 2) * 2
   for index, w in ipairs(selected) do
-    local calibration = run_pairs(a, aa, w, "aa", count, raw, index * stride * 2)
-    local samples = run_pairs(a, b, w, "ab", count, raw, index * stride * 2 + stride)
+    -- All four histories match only at workload boundaries, not between
+    -- phases. Independent pairs advance once each through the same inputs.
+    local before = latest_build(a)
+    for _, f in ipairs(fixtures) do Perf.check_history(before, latest_build(f)) end
+    local mutation_offset = 1000 + index * stride
+    local calibration = run_pairs(a, aa, w, "aa", count, raw, index * stride * 2, mutation_offset)
+    local samples = run_pairs(parent, b, w, "ab", count, raw, index * stride * 2 + stride, mutation_offset)
+    local after = latest_build(a)
+    for _, f in ipairs(fixtures) do Perf.check_history(after, latest_build(f)) end
     local compared = Perf.compare(calibration, samples)
     summaries[w.name] = compared
     failed = failed or compared.status ~= "pass"
