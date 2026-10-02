@@ -25,11 +25,24 @@ host), and the sandbox holds the worker to those inputs. A verdict that
 stands wrongly is silent. So each step that leans on the cache more
 waits for the soundness fixes that make that step safe.
 
-## Where it stands (main at 13922ff, 2026-09-28)
+## Where it stands (main at e6dae36, 2026-10-02)
 
 The milestones move these numbers. Each milestone measures them again.
 
-### CI
+### CI, 2026-10-02
+
+Measured over the runs since #2520 (2026-10-01 12:40 to 2026-10-02
+01:50), after the build refactor (build-simplification PRs 1 to 7).
+
+- **Gating run** (`merge_group`): 7.5 to 12.4 min wall, median 10.1
+  (24 successful runs).
+- **Main push:** reuses the queue's run (4.5's item 2), about 1 min.
+- **Branch push** (light scope): 93 to 264 s, median 182 s (38
+  runs). A core change or a moved harness epoch reruns every test,
+  and macOS is then the pole (189 s on #2530's last push, 129 s of
+  it the native suite).
+
+### CI, 2026-09-28 (main at 13922ff)
 
 - **Gating run** (`merge_group`): 11 to 16 min wall.
   - linux-x86_64 takes about 13.5 min; the other legs take about 8.
@@ -49,7 +62,7 @@ The milestones move these numbers. Each milestone measures them again.
   touched `build/test.tl`, which every key holds by its source, or the
   closure of the key's own code.
 
-### Local
+### Local (2026-09-28)
 
 Measured on 4 cores, sandboxed, with 1988 tests.
 
@@ -911,6 +924,35 @@ Items, in order:
 Expected after items 2 to 5: the queue about 8 min wall and 34
 runner-minutes, main about 1.5 min and 4, about 38 per landed change.
 
+### 4.6 Next (2026-10-02)
+
+The build refactor (its reference is the draft branch
+codex/build-simplification-plan, PRs 1 to 7) kept the caches and identities these items lean on: lazy program
+hashing, shared parses and compiles, and distinct compiler, writer and
+harness identities. None of the items below conflicts with it. They
+are in order of what they save on a branch push, then on the queue.
+
+1. **Measure the queue run (S).** Its median is 10.1 min, against
+   about 3 for a branch push. Break a median run down by job and step,
+   as 4.5 did, before choosing an item for it.
+2. **Reuse the built cores where the core is unchanged (M).** About 10
+   to 15 s on macOS, every push. Find first what of the 10 to 15 s
+   the zig cache does not already answer.
+3. **Build only the host's cores on a light run (S–M).** About 8 s on a
+   core change's push.
+4. **Remember the program's digest across trees (M).** It is the TODO
+   at build/declared_key.tl:558. #2519 spared the runs whose tests do
+   not run the program; a run whose tests do, in a fresh fixture
+   checkout, still pays about 0.25 s, more on a loaded runner.
+5. **The closure stores' basis, each run (S–M).** `closure_store.basis`
+   digests every row of the projection on each `cosmic test`, about
+   235 ms on 4 cores, even for one test file. It could be kept by the
+   projection's own digest.
+6. **`cosmic -e`'s hint (S, a bug).** After a removed global's refusal
+   (`os.getenv`), it prints build/analyzer.tl's `inputs_of` doc, where
+   #2537's lookup should answer the replacement. Reproduced on main at
+   e6dae36.
+
 ### Milestone M4
 
 - `COSMIC_TEST_KEY`, the observed path and `core/observed.c` are gone,
@@ -1079,3 +1121,12 @@ Each milestone is decided from 0.3's `report`, as follows.
     in fixture checkouts mostly skip it: a full unsandboxed rerun
     took 122 s against 134 s on 4 cores, and a fresh fixture run
     0.33 s against 0.65 s.
+  - The macOS leg's darwin suite runs nothing where the native suite
+    stood on no verdict, having run every listed module already
+    (#2520): 12 to 14 s off a core change's or an epoch's push.
+  - Observed after these landed: a branch's second push restored its
+    own compiles (#2504), compiling 1 module of 477 with a 4.5 s boot
+    on macOS (#2530, run 36940844716), and the darwin skip fired on
+    the same push. #2518's effect on a removed.tl edit is still
+    unmeasured: every stdlib push since has also carried a core change,
+    a moved epoch or a merge of main.
