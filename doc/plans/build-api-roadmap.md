@@ -176,14 +176,14 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
 | B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | merged | 55724526/treeb3c0574f; branch36977328228 and queue36977805814 green; exact queue tree independently approved; native80 and checked56 pass |
 | B4b | [#2578](https://github.com/cosmic-lua/cosmic/pull/2578) | merged | 79c38a7a/tree44c25249; branch36979110720 and queue36979424775 green; exact queue tree independently approved; native63/checked35 pass; matching three artifacts |
-| B5 | [#2579](https://github.com/cosmic-lua/cosmic/pull/2579) | fixing macOS test assumption | first branch36981599603: four Linux jobs green, macOS cancellation-test probe failed; shared flock/SQLite lock space correctly retains old holder; test-only live-waiter cleanup proof being strengthened before fresh CI |
+| B5 | [#2579](https://github.com/cosmic-lua/cosmic/pull/2579) | corrected CI running | remote988a3cce/tree26150b97; first macOS failure was shared lock-space expectation; test-only fix proves cleanup with waiter alive; author44native/44checked and independent9lock pass; actual release/pin proof retained |
 | C1 | pending | refreshed preparation approved | 0aefc4c6/tree4dbe5272 on actual79c38a7a; all four Fs feature blobs unchanged; focused60 pass; final integration/publication after B5 |
 | C2 | pending | refreshed preparation approved | 0752370f/tree413c67cc on actual79c38a7a; native27/checked28 and whole650 zero; independent exact patch review; final B5 alignment and native Darwin CI remain |
 | C3 | pending | measurement-gated; API held | pilot3c84d35b/tree33a14bac statically approved on79c38a7a; 13guard checks pass, no timings; actualC2 alignment/runtime gates before temporary CI; positive pilot requires calibrated confirmation |
 | C4 | pending | refreshed preparation approved | f66c7e3e/tree6aeac5c3 on actual79c38a7a; native33/checked16 and whole652 zero; independent exact patch review; final B5 alignment before publication |
 | C5 | pending | locally approved | 08a1d96c/treea28a267e; independent native61/checked15 and analyzer checks pass; actual privileged CI proof required |
 | C6 | pending | locally approved | 42823b63/tree7c4ad967; independent native150/checked14 and harness9 pass with three honest mount skips; native Linux proof and fresh combined epoch required |
-| C7 | pending | source preparation approved | dd193372/treebab85286; identical tested overlay6a62aa90; independent58 CI and55 patch/workflow tests pass; actual release, final append consumer and native proofs remain |
+| C7 | pending | final append source preparation in review | af3034c3/treeb4dd338a on reviewed B5; third CacheTrim append caller migrated; explicit local C driver67 CI tests pass and CI62 zero; actual C release/pin and native proofs remain |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -496,3 +496,13 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   source provenance match. Both executed the binary's B APIs and bare cache/help
   in a broken project. B5 may now advance the pin atomically with every unblocked
   consumer, subject to final actual-pin tests and independent exact-tree review.
+
+- 2026-10-02 UTC: B5's first branch run `36981599603` passed four Linux
+  jobs but exposed a macOS cancellation-test assumption. Darwin shares flock
+  and SQLite's fcntl lock space, so the separate older SQL holder correctly
+  blocked the final flock probe. Reviewed correction `988a3cce`/`26150b97`
+  changes only the test, follows the actual filesystem lock relationship and
+  retains the cancelled waiter alive until both locks are proved free. This
+  also prevents process exit from masking a descriptor leak. Native44 and
+  checked44 passed; independent9 lock tests passed. No production, pin, timeout
+  or platform-skip change; fresh required CI must verify the Darwin path.
