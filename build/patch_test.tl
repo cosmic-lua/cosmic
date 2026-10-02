@@ -180,7 +180,7 @@ local function test_records_writing_the_same_bytes_name_the_same_tree(dir: strin
   assert(Fs.write(root .. "/patch/lib/01.txt", record("a.h", "one", "two")))
   assert(Fs.write(root .. "/patch/lib/02.txt", record("a.h", "two", "three")))
   assert(Patch.prepare(root, "lib", cache) == first, "records split in two named another tree")
-  assert(#assert(Fs.list(cache)) == 1, "a tree of the same bytes was written again")
+  assert(#assert(Fs.list(cache)) == 2, "a tree of the same bytes was written again")
 end
 
 --- A tree whose record fails leaves nothing at its name.

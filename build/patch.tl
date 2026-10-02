@@ -426,30 +426,69 @@ local function key_of(tree: Tree): string
   return Hash.hex_sha256(table.concat(lines))
 end
 
---- Removes every `<tree>.work.<pid>` under `cache` whose process is gone:
---- what a build killed partway left behind. A live process's own is left
---- alone.
--- TODO: judge a scratch directory's owner by a lock it holds rather than
--- its pid, and name the directory by something no pid namespace
--- repeats, once ci/cosmic-driver.pin names a release that carries
--- sys.flock: a process confined in a pid namespace of its own
--- (core/process.h's `unveil`) sees none outside it, so, given this
--- cache to write, it would take a live one's directory for gone, and
--- two confined ones, each its namespace's pid 2, would share one.
-local function sweep(cache: string)
-  local names, _ = Fs.list(cache)
-  if names == nil then
-    return
-  end
-  for _, entry in ipairs(names) do
-    local pid = math.tointeger(tonumber(entry:match("%.work%.(%d+)$")))
-    if pid ~= nil and pid ~= sys.getpid() then
-      local _, _, number = sys.kill(pid, 0)
-      if number == sys.ESRCH then
-        local _, _ = Fs.remove_tree(cache .. "/" .. entry)
+--- The gate is never unlinked: every creator and sweeper must lock the
+--- same inode. It covers creation through ownership, so no sweep sees a
+--- new wrapper before its owner is locked. Expensive work runs outside it.
+--- Kept here because this standalone script can load only the pinned
+--- release's cosmic.* modules, not another module from the checkout.
+local record Descriptor
+  fd: integer
+  metamethod __close: function(Descriptor)
+end
+local descriptor_mt: metatable<Descriptor> = {
+  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
+}
+
+local record Scratch
+  path: string
+  owner: integer
+  metamethod __close: function(Scratch)
+end
+local scratch_mt: metatable<Scratch> = {
+  __close = function(self: Scratch)
+    local _, _ = Fs.remove_tree(self.path)
+    local _, _ = sys.close(self.owner)
+  end,
+}
+
+local function scratch(cache: string): Scratch | nil, string
+  local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
+  if fd == nil then return nil, trouble end
+  local opened: Descriptor = { fd = fd }
+  local gate <close> = setmetatable(opened, descriptor_mt)
+  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
+  if not locked then return nil, lock_trouble end
+  local names, list_trouble = Fs.list(cache)
+  if names == nil then return nil, list_trouble end
+  for _, name in ipairs(names) do
+    -- PID-only names belong to old tools and say nothing about ownership
+    -- across namespaces. Missing owner files are also left alone.
+    if name:match("^%.scratch%.[%w]+$") then
+      local path = cache .. "/" .. name
+      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
+      if owner ~= nil then
+        local descriptor: Descriptor = { fd = owner }
+        local probe <close> = setmetatable(descriptor, descriptor_mt)
+        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
+        if dead then local _, _ = Fs.remove_tree(path) end
       end
     end
   end
+  local path, create_trouble = sys.mkdtemp(cache .. "/.scratch.XXXXXX")
+  if path == nil then return nil, create_trouble end
+  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
+  if owner == nil then
+    local _, _ = Fs.remove_tree(path)
+    return nil, owner_trouble
+  end
+  local owned: Scratch = { path = path, owner = owner }
+  local holding = setmetatable(owned, scratch_mt)
+  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
+  if not held then
+    local _cleanup <close> = holding
+    return nil, hold_trouble
+  end
+  return holding, ""
 end
 
 --- The directory under `cache` holding `name`'s patched tree, written
@@ -485,17 +524,16 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   if not made then
     return nil, made_trouble
   end
-  sweep(cache)
-  local scratch = dir .. ".work." .. tostring(sys.getpid())
-  local _, _ = Fs.remove_tree(scratch)
-  local written, write_trouble = write_tree(tree, scratch)
+  local owned, own_trouble = scratch(cache)
+  if owned == nil then return nil, own_trouble end
+  local holding <close> = owned
+  local payload = holding.path .. "/payload"
+  local written, write_trouble = write_tree(tree, payload)
   if not written then
-    local _, _ = Fs.remove_tree(scratch)
     return nil, write_trouble
   end
-  local moved, move_trouble = Fs.rename(scratch, dir)
+  local moved, move_trouble = Fs.rename(payload, dir)
   if not moved then
-    local _, _ = Fs.remove_tree(scratch)
     -- Another build may have won the race; its tree is the same bytes.
     local raced, _ = Fs.exists(dir)
     if raced then

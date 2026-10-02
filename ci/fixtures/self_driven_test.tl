@@ -1,3 +1,4 @@
+local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 
 local Test = require("cosmic.test")
@@ -17,7 +18,7 @@ Test.needs{ env = { "*" } }
 -- the product again, byte for byte. The zig caches are the candidate's,
 -- and every C file compiles from a copy there, the same from every path
 -- (build.zig's `Own`), so none of it compiles again: only the tree does.
-local boot_timeout_ms <const> = 450000
+local boot_timeout_ns <const> = Time.seconds(450)
 
 local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
@@ -32,7 +33,7 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
     diagnostics, Fixture.environment({
       COSMIC_BOOTSTRAP = product,
       COSMIC_PORTABLE_CACHE = tmp .. "/portable-cache",
-    }), boot_timeout_ms))
+    }), boot_timeout_ns))
   assert(Fixture.hash(tree .. "/o/bin/cosmic") == Fixture.hash(product),
     "the tool a boot the product drove wrote is not the product")
 end

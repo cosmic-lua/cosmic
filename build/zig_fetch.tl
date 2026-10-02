@@ -16,11 +16,11 @@
 --- [`Http.download`]'s `sha256` option, from a few of zig's community
 --- mirrors and then `https://ziglang.org/download/<version>/`, retried in
 --- rounds ([`ZigFetch.sources`], [`ZigFetch.fetch`]). It goes into a
---- scratch `.work.<pid>` directory under `cache`, is extracted with
+--- uniquely named scratch wrapper under `cache`, is extracted with
 --- [`cosmic.archive`], and is renamed to `install`, tolerating a
 --- concurrent winner, whose copy is the same bytes. The scratch directory
 --- is removed on every path out, and one a dead process left behind is
---- removed by the next install ([`ZigFetch.sweep`]).
+--- removed by the next install after locking its owner file.
 ---
 --- It exits 0 once `<install>/zig` is in place. Otherwise it writes why
 --- on stdout, for build/zig.tl to report as its own trouble, and exits 1
@@ -29,15 +29,11 @@
 local Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
--- A millisecond and a second in nanoseconds, written out: the pinned
--- release's cosmic.time has no `ms` or `seconds` to write them with.
-local MS <const> = 1000 * 1000
-local SECOND <const> = 1000 * MS
+local SECOND <const> = Time.seconds(1)
 
 local record ZigFetch
   --- What [`ZigFetch.fetch`] downloads with, pauses with (for
@@ -51,30 +47,69 @@ local record ZigFetch
   end
 end
 
---- Removes every `.work.<pid>` under `cache` whose process is gone:
---- what an install killed partway left behind. A live process's own
---- scratch directory is left alone.
--- TODO: judge a scratch directory's owner by a lock it holds rather than
--- its pid, and name the directory by something no pid namespace
--- repeats, once ci/cosmic-driver.pin names a release that carries
--- sys.flock: a process confined in a pid namespace of its own
--- (core/process.h's `unveil`) sees none outside it, so, given this
--- cache to write, it would take a live one's directory for gone, and
--- two confined ones, each its namespace's pid 2, would share one.
-function ZigFetch.sweep(cache: string)
-  local names, _ = Fs.list(cache)
-  if names == nil then
-    return
-  end
+--- The gate is never unlinked: every creator and sweeper must lock the
+--- same inode. It covers creation through ownership, so no sweep sees a
+--- new wrapper before its owner is locked. Expensive work runs outside it.
+--- Kept here because this standalone script can load only the pinned
+--- release's cosmic.* modules, not another module from the checkout.
+local record Descriptor
+  fd: integer
+  metamethod __close: function(Descriptor)
+end
+local descriptor_mt: metatable<Descriptor> = {
+  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
+}
+
+local record Scratch
+  path: string
+  owner: integer
+  metamethod __close: function(Scratch)
+end
+local scratch_mt: metatable<Scratch> = {
+  __close = function(self: Scratch)
+    local _, _ = Fs.remove_tree(self.path)
+    local _, _ = sys.close(self.owner)
+  end,
+}
+
+local function scratch(cache: string): Scratch | nil, string
+  local fd, trouble = sys.open(cache .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
+  if fd == nil then return nil, trouble end
+  local opened: Descriptor = { fd = fd }
+  local gate <close> = setmetatable(opened, descriptor_mt)
+  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
+  if not locked then return nil, lock_trouble end
+  local names, list_trouble = Fs.list(cache)
+  if names == nil then return nil, list_trouble end
   for _, name in ipairs(names) do
-    local pid = tonumber(name:match("^%.work%.(%d+)$"))
-    if pid ~= nil then
-      local _, _, number = sys.kill(math.tointeger(pid), 0)
-      if pid ~= Proc.pid() and number == sys.ESRCH then
-        local _, _ = Fs.remove_tree(cache .. "/" .. name)
+    -- PID-only names belong to old tools and say nothing about ownership
+    -- across namespaces. Missing owner files are also left alone.
+    if name:match("^%.scratch%.[%w]+$") then
+      local path = cache .. "/" .. name
+      local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
+      if owner ~= nil then
+        local descriptor: Descriptor = { fd = owner }
+        local probe <close> = setmetatable(descriptor, descriptor_mt)
+        local dead, _ = sys.flock(probe.fd, "exclusive", 0)
+        if dead then local _, _ = Fs.remove_tree(path) end
       end
     end
   end
+  local path, create_trouble = sys.mkdtemp(cache .. "/.scratch.XXXXXX")
+  if path == nil then return nil, create_trouble end
+  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
+  if owner == nil then
+    local _, _ = Fs.remove_tree(path)
+    return nil, owner_trouble
+  end
+  local owned: Scratch = { path = path, owner = owner }
+  local holding = setmetatable(owned, scratch_mt)
+  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
+  if not held then
+    local _cleanup <close> = holding
+    return nil, hold_trouble
+  end
+  return holding, ""
 end
 
 --- zig's community mirrors of `https://ziglang.org/download/`, copied
@@ -174,30 +209,11 @@ local function real_sleep(ns: integer)
   local _, _ = sys.nanosleep(ns)
 end
 
---- The download limits as [`Http.download`] reads them, whichever
---- release runs this: the pinned one counts them in milliseconds and
---- seconds (`connect_timeout_ms`, `low_speed_seconds`, `timeout_ms`),
---- the tree's in nanoseconds, and each ignores the other's fields. A
---- span is rounded up to the milliseconds, or for `low_speed_ns` the
---- seconds, since 0 is no limit.
--- TODO: set the nanosecond fields alone, and take the Time.ms and
--- Time.seconds spans for SECOND above, once ci/cosmic-driver.pin names
--- a release whose Http.Options counts its limits in nanoseconds and
--- whose cosmic.time has `seconds`.
+--- Native nanosecond download limits; no rounding changes the budget.
 function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
     timeout_ns?: integer): Http.Options
-  local options: {string:integer} = {
-    connect_timeout_ns = connect_ns,
-    connect_timeout_ms = (connect_ns + MS - 1) // MS,
-    low_speed_bytes = low_speed_bytes,
-    low_speed_ns = low_speed_ns,
-    low_speed_seconds = (low_speed_ns + SECOND - 1) // SECOND,
-  }
-  if timeout_ns ~= nil then
-    options.timeout_ns = timeout_ns
-    options.timeout_ms = (timeout_ns + MS - 1) // MS
-  end
-  return options as any as Http.Options
+  return { connect_timeout_ns = connect_ns, low_speed_bytes = low_speed_bytes,
+    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns }
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
@@ -339,9 +355,10 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   if not made then
     return nil, mtrouble
   end
-  ZigFetch.sweep(cache)
-  local work = cache .. "/.work." .. tostring(Proc.pid())
-  local _, _ = Fs.remove_tree(work)
+  local owned, own_trouble = scratch(cache)
+  if owned == nil then return nil, own_trouble end
+  local holding <close> = owned
+  local work = holding.path .. "/payload"
   local extracted, trouble: string | nil, string
   if sha256 == nil or sha256 == "" then
     extracted, trouble = nil, "bin/zig.pin names no sha256 for " .. host
@@ -353,7 +370,6 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
     -- so a failed rename is fine as long as a zig ends up in place.
     local _, _ = Fs.rename(extracted, install)
   end
-  local _, _ = Fs.remove_tree(work)
   if extracted == nil then
     return nil, trouble
   end

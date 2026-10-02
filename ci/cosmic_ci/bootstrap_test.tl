@@ -3,7 +3,6 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
-local PinTime = require("cosmic_ci.pin_time")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
@@ -22,15 +21,15 @@ end
 --- How long a spawned driver.tl may take. It compiles every cosmic_ci
 --- module before it does anything, alongside the other self-tests, and on a
 --- CI runner that alone has taken over 2 s: a few seconds is too little.
-local driver_timeout = 60000
+local driver_timeout = Time.seconds(60)
 
 local function call(argv: {string}, cwd: string, output: string,
     extra?: {string:string}, timeout?: integer): Child.Result
   local fd = assert(Fs.open_write(output))
-  local result, trouble = Child.run(argv, PinTime.options({
+  local result, trouble = Child.run(argv, {
     cwd = cwd, env = environment(extra), stdout = fd, stderr = fd,
-    process_group = true,
-  }, timeout or 5000))
+    process_group = true, timeout_ns = timeout or Time.seconds(5),
+  })
   assert(Fs.close(fd))
   return (assert(result, trouble))
 end
@@ -384,27 +383,27 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
       driver_timeout)
   end
   local spaced = tmp .. "/path with spaces"
-  assert(run("success", "1000", { "/bin/sh", "-c",
+  assert(run("success", tostring(Time.seconds(1)), { "/bin/sh", "-c",
     "test \"$PWD\" = \"$1\"; printf ok > \"$2\"", "sh",
     candidate, spaced }).ok)
   assert(assert(Fs.read(spaced)) == "ok", "success child lost cwd or spaced argv")
-  assert(run("nonzero", "1000", { "/bin/sh", "-c", "exit 23" }).code == 23)
-  assert(run("start-failure", "1000", { "/definitely/not/a/command" }).code == 1)
-  assert(run("timeout", "20", { "/bin/sh", "-c", "sleep 30" }).code == 124)
+  assert(run("nonzero", tostring(Time.seconds(1)), { "/bin/sh", "-c", "exit 23" }).code == 23)
+  assert(run("start-failure", tostring(Time.seconds(1)), { "/definitely/not/a/command" }).code == 1)
+  assert(run("timeout", tostring(Time.ms(20)), { "/bin/sh", "-c", "sleep 30" }).code == 124)
 
   local ready = tmp .. "/ready"
-  local command = { runner, driver, "run", "interrupted", "30000", "--", "/bin/sh", "-c",
+  local command = { runner, driver, "run", "interrupted", tostring(Time.seconds(30)), "--", "/bin/sh", "-c",
     "printf ready > \"$1\"; sleep 30", "sh", ready }
   local fd = assert(Fs.open_write(tmp .. "/interrupted.out"))
   local child = assert(Child.start(command, { cwd = project, env = environment(ctx_env),
     stdout = fd, stderr = fd, process_group = true }))
-  for _ = 1, driver_timeout // 20 do
+  for _ = 1, driver_timeout // Time.ms(20) do
     if Predicate.exists(ready) then break end
     Time.sleep_ns(10 * 1000 * 1000)
   end
   assert(Predicate.exists(ready), "interrupted operation never started")
   assert(child:stop())
-  local stopped = assert(child:wait(PinTime.wait(5000)))
+  local stopped = assert(child:wait(Time.seconds(5)))
   assert(Fs.close(fd))
   assert(not stopped.ok, "interrupted driver succeeded")
 
@@ -431,7 +430,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(Fs.mkdirs(symlink_runner_temp .. "/cosmic-ci"))
   assert(call({ "/bin/ln", "-s", sentinel,
     symlink_runner_temp .. "/cosmic-ci/operations.db" }, tmp, tmp .. "/db-ln.out").ok)
-  local linked = call({ runner, driver, "run", "symlink-db", "1000",
+  local linked = call({ runner, driver, "run", "symlink-db", tostring(Time.seconds(1)),
       "--", "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
     driver_context(candidate, symlink_runner_temp), driver_timeout)
   assert(not linked.ok, "symlink operation database was accepted")
@@ -474,7 +473,7 @@ local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: stri
   local one = call({ runner, driver, "run", "--help" }, project, tmp .. "/run-help.out", env,
     driver_timeout)
   local run_help = assert(Fs.read(tmp .. "/run-help.out"))
-  assert(one.code == 0 and run_help:find("driver.tl run PHASE TIMEOUT_MS -- EXECUTABLE", 1, true),
+  assert(one.code == 0 and run_help:find("driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true),
     run_help)
   local refused = call({ runner, driver, "platfrom" }, project, tmp .. "/unknown.out", env,
     driver_timeout)
@@ -485,6 +484,6 @@ local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: stri
   local old = call({ runner, driver, "run", "p", "100", "/bin/sh", "-c", "exit 0" }, project,
     tmp .. "/old-run.out", env, driver_timeout)
   local told = assert(Fs.read(tmp .. "/old-run.out"))
-  assert(old.code == 2 and told:find("usage: driver.tl run PHASE TIMEOUT_MS -- EXECUTABLE", 1, true),
+  assert(old.code == 2 and told:find("usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true),
     told)
 end

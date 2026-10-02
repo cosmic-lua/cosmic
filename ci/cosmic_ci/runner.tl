@@ -1,6 +1,5 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local PinTime = require("cosmic_ci.pin_time")
 local State = require("cosmic_ci.state")
 local Time = require("cosmic.time")
 
@@ -16,13 +15,7 @@ local record Runner
     argv: {string}
     cwd: string
     env: {string:string} | nil
-    -- TODO: count the timeouts of the driver (this field, its `TIMEOUT_MS`
-    -- argument and the workflows that pass one, the `*_ms` constants of
-    -- cosmic_ci/orchestration.tl and the fixtures) in nanoseconds, once
-    -- ci/cosmic-driver.pin names a release whose Child.Options takes
-    -- `timeout_ns` and whose cosmic.time has `ms`: the driver then sets
-    -- no field of its own through cosmic_ci/pin_time.tl.
-    timeout_ms: integer | nil
+    timeout_ns: integer | nil
     input: string | nil
     output: string | nil
     error: string | nil
@@ -62,8 +55,8 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
   end
   local options: Child.Options = { cwd = request.cwd, process_group = true }
   if request.env then options.env = request.env end
-  if request.timeout_ms and request.timeout_ms > 0 then
-    options = PinTime.options(options, request.timeout_ms)
+  if request.timeout_ns and request.timeout_ns > 0 then
+    options.timeout_ns = request.timeout_ns
   end
   if input_fd then options.stdin = input_fd end
   if output_fd then options.stdout = output_fd end

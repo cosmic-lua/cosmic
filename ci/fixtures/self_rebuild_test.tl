@@ -1,7 +1,8 @@
+local Time = require("cosmic.time")
+local Sqlite = require("cosmic.sqlite")
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
-local SqliteOpen = require("cosmic_ci.sqlite_open")
 
 local Test = require("cosmic.test")
 
@@ -20,7 +21,7 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- rebuilds run beside it, and past fixture.tl's 30 s default for a child
 -- on a loaded one. The driver bounds each test here at 120 s
 -- (orchestration.tl), which this leaves room inside.
-local rebuild_timeout_ms <const> = 90000
+local rebuild_timeout_ns <const> = Time.seconds(90)
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
 -- which must itself be exactly `length` bytes. A length mismatch on either
@@ -209,7 +210,7 @@ local function run_rebuild_case(fixture_dir: string,
     release(case_root, diagnostics, "first-" .. action, go)
     -- The rebuilt artifact starts once more at the same logical path.
     await_ready(case_root, diagnostics, "second-" .. action, ready,
-      rebuild_timeout_ms)
+      rebuild_timeout_ns)
     release(case_root, diagnostics, "second-" .. action, go)
 
     local result = finish(child)
@@ -376,7 +377,7 @@ local function test_self_rebuild_docs_verb(tmp: string)
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
   local outcome = Fixture.call_with_environment("docs-rebuild",
     { program, "docs", "cosmic.child" }, tree, diagnostics, values,
-    rebuild_timeout_ms)
+    rebuild_timeout_ns)
   assert(outcome.result.code == 0, "docs: exit status was " ..
     tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-docs-marker")
@@ -423,7 +424,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
     end
     local rebuilt = 0
     for _, child in ipairs(active) do
-      local result = finish(child, rebuild_timeout_ms)
+      local result = finish(child, rebuild_timeout_ns)
       local err = Fixture.read(child.err)
       assert(result.ok, child.label .. ": exit status " ..
         tostring(result.code) .. ", want 0; it said:\n" .. err)
@@ -464,7 +465,7 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
 
   -- The rebuild lock's SQLite half, which a tool from before the flock
   -- holds alone and every run still waits for (build.rebuild_lock).
-  local lock = assert(SqliteOpen.writable(tree .. "/o/rebuild.lock"))
+  local lock = assert(Sqlite.open(tree .. "/o/rebuild.lock", { writable = true }))
   assert(lock:exec("BEGIN IMMEDIATE"))
   local held_ok, failure = pcall(function(): boolean
     for _, entered in ipairs({ "1", "2" }) do
@@ -514,7 +515,7 @@ local function test_self_rebuild_fix_verb(tmp: string)
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
   local outcome = Fixture.call_with_environment("fix-rebuild",
     { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values,
-    rebuild_timeout_ms)
+    rebuild_timeout_ns)
   assert(outcome.result.code == 0, "fix: exit status was " ..
     tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-fix-marker")

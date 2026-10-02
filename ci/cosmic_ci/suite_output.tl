@@ -29,12 +29,6 @@ local record SuiteOutput
     ran: integer
     stood: integer
     every: integer
-    -- TODO: drop `assumed`, here, in cosmic_ci/state.tl's `runs` and in
-    -- their tests, once ci/cosmic-driver.pin names a release that keys
-    -- every unsandboxed run by declaration (plan 4.2's PR 3): the tree's
-    -- tool assumes no verdict, and only the pinned driver's summary, of
-    -- the fixtures it runs, still counts one.
-    assumed: integer
     shared: integer
     failed: integer
     errors: integer
@@ -79,7 +73,6 @@ local function pass_figures(detail: string, into: SuiteOutput.Figures)
   into.ran = number(detail:match("; (%d+) ran, "))
   into.stood = number(detail:match(" (%d+) stood, "))
   into.every = number(detail:match(", (%d+) run every time ")) or 0
-  into.assumed = number(detail:match(", (%d+) assumed ")) or 0
   into.shared = number(detail:match(", (%d+) of them on another checkout's verdict, ")) or 0
   into.failed = 0
   into.elapsed_ms = number(detail:match(", (%d+) ms"))

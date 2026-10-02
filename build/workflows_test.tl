@@ -860,8 +860,7 @@ end
 --- Every leg keeps its test verdicts from one run to the next, the
 --- macOS leg's too: its suites stand on them keyed by what each test
 --- declares, with no sandbox to hold a worker to it
---- (COSMIC_CI_DECLARED_KEYS, which cosmic_ci/orchestration.tl makes
---- COSMIC_TEST_KEY=declared), on exactly the leg that is not required
+--- (COSMIC_CI_DECLARED_KEYS), on exactly the leg that is not required
 --- sandboxed (COSMIC_CI_REQUIRE_SANDBOX). So no step of the cache turns
 --- on the leg's image, and each comes in the order that serves it: the
 --- host named, the tree's base on main found, the cache restored (the
