@@ -1,0 +1,11 @@
+#!/bin/sh
+# Runs the Claude Code solver for an arena in a sandbox: see
+# eval/solve.tl, which this runs with `cosmic --standalone` on
+# bin/cosmic-bootstrap's cosmic: the pinned release, or $COSMIC_BOOTSTRAP
+# when set.
+#
+#   eval/solve <arena> --model <id> [--max-turns N] [--timeout S]
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/solve.tl" "$@"

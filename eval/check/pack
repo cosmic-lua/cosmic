@@ -1,10 +1,10 @@
 #!/bin/sh
-# Grades the notes task in an arena: see eval/check/grade.tl, which this
+# Grades the pack task in an arena: see eval/check/grade.tl, which this
 # runs with `cosmic --standalone` on bin/cosmic-bootstrap's cosmic: the
 # pinned release, or $COSMIC_BOOTSTRAP when set.
 #
-#   eval/check/notes <dir>
+#   eval/check/pack <dir>
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/check/grade.tl" notes "$@"
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/check/grade.tl" pack "$@"
