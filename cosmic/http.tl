@@ -62,7 +62,8 @@ local record Http
   --- `timeout_ns` bounds the whole request and has no default. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `sha256`, `sha512` and `cancelled` are read only by [`Http.download`].
+  --- `sha256`, `sha512` and `cancelled` are read only by
+  --- [`Http.download_result`] and [`Http.download`].
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
@@ -108,14 +109,14 @@ local record Http
     --- Tests only: canned replies, one per connection, in place of the
     --- network. Every entry must be a string.
     script: {string}
-    --- Http.download only: the expected sha256 and sha512, as hex. Each
+    --- Download only: the expected sha256 and sha512, as hex. Each
     --- given is computed while the body is written and must match, or the
     --- download fails naming the algorithm, the digest wanted and the one
     --- got, leaving no file.
     sha256: string
-    --- Http.download only: see `sha256`.
+    --- Download only: see `sha256`.
     sha512: string
-    --- Http.download only: asked before each chunk is read and once
+    --- Download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it answers true the download stops, removes its temporary
     --- file, never creates `path`, and fails with "interrupted", the
@@ -152,6 +153,32 @@ local record Http
     --- What curl wrote to the connection; for tests with a `script`.
     --- Raises after `close`.
     sent: function(Response): string
+  end
+
+  --- The outcome of a download, classified where it succeeds or fails.
+  enum DownloadKind
+    "downloaded"
+    "http_status"
+    "digest_mismatch"
+    "failed"
+  end
+
+  --- One completed [`Http.download_result`] operation. `reason` is empty
+  --- on success. This operation adds no caller URL to a failure's reason;
+  --- underlying transport diagnostics are passed through, not redacted.
+  record DownloadResult
+    --- Success, HTTP rejection, checksum mismatch, or another failure.
+    kind: DownloadKind
+    --- Empty on success; otherwise the human reason, without an added URL.
+    reason: string
+    --- Present only for `http_status`: the rejected response's status.
+    status: integer | nil
+    --- Present only for `digest_mismatch`: the checked algorithm.
+    algorithm: Hash.Algorithm | nil
+    --- The supplied checksum, lowercased; an empty option requests no check.
+    expected: string | nil
+    --- The computed digest as lower-case hex.
+    actual: string | nil
   end
 
   --- What [`Http.get`] returns: a status, a whole body, and headers,
@@ -283,7 +310,22 @@ local function cancellable(response: Http.Response, cancelled: function(): boole
   return reader
 end
 
---- Downloads `url` to `path`, as `curl -fLo` or `wget` would, streaming
+-- Own both resources while user cancellation code may raise: a failed
+-- call must not leave a staged file waiting for garbage collection.
+local record PendingDownload
+  response: Http.Response
+  file: Stream.FileWriter
+  metamethod __close: function(PendingDownload)
+end
+
+local pending_mt: metatable<PendingDownload> = {
+  __close = function(self: PendingDownload)
+    if self.response ~= nil then local _, _ = self.response:close() end
+    if self.file ~= nil then local _, _ = self.file:abort() end
+  end,
+}
+
+--- Downloads `url` to `path`, streaming
 --- to a fresh temporary file beside it ([`Stream.create`]'s, so two
 --- downloads never share one and a planted symlink is never followed)
 --- and renaming into place only once the transfer is complete, synced to
@@ -293,31 +335,34 @@ end
 --- or a checksum mismatch, and removes the temporary file on every
 --- failure, `opts.cancelled` answering true ("interrupted", as a
 --- caught signal says it) included.
-function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
+--- Returns a classified outcome; [`Http.download`] gives the same operation
+--- as a boolean and reason, including the caller URL on an HTTP rejection.
+function Http.download_result(url: string, path: string, opts?: Http.Options): Http.DownloadResult
   opts = opts or {}
   local given: {{Hash.Algorithm, string}} = {
     { "sha256", opts.sha256 or "" },
     { "sha512", opts.sha512 or "" },
   }
-  local checks: {{string, string, Stream.Hashing}} = {}
+  local checks: {{Hash.Algorithm, string, Stream.Hashing}} = {}
   for _, pair in ipairs(given) do
     local algorithm, wanted = pair[1], pair[2]
     if wanted ~= "" then
       local hashing, trouble = Stream.hashing(algorithm)
-      if hashing == nil then return false, trouble end
+      if hashing == nil then return { kind = "failed", reason = trouble } end
       checks[#checks + 1] = { algorithm, wanted:lower(), hashing }
     end
   end
+  local pending <close>: PendingDownload = setmetatable({}, pending_mt)
   local response, open_trouble = Http.open(url, opts)
-  if response == nil then return false, open_trouble end
+  pending.response = response
+  if response == nil then return { kind = "failed", reason = open_trouble } end
   if response.status < 200 or response.status >= 300 then
-    local _, _ = response:close()
-    return false, url .. ": HTTP " .. tostring(response.status)
+    return { kind = "http_status", status = response.status, reason = "HTTP " .. tostring(response.status) }
   end
   local file, create_trouble = Stream.create(path)
+  pending.file = file
   if file == nil then
-    local _, _ = response:close()
-    return false, create_trouble
+    return { kind = "failed", reason = create_trouble }
   end
   local sink: Stream.Writer = file
   for _, check in ipairs(checks) do sink = Stream.tee(sink, check[3]) end
@@ -325,24 +370,46 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
   if opts.cancelled ~= nil then source = cancellable(response, opts.cancelled) end
   local copied, trouble = Stream.copy(source, sink)
   local _, _ = response:close()
-  local committed = copied ~= nil
-  for _, check in ipairs(committed and checks or {}) do
+  pending.response = nil
+  if copied == nil then
+    return { kind = "failed", reason = trouble }
+  end
+  for _, check in ipairs(checks) do
     local digest, digest_trouble = check[3]:digest()
-    local hex = digest ~= nil and Codec.hex(digest) or ""
+    if digest == nil then
+      return { kind = "failed", reason = digest_trouble }
+    end
+    local hex = Codec.hex(digest)
     if hex ~= check[2] then
-      committed = false
-      trouble = digest ~= nil and path .. ": " .. check[1] .. " mismatch: want " .. check[2] ..
-        ", got " .. hex or digest_trouble
-      break
+      return { kind = "digest_mismatch", algorithm = check[1], expected = check[2], actual = hex,
+      reason = path .. ": " .. check[1] .. " mismatch: want " .. check[2] .. ", got " .. hex }
     end
   end
-  if committed then committed, trouble = file:sync() end
-  if committed then committed, trouble = file:close() end
+  local committed, commit_trouble = file:sync()
+  if committed then committed, commit_trouble = file:close() end
   if not committed then
-    local _, _ = file:abort()
-    return false, trouble
+    return { kind = "failed", reason = commit_trouble }
   end
-  return true, ""
+  pending.file = nil
+  return { kind = "downloaded", reason = "" }
+end
+
+--- Downloads as `curl -fLo` or `wget` would: [`Http.download_result`]'s
+--- streaming, verified and atomic download as
+--- `true, ""`, or `false` and a reason. An HTTP rejection's reason starts
+--- with `url`; a checksum mismatch names `path`, the algorithm and both
+--- digests. Other failures retain their underlying reason.
+function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
+  local result = Http.download_result(url, path, opts)
+  if result.kind == "downloaded" then return true, "" end
+  if result.kind == "http_status" then
+    return false, url .. ": HTTP " .. tostring(result.status)
+  end
+  if result.kind == "digest_mismatch" then
+    return false, path .. ": " .. assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
+      ", got " .. assert(result.actual)
+  end
+  return false, result.reason
 end
 
 --- Whether the TLS stack reads `der` as one X.509 certificate, as it
