@@ -488,6 +488,57 @@ truncated/overlapping/overflowing ranges and malformed records; retain startup
 and descriptor invariants. Add meaningful fuzz labels, failure corpora and CI
 fixtures across supported formats/targets. Startup A/B and `ci/run-local` pass.
 
+### 1.5. Narrow module lookup layout prerequisite
+
+Advance this limited part of step 12 because the valid step-2 experiment
+blocked on startup and test execution. Preserve that result unchanged. Untimed
+diagnostics found identical loaded modules and bytecode, but 12 additional
+4-KiB overflow-page reads during native tool startup. SQLite compares whole
+wide index records when their payload overflows: the `WITHOUT ROWID modules`
+table makes lookup of one module read unrelated modules' bytecode and source.
+Artifact growth changes which wide records are comparison pivots. This is a
+general lookup cost, not a reason to tune insertion order or remove payload.
+
+Use a separate implementation PR from current main, independent of artifact
+handles. Evaluate ordinary rowid storage for `modules` with an explicit
+`path TEXT PRIMARY KEY NOT NULL`, preserving the eight columns, their order,
+natural-key uniqueness and all other constraints. Its narrow path index should
+keep comparisons independent of module payload. Preserve bytecode before source,
+all retained information, and each producer's existing deterministic insertion
+order. Embed writes ordered library and project batches; stand-in stores use
+deterministic dependency traversal, so neither is claimed globally path-sorted.
+Do not change page size, SQLite, other tables, worker authority or benchmark
+acceptance thresholds. The broader hot/cold comparison and RSS work remain in
+step 12; this prerequisite does not claim to complete them.
+
+Acceptance before adoption:
+
+- Independently review every producer and reader, including full/carried
+  projections, embeds, closure stores and stand-in stores. Audit unordered
+  readers for accidental dependence on the old lexical scan order.
+  Test NULL and duplicate path denial,
+  unchanged named-column reads, old-reader/new-writer and new-reader/old-writer
+  combinations with the pinned core, and byte-identical repeated output.
+- Verify schema changes invalidate writer signatures and closure-store cache
+  identities; exercise self-rebuild/stale-output behavior. No epoch bump or
+  format version is a substitute for checking these mechanisms. Step 3a must
+  recognize both exact legacy DDL forms; rowids are not semantic identities.
+- On unchanged diagnostic workloads, count page reads and allocations without
+  interpreting instrumented elapsed time. Confirm the lookup mechanism is
+  removed, rather than merely changing the pivot records. Record artifact and
+  database sizes; growth remains acceptable.
+- Run prescribed correctness, formatting, local-CI and remote-CI gates. Freeze
+  a separate all-15-workload, 200 A/A and 200 A/B pair experiment before timing;
+  use the same corrected statistics, independent audit and private raw evidence.
+  A nonpassing result remains a blocker, with no adaptive favorable retries.
+
+Land only after independent source/performance review and required CI. Then
+integrate step 2 onto that exact merged parent and measure it separately. A
+small step-2 C correction also preallocates SQLite method tables: untimed counts
+show eight fewer allocation requests and 736 fewer requested bytes than the
+original feature. It leaves the lazy Artifact metatable unchanged and has its
+own allocation-failure/sanitizer checks; no timing benefit is yet established.
+
 ### 2. Independent read-only artifact handles and multi-attachment
 
 Introduce ownership-safe descriptor/range handles and read-only SQLite access
@@ -789,8 +840,9 @@ the final ledger and links; it is not a vehicle to merge documentation or code.
 | 1 | 0; renewed performance acceptance after 0.6 |
 | 0.5 | 0 (merged) |
 | 0.6 | 0; execute before resuming 1 |
-| 2 | 1, 0.5 |
-| 3a | 0; execute after 1 |
+| 1.5 | 1; narrow part of 12 advanced after step-2 diagnosis |
+| 2 | 1, 0.5; integrate and remeasure after 1.5 |
+| 3a | 0; execute after 2 |
 | 3b | 3a |
 | 3c (completes 3) | 2, 3b; release/pin if bootstrap calls the new API |
 | 4a | 0; execute after 3b |
@@ -820,7 +872,8 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | 0.5 Runtime VFS capability | Merged | [#2572](https://github.com/cosmic-lua/cosmic/pull/2572), merge `eb8ea8ccc04b00ab8d4f6909cfe04a4de3426fa7` | Reproduced on pinned release and in a held sandboxed worker. Separate adversarial review: no blocking findings; comment/doc suggestions applied. Full suite 3,299 tests pass; `fix --check .`, sanitized build, `ci/run-local` (all stages incl. fixtures) and all push/merge-queue CI pass. `bin/perf` vs parent `5805988`: 15/17 pass at 30 pairs; `exact_docs` and `embed_host` inconclusive on tails only, both pass in predeclared 100-pair reruns. One run with a mistyped parent commit discarded before review. Raw evidence kept locally, not published. No new TODOs. |
 | 1 Structural decoder | Merged | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), merge `1eb04d803553988fb523eaec5c3b9a5ac7e268d6` | Conflict-free integration preserves the six-file decoder change; separate source review approves. Fresh boots, native/production format fixtures, release and checked focused tests, sanitizer/analyzer, 661-file whole-tree and 59-file CI checks pass. Local full suite timed out with diagnosed host restrictions; normal CI driver chown was refused. All required exact-head and merge-queue CI passes. Frozen 200-pair experiment passed all 15 workloads; independent review verified 12,000 observations plus 180 warmups and recomputed every statistic. Current results and limits below; older positive intervals remain historical evidence. No new TODOs. |
 | 0.6 Performance inference | Merged | [#2588](https://github.com/cosmic-lua/cosmic/pull/2588), merge `117d49cdc61746c6be375d399f2c92650d551c1b` | Independent statistical/source review approved identical local tree `ee1493a4`. All 42 configurations / 210,000 frozen simulation trials met criteria: supported null passes 93.16–94.24%, minimum interval coverage 95.50%, strong location block 100%, doubled tail block 95.08%. Thirteen focused tests and 660-file check pass. Prescribed local full suite timed out with host failures; the three opaque assertions were diagnosed identically on parent/candidate as denied socket sends and confined compiler starts. All required push and merge-queue CI passed. Core bytes unchanged against the PR parent; database +16 KiB. Small noisy shifts retain limited detection power. Historical step-1 finding remains open. |
-| 2 Artifact handles | Draft; remote CI and performance pending | [#2591](https://github.com/cosmic-lua/cosmic/pull/2591), head `9d2b2c1974fe8a1bc57e8d2d48f47114bc9bccd5`, parent `8f43b4d751da5635b9902ee89e94ea2e4603467e` | Independent review approves the exact published tree: owned handles, lazy inspection VFS, CLI joins, host/portable alias denial, explicit artifact-only connections and immutable-input contract. Focused 21 pass (12 ran, 9 stood); checked 13 pass, all ran, including allocation failures. Removing the first-use metatable safeguard makes its regression fail. Analyzer and whole-tree/CI-tree checks pass. Full 30-second attempt times out with host EROFS/EPERM and three previously diagnosed derived assertions; updated local CI cannot start its nonroot credential preflight (EPERM). Remote CI found only a missing Artifact instance in the declaration-surface fixture; a separately reviewed test-only correction now passes release and checked declaration guards (12 ran each), with unchanged executable bytes. No added TODOs. Frozen 200-pair all-15-workload protocol updated only for the corrected commit identity; the previous record remains untouched and collected no samples. Renewed CI and timing remain pending. Candidate grows 49,152 bytes. Later main `437ecf40` is independently reviewed roadmap-only documentation; no separately measured queued-artifact claim. |
+| 2 Artifact handles | Draft; performance blocks merge | [#2591](https://github.com/cosmic-lua/cosmic/pull/2591), head `9d2b2c1974fe8a1bc57e8d2d48f47114bc9bccd5`, parent `8f43b4d751da5635b9902ee89e94ea2e4603467e` | Independent review approves the exact published tree: owned handles, lazy inspection VFS, CLI joins, host/portable alias denial, explicit artifact-only connections and immutable-input contract. Focused 21 pass (12 ran, 9 stood); checked 13 pass, all ran, including allocation failures. Removing the first-use metatable safeguard makes its regression fail. Analyzer and whole-tree/CI-tree checks pass. Full 30-second attempt times out with host EROFS/EPERM and three previously diagnosed derived assertions; updated local CI cannot start its nonroot credential preflight (EPERM). Remote CI found only a missing Artifact instance in the declaration-surface fixture; a separately reviewed test-only correction now passes release and checked declaration guards (12 ran each), with unchanged executable bytes. No added TODOs. Frozen 200-pair all-15-workload protocol updated only for the corrected commit identity; the previous record remains untouched and collected no samples. Corrected-head CI passed. The fixed experiment completed once: 5 pass, 8 inconclusive, 2 regression; independent audit validated all observations and counters. Native tool startup paired median +0.0567 ms [0.0308, 0.0858], fixture test execution +1.5889 ms [0.9065, 2.2066]; both lower bounds exceed A/A resolution. Eight other workloads have wholly positive median intervals. No invalidity, input changes, residuals or cgroup throttling. Keep this result; diagnose shared startup/SQLite initialization with untimed counts before a concrete fix and separately declared experiment. Candidate grows 49,152 bytes. Later main `437ecf40` is independently reviewed roadmap-only documentation; no separately measured queued-artifact claim. |
+| 1.5 Module lookup layout | Design review; separate prerequisite | — | Untimed mapping ties the 12 extra reads to unrelated wide comparison records. Evaluate a narrow rowid-layout change with compatibility, deterministic-output and cache-invalidation coverage before a separately frozen performance experiment. |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
 | 3a Existing database recognition | Planned independent work | — | Read-only dependency review complete; no new access APIs. |
 | 3b Additive format metadata | Planned independent work | — | Reader-first rollout; existing compatible table layout. |
