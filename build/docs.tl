@@ -121,7 +121,7 @@ local record docs
     --- Whether every word found something: the verdict's pass.
     found: boolean
     --- What the verdict counts ("2 named", "7 found"), led, when a
-    --- word found nothing, by which words did.
+    --- word found nothing, by the words that found nothing.
     said: string
   end
 

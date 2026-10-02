@@ -222,7 +222,8 @@ local function test_a_dangling_reference_is_named()
     "`cosmic docs <module>` and `cosmic help <verb>`; not `Thing.gone`,",
     "`cosmic docs Thing.nothing` or `cosmic help nosuch`. `Other.name` is",
     "no module's. `cosmic docs cosmic` lists the library, and",
-    "`cosmic docs Thing.add Thing.none` looks up each name.",
+    "`cosmic docs Thing.add Thing.none` looks up each name, as",
+    "`cosmic docs Thing.add cosmic.thing` does.",
   }, "\n")
   local db = projection(rows)
   local found = docs_checks.references(db, {}, { "test" }, {})
