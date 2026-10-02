@@ -180,7 +180,9 @@ promises lean on come first:
   given more than once kept as a list), which [`Url.unescape`] leaves to
   the caller since `+` is a form's rule; and a relative reference
   resolved against a base URL (RFC 3986 section 5), which a client
-  following a `Location` or a crawler needs and [`Url.parse`] refuses.
+  following a `Location` or a crawler needs and [`Url.parse`] refuses;
+  and an IPv6 host with a zone (`[fe80::1%25eth0]`, RFC 6874), which
+  [`Url.parse`] refuses.
 - an `Archive.add_tree(writer, dir, opts?)` that walks a directory into an
   [`Archive.create`] writer, once a caller needs one. `cosmic archive
   create` ([`build/archive.tl`]) is the only walk today, and it gathers and

@@ -238,7 +238,7 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
     requires = { "userinfo", "port", "ipv6", "query", "fragment" },
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
-      if #f ~= 7 then return true, "" end
+      if #f ~= 7 then return false, ("%d fields, not the 7 the generator packs"):format(#f) end
       local scheme, userinfo, host, port, path, query, fragment = f[1], f[2], f[3], f[4], f[5], f[6], f[7]
       local url = scheme .. "://" .. (userinfo ~= "" and userinfo:sub(2) .. "@" or "") .. host ..
         (port ~= "" and ":" .. port:sub(2) or "") .. path .. (query ~= "" and "?" .. query:sub(2) or "") ..

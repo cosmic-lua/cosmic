@@ -142,7 +142,7 @@ function Url.segments(path: string): {string} | nil, string
       elseif piece:find("/", 1, true) then
         return refuse(("the segment at byte %d holds an escaped '/'"):format(at))
       elseif piece:find("\0", 1, true) then
-        return refuse(("the segment at byte %d holds an escaped NUL"):format(at))
+        return refuse(("the segment at byte %d holds a NUL"):format(at))
       elseif piece ~= "." then
         out[#out + 1] = piece
       end
@@ -166,6 +166,50 @@ local function unescaped_byte(text: string): string
      format(what, at)
 end
 
+--- Whether `text` is an IPv6 address (RFC 4291's text form): eight
+--- groups of one to four hex digits, a `::` standing in for one or more
+--- of them at most once, and the last two may be a dotted IPv4 address.
+--- A zone (`%25eth0`, RFC 6874) is not taken: no caller here dials a
+--- link-local address by its interface.
+local function is_ipv6(text: string): boolean
+  local groups = 8
+  local v4 = text:match(":(%d+%.%d+%.%d+%.%d+)$")
+  if v4 ~= nil then
+    for octet in v4:gmatch("%d+") do
+      if #octet > 3 or (math.tointeger(tonumber(octet)) or 256) > 255 then
+        return false
+      end
+    end
+    text, groups = text:sub(1, #text - #v4 - 1) .. ":", 6
+    if text:sub(-2) ~= "::" then
+      text = text:sub(1, -2)
+    end
+  end
+  local head, tail = text, ""
+  local gap = text:find("::", 1, true)
+  if gap ~= nil then
+    head, tail = text:sub(1, gap - 1), text:sub(gap + 2)
+    if tail:find("::", 1, true) then
+      return false
+    end
+  end
+  local count = 0
+  for _, side in ipairs({ head, tail }) do
+    if side ~= "" then
+      for group in (side .. ":"):gmatch("([^:]*):") do
+        if not group:find("^%x%x?%x?%x?$") then
+          return false
+        end
+        count = count + 1
+      end
+    end
+  end
+  if gap ~= nil then
+    return count < groups
+  end
+  return count == groups
+end
+
 --- Sets `parts`' host, lowercased, and port from an authority past its
 --- user info; false and why when it is malformed.
 local function read_host(parts: Url.Parts, text: string): boolean, string
@@ -178,7 +222,7 @@ local function read_host(parts: Url.Parts, text: string): boolean, string
     if host == nil then
       return bad("an IPv6 host is missing its closing ']'")
     end
-    if host:find("[^%x:.]") or not host:find(":", 1, true) then
+    if not is_ipv6(host) then
       return bad("the host in brackets is not an IPv6 address")
     end
   else
@@ -220,8 +264,9 @@ end
 --- escaped ([`Url.segments`] reads a path, [`Url.unescape`] a piece).
 --- Answers `nil` and why for anything else: a relative reference, a URL
 --- without `//` (`mailto:`), one that names no host (`file:///`), more
---- than one `@`, a malformed port or IPv6 host, or a space or control
---- byte anywhere, which a URL holds only escaped ([`Url.escape`]).
+--- than one `@`, a malformed port or IPv6 host (one with a zone, as
+--- `[fe80::1%25eth0]`, included), or a space or control byte anywhere,
+--- which a URL holds only escaped ([`Url.escape`]).
 --- @param text string The URL
 --- @return Parts | nil Its parts
 --- @return string Why it was refused, or "" when it was not

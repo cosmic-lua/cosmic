@@ -69,7 +69,7 @@ local function test_segments_refuse_an_escaped_slash_or_nul()
   local got, why = Url.segments("/a/b%2Fc")
   assert(got == nil and why == "url: the segment at byte 4 holds an escaped '/'", why)
   got, why = Url.segments("/a%00")
-  assert(got == nil and why == "url: the segment at byte 2 holds an escaped NUL", why)
+  assert(got == nil and why == "url: the segment at byte 2 holds a NUL", why)
 end
 
 local function test_segments_name_a_bad_escape_by_its_byte_in_the_path()
@@ -111,6 +111,20 @@ local function test_parse_reads_an_ipv6_host_out_of_its_brackets()
   assert(p.host == "2001:db8::1" and p.port == 80 and p.path == "/")
   p = assert(Url.parse("http://[::ffff:127.0.0.1]"))
   assert(p.host == "::ffff:127.0.0.1" and p.port == nil)
+end
+
+local function test_parse_takes_only_a_well_formed_ipv6_host()
+  for _, host in ipairs({ "::", "1::", "1:2:3:4:5:6:7:8", "1::8", "1:2:3:4:5:6:1.2.3.4", "::1.2.3.4",
+      "1:2:3:4:5:6:7::", "::2:3:4:5:6:7:8" }) do
+    local p, why = Url.parse("http://[" .. host .. "]/")
+    assert(p ~= nil and p.host == host, host .. ": " .. why)
+  end
+  for _, host in ipairs({ ":", ":::", ":::::", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7", "1::2::3", "12345::",
+      "g::", "1:2:3:4:5:6:7:8::", "::1.2.3.256", "::1.2.3", "1:2:3:4:5:6:7:1.2.3.4", ":1::", "1::2:",
+      "::0001.2.3.4", "::1:2:3:4:5:6:7:8", "fe80::1%25eth0" }) do
+    local p, why = Url.parse("http://[" .. host .. "]/")
+    assert(p == nil and why == "url: the host in brackets is not an IPv6 address", host)
+  end
 end
 
 local function test_parse_reads_a_port_from_0_to_65535()
