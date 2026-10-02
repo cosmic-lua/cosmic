@@ -245,6 +245,10 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   moved("a catalog row", "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
     "line) VALUES ('error', 'greet', 'greet.hello', 'no', NULL, 'greet.tl', 1)")
   moved("an import", "INSERT INTO imports (path, requires) VALUES ('greet', 'greet_test')")
+  moved("a name bound", "INSERT INTO bound (path, name, requires) " ..
+    "VALUES ('greet', 'Fs', 'cosmic.fs')")
+  held("a name a module outside the closure binds", "INSERT INTO bound (path, name, requires) " ..
+    "VALUES ('other', 'Fs', 'cosmic.fs')")
   moved("an example", "INSERT INTO examples (module, name, text, file, line, source) " ..
     "VALUES ('greet', 'hello', 'Greets.', 'greet.tl', 1, 'greet.hello()')")
   -- What the projection's writer decides of a row and not the closure's
@@ -290,9 +294,12 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   local extra_decl = "INSERT INTO decls (path, source) VALUES ('extra', deflate('return {}'))"
   held("a doc of a declaration outside the closure", extra_doc, extra_decl)
   held("a link of a declaration outside the closure", link("extra", "extra.d.tl"), extra_decl)
+  local extra_bound = "INSERT INTO bound (path, name, requires) VALUES ('extra', 'R', 'raw')"
+  held("a name a declaration outside the closure binds", extra_bound, extra_decl)
   names = { "extra", "greet", "greet_test" }
   moved("a declaration's doc", extra_doc, extra_decl)
   moved("a declaration's link", link("extra", "extra.d.tl"), extra_decl)
+  moved("a name a declaration binds", extra_bound, extra_decl)
   names = { "greet", "greet_test" }
   -- SQLite's quote() ends a text at its first NUL: what follows it moves
   -- the address too.

@@ -27,6 +27,10 @@ local record scopes
     head: integer
     --- Whether the chunk's own block binds it.
     top: boolean
+    --- Whether its declaration gives it a type of its own (`local B: T
+    --- = require("m")`), which a type written `B.X` names instead of the
+    --- module's.
+    annotated: boolean
   end
 end
 
@@ -130,11 +134,12 @@ function scopes.walk(parsed: ast.Parsed,
     ends[#ends] = nil
     stack[#stack] = nil
   end
-  local function declare(name: string | nil, module: string, from: integer, head: integer): scopes.Binding | nil
+  local function declare(name: string | nil, module: string, from: integer, head: integer,
+                         annotated?: boolean): scopes.Binding | nil
     if name == nil then return nil end
     stack[#stack][name] = module
     local made: scopes.Binding = { name = name, module = module, from = from, to = ends[#ends],
-                                   head = head, top = #ends == 1 }
+                                   head = head, top = #ends == 1, annotated = annotated == true }
     out[#out + 1] = made
     return made
   end
@@ -204,9 +209,13 @@ function scopes.walk(parsed: ast.Parsed,
           walk_expression(stmt.exps)
         end
         if stmt.vars ~= nil then
-          local module = alias_of(stmt)
-          for _, var in ipairs(stmt.vars) do
-            local made = declare(var.tk, module, math.maxinteger, head_of(stmt))
+          -- A `require` a local or a parameter shadows is no import. A
+          -- `local type`'s is read by the compiler whatever is in scope.
+          local module = bound(stack, "require") and "" or alias_of(stmt)
+          local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
+          for index, var in ipairs(stmt.vars) do
+            local made = declare(var.tk, module, math.maxinteger, head_of(stmt),
+              declared ~= nil and declared[index] ~= nil)
             if made ~= nil then pending[#pending + 1] = made end
           end
         end
