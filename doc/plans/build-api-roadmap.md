@@ -10,7 +10,7 @@ All runtime spans are nanoseconds. Convert at raw interfaces that still count mi
 
 Repository contracts require an existing fallible public API to return exactly `(value, string)` or `(boolean, string)`. A code added as a third result, or a record replacing the existing reason, is incompatible. Where callers need machine-readable outcomes, add a concrete operation result record returned as one value; retain existing convenience functions and their behavior. Do not add a generic Result type or diagnostic-text parser. Programmer errors still raise; operating failures are results. Preserve the recent error-prefix and argument-validation conventions.
 
-No standalone bootstrap or CI consumer may call a new API until ci/cosmic-driver.pin names a downloaded, digest-verified, executed release containing it. Each pin advance rechecks every literal pin-dependent TODO, not only this plan's list. Include every item the selected release unblocks. Existing source-tree consumers may migrate with their API. Use the existing convenience wrapper as a real consumer of an additive outcome API where that keeps one implementation. Do not invent dummy callers, compatibility casts, or export-check exceptions to make an unused API pass. Any unavoidable temporary export exception needs a concrete pin dependency, explicit independent review, and removal in the pin migration under the repository's existing rules.
+No standalone bootstrap or CI consumer may call a new API until ci/cosmic-driver.pin names a downloaded, digest-verified, executed release containing it. Each pin advance rechecks every literal pin-dependent TODO, not only this plan's list. Include every item the selected release unblocks. Existing source-tree consumers may migrate with their API. Keep existing convenience wrappers on the shared implementation. The public-export rule requires a caller outside the module or a runnable standard-library worked example; an internal wrapper alone does not earn an API. Use a meaningful source-tree consumer where available, otherwise document the intended typed classification in a runnable example under the existing rule. Do not invent dummy callers, compatibility casts, or export-check exceptions to make an unused API pass. Any unavoidable temporary export exception needs a concrete pin dependency, explicit independent review, and removal in the pin migration under the repository's existing rules.
 
 ## Sequence
 
@@ -136,9 +136,9 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 
 | Step | Implementation PR | State | Evidence |
 | --- | --- | --- | --- |
-| A1 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
+| A1 | [#2545](https://github.com/cosmic-lua/cosmic/pull/2545) | CI running | acfc8a77; exact independently reviewed tree ef80637e; auto-merge enabled after required checks |
 | A2 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
-| A3 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
+| A3 | pending | prepared and independently approved | 055c9b41/tree9e2d5056; source Fetch consumer included; actual A2 base alignment and remote checks required |
 | A4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -155,3 +155,21 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
+
+- 2026-10-02 UTC: A1 published as #2545 at `acfc8a77`, exact reviewed tree
+  `ef80637e`, based on merged main `7f35550d`. Independent fresh boot reused
+  499 parses and 485 compiles with zero fresh work; 25 forced review tests
+  passed. Implementer 58 focused tests and whole-tree 636-file check passed.
+  Required full-suite attempt timed out at 30 seconds without an assertion
+  report, so remote CI remains required. No new TODOs. A runnable Proc example
+  earns the export and teaches kind-based 126/127 handling. Legacy lookup adds
+  one result allocation in command setup, with no extra filesystem calls.
+- 2026-10-02 UTC: A3 adds a meaningful source-built Fetch consumer: file-output
+  status failures now use the same redacted status formatter as stdout/head,
+  independent of diagnostic wording. Standalone ZigFetch still waits for A4.
+  Candidate `055c9b41`, tree `9e2d5056`, independently approved; 112 focused
+  tests passed and then all stood in 818 ms with zero build compilation/reads.
+  Whole-tree check passed across 635 files. Independent review also compared
+  nine legacy scenarios exactly and proved repeated callback exceptions leave
+  no temporary files or descriptors. Required full-suite attempt timed out
+  without a final summary; it is not counted as a pass. No new TODOs.
