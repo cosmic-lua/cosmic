@@ -35,7 +35,7 @@ The execution ledger below is the sole status record.
 | C4 | Username lookup | Independent typed system binding |
 | C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive |
 | C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying |
-| C7 | Verified release and remaining consumers | C1–C6 published; retires four pin TODOs |
+| C7 | Verified release and remaining consumers | C1/C2/C4–C6 published; C3 decision recorded; resolves four remaining pin dependencies |
 | D1 | Final API/build audit and documentation | All preceding PRs merged |
 
 Preparation can overlap on disjoint files. Publish serially against actual merged main. If a sensible reviewed slice can land earlier, split it and update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
@@ -171,8 +171,8 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | A3 | [#2550](https://github.com/cosmic-lua/cosmic/pull/2550) | merged | b951ab95/tree02802767; incoming Stream retained; branch 36957749478 and queue 36957951958 green |
 | A4 | [#2552](https://github.com/cosmic-lua/cosmic/pull/2552) | merged | 3511e6cd/tree0c00b3b3; branch36959640308 and queue36959944853 green; verified release and four consumer migrations complete |
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
-| B2a | pending | locally approved; release checkpoint pending | 3f10d7da/tree4a438ebc; 195 focused tests and independent 73 cases plus real closed-descriptor checks passed; epoch 13 |
-| B2b | pending | locally approved after three review corrections | b48168c6/treed4522aad; exact sink selection, abandoned Reader state and fixed per-call bounds tested; epoch 14 |
+| B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | CI running | 20569b76/tree5fd49ed6; exact reviewed patch on actual A4; incoming acknowledgments retained; auto-merge enabled; epoch13 |
+| B2b | pending | locally approved on A4/B2a | 3a2a6c6e/tree3ed45698; incoming #2551 preserved; 124 related and 45 independent integration tests passed; epoch14 |
 | B3 | pending | locally approved; release checkpoint pending | f13f2725/tree8efd806e; native/checked and independent lifetime/cancellation review passed; publication follows A4 |
 | B4a | pending | locally approved | 6d1d3232/tree9f54b268; native/checked lifetime and default compatibility reviewed; special SQLite paths retain their existing behavior |
 | B4b | pending | local preparation | Command follows B4a; conservative file retention, format ownership and independent dispatch |
@@ -308,3 +308,10 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   completes the first actual-release checkpoint. B2a and B2b have independently
   approved integrations on the new pin and now align to this merged parent,
   preserving #2551's acknowledgments before serial publication.
+
+- 2026-10-02 UTC: B2a published as #2554 at `20569b76`, exact approved tree
+  `5fd49ed6`, based on actual A4 merge `3511e6cd`. All nine final harness guards
+  passed. B2b's corresponding reviewed integration is `3a2a6c6e`/`3ed45698`;
+  124 related tests and 45 independent cases passed, followed by 37 final
+  harness/drain checks after retaining incoming #2551. Its mandatory full
+  attempt timed out after keying 3,251 tests and is not counted as passing.
