@@ -623,11 +623,10 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   -- A signal the child never got is re-raised only when it is SIGTERM,
   -- which a terminal never sends. A Ctrl-C the child caught and exited
   -- from cleanly is answered by its status, as bash answers it.
-  -- TODO: re-raise a never-passed SIGINT too, once ci/cosmic-driver.pin
-  -- names a cosmic whose guard reports whether a signal came from kill()
-  -- or from the terminal (the siginfo's si_code, which core/syscalls.c's
-  -- catch_child_cancel would record): only one sent to this process
-  -- alone went unanswered.
+  -- Signal provenance identifies a sender, not whether kill targeted
+  -- this process or its group. A never-passed SIGINT may already have
+  -- reached a child that caught it and exited cleanly, so its status
+  -- wins; SIGTERM remains an unanswered cancellation.
   local unpassed = untaken ~= 0 and untaken or pending
   if unpassed ~= sys.SIGTERM then
     unpassed = 0
