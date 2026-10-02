@@ -73,11 +73,11 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | 3. Build phase and cleanup ownership | [#2532](https://github.com/cosmic-lua/cosmic/pull/2532) | merged | e75cee04; branch and queue36942878305 green; independent approval |
 | 4. Reporting outside the acknowledged runner | [#2533](https://github.com/cosmic-lua/cosmic/pull/2533) | merged | 56637153; branch and queue36944097828 green; independent approval |
 | 5a. Bootstrap lock ownership preparation | [#2534](https://github.com/cosmic-lua/cosmic/pull/2534) | merged | 44518e84; branch and queue 36945326385 green; independent approval |
-| 5b. Pin, flock/scratch and obsolete adapters | [#2535](https://github.com/cosmic-lua/cosmic/pull/2535) | CI running | 569b0d44; final tree a8f5780f approved by both reviewers |
-| 6a. CI cache-name policy | pending | integrated approval | 4d5d5e95; unchanged patch, 38 workflow tests pass |
-| 6b. CI operation recording | pending | integrated approval | ad3d2f4d; phase contracts independently checked; runner/parser tests pass |
-| 7. Zig graph construction | pending | integrated approval | 5743c2e2; exact original patch and graph context preserved |
-| 8. Documentation and integrated audit | pending | integrated approval | ae320349; final warm/fresh/byte-equality audit passed; remote CI pending |
+| 5b. Pin, flock/scratch and obsolete adapters | [#2535](https://github.com/cosmic-lua/cosmic/pull/2535) | CI running | 8743ed67; reviewed CI assertion fix; tree 525904d2 |
+| 6a. CI cache-name policy | pending | integrated approval | 6cb7e856; unchanged patch, 38 workflow tests pass |
+| 6b. CI operation recording | pending | integrated approval | 9320ec4a; phase contracts independently checked; runner/parser tests pass |
+| 7. Zig graph construction | pending | integrated approval | ae0a2095; exact original patch and graph context preserved |
+| 8. Documentation and integrated audit | pending | integrated approval | e24a2ef1; final warm/fresh/byte-equality audit passed; remote CI pending |
 
 ## PR 1: isolate the compiler and analyzer's semantic inputs
 
@@ -549,8 +549,8 @@ changes the design, update this plan before proceeding and explain the decision.
 ## Integrated audit on the prepared final tree
 
 Independent reviewer approved step8 commit
-`ae320349210479fd5fe44f3493169bb0285ca255`, tree
-`ca53a1141927d05f2ced717d1327091fd95f51d9`. All preceding implementation
+`e24a2ef15b9b6dadfbae9320782e7b967a678033`, tree
+`f0a0983afe18715c70b6eaf228b38cf5f2dea440`. All preceding implementation
 changes are present. Actual preceding merge alignment and final platform/queue
 fixed-point coverage remain required before declaring execution complete.
 
@@ -573,14 +573,32 @@ Step7's original19-artifact/590-dependency-line graph comparison remains valid:
 its complete patch and upstream build.zig context are unchanged through integration.
 No additional mutation framework or repeated graph experiment was needed.
 
-Final prepared SHA256 values:
+The initial fresh/warm audit above preceded the CI test-only correction below.
+The implementation and executable bytes are identical; the corrected test was
+separately forced to run and checked in both final worktrees.
+
+Latest prepared SHA256 values:
 
 - Executable: `0d8480b5dbc9f1ab9e3da0e4db5829e3f885a78e363d7cbf08cfc29e1a83e635`.
 - Carried projection: `f0bb1754b5c07d37c72cb2a79e945dbe886879988632d0b16b0e319a7db0102f`.
-- Full projection: `0cecd9772e27efeca163698826fc9613b6b2ef65e48ec5f179754c372f6bcf27`.
+- Full projection: `a7ebe33d76ed453a33c30287c1e07f2046c9c75c2468379d8e8c042ed2c37e0a`.
 
 The initial and final focused suites contain different numbers of tests, so their
 wall times are not a controlled speedup claim. The important retained properties
 are zero warm compilation/reads, complete shared-cache reuse in a fresh checkout,
 identical output bytes and the preserved C graph. Local sandbox, UID and socket
 restrictions remain explicit; remote native/checked/sandbox/queue gates must pass.
+
+- 2026-10-02: first step5b CI run36946753897 exposed a stale assertion in
+  zig_tool_test: it required an empty cache, but the new ownership protocol
+  intentionally retains a persistent gate. Independent reviewer reproduced it.
+  Fix8d999725 requires exactly the regular .scratch-gate file, rejecting every
+  wrapper/payload/unexpected entry. No production protocol changed. Implementer
+  35 tests and independent20 tests ran/passed; whole-tree635 has zero findings.
+  Remote head8743ed67, tree525904d2, reruns CI. No new TODOs.
+- 2026-10-02: propagated the reviewed test-only fix through all prepared PRs;
+  their scoped patches are unchanged and independent approvals extend. Final
+  audit now names e24a2ef1/treef0a0983a. Forced Zig-tool/harness15 tests passed;
+  repeat15 stood in804ms, build356ms with zero compiles/reads. Tool and carried
+  hashes remain unchanged; full projection changes only for the corrected test.
+  Both worktrees are byte-identical and all database integrity checks pass.
