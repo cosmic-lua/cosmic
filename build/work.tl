@@ -70,8 +70,9 @@ local version <const> = "27"
 ---
 --- `tool` is what the tool itself is made of, fingerprinted the same
 --- way but without the bytes: every source input to the embedded
---- binary, its standard library and tests included, since `cosmic.*`
---- resolves from the binary rather than the tree. A vendored tree is
+--- binary, its standard library included, since `cosmic.*` resolves
+--- from the binary rather than the tree. Test sources are staged in
+--- `files` but excluded from `tool` ([`identity.is_tool`]). A vendored tree is
 --- a function of its `PIN` and the records under `patch/`, and is
 --- never edited in place, so the pin and the records are its inputs
 --- and the tree itself is not walked. Its hash is the boot hash, and

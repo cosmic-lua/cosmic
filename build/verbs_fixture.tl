@@ -33,7 +33,7 @@ function verbs_fixture.write_tree(tmp: string): string
 end
 
 --- The command lines only a process of their own can run, and why:
---- every other runs here ([`build.invoke`]), so a test of it can stand.
+--- every other runs here ([`build.invoke`]) without starting a process.
 local function needs_a_process(args: {string}): string | nil
   local asks_help = false
   for _, word in ipairs(args) do
@@ -106,8 +106,8 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
   return result
 end
 
---- Whether `verb`'s cases run in this process: a test that starts one
---- never stands, so those that must are tests of their own.
+--- Whether `verb`'s cases can share this process's loaded modules and
+--- coverage. Cases that need isolation start this program instead.
 function verbs_fixture.in_process(verb: string): boolean
   return needs_a_process({ verb }) == nil
 end

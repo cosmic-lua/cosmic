@@ -1,10 +1,10 @@
 # CI driver
 
 `ci/` is a project of its own inside the checkout, distinct from cosmic's
-own tree: it has no `core/` or `build/`, so cosmic's own build never walks
-it (`build/work.tl`'s `foreign_trees`), and the pinned host never tries to
-rebuild itself from the candidate. It is run in place by the pinned,
-digest-verified host, with cwd `ci/`, so the host's project root is `ci/`
+own tree: the outer build excludes its modules and tests, but walks its
+files outside `ci/o/` for TODOs ([input policy](https://github.com/cosmic-lua/cosmic/blob/main/build/identity.tl)). The
+pinned host never tries to rebuild itself from the candidate. It is run in
+place by the pinned, digest-verified host, with cwd `ci/`, so the host's project root is `ci/`
 itself. `cosmic_ci/` is its Teal namespace; `testdata/` holds fixture input
 and is excluded from module and test discovery. Its working database lands
 at `ci/o/build.db` (gitignored).
@@ -95,6 +95,13 @@ appends the operations table to the file named by
 operations database does not exist yet it appends a note that it is
 unavailable and exits 0: no operation ran, which means the self-check
 failed first.
+
+[`Runner.phase`] owns the start and completion records of a platform or
+provenance phase. The orchestration callback chooses its work and returns
+an integer exit status; nested commands and in-process steps keep their
+own operation records. A returned failure keeps its status without another
+diagnostic. An exception records exit code 1 and its full text, also written
+to stderr. The operations database stays outside the candidate checkout.
 
 Each suite a platform phase runs -- the native (`local`) suite, the
 checked and portable suites, and each fixture's `cosmic test` -- writes
@@ -535,10 +542,11 @@ since its start and saved under their prefix and a digest of those
 rows, so a run that reached only what it restored names that entry
 again and saves nothing new. Saved whole, a leg's verdicts came to about
 40 MB compressed a main push, most of it under keys no later run
-reaches, since every change to `build/` moves every key; trimmed, 8 to
-13 MB. The cost: main's saved file holds only its newest commit's keys,
-so a branch based on an older main whose keys a `build/` change has
-since moved would run every test again. So main also saves each job's
+reaches; trimmed, 8 to 13 MB. Runtime changes and harness epoch bumps
+move every verdict key. Other edits move the keys whose declared inputs
+or import closures change. The cost: main's saved file holds only its
+newest commit's keys, so a branch based on an older main may need verdicts
+that were trimmed away. So main also saves each job's
 verdicts under its commit, `<prefix>sha-<commit>`, even where their
 content is an entry's already (`seed` too, from the key
 `queue-seed.sh stage` names), and each restore asks first for the
@@ -656,9 +664,9 @@ scheduled run checks on every leg whatever was saved. The macOS leg
 runs on the runner's own userland, so its key holds the runner's image
 (`ImageVersion`), and an image rollout misses its marker until main
 saves again. So a full run checks on each leg where its key moved. A branch
-push checks only once, in the checked job, on linux-x86_64's host and
-with no marker, off the legs' path; the queue checks each leg before
-anything lands.
+push checks only in the checked job, on linux-x86_64's host. It looks
+up main's marker and skips the check on an exact hit, but saves no marker
+of its own. The queue checks each leg before anything lands.
 
 ### artifacts
 
@@ -677,3 +685,5 @@ alone.
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 [`testdata/prerelease/gh.tl`]: testdata/prerelease/gh.tl
 [`testdata/report/gh.tl`]: testdata/report/gh.tl
+
+[`Runner.phase`]: cosmic_ci/runner.tl

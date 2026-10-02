@@ -1,6 +1,7 @@
 --- The bridge's Teal half: build the database and portable artifact.
 ---
---- This runs once on a machine with no cosmic binary yet. The C entry
+--- Every boot runs this on the freshly built host core. The pinned
+--- bootstrap cosmic starts zig; no tree-built tool is needed. The C entry
 --- has already loaded the vendored compiler from the tree and installed
 --- a searcher that compiles a `.tl` straight from it; everything from
 --- here is ordinary cosmic code.

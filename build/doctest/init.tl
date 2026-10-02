@@ -1,8 +1,8 @@
 --- Turns a markdown doc's fenced code-block examples into one Teal
 --- source string, per doc/meta.md's grammar. The result is the source of
---- an ordinary `kind = "test"` module: [`build.importer`]'s `collect`
---- treats it like a hand-written `_test.tl`, discovers its tests through
---- [`build.analyzer.analyze`] and runs them through [`build.test`]. Nothing
+--- an ordinary `kind = "test"` module: [`build.compilation.collect`]
+--- treats it like a hand-written `_test.tl`. [`build.analyzer.analyze`]
+--- discovers its tests and [`build.test`] runs them. Nothing
 --- here runs a test, discovers one, or records a verdict: doc/meta.md
 --- says a doc needs no doctest machinery of its own.
 local markdown = require("build.doctest.markdown")
@@ -15,8 +15,8 @@ end
 --- @param source string the doc's own markdown text
 --- @param file string the doc's path, named inside a generated
 ---   example's own failure message; never prefixed onto this
----   function's OWN error below, which the caller (`collect`) already
----   prefixes with `file` the same way it does for every other module
+---   function's own error below, which [`build.derivation`] already
+---   prefixes with `file` the same way it does for every other input
 --- @return string | nil generated Teal source, or nil on a grammar
 ---   error -- an unterminated fence, an unknown tag, or
 ---   a block ordering the grammar in doc/meta.md does not allow
