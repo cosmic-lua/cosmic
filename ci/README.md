@@ -563,6 +563,11 @@ each save takes one of its own:
 
     zig-build-<leg>-<vendor>-<scope>-<core>-<run>-<attempt>
 
+The platform and checked jobs use `.github/actions/cache-names` before
+restoring build caches or moving the checkout. It names the vendor, core and
+branch compile inputs, the runner image, and the start time used by
+cache trimming; restore/save policy stays with each job in ci.yml.
+
 `vendor` hashes what compiles the vendored libraries (the pin,
 `build.zig`, `build/zig.tl`, `vendor/`, `patch/`, the configuration
 headers they read from `core/`) but not the trees zig never compiles
@@ -628,7 +633,7 @@ nothing; the TODO on `build/test.tl`'s `launch` would give such a
 worker a fixed path.
 
 The CI driver check's marker is keyed by what cosmic_ci's tests read
-(`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
+(`ci/`, `bin/`, the scripts, the driver and cache-names actions, and ci.yml) and the
 leg's host; an exact hit skips the check, except on the scheduled and
 manual runs. The host is in the key, since the check runs unsandboxed
 and its tests start the host's own programs (`/bin/sh`, `cp`): a marker
