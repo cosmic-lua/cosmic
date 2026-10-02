@@ -113,33 +113,49 @@ end
 -- readers
 ------------------------------------------------------------------
 
+-- A reader here is made as cosmic/stream.tl's "How an object of this module
+-- is made" says: a record of its own, with its methods on that record and
+-- its state in fields.
+
+--- What [`draining`] answers.
+local record DrainingReader is Stream.ArchiveReader
+  tr: Tar.Reader
+  source: Stream.Reader
+  finished: boolean
+  next: function(DrainingReader): Stream.ArchiveEntry | nil, string
+  close: function(DrainingReader): boolean, string
+end
+
+local draining_reader_mt: metatable<DrainingReader> = { __index = DrainingReader }
+
+function DrainingReader:next(): Archive.Entry | nil, string
+  local e, trouble = self.tr:next()
+  if e ~= nil then return e, "" end
+  if trouble ~= "" then return nil, trouble end
+  if not self.finished then
+    self.finished = true
+    while true do
+      local chunk, dtrouble = self.source:read()
+      if chunk == nil then
+        if dtrouble ~= "" then return nil, dtrouble end
+        break
+      end
+    end
+  end
+  return nil, ""
+end
+
+function DrainingReader:close(): boolean, string
+  return self.tr:close()
+end
+
 --- `tr`, which reads the decompressed stream `source`: once the tar end
 --- is reached, whatever follows it is read through to the decompressor's
 --- own end, so its errors (a truncated stream, a bad checksum) surface
 --- instead of vanishing with the unread tail.
 local function draining(tr: Tar.Reader, source: Stream.Reader): Archive.Reader
-  local finished = false
-  local ar: Archive.Reader = {}
-  ar.next = function(_self: Archive.Reader): Archive.Entry | nil, string
-    local e, trouble = tr:next()
-    if e ~= nil then return e, "" end
-    if trouble ~= "" then return nil, trouble end
-    if not finished then
-      finished = true
-      while true do
-        local chunk, dtrouble = source:read()
-        if chunk == nil then
-          if dtrouble ~= "" then return nil, dtrouble end
-          break
-        end
-      end
-    end
-    return nil, ""
-  end
-  ar.close = function(_self: Archive.Reader): boolean, string
-    return tr:close()
-  end
-  return ar
+  local r: DrainingReader = setmetatable({ tr = tr, source = source, finished = false }, draining_reader_mt)
+  return r
 end
 
 --- The tar `source` holds, of format `kind` ("tar", "gzip", "xz" or
@@ -226,7 +242,8 @@ function Archive.list_reader(reader: Archive.Reader): {Archive.Entry} | nil, str
       if etrouble ~= "" then return nil, etrouble end
       return out, ""
     end
-    -- Dropping the per-entry reader closure keeps a long listing small.
+    -- The reader is closed before the list is returned, so no entry can be
+    -- opened: say so, rather than read a closed reader.
     entry.open = listed_open
     out[#out + 1] = entry
   end

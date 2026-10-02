@@ -473,6 +473,8 @@ local function index_of(view: docs.View): symbol_index.Index | nil, string
           id = math.tointeger(tonumber(row[8])) or 0 })
       end
     end
+    local bound, bound_trouble = symbol_index.add_bound(out, db, "")
+    if not bound then return nil, bound_trouble end
   end
   return out, ""
 end

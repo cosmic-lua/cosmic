@@ -129,10 +129,11 @@ link_index.none = {
 
 --- The standard library of the binary running this build: its own
 --- database, named by its `boot_hash`, which is over every file of the
---- tree it was built from ([`build.identity.record_fingerprint`]), each source whose
---- docs it carries and the analyzer that read them included. A binary
---- with none carries no database, and no docs. What the store refuses
---- (a test that does not declare `store`) is said as the library's.
+--- tree it was built from ([`build.identity.record_fingerprint`]), each
+--- source whose docs it carries and the analyzer that read them
+--- included. A binary with none carries no database, and no docs. What
+--- the store refuses (a test that does not declare `store`) is said as
+--- the library's.
 -- TODO: sign a digest of the docs the binary carries rather than its
 -- boot_hash, once writer.carried records one in meta: a binary whose
 -- docs did not change rewrites a project's projection once.
@@ -361,6 +362,10 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
       file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
       shown = true, database = 1, id = math.tointeger(tonumber(row[8])) or 0 })
   end
+  local bound, bound_trouble = symbol_index.add_bound(out, db, qualifier)
+  if not bound then
+    return nil, bound_trouble
+  end
   return out, ""
 end
 
@@ -399,6 +404,10 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
         file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
         shown = row[9] == "1" and owners[row[1]] == database, database = database,
         id = math.tointeger(tonumber(row[8])) or 0 })
+    end
+    local bound, bound_trouble = symbol_index.add_bound(index, db, "")
+    if not bound then
+      return false, bound_trouble
     end
   end
   return true, ""
