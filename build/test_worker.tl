@@ -722,6 +722,35 @@ local function install(module: any, runner: any)
   if module is {string:any} then module.__runner = runner end
 end
 
+--- [`confine.unseen`] and the message ENOENT stands for, as this module
+--- loads: what a failure's report says is not its test's to change.
+local unseen = confine.unseen
+local not_found = sys.errno_message(sys.ENOENT)
+
+--- What the failure `message` of a sandboxed worker's load or test
+--- gains: why each start it made found nothing for what the sandbox left
+--- out (`heard`), and why each absolute path the message says was not
+--- found was not, where the sandbox is why ([`confine.unseen`]) -- a
+--- line each, but for what the message says already. A bare `assert`
+--- on a start's result says nothing of it itself.
+local function unseen_note(message: string, heard: {string}): string
+  local lines: {string} = {}
+  local function add(why: string)
+    if message:find(why, 1, true) ~= nil then return end
+    for _, line in ipairs(lines) do
+      if line == why then return end
+    end
+    lines[#lines + 1] = why
+  end
+  for _, why in ipairs(heard) do add(why) end
+  for path in message:gmatch("(/[^%s:'\"]+): " .. not_found:gsub("%p", "%%%0")) do
+    local why = unseen(path, "reads")
+    if why ~= nil then add(why) end
+  end
+  if #lines == 0 then return "" end
+  return "\n  " .. table.concat(lines, "\n  ")
+end
+
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else means there is no report to read.
@@ -902,6 +931,7 @@ function worker.run(argv: {integer:string}): integer
   report.loaded = loaded
   if not loaded then
     report.message = "the module failed to load: " .. tostring(produced)
+    if sandboxed then report.message = report.message .. unseen_note(report.message, loading.unseen) end
   else
     local fn: any = produced is {string: any} and produced[name] or nil
     if not (fn is function(any...): (any...)) then
@@ -918,6 +948,9 @@ function worker.run(argv: {integer:string}): integer
         report.test_hits = hits
       end
       report.passed, report.message = ran.ok, ran.ok and "" or tostring(ran.produced)
+      if sandboxed and not ran.ok then
+        report.message = report.message .. unseen_note(report.message, ran.unseen)
+      end
       report.skipped = table.concat(reasons, "; ")
       report.elapsed_ns = finished - started
     end
