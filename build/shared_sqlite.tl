@@ -29,8 +29,9 @@ local busy_ns <const> = 10000 * MS
 
 --- Whether `trouble`, from a statement on a cache, says another
 --- connection holds a lock the statement needs, rather than anything
---- of the file. Read as `corrupt` reads its own: SQLite answers its
---- reason only as text.
+--- of the file. Query failures carry only their reason, as text.
+--- TODO: classify busy and corrupt failures by code once SQLite query
+--- and open operations expose captured result codes.
 local function busy(trouble: string): boolean
   return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
 end

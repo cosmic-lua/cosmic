@@ -57,6 +57,19 @@ local function test_a_read_with_a_timeout_fails_with_the_timeout_word(tmp: strin
   assert(sys.close(reader))
 end
 
+--- Only a regular file can seek, so only its Reader has a `skip`: a pipe's
+--- is read and discarded by [`Stream.skip`].
+local function test_a_reader_over_a_pipe_has_no_skip(tmp: string)
+  local reader, writer = fifo(tmp, "unseekable")
+  local r = Stream.from_fd(reader)
+  assert(r.skip == nil)
+  assert(sys.write(writer, "abcdef") == 6)
+  assert(Stream.skip(r, 4))
+  assert(r:read() == "ef")
+  assert(sys.close(writer))
+  assert(sys.close(reader))
+end
+
 --- The same wait in a task lets the others run meanwhile.
 local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: string)
   local reader, writer = fifo(tmp, "task")

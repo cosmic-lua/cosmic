@@ -7,6 +7,7 @@
 #include "check.h"
 #include "compress.h"
 #include "fail.h"
+#include "guard.h"
 #include "lauxlib.h"
 #include "crypto.h"
 #include "memory.h"
@@ -322,6 +323,12 @@ static int sqlite_open (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+/* Both surfaces execute each statement once. SQLite stops at the first
+ * failure; preceding statements may already have changed the database. */
+static int execute (sqlite3 *db, const char *sql) {
+  return sqlite3_exec(db, sql, NULL, NULL, NULL);
+}
+
 static int handle_exec (lua_State *L) {
   struct handle *h = checked_handle(L);
   size_t len;
@@ -334,11 +341,44 @@ static int handle_exec (lua_State *L) {
   }
   /* No message of exec's own: it would be a copy of the connection's,
    * held in a local across the push that can raise. */
-  int rc = sqlite3_exec(h->db, sql, NULL, NULL, NULL);
+  int rc = execute(h->db, sql);
   if (rc != SQLITE_OK) {
     return failed_effect(L, h->db, rc);
   }
   return cosmic_done(L);
+}
+
+static void release_message (void *message) {
+  cosmic_free(message);
+}
+
+static int handle_exec_result (lua_State *L) {
+  size_t len;
+  const char *sql = luaL_checklstring(L, 2, &len);
+  if (memchr(sql, '\0', len) != NULL)
+    return luaL_error(L, "sqlite: SQL contains an embedded NUL byte");
+  struct cosmic_guard *message = cosmic_guard_push(L, release_message);
+  lua_createtable(L, 0, 3);
+  /* Allocating above can run finalizers, including one closing this
+   * handle. Check it afterward; no Lua allocation occurs before the
+   * result's codes and error text have been copied out of SQLite. */
+  struct handle *h = checked_handle(L);
+  int rc = execute(h->db, sql);
+  int extended = rc == SQLITE_OK ? SQLITE_OK : sqlite3_extended_errcode(h->db);
+  if (rc != SQLITE_OK) {
+    const char *reason = sqlite3_errmsg(h->db);
+    size_t size = strlen(reason) + 1;
+    message->resource = cosmic_malloc(size);
+    if (message->resource == NULL) return luaL_error(L, "not enough memory");
+    memcpy(message->resource, reason, size);
+  }
+  lua_pushinteger(L, rc & 0xff);
+  lua_setfield(L, -2, "code");
+  lua_pushinteger(L, extended);
+  lua_setfield(L, -2, "extended_code");
+  lua_pushstring(L, message->resource == NULL ? "" : message->resource);
+  lua_setfield(L, -2, "reason");
+  return 1;
 }
 
 static int handle_prepare (lua_State *L) {
@@ -650,7 +690,7 @@ static int statement_finalize (lua_State *L) {
 }
 
 static const luaL_Reg handle_methods[] = {
-  {"exec", handle_exec},     {"prepare", handle_prepare},
+  {"exec", handle_exec}, {"exec_result", handle_exec_result},     {"prepare", handle_prepare},
   {"close", handle_close},   {"changes", handle_changes},
   {"last_insert_rowid", handle_last_insert_rowid},
   {"limit", handle_limit},
