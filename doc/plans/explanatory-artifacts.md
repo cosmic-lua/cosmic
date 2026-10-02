@@ -81,6 +81,19 @@ invalid for performance evidence. Preserve diagnostics, recover space from
 regenerable completed-work outputs, then perform a fresh boot and rebaseline.
 Do not report this environmental failure as a confirmed defect in main.
 
+A clean worktree at `8e4a899230c24ddd90a52d00be2abd3375dfd546` subsequently
+booted and answered own-tree documentation queries with a valid 29.7 MB working
+database and no rollback journal. The earlier corruption's exact cause remains
+unproven. The execution baseline is the published release for this exact commit:
+14,995,504 bytes, SHA-256
+`6b0484154389a4b603b9c1021f5be3eca9055c6b753f56c81a6afbbd3042272d`.
+The harness retains independent copies and hashes before measurement.
+
+The first valid harness reading guards warm-cache fixture workloads. Cold I/O,
+peak RSS, isolated projection latency, generated artifact page counts, and full
+repository execution remain separate evidence requirements. Do not describe the
+fixture's two-test execution as a measurement of the complete repository suite.
+
 ## Architecture decisions
 
 ### Three independent responsibilities
@@ -539,11 +552,11 @@ correctness/CI result, raw performance evidence and conclusion, introduced
 temporary gaps, and any plan change. A review or queued auto-merge is not a
 merged step. The reference PR's own number is recorded here after creation.
 
-Reference PR: pending creation; **draft, never merge**.
+Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, never merge**.
 
 | Step | Status | PR / merge | Review and evidence |
 | --- | --- | --- | --- |
-| 0 Baseline/harness | Pending | — | — |
+| 0 Baseline/harness | In progress | Implementation PR pending | Separate implementer and adversarial reviewer; six statistical tests pass. First valid 30-pair suite: 14/15 workloads pass; portable packaging tail inconclusive. No merge authorized by this result. |
 | 1 Structural decoder | Pending | — | — |
 | 2 Artifact handles | Pending | — | — |
 | 3 Schema/reader contract | Pending | — | — |
@@ -558,5 +571,10 @@ Reference PR: pending creation; **draft, never merge**.
 | 12 Layout experiment | Pending | — | — |
 | 13 Final audit | Pending | — | — |
 
-Plan changes: none yet. Fresh baseline differs from the earlier assessment;
-measurements and facts are explicitly separated above.
+Plan changes: the initial corrupt-working-database run is excluded. The valid
+execution baseline is the exact published `8e4a899` artifact above. The harness
+uses a fixed bootstrap controller, exact sign-based paired median intervals,
+predeclared A/A calibration and one complete repeat for nonpassing workloads.
+Initial and repeated samples and summaries remain available; the combined
+estimate cannot erase conflicting tail evidence from human review. Size growth
+remains advisory. Missing measurement dimensions are listed above.
