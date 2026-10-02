@@ -953,6 +953,122 @@ local function test_each_reads_every_line_and_leaves_no_failure()
   assert(table.concat(seen, "|") == "x|y" and lines:failure() == "")
 end
 
+--- `rest` gives exactly the bytes after the last line read: those the
+--- lines read ahead, then the Reader's own, however the Reader chunks
+--- them, a partial last line and none at all among them.
+local function test_rest_gives_the_bytes_after_the_last_line()
+  local long = string.rep("x", 200000)
+  local cases: {{any}} = {
+    { "a\nb\nbody", 1, "b\nbody" },
+    { "a\nb\nbody", 2, "body" },
+    { "a\nb\n", 2, "" },
+    { "a\nb", 1, "b" },
+    { "a\n", 0, "a\n" },
+    { "", 0, "" },
+    { "head\r\n\r\n" .. long, 2, long },
+  }
+  for _, case in ipairs(cases) do
+    local text, count, want = case[1] as string, case[2] as integer, case[3] as string
+    for _, reader in ipairs({ Stream.from_string(text), trickle(text) }) do
+      local lines = Stream.lines(reader)
+      for _ = 1, count do assert(lines:read() ~= nil) end
+      local rest = lines:rest()
+      local got = assert(Stream.read_all(rest))
+      assert(got == want, string.format("%q after %d: %q", text:sub(1, 20), count,
+        got:sub(1, 20)))
+      local after, trouble = rest:read()
+      assert(after == nil and trouble == "", trouble)
+    end
+  end
+end
+
+--- Once the lines have met the end, `rest` has nothing, and reads the
+--- Reader no more.
+local function test_rest_after_the_last_line_reads_nothing_more()
+  local inner = Stream.from_string("a\nb")
+  local ended = false
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    assert(not ended, "read past the end")
+    local chunk, trouble = inner:read(max_bytes)
+    if chunk == nil then ended = true end
+    return chunk, trouble
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local lines = Stream.lines(r)
+  local seen: {string} = {}
+  for line in lines:each() do seen[#seen + 1] = line end
+  assert(table.concat(seen, "|") == "a|b")
+  local chunk, trouble = lines:rest():read()
+  assert(chunk == nil and trouble == "", trouble)
+end
+
+--- A failure stays: `rest` of failed lines answers it on every read,
+--- and gives none of the bytes past it.
+local function test_rest_after_a_failure_answers_the_failure()
+  local lines = Stream.lines(trickle("ok\n123456\nafter"), 5)
+  assert(lines:read() == "ok")
+  local _, why = lines:read()
+  assert(why:find("longer than 5 bytes", 1, true) ~= nil, why)
+  local rest = lines:rest()
+  for _ = 1, 2 do
+    local chunk, trouble = rest:read()
+    assert(chunk == nil and trouble == why, trouble)
+  end
+end
+
+--- A Reader that raises in the middle of a line leaves that line's
+--- start with the lines, and `rest` gives it back before the rest.
+local function test_rest_after_a_raise_keeps_the_start_of_a_line()
+  local answers: {string | boolean} = { "a\npar", false, "tial\nbody" }
+  local next_answer = 0
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+    next_answer = next_answer + 1
+    local answer = answers[next_answer]
+    if answer == false then error("raised") end
+    return answer as string, ""
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local lines = Stream.lines(r)
+  assert(lines:read() == "a")
+  assert(not pcall(lines.read, lines))
+  local got = assert(Stream.read_all(lines:rest()))
+  assert(got == "partial\nbody", got)
+end
+
+--- `rest` ends the lines: a later `read`, `each` or `rest` raises
+--- rather than take bytes the Reader gave away; closing the Reader it
+--- gave closes the lines' Reader, once.
+local function test_rest_ends_the_lines_and_closes_the_reader()
+  local closes = 0
+  local inner = Stream.from_string("a\nb\n")
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    return inner:read(max_bytes)
+  end
+  r.close = function(_self: Stream.Reader): boolean, string
+    closes = closes + 1
+    return true, ""
+  end
+  local lines = Stream.lines(r)
+  assert(lines:read() == "a")
+  local rest = lines:rest()
+  for _, call in ipairs({
+    function() lines:read() end,
+    function() lines:rest() end,
+    function() for _ in lines:each() do end end,
+  }) do
+    local ok, trouble = pcall(call) as (boolean, any)
+    assert(not ok and tostring(trouble):find("ended at `rest`", 1, true) ~= nil,
+      tostring(trouble))
+  end
+  assert(assert(Stream.read_all(rest)) == "b\n")
+  assert(rest:close())
+  assert(rest:close())
+  assert(closes == 1, tostring(closes))
+end
+
 --- A Writer whose writes fail from the `fails_at`th on, counting its
 --- aborts and closes.
 local record Failing is Stream.Writer

@@ -4,7 +4,7 @@
 ---
 ---     local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock")))
 ---     local conn <close> = assert(server:accept())
----     local lines = Stream.lines(conn) -- holds what it read past a line
+---     local lines = Stream.lines(conn) -- holds what it read past a line: see `rest`
 ---     local line = lines:read()
 ---
 --- An address is a record whose `kind` says how the rest of it is read,
