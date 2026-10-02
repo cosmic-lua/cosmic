@@ -517,6 +517,84 @@ local function integer_hint(source: string, y: integer, x: integer): string | ni
     ".0' or 'local " .. name .. ": number = " .. literal .. "' to hold a number"
 end
 
+--- What [`teal.replacement`] says of a number where an integer was
+--- expected, when no declaration explains it: a cast is what a reader
+--- reaches for, and it only silences the checker. tl declares
+--- `math.tointeger` to return an integer, so the nil is the reader's to
+--- check.
+local integer_conversion <const> = "'as integer' converts nothing: math.tointeger(x) does, " ..
+  "and is nil unless x is whole; // of two integers is an integer"
+
+--- The set of `names`, less those [`teal.withheld`] strips from the
+--- checker: a local named for one of those hides nothing.
+local function present(names: {string}): {string:boolean}
+  local set: {string:boolean} = {}
+  for _, name in ipairs(names) do
+    set[name] = true
+  end
+  for _, name in ipairs(teal.withheld) do
+    set[name] = nil
+  end
+  return set
+end
+
+--- The functions and libraries tl's standard library declares as
+--- globals (its prelude in vendor/tl/tl.tl), which a local of the same
+--- name hides. `arg`, the program's arguments, is no library's.
+local standard_globals <const> = present({
+  "assert", "collectgarbage", "coroutine", "debug", "dofile", "error",
+  "getmetatable", "io", "ipairs", "load", "loadfile", "math", "next", "os",
+  "package", "pairs", "pcall", "print", "rawequal", "rawget", "rawlen",
+  "rawset", "require", "select", "setmetatable", "string", "table",
+  "tonumber", "tostring", "type", "utf8", "xpcall",
+})
+
+--- Those of [`standard_globals`] that are libraries, each a record the
+--- checker names after itself (`invalid key 'nope' in record 'table' of
+--- type table`): one named so but of another type is a local hiding it.
+local standard_libraries <const> = present({
+  "coroutine", "debug", "io", "math", "os", "package", "string", "table", "utf8",
+})
+
+--- The hint for the checker refusing one nominal type for another
+--- whose last name is the same (`Store is not a Kv.Store`, or, both
+--- shown alike, `Store (defined in :7) is not a Store (defined in
+--- kv.tl:3)`): two declarations made two types, and only one of them
+--- should be. Where one name is qualified and the other is not, the
+--- bare one is the program's own declaration, and the qualified one
+--- what to name instead; where both are qualified (`A.Node is not a
+--- B.Node`) neither is the program's own, and nothing is said.
+local function same_named(msg: string): string | nil
+  -- TODO: hint a generic type too (`Box<integer> is not a C.Box<integer>`):
+  -- the patterns here stop at an identifier, and a type's arguments may
+  -- hold spaces and parentheses of their own.
+  local given, wanted = msg:match(
+    "([%a_][%w_.]*) %(defined in [^)]*%) is not a ([%a_][%w_.]*) %(defined in [^)]*%)$")
+  if given == nil then
+    given, wanted = msg:match("([%a_][%w_.]*) is not a ([%a_][%w_.]*)$")
+  end
+  if given == nil then
+    return nil
+  end
+  local name = given:match("[%a_][%w_]*$")
+  if name ~= wanted:match("[%a_][%w_]*$") then
+    return nil
+  end
+  local said = "two distinct types are both named " .. name .. ": "
+  local given_qualified = given:find(".", 1, true) ~= nil
+  local wanted_qualified = wanted:find(".", 1, true) ~= nil
+  if given_qualified and wanted_qualified then
+    return nil
+  end
+  local qualified = given_qualified and given or wanted_qualified and wanted or nil
+  if qualified ~= nil then
+    return said .. "use " .. qualified .. " rather than declaring " .. name ..
+      " again, as 'local type " .. name .. " = " .. qualified .. "'"
+  end
+  return said .. "declare it once and name that one everywhere, as 'local type " ..
+    name .. " = Kv." .. name .. "' for one declared in a module required as Kv"
+end
+
 --- What [`replacement`] reads of [`cosmic.removed`].
 local record Catalog
   names: {string:string}
@@ -594,14 +672,51 @@ end
 --- declaration with an annotation, a non-literal (or negative, or
 --- hexadecimal) initializer or several names, a global, a field
 --- (`t.n = ...`), a multiple assignment (`a, b = ...`), or a source that
---- does not parse.
+--- does not parse. Any other number where an integer was expected (an
+--- argument, a declaration, a return value, `tonumber(s)`, `a / b`) is
+--- told the conversions, since `as integer` only silences the checker.
+---
+--- A local, argument or loop variable shadowing one of
+--- [`standard_globals`] is told to rename it, and a refused index of one
+--- named for a library but of another type (`table.insert` where `table`
+--- is a local of the program's) that the name is a local hiding it.
+---
+--- One nominal type refused for another of the same last name
+--- (`Store is not a Kv.Store`) is told they are two types, and an
+--- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
+--- `Kv` itself is the module's record type.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
-  if msg == "in assignment: got number, expected integer" then
+  if msg:match("got number, expected integer$") or
+      msg:match("got number, expected integer | nil$") or
+      msg:match("got number %(inferred at [^)]*%), expected integer$") then
     -- TODO: hint a table field too (`local t = {n = 0}; t.n = t.n + 0.5`,
     -- `t.n` an "op" node here): it waits on the checker's inferred type of
     -- a record field being readable from the AST; the parser alone does
     -- not give it.
-    return integer_hint(source, y, x)
+    local inferred = msg == "in assignment: got number, expected integer" and
+      integer_hint(source, y, x) or nil
+    return inferred or integer_conversion
+  end
+  local shadowed = msg:match("^%a+ shadows previous declaration of '([%a_][%w_]*)'$")
+  if shadowed ~= nil and standard_globals[shadowed] then
+    return "this hides the standard library's " .. shadowed .. " for the rest of its scope: rename it"
+  end
+  local hidden, seen = msg:match("^invalid key '[^']*' in record '([%a_][%w_]*)' of type (.+)$")
+  if hidden == nil then
+    hidden, seen = msg:match("^cannot index key '[^']*' in variable '([%a_][%w_]*)' of type (.+)$")
+  end
+  if hidden ~= nil and standard_libraries[hidden] and seen ~= hidden then
+    return "'" .. hidden .. "' here is a local that hides the standard library's " ..
+      hidden .. ": rename it"
+  end
+  local same = same_named(msg)
+  if same ~= nil then
+    return same
+  end
+  local outer, inner = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
+  if outer ~= nil and outer == inner and module_bound(source, outer) ~= nil then
+    return outer .. " is itself the type of the record its module returns: write " ..
+      outer .. ", not " .. outer .. "." .. inner
   end
   local given, owner, option = msg:match(
     "^argument %d+: got (%a+), expected ([%a_][%w_]*)%.([%a_][%w_]*)$")
