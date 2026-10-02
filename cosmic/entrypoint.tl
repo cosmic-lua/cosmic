@@ -13,11 +13,16 @@ local record Entrypoint
   tree: string
   --- the file's own entry point -- what `require`ing it returns, when
   --- that is a function -- is called with one argument: an array of
-  --- the arguments after the file's own path on the command line,
-  --- indexed from 1 like any ordinary Lua array, so #argv and
-  --- ipairs(argv) see exactly those. The file's own path is at
-  --- argv[0] too, for a caller that wants it, but nothing ordinary
-  --- reaches it: no length or loop starts before 1
+  --- the arguments after the program on the command line, indexed
+  --- from 1 like any ordinary Lua array, so #argv and ipairs(argv) see
+  --- exactly those. Declare it `{string}`:
+  --- `return function(argv: {string}): integer`. The compiler refuses
+  --- `#` and `ipairs` on `{integer:string}`, a map. What it returns is
+  --- the exit code: nil is 0, and anything but a whole number from 0
+  --- to 255, or text naming one, exits 2. argv[0] holds the program's
+  --- own name -- the file's path under `cosmic <file.tl>`, the name a
+  --- built binary was run by -- but nothing ordinary reaches it: no
+  --- length or loop starts before 1
   argv: string
   --- a binary is cmd/<name>/main.tl, its own directory under cmd/.
   --- `cosmic build` writes o/bin/<name> for each one a tree holds,

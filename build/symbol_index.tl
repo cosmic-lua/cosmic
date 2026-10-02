@@ -10,6 +10,7 @@
 --- [`cosmic.cli.order`]). A name alone never comes here:
 --- it names a declaration of its own file ([`build.link_resolve`]).
 
+local Sqlite = require("cosmic.sqlite")
 local alias_members = require("build.alias_members")
 local type link_resolve = require("build.link_resolve")
 
@@ -38,10 +39,11 @@ local record symbol_index
   --- each module's first row (`first`), and the record each module's
   --- value is typed as when its own row says so (`values`,
   --- [`alias_members.value_record`]); these only of rows shown. Of
-  --- every row, a record, interface or enum by module and source
-  --- symbol (`types`), an exported `type X = Y` by source symbol
-  --- (`aliases`), and a field or value by module and the source symbol
-  --- it is declared under (`under`).
+  --- every row, a record, interface, enum or `type X = Y` by module and
+  --- source symbol (`types`) and, exported, by module and symbol
+  --- (`exported`), and a field or value by module and the source symbol
+  --- it is declared under (`under`); and the module each module binds
+  --- each name to, by module and name (`bound`, [`symbol_index.add_bound`]).
   record Index
     modules: {string: boolean}
     exact: {string: {Row}}
@@ -50,15 +52,16 @@ local record symbol_index
     first: {string: Row}
     values: {string: string}
     types: {string: Row}
-    aliases: {string: Row}
+    exported: {string: Row}
     under: {string: {Row}}
+    bound: {string: string}
   end
 end
 
 --- An index of no rows.
 function symbol_index.new(): symbol_index.Index
   return { modules = {}, exact = {}, named = {}, members = {}, first = {}, values = {},
-    types = {}, aliases = {}, under = {} }
+    types = {}, exported = {}, under = {}, bound = {} }
 end
 
 --- Adds `row` to the list `map` keeps under `key`.
@@ -89,15 +92,41 @@ function symbol_index.module(index: symbol_index.Index, module: string)
   index.modules[module] = true
 end
 
+--- Adds to `index` each name a module binds to another, the rows of
+--- `bound` ([`build.schema`]) of the database `db` holds under
+--- `qualifier` (`""` or `"out."`), where it holds that table: one
+--- written before it existed binds none. The first database read that
+--- binds a name answers for it, as [`build.docs`] reads them.
+function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
+                                qualifier: string): boolean, string
+  local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
+    "sqlite_schema WHERE type = 'table' AND name = 'bound'")
+  if held == nil then
+    return false, held_trouble
+  end
+  if #held == 0 then
+    return true, ""
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
+  if rows == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(rows) do
+    local key = row[1] .. "\n" .. row[2]
+    if index.bound[key] == nil then index.bound[key] = row[3] end
+  end
+  return true, ""
+end
+
 --- Adds a row of `docs` to `index` (`symbol` `""` for the module's own
 --- row). The first row shown of a module is its `first`.
 function symbol_index.add(index: symbol_index.Index, row: symbol_index.Row)
   local module, symbol, source = row.module, row.symbol, row.source_symbol
-  if row.kind == "record" or row.kind == "interface" or row.kind == "enum" then
+  if row.kind == "record" or row.kind == "interface" or row.kind == "enum" or
+      row.signature:match("^type .* = ") ~= nil then
     keep_first(index.types, module .. "\n" .. source, row)
-  end
-  if row.exported and row.signature:match("^type .* = ") ~= nil then
-    keep_first(index.aliases, source, row)
+    if row.exported then keep_first(index.exported, module .. "\n" .. symbol, row) end
   end
   local parent, last = source:match("^(.*)%.([^.]*)$")
   if parent ~= nil and (row.kind == "field" or row.kind == "value") and last:sub(1, 1) ~= "_" then
@@ -174,8 +203,11 @@ local function source_of(index: symbol_index.Index): alias_members.Source<symbol
     declared = function(module: string, name: string): symbol_index.Row | nil, string
       return index.types[module .. "\n" .. name]
     end,
-    alias = function(name: string): symbol_index.Row | nil, string
-      return index.aliases[name]
+    exported = function(module: string, name: string): symbol_index.Row | nil, string
+      return index.exported[module .. "\n" .. name]
+    end,
+    bound = function(module: string, name: string): string | nil, string
+      return index.bound[module .. "\n" .. name]
     end,
     under = function(target: symbol_index.Row): {symbol_index.Row} | nil, string
       return members_under(index, target)

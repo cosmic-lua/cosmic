@@ -803,6 +803,48 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
   })
 end
 
+--- A member a type takes from another module's, through the name its
+--- own module binds that module to (`B`, no spelling of `cosmic.base`),
+--- resolves, by alias and by base; one it does not take does not.
+local function test_a_member_through_a_required_modules_type_resolves(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/base.tl"] = lines(
+      "--- Bases.",
+      "local record Base",
+      "  --- One entry.",
+      "  interface Entry",
+      "    --- Its path.",
+      "    path: string",
+      "  end",
+      "end",
+      "",
+      "return Base"),
+    ["cosmic/user.tl"] = lines(
+      "--- Users.",
+      "local B = require(\"cosmic.base\")",
+      "",
+      "local record User",
+      "  --- An entry, as the base has it.",
+      "  type Entry = B.Entry",
+      "  --- An entry of its own.",
+      "  record Item is B.Entry",
+      "  end",
+      "end",
+      "",
+      "return User"),
+  })
+  local context = links.context(dir, function(): docs.View | nil, string
+    return docs.view({ db })
+  end, function(): string | nil return nil end)
+  same(checked(context, dir .. "/b.tl", "teal", lines(
+    "local User = require(\"cosmic.user\")",
+    "-- [`User.Entry.path`], [`User.Item.path`], [`cosmic.user.Item.path`];",
+    "-- not [`User.Item.size`].",
+    "return User")), {
+    dir .. "/b.tl:3: link: User.Item.size does not resolve (cosmic.user has no Item.size)",
+  })
+end
+
 --- A module whose value is typed by a record of another name hands out
 --- that record's fields as its own members: `Cli.order` through the
 --- required alias, and [`cosmic.cli.order`] in full; another record it
