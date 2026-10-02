@@ -82,8 +82,8 @@ local record Result
   --- Whether the child exited with status 0 and was not ended for
   --- running past its timeout.
   ok: boolean
-  --- Whether the child ran past the timeout ([`Child.run`]'s
-  --- `timeout_ns`, or [`Handle.wait`]'s) and was ended for it.
+  --- Whether the child ran past a timeout -- its own
+  --- [`Options.timeout_ns`], or [`Handle.wait`]'s -- and was ended for it.
   timed_out: boolean
   --- Captured stdout, when stdout was "capture".
   stdout: string | nil
@@ -227,9 +227,18 @@ local record Options
   --- and ends with it; true by default. False for a child meant to
   --- outlive the call that started it.
   process_group: boolean
-  --- How long [`Child.run`] lets the child run before ending it, as
-  --- [`Handle.wait`] does with its own timeout. [`Child.start`] refuses it:
-  --- a started child's time is the caller's to bound, by `h:wait(ns)`.
+  --- How long the child may run, from its start, before it is ended as
+  --- an expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
+  --- SIGKILL, its group included -- its Result `timed_out`. Nil for no
+  --- limit. [`Child.run`]'s wait ends the child at it. A started child
+  --- is ended for it by whatever waits on it once it has passed: its
+  --- handle's `wait` (with a timeout of its own or not), [`try_wait`],
+  --- [`Child.wait_any`], or a read or write of its streams. A child that
+  --- exited by itself before that is not `timed_out`. Nothing ends it
+  --- while nothing waits on it, as no thread runs here but the caller's:
+  --- it runs past the deadline until something waits, or its handle
+  --- closes. [`Handle.drain`], which ends no process, does not end it
+  --- either: a loop over it asks [`try_wait`] to have the deadline kept.
   timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
@@ -322,8 +331,11 @@ local record Handle
   --- to read on; `close` ends them once what is queued is read. While
   --- the innermost open guard has caught a signal, a read or a write
   --- fails with "child: cancelled by signal N", as a wait does. A read
-  --- or raw poll failure follows the bytes already queued, then remains
-  --- the reader's failure on later reads.
+  --- or a write that waits past the child's own [`Options.timeout_ns`]
+  --- ends the child as an expired `wait` would: a read then reads what
+  --- it left, and a write fails. A read or raw poll failure follows the
+  --- bytes already queued, then remains the reader's failure on later
+  --- reads.
   stdout_stream: Stream.Reader | nil
   --- See `stdout_stream`.
   stderr_stream: Stream.Reader | nil
@@ -353,8 +365,12 @@ local record Handle
   _input: string
   _input_at: integer
   _limit: integer
+  --- When the child's own `timeout_ns` passes, on the monotonic clock;
+  --- nil for none ([`Options.timeout_ns`]).
+  _deadline: integer | nil
   --- Waits for the child to exit and answers its Result. With
-  --- `timeout_ns`, a child still running when it passes is ended --
+  --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
+  --- passes, whichever is first, a child still running is ended --
   --- SIGTERM, a grace period, then SIGKILL, its group included -- and
   --- the Result says `timed_out`; [`Child.wait_any`]'s timeout instead
   --- leaves every child running. While a [`Child.guard`] is open, a
@@ -370,7 +386,8 @@ local record Handle
   --- bounds. EOF requires closed pipes, including escaped writers. A previous
   --- guard cancellation may be bypassed only after its signal was taken; a
   --- fresh signal interrupts without being consumed. Ordinary Reader failures
-  --- remain sticky. No process is ended, reaped to completion, or timed out.
+  --- remain sticky. No process is ended, reaped to completion, or timed out,
+  --- past the child's own [`Options.timeout_ns`] or not.
   --- Concurrent reads/drains raise. Sink failure may have written a prefix;
   --- it ends the selected read ends, and the caller still owns child cleanup.
   --- The deadline bounds pipe waits, not arbitrary code in a Writer. A zero
@@ -379,7 +396,10 @@ local record Handle
   --- Whether the child has exited, without waiting: `finished` is false
   --- while it runs, and true with its `result` once it has exited and its
   --- group is cleared, as `wait` would answer. It services the child's
-  --- captured and streamed outputs and input meanwhile. Nil and why when
+  --- captured and streamed outputs and input meanwhile. Once the child's
+  --- own [`Options.timeout_ns`] has passed, a child still running is
+  --- ended as an expired `wait` ends it, which waits for it to go, and
+  --- `finished` is true, its Result `timed_out`. Nil and why when
   --- settling the child fails.
   try_wait: function(Handle): TryWait | nil, string
   --- Sends `signal` (SIGTERM by default) to the child, or to its whole
@@ -513,6 +533,22 @@ end
 
 local function target(self: Handle): integer
   return self.process_group and -self.pid or self.pid
+end
+
+--- The earlier of `deadline` (nil for none) and the child's own, which
+--- counts only while it is unsettled.
+local function sooner(deadline: integer, self: Handle): integer
+  local own = self._deadline
+  if own == nil or self._status ~= nil or (deadline ~= nil and deadline <= own) then
+    return deadline
+  end
+  return own
+end
+
+--- Whether the child's own deadline has passed while it is unsettled:
+--- a wait that finds it so ends the child.
+local function overdue(self: Handle): boolean
+  return self._deadline ~= nil and self._status == nil and now() >= self._deadline
 end
 
 --- In an adopting process, reaps every child that has exited: an owned
@@ -1069,10 +1105,20 @@ local function waiting_read(self: PipeReader, max_bytes?: integer): string | nil
         pipe.reader_closed = true
         end_stream(pipe)
       end
+    elseif overdue(child) then
+      -- Ended as a wait would end it; its pipe is read on from there.
+      local ended, trouble = end_child(child)
+      if ended == nil and child._status == nil then
+        self.failed = trouble
+        return nil, trouble
+      end
     else
-      local _, cancelled = pump(watching({ child }), slice(nil, { child }), true, true)
-      -- Not kept as `failed`: the task's end, not the stream's.
-      if cancelled ~= "" then return nil, cancelled end
+      local left = slice(sooner(nil, child), { child })
+      if left ~= nil then
+        local _, cancelled = pump(watching({ child }), left, true, true)
+        -- Not kept as `failed`: the task's end, not the stream's.
+        if cancelled ~= "" then return nil, cancelled end
+      end
     end
   end
   return take_chunk(pipe, max_bytes or CHUNK), ""
@@ -1153,10 +1199,17 @@ local function feed_writer(self: Handle): Stream.Writer
   -- A closure, for [`Stream.FdOptions.wait`] is called with no Writer.
   local function room(_fd: integer, _events: integer, _left: integer | nil): boolean, string
     local why = interrupted(self)
+    if why == "" and overdue(self) then
+      local _, trouble = end_child(self)
+      why = trouble
+    end
     if why == "" and self._status ~= nil then why = EXITED end
     if why ~= "" then return false, why end
-    local _, cancelled = pump(watching({ self }, self), slice(nil, { self }), true, true)
-    if cancelled ~= "" then return false, cancelled end
+    local left = slice(sooner(nil, self), { self })
+    if left ~= nil then
+      local _, cancelled = pump(watching({ self }, self), left, true, true)
+      if cancelled ~= "" then return false, cancelled end
+    end
     -- Another task may have closed it meanwhile, by this writer's
     -- close or a settle, and its number be another file's by now.
     if self._feed_fd ~= fd then return false, w.closed and closed_writer or EXITED end
@@ -1313,7 +1366,7 @@ Handle.try_wait = function(self: Handle): TryWait | nil, string
   local status, trouble = exited(self)
   if status == nil then
     if trouble ~= "" then return nil, trouble end
-    return { finished = false }, ""
+    if not overdue(self) then return { finished = false }, "" end
   end
   local r, settle_trouble = end_child(self)
   if r == nil then return nil, settle_trouble end
@@ -1330,7 +1383,7 @@ end
 Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   if self._result then return self._result, "" end
-  if timeout_ns == nil and active == nil and not self._streams and
+  if timeout_ns == nil and self._deadline == nil and active == nil and not self._streams and
       not self._input_fd and not through_run() then
     local status, trouble = exited(self, true)
     if not status then return nil, trouble end
@@ -1338,6 +1391,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
   end
   local deadline: integer
   if timeout_ns ~= nil then deadline = now() + timeout_ns end
+  deadline = sooner(deadline, self)
   -- Services the child's pipes until it exits, `deadline` passes ("")
   -- or the wait cannot go on: a signal the innermost open guard
   -- caught, a task cancelled, a child that cannot be asked about.
@@ -1402,10 +1456,11 @@ local handle_mt: metatable<Handle> = {
 }
 
 --- A handle for `pid`, owning it until it settles.
-local function make_handle(pid: integer, process_group: boolean, limit: integer): Handle
+local function make_handle(pid: integer, process_group: boolean, limit: integer,
+    deadline: integer | nil): Handle
   local h: Handle = setmetatable({
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
-    _explicit_close = false, _drain_next = 1,
+    _explicit_close = false, _drain_next = 1, _deadline = deadline,
   }, handle_mt)
   -- Owned only once it has its metatable, so the finalizer covers the child from then; a
   -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
@@ -1919,7 +1974,9 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     end
     return refuse("start: " .. trouble)
   end
-  local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT)
+  local deadline: integer
+  if opts.timeout_ns ~= nil then deadline = now() + opts.timeout_ns end
+  local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
   if #wiring.streams > 0 then h._streams = wiring.streams end
   if wiring.input_fd ~= nil then
     h._input_fd, h._input, h._input_at = wiring.input_fd, opts.input, 0
@@ -1948,13 +2005,12 @@ end
 --- Starts one executable and returns an owning handle. argv[1] is an exact
 --- path, without PATH lookup: [`Proc.find`] finds a program by
 --- name. Dropping or closing a handle whose child is unfinished ends the
---- child and its group; `wait(timeout)` does the same on expiry.
---- `timeout_ns` is refused: bound the child with `h:wait(timeout_ns)`.
+--- child and its group; `wait(timeout)` does the same on expiry, and so
+--- does a wait once the child's `timeout_ns`, counted from here, has
+--- passed. Nothing ends it for `timeout_ns` while nothing waits on it
+--- ([`Options.timeout_ns`]).
 function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
-  if opts.timeout_ns ~= nil then
-    error("child: timeout_ns is Child.run's; bound a started child with h:wait(timeout_ns)", 2)
-  end
   validate(argv, opts)
   return start(argv, opts)
 end
@@ -1964,7 +2020,11 @@ end
 --- at once. Nil and [`Poll.TIMEOUT`] when `timeout_ns` passes first --
 --- no handle finished, and nothing failed -- and the handles are left
 --- running: a timeout is `done == nil and trouble == Poll.TIMEOUT`, and
---- any other trouble beside a nil `done` is a failure. In a task of
+--- any other trouble beside a nil `done` is a failure. A handle whose
+--- own [`Options.timeout_ns`] passes first is ended, as an expired
+--- [`Handle.wait`] ends it -- which waits for it to go, so the call
+--- can outlast its own `timeout_ns` by the grace period -- and is
+--- answered settled, its Result `timed_out`. In a task of
 --- [`Poll.run`] that is cancelled, it answers nil and
 --- [`Poll.CANCELLED`], the handles left running too. A `timeout_ns`
 --- below 0 or past [`Poll.MOST_NS`] raises.
@@ -1985,11 +2045,20 @@ function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle | nil, 
         return h, settle_trouble
       end
       if trouble ~= "" then return nil, trouble end
+      if overdue(h) then
+        local _, settle_trouble = end_child(h)
+        return h, settle_trouble
+      end
     end
-    local left = slice(deadline, handles)
-    if left == nil then return nil, Poll.TIMEOUT end
-    local _, cancelled = pump(watching(handles), left, true)
-    if cancelled ~= "" then return nil, cancelled end
+    local soonest = deadline
+    for _, h in ipairs(handles) do soonest = sooner(soonest, h) end
+    local left = slice(soonest, handles)
+    if left ~= nil then
+      local _, cancelled = pump(watching(handles), left, true)
+      if cancelled ~= "" then return nil, cancelled end
+    elseif deadline ~= nil and now() >= deadline then
+      return nil, Poll.TIMEOUT
+    end
   end
 end
 
@@ -2097,7 +2166,8 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   if started ~= nil then
     -- Ends the child where the run is left by a raise, or a task's kill.
     local _ending <close> = started
-    r, wait_trouble = started:wait(opts.timeout_ns)
+    -- Bounded by the deadline `start` gave it from `opts.timeout_ns`.
+    r, wait_trouble = started:wait()
     if not started._closed and (guard:cancelled() ~= 0 or r == nil) then
       local _, failure = end_or_kill(started)
       if failure ~= "" then cleanup_trouble = failure end
