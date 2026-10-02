@@ -158,6 +158,21 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     assert(permissions(temp .. "/" .. made[1]) == 0x1c0,
       name .. " cache leaf is not private")
   end
+  -- `cosmic help build` says a program runs with an empty environment:
+  -- with no PATH or HOME the launcher finds its utilities on the shell's
+  -- default. Only TMPDIR, so the cache leaf lands in this test's
+  -- directory rather than the runner's /tmp, and the two names the
+  -- stand-in payload checks for are set.
+  local bare = ctx.work .. "/empty-environment-tmp"; Fixture.mkdir(bare)
+  outcome_ok(Fixture.call_with_environment("empty-environment",
+    { ctx.artifact }, ctx.work, ctx.diagnostics, {
+      TMPDIR = bare,
+      PORTABLE_ORDINARY_ENV = "preserved",
+      PORTABLE_CALLER_LOCALE = "preserved",
+    }), "empty environment")
+  local bare_made = assert(Fs.list(bare))
+  assert(#bare_made == 1 and bare_made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
+    "an empty environment did not make its cache leaf in TMPDIR")
 end
 
 local function test_launcher_cache_policy_and_integrity(tmp: string)

@@ -589,11 +589,11 @@ local function walk(root: string, skip: function(string, string, string): boolea
   return found, ""
 end
 
---- Every file under a root, sorted, as `find root -type f` lists them
---- but relative to `root`: no leading `/` or `./` (`a.txt`,
---- `css/main.css`), so `root .. "/" .. path` names the file. Only a
---- regular file is listed (`-type f`): a link is neither listed nor
---- walked into, whatever it leads to.
+--- Every file under a root, as `find root -type f` lists them but
+--- relative to `root`: no leading `/` or `./` (`a.txt`, `css/main.css`),
+--- so `root .. "/" .. path` names the file. Only a regular file is
+--- listed (`-type f`): a link is neither listed nor walked into,
+--- whatever it leads to. The paths are sorted bytewise, whole.
 --- `skip` is asked about each entry's relative path, its bare name
 --- second, and what the listing says it is third, as [`Fs.stat`]'s
 --- `kind` names it (`"file"`, `"dir"`, `"link"`, `"socket"` and so

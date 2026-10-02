@@ -150,11 +150,12 @@ an empty environment (`env -i ./tally`). `file` calls it a shell script
 because it starts as one: a /bin/sh launcher with a core for each
 supported system and the program appended. On a host's first run the
 launcher copies that host's core into a private cache
-(`~/.cache/cosmic/cores`, or `/tmp/cosmic-cores-<uid>` with no `HOME`;
-`cosmic help build` lists the rest) and runs it from there. `cosmic build
---host` writes instead a native executable for this system alone, which
-needs no shell and writes no cache: the choice for a container with no
-/bin/sh, or a host with nowhere to write.
+(`~/.cache/cosmic/cores`, `~/Library/Caches/cosmic/cores` on macOS, or
+`/tmp/cosmic-cores-<uid>` with no `HOME`; `cosmic help build` lists the
+rest) and runs it from there. `cosmic build --host` writes instead a
+native executable for this system alone, which needs no shell and writes
+no cache: the choice for a container with no /bin/sh, or a host with
+nowhere to write.
 
 ## trying it
 

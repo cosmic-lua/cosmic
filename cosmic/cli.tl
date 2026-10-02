@@ -122,13 +122,13 @@ local record Cli
   --- o/bin/<name> -- see cmd. That one file is the whole program: copied
   --- alone to a host with no cosmic, it runs with an empty environment
   --- (`env -i ./name`) on every supported system. It is a /bin/sh
-  --- launcher, which `file` calls a shell script, with a core for each
-  --- system and the program appended; the launcher calls uname, stat
+  --- launcher with a core for each system and the program appended;
+  --- the launcher calls uname, stat
   --- and the like from the PATH (the shell's default when none is set),
   --- and a host's first run copies its core into a private cache:
   --- $COSMIC_PORTABLE_CACHE, else $XDG_CACHE_HOME/cosmic/cores, else
   --- the home directory's cache, else $TMPDIR, or /tmp, under
-  --- cosmic-cores-<uid>. `--host` writes this system's core and the
+  --- cosmic-cores-<uid>. `--host` writes this cosmic's own core and the
   --- program alone, which the kernel runs directly -- no shell, PATH or
   --- cache -- but only on this system and processor: the choice for a
   --- container with no /bin/sh or a host with nowhere to write. Either
