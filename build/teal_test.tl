@@ -333,6 +333,8 @@ end
 --- token, or parsed the function bodies in a `where` clause would grow
 --- with the square of the lines or double with each level; one begun
 --- within another would read each token through every look around it.
+--- The bound is mostly on the ratio of two compiles of files alike in
+--- length, so it holds on a slow core and a loaded host.
 local function test_a_keyword_named_variable_costs_what_it_reads()
   local built = assert(teal.load())
   local head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
@@ -374,8 +376,19 @@ local function test_a_keyword_named_variable_costs_what_it_reads()
     repeated("local xN = record\nwhere(a)\n(b)()\nprint(xN)\n"),
     nested,
   }) do
-    local t = took(source)
-    local base = took((source:gsub("record", "recd"):gsub("enum", "enmd")))
+    local plain = (source:gsub("record", "recd"):gsub("enum", "enmd"))
+    -- The least of up to three of each, taken in turn, so neither a
+    -- first compile's warm-up nor a pause elsewhere on the host lands
+    -- on one side alone. A ratio within the bound ends the tries, so a
+    -- pass costs one of each, and so does one four times past it, which
+    -- no pause explains, so a failure is told well inside the deadline.
+    local t, base = math.maxinteger, math.maxinteger
+    for _ = 1, 3 do
+      t = math.min(t, took(source))
+      base = math.min(base, took(plain))
+      local bound = base * 20 + 50000000
+      if t < bound or t > 4 * bound then break end
+    end
     assert(t < base * 20 + 50000000, source:sub(1, 80) .. ": " .. t .. " ns against " .. base .. " ns")
   end
 end

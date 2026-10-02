@@ -364,28 +364,51 @@ local function test_tzif_refuses_malformed_files()
 end
 
 --- A file of many local time types whose abbreviations run to one NUL
---- at the end of many bytes is refused in time linear in its length,
---- not searched from every type to the end.
+--- at the end of many bytes is refused, not searched from every type to
+--- the end, and one whose NUL is near is read in time linear in its
+--- length. The bound is on the ratio of reading 40000 types to reading
+--- 10000, not on wall time, so it holds on a slow core and a loaded
+--- host: linear time gives about 4, a search from every type to the end
+--- about 16.
 local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
-  local count = 80000
-  local data = table.concat({ "TZif", "\0", ("\0"):rep(15),
-    string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6),
-    string.pack(">i4BB", 0, 0, 0):rep(count), ("A"):rep(count * 6 - 1), "\0" })
-  local started = Time.monotonic_ns()
-  local z, why = Time.zone_from_tzif(data, "x")
-  local elapsed = Time.monotonic_ns() - started
-  assert(z == nil and why:find("NUL", 1, true), why)
-  assert(elapsed < 2 * NS, ("%d types took %d ms"):format(count, elapsed // 1000000))
-  -- With a NUL near, every type reads its abbreviation, found once.
-  data = table.concat({ "TZif", "\0", ("\0"):rep(15),
-    string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6),
-    string.pack(">i4BB", 3600, 0, 4):rep(count), "UTC\0CET\0", ("A"):rep(count * 6 - 9), "\0" })
-  started = Time.monotonic_ns()
-  z, why = Time.zone_from_tzif(data, "x")
-  elapsed = Time.monotonic_ns() - started
-  assert(z ~= nil, why)
-  assert(Time.civil(0, z).abbreviation == "CET")
-  assert(elapsed < 2 * NS, ("%d types took %d ms"):format(count, elapsed // 1000000))
+  -- A file of `count` types; with `near`, its abbreviations hold a NUL
+  -- near their start, and every type reads its own, found once.
+  local function file(count: integer, near: boolean): string
+    local types = near and string.pack(">i4BB", 3600, 0, 4):rep(count)
+      or string.pack(">i4BB", 0, 0, 0):rep(count)
+    local abbreviations = near and "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0"
+      or ("A"):rep(count * 6 - 1) .. "\0"
+    return table.concat({ "TZif", "\0", ("\0"):rep(15),
+      string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6), types, abbreviations })
+  end
+  local function read(data: string, near: boolean): integer
+    local started = Time.monotonic_ns()
+    local z, why = Time.zone_from_tzif(data, "x")
+    local elapsed = Time.monotonic_ns() - started
+    if near then
+      assert(z ~= nil, why)
+      assert(Time.civil(0, z).abbreviation == "CET")
+    else
+      assert(z == nil and why:find("NUL", 1, true), why)
+    end
+    return elapsed
+  end
+  for _, near in ipairs({ false, true }) do
+    local few, many = file(10000, near), file(40000, near)
+    -- The least of up to three of each, taken in turn, so a pause
+    -- elsewhere on the host inflates neither; a ratio within the bound
+    -- ends the tries.
+    local few_ns, many_ns = math.maxinteger, math.maxinteger
+    local ratio: number
+    for _ = 1, 3 do
+      few_ns = math.min(few_ns, read(few, near))
+      many_ns = math.min(many_ns, read(many, near))
+      ratio = many_ns / math.max(few_ns, 1000000)
+      if ratio < 8 then break end
+    end
+    assert(ratio < 8, ("40000 types took %d ms, 10000 %d ms: %.1fx"):format(
+      many_ns // 1000000, few_ns // 1000000, ratio))
+  end
 end
 
 --- The zone `tz` names as a POSIX TZ string, which `local_zone` reads

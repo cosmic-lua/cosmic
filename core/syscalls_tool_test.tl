@@ -754,12 +754,14 @@ end
 --- second `waitpid` gives a sandbox's init to end once its program has
 --- (core/syscalls.c's `end_sandbox_init`): a run of `cosmic test` that
 --- confines each of its processes, as build/shared_verdicts_tool_test.tl's
---- nested runs do, would pay that second for every one. Each of a few
---- runs of a confined program that exits at once takes well under half
---- a second, and leaves no init behind.
+--- nested runs do, would pay that second for every one. A run of a
+--- confined program that exits at once leaves no init behind, and the
+--- middle of five runs takes well under half a second: a wait that sits
+--- out the second on most runs fails it, while a pause elsewhere on a
+--- loaded host, landing on a run or two, does not.
 local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: string)
   local probe = probe_in(tmp)
-  local slowest = 0
+  local times: {integer} = {}
   for _ = 1, 5 do
     local started = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
     local status = run_confined(tmp, probe, "exit 0")
@@ -767,10 +769,11 @@ local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: stri
     local took = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) - started
     assert(status.code == 0)
     assert(#process.sandbox_inits() == 0, "an init outlived the wait for its program")
-    if took > slowest then slowest = took end
+    times[#times + 1] = took
   end
-  assert(slowest < Time.ms(500), "a confined start and wait took " ..
-    tostring(slowest // Time.ms(1)) .. " ms")
+  table.sort(times)
+  assert(times[3] < Time.ms(500), "the middle of five confined starts and waits took " ..
+    tostring(times[3] // Time.ms(1)) .. " ms")
 end
 
 --- `exit_watch`'s descriptor is readable once its child has exited, and
