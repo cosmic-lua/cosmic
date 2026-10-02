@@ -16,6 +16,24 @@ else
 end
 
 local record Proc
+  --- The outcome of [`Proc.find_result`], without reading its diagnostic.
+  record FindResult
+    enum Kind
+      "resolved"
+      "not_found"
+      "not_executable"
+    end
+
+    --- Whether a spelling was selected, no candidate was found, or a
+    --- regular candidate could not execute.
+    kind: Kind
+    --- The selected spelling when resolved, or the first regular file
+    --- this process cannot execute. Nil when no candidate was found.
+    path: string | nil
+    --- Empty when resolved; the reason lookup refused otherwise.
+    reason: string
+  end
+
   --- What [`Proc.exec`] reads.
   record ExecOptions
     --- The program's whole environment, by name: it replaces this
@@ -106,20 +124,23 @@ end
 -- The search list `find` uses when PATH is unset, as execvp does.
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 
---- Where the program `name` would run from, found as a shell (or `which`,
---- or `command -v`) finds it: `name` itself when it holds a slash, else
---- the first executable file
---- of that name in `path` -- a colon-separated list, PATH's value by
---- default -- where an empty entry is the working directory. A relative
---- entry gives a relative answer, as a shell's would. Nothing runnable
---- is `nil` and why: no such file, or one that is there but not
---- executable (a shell's 127 and 126). An empty name raises.
-function Proc.find(name: string, path?: string): string | nil, string
+--- Selects a spelling for the program `name`: itself when it holds a
+--- slash, otherwise the first executable regular file in `path`, a
+--- colon-separated list that defaults to PATH (or /bin:/usr/bin when
+--- PATH is unset). Empty entries search the working directory; relative
+--- entries give relative answers. A slash-containing name is resolved
+--- without checking that it exists or can execute.
+---
+--- With no executable match, the first regular file this process cannot
+--- execute gives `not_executable`; no regular candidate gives `not_found`.
+--- A directory or a path that cannot be inspected is not a candidate.
+--- An empty name raises.
+function Proc.find_result(name: string, path?: string): Proc.FindResult
   if name == "" then
-    error("proc: find's name is empty", 2)
+    error("proc: find_result's name is empty", 2)
   end
   if name:find("/", 1, true) ~= nil then
-    return name, ""
+    return { kind = "resolved", path = name, reason = "" }
   end
   local search = path or Env.get("PATH") or DEFAULT_PATH
   local unrunnable: string = nil
@@ -131,15 +152,29 @@ function Proc.find(name: string, path?: string): string | nil, string
       -- others hold is no use to it.
       local runnable, _ = sys.access(candidate, sys.X_OK)
       if runnable then
-        return candidate, ""
+        return { kind = "resolved", path = candidate, reason = "" }
       end
       unrunnable = unrunnable or candidate
     end
   end
   if unrunnable ~= nil then
-    return nil, unrunnable .. ": not executable"
+    return { kind = "not_executable", path = unrunnable, reason = unrunnable .. ": not executable" }
   end
-  return nil, name .. ": not found"
+  return { kind = "not_found", reason = name .. ": not found" }
+end
+
+--- Where a shell's `which` or `command -v` finds a program:
+--- [`Proc.find_result`]'s resolved path, or nil and its reason for
+--- refusal. A slash-containing name passes through without being checked;
+--- an empty name raises. The refusal distinguishes no such program from
+--- a regular file this process cannot execute (a shell's 127 and 126).
+function Proc.find(name: string, path?: string): string | nil, string
+  if name == "" then
+    error("proc: find's name is empty", 2)
+  end
+  local result = Proc.find_result(name, path)
+  if result.kind == "resolved" then return result.path, "" end
+  return nil, result.reason
 end
 
 --- Whether a stream is a terminal: `isatty`, or the shell's `test -t`.

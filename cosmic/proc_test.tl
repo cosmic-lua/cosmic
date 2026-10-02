@@ -71,3 +71,61 @@ local function test_find_refuses_an_empty_name()
   ok, why = pcall(Proc.exec, {})
   assert(not ok and tostring(why):find("proc: argv is empty", 1, true), tostring(why))
 end
+
+--- Failure keeps the first denied regular file, while a later runnable
+--- candidate wins over both denied files and directories.
+local function test_find_result_classifies_the_selected_candidate(dir: string)
+  for _, name in ipairs({ "first", "second", "last", "directory/tool" }) do
+    assert(Fs.mkdirs(dir .. "/" .. name))
+  end
+  assert(Fs.write(dir .. "/first/tool", "", 0x180))
+  assert(Fs.write(dir .. "/second/tool", "", 0x180))
+  assert(Fs.write(dir .. "/last/tool", "", 0x1c0))
+  local path = dir .. "/directory:" .. dir .. "/first:" .. dir .. "/second"
+  local denied = Proc.find_result("tool", path)
+  assert(denied.kind == "not_executable")
+  assert(denied.path == dir .. "/first/tool")
+  assert(denied.reason == dir .. "/first/tool: not executable", denied.reason)
+  local found = Proc.find_result("tool", path .. ":" .. dir .. "/last")
+  assert(found.kind == "resolved" and found.path == dir .. "/last/tool" and found.reason == "")
+  assert(denied.kind == "not_executable" and denied.path == dir .. "/first/tool",
+    "a later lookup changed an earlier result")
+  local missing = Proc.find_result("tool", dir .. "/directory:" .. dir .. "/missing")
+  assert(missing.kind == "not_found" and missing.path == nil and missing.reason == "tool: not found")
+end
+
+--- Explicit spellings bypass inspection, even for a missing path, a
+--- directory or a regular file with no execute bits.
+local function test_find_result_resolves_explicit_paths_without_inspecting_them(dir: string)
+  assert(Fs.write(dir .. "/plain", "", 0x180))
+  for _, name in ipairs({ "./missing", dir, dir .. "/plain", dir .. "/missing" }) do
+    local found = Proc.find_result(name, "")
+    assert(found.kind == "resolved" and found.path == name and found.reason == "", name)
+    local legacy, trouble = Proc.find(name, "")
+    assert(legacy == name and trouble == "", trouble)
+  end
+end
+
+--- A directory the process cannot search reveals no regular candidate;
+--- permission override, where available, still sees its executable file.
+local function test_find_result_preserves_stat_refusal(dir: string)
+  local hidden = dir .. "/hidden"
+  assert(Fs.mkdirs(hidden))
+  assert(Fs.write(hidden .. "/tool", "", 0x1c0))
+  assert(Fs.chmod(hidden, 0))
+  local result = Proc.find_result("tool", hidden)
+  local legacy, trouble = Proc.find("tool", hidden)
+  assert(Fs.chmod(hidden, 0x1c0))
+  if overrides_permissions() then
+    assert(result.kind == "resolved" and result.path == hidden .. "/tool" and result.reason == "")
+    assert(legacy == result.path and trouble == "")
+  else
+    assert(result.kind == "not_found" and result.path == nil and result.reason == "tool: not found")
+    assert(legacy == nil and trouble == result.reason)
+  end
+end
+
+local function test_find_result_refuses_an_empty_name()
+  local ok, why: boolean, any = pcall(Proc.find_result, "")
+  assert(not ok and tostring(why):find("proc: find_result's name is empty", 1, true), tostring(why))
+end
