@@ -299,6 +299,15 @@ end
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
 local function opened(url: string, opts: Http.Options | nil, method: string | nil): Http.Response | nil, string
+  -- curl refuses these bytes too, as "Malformed input to a URL
+  -- function"; this names the byte and the fix.
+  local at = url:find("[\0-\32\127]")
+  if at ~= nil then
+    local byte = url:byte(at)
+    local what = byte == 32 and "a space" or byte == 0 and "a NUL" or ("control byte 0x%02x"):format(byte)
+    return nil, ("http: the URL holds %s at byte %d; escape a path segment or query value with Url.escape"):
+       format(what, at)
+  end
   local handle, trouble = http.open(url, raw_options(opts, method))
   if handle == nil then
     return nil, trouble
@@ -320,6 +329,10 @@ end
 --- The body is not read yet -- call `response:read(max_bytes)` until it
 --- returns `nil, ""` for a clean end, or use [`Http.request`] (or
 --- [`Http.get`]) to read it all at once.
+---
+--- `url` is sent as written: a space or control byte in it fails,
+--- naming the byte, and a path segment or query value that may hold
+--- one goes in through [`Url.escape`].
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
   local response, trouble = opened(url, opts, nil)
   if response == nil then
