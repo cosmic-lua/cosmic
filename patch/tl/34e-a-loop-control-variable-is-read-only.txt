@@ -1,15 +1,13 @@
 file: tl.tl
-note: refuse an assignment to a for loop's control variable (34a), which Lua 5.5 refuses only once the chunk is generated. The variable a name assigns is the nearest record that says whether it is one, or else the nearest that is no narrowing made in an inner block (a narrowing there has no specialized_from), as get_real_var_from_lower_scope finds it: a function's parameter of the same name, say
+note: refuse an assignment to a for loop's control variable (34a), which Lua 5.5 refuses only once the chunk is generated. The variable a name assigns is the nearest record that says whether it is one, or else the nearest that is no narrowing made in an inner block (a narrowing there has no specialized_from), as get_real_var_from_lower_scope finds it: a function's parameter of the same name, say. It is looked for before widen_back_var, which drops an inner block's narrowing even when a `local item = item` (34d) has made it a declaration of its own
 --- find
-      if attr == "close" or attr == "const" or attr == "total" then
-         self.errs:add(varnode, "cannot assign to <" .. attr .. "> variable")
-         return nil
-      end
+      local attr = varnode.attribute
+
+      if varname then
+         if self:widen_back_var(varname) then
 --- replace
-      if attr == "close" or attr == "const" or attr == "total" then
-         self.errs:add(varnode, "cannot assign to <" .. attr .. "> variable")
-         return nil
-      end
+      local attr = varnode.attribute
+
       if varname and varnode.kind == "variable" then
          for i = #self.st, 1, -1 do
             local declared = self.st[i].vars[varname]
@@ -23,4 +21,7 @@ note: refuse an assignment to a for loop's control variable (34a), which Lua 5.5
             end
          end
       end
+
+      if varname then
+         if self:widen_back_var(varname) then
 --- end

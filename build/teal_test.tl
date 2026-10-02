@@ -663,6 +663,12 @@ local function test_a_loop_control_variable_is_read_only()
     "local xs: {integer} = {}\nfor _, item in ipairs(xs) do item = item + 1; print(item) end\n",
     "for item = 1, 2 do local item = item; item = item + 1; print(item) end\n",
     "for item = 1, 2 do\n  print(item)\n  do local item = item; item = item + 1; print(item) end\nend\n",
+    "local function each(): function(): integer | string return nil end\n" ..
+      "for item in each() do\n  assert(item is string)\n  local item = item\n  item = item .. 'x'\n" ..
+      "  print(item)\nend\n",
+    "local function each(): function(): integer | string return nil end\n" ..
+      "for item in each() do\n  if item is string then\n    local item = item\n" ..
+      "    item = item .. 'x'\n    print(item)\n  end\nend\n",
     "for item = 1, 2 do\n  local function f(item: integer) item = item + 1; print(item) end\n" ..
       "  f(item)\nend\n",
     "local item = 0\nfor item = 1, 2 do print(item) end\nitem = 1\nprint(item)\n",
