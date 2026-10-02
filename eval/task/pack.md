@@ -63,6 +63,6 @@ binary is for you to find out from the binary.
 
 ## Deliverables, all in this directory
 
-1. The project: source, tests, examples, and the produced `notes`
+1. The project: source, tests, examples, and the produced `pack`
    executable, working as far as you can get them.
 2. `JOURNAL.md`, described below.

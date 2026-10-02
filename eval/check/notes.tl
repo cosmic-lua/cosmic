@@ -180,6 +180,23 @@ local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   end)
 end
 
+--- Runs `cosmic fix --check` with the journal set aside: it is prose
+--- the task asks for, not a source the task asks to have formatted,
+--- and `fix --check` holds a project's Markdown to its link rules.
+local function fix_check(g: Grade, cosmic: string, project: string)
+  local journal = project .. "/JOURNAL.md"
+  local aside = g.dir .. "/JOURNAL.md.aside"
+  local moved, _ = Fs.rename(journal, aside)
+  command_step(g, { cosmic, "fix", "--check" }, project)
+  if moved then
+    local back, trouble = Fs.rename(aside, journal)
+    if not back then
+      say("FAIL could not put JOURNAL.md back from " .. aside .. ": " .. trouble)
+      g.failed = true
+    end
+  end
+end
+
 --- Runs [`./notes`] in `dir` with nothing in its environment but `env`,
 --- and checks that it exits 0 printing exactly `want` on stdout and
 --- stderr together.
@@ -327,7 +344,7 @@ function Notes.grade(dir: string): integer
       evidence.examples .. " examples\n")
     return evidence.tests > 0 and evidence.examples > 0
   end)
-  command_step(g, { cosmic, "fix", "--check" }, project)
+  fix_check(g, cosmic, project)
   local built = command_step(g, { cosmic, "build" }, project)
   local exe = project .. "/o/bin/notes"
   -- Only a build that passed and names o/bin/notes among what it wrote

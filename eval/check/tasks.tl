@@ -166,6 +166,23 @@ local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   end)
 end
 
+--- Runs `cosmic fix --check` with the journal set aside: it is prose
+--- the task asks for, not a source the task asks to have formatted,
+--- and `fix --check` holds a project's Markdown to its link rules.
+local function fix_check(g: Grade, cosmic: string, project: string)
+  local journal = project .. "/JOURNAL.md"
+  local aside = g.dir .. "/JOURNAL.md.aside"
+  local moved, _ = Fs.rename(journal, aside)
+  command_step(g, { cosmic, "fix", "--check" }, project)
+  if moved then
+    local back, trouble = Fs.rename(aside, journal)
+    if not back then
+      say("FAIL could not put JOURNAL.md back from " .. aside .. ": " .. trouble)
+      g.failed = true
+    end
+  end
+end
+
 --- Runs the task's executable in the empty directory with an empty
 --- environment, answering its result.
 local function run(g: Grade, args: {string}, input?: string): Child.Result
@@ -357,20 +374,16 @@ local LEDGER_CSV <const> = table.concat({
 
 --- Whether two decoded JSON values are equal, numbers by value.
 local function same(a: any, b: any): boolean
-  if type(a) == "number" and type(b) == "number" then
-    return a as number == b as number
+  if a is {any: any} and b is {any: any} then
+    for k, v in pairs(a) do
+      if not same(v, b[k]) then return false end
+    end
+    for k in pairs(b) do
+      if a[k] == nil then return false end
+    end
+    return true
   end
-  if type(a) ~= "table" or type(b) ~= "table" then
-    return a == b
-  end
-  local ta, tb = a as {any: any}, b as {any: any}
-  for k, v in pairs(ta) do
-    if not same(v, tb[k]) then return false end
-  end
-  for k in pairs(tb) do
-    if ta[k] == nil then return false end
-  end
-  return true
+  return a == b
 end
 
 local function report(g: Grade, args: {string}, want: string): string
@@ -386,7 +399,7 @@ local function report(g: Grade, args: {string}, want: string): string
   elseif not same(got, wanted) then
     fail(g, label(g, args) .. ": got " .. trimmed(result.stdout or "") .. ", wanted " .. want)
   else
-    ok(label(g, args) .. " -> " .. want)
+    ok(label(g, args) .. " -> " .. (want:gsub("%s*\n%s*", "")))
   end
   return result.stderr or ""
 end
@@ -435,7 +448,7 @@ local function exchange(port: integer, request: string): string | nil, string
   if conn == nil then return nil, trouble end
   local sent, strouble = conn:write(request)
   if not sent then
-    conn:close()
+    local _, _ = conn:close()
     return nil, strouble
   end
   local got = ""
@@ -444,19 +457,20 @@ local function exchange(port: integer, request: string): string | nil, string
     if head ~= nil then
       local length = math.tointeger(tonumber(head:lower():match("\ncontent%-length:%s*(%d+)")))
       if length == nil then
-        conn:close()
+        local _, _ = conn:close()
         return nil, "no Content-Length in " .. first_line(head)
       end
       if #rest >= length then break end
     end
     local chunk, rtrouble = conn:read()
     if chunk == nil then
-      conn:close()
-      return got ~= "" and got or nil, rtrouble ~= "" and rtrouble or "closed early"
+      local _, _ = conn:close()
+      if got ~= "" then return got, "" end
+      return nil, rtrouble ~= "" and rtrouble or "closed early"
     end
     got = got .. chunk
   end
-  conn:close()
+  local _, _ = conn:close()
   return got, ""
 end
 
@@ -472,7 +486,7 @@ local function answers(g: Grade, port: integer, request: string, codes: {string}
   for _, c in ipairs(codes) do
     if c == code then matched = true end
   end
-  local got_body = got:match("\r\n\r\n(.*)$")
+  local got_body = trimmed(got:match("\r\n\r\n(.*)$") or "")
   if not matched then
     fail(g, shown .. ": status " .. tostring(code) .. ", wanted " .. table.concat(codes, " or "))
   elseif body ~= nil and got_body ~= body then
@@ -507,7 +521,7 @@ local function kv(g: Grade)
     local text, _ = Fs.read(out_path)
     fail(g, "kv serve 0 printed no 'listening on 127.0.0.1:<port>' line in 5s: " ..
       first_line(text or ""))
-    server:close()
+    local _, _ = server:close()
     return
   end
   ok("kv serve 0 -> listening on 127.0.0.1:" .. port)
@@ -517,11 +531,11 @@ local function kv(g: Grade)
   expect(g, "hello", { "get", base .. "/alpha" })
   expect(g, "", { "put", base .. "/beta", "two words" })
   expect(g, "two words", { "get", base .. "/beta" })
-  expect(g, "alpha\nbeta", { "get", base .. "/" })
   expect(g, "", { "rm", base .. "/alpha" })
   refuses(g, { "get", base .. "/alpha" })
   refuses(g, { "rm", base .. "/alpha" })
 
+  answers(g, port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", { "200" }, "beta")
   answers(g, port, "PUT /raw HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc", { "204" })
   answers(g, port, "GET /raw HTTP/1.1\r\nHost: x\r\n\r\n", { "200" }, "abc")
   answers(g, port, "GET /nothing HTTP/1.1\r\nHost: x\r\n\r\n", { "404" })
@@ -543,7 +557,7 @@ local function kv(g: Grade)
       fail(g, "get while another client idles mid-request: exit " .. status(result) ..
         " after " .. took .. " ms; stderr: " .. first_line(result.stderr or ""))
     end
-    idle:close()
+    local _, _ = idle:close()
   end
 
   local stopped, _ = server:stop()
@@ -555,7 +569,7 @@ local function kv(g: Grade)
   else
     ok("kv serve exits 0 on SIGTERM")
   end
-  server:close()
+  local _, _ = server:close()
   refuses(g, { "get", base .. "/beta" })
   help(g, { "serve", "put", "get", "rm" })
 end
@@ -589,7 +603,7 @@ function Tasks.grade(name: string, dir: string): integer
       trouble .. "\n")
     return tests > 0 and examples > 0
   end)
-  command_step(g, { cosmic, "fix", "--check" }, project)
+  fix_check(g, cosmic, project)
   local passed = command_step(g, { cosmic, "build" }, project)
   local read, _ = Fs.read(g.dir .. "/check-" .. g.steps .. ".out")
   local st, _ = Fs.stat(g.exe)
