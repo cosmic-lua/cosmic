@@ -63,9 +63,10 @@ end
 local function test_busy_wait_keeps_the_signal_and_clears_only_the_operations_flag(tmp: string)
   local held <close> = holder(tmp .. "/db")
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
-  -- Long past the signal, however late it comes, and within the test's
-  -- deadline: a wait the signal did not end answers BUSY, not cancelled.
-  db:busy_timeout(Time.seconds(15))
+  -- Long past the signal, which the ready handshake leaves only its
+  -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
+  -- a wait the signal did not end answers BUSY, not cancelled.
+  db:busy_timeout(Time.seconds(6))
   local guard <close> = assert(Child.guard())
   local sender <close> = interrupter()
   interrupt(sender)
@@ -160,18 +161,19 @@ local function test_zero_short_and_prepared_waits_have_separate_budgets(tmp: str
 end
 
 --- One exec's two inserts wait on two holders under one budget. The
---- holders let go 1.5 s and 4 s after their stdin closes, and the budget
---- is 3 s: shared, it runs out at 3 s with the second lock still held;
---- restarted at the first insert, it would run to 4.5 s and take the
---- second lock at 4 s. The exec may start up to 1 s after the stdin
---- closes, and the first holder let go up to 1.5 s late, before either
---- outcome changes.
+--- holders let go 1.5 s and 3.5 s after their stdin closes, and the
+--- budget is 2.5 s: shared, it runs out at 2.5 s with the second lock
+--- still held; restarted at the first insert, it would run to 4 s and
+--- take the second lock at 3.5 s. A pass holds while the exec starts
+--- less than 1 s after the stdin closes and the first holder lets go
+--- less than 1 s late. A restarted budget is caught only while the
+--- second holder lets go less than 0.5 s later than the first does.
 local function test_one_exec_shares_a_budget_across_separate_database_locks(tmp: string)
   local first <close> = holder(tmp .. "/first", Time.ms(1500))
-  local second <close> = holder(tmp .. "/second", Time.ms(4000))
+  local second <close> = holder(tmp .. "/second", Time.ms(3500))
   local db = assert(Sqlite.open(tmp .. "/first", { writable = true }))
   assert(db:exec("ATTACH DATABASE '" .. tmp .. "/second' AS other"))
-  db:busy_timeout(Time.ms(3000))
+  db:busy_timeout(Time.ms(2500))
   assert(assert(first.stdin_stream):close())
   assert(assert(second.stdin_stream):close())
   local result = db:exec_result("INSERT INTO main.t VALUES (1); INSERT INTO other.t VALUES (2)")

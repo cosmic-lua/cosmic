@@ -346,8 +346,8 @@ end
 
 --- A child that holds SIGTERM is ended by the SIGKILL that follows the
 --- grace period, whether a timed wait or a close ends it: the Result
---- says it timed out and the child is gone. The child loops forever, so
---- the upper bounds only tell an end that never comes from a slow one.
+--- says it timed out and the child is gone. The upper bounds are loose:
+--- they catch an end far past the grace and the reap, not a slow host.
 local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp: string)
   local report = tmp .. "/held"
   for _, module in ipairs(both()) do
@@ -360,7 +360,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     local r = assert(h:wait(Time.ms(100)))
     local took = Time.monotonic_ns() - started
     assert(r.timed_out and not r.ok and r.signal == sys.SIGKILL, tostring(r.signal))
-    assert(took >= Time.ms(300) and took < Time.seconds(20), "ended after " .. took // Time.ms(1) .. " ms")
+    assert(took >= Time.ms(300) and took < Time.seconds(8), "ended after " .. took // Time.ms(1) .. " ms")
     assert(sys.kill(pid, 0) == false, "the child outlived its wait")
     local closing = assert(module.start(lua(holding_term(report))))
     by = Time.monotonic_ns() + Time.seconds(30)
@@ -370,7 +370,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     started = Time.monotonic_ns()
     assert(closing:close())
     took = Time.monotonic_ns() - started
-    assert(took < Time.seconds(20), "closed after " .. took // Time.ms(1) .. " ms")
+    assert(took < Time.seconds(8), "closed after " .. took // Time.ms(1) .. " ms")
     assert(sys.kill(closing_pid, 0) == false, "the child outlived its close")
   end
 end
@@ -394,8 +394,9 @@ local function test_a_raise_while_ending_a_run_still_kills_the_child(tmp: string
     return poll(fds, events, ms)
   end
   -- The timeout only bounds a run that never raises: one that fired
-  -- first would end the child before it holds SIGTERM.
-  local argv, options = lua(holding_term(report), { timeout_ns = Time.seconds(20) })
+  -- first would end the child before it holds SIGTERM, which fails the
+  -- assertions below.
+  local argv, options = lua(holding_term(report), { timeout_ns = Time.seconds(8) })
   local ok, trouble: boolean, any = pcall(Child.run, argv, options)
   sys.poll = poll
   assert(raised and not ok and tostring(trouble):find("poll refused", 1, true) ~= nil,
@@ -549,7 +550,7 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
   local victim = tmp .. "/victim"
   local wrote, why: boolean, string
   Poll.run(function()
-    -- The child outlives the test, which its handle's close ends: one
+    -- The child outlives the write, and its handle's close ends it: one
     -- that exited first would fail the write with EPIPE instead.
     local h <close> = assert(Child.start(lua(sleep(100000), { stdin = "stream" })))
     local stream = assert(h.stdin_stream)
@@ -566,6 +567,29 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
   assert(assert(Fs.read(victim)) == "", "the write went on into another file")
 end
 
+--- Waits in a task until `h`'s child has exited, without claiming its
+--- status: on its exit watch, or, for a child with none (a Linux without
+--- pidfd_open, or Darwin's kqueue refusing a child that has already
+--- exited, ESRCH), until /proc shows it a zombie, where there is a /proc.
+local function exited_unreaped(h: Child.Handle)
+  if h._exit_fd >= 0 then
+    -- TODO: on Darwin the watch may be readable a moment before waitpid
+    -- can reap the child (core/syscalls.c's `exit_watch` TODO), and a
+    -- `try_wait` then finds it running; once that is settled, this wait
+    -- is exact there too.
+    assert(Poll.readable(h._exit_fd, Time.seconds(8)))
+    return
+  end
+  local stat_path = "/proc/" .. tostring(h.pid) .. "/stat"
+  local by = Time.monotonic_ns() + Time.seconds(8)
+  while true do
+    local stat, _ = Fs.read(stat_path)
+    if stat == nil or stat:match("^%d+ %b() Z") ~= nil then return end
+    assert(Time.monotonic_ns() < by, "the child did not exit")
+    assert(Poll.delay(Time.ms(10)))
+  end
+end
+
 --- Two tasks settling one child at once answer the same Result: whether
 --- both ask `try_wait`, or one waits while the other closes.
 local function test_two_tasks_settle_one_child_once()
@@ -575,11 +599,8 @@ local function test_two_tasks_settle_one_child_once()
     local h <close> = assert(Child.start(lua("return 3")))
     assert(assert(h:wait(Time.seconds(30))).code == 3)
     local again <close> = assert(Child.start(lua("return 4")))
-    -- Until it has exited, as its handle's own exit watch says, which
-    -- claims no status: so both `try_wait`s find it finished. A child
-    -- with no watch had exited before one was asked for: Darwin's kqueue
-    -- refuses one then (ESRCH).
-    if again._exit_fd >= 0 then assert(Poll.readable(again._exit_fd, Time.seconds(30))) end
+    -- Exited, its status unclaimed: so both `try_wait`s find it finished.
+    exited_unreaped(again)
     local tasks: {Poll.Task} = {}
     for i = 1, 2 do
       tasks[i] = Poll.spawn(function()

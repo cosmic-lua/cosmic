@@ -104,8 +104,9 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
       if sender ~= nil then signal(sender) end
       return true, ""
     end
-    local opened, reason = work.open(tmp)
+    local ran, opened, reason = pcall(work.open, tmp)
     log.complain = complain
+    assert(ran, tostring(opened))
     local caught = guard:take()
     guard:release()
     assert(opened == nil and reason:find("interrupted", 1, true), reason)
@@ -129,9 +130,10 @@ local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tm
   local guard <close> = assert(Child.guard())
   local sender <close> = signaller()
   signal(sender)
-  -- Long past the signal, however late it comes, and within the test's
-  -- deadline: a wait the signal did not end answers "busy".
-  local taken, reason = rebuild_lock.take(tmp, Time.seconds(15))
+  -- Long past the signal, which the ready handshake leaves only its
+  -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
+  -- a wait the signal did not end answers "busy".
+  local taken, reason = rebuild_lock.take(tmp, Time.seconds(6))
   local caught = guard:take()
   guard:release()
   assert(taken == nil and reason:find("interrupted", 1, true), tostring(taken) .. " " .. reason)

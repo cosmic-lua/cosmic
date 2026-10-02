@@ -362,13 +362,12 @@ local function test_a_streamed_output_is_read_after_the_wait()
 end
 
 --- How long an escaped writer runs: past any read or wait that ends at
---- its parent's exit, and within a test's deadline, so a read or wait
---- that waited for it ends before that.
-local ESCAPED_MS <const> = 20000
+--- its parent's exit, and within CI's 10 s per-test deadline, so a read
+--- or wait that waited for it fails an assertion rather than the clock.
+local ESCAPED_MS <const> = 7500
 
---- The pid an escaped writer's parent reports after "done ", which is
---- ended once it has been asked whether it still runs: true when it
---- did.
+--- Whether the escaped writer whose pid follows "done " in `said` still
+--- runs. It is ended either way.
 local function ended_escaped(said: string): boolean
   local pid = assert(math.tointeger(tonumber(said:match("^done (%d+)$"))), said)
   local alive = sys.kill(pid, 0)
@@ -390,8 +389,9 @@ local function test_an_escaped_writer_does_not_hold_up_a_read()
   -- A zombie answers `kill(pid, 0)` too, where this process adopted
   -- the descendant; then only the time tells the read waited for it.
   local took = Time.monotonic_ns() - started
+  local alive = ended_escaped(said)
   assert(assert(h:wait(Time.seconds(5))).ok)
-  assert(ended_escaped(said), "the read ended only once the escaped writer had")
+  assert(alive, "the read ended only once the escaped writer had")
   assert(took < Time.ms(ESCAPED_MS), "the read waited for the escaped writer")
 end
 
@@ -590,7 +590,7 @@ end
 local function test_an_escaped_writer_does_not_hold_up_the_wait()
   local r = assert(Child.run(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
     "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
-    { stdout = "capture", timeout_ns = Time.seconds(15) })))
+    { stdout = "capture", timeout_ns = Time.seconds(5) })))
   local alive = ended_escaped(assert(r.stdout))
   assert(r.ok and not r.timed_out, "the wait was held open: " .. tostring(r.stdout))
   assert(alive, "the wait ended only once the escaped writer had")

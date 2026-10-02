@@ -198,7 +198,7 @@ end
   assert(driver:stop(sys.SIGTERM))
   -- Generous, as the start was: a driver that ignored the signal is
   -- told apart by the signal its Result names, not by the time.
-  local stopped = assert(driver:wait(Time.seconds(20)))
+  local stopped = assert(driver:wait(Time.seconds(8)))
   assert(Fs.close(fd))
   assert(stopped.signal == sys.SIGTERM,
     "driver cancellation result code=" .. tostring(stopped.code) ..
@@ -329,10 +329,25 @@ return function(argv: {string}): integer
     local timed = this("require('cosmic.time').sleep_ns(30000000000)")
     local untimed = this("require('cosmic.time').sleep_ns(30000000000)")
     local done = this("return 3")
-    -- Until `done` has exited, as its handle's own exit watch says,
-    -- which claims no status. A child with no watch had exited before
-    -- one was asked for: Darwin's kqueue refuses one then (ESRCH).
-    if done._exit_fd >= 0 then assert(Poll.readable(done._exit_fd, Time.seconds(30))) end
+    -- Until `done` has exited, its status unclaimed: on its exit watch,
+    -- or, for a child with none (a Linux without pidfd_open, or Darwin's
+    -- kqueue refusing a child that has already exited, ESRCH), until
+    -- /proc shows it a zombie, where there is a /proc.
+    -- TODO: on Darwin the watch may be readable a moment before waitpid
+    -- can reap the child (core/syscalls.c's `exit_watch` TODO); once
+    -- that is settled, this wait is exact there too.
+    if done._exit_fd >= 0 then
+      assert(Poll.readable(done._exit_fd, Time.seconds(8)))
+    else
+      local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
+      local by = Time.monotonic_ns() + Time.seconds(8)
+      while true do
+        local stat = Fs.read(stat_path)
+        if stat == nil or stat:match("^%d+ %b() Z") ~= nil then break end
+        assert(Time.monotonic_ns() < by, "the child did not exit")
+        Time.sleep_ns(Time.ms(10))
+      end
+    end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     local answers: {string} = {}
     for _, wait in ipairs({ function(): Child.Result | nil, string return timed:wait(0) end,
