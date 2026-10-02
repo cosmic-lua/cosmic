@@ -77,7 +77,7 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | 6a. CI cache-name policy | pending | integrated approval | 4d5d5e95; unchanged patch, 38 workflow tests pass |
 | 6b. CI operation recording | pending | integrated approval | ad3d2f4d; phase contracts independently checked; runner/parser tests pass |
 | 7. Zig graph construction | pending | integrated approval | 5743c2e2; exact original patch and graph context preserved |
-| 8. Documentation and integrated audit | pending | reviewing/auditing | ae320349; 81 focused tests, root636/CI56 checks pass |
+| 8. Documentation and integrated audit | pending | integrated approval | ae320349; final warm/fresh/byte-equality audit passed; remote CI pending |
 
 ## PR 1: isolate the compiler and analyzer's semantic inputs
 
@@ -545,3 +545,42 @@ changes the design, update this plan before proceeding and explain the decision.
   phase contracts.81 focused tests and root636/CI56 checks passed. Removed one
   resolved generated-doctest confinement TODO; no new TODOs. Independent final
   review and the focused warm/fresh shared-cache audit are in progress.
+
+## Integrated audit on the prepared final tree
+
+Independent reviewer approved step8 commit
+`ae320349210479fd5fe44f3493169bb0285ca255`, tree
+`ca53a1141927d05f2ced717d1327091fd95f51d9`. All preceding implementation
+changes are present. Actual preceding merge alignment and final platform/queue
+fixed-point coverage remain required before declaring execution complete.
+
+| Scenario | Final local result |
+| --- | --- |
+| Fresh matching worktree | 499 parses and485 compiles reused; zero fresh; boot phase3.440s |
+| Focused build boundary suite | 124 tests ran and passed in11.412s |
+| Warm repeat | 0 ran,124 stood in1.100s; build371ms,0 compiled,0 read |
+| CI runner/parser | 19 tests ran and passed in1.807s; warm19 stood in372ms |
+| Fresh CI project | 47 parses and47 compiles reused; zero fresh |
+| Cross-worktree products | Executable, carried projection and full projection byte-identical |
+| Unchanged-output behavior | All three output hashes unchanged after focused tests and warm repeats |
+| Database health | All three root databases in both trees and CI build database pass quick_check |
+
+The final focused suite covers importer dependency/declaration invalidation,
+writer test-only projection behavior, compiler/diagnostic boundaries, harness
+acknowledgments and reporting. Existing final CI fixtures supply the seven
+edit/undo fixed points for staging, writer, compiler and fingerprint definitions.
+Step7's original19-artifact/590-dependency-line graph comparison remains valid:
+its complete patch and upstream build.zig context are unchanged through integration.
+No additional mutation framework or repeated graph experiment was needed.
+
+Final prepared SHA256 values:
+
+- Executable: `0d8480b5dbc9f1ab9e3da0e4db5829e3f885a78e363d7cbf08cfc29e1a83e635`.
+- Carried projection: `f0bb1754b5c07d37c72cb2a79e945dbe886879988632d0b16b0e319a7db0102f`.
+- Full projection: `0cecd9772e27efeca163698826fc9613b6b2ef65e48ec5f179754c372f6bcf27`.
+
+The initial and final focused suites contain different numbers of tests, so their
+wall times are not a controlled speedup claim. The important retained properties
+are zero warm compilation/reads, complete shared-cache reuse in a fresh checkout,
+identical output bytes and the preserved C graph. Local sandbox, UID and socket
+restrictions remain explicit; remote native/checked/sandbox/queue gates must pass.
