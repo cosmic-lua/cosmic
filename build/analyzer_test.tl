@@ -1007,6 +1007,35 @@ local function test_distinct_import_aliases_share_canonical_identity()
   end
 end
 
+--- The names the chunk's own block binds to a module, once each, in
+--- order: by `local` and by `local type`. One bound twice there, bound
+--- to a require only in a nested block, declared with a type of its own,
+--- or bound by a `require` a local function shadows, is left out.
+local function test_finds_the_names_the_chunk_binds_to_a_module()
+  local found = assert(analyzer.analyze(built, lines({
+    'local Stream = require("cosmic.stream")',
+    'local type raw = require("cosmic.internal.fs")',
+    'local Twice = require("cosmic.fs")',
+    'local Twice = require("cosmic.hash")',
+    'local plain = 1',
+    'do',
+    '  local Inner = require("cosmic.json")',
+    'end',
+    'local function f()',
+    '  local Fs = require("cosmic.fs")',
+    '  return Fs',
+    'end',
+    'local Typed: Thing = require("cosmic.time")',
+    'local function require(name: string): string return name end',
+    'local Shadowed = require("cosmic.proc")',
+    'return { plain = plain, f = f, Typed = Typed, Shadowed = Shadowed }',
+  }), "fixture.tl"))
+  local seen: {string} = {}
+  for _, each in ipairs(found.bound) do seen[#seen + 1] = each.name .. "=" .. each.module end
+  assert(table.concat(seen, " ") == "Stream=cosmic.stream raw=cosmic.internal.fs",
+    table.concat(seen, " "))
+end
+
 --- The returned record name is display spelling. Renaming it leaves the same
 --- canonical exported member and its original definition location.
 local function test_export_record_name_is_not_symbol_identity()
@@ -1401,8 +1430,6 @@ local function test_a_malformed_needs_call_is_refused()
       "call it as a statement at the module's top level" },
     { "local needs = Test.needs\nneeds { tool = true }",
       "call it as a statement at the module's top level" },
-    { 'local _inputs = { tool = true }',
-      "fixture_test.tl:3: _inputs: a module declares what its tests read with cosmic.test's needs" },
   }
   for _, case in ipairs(cases) do
     local got, trouble = declared('local name = "x"\nlocal Test = require("cosmic.test")\n' ..

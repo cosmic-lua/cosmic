@@ -130,14 +130,6 @@ local lock_mt: metatable<Lock> = {
 local held: Lock | nil = nil
 local held_root: string | nil = nil
 
---- Whether `trouble`, from beginning a transaction, says another
---- connection holds the lock rather than something wrong with the file.
---- SQLite gives its reason only as text, which build/work.tl's `locked`
---- reads the same way.
-local function says_busy(trouble: string): boolean
-  return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
-end
-
 --- Takes SQLite's half of the lock on `path` into `lock`, waiting up to
 --- `wait_ns`. Answers "held", "busy", or nil and why.
 local function take_sqlite(lock: Lock, path: string,
@@ -147,23 +139,11 @@ local function take_sqlite(lock: Lock, path: string,
     return nil, path .. ": " .. db_trouble
   end
   lock.db = db
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
-    tostring(Time.ceil(wait_ns, MS)))
-  if not timed then
-    return nil, path .. ": " .. time_trouble
-  end
-  -- TODO: end this wait at a signal a Child.guard catches, as the
-  -- flock's does, once cosmic.sqlite's busy wait checks for one.
-  local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
-  if not begun then
-    -- Only another run's lock is a busy one: anything else is said.
-    -- TODO: tell SQLITE_BUSY by its code rather than its text, as
-    -- build/work.tl's `locked` would, once cosmic.sqlite answers one.
-    if says_busy(begin_trouble) then
-      return "busy", ""
-    end
-    return nil, path .. ": " .. begin_trouble
-  end
+  db:busy_timeout(wait_ns)
+  local begun = db:exec_result("BEGIN IMMEDIATE")
+  if begun.cancelled then return nil, "interrupted while waiting for " .. path end
+  if begun.code == Sqlite.BUSY then return "busy", "" end
+  if begun.code ~= Sqlite.OK then return nil, path .. ": " .. begun.reason end
   return "held", ""
 end
 

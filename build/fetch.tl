@@ -215,7 +215,7 @@ end
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
   -- `shown` is the URL as it may be printed; a complaint that carries
-  -- the URL as given (curl's, Http.download's) is rewritten to it.
+  -- the URL as given in a transport diagnostic is rewritten to it.
   local shown = ""
   local given = ""
   local say = bare.complainer("fetch", to.err)
@@ -308,11 +308,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     options.sha256, options.sha512 = wants.sha256, wants.sha512
     local function download(interrupted: function(): boolean): integer
       options.cancelled = to.cancelled or interrupted
-      local ok, why = Http.download(url, target, options)
-      if not ok then
-        complain(verb.refusal(why, options.redirect_protocols))
-      end
-      return ok and bare.ok or bare.failed
+      local result = Http.download_result(url, target, options)
+      if result.kind == "downloaded" then return bare.ok end
+      if result.kind == "http_status" then return failed_status(assert(result.status)) end
+      complain(verb.refusal(result.reason, options.redirect_protocols))
+      return bare.failed
     end
     -- Held for the download and closed however it leaves, a raise of
     -- `complain` included: closing delivers a caught signal again, so the

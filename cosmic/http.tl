@@ -3,6 +3,8 @@
 ---
 ---     local got = assert(Http.get("https://example.com/"))
 ---     print(got.status, got.body)
+---     local put = assert(Http.request("PUT", "https://example.com/item",
+---       { headers = { ["Content-Type"] = "text/plain" }, body = "new" }))
 ---     local ok, trouble = Http.download(
 ---       "https://example.com/big.zip", "big.zip", { sha256 = "..." })
 ---
@@ -10,9 +12,10 @@
 --- (following every redirect `opts.follow` allows) and hands back a
 --- [`Response`] whose body is read a chunk at a time -- a
 --- [`cosmic.stream`] Reader, so [`Stream.copy`], [`Stream.transform`] and the
---- rest take it as they take a file; [`Http.get`] reads the whole body
---- for the common case, and [`Http.download`] streams it straight to a
---- file, verifying a checksum while it goes.
+--- rest take it as they take a file; [`Http.request`] reads the whole
+--- body for the common case, with any method ([`Http.get`] for a GET),
+--- and [`Http.download`] streams it straight to a file, verifying a
+--- checksum while it goes.
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
@@ -41,7 +44,9 @@ local record Http
   --- One request. `follow` defaults to true, `max_redirects` to 10;
   --- a followed 303, or a 301/302 after a POST, turns the request
   --- into a GET, as RFC 9110 says. `method` is case-sensitive, as
-  --- HTTP's are, and defaults to GET, or POST when there is a `body`.
+  --- HTTP's are, and defaults to GET, or POST when there is a `body`;
+  --- [`Http.request`] takes the method as its first argument instead,
+  --- and [`Http.get`] sends GET and no body.
   ---
   --- `redirect_protocols`, a list of "http" and "https", names the
   --- schemes a redirect may lead to (default both; the start URL's own
@@ -62,7 +67,8 @@ local record Http
   --- `timeout_ns` bounds the whole request and has no default. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `sha256`, `sha512` and `cancelled` are read only by [`Http.download`].
+  --- `sha256`, `sha512` and `cancelled` are read only by
+  --- [`Http.download_result`] and [`Http.download`].
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
@@ -108,14 +114,14 @@ local record Http
     --- Tests only: canned replies, one per connection, in place of the
     --- network. Every entry must be a string.
     script: {string}
-    --- Http.download only: the expected sha256 and sha512, as hex. Each
+    --- Download only: the expected sha256 and sha512, as hex. Each
     --- given is computed while the body is written and must match, or the
     --- download fails naming the algorithm, the digest wanted and the one
     --- got, leaving no file.
     sha256: string
-    --- Http.download only: see `sha256`.
+    --- Download only: see `sha256`.
     sha512: string
-    --- Http.download only: asked before each chunk is read and once
+    --- Download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it answers true the download stops, removes its temporary
     --- file, never creates `path`, and fails with "interrupted", the
@@ -141,7 +147,7 @@ local record Http
   --- succeeds and is idempotent, a `<close>` variable closes the
   --- response when it goes out of scope, and a `read` after either
   --- fails. `sent` after close raises.
-  record Response is Stream.Reader
+  interface Response is Stream.Reader
     metamethod __close: function(Response)
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -154,9 +160,35 @@ local record Http
     sent: function(Response): string
   end
 
-  --- What [`Http.get`] returns: a status, a whole body, and headers,
-  --- bundled into one value since a public fallible function here
-  --- returns exactly `(value, string)`.
+  --- The outcome of a download, classified where it succeeds or fails.
+  enum DownloadKind
+    "downloaded"
+    "http_status"
+    "digest_mismatch"
+    "failed"
+  end
+
+  --- One completed [`Http.download_result`] operation. `reason` is empty
+  --- on success. This operation adds no caller URL to a failure's reason;
+  --- underlying transport diagnostics are passed through, not redacted.
+  record DownloadResult
+    --- Success, HTTP rejection, checksum mismatch, or another failure.
+    kind: DownloadKind
+    --- Empty on success; otherwise the human reason, without an added URL.
+    reason: string
+    --- Present only for `http_status`: the rejected response's status.
+    status: integer | nil
+    --- Present only for `digest_mismatch`: the checked algorithm.
+    algorithm: Hash.Algorithm | nil
+    --- The supplied checksum, lowercased; an empty option requests no check.
+    expected: string | nil
+    --- The computed digest as lower-case hex.
+    actual: string | nil
+  end
+
+  --- What [`Http.request`] and [`Http.get`] return: a status, a whole
+  --- body, and headers, bundled into one value since a public fallible
+  --- function here returns exactly `(value, string)`.
   record Body
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -170,59 +202,85 @@ end
 local MS <const> = Time.ms(1)
 local SECOND <const> = Time.seconds(1)
 
-local response_mt: metatable<Http.Response> = {
-  __close = function(self: Http.Response)
+-- How an object of this module is made: see the note on objects in
+-- cosmic/stream.tl.
+
+--- The Response over a curl handle, which it owns.
+local record CurlResponse is Http.Response
+  handle: raw_http.Handle
+  closed: boolean
+  read: function(CurlResponse, max_bytes?: integer): string | nil, string
+  close: function(CurlResponse): boolean, string
+  sent: function(CurlResponse): string
+end
+
+local curl_response_mt: metatable<CurlResponse> = {
+  __index = CurlResponse,
+  __close = function(self: CurlResponse)
     local _, _ = self:close()
   end,
 }
 
+function CurlResponse:read(max_bytes?: integer): string | nil, string
+  if self.closed then return nil, "http: the response is closed" end
+  return self.handle:read(max_bytes)
+end
+
+function CurlResponse:close(): boolean, string
+  self.closed = true
+  self.handle:close()
+  return true, ""
+end
+
+function CurlResponse:sent(): string
+  return self.handle:sent()
+end
+
 --- The Response over a handle whose final headers are known.
 local function respond(handle: raw_http.Handle): Http.Response
-  local closed = false
-  local response: Http.Response = {
+  local response: CurlResponse = setmetatable({
     status = handle:status(),
     headers = handle:headers(),
     url = handle:url(),
-    read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-      if closed then return nil, "http: the response is closed" end
-      return handle:read(max_bytes)
-    end,
-    close = function(_self: Stream.Reader): boolean, string
-      closed = true
-      handle:close()
-      return true, ""
-    end,
-    sent = function(_self: Http.Response): string
-      return handle:sent()
-    end,
-  }
-  setmetatable(response, response_mt)
+    handle = handle,
+    closed = false,
+  }, curl_response_mt)
   return response
 end
 
+--- The level `error` raises a refusal of `opts` at from [`counted`]:
+--- past [`raw_options`], the local function that called it ([`opened`]
+--- or [`downloading`]) and the public entry point that called that
+--- itself, at the entry point's caller. No call on that path is a tail
+--- call, which would leave no level of its own.
+local CALLER <const> = 5
+
 --- `ns` as the count of `unit` nanoseconds the raw module takes, rounded
 --- up so that a span above 0 is never the 0 that curl reads as no limit;
---- nil stays nil, the raw module's default. Raises, naming `name` as the
---- raw module's own refusals do, for what is no integer from 0 to
---- `most_ns`.
+--- nil stays nil, the raw module's default. Raises at the caller of the
+--- public entry point (`CALLER`), naming `name` as the raw module's own
+--- refusals do, for what is no integer from 0 to `most_ns`.
 local function counted(ns: integer | nil, unit: integer, most_ns: integer,
     name: string): integer | nil
   if ns == nil then return nil end
   if math.type(ns) ~= "integer" then
-    error(("http: opts.%s must be an integer"):format(name), 4)
+    error(("http: opts.%s must be an integer"):format(name), CALLER)
   end
   if ns < 0 or ns > most_ns then
-    error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), 4)
+    error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), CALLER)
   end
   return Time.ceil(ns, unit)
 end
 
 --- `opts` as the raw module reads them: its spans in the milliseconds
 --- (and, for `low_speed_ns`, the seconds) it counts them in.
-local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
-  if opts == nil then return nil end
+--- `method`, when given, stands in for `opts.method`.
+local function raw_options(opts: Http.Options | nil, method?: string): raw_http.Options | nil
+  if opts == nil then
+    return method ~= nil and { method = method } or nil
+  end
   return {
-    method = opts.method,
+    method = method or opts.method,
     headers = opts.headers,
     body = opts.body,
     follow = opts.follow,
@@ -237,26 +295,19 @@ local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
   }
 end
 
---- Opens `url`, blocking until the final response's headers arrive.
---- The body is not read yet -- call `response:read(max_bytes)` until it
---- returns `nil, ""` for a clean end, or use [`Http.get`] to read it
---- all at once.
-function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
-  local handle, trouble = http.open(url, raw_options(opts))
+--- [`Http.open`]'s work, which each public entry point that opens
+--- calls itself (`CALLER`); `method`, when given, stands in for
+--- `opts.method`.
+local function opened(url: string, opts: Http.Options | nil, method: string | nil): Http.Response | nil, string
+  local handle, trouble = http.open(url, raw_options(opts, method))
   if handle == nil then
     return nil, trouble
   end
   return respond(handle), ""
 end
 
---- [`Http.open`], then the whole body read at once. Fails on a
---- connection or protocol error the same way [`Http.open`] does; a
---- non-2xx status is not itself a failure here -- check `result.status`.
-function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
-  local response, trouble = Http.open(url, opts)
-  if response == nil then
-    return nil, trouble
-  end
+--- `response`'s whole body, read and closed, as [`Http.Body`].
+local function whole(response: Http.Response): Http.Body | nil, string
   local body, read_trouble = Stream.read_all(response)
   local _, _ = response:close()
   if body == nil then
@@ -265,25 +316,189 @@ function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   return { status = response.status, body = body, headers = response.headers }, ""
 end
 
+--- Opens `url`, blocking until the final response's headers arrive.
+--- The body is not read yet -- call `response:read(max_bytes)` until it
+--- returns `nil, ""` for a clean end, or use [`Http.request`] (or
+--- [`Http.get`]) to read it all at once.
+function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
+  local response, trouble = opened(url, opts, nil)
+  if response == nil then
+    return nil, trouble
+  end
+  return response, ""
+end
+
+--- Sends a GET for `url` and reads the whole body: [`Http.request`]
+--- with "GET". Fails on a connection or protocol error the same way
+--- [`Http.open`] does; a non-2xx status is not itself a failure here --
+--- check `result.status`. An `opts.method` other than "GET", or an
+--- `opts.body`, raises, naming [`Http.request`], which sends any method
+--- and a body.
+function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
+  if opts ~= nil and opts.method ~= nil and opts.method ~= "GET" then
+    error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
+       format(opts.method), 2)
+  end
+  if opts ~= nil and opts.body ~= nil then
+    error("http: Http.get sends no body; send one with Http.request(method, url, { body = ... })", 2)
+  end
+  local response, trouble = opened(url, opts, nil)
+  if response == nil then
+    return nil, trouble
+  end
+  return whole(response)
+end
+
+--- Sends `method` to `url`, with `opts.body` when given, and reads the
+--- whole response: its status, headers and body. `method` is
+--- case-sensitive, as HTTP's are ("PUT", "DELETE", "PATCH", ...);
+--- [`Http.open`] is the same request with its body read a chunk at a
+--- time. Fails on a connection or protocol error the same way
+--- [`Http.open`] does; a non-2xx status is not itself a failure here --
+--- check `result.status`. A body goes with the `Content-Type` its
+--- headers name, or `application/x-www-form-urlencoded` without one,
+--- as curl sends it.
+---
+---     local put = assert(Http.request("PUT", "https://example.com/items/1",
+---       { headers = { ["Content-Type"] = "application/json" }, body = '{"n":1}' }))
+---     local gone = assert(Http.request("DELETE", "https://example.com/items/1"))
+---     print(put.status, gone.status)
+---
+--- An empty `method`, an `opts.method` that differs from it, or an
+--- `opts.body` with "GET" or "HEAD" raises: the request would not be
+--- the one asked for.
+function Http.request(method: string, url: string, opts?: Http.Options): Http.Body | nil, string
+  if method == nil or method == "" then
+    error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
+  end
+  if opts ~= nil and opts.method ~= nil and opts.method ~= method then
+    error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
+       format(method, opts.method), 2)
+  end
+  -- core/http.c's set_method drops a body sent with HEAD, and sends one
+  -- with GET as a POST (its TODO says when that changes).
+  if opts ~= nil and opts.body ~= nil and (method == "GET" or method == "HEAD") then
+    error(("http: Http.request sends no body with %s"):format(method), 2)
+  end
+  local response, trouble = opened(url, opts, method)
+  if response == nil then
+    return nil, trouble
+  end
+  return whole(response)
+end
+
+--- A Reader over a Response that fails with "interrupted" once
+--- `cancelled` answers true.
+local record CancellableReader is Stream.Reader
+  response: Http.Response
+  cancelled: function(): boolean
+  read: function(CancellableReader, max_bytes?: integer): string | nil, string
+  close: function(CancellableReader): boolean, string
+end
+
+local cancellable_reader_mt: metatable<CancellableReader> = { __index = CancellableReader }
+
+function CancellableReader:read(max_bytes?: integer): string | nil, string
+  if self.cancelled() then return nil, "interrupted" end
+  local chunk, why = self.response:read(max_bytes)
+  if chunk ~= nil then return chunk, "" end
+  if why == "" and self.cancelled() then return nil, "interrupted" end
+  return nil, why
+end
+
+function CancellableReader:close(): boolean, string
+  return self.response:close()
+end
+
 --- `response` as a Reader that fails with "interrupted" once `cancelled`
 --- answers true: asked before each read and once more at the end of the
 --- body, so a body that came whole is still refused after a cancel.
 local function cancellable(response: Http.Response, cancelled: function(): boolean): Stream.Reader
-  local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    if cancelled() then return nil, "interrupted" end
-    local chunk, why = response:read(max_bytes)
-    if chunk ~= nil then return chunk, "" end
-    if why == "" and cancelled() then return nil, "interrupted" end
-    return nil, why
-  end
-  reader.close = function(_self: Stream.Reader): boolean, string
-    return response:close()
-  end
+  local reader: CancellableReader = setmetatable({
+    response = response, cancelled = cancelled,
+  }, cancellable_reader_mt)
   return reader
 end
 
---- Downloads `url` to `path`, as `curl -fLo` or `wget` would, streaming
+-- Own both resources while user cancellation code may raise: a failed
+-- call must not leave a staged file waiting for garbage collection.
+local record PendingDownload
+  response: Http.Response
+  file: Stream.FileWriter
+  metamethod __close: function(PendingDownload)
+end
+
+local pending_mt: metatable<PendingDownload> = {
+  __close = function(self: PendingDownload)
+    if self.response ~= nil then local _, _ = self.response:close() end
+    if self.file ~= nil then local _, _ = self.file:abort() end
+  end,
+}
+
+--- [`Http.download_result`]'s work, which each public entry point that
+--- downloads calls itself (`CALLER`).
+local function downloading(url: string, path: string,
+                           opts: Http.Options | nil): Http.DownloadResult
+  opts = opts or {}
+  local given: {{Hash.Algorithm, string}} = {
+    { "sha256", opts.sha256 or "" },
+    { "sha512", opts.sha512 or "" },
+  }
+  local checks: {{Hash.Algorithm, string, Stream.Hashing}} = {}
+  for _, pair in ipairs(given) do
+    local algorithm, wanted = pair[1], pair[2]
+    if wanted ~= "" then
+      local hashing, trouble = Stream.hashing(algorithm)
+      if hashing == nil then return { kind = "failed", reason = trouble } end
+      checks[#checks + 1] = { algorithm, wanted:lower(), hashing }
+    end
+  end
+  local pending <close>: PendingDownload = setmetatable({}, pending_mt)
+  -- `opts` is checked here, so a refusal is raised at `CALLER`; the open
+  -- goes through [`Http.open`], which finds nothing more to refuse.
+  local _ = raw_options(opts)
+  local response, open_trouble = Http.open(url, opts)
+  pending.response = response
+  if response == nil then return { kind = "failed", reason = open_trouble } end
+  if response.status < 200 or response.status >= 300 then
+    return { kind = "http_status", status = response.status, reason = "HTTP " .. tostring(response.status) }
+  end
+  local file, create_trouble = Stream.create(path)
+  pending.file = file
+  if file == nil then
+    return { kind = "failed", reason = create_trouble }
+  end
+  local sink: Stream.Writer = file
+  for _, check in ipairs(checks) do sink = Stream.tee(sink, check[3]) end
+  local source: Stream.Reader = response
+  if opts.cancelled ~= nil then source = cancellable(response, opts.cancelled) end
+  local copied, trouble = Stream.copy(source, sink)
+  local _, _ = response:close()
+  pending.response = nil
+  if copied == nil then
+    return { kind = "failed", reason = trouble }
+  end
+  for _, check in ipairs(checks) do
+    local digest, digest_trouble = check[3]:digest()
+    if digest == nil then
+      return { kind = "failed", reason = digest_trouble }
+    end
+    local hex = Codec.hex(digest)
+    if hex ~= check[2] then
+      return { kind = "digest_mismatch", algorithm = check[1], expected = check[2], actual = hex,
+      reason = path .. ": " .. check[1] .. " mismatch: want " .. check[2] .. ", got " .. hex }
+    end
+  end
+  local committed, commit_trouble = file:sync()
+  if committed then committed, commit_trouble = file:close() end
+  if not committed then
+    return { kind = "failed", reason = commit_trouble }
+  end
+  pending.file = nil
+  return { kind = "downloaded", reason = "" }
+end
+
+--- Downloads `url` to `path`, streaming
 --- to a fresh temporary file beside it ([`Stream.create`]'s, so two
 --- downloads never share one and a planted symlink is never followed)
 --- and renaming into place only once the transfer is complete, synced to
@@ -293,56 +508,29 @@ end
 --- or a checksum mismatch, and removes the temporary file on every
 --- failure, `opts.cancelled` answering true ("interrupted", as a
 --- caught signal says it) included.
+--- Returns a classified outcome; [`Http.download`] gives the same operation
+--- as a boolean and reason, including the caller URL on an HTTP rejection.
+function Http.download_result(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+  local result = downloading(url, path, opts)
+  return result
+end
+
+--- Downloads as `curl -fLo` or `wget` would: [`Http.download_result`]'s
+--- streaming, verified and atomic download as
+--- `true, ""`, or `false` and a reason. An HTTP rejection's reason starts
+--- with `url`; a checksum mismatch names `path`, the algorithm and both
+--- digests. Other failures retain their underlying reason.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
-  opts = opts or {}
-  local given: {{Hash.Algorithm, string}} = {
-    { "sha256", opts.sha256 or "" },
-    { "sha512", opts.sha512 or "" },
-  }
-  local checks: {{string, string, Stream.Hashing}} = {}
-  for _, pair in ipairs(given) do
-    local algorithm, wanted = pair[1], pair[2]
-    if wanted ~= "" then
-      local hashing, trouble = Stream.hashing(algorithm)
-      if hashing == nil then return false, trouble end
-      checks[#checks + 1] = { algorithm, wanted:lower(), hashing }
-    end
+  local result = downloading(url, path, opts)
+  if result.kind == "downloaded" then return true, "" end
+  if result.kind == "http_status" then
+    return false, url .. ": HTTP " .. tostring(result.status)
   end
-  local response, open_trouble = Http.open(url, opts)
-  if response == nil then return false, open_trouble end
-  if response.status < 200 or response.status >= 300 then
-    local _, _ = response:close()
-    return false, url .. ": HTTP " .. tostring(response.status)
+  if result.kind == "digest_mismatch" then
+    return false, path .. ": " .. assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
+      ", got " .. assert(result.actual)
   end
-  local file, create_trouble = Stream.create(path)
-  if file == nil then
-    local _, _ = response:close()
-    return false, create_trouble
-  end
-  local sink: Stream.Writer = file
-  for _, check in ipairs(checks) do sink = Stream.tee(sink, check[3]) end
-  local source: Stream.Reader = response
-  if opts.cancelled ~= nil then source = cancellable(response, opts.cancelled) end
-  local copied, trouble = Stream.copy(source, sink)
-  local _, _ = response:close()
-  local committed = copied ~= nil
-  for _, check in ipairs(committed and checks or {}) do
-    local digest, digest_trouble = check[3]:digest()
-    local hex = digest ~= nil and Codec.hex(digest) or ""
-    if hex ~= check[2] then
-      committed = false
-      trouble = digest ~= nil and path .. ": " .. check[1] .. " mismatch: want " .. check[2] ..
-        ", got " .. hex or digest_trouble
-      break
-    end
-  end
-  if committed then committed, trouble = file:sync() end
-  if committed then committed, trouble = file:close() end
-  if not committed then
-    local _, _ = file:abort()
-    return false, trouble
-  end
-  return true, ""
+  return false, result.reason
 end
 
 --- Whether the TLS stack reads `der` as one X.509 certificate, as it

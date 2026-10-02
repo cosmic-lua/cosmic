@@ -134,6 +134,26 @@ local function test_a_307_after_post_repeats_the_post_and_its_body()
   assert(count(sent, "payload") == 2, sent)
 end
 
+--- A 301 or 302 after a method with a body other than POST repeats it,
+--- body and all: only a POST's becomes a GET. A 303 still does.
+local function test_a_301_or_302_after_put_repeats_the_put_and_its_body()
+  for _, status in ipairs({ "301 Moved Permanently", "302 Found" }) do
+    local response, _, sent = fetch({
+      reply(status, "Location: /again\r\n"),
+      reply("200 OK", "", "ok"),
+    }, { method = "PUT", body = "payload" })
+    assert(response.status == 200)
+    assert(sent:find("PUT /again HTTP/1.1\r\n", 1, true) ~= nil, sent)
+    assert(count(sent, "payload") == 2, sent)
+  end
+  local _, _, sent = fetch({
+    reply("303 See Other", "Location: /done\r\n"),
+    reply("200 OK", "", "got"),
+  }, { method = "PUT", body = "payload" })
+  assert(sent:find("GET /done HTTP/1.1\r\n", 1, true) ~= nil, sent)
+  assert(count(sent, "payload") == 1, sent)
+end
+
 local function test_a_custom_method_is_sent_as_is()
   local _, _, sent = fetch({ reply("204 No Content", "") }, { method = "PUT", body = "x" })
   assert(sent:find("PUT / HTTP/1.1\r\n", 1, true) == 1, sent)
@@ -515,6 +535,64 @@ local function test_an_integer_option_curl_would_clamp_is_refused()
     err)
 end
 
+--- A refused option is raised at the line that called the public
+--- entry point, whichever it is, and not inside cosmic.http: between the
+--- lines that raise `mark` ahead of the call and behind it.
+local function test_a_refused_option_is_raised_at_the_callers_line()
+  -- Each answers a value, which a raise leaves `pcall` the message in
+  -- place of.
+  local entries: {string: function(Http.Options, string): string} = {
+    open = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _, _ = Http.open(url, opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+    get = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _, _ = Http.get(url, opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+    request = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _, _ = Http.request("PUT", url, opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+    download = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _, _ = Http.download(url, "never-written", opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+    download_result = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _ = Http.download_result(url, "never-written", opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+  }
+  --- Where `entry` raises, given `opts` and `mark`: its file and line.
+  local function raised_at(entry: function(Http.Options, string): string, opts: Http.Options,
+                           mark: string): string, integer
+    local ok, err = pcall(entry, opts, mark)
+    assert(not ok, mark .. ": expected a raise")
+    local file, line = tostring(err):match("^(.-):(%d+): ")
+    assert(file ~= nil, tostring(err))
+    return file, math.tointeger(tonumber(line)) or 0
+  end
+  for name, entry in pairs(entries) do
+    local good: Http.Options = { script = {} }
+    local file, ahead = raised_at(entry, good, "ahead")
+    local _, behind = raised_at(entry, good, "behind")
+    local refused, at = raised_at(entry, { timeout_ns = -5, script = {} }, "")
+    assert(refused == file and ahead < at and at < behind,
+      name .. ": raised at " .. refused .. ":" .. at .. ", not between " .. file .. ":" ..
+      ahead .. " and " .. behind)
+  end
+end
+
 local function test_zero_integer_options_are_accepted()
   local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ns = 0,
     max_redirects = 0, low_speed_bytes = 0, low_speed_ns = 0 })
@@ -753,4 +831,263 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true), bad_why)
   assert(not bad_why:find("sha256", 1, true), bad_why)
   assert(Fs.stat(other) == nil, "the target was created")
+end
+
+local function test_download_result_success_has_no_failure_fields(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local data = string.rep("new", 100000)
+  local result = Http.download_result(url, path, { script = { reply("200 OK", "", data) },
+    sha256 = Hash.hex_sha256(data):upper(), sha512 = Codec.hex(Hash.digest("sha512", data)):upper() })
+  assert(result.kind == "downloaded" and result.reason == "")
+  assert(result.status == nil and result.algorithm == nil and result.expected == nil and result.actual == nil)
+  assert(Fs.read(path) == data and #assert(Fs.list(tmp)) == 1)
+  assert(select("#", Http.download(url, path, { script = { reply("200 OK", "", data) } })) == 2)
+end
+
+local function test_download_result_status_is_typed_and_url_neutral(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  for _, status in ipairs({ 302, 404, 503 }) do
+    local options: Http.Options = { follow = false,
+      script = { reply(tostring(status) .. " sha256 mismatch", "", "ignored") } }
+    local result = Http.download_result(url, path, options)
+    assert(result.kind == "http_status" and result.status == status)
+    assert(result.reason == "HTTP " .. tostring(status), result.reason)
+    assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
+    local ok, why = Http.download(url, path, options)
+    assert(not ok and why == url .. ": HTTP " .. tostring(status), why)
+    assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  end
+end
+
+local function test_download_result_checksums_keep_typed_digests_and_legacy_text(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do
+    for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", algorithm == "sha256" and 64 or 128) }) do
+      local options: Http.Options = { script = { reply("200 OK", "", "body") } }
+      if algorithm == "sha256" then options.sha256 = expected else options.sha512 = expected end
+      local result = Http.download_result(url, path, options)
+      local actual = Codec.hex(Hash.digest(algorithm, "body"))
+      assert(result.kind == "digest_mismatch" and result.status == nil)
+      assert(result.algorithm == algorithm and result.expected == expected:lower() and result.actual == actual)
+      local reason = path .. ": " .. algorithm .. " mismatch: want " .. expected:lower() .. ", got " .. actual
+      assert(result.reason == reason, result.reason)
+      local ok, why = Http.download(url, path, options)
+      assert(not ok and why == reason, why)
+      assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+    end
+  end
+  local empty = Http.download_result(url, path, { sha256 = "", sha512 = "",
+    script = { reply("200 OK", "", "unchecked") } })
+  assert(empty.kind == "downloaded" and Fs.read(path) == "unchecked")
+end
+
+local function test_download_result_bad_checksum_shape_raises_before_publication(tmp: string)
+  local path = tmp .. "/got"
+  local options: Http.Options = { sha256 = true as string, script = {} }
+  local ok = pcall(Http.download_result, url, path, options)
+  assert(not ok and #assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_transport_and_create_failures_are_not_status(tmp: string)
+  local failed = Http.download_result("file:///not-http", tmp .. "/got")
+  assert(failed.kind == "failed" and failed.reason ~= "" and failed.status == nil)
+  local path = tmp .. "/missing/HTTP 404 sha256 mismatch"
+  local result = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  assert(result.kind == "failed" and result.status == nil and result.algorithm == nil)
+  assert(result.reason:find(path, 1, true) == 1, result.reason)
+  assert(#assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_write_and_sync_failures_abort_without_classifying_text(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local real_write, real_sync = sys.write, sys.fsync
+  local reason = "HTTP 503: sha256 mismatch: want x, got y"
+  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+    return nil, reason, 0
+  end
+  local written = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  sys.write = real_write
+  assert(written.kind == "failed" and written.reason == path .. ": " .. reason)
+  assert(written.status == nil and written.algorithm == nil)
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  sys.fsync = function(_fd: integer): boolean, string, integer
+    return false, reason, 0
+  end
+  local synced = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  sys.fsync = real_sync
+  assert(synced.kind == "failed" and synced.reason == path .. ": " .. reason)
+  assert(synced.status == nil and synced.algorithm == nil)
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_rename_failure_keeps_target_and_removes_stage(tmp: string)
+  local path = tmp .. "/directory"
+  assert(Fs.mkdirs(path))
+  assert(Fs.write(path .. "/kept", "old"))
+  local result = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
+  assert(result.kind == "failed" and result.reason ~= "")
+  assert(Fs.read(path .. "/kept") == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_cancel_and_callback_exception_keep_target(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  for _, at in ipairs({ 1, 2, 3 }) do
+    local asked = 0
+    local result = Http.download_result(url, path, {
+      script = { reply("200 OK", "", "body") },
+      cancelled = function(): boolean
+        asked = asked + 1
+        return asked == at
+      end,
+    })
+    assert(result.kind == "failed" and result.reason == "interrupted")
+    assert(result.status == nil and result.algorithm == nil)
+    assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  end
+  local options: Http.Options = { script = { reply("200 OK", "", "body") },
+    cancelled = function(): boolean error("callback failed") end }
+  local ok, why = pcall(Http.download_result, url, path, options)
+  assert(not ok and tostring(why):find("callback failed", 1, true), tostring(why))
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_truncated_body_preserves_existing_target(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local result = Http.download_result(url, path, { script = {
+    "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort",
+  } })
+  assert(result.kind == "failed" and result.reason ~= "")
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string)
+  local path = tmp .. "/got"
+  assert(Fs.write(path, "old"))
+  local hashing = Stream.hashing
+  local reason = "sha512 mismatch: digest engine failed"
+  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
+    local writer, why = hashing(algorithm)
+    if writer == nil then return nil, why end
+    writer.digest = function(_self: Stream.Hashing): string | nil, string
+      return nil, reason
+    end
+    return writer, ""
+  end
+  local result = Http.download_result(url, path, { sha256 = Hash.hex_sha256("body"),
+    script = { reply("200 OK", "", "body") } })
+  Stream.hashing = hashing
+  assert(result.kind == "failed" and result.reason == reason)
+  assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
+local function test_download_result_preserves_underlying_url_text_without_classifying_it(tmp: string)
+  local open = Http.open
+  local reason = url .. ": HTTP 404; sha256 mismatch in transport diagnostic"
+  Http.open = function(_url: string, _opts?: Http.Options): Http.Response | nil, string
+    return nil, reason
+  end
+  local result = Http.download_result(url, tmp .. "/got")
+  local ok, why = Http.download(url, tmp .. "/got")
+  Http.open = open
+  assert(result.kind == "failed" and result.reason == reason)
+  assert(result.status == nil and result.algorithm == nil)
+  assert(not ok and why == reason and #assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_guard_interruption_stays_available(tmp: string)
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local result = Http.download_result(url, tmp .. "/got", { script = { reply("200 OK", "", "body") } })
+  local caught = assert(guard:release())
+  assert(result.kind == "failed" and result.reason == "interrupted")
+  assert(caught == sys.SIGINT and #assert(Fs.list(tmp)) == 0)
+end
+
+local function test_download_result_interleaved_publishers_own_their_staged_files(tmp: string)
+  local path = tmp .. "/got"
+  for _, mismatch in ipairs({ false, true }) do
+    local published = false
+    local result = Http.download_result(url, path, {
+      script = { reply("200 OK", "", "outer") },
+      sha256 = mismatch and string.rep("0", 64) or Hash.hex_sha256("outer"),
+      cancelled = function(): boolean
+        if not published then
+          published = true
+          local other = Http.download_result(url, path, { script = { reply("200 OK", "", "inner") } })
+          assert(other.kind == "downloaded", other.reason)
+          assert(Fs.read(path) == "inner")
+        end
+        return false
+      end,
+    })
+    local expected: Http.DownloadKind = mismatch and "digest_mismatch" or "downloaded"
+    assert(result.kind == expected, result.reason)
+    assert(Fs.read(path) == (mismatch and "inner" or "outer"))
+    assert(#assert(Fs.list(tmp)) == 1, "one publisher left its staged file behind")
+  end
+end
+
+local function test_request_reads_the_whole_response()
+  local got, trouble = Http.request("PATCH", url,
+    { body = "x", script = { reply("201 Created", "X-One: 1\r\n", "made") } })
+  assert(got ~= nil, trouble)
+  assert(got.status == 201 and got.body == "made" and got.headers["x-one"] == "1", got.body)
+end
+
+--- The method reaches the transfer: a HEAD reads no body, where a GET
+--- of the same reply would wait for the 1000 bytes it promises and fail.
+local function test_request_sends_its_method()
+  local head = "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n"
+  local got, trouble = Http.request("HEAD", url, { script = { head } })
+  assert(got ~= nil and got.body == "", trouble)
+  local get = Http.request("GET", url, { script = { head } })
+  assert(get == nil, "a GET read a body that never came")
+end
+
+--- The request is the one asked for, or none: an empty method, an
+--- `opts.method` that differs from the argument, and a body with GET or
+--- HEAD raise before anything is sent.
+local function test_request_refuses_what_it_would_not_send_as_asked()
+  local script = { reply("200 OK", "") }
+  for method, opts in pairs({
+    [""] = { script = script },
+    PUT = { method = "POST", script = script },
+    GET = { body = "x", script = script },
+    HEAD = { body = "x", script = script },
+  } as {string:Http.Options}) do
+    local ok, why = pcall(Http.request, method, url, opts)
+    assert(not ok and tostring(why):find("Http.request", 1, true), method .. ": " .. tostring(why))
+  end
+  local got, trouble = Http.request("PUT", url, { method = "PUT", script = script })
+  assert(got ~= nil and got.status == 200, trouble)
+end
+
+--- The options a caller passes are left as they were.
+local function test_request_leaves_its_options_alone()
+  local opts: Http.Options = { body = "x", script = { reply("204 No Content", "") } }
+  assert(Http.request("PUT", url, opts))
+  assert(opts.method == nil and opts.body == "x")
+end
+
+--- Http.get sends a GET: another method, or a body, which would make it
+--- a POST, raises and names Http.request.
+local function test_get_refuses_another_method_and_a_body()
+  local script = { reply("200 OK", "") }
+  for _, opts in ipairs({
+    { method = "PUT", script = script },
+    { method = "HEAD", script = script },
+    { body = "x", script = script },
+  } as {Http.Options}) do
+    local ok, why = pcall(Http.get, url, opts)
+    assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))
+  end
+  local got, trouble = Http.get(url, { method = "GET", script = script })
+  assert(got ~= nil and got.status == 200, trouble)
 end

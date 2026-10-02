@@ -127,17 +127,24 @@ local function write_all(fd: integer, data: string, blame: string): boolean, str
   return true, ""
 end
 
---- What [`Fs.create`] returns: its methods live on one shared
---- metatable, so creating a file costs a table, not four closures.
+-- How an object of this module is made: see the note on objects in
+-- cosmic/stream.tl.
+
+--- What [`Fs.create`] returns: its methods live on the record's own
+--- table, so creating a file costs a table, not four closures.
 local record StagedFile is Fs.Staged
   path: string
   temporary: sys.TemporaryFile
+  -- "" until a call fails.
   failed: string
   closed: boolean
+  write: function(StagedFile, string): boolean, string
+  sync: function(StagedFile): boolean, string
+  close: function(StagedFile): boolean, string
+  abort: function(StagedFile): boolean, string
 end
 
-local StagedFile_methods: {string:any} = {}
-local staged_mt: metatable<StagedFile> = { __index = StagedFile_methods }
+local staged_file_mt: metatable<StagedFile> = { __index = StagedFile }
 
 --- Remembers `why` as the file's failure, naming the caller's path: a
 --- failure is sticky, and never names the temporary file, which the
@@ -147,23 +154,23 @@ local function failing(self: StagedFile, why: string): string
   return self.failed
 end
 
-StagedFile_methods.write = function(self: StagedFile, data: string): boolean, string
+function StagedFile:write(data: string): boolean, string
   if self.closed then return false, self.path .. ": the file is closed" end
-  if self.failed then return false, self.failed end
+  if self.failed ~= "" then return false, self.failed end
   local ok, why = write_all(self.temporary.fd, data, "")
   if not ok then return false, failing(self, why) end
   return true, ""
 end
 
-StagedFile_methods.sync = function(self: StagedFile): boolean, string
+function StagedFile:sync(): boolean, string
   if self.closed then return false, self.path .. ": the file is closed" end
-  if self.failed then return false, self.failed end
+  if self.failed ~= "" then return false, self.failed end
   local ok, why = sys.fsync(self.temporary.fd)
   if not ok then return false, failing(self, why) end
   return true, ""
 end
 
-StagedFile_methods.abort = function(self: StagedFile): boolean, string
+function StagedFile:abort(): boolean, string
   if self.closed then return true, "" end
   self.closed = true
   local _, _ = sys.close(self.temporary.fd)
@@ -171,14 +178,14 @@ StagedFile_methods.abort = function(self: StagedFile): boolean, string
   return true, ""
 end
 
-StagedFile_methods.close = function(self: StagedFile): boolean, string
+function StagedFile:close(): boolean, string
   local temporary = self.temporary
   if self.closed then
-    if self.failed then return false, self.failed end
+    if self.failed ~= "" then return false, self.failed end
     return true, ""
   end
   self.closed = true
-  if self.failed then
+  if self.failed ~= "" then
     local _, _ = sys.close(temporary.fd)
     local _, _ = sys.unlink(temporary.path)
     return false, self.failed
@@ -212,8 +219,8 @@ function Fs.create(path: string, mode?: integer): Fs.Staged | nil, string
     return nil, path .. ": " .. trouble
   end
   local staged: StagedFile = setmetatable({
-    path = path, temporary = temporary, closed = false,
-  }, staged_mt)
+    path = path, temporary = temporary, failed = "", closed = false,
+  }, staged_file_mt)
   return staged, ""
 end
 

@@ -40,7 +40,7 @@ local Time = require("cosmic.time")
 local record Poll
   --- A function running under [`Poll.run`] beside the others, answered by
   --- [`Poll.spawn`].
-  record Task
+  interface Task
     --- Waits for the task to end, at most `timeout_ns` nanoseconds (no
     --- limit when nil): true and "" once it has returned, false and
     --- [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] otherwise -- CANCELLED, too, for
@@ -149,9 +149,16 @@ local record Watched
   masks: {integer:integer}
 end
 
---- What a run keeps of a task, beside the handle `spawn` answers.
-local record State
-  handle: Poll.Task
+-- How a task is made. What a run keeps of a task is one record, which is
+-- also the handle `spawn` answers, so a task costs one table and no
+-- closure: its methods are defined once, on the record's own table, which
+-- a task reaches through `__index`, and its state is in fields. The
+-- note on how an object is made in cosmic/stream.tl says why Teal
+-- makes the public type an interface ([`Poll.Task`]) and the record
+-- implement it, and how the constructor is written.
+
+--- What a run keeps of a task, which `spawn` answers.
+local record State is Poll.Task
   co: thread
   --- The run the task belongs to: a handle kept past it answers as a
   --- task that has ended.
@@ -168,7 +175,12 @@ local record State
   shields: integer
   parked: Wait
   joiners: {Wait}
+  join: function(State, timeout_ns?: integer): boolean, string
+  cancel: function(State)
+  kill: function(State)
 end
+
+local state_mt: metatable<State> = { __index = State }
 
 --- A task to resume, with what its wait answers.
 local record Wake
@@ -573,35 +585,38 @@ local function close_task(task: State)
   if not closed then error(err, 0) end
 end
 
+function State:join(timeout_ns?: integer): boolean, string
+  local task = current("Task:join", 2)
+  Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
+  if self.killed then return false, Poll.CANCELLED end
+  if self.ended or self.loop ~= loop then return true, "" end
+  if self == task then error("poll: a task cannot join itself", 2) end
+  local w: Wait = { task = task, joined = self }
+  self.joiners[#self.joiners + 1] = w
+  return park(task, w, timeout_ns)
+end
+
+function State:cancel()
+  if self.loop ~= loop or self.ended or self.cancelled then return end
+  self.cancelled = true
+  if self.parked ~= nil and self.shields == 0 then wake(self.parked, false, Poll.CANCELLED) end
+end
+
+function State:kill()
+  if self.loop ~= loop or self.ended then return end
+  if self == current("Task:kill", 2) then error("poll: a task cannot kill itself", 2) end
+  close_task(self)
+end
+
 --- A new task running `fn`, ready to run.
 local function start(fn: function()): Poll.Task
-  local state: State = { co = coroutine.create(fn), loop = loop, shields = 0, joiners = {} }
-  state.handle = {
-    join = function(_self: Poll.Task, timeout_ns?: integer): boolean, string
-      local task = current("Task:join", 2)
-      Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
-      if state.killed then return false, Poll.CANCELLED end
-      if state.ended or state.loop ~= loop then return true, "" end
-      if state == task then error("poll: a task cannot join itself", 2) end
-      local w: Wait = { task = task, joined = state }
-      state.joiners[#state.joiners + 1] = w
-      return park(task, w, timeout_ns)
-    end,
-    cancel = function(_self: Poll.Task)
-      if state.loop ~= loop or state.ended or state.cancelled then return end
-      state.cancelled = true
-      if state.parked ~= nil and state.shields == 0 then wake(state.parked, false, Poll.CANCELLED) end
-    end,
-    kill = function(_self: Poll.Task)
-      if state.loop ~= loop or state.ended then return end
-      if state == current("Task:kill", 2) then error("poll: a task cannot kill itself", 2) end
-      close_task(state)
-    end,
-  }
+  local state: State = setmetatable({
+    co = coroutine.create(fn), loop = loop, started = false, waiting = false,
+    ended = false, killed = false, cancelled = false, shields = 0, joiners = {} }, state_mt)
   loop.tasks[state.co] = state
   loop.live = loop.live + 1
   loop.ready[#loop.ready + 1] = { task = state, ok = true, why = "" }
-  return state.handle
+  return state
 end
 
 local shielding_mt: metatable<Shielding> = {

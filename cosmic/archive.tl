@@ -2,7 +2,9 @@
 --- be: detected from its first bytes, walked through a single entry
 --- shape shared by tar (plain or compressed) and zip, and extracted to
 --- a destination directory with the usual path-escape refusals a
---- caller expects from something unpacking bytes it did not write.
+--- caller expects from something unpacking bytes it did not write;
+--- and written, the format chosen by the file's name, through the one
+--- writer shape tar and zip share.
 
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
@@ -30,6 +32,26 @@ local record Archive
   --- tar's and zip's readers are, declared in [`cosmic.stream`] for the
   --- reason [`Entry`] is.
   type Reader = Stream.ArchiveReader
+
+  --- What writes an archive: the [`Stream.ArchiveWriter`] that tar's
+  --- and zip's writers are, and what [`Archive.create`] answers,
+  --- declared in [`cosmic.stream`] for the reason [`Entry`] is.
+  type Writer = Stream.ArchiveWriter
+
+  --- What [`Archive.create`] writes: a tar compressed with gzip, a
+  --- plain tar, or a zip.
+  enum Format
+    "tar.gz"
+    "tar"
+    "zip"
+  end
+
+  record CreateOptions
+    --- Writes every entry's time as the format's own zero, so the same
+    --- calls make the same bytes, as [`Tar.WriterOptions`] and
+    --- [`Zip.WriterOptions`] say.
+    deterministic: boolean
+  end
 
   --- What `extract` does with a symlink entry: "skip" leaves it out,
   --- "create" makes it (see ExtractOptions.links).
@@ -91,33 +113,49 @@ end
 -- readers
 ------------------------------------------------------------------
 
+-- A reader here is made as cosmic/stream.tl's "How an object of this module
+-- is made" says: a record of its own, with its methods on that record and
+-- its state in fields.
+
+--- What [`draining`] answers.
+local record DrainingReader is Stream.ArchiveReader
+  tr: Tar.Reader
+  source: Stream.Reader
+  finished: boolean
+  next: function(DrainingReader): Stream.ArchiveEntry | nil, string
+  close: function(DrainingReader): boolean, string
+end
+
+local draining_reader_mt: metatable<DrainingReader> = { __index = DrainingReader }
+
+function DrainingReader:next(): Archive.Entry | nil, string
+  local e, trouble = self.tr:next()
+  if e ~= nil then return e, "" end
+  if trouble ~= "" then return nil, trouble end
+  if not self.finished then
+    self.finished = true
+    while true do
+      local chunk, dtrouble = self.source:read()
+      if chunk == nil then
+        if dtrouble ~= "" then return nil, dtrouble end
+        break
+      end
+    end
+  end
+  return nil, ""
+end
+
+function DrainingReader:close(): boolean, string
+  return self.tr:close()
+end
+
 --- `tr`, which reads the decompressed stream `source`: once the tar end
 --- is reached, whatever follows it is read through to the decompressor's
 --- own end, so its errors (a truncated stream, a bad checksum) surface
 --- instead of vanishing with the unread tail.
 local function draining(tr: Tar.Reader, source: Stream.Reader): Archive.Reader
-  local finished = false
-  local ar: Archive.Reader = {}
-  ar.next = function(_self: Archive.Reader): Archive.Entry | nil, string
-    local e, trouble = tr:next()
-    if e ~= nil then return e, "" end
-    if trouble ~= "" then return nil, trouble end
-    if not finished then
-      finished = true
-      while true do
-        local chunk, dtrouble = source:read()
-        if chunk == nil then
-          if dtrouble ~= "" then return nil, dtrouble end
-          break
-        end
-      end
-    end
-    return nil, ""
-  end
-  ar.close = function(_self: Archive.Reader): boolean, string
-    return tr:close()
-  end
-  return ar
+  local r: DrainingReader = setmetatable({ tr = tr, source = source, finished = false }, draining_reader_mt)
+  return r
 end
 
 --- The tar `source` holds, of format `kind` ("tar", "gzip", "xz" or
@@ -204,7 +242,8 @@ function Archive.list_reader(reader: Archive.Reader): {Archive.Entry} | nil, str
       if etrouble ~= "" then return nil, etrouble end
       return out, ""
     end
-    -- Dropping the per-entry reader closure keeps a long listing small.
+    -- The reader is closed before the list is returned, so no entry can be
+    -- opened: say so, rather than read a closed reader.
     entry.open = listed_open
     out[#out + 1] = entry
   end
@@ -216,6 +255,62 @@ function Archive.list(path: string): {Archive.Entry} | nil, string
   local reader, trouble = Archive.open(path)
   if reader == nil then return nil, trouble end
   return Archive.list_reader(reader)
+end
+
+------------------------------------------------------------------
+-- writers
+------------------------------------------------------------------
+
+--- The format [`Archive.create`] would write at `path`, from the
+--- suffix the name ends in, whatever its case: `.tar.gz` or `.tgz`,
+--- `.tar`, `.zip`. Any other name is nil and why, naming the suffixes
+--- it knows. Nothing is read or created, so a caller can refuse a name
+--- before doing work for it.
+function Archive.format_of(path: string): Archive.Format | nil, string
+  local lower = path:lower()
+  if lower:match("%.zip$") then return "zip", "" end
+  if lower:match("%.tar%.gz$") or lower:match("%.tgz$") then return "tar.gz", "" end
+  if lower:match("%.tar$") then return "tar", "" end
+  -- TODO: once cosmic.compress carries an xz encoder (it has only
+  -- `xz_decoder`), write `.tar.xz` here, and `.tar.bz2` likewise once
+  -- it carries a bzip2 encoder (it has only `bz2_decoder`).
+  if lower:match("%.tar%.xz$") or lower:match("%.txz$") then
+    return refuse(path .. ": cannot write .tar.xz, there is no xz encoder; use .tar.gz, .tgz, .tar or .zip")
+  end
+  if lower:match("%.tar%.bz2$") or lower:match("%.tbz2?$") then
+    return refuse(path .. ": cannot write .tar.bz2, there is no bzip2 encoder; use .tar.gz, .tgz, .tar or .zip")
+  end
+  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar or .zip")
+end
+
+--- A writer of a new archive at `path`, of the format its name ends
+--- in, whatever its case: `.tar.gz` or `.tgz` (a tar compressed with
+--- gzip), `.tar` or `.zip`. The inverse of [`Archive.open`], which
+--- reads any of them back. The bytes go to a temporary neighbor, as
+--- [`Stream.create`] writes, so `path` holds nothing until `close`
+--- succeeds, and then the whole archive; a failed call or `abort`
+--- leaves `path` as it was. Any other name answers nil and why, naming
+--- the suffixes it knows, and creates nothing.
+---
+---     local w = assert(Archive.create("release.tar.gz"))
+---     assert(w:add_file("README", "read me first"))
+---     assert(w:close())
+function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Writer | nil, string
+  local format, why = Archive.format_of(path)
+  if format == nil then return nil, why end
+  local deterministic = opts ~= nil and opts.deterministic or false
+  local codec: Compress.Stream
+  if format == "tar.gz" then
+    local ctrouble: string
+    codec, ctrouble = Compress.deflater("gzip")
+    if codec == nil then return refuse(path .. ": " .. ctrouble) end
+  end
+  local file, trouble = Stream.create(path)
+  if file == nil then return nil, trouble end
+  if format == "zip" then return Zip.writer(file, { deterministic = deterministic }), "" end
+  local sink: Stream.Writer = file
+  if codec ~= nil then sink = Stream.transform_writer(file, codec) end
+  return Tar.writer(sink, { deterministic = deterministic }), ""
 end
 
 ------------------------------------------------------------------

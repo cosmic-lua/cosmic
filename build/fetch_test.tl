@@ -8,6 +8,7 @@ local Child = require("cosmic.child")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
@@ -412,4 +413,15 @@ local function test_a_fragment_that_looks_like_a_checksum_is_refused()
     assert(ran.code == 2 and ran.out == "", fragment .. ": " .. tostring(ran.code) .. ran.err)
     assert(ran.err:find("looks like a checksum", 1, true), ran.err)
   end
+end
+
+local function test_download_status_uses_typed_code_instead_of_diagnostic_text(tmp: string)
+  local download = Http.download_result
+  Http.download_result = function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
+    return { kind = "http_status", status = 503, reason = "wording may change" }
+  end
+  local ran = run({ url, "-o", tmp .. "/got" }, {})
+  Http.download_result = download
+  assert(ran.code == 1 and ran.err == "cosmic: fetch: " .. url .. ": HTTP 503\n", ran.err)
+  assert(ran.out == "" and #assert(Fs.list(tmp)) == 0)
 end

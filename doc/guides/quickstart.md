@@ -157,7 +157,7 @@ all or some of it, refusing a path that escapes `out` and a file it would
 overwrite (unless `--force`) -- only that and a missing member write
 nothing; an unsafe entry stops extraction after the entries before it, which
 stay written; `cosmic archive create out.tar.gz dir
---reproducible` packs a tree (fixed times, file modes kept), as a zip or a gzip tar. The format is read from
+--reproducible` packs a tree (fixed times, file modes kept), as a zip, a gzip tar or a plain tar, by its name. The format is read from
 the file's bytes, not its name; `-` reads standard input. `cosmic help archive`
 has the rest.
 

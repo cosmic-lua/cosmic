@@ -40,6 +40,16 @@ local tables: {{string}} = {
                   requires TEXT NOT NULL,
                   PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
+  -- Each name a module's own block binds to another module, once and to
+  -- nothing else ([`build.analyzer.Bound`]): what a type the module
+  -- declares means by `name.Member` (`record Entry is
+  -- Stream.ArchiveEntry`), which [`build.alias_members`] follows. Unlike
+  -- `imports`, `requires` need not be a module the projection holds.
+  { "bound", [[(path TEXT NOT NULL,
+                name TEXT NOT NULL,
+                requires TEXT NOT NULL,
+                PRIMARY KEY (path, name)) WITHOUT ROWID]] },
+
   { "decls", [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
