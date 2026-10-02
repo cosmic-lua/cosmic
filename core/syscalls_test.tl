@@ -1939,3 +1939,30 @@ local function test_full_fsync_validates_its_descriptor()
   raises(sys.full_fsync, 1.5)
   raises(sys.full_fsync, 1 << 40)
 end
+
+--- The raw boundary validates both IDs independently of Child.Options.
+local function test_spawn_credentials_reject_incomplete_and_reserved_ids()
+  for index, credentials in ipairs({
+    {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
+    { user = 1, group = -1 }, { user = 4294967295, group = 1 },
+    { user = 1.5, group = 1 } as raw_process.Credentials,
+  } as {raw_process.Credentials}) do
+    local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
+      nil, nil, nil, nil, nil, false, nil, nil, credentials)
+    assert(not ok and tostring(why):find("credentials", 1, true), tostring(index) .. ": " .. tostring(why))
+  end
+  local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
+    nil, nil, nil, nil, nil, false, nil, { offline = true }, { user = 1, group = 1 })
+  assert(not ok and tostring(why):find("credentials exclude", 1, true), tostring(why))
+end
+
+--- Even when the platform or caller cannot set credentials, refusal
+--- retains spawn's runtime-error shape and never executes the target.
+local function test_spawn_credentials_runtime_refusal(tmp: string)
+  local probe = probe_in(tmp)
+  local marker = tmp .. "/credential-exec"
+  local pid, trouble, errno = process.spawn(probe, { probe, "append " .. marker .. " wrong" },
+    nil, tmp .. "/absent", nil, nil, nil, false, nil, nil, { user = 65532, group = 65532 })
+  failed(pid, trouble, errno)
+  assert(not Fs.exists(marker))
+end

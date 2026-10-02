@@ -707,3 +707,21 @@ local function test_full_fsync_preserves_its_descriptor_under_allocation_failure
     assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS))
   end)
 end
+
+--- Credential failure still releases spawn's native argument copies and
+--- status pipe when allocating the refusal itself fails.
+local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
+  if not checked then return end
+  local before = next_descriptor(tmp)
+  collectgarbage("collect")
+  local heap = testing.c_heap()
+  local credentials: raw_process.Credentials = { user = 65532, group = 65532 }
+  local path = tmp .. "/never-executed"
+  under_every_failure(function()
+    local pid, _, errno = process.spawn(path, { path }, { FIXTURE = "credentials" },
+      tmp, nil, nil, nil, false, nil, nil, credentials)
+    assert(pid == nil and errno ~= nil)
+  end)
+  assert(next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
+  assert(testing.c_heap() == heap, "credential refusal leaked native allocations")
+end

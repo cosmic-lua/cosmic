@@ -89,7 +89,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "57bac59a121d7520f3d30b9052a6f6c5d67a51e8785c5a75d021760317fb9312",
 
-  ["build.confine"] = "ec5426f0704b978b8f5adc7e633e072205e0224de2e694b6ca278a41e3915ae0",
+  ["build.confine"] = "b53b0b0e8fc61332d2ef3f2c077b3cfcf087c1bba5e7393365935a3aa6d2b349",
 
   ["build.core_image"] = "4942e488c251af85703efc977c9e33260b199134d39316c3b9a5579dcaff7830",
 
@@ -115,13 +115,13 @@ harness_epoch.acknowledged = {
 
   ["build.test_worker"] = "a2c184d0cb41e691aaec7b89edf5c830d739ef8d4c92bdfe5c707e3e3dc74c00",
 
-  ["build.this_program"] = "0cc5168af57d57876e8f40f5e36219bbbcf9666f09ce0d78d306cc4840f50703",
+  ["build.this_program"] = "42ee47b80aa182ed6e83c20f86e3900d15de35dcccd5189b69332ae7b73dac4e",
 
   ["build.zig_caches"] = "472c399b1bbbc6f9b58a2edd4fa6fabcddbea9140cac683b58acec608ff3c78c",
 
   ["cmd.cosmic.main"] = "d00f469acf42d89c76c2e9ebabd40e73e20d00cb3a5ad6d9189716265fcdf9bf",
 
-  ["cosmic.child"] = "55032953077c8f2a12ecc9c2af6fad07b534767d102a800c8e6b903204813242",
+  ["cosmic.child"] = "2c401bfaf75379d072be932e6db202c974edba4fed3ae1fad160bb4ba3def53b",
 
   ["cosmic.coverage"] = "079fe202231c4ae3ee642e27f6703a37850132c28c2a6d1daf50c7eb1669ac9a",
 
