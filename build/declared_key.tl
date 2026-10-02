@@ -841,6 +841,9 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
+  if effective.noexec then
+    lines[#lines + 1] = part("noexec", effective.noexec_ready and "granted" or "unavailable", "")
+  end
   if spec.launcher ~= nil then lines[#lines + 1] = part("launcher", spec.launcher, "") end
   if spec.tree ~= nil then lines[#lines + 1] = part("tree", spec.tree, "") end
   local files: {string} = {}

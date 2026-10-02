@@ -1966,3 +1966,20 @@ local function test_spawn_credentials_runtime_refusal(tmp: string)
   failed(pid, trouble, errno)
   assert(not Fs.exists(marker))
 end
+
+local function test_noexec_scratch_requires_a_boolean_and_unveiling()
+  local invalid: {any} = { "yes", 1, {} }
+  for _, value in ipairs(invalid) do
+    local sandbox: raw_process.Sandbox = {}
+    local fields = sandbox as {string:any} -- cast: malformed input exercises raw validation
+    fields.noexec_scratch = value
+    local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+      nil, nil, nil, false, nil, sandbox)
+    assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true),
+      tostring(trouble))
+  end
+  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+    nil, nil, nil, false, nil, { noexec_scratch = true })
+  assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true),
+    tostring(trouble))
+end

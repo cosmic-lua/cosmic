@@ -659,6 +659,8 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
   elseif unveil ~= nil then
     return nil
   end
+  local noexec = rawget(raw, "noexec_scratch")
+  if noexec is boolean then plain.noexec_scratch = noexec elseif noexec ~= nil then return nil end
   plain.offline = rawget(raw, "offline") == true
   local user, group = rawget(raw, "user"), rawget(raw, "group")
   if user is integer then plain.user = user elseif user ~= nil then return nil end

@@ -1536,16 +1536,21 @@ end
 --- runs by [`worker.loads`] and the test's closure, so a worker that ran a
 --- module of the tree the tool carries beyond both fails its test.
 local function finish(rec: Recording, job: Job, result: Child.Result,
-                      trouble: string, limits: test.Limits, refused?: boolean)
+                      trouble: string, limits: test.Limits, refused?: boolean, unavailable?: string)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Time.monotonic_ns() - job.started_ns
-  local judged = worker.judge({
+  local judged: worker.Judgement
+  if unavailable ~= nil then
+    judged = { passed = true, skipped = unavailable, message = "" }
+  else
+    judged = worker.judge({
     result = result, trouble = trouble, timeout_ns = limits.timeout_ns,
     sandboxed = rec.sandbox, refused = refused == true,
     carried = rec.carried,
     closure = closure_set(rec, job.m),
-  })
+    })
+  end
   local reported, passed, message = judged.report, judged.passed, judged.message
   -- A pass the test said it could not check ([`Test.skip`]) is kept as no
   -- verdict, pass or fail, so it runs again on the next run -- and on a
@@ -1674,6 +1679,7 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
+  out.COSMIC_TEST_NOEXEC = nil
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
   -- test starts holds none of this run's.
   return rebuild_lock.unhanded(out)
@@ -2049,6 +2055,11 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local declares_trouble = unresolved(rec, job.m)
   if declares_trouble ~= "" then
     finish(rec, job, nil, declares_trouble, limits, true)
+    return false
+  end
+  local effective = rec.effective[job.m.path]
+  if effective.noexec and not effective.noexec_ready then
+    finish(rec, job, nil, "", limits, false, effective.noexec_trouble)
     return false
   end
   -- The store of its closure an unsandboxed worker attaches in place
@@ -2797,10 +2808,12 @@ local function run(argv: {integer:string}): integer
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
   end
   rec.effective = {}
+  local noexec_probes: {string:string} = {}
   for _, m in ipairs(selected_modules) do
     local effective = test_inputs.effective(m, by_path, declarations)
     effective.cache_paths = caches_of(rec, m)
     test_inputs.resolve(effective, worker_view(), tree_roots(rec))
+    test_sandbox.resolve_noexec(effective, rec.sandbox, noexec_probes)
     rec.effective[m.path] = effective
   end
   -- What an earlier run hashed, so a key reads none of it again

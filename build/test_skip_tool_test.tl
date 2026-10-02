@@ -76,3 +76,24 @@ local function test_a_run_held_to_sandboxing_fails_a_skipped_test(tmp: string)
     assert(not out:find("test: SKIP", 1, true), out)
   end
 end
+
+local function test_unavailable_noexec_skips_without_loading_and_keeps_no_verdict(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/noexec_test.tl", [[
+local Test = require("cosmic.test")
+Test.needs { noexec = true }
+error("an unavailable capability must not load its test module")
+local function test_requires_noexec() error("must not execute") end
+]]))
+  for _ = 1, 2 do
+    local out, code = run(root, { COSMIC_TEST_NOEXEC = "/forged" })
+    assert(code == 0, out)
+    assert(out:find("SKIP  noexec_test test_requires_noexec: noexec scratch requires", 1, true), out)
+    assert(out:find("2 skipped", 1, true), out)
+    assert(not out:find("must not load", 1, true), out)
+  end
+  local out, code = run(root, { COSMIC_SANDBOX = "must" })
+  assert(code ~= 0, out)
+  assert(out:find("skipped (noexec scratch requires a Linux filesystem sandbox), but the " ..
+    "run is held to sandboxing", 1, true), out)
+end

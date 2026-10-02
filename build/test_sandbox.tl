@@ -302,17 +302,16 @@ local function worker_cores(): Cores | nil, string
   return { copy = cache, cache = directory, start = handed }, ""
 end
 
---- Whether this program starts, sandboxed, as `user`, with `cores` its
---- core ([`worker_cores`]): given /proc, /dev/null and that core alone,
---- it runs nothing and ends. Where the host refuses what a worker run as
---- that user takes -- a user namespace of that user's own (AppArmor's
---- kernel.apparmor_restrict_unprivileged_userns, a kernel that allows
---- none unprivileged), or a map written from outside -- every worker's
---- start would fail; so none is run so there, and each runs as root.
+--- Whether this program starts sandboxed as `user`, or the caller when
+--- nil, with `cores` its core ([`worker_cores`]). With `noexec`, it also
+--- proves its private scratch writable and native execution refused
+--- with EACCES. A failed identity probe keeps ordinary workers as the
+--- caller; a failed noexec probe withholds only that requested capability.
 -- TODO: test the fallback on a host that refuses an unprivileged user
 -- a user namespace, once CI has a leg run as root on one (doc/roadmap.md):
 -- no host the suite runs on refuses one to 65532 but grants it to root.
-local function starts_as(user: test_sandbox.User, cores: Cores): boolean, string
+local function starts_as(user: test_sandbox.User | nil, cores: Cores,
+                         noexec?: boolean): boolean, string
   local launched, _ = Proc.relaunch()
   local start: Proc.Relaunch = cores.start or launched
   local reads: {string} = {}
@@ -335,13 +334,23 @@ local function starts_as(user: test_sandbox.User, cores: Cores): boolean, string
   local argv: {string} = {}
   for i, word in ipairs(start.argv) do argv[i] = word end
   argv[#argv + 1] = "-e"
-  argv[#argv + 1] = ""
+  argv[#argv + 1] = noexec and [[
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local path = "/noexec/probe"
+local bytes = assert(Fs.read("/proc/self/exe"))
+assert(Fs.write(path, bytes, 0x1c0))
+assert(Fs.read(path) == bytes)
+local ok, trouble, errno = sys.execve(path, { path, "-e", "os.exit(97)" }, {})
+assert(not ok and errno == sys.EACCES, trouble)
+]] or ""
   local fds: {integer:integer | string} = {}
   for number, fd in pairs(start.fds) do fds[number] = fd end
   local handle, trouble = Child.start(argv, { env = start.env, fds = fds, cwd = "/",
     stdin = "null", stdout = "capture", stderr = "stdout", process_group = false,
     sandbox = { unveil = { reads = reads, writes = {}, at = at }, offline = true,
-      user = user.uid, group = user.gid } })
+      user = user ~= nil and user.uid or nil, group = user ~= nil and user.gid or nil,
+      noexec_scratch = noexec == true } })
   if handle == nil then return false, trouble end
   local result, wait_trouble = handle:wait(probe_timeout_ns)
   if result == nil then
@@ -349,7 +358,7 @@ local function starts_as(user: test_sandbox.User, cores: Cores): boolean, string
     return false, wait_trouble
   end
   if not result.ok then
-    return false, "a start as " .. tostring(user.uid) .. " ended " ..
+    return false, "a sandboxed capability probe ended " ..
       tostring(result.code or result.signal) .. ": " .. (result.stdout or "")
   end
   return true, ""
@@ -412,6 +421,28 @@ function test_sandbox.worker_user(effective: test_inputs.Effective): test_sandbo
   return user
 end
 
+--- Resolves a requested noexec scratch grant before the worker is keyed.
+--- A probe is shared only by workers with the same credentials. Ordinary
+--- workers require no probe and keep their existing sandbox capability.
+function test_sandbox.resolve_noexec(effective: test_inputs.Effective, sandboxed: boolean,
+                                    known: {string:string})
+  effective.noexec_ready, effective.noexec_trouble = false, ""
+  if not effective.noexec then return end
+  if not sandboxed then
+    effective.noexec_trouble = "noexec scratch requires a Linux filesystem sandbox"
+    return
+  end
+  local user = test_sandbox.worker_user(effective)
+  local key = user ~= nil and (tostring(user.uid) .. ":" .. tostring(user.gid)) or "caller"
+  local trouble = known[key]
+  if trouble == nil then
+    local ok, why = starts_as(user, user ~= nil and worker_copy or { copy = "", cache = "" }, true)
+    trouble = ok and "" or "noexec scratch is unavailable: " .. why
+    known[key] = trouble
+  end
+  effective.noexec_ready, effective.noexec_trouble = trouble == "", trouble
+end
+
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's ([`build.test`]'s `worker_environment`), the pinned
 --- variables and those `effective` declares (all of them for `"*"`),
@@ -424,6 +455,7 @@ function test_sandbox.environment(environment: {string:string},
   else
     for name in pairs(effective.env) do out[name] = environment[name] end
   end
+  out.COSMIC_TEST_NOEXEC = effective.noexec_ready and "/noexec" or nil
   out.TMPDIR = test_sandbox.scratch
   -- The cores of its own a worker that declares the `bootstrap` cache
   -- writes (`cache_writes`).
@@ -445,6 +477,7 @@ end
 function test_sandbox.unenforced_view(environment: {string:string},
                                       effective: test_inputs.Effective): {string:string}
   local out = test_sandbox.environment(environment, effective)
+  out.COSMIC_TEST_NOEXEC = nil
   if out.COSMIC_PORTABLE_CACHE == own_cores then
     out.COSMIC_PORTABLE_CACHE = environment.COSMIC_PORTABLE_CACHE
   end
@@ -743,7 +776,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- rather than standing on a verdict that service gave.
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true,
-      user = user ~= nil and user.uid or nil, group = user ~= nil and user.gid or nil },
+      noexec_scratch = effective.noexec_ready == true, user = user ~= nil and user.uid or nil, group = user ~= nil and user.gid or nil },
     env = test_sandbox.environment(environment, effective),
     over = over,
     trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
