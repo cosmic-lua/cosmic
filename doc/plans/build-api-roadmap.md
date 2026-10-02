@@ -175,8 +175,8 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
 | B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | merged | 55724526/treeb3c0574f; branch36977328228 and queue36977805814 green; exact queue tree independently approved; native80 and checked56 pass |
-| B4b | [#2578](https://github.com/cosmic-lua/cosmic/pull/2578) | branch green, queued | remote5c43a5df/tree44c25249 on actual55724526; branch36979110720 green; queue36979424775 candidate79c38a7a; final native63/independentchecked35 pass; matching three artifacts |
-| B5 | pending | source integration approved | 410305c3/tree54e917c2 on reviewed B4b; all12 blobs unchanged from a1439795; independent46 CI/44 Zig preparation tests pass; release procedure corrected/reviewed; actual verified release still required |
+| B4b | [#2578](https://github.com/cosmic-lua/cosmic/pull/2578) | merged | 79c38a7a/tree44c25249; branch36979110720 and queue36979424775 green; exact queue tree independently approved; native63/checked35 pass; matching three artifacts |
+| B5 | pending | awaiting actual release verification | source410305c3/tree54e917c2 approved; all12 blobs unchanged from a1439795; B4b actualmerge79c38a7a mainCI36980359851 running; corrected release procedure independently approved; pin unchanged |
 | C1 | pending | locally approved | 938b3686/tree254eea31 prep preserves original668ef813 feature and incoming Fs changes; focused60 pass; final integration/publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
