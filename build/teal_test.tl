@@ -97,7 +97,8 @@ local function test_an_integer_hint_names_the_declaration_in_scope()
   local closed = "local function f()\n  local n = 0\n  return n\nend\n" ..
     "local function g(n: integer): integer\n  n = n / 2\n  return n\nend\nprint(f(), g(1))\n"
   assert(hint_for(closed) == converted)
-  local looped = "local n = 0\nfor n = 1, 3 do\n  n = n / 2\nend\nprint(n)\n"
+  local looped = "local n = 0\nlocal xs: {integer} = {}\nfor _, n in ipairs(xs) do\n" ..
+    "  n = n / 2\nend\nprint(n)\n"
   assert(hint_for(looped) == converted)
   local block = "do\n  local n = 0\n  print(n)\nend\nlocal n: integer = 1\nn = n / 2\nprint(n)\n"
   assert(hint_for(block) == converted)
@@ -633,4 +634,40 @@ local function test_a_missing_field_lists_a_bounded_few()
     "Big's fields: f01, f02, f03, f04, f05, f06, f07, f08, f09, f10 and 2 more")
   assert(teal.replacement("invalid key 'parsee' in record 'Cli' of type record Module", "", 1, 1,
     { "parse" }) == "did you mean 'parse'? Cli's fields: parse")
+end
+
+--- An assignment to a for loop's control variable -- a numeric for's,
+--- or the first of a generic for's -- is refused at its own line
+--- (patch/tl's 34), as Lua 5.5, which makes it read-only, would refuse
+--- only the generated chunk. A generic for's other variables, a local
+--- declared over the variable, and a parameter of its name are
+--- assignable.
+local function test_a_loop_control_variable_is_read_only()
+  local refused = "cannot assign to for-loop variable 'item': it is read-only; copy it to a local first"
+  for _, source in ipairs({
+    "local xs = {'a'}\nfor item in ipairs(xs) do\n  print(item)\n  item = 2\nend\n",
+    "for item = 1, 2 do\n  print(item)\n\n  item = 2\nend\n",
+    "local function each(): function(): integer | string return nil end\n" ..
+      "for item in each() do\n  if item is string then\n  item = 'x' end\nend\n",
+    "local function each(): function(): integer | string return nil end\n" ..
+      "for item in each() do\n  assert(item is string)\n  item = 'x'\nend\n",
+    "for item = 1, 2 do\n  local function f() print(item)\n  end\n  item = f() end\n",
+    "local xs: {integer|string} = {}\nfor item, v in ipairs(xs) do\n  print(v)\n" ..
+      "  if v is integer then item = v end\nend\n",
+  }) do
+    local errors = type_errors(source)
+    assert(#errors == 1 and errors[1].y == 4 and errors[1].msg == refused,
+      source .. (errors[1] and errors[1].y .. ": " .. errors[1].msg or "no error"))
+  end
+  for _, source in ipairs({
+    "local xs: {integer} = {}\nfor _, item in ipairs(xs) do item = item + 1; print(item) end\n",
+    "for item = 1, 2 do local item = item; item = item + 1; print(item) end\n",
+    "for item = 1, 2 do\n  print(item)\n  do local item = item; item = item + 1; print(item) end\nend\n",
+    "for item = 1, 2 do\n  local function f(item: integer) item = item + 1; print(item) end\n" ..
+      "  f(item)\nend\n",
+    "local item = 0\nfor item = 1, 2 do print(item) end\nitem = 1\nprint(item)\n",
+  }) do
+    local errors = type_errors(source)
+    assert(#errors == 0, source .. (errors[1] and errors[1].msg or ""))
+  end
 end

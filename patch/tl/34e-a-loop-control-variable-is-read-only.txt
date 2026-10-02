@@ -1,0 +1,26 @@
+file: tl.tl
+note: refuse an assignment to a for loop's control variable (34a), which Lua 5.5 refuses only once the chunk is generated. The variable a name assigns is the nearest record that says whether it is one, or else the nearest that is no narrowing made in an inner block (a narrowing there has no specialized_from), as get_real_var_from_lower_scope finds it: a function's parameter of the same name, say
+--- find
+      if attr == "close" or attr == "const" or attr == "total" then
+         self.errs:add(varnode, "cannot assign to <" .. attr .. "> variable")
+         return nil
+      end
+--- replace
+      if attr == "close" or attr == "const" or attr == "total" then
+         self.errs:add(varnode, "cannot assign to <" .. attr .. "> variable")
+         return nil
+      end
+      if varname and varnode.kind == "variable" then
+         for i = #self.st, 1, -1 do
+            local declared = self.st[i].vars[varname]
+            if declared and declared.is_loop_control then
+               self.errs:add(varnode, "cannot assign to for-loop variable '" .. varname ..
+                  "': it is read-only; copy it to a local first")
+               return nil
+            elseif declared and (declared.is_loop_control == false or
+               (not declared.is_specialized) or declared.specialized_from) then
+               break
+            end
+         end
+      end
+--- end

@@ -1,0 +1,8 @@
+file: tl.tl
+note: the first variable of a generic for is its control variable, which Lua 5.5 makes read-only; the others are plain locals
+--- find
+                  self:add_var(v, v.tk, r)
+--- replace
+                  local var = self:add_var(v, v.tk, r)
+                  var.is_loop_control = i == 1
+--- end
