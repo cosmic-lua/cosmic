@@ -434,6 +434,42 @@ include explicit portable and host-format reopening-denial cases;
 untrusted path/range inputs cannot expose the running artifact or escape worker
 read restrictions. Startup/load A/B and relevant sanitizers pass.
 
+The reviewed implementation surface is an opaque `Sqlite.Artifact` obtained by
+`Sqlite.artifact(path)`, with `open`, `close` and normal Lua cleanup; an owned
+inspection connection can `attach_artifact(other, schema)`. Open artifact A as
+`main` and attach B under a name, so existing SQL can join `modules.path` across
+them. Initially reject borrowed Store handles and ordinary connections without
+the explicit inspection capability. Preserve a later explicit constructor for
+writable projection workspaces with read-only artifact attachments; do not
+enable URI interpretation globally.
+
+Use a separate inspection VFS and refcounted C backing object owning a regular
+file descriptor, structural format and validated range. Each SQLite file holds
+a reference independently of the originating Lua userdata, including statements
+that delay connection destruction. Final release closes the descriptor. Never
+rearm the runtime VFS. A private one-use opening permit exists only during the
+synchronous C open/attach call, invokes no Lua, and is cleared on every result.
+Names exposed through SQLite metadata must not become reusable capabilities.
+
+Open and inspect the actual descriptor before decoding: reject the running
+artifact's device/inode even through symlinks, hard links or descriptor aliases.
+Ordinary SQLite's current rejection of executable headers is not a sufficient
+boundary for an artifact-aware reader. Reject NULs and nonregular files without
+blocking on a FIFO. Retain the same descriptor through validation and reading.
+Path replacement/unlink preserves reads; in-place mutation is outside the
+immutable-reader contract and must be explicitly prohibited while consumers live.
+
+Core bindings, lazy wrappers and an explicit artifact option on existing
+`cosmic sql` can ship together. Source review confirmed the normal pinned driver
+uses its own embedded library and boot runs the freshly built core. Keep new
+binding calls out of module initialization and old-controller execution; test
+the new command by spawning the candidate executable, and verify normal boot
+with the unchanged pin. A release/pin prerequisite applies only if a pinned
+process must itself invoke the new API. Extend allocation-failure, attachment
+limits, duplicate names, detach/close order, active statements, both executable
+formats and raw-URI replay coverage. Existing loader order and held Store reads
+must remain unchanged.
+
 ### 3. Versioned shipped schema and compatible reader contract
 
 Add format identification, database version, compatibility facts, roots/provider
