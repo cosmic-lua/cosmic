@@ -4,18 +4,20 @@
 --- the tool call at which `cosmic test` first passed, and how many times
 --- the journal was written (one write at the end is a retelling, not a
 --- log). Last, every absolute path a tool call named outside the arena,
---- and any mention of this repository or a skills directory: those are
---- contamination or boundary breaches to check before trusting the run.
+--- and any mention of this repository or a skills or plugins directory:
+--- those are contamination or boundary breaches to check before
+--- trusting the run.
 --- Another agent's transcript needs its own reader.
 ---
 ---     cosmic --standalone eval/summarize.tl <arena>/transcript.jsonl
 ---
---- `eval/summarize` runs this on the bootstrap cosmic, as bin/vendor
+--- [`eval/summarize`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only. The arena
 --- is the transcript's own directory, and the repository is found from
 --- this script's path, both with every link resolved.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local String = require("cosmic.string")
 
 local record Summarize
 end
@@ -175,13 +177,9 @@ local function decode(line: string): any
   return value
 end
 
-local function starts(text: string, prefix: string): boolean
-  return text:sub(1, #prefix) == prefix
-end
-
 local function is_system(path: string): boolean
   for _, prefix in ipairs(system) do
-    if starts(path, prefix) or path .. "/" == prefix then
+    if String.starts_with(path, prefix) or path .. "/" == prefix then
       return true
     end
   end
@@ -313,7 +311,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     -- Where the call acts, not what it writes: a file's own contents
     -- would otherwise count every path its prose mentions.
     for _, path in ipairs(Summarize.paths(call.where)) do
-      if not (path == arena or starts(path, arena .. "/") or is_system(path)) then
+      if not (Fs.within(path, arena) or is_system(path)) then
         outside[path] = true
       end
     end

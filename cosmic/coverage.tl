@@ -1,17 +1,16 @@
---- Line coverage collected by the native C line hook in core/coverage.c.
---- A core built with native coverage adds the lines of its own C, by
---- repository path (see `Coverage.native_lines`).
---- Lua's `debug` library is never opened; the VM's internal debugging
---- support remains available to the native hook and tracebacks.
+--- Line coverage for test tooling: which source lines ran between
+--- `start` and `stop`. A core built with native coverage also reports
+--- the lines of its own C, by repository path (see
+--- [`Coverage.native_lines`]).
 ---
---- The collector is exposed as `cosmic.internal.debug` only while this
---- trusted wrapper loads from the binary's own tree. The wrapper keeps
---- the raw table private and exposes collection windows guarded by an
---- opaque session token.
----
---- Only one window may be open. `start` refuses without changing state
---- while another is active, and `stop` accepts only the exact token that
---- opened it. All callers share this module's cached state.
+--- Only one collection window may be open. `start` refuses, changing
+--- nothing, while another is active, and `stop` accepts only the
+--- session that `start` returned. All callers share this state.
+
+-- The collector is exposed as [`cosmic.internal.debug`] only while this
+-- trusted wrapper loads from the binary's own tree. The wrapper keeps
+-- the raw table private and exposes collection windows guarded by an
+-- opaque session token. Lua's `debug` library is never opened.
 
 local type NativeCoverage = require("cosmic.internal.debug")
 
@@ -24,13 +23,14 @@ else
 end
 
 local record Coverage
-  --- Every source line hit while collecting was on, by the module's
-  --- own import path: the chunk's full source identifier with its
-  --- leading `@` removed (see cosmic/internal/debug.d.tl).
+  --- The lines hit, as a map from a module's import path to the set of
+  --- its line numbers (`hits[path][line] == true`). The path is the
+  --- chunk's full source identifier with its leading `@` removed.
   type Hits = NativeCoverage.Hits
 
-  --- One of the core's own C functions: `path` and `line` name the line
-  --- it begins on, which a hit names when the function was entered.
+  --- One of the core's own C functions: `path` is its file by
+  --- repository path, `line` the line it begins on, which a hit names
+  --- when the function was entered, and `name` its name.
   type Function = NativeCoverage.Function
 
   --- An opaque handle to one open collection window, compared only by
@@ -41,7 +41,13 @@ local record Coverage
   end
 end
 
-local collecting = false
+--- The open window's session, nil while none is open.
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "coverage: " .. why
+end
+
 local active: Coverage.Session | nil = nil
 
 --- Starts collecting line hits, discarding anything collected before,
@@ -49,16 +55,12 @@ local active: Coverage.Session | nil = nil
 --- Refuses, touching no shared state, while a window opened by an
 --- earlier `start` is still open -- a second, unrelated caller cannot
 --- silently reset a collection already in progress.
---- Only one collection window may be open at a time: call
---- `Coverage.stop` with the session an earlier `Coverage.start`
---- returned before starting another.
 --- @return Session | nil The session `stop` must be called with, or nil if refused
 --- @return string Error message when refused, "" on success
 function Coverage.start(): Coverage.Session | nil, string
-  if collecting then
-    return nil, "coverage collection is already active"
+  if active ~= nil then
+    return refuse("collection is already active")
   end
-  collecting = true
   local session: Coverage.Session = {}
   active = session
   native.start()
@@ -69,38 +71,23 @@ end
 --- `start`, by module import path -- but only for the exact `session`
 --- that `start` returned. Any other value, including no collection
 --- being open at all, is refused without touching the real window: the
---- hook stays installed, `collecting` stays true, and nothing already
+--- hook stays installed, the window stays open, and nothing already
 --- gathered is discarded. This is what keeps a caller other than the
 --- one that opened the window from ending or corrupting it.
 --- @param session Session The value the matching `start` returned
 --- @return Hits | nil Every line hit since `start`, or nil if refused
 --- @return string Error message when refused, "" on success
 function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
-  if not collecting or session ~= active then
-    return nil, "no matching open coverage collection for this session"
+  if active == nil or session ~= active then
+    return refuse("no matching open collection for this session")
   end
-  collecting = false
   active = nil
   return native.stop(), ""
 end
 
---- A copy of every line hit so far, without ending the collection or
---- needing the session `start` returned: unlike `stop`, this only
---- reads, so any caller may look in on a window it did not open,
---- while it is still running, without the session token's refusal
---- rules -- there is nothing here for a second caller to corrupt.
---- Empty when no collection is open.
---- @return Hits Every line hit so far
-function Coverage.snapshot(): Coverage.Hits
-  if not collecting then
-    return {}
-  end
-  return native.snapshot()
-end
-
---- Every line of the core's own C a hit could land on, by repository
---- path (`core/syscalls.c`), in the same form hits on it take: what C
---- hits are counted out of. Every core cosmic ships and tests with is
+--- Every line of the core's own C a hit could land on, by the file's
+--- path in the cosmic repository, in the same form hits on it take:
+--- what C hits are counted out of. Every core cosmic ships and tests with is
 --- built with native coverage; one that is not (a test fixture's)
 --- answers an empty table, and its hits never name a C file.
 --- @return Hits Every observable C line, each true
@@ -108,17 +95,9 @@ function Coverage.native_lines(): Coverage.Hits
   return native.lines()
 end
 
---- The line each of the core's own C functions begins on, among
---- `native_lines`: a function was entered when a hit names its line.
---- Empty in a core without native coverage, like `native_lines`.
---- @return Hits Every C function's first line, each true
-function Coverage.native_entries(): Coverage.Hits
-  return native.entries()
-end
-
---- Every one of the core's own C functions, by the line it begins on
---- (`native_entries`) and its name. Empty in a core without native
---- coverage.
+--- Every one of the core's own C functions, by the line it begins on --
+--- a function was entered when a hit names that line -- and its name.
+--- Empty in a core without native coverage.
 --- @return {Function} Every C function of the core
 function Coverage.native_functions(): {Coverage.Function}
   return native.functions()

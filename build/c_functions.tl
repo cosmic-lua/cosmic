@@ -1,9 +1,9 @@
 --- Every C function of the core that a test must enter: each one
---- `Coverage.native_functions` names in a `core/*.c` file. Every core
+--- [`Coverage.native_functions`] names in a `core/*.c` file. Every core
 --- cosmic ships and tests with observes its own C, so a whole test run of
 --- cosmic's own tree -- locally, on the release core, and in CI, on the
 --- sanitized one too -- fails for any function no test enters, in its own
---- process or in one it starts (see `Coverage.children`), unless `exempt`
+--- process or in one it starts (see [`Coverage.children`]), unless `exempt`
 --- names it with the reason no test can, or `exempt_on` does for the
 --- host the run is on.
 ---
@@ -18,7 +18,7 @@ local String = require("cosmic.string")
 local record c_functions
   --- How a run's hits measure up against every C function.
   record Tally
-    --- The functions no test entered and none exempts, by `key_of`, sorted.
+    --- The functions no test entered and none exempts, by [`key_of`], sorted.
     unentered: {string}
     --- How many were entered.
     entered: integer
@@ -26,13 +26,14 @@ local record c_functions
     exempted: integer
     --- How many functions there are.
     total: integer
-    --- The exempt functions a test entered after all, by `key_of`, sorted:
+    --- The exempt functions a test entered after all, by [`key_of`], sorted:
     --- this core no longer needs their exemption, though another may.
     stale: {string}
   end
 end
 
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
+local forwarded <const> = "passes to the base VFS a call SQLite never makes on the store's read-only database"
 local sandbox_only <const> =
   "runs only in a sandboxed child that made a user namespace and mapped its ids, which a host refusing unprivileged ones never starts"
 local sandbox_started <const> =
@@ -45,7 +46,7 @@ local maps_ids <const> =
   "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
 
---- The C functions no test can enter, by `key_of`, and why.
+--- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
   ["core/vfs.c:file_write"] = read_only,
   ["core/vfs.c:file_truncate"] = read_only,
@@ -71,32 +72,30 @@ local exempt: {string: string} = {
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
+  ["core/syscalls.c:cosmic_mountinfo_local_flock"] = "a release core calls it only for a file on NFS, which no " ..
+    "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
-  ["core/vfs_wrap.c:forward_access"] =
-    "the observed VFS answers xAccess itself, and SQLite never asks the store's read-only one",
-  ["core/vfs_wrap.c:forward_randomness"] =
-    "SQLite seeds its randomness through the default VFS, never a wrapping one",
-  ["core/sqlite.c:observed_sector_size"] =
-    "the default VFS's files overwrite safely on power loss, so SQLite never asks their sector size; only a URI's psow=0 would, and no connection takes a URI",
+  ["core/vfs.c:vfs_delete"] = forwarded,
+  ["core/vfs.c:vfs_access"] = forwarded,
+  ["core/vfs.c:vfs_randomness"] = "SQLite seeds its randomness through the default VFS, never a wrapping one",
+  ["core/vfs.c:vfs_sleep"] = forwarded,
+  ["core/vfs.c:vfs_last_error"] = forwarded,
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
 }
 
 --- The C functions no test can enter on one kind of host, by its
---- uname(2) sysname and then by `key_of`, and why: another host's run
+--- uname(2) sysname and then by [`key_of`], and why: another host's run
 --- still holds them to being entered.
 local exempt_on: {string: {string: string}} = {
+  Linux = {
+    ["core/syscalls_fs.c:reaches_descriptor_name"] = "the walk by hand stands in for openat2's, which every " ..
+      "Linux host CI and a sandboxed worker runs on answers: it runs only where openat2 is missing or refused " ..
+      "(a kernel older than 5.6, a filter), and on macOS, whose run enters it (core/artifact_fd_test.tl)",
+    ["core/syscalls_fs.c:descriptor_name"] = "called only from reaches_descriptor_name (see it)",
+  },
   Darwin = {
-    -- TODO: drop these once Darwin's child starts through posix_spawn
-    -- (the TODO at core/syscalls.c's fork), or once a child's hits reach
-    -- the parent some other way, such as its own report before exec.
-    ["core/syscalls.c:spawn_child"] = "Darwin's child is a fork, so the flags it sets land in its own copy of the " ..
-      "parent's memory, which it never reports; Linux's clone(CLONE_VM) child's reach the parent",
-    ["core/syscalls.c:report_child_error"] = "called only from spawn_child, whose child's hits never reach the parent " ..
-      "on macOS (see spawn_child)",
-    ["core/syscalls.c:run_program"] = "called only from spawn_child, whose child's hits never reach the parent " ..
-      "on macOS (see spawn_child)",
     -- Every Linux core, the checked one too, is static musl, whose printf
     -- measures each `%s` with the core's strnlen, so a Linux run holds it.
     ["core/strnlen.c:strnlen"] = "libSystem's printf measures a `%s` with its own strnlen, never the core's, " ..

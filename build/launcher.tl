@@ -1,7 +1,7 @@
 --- The production POSIX launcher template for portable artifacts.
 ---
 --- This is a Teal module, rather than a loose build-time asset, because a
---- shipped Cosmic reads `build.artifact` and its dependencies from its Store
+--- shipped Cosmic reads [`build.artifact`] and its dependencies from its Store
 --- projection. `render` substitutes the generated target arms into it,
 --- and, for a test build, the portable test hook and its call sites.
 
@@ -58,8 +58,8 @@ case "$(uname -sm)" in
 esac
 @SELECT_HOOK@
 
-# Keep this open across extraction and exec. Step 5 adopts this descriptor;
-# extraction deliberately reads it rather than reopening the pathname.
+# Keep this open across extraction and exec: startup adopts this descriptor,
+# and extraction deliberately reads it rather than reopening the pathname.
 eval 'exec '"$cosmic_artifact_fd"'<"$cosmic_artifact"' ||
   portable_die 'cannot open the portable artifact'
 @ADOPT_HOOK@

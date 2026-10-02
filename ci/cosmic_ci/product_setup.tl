@@ -10,7 +10,7 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   local targets_path = root .. "/o/targets.tsv"
   local product_exists = Predicate.exists(product)
   assert(not product_exists, "product already exists: " .. product)
-  for _, required in ipairs({ cosmic, root .. "/o/cosmic.db", targets_path }) do
+  for _, required in ipairs({ cosmic, root .. "/o/carried.db", targets_path }) do
     assert(assert(Fs.stat(required)).kind == "file",
       "boot output is missing: " .. required)
   end
@@ -43,7 +43,11 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   Fixture.copy(cosmic, product .. "/cosmic", 0x1ed)
   Fixture.copy(hello, product .. "/apps/hello", 0x1ed)
   Fixture.copy(second, product .. "/apps/second", 0x1ed)
-  Fixture.copy(root .. "/o/cosmic.db", product .. "/cosmic.db")
+  -- The database the tool carries, not the whole projection: that holds
+  -- the tree's tests too, and signs them in its meta, so an edit to a
+  -- test would move the runtime artifacts written from it
+  -- (runtime_setup.tl) and every fixture keyed by one.
+  Fixture.copy(root .. "/o/carried.db", product .. "/cosmic.db")
   Fixture.copy(targets_path, product .. "/targets.tsv")
   local targets = Fixture.targets(product .. "/targets.tsv")
   for _, target in ipairs(targets) do
@@ -58,6 +62,10 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
     product .. "/cosmic", product .. "/prefix", product .. "/manifest",
     product .. "/targets.tsv", product .. "/cores",
     product .. "/apps/hello", product .. "/apps/second" }, root, diagnostics)
+
+  Fixture.run("product-database", { cosmic,
+    root .. "/test/portable/tool.tl", "product-database",
+    product .. "/cosmic", product .. "/cosmic.db" }, root, diagnostics)
 
   local names = { "cosmic", "prefix", "manifest", "apps/hello",
     "apps/second", "cosmic.db", "targets.tsv" }
@@ -76,11 +84,11 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
 end
 
 --- Which of `product`'s files differs from `recorded`, the text of the
---- hashes.sha256 `build` wrote for it -- "hashes.sha256" where that
---- record is not the same -- or nil where none does. A file differs
---- where it is not a regular file, or its bytes are not the ones
---- recorded, or, for the programs (cosmic and apps/), where it is no
---- longer executable by everyone.
+--- hashes.sha256 `build` wrote for it. Answers "hashes.sha256" where
+--- that file does not hold `recorded`, the name of the first file that
+--- differs, or nil where none does. A file differs where it is not a
+--- regular file, or its bytes are not the ones recorded, or, for the
+--- programs (cosmic and apps/), where it is not executable by everyone.
 function ProductSetup.changed(product: string, recorded: string): string | nil
   local now = Fs.read(product .. "/hashes.sha256")
   if now ~= recorded then return "hashes.sha256" end

@@ -22,25 +22,25 @@
 --- databases, are core/allocation_tool_test.tl's and
 --- core/allocation_store_test.tl's, so these stand while the tree moves.
 
-local _ = require("cosmic.child") -- in the closure: `process_table` searches for it by hand
+local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
-local Observations = require("build.filesystem_observations")
-local Proc = require("cosmic.proc")
-local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
+local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
+local Time = require("cosmic.time")
 
 local type Searcher = function(string): any, any
 
 --- The raw process table, as the store's searcher hands it to
---- `cosmic.child`'s loader.
+--- [`cosmic.child`]'s loader.
 local function process_table(): raw_process
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")
@@ -52,34 +52,6 @@ local function process_table(): raw_process
 end
 
 local process = process_table()
-
-local type raw_sqlite = require("cosmic.internal.sqlite")
-
---- The raw SQLite table, as the store's searcher hands it to
---- `cosmic.sqlite`'s loader.
-local function sqlite_table(): raw_sqlite
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.sqlite")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_sqlite -- cast: the table core/sqlite.c opens
-    end
-  end
-  error("cosmic.sqlite is handed no raw table")
-end
-
-local type raw_observations = require("cosmic.internal.observations")
-
---- The raw tables the store's searcher hands
---- `build.filesystem_observations`' loader.
-local function observations_table(): raw_observations
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("build.filesystem_observations")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_observations -- cast: the table core/store.c's open_observations makes
-    end
-  end
-  error("build.filesystem_observations is handed no raw table")
-end
 
 local checked = testing.configuration == "sanitized"
 
@@ -133,6 +105,7 @@ local function test_only_the_checked_core_instruments()
     fail_at = function() testing.fail_at() end,
     live_transfers = function() testing.live_transfers() end,
     executable_path = function() testing.executable_path(4096) end,
+    mountinfo_local_flock = function() testing.mountinfo_local_flock("", "0:1") end,
   }
   for name, use in pairs(instruments) do
     local ok, err: boolean, any = pcall(use)
@@ -266,6 +239,49 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
+--- A socket owns its descriptor, and a unix listener's socket file,
+--- from the call that makes it: a refusal anywhere after -- before
+--- [`cosmic.net`] has wrapped it, or while it builds the wrap -- leaves
+--- neither to the process, and the next listener takes the same path.
+local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocation_fails(
+    tmp: string)
+  if not checked then return end
+  local path = tmp .. "/s.sock"
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+    local accepted <close> = assert(server:accept())
+    assert(client:write("hello"))
+    assert(accepted:read() == "hello")
+  end)
+  assert(ended > 0, "listening, connecting and accepting allocate")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(sys.lstat(path) == nil, "a refused allocation left the socket file behind")
+end
+
+--- The same holds of a connect that waits through a run: a refusal
+--- anywhere, a run torn down by one included, leaves no descriptor to
+--- the process.
+local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local path = tmp .. "/r.sock"
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Time.seconds(5) }))
+    Poll.run(function()
+      local client <close> = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+      local accepted <close> = assert(server:accept())
+      assert(client:write("x"))
+      assert(accepted:read() == "x")
+    end)
+  end)
+  assert(ended > 0, "connecting in a run allocates")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
 --- Asserts the core's own C heap holds what it held when `c_heap`
 --- answered `before_bytes` and `before_blocks`: a block a refusal path
 --- forgot to free shows here.
@@ -277,305 +293,53 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
     (bytes - before_bytes) .. " bytes) on the C heap")
 end
 
---- The files SQLite opens while observed are kept on the C heap until
---- drained: a record refused fails the open rather than lose the file,
---- a drain refused keeps them all, and nothing is left once drained.
-local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
-  local raw = sqlite_table()
-  local path = tmp .. "/observed.db"
-  local real = assert(sys.realpath(tmp)) .. "/observed.db"
-  local made = assert(Sqlite.open(path, true))
-  assert(made:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept')"))
-  assert(made:close())
-  raw.observed()
-  collectgarbage("collect")
+--- `children` reads its list into a block of the core's C heap, and
+--- closes the list's descriptor, whichever allocation is refused. Off
+--- Linux it allocates nothing, and there is nothing to walk.
+local function test_children_releases_its_block_whenever_an_allocation_fails(tmp: string)
+  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  local before = next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
-  local db: Sqlite.Handle = nil
   local ended = under_every_failure(function()
-    raw.observe(true)
-    db = assert(Sqlite.open(path, false))
-    local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
-    assert(rows[1][1] == "kept")
-    raw.observe(false)
-    local seen = raw.observed()
-    assert(seen[1] == real, tostring(seen[1]))
-  end, function()
-    raw.observe(false)
-    -- A statement a refusal left unfinalized holds the connection open
-    -- until it is collected.
-    collectgarbage("collect")
-    if db ~= nil then assert(db:close()) end
-    db = nil
-    raw.observed()
+    assert(process.children())
   end)
-  assert(ended > 0, "observing allocates")
-  assert_c_heap(bytes, blocks, "observing SQLite's files under refusal")
-end
-
---- A file a connection holds open is linked through the block SQLite
---- allocates for it, which costs the C heap nothing; turning recording
---- on hands each over onto it, which can be refused: `observe` answers
---- false, and what it kept drains whole. An open whose record was
---- refused, or that failed, is not held: once every connection has
---- closed, turning recording on hands nothing over.
-local function test_handing_over_held_files_leaves_nothing_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
-  local raw = sqlite_table()
-  local path = tmp .. "/held.db"
-  local real = assert(sys.realpath(tmp)) .. "/held.db"
-  local made = assert(Sqlite.open(path, true))
-  assert(made:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('held')"))
-  assert(made:close())
-  local _, _ = raw.observe(false)
-  raw.observed()
-  local db = assert(Sqlite.open(path, false))
+  assert(ended > 0, "listing the children allocates")
   collectgarbage("collect")
-  local bytes, blocks = testing.c_heap()
-  local handed_over = under_every_failure(function()
-    local handed, trouble, number = raw.observe(true)
-    local _, _ = raw.observe(false)
-    local seen = raw.observed()
-    if handed then
-      assert(#seen == 1 and seen[1] == real, tostring(seen[1]))
-    else
-      -- A record refused: said as memory's failure, and nothing kept.
-      assert(sys.errno_name(number) == "ENOMEM", tostring(trouble))
-      assert(#seen == 0, tostring(seen[1]))
-    end
-  end, function()
-    local _, _ = raw.observe(false)
-    raw.observed()
-  end)
-  assert(handed_over > 0, "handing over allocates")
-  assert_c_heap(bytes, blocks, "handing held files over under refusal")
-  assert(db:close())
-  local reopened: Sqlite.Handle = nil
-  under_every_failure(function()
-    local _, _ = raw.observe(true)
-    reopened = assert(Sqlite.open(path, false))
-    assert(Sqlite.text_rows(reopened, "SELECT v FROM t"))
-  end, function()
-    local _, _ = raw.observe(false)
-    collectgarbage("collect")
-    if reopened ~= nil then assert(reopened:close()) end
-    reopened = nil
-    raw.observed()
-  end)
-  local missing, _ = Sqlite.open(tmp .. "/missing.db", false)
-  assert(missing == nil)
-  local handed, trouble = raw.observe(true)
-  assert(handed, trouble)
-  local _, _ = raw.observe(false)
-  local left = raw.observed()
-  for _, name in ipairs(left) do
-    assert(name ~= real, "a closed database is held still")
-    assert(name:sub(-#"/missing.db") ~= "/missing.db", "a failed open is held")
-  end
-  assert_c_heap(bytes, blocks, "opening held files under refusal")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert_c_heap(bytes, blocks, "children under refusal")
 end
 
---- A held file whose record is refused is said, not raised: `observe`
---- answers false with ENOMEM and turns recording on regardless, and a
---- capture that starts so is one no key holds, noted "x".
-local function test_a_held_file_whose_record_is_refused_is_said_not_raised(tmp: string)
-  if not checked then return end
-  local raw = sqlite_table()
-  local path = assert(sys.realpath(tmp)) .. "/held.db"
-  local made = assert(Sqlite.open(path, true))
-  assert(made:exec("CREATE TABLE t (v TEXT)"))
-  -- Drained first, so that handing it over must record it anew.
-  raw.observed()
-  testing.fail_at("sqlite_observed")
-  local ok, handed, trouble, number = pcall(raw.observe, true)
-  testing.fail_at()
-  local _, _ = raw.observe(false)
-  raw.observed()
-  assert(ok, tostring(handed))
-  assert(handed == false and sys.errno_name(number) == "ENOMEM", tostring(trouble))
-  -- The capture drains the record as it starts, so the refusal falls
-  -- on handing the held file over.
-  local c: Observations.Captured = nil
-  local unfired = false
-  local outer = Observations.capture(function()
-    testing.fail_at("sqlite_observed")
-    c = Observations.capture(function() end)
-    unfired = testing.fail_at()
-  end)
-  assert(outer.ok, tostring(outer.produced))
-  assert(not unfired, "the hand-over was never refused")
-  local refused = false
-  for _, observation in ipairs(c.reads) do
-    if observation.kind == "x" and observation.path == "sqlite" then refused = true end
-  end
-  assert(refused, "a capture handed over nothing it holds is keyed as though it were")
-  assert(made:close())
-end
-
---- What the syscall table's queries answer while observed is kept, on
---- a heap of the log's own, until drained: under every refusal, no call
---- answers what the log did not keep, a drain refused keeps every
---- record, and the core's own heap holds nothing more once drained --
---- nor while the log holds records, which a test that counts that heap
---- makes as any other does. A refusal here raises where Lua asks next, so
---- the answer a call gives when its record alone is refused is
---- `test_a_query_whose_record_is_refused_fails_as_memory_does`'s.
-local function test_observing_the_syscall_table_leaves_nothing_whenever_an_allocation_fails(
-    tmp: string)
-  if not checked then return end
-  local raw = observations_table().syscalls
-  local link = tmp .. "/link"
-  assert(sys.symlink("target", link))
-  raw.observed()
-  collectgarbage("collect")
+--- `maps_id` reads each map into a block of the core's C heap, and
+--- closes the map's descriptor, whichever allocation is refused. A
+--- refused block fails the call, which then raises, since every
+--- allocation past the first refused is refused too, its failure's
+--- message among them; so the walk checks what is left behind, not
+--- the ENOMEM no caller here can see. Off Linux it allocates nothing,
+--- and there is nothing to walk.
+local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
+  if not checked or assert(sys.uname()).sysname ~= "Linux" then return end
+  local before = next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
-  -- Made outside the work, which a refusal ends wherever it is, and
-  -- only set there, which allocates nothing: which calls answered,
-  -- which the log kept, and what went wrong.
-  local answered: {string:boolean} = { lstat = false, readlink = false }
-  local recorded: {string:boolean} = { lstat = false, readlink = false }
-  local broken: string = nil
-  -- A numeric loop, which calls nothing: a call can itself allocate
-  -- (a frame, more stack), and a refusal there, after a drain, would
-  -- lose what the drain handed over.
-  local function kept(calls: {raw_observations.Call})
-    for i = 1, #calls do
-      if calls[i].path == link then recorded[calls[i].call] = true end
-    end
-  end
   local ended = under_every_failure(function()
-    for call in pairs(answered) do
-      answered[call] = false
-      recorded[call] = false
-    end
-    raw.observe(true)
-    local st, _ = sys.lstat(link)
-    if st ~= nil then answered.lstat = true end
-    local target, _ = sys.readlink(link)
-    if target ~= nil then answered.readlink = true end
-    raw.observe(false)
-    local drained = raw.observed()
-    for i = 1, #drained do
-      if drained[i].path == link then recorded[drained[i].call] = true end
-    end
-    assert(st ~= nil and st.kind == "link" and target == "target")
-  end, function()
-    raw.observe(false)
-    kept(raw.observed())
-    for call, answer in pairs(answered) do
-      if answer and not recorded[call] then broken = call .. " answered what no record kept" end
-    end
+    local ok, why, errno = process.maps_id(0)
+    assert(ok or errno == sys.EINVAL, why)
   end)
-  assert(broken == nil, broken)
-  assert(ended > 0, "observing allocates")
-  assert_c_heap(bytes, blocks, "observing the syscall table under refusal")
+  assert(ended > 0, "reading the maps allocates")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert_c_heap(bytes, blocks, "maps_id under refusal")
 end
 
---- A query whose record the log cannot keep fails as memory does,
---- having kept nothing, rather than answer what no key will hold; the
---- next is kept as ever.
-local function test_a_query_whose_record_is_refused_fails_as_memory_does(tmp: string)
+--- `getgroups` lists the groups into a block Lua owns, not the C heap's,
+--- so a refusal of the list's table after it leaves nothing behind.
+local function test_getgroups_leaves_nothing_whenever_an_allocation_fails()
   if not checked then return end
-  local raw = observations_table().syscalls
-  local link = tmp .. "/link"
-  assert(sys.symlink("target", link))
-  raw.observed()
-  raw.observe(true)
-  testing.fail_at("observed_log")
-  local target, trouble, number = sys.readlink(link)
-  local unfired = testing.fail_at()
-  local again = sys.readlink(link)
-  raw.observe(false)
-  local drained = raw.observed()
-  assert(not unfired, "the log never grew")
-  assert(target == nil and sys.errno_name(number) == "ENOMEM", tostring(target) .. " " .. tostring(trouble))
-  assert(again == "target")
-  assert(#drained == 1 and drained[1].call == "readlink" and drained[1].path == link and
-    drained[1][1] == "target", tostring(#drained))
-end
-
---- A tree digest whose record the log cannot keep fails as memory does,
---- having kept nothing, rather than answer a walk no key will hold; the
---- next is kept as ever, one record of the walk, with or without
---- contents.
-local function test_a_tree_digest_whose_record_is_refused_fails_as_memory_does(tmp: string)
-  if not checked then return end
-  local raw = observations_table().syscalls
-  local walked = tmp .. "/walked"
-  assert(sys.mkdir(walked))
-  sys.close((assert(sys.open(walked .. "/f", sys.O_CREAT | sys.O_WRONLY, 420))))
-  raw.observed()
-  raw.observe(true)
-  testing.fail_at("observed_log")
-  local digest, trouble, number = sys.tree_digest(walked, true)
-  local unfired = testing.fail_at()
-  local again = sys.tree_digest(walked, true)
-  local stamps = sys.tree_digest(walked, false)
-  raw.observe(false)
-  local drained = raw.observed()
-  assert(not unfired, "the log never grew")
-  assert(digest == nil and sys.errno_name(number) == "ENOMEM",
-    tostring(digest) .. " " .. tostring(trouble))
-  assert(again ~= nil and stamps ~= nil)
-  assert(#drained == 2, tostring(#drained))
-  assert(drained[1].call == "tree_digest" and drained[1].path == walked and
-    (drained[1][1] as {string:any}).digest == again.digest)
-  assert(drained[2].call == "tree_stamps" and drained[2].path == walked and
-    (drained[2][1] as {string:any}).digest == stamps.digest)
-end
-
---- A call that acts, whose record the log cannot keep, fails as memory
---- does and leaves nothing done: an open makes no file, a change of
---- directory goes nowhere, a request connects nowhere and a process is
---- never started, each refused before it acts; a directory made is
---- taken back.
-local function test_a_call_whose_record_is_refused_does_nothing(tmp: string)
-  if not checked then return end
-  local raw = observations_table().syscalls
-  -- The process table's own spawn, which logs, reached through a
-  -- stand-in kept after its capture ended: every test runs under one of
-  -- the runner's own, which starts a process past the log.
-  local held = process.spawn
-  local taken = Observations.capture(function() held = process.spawn end)
-  assert(taken.ok, tostring(taken.produced))
-  local here = assert(sys.getcwd())
-  -- This program, which the refusal keeps from ever starting: named
-  -- before, since finding it is a call the log records.
-  local program = assert(Proc.executable())
-  local refusals: {string: function(): any, any, integer} = {
-    open = function(): any, any, integer
-      return sys.open(tmp .. "/created", sys.O_CREAT | sys.O_WRONLY, 420)
-    end,
-    mkdir = function(): any, any, integer return sys.mkdir(tmp .. "/made") end,
-    mkdtemp = function(): any, any, integer return sys.mkdtemp(tmp .. "/temporary-XXXXXX") end,
-    chdir = function(): any, any, integer return sys.chdir(tmp) end,
-    spawn = function(): any, any, integer
-      return held(program, { program, "-e", "" }, nil, nil, nil, nil, nil, false)
-    end,
-    http = function(): any, any, integer
-      local response, trouble = Http.open("http://127.0.0.1:1/")
-      return response, trouble, nil
-    end,
-  }
-  for name, call in pairs(refusals) do
-    raw.observed()
-    raw.observe(true)
-    testing.fail_at("observed_log")
-    local answer, trouble, number = call()
-    local unfired = testing.fail_at()
-    raw.observe(false)
-    assert(not unfired, name .. ": the log never grew")
-    assert(not answer, name .. " answered " .. tostring(answer))
-    if name == "http" then
-      assert(tostring(trouble):find("observe", 1, true), tostring(trouble))
-    else
-      assert(sys.errno_name(number) == "ENOMEM", name .. ": " .. tostring(trouble))
-    end
-    assert(#raw.observed() == 0, name .. " kept a record")
-  end
-  local left = assert(sys.readdir(tmp))
-  assert(next(left) == nil, "a refused call left something in " .. tmp)
-  assert(sys.getcwd() == here)
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    assert(sys.getgroups())
+  end)
+  assert(ended > 0, "listing the groups allocates")
+  assert_c_heap(bytes, blocks, "getgroups under refusal")
 end
 
 --- The C heap counts what the core's C allocates and frees, and a
@@ -598,7 +362,7 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
     local ok, made, trouble = pcall(Compress.inflater, "raw")
     local refused = testing.allow_allocations()
     if ok and made == nil then
-      assert(trouble == "out of memory", tostring(trouble))
+      assert(trouble == "compress: out of memory", tostring(trouble))
       assert(refused >= 1, "the refused window is counted")
       answered = true
       break
@@ -704,7 +468,10 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
 end
 
 --- A hasher holds no C memory of the core's own, and a refusal while it
---- updates or digests leaves none.
+--- updates or digests leaves none. An HMAC's operation lives inline in
+--- its userdata, so what its walk covers is Lua's side of it: a refusal
+--- in the userdata's allocation or the values a constructor, `update`
+--- or `digest` pushes, and the collection or close of an unfinished one.
 local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   if not checked then return end
   collectgarbage("collect")
@@ -718,6 +485,17 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "a hasher is an allocation")
   assert_c_heap(bytes, blocks, "hashing under refusal")
+  local long_key = string.rep("k", 200)
+  ended = under_every_failure(function()
+    local mac = assert(Hash.hmac_hasher("sha256", long_key))
+    mac:update("hello, ")
+    mac:update("cosmic!")
+    assert(assert(mac:digest()) == Hash.hmac("sha256", long_key, hello))
+    local abandoned <close> = assert(Hash.hmac_hasher("sha512", ""))
+    abandoned:update(hello)
+  end)
+  assert(ended > 0, "an HMAC hasher is an allocation")
+  assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
 end
 
 --- `decode` holds a yyjson document and `encode` its output on the C
@@ -735,7 +513,6 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
     assert(trouble == "", trouble)
     assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
     assert(assert(Json.encode(wide, { pretty = true })):sub(1, 1) == "{")
-    assert(Json.encode(wide, { sorted = false }) ~= nil)
     local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string}
     assert(lone[1] == "\u{FFFD}")
   end)
@@ -751,7 +528,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
   testing.fail_at("json_malloc")
   local _, whole = Json.decode("[1]")
   assert(not testing.fail_at(), "decode never reached json_malloc")
-  assert(whole == "out of memory", whole)
+  assert(whole == "json: out of memory", whole)
   local named: {string: boolean} = {}
   for skip = 0, 16 do
     testing.fail_at("json_malloc", skip)
@@ -761,10 +538,10 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
       assert(values ~= nil, why)
       break
     end
-    assert(values == nil and why:match("^line %d: out of memory$"), tostring(why))
+    assert(values == nil and why:match("^json: line %d: out of memory$"), tostring(why))
     named[why] = true
   end
-  assert(named["line 1: out of memory"] and named["line 2: out of memory"],
+  assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"],
     "each record's refusal names its line")
 end
 
@@ -838,36 +615,4 @@ local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string
     assert(after == before, case.name .. " left descriptor " .. before .. " open")
   end
   assert(ended > 0, "a request allocates")
-end
-
---- An upload -- `start`, `write` twice, `finish`, then the response read
---- to its end -- whenever an allocation fails: nothing is left behind,
---- as with `open`, and the run with nothing refused reads the body.
-local function test_an_upload_leaves_nothing_whenever_an_allocation_fails(tmp: string)
-  if not checked then return end
-  -- A reply that leaves the connection open, so curl sends the whole
-  -- body though the reply comes first.
-  local script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#hello) ..
-    "\r\n\r\n" .. hello }
-  local function upload(): string
-    local up = assert(Http.upload("http://cosmic.test/",
-      { headers = { ["X-One"] = "1" }, script = script }))
-    assert(up:write("pay"))
-    assert(up:write("load"))
-    local response = assert(up:response())
-    local body = assert(Stream.read_all(response))
-    assert(response:close())
-    return body
-  end
-  assert(upload() == hello)
-  collectgarbage("collect")
-  local before = next_descriptor(tmp)
-  local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
-    assert(upload() == hello, "an upload reads the whole body")
-  end)
-  assert(ended > 0, "an upload allocates")
-  assert(testing.live_transfers() == 0, "an upload left a transfer alive")
-  assert_c_heap(bytes, blocks, "an upload under refusal")
-  assert(next_descriptor(tmp) == before, "an upload left descriptor " .. before .. " open")
 end

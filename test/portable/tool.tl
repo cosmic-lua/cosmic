@@ -1,6 +1,6 @@
---- Consolidated portable-fixture helper. Each local function below replaces
---- one former single-purpose script; init.tl (`test.portable`) remains the shared
---- v1 reader/writer-input library. Run as:
+--- Portable-fixture helper, one subcommand per fixture step. init.tl
+--- ([`test.portable`]) is the shared v1 reader and writer-input library.
+--- Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 
 local Codec = require("cosmic.codec")
@@ -60,7 +60,7 @@ end
 --- Adds hostile project metadata used to prove portable context wins.
 local function spoof_database(argv: {string}): integer
   local path = assert(argv[1], "usage: tool.tl spoof-database DATABASE")
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   local values: {string:string} = {
     host = "spoofed",
     host_image = "spoofed",
@@ -78,12 +78,17 @@ local function spoof_database(argv: {string}): integer
   return 0
 end
 
---- Checks that release, changed-basis, and sanitized contexts stay distinct.
+--- Checks that release, changed-basis, and sanitized contexts stay
+--- distinct: three runtimes in the counter. The runs kept four verdicts:
+--- runtime.new's differs from runtime.old's only in its launcher's
+--- padding, which the key of a run a portable artifact starts holds
+--- (build/declared_key.tl's `launcher_identity`), though its runtime is
+--- the release's.
 local function verify_verdicts(argv: {string}): integer
   local database, counter = argv[1], argv[2]
   assert(database ~= nil and counter ~= nil,
     "usage: tool.tl verify-verdicts DATABASE COUNTER")
-  local db = assert(Sqlite.open(database, false))
+  local db = assert(Sqlite.open(database))
   local keys = assert(Sqlite.text_rows(db,
     "SELECT key FROM verdicts ORDER BY key"))
   assert(db:close())
@@ -96,8 +101,9 @@ local function verify_verdicts(argv: {string}): integer
   end
   local distinct_count = 0
   for _ in pairs(distinct) do distinct_count = distinct_count + 1 end
-  assert(#keys == 3 and #lines == 3 and distinct_count == 3,
-    "identity fixture: expected three distinct runtime verdicts")
+  assert(#keys == 4 and #lines == 4 and distinct_count == 3 and lines[2] == lines[1],
+    "identity fixture: expected four verdicts of three distinct runtimes, the second the " ..
+    "first's")
   return 0
 end
 
@@ -106,7 +112,7 @@ local function prepare_databases(argv: {string}): integer
   assert(#argv == 4,
     "usage: tool.tl prepare-databases OLD NEW BASIS MISSING")
   local function update(path: string, marker: string)
-    local db = assert(Sqlite.open(path, true))
+    local db = assert(Sqlite.open(path, { writable = true }))
     assert(Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text("retained_fixture"), text(marker) }))
@@ -122,7 +128,7 @@ local function prepare_databases(argv: {string}): integer
   local markers = { "old", "new", "basis", "missing" }
   for index, marker in ipairs(markers) do update(argv[index], marker) end
 
-  local db = assert(Sqlite.open(argv[1], false))
+  local db = assert(Sqlite.open(argv[1]))
   local rows = assert(Sqlite.text_rows(db, "SELECT key FROM meta"))
   local keys: {string:boolean} = {}
   for _, row in ipairs(rows) do keys[row[1]] = true end
@@ -190,7 +196,8 @@ local function prepare_artifacts(argv: {string}): integer
   return 0
 end
 
---- Extracts the exact reusable prefix and manifest from a built product.
+--- Checks that each manifest entry of `from` holds exactly the raw core
+--- built for its target, once, at the range the entry names.
 local function verify_ranges(path: string, from: fixture.Artifact,
                              targets: {Target}, cores: string)
   assert(#from.entries == #targets,
@@ -215,6 +222,8 @@ local function verify_ranges(path: string, from: fixture.Artifact,
   end
 end
 
+--- Checks a built product and its applications against the raw cores,
+--- then writes the reusable prefix and the manifest of the product.
 local function product_extract(argv: {string}): integer
   local program, prefix_path, manifest_path, targets_path, cores =
     argv[1], argv[2], argv[3], argv[4], argv[5]
@@ -251,8 +260,22 @@ local function product_extract(argv: {string}): integer
   return 0
 end
 
---- Writes transitional format fixtures from build.zig's generated target TSV
---- and real raw cores. This is test support, not a product build path.
+--- Checks that DATABASE holds the bytes of the database PROGRAM carries
+--- ([`build.artifact`]'s `split`): the product's cosmic.db, which the
+--- runtime setup writes its artifacts from, is the one its cosmic runs
+--- on, so a fixture keyed by those artifacts is keyed by what it runs.
+local function product_database(argv: {string}): integer
+  local program, database = argv[1], argv[2]
+  assert(program ~= nil and database ~= nil,
+    "usage: tool.tl product-database PROGRAM DATABASE")
+  local parts = assert(artifact.split((assert(Fs.read(program)))))
+  assert(parts.database == assert(Fs.read(database)),
+    database .. ": not the database " .. program .. " carries")
+  return 0
+end
+
+--- Writes format fixtures from build.zig's generated target TSV and real
+--- raw cores. This is test support, not a product build path.
 local function write_format_fixture(argv: {string}): integer
   local records_path, core_root, output = argv[1], argv[2], argv[3]
   assert(records_path ~= nil and core_root ~= nil and output ~= nil,
@@ -339,7 +362,7 @@ local function time_runtime(argv: {string}): integer
   environment[marker] = tostring(Time.monotonic_ns())
   environment["COSMIC_PORTABLE_CACHE"] = cache
   local arguments = { target, argv[0], "time-runtime", target, cache }
-  local _, trouble = Proc.exec(target, arguments, environment)
+  local _, trouble = Proc.exec(arguments, { env = environment })
   error(trouble)
 end
 
@@ -351,9 +374,9 @@ local function retained_prefix_probe(argv: {string}): integer
   end
   local expected_prefix = assert(argv[1])
   local expected_marker = assert(argv[2])
+  phase("prefix entering")
   -- This checkout has its own build/artifact.tl. The reserved binary module
   -- must win over that project row or it receives no retained-FD capability.
-  phase("prefix entering")
   local prefix = assert(artifact.trusted_prefix())
   phase("prefix read")
   assert(Codec.hex(Hash.sha256(prefix)) == expected_prefix)
@@ -399,6 +422,7 @@ local subcommands: {string:function({string}):integer} = {
   ["verify-verdicts"] = verify_verdicts,
   ["prepare-databases"] = prepare_databases,
   ["prepare-artifacts"] = prepare_artifacts,
+  ["product-database"] = product_database,
   ["product-extract"] = product_extract,
   ["write-format-fixture"] = write_format_fixture,
   ["write-launcher-fixture"] = write_launcher_fixture,

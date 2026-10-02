@@ -1,5 +1,5 @@
---- Finds the `TODO:` comments in one file's text, for `build.work` to
---- index as it stages and `build.todos` to list: apart from the verb, so
+--- Finds the `TODO:` comments in one file's text, for [`build.work`] to
+--- index as it stages and [`build.todos`] to list: apart from the verb, so
 --- staging does not import it.
 ---
 --- A TODO is a comment line whose text opens with `TODO:` after the
@@ -59,9 +59,9 @@ local function comment_of(line: string): string, string, string
   return indent, marker, rest
 end
 
---- The marker a line carrying a comment on is written with: a block
---- comment's lines go on with `*`, a column in or not, every other
---- comment with its own.
+--- The marker the lines that carry on a comment opened with `marker`
+--- are written with: `*` for a block comment, whether or not it sits in
+--- a column, else the opener's own.
 local function continued(marker: string): string
   if marker:sub(1, 1) == "/" and marker:sub(2, 2) == "*" then
     return "*"
@@ -94,10 +94,10 @@ function todo_scan.scan(source: string): {todo_scan.Found}
         local next_indent, next_marker, next_rest = comment_of(lines[index])
         -- TODO: a line ending in `.` followed by one starting with a
         -- capital ends the TODO below, which cuts a TODO of several
-        -- sentences short (build/exports_test.tl's and build/test.tl's
+        -- sentences short (build/tree_checks.tl's and build/test.tl's
         -- lose their second halves today); apply that break only to a
         -- script's leading `#` header, or take comments from the parser
-        -- as the TODO in `comment_of` proposes, and drop it here.
+        -- as the TODO in [`comment_of`] proposes, and drop it here.
         local aligned = next_indent == indent or
           (following ~= marker and next_indent == indent .. " ")
         if not aligned or

@@ -31,6 +31,7 @@
 --- one back.
 
 local Json = require("cosmic.json")
+local String = require("cosmic.string")
 
 local record flow
   --- A value in the text: an object, an array, or a scalar.
@@ -157,7 +158,7 @@ end
 ---   space after each `:`, and the `:` on its key's line; no `//` or
 ---   `/*` comment and no single-quoted string, which YAML lacks or reads
 ---   otherwise.
---- - A bare key one `flow.bare` takes: an identifier YAML reads as its
+--- - A bare key one [`flow.bare`] takes: an identifier YAML reads as its
 ---   text; a bare value true, false, null or a decimal integer of at most
 ---   15 digits, which both read as the same number.
 --- - In a double-quoted string, only ESCAPES, and no `\u` escape of
@@ -305,7 +306,7 @@ local function key_text(key: string): string
 end
 
 --- A scalar node for a string, a boolean, an integer the subset writes
---- (at most 15 digits), or `Json.null`. Raises for any other value.
+--- (at most 15 digits), or [`Json.null`]. Raises for any other value.
 function flow.scalar(value: any): flow.Node
   if value is string then
     return { kind = "scalar", text = quote(value) }
@@ -527,7 +528,7 @@ function flow.parse(text: string): flow.Doc | nil, string
     return ""
   end)
   if not ok then
-    if raised is string and raised:sub(1, #FAILURE) == FAILURE then
+    if raised is string and String.starts_with(raised, FAILURE) then
       return nil, raised:sub(#FAILURE + 1)
     end
     error(raised, 0)
@@ -549,7 +550,7 @@ end
 
 --- Whether a node is written on one line: a scalar, an empty container
 --- with no comments, or one written that way that holds only such --
---- and, for one that `width` holds (see `Node.width`), whose text fits
+--- and, for one that `width` holds (see [`Node.width`]), whose text fits
 --- in it from `column` with `after` more bytes after it.
 local function one_line(node: flow.Node, column: integer, after: integer): boolean
   if node.kind == "scalar" then return true end
@@ -740,7 +741,7 @@ function flow.write(value: any, opts?: flow.Options): string
   return flow.render({ head = {}, root = flow.from(value, opts), foot = {} })
 end
 
---- A node's value, as `cosmic.json` reads it (`Json.null` for null), or
+--- A node's value, as `cosmic.json` reads it ([`Json.null`] for null), or
 --- nil and why it reads as none.
 function flow.value(node: flow.Node): any | nil, string
   return Json.decode(inline_text(node), { json5 = true, null_value = Json.null })
@@ -816,14 +817,14 @@ local function identity(value: any): string | nil
   return nil
 end
 
---- Pairs the members of `old` with the values of `new` the way a diff
---- does: those equal in both, longest run in order first, anchor the
---- rest, the common start and end first of all; between two anchors, a
+--- Pairs the members of `old` with the values of `new` as a diff does.
+--- Members equal in both anchor the pairing: the common start and end
+--- first, then the longest common runs in order. Between two anchors, a
 --- run of the same length on both sides is paired in order (members
---- changed in place), and in a run of another length a member is paired
---- with one its `identity` names, in order, the rest dropped from `old`
---- and added from `new`. The pairing, by `new`'s index: the old item,
---- or nil for one to add.
+--- changed in place). In a run of another length a member is paired, in
+--- order, with the one its `identity` names, and the rest are dropped
+--- from `old` and added from `new`. The result maps `new`'s indexes to
+--- the old item, or nil for one to add.
 local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
   local a, b: {string}, {string} = {}, {}
   local old_values: {any} = {}

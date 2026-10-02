@@ -1,16 +1,16 @@
 --- SQLite, typed.
 ---
---- The C boundary keeps a value's type: text and bytes are separate
---- calls, and a parameter is bound by naming what it is. This module
---- keeps that property and adds the shapes a caller wants: a query that
---- yields rows, all at once (`rows`) or one at a time (`query`), a
---- statement run once, and a transaction that rolls back when the work
---- inside it fails.
+--- Values keep their type: text and bytes are different, and a parameter
+--- is bound by naming what it is. On top of a handle this module gives
+--- the shapes a caller wants: a query that yields rows, all at once
+--- (`rows`) or one at a time (`query`), a statement run once (`run`),
+--- and a transaction that rolls back when the work inside it fails
+--- (`transact`).
 ---
 --- A parameter is a one-field table naming its type, one per `?N`, in
 --- order; a result cell carries its `kind` and the matching field:
 ---
----     local db = assert(Sqlite.open("notes.db", true))
+---     local db = assert(Sqlite.open("notes.db", { writable = true }))
 ---     assert(db:exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
 ---     assert(Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "hi" } }))
 ---     local rows = assert(Sqlite.rows(db, "SELECT id, body FROM t WHERE id = ?1",
@@ -24,13 +24,13 @@
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
 
---- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace, which never satisfies an ordinary
---- `require` for any caller -- see cosmic/store.tl for why -- and
---- arrives instead as the second argument `require` passes this
---- chunk's own loader, present because this module was itself loaded,
---- trusted, from the binary's own tree. Boot mode falls back to
---- requiring it by name, which only boot's own preload answers.
+-- The raw module behind this one lives under the reserved
+-- `cosmic.internal.` namespace, which never satisfies an ordinary
+-- `require` for any caller -- see cosmic/store.tl for why -- and
+-- arrives instead as the second argument `require` passes this
+-- chunk's own loader, present because this module was itself loaded,
+-- trusted, from the binary's own tree. Boot mode falls back to
+-- requiring it by name, which only boot's own preload answers.
 local type raw_sqlite = require("cosmic.internal.sqlite")
 
 local extra: any = select(2, ...)
@@ -49,30 +49,62 @@ local record Sqlite
   type Statement = raw_sqlite.Statement
 
   --- One bound parameter. Its field says what SQLite is told it is, so
-  --- a blob never arrives as text by accident. Exactly one field is allowed;
-  --- an empty table explicitly binds SQL NULL.
+  --- a blob never arrives as text by accident. At most one field is
+  --- allowed; an empty table explicitly binds SQL NULL. A value of
+  --- another shape raises where it is bound.
   record Value
+    --- Bound as an SQLite integer.
     integer: integer
+    --- Bound as a floating-point number.
     number: number
+    --- Bound as text.
     text: string
+    --- Bound as a blob: bytes, never text.
     blob: string
   end
 
-  --- One query result value. `kind` is one of `"null"`, `"integer"`,
-  --- `"number"`, `"text"`, or `"blob"`; exactly the matching value field is
+  --- The SQLite storage class of a result cell: the field of a [`Cell`]
+  --- that holds its value is the one of the same name, and a `"null"`
+  --- cell has none.
+  enum Kind
+    "null"
+    "integer"
+    "number"
+    "text"
+    "blob"
+  end
+
+  --- How [`Sqlite.open`] opens a database.
+  record OpenOptions
+    --- Opens for reading and writing, creating the file when it is
+    --- missing. Without it the database is read-only.
+    writable: boolean
+    --- Opens read-only a database that nothing will change while it is
+    --- open: see [`Sqlite.open`]. Giving it with `writable` raises.
+    immutable: boolean
+  end
+
+  --- One query result value. Exactly the field its `kind` names is
   --- present, except that a null cell has no value field.
   record Cell
-    kind: string
+    --- Which field holds the value.
+    kind: Kind
+    --- The value of an integer cell.
     integer: integer
+    --- The value of a number cell.
     number: number
+    --- The value of a text cell.
     text: string
+    --- The bytes of a blob cell.
     blob: string
   end
 
+  --- One result row: its cells in column order.
   type Row = {Cell}
+  --- Every row of a result, in the order the query gave them.
   type Rows = {Row}
 
-  --- A query's rows read one at a time: see `Sqlite.query`.
+  --- A query's rows read one at a time: see [`Sqlite.query`].
   record Query
     metamethod __close: function(Query)
     --- The next row, and ""; nil and "" after the last; nil and why
@@ -95,53 +127,90 @@ local record Sqlite
   version: string
 end
 
---- A database file, read-only unless `writable` says otherwise, in which
---- case a missing file is created. Every handle knows `sha256(X)`, the
---- 32-byte digest of a text or blob, `digest(A, X)`, the digest under
---- the algorithm A names (the names `cosmic.hash` takes), and
---- `hmac(A, K, X)`, the HMAC of X under key K over A; a NULL argument
---- gives NULL. `lower(hex(sha256(X)))` is the form the build writes
---- into keys. `deflate(X)` is the raw deflate of X, as
---- `Compress.deflate("raw", X)` writes it, and `inflate(X)` what such a
---- stream decodes to, as a blob: the shipped database stores each
---- module's source that way, so `CAST(inflate(source) AS TEXT)` reads it.
-function Sqlite.open(path: string, writable?: boolean): Sqlite.Handle | nil, string
-  return sqlite.open(path, writable)
+--- Opens the database file at `path`: read-only unless `opts.writable`
+--- is true, in which case a missing file is created. Answers the handle,
+--- or `nil` and why. `opts` that is not a table raises.
+---
+--- `opts.immutable` opens a database that nothing will change while it
+--- is open, read-only and with no lock: no `-wal`, `-shm` or journal file
+--- is made beside it, and a running statement holds nothing a writer
+--- waits on. A `-wal` is never read, so commits still in one do not
+--- show: open a database that is being written without `immutable`.
+--- Giving `immutable` with `writable` raises.
+---
+--- Every handle adds these SQL functions, each answering NULL for a NULL
+--- argument:
+---
+--- - `sha256(X)`: the 32-byte digest of a text or blob.
+--- - `digest(A, X)`: the digest of X under the algorithm A names (a
+---   [`cosmic.hash`] `Algorithm`).
+--- - `hmac(A, K, X)`: the HMAC of X under the key K over A.
+--- - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)`
+---   writes it; `inflate(X)` decodes such a stream, to a blob.
+---
+--- `handle:limit(name, value)` sets one of the connection's limits,
+--- `"attached"` among them, and answers the old one.
+function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
+  local given: any = opts
+  if given ~= nil and type(given) ~= "table" then
+    error("sqlite: open: options is a table such as { writable = true }, not a " ..
+      type(given), 2)
+  end
+  return sqlite.open(path, opts and opts.writable, opts and opts.immutable)
 end
 
---- A database held in memory, which is where a build assembles one
---- before writing it out.
+--- A writable database held in memory: it is gone when the handle
+--- closes.
 function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
---- Binds SQLite parameters positionally. Parameter keys must be
---- positional (1..N, matching the statement's own placeholders), and
---- each value must be a table with exactly one field named integer,
---- number, text, or blob (use {} for NULL).
-local function bind(
-  statement: Sqlite.Statement, values: {Sqlite.Value}
-): boolean, string
-  local count = statement:parameters()
-  for key in pairs(values as {any: any}) do
-    if not (key is number) or key % 1 ~= 0 or key < 1 or key > count then
-      return false, "unexpected parameter key: " .. tostring(key)
+--- Raises, blaming the caller of the public function that calls the
+--- function that calls this, unless `values` is a list of Values: each a
+--- table with at most one field, named integer, number, text, or blob
+--- ({} for NULL), under keys that are positions from 1. It runs before a
+--- statement is prepared, so a raise leaves none to finalize. Answers the
+--- highest key, 0 for none.
+local function checked(values: {Sqlite.Value}): integer
+  local highest = 0
+  for key, value in pairs(values as {any: any}) do
+    if not (key is integer) or key < 1 then
+      error("sqlite: values holds the key " .. tostring(key) .. ", not a position from 1", 4)
     end
-  end
-  for index = 1, count do
-    local value = values[index]
     if type(value) ~= "table" then
-      return false, "parameter " .. index .. ": expected a Value table (use {} for NULL)"
+      error("sqlite: parameter " .. key .. " is no Value table (use {} for NULL)", 4)
     end
     local fields = 0
-    for key in pairs(value as {any: any}) do
-      if key ~= "integer" and key ~= "number" and key ~= "text" and key ~= "blob" then
-        return false, "parameter " .. index .. ": unknown Value field: " .. tostring(key)
+    for field in pairs(value as {any: any}) do
+      if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" then
+        error("sqlite: parameter " .. key .. " has an unknown Value field: " .. tostring(field), 4)
       end
       fields = fields + 1
     end
     if fields > 1 then
-      return false, "parameter " .. index .. ": expected at most one Value field"
+      error("sqlite: parameter " .. key .. " has more than one Value field", 4)
+    end
+    if key > highest then highest = key end
+  end
+  return highest
+end
+
+--- Binds SQLite parameters positionally, which [`checked`] has found
+--- well formed, `highest` the greatest position they hold: the positions
+--- must be 1..N, matching the statement's own placeholders, or the
+--- statement is refused with why.
+local function bind(
+  statement: Sqlite.Statement, values: {Sqlite.Value}, highest: integer
+): boolean, string
+  local count = statement:parameters()
+  if highest > count then
+    return false, "sqlite: values holds a parameter " .. highest ..
+      ", and the statement has " .. count
+  end
+  for index = 1, count do
+    local value = values[index]
+    if value == nil then
+      return false, "sqlite: parameter " .. index .. " has no value (use {} for NULL)"
     end
     local ok: boolean
     local trouble: string
@@ -157,26 +226,44 @@ local function bind(
       ok, trouble = statement:bind_null(index)
     end
     if not ok then
-      return false, "parameter " .. index .. ": " .. trouble
+      return false, "sqlite: parameter " .. index .. ": " .. trouble
     end
   end
   return true, ""
 end
 
---- Parameters are a dense list indexed by SQLite's parameter index, through
---- its highest index. Repeated named parameters share an index; ?NNN gaps
---- still need entries (use {}). Missing entries and extra keys are errors.
---- Runs a statement that yields no rows.
-function Sqlite.run(handle: Sqlite.Handle, sql: string,
-                    values?: {Sqlite.Value}): boolean, string
+--- `sql` prepared on `handle` with `values` bound, or nil and why; a
+--- statement that does not bind is finalized.
+local function prepared(handle: Sqlite.Handle, sql: string,
+                        values: {Sqlite.Value}): Sqlite.Statement | nil, string
+  values = values or {}
+  local highest = checked(values)
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
-    return false, trouble
+    return nil, trouble
   end
-  local bound, why = bind(statement, values or {})
+  local bound, why = bind(statement, values, highest)
   if not bound then
     statement:finalize()
-    return false, why
+    return nil, why
+  end
+  return statement, ""
+end
+
+--- Runs a statement that yields no rows: it answers `true` and
+--- "", or `false` and why.
+---
+--- `values` is a dense list indexed by SQLite's parameter index, through
+--- its highest index. Repeated named parameters share an index, and a
+--- gap in `?NNN` numbers still needs an entry (use `{}`). A missing entry
+--- or an extra key answers `false` and why. A malformed [`Sqlite.Value`]
+--- (no table, a field it has no name for, more than one field) raises, as
+--- does a key that is no position from 1.
+function Sqlite.run(handle: Sqlite.Handle, sql: string,
+                    values?: {Sqlite.Value}): boolean, string
+  local statement, trouble = prepared(handle, sql, values)
+  if statement == nil then
+    return false, trouble
   end
   local state, failure = statement:step()
   statement:finalize()
@@ -188,54 +275,86 @@ end
 
 --- The column at `index`, from zero, of the row `statement` was just
 --- stepped to, as a typed cell: SQL NULL is `kind = "null"`.
-function Sqlite.cell(statement: Sqlite.Statement, index: integer): Sqlite.Cell
+local function cell_of(statement: Sqlite.Statement, index: integer): Sqlite.Cell
   local kind = statement:kind(index)
   if kind == "integer" then
-    return { kind = kind, integer = statement:integer(index) }
+    return { kind = "integer", integer = statement:integer(index) }
   elseif kind == "number" then
-    return { kind = kind, number = statement:number(index) }
+    return { kind = "number", number = statement:number(index) }
   elseif kind == "text" then
-    return { kind = kind, text = statement:bytes(index) }
+    return { kind = "text", text = statement:bytes(index) }
   elseif kind == "blob" then
-    return { kind = kind, blob = statement:bytes(index) }
+    return { kind = "blob", blob = statement:bytes(index) }
   end
   return { kind = "null" }
 end
 
---- Parameters follow the same complete-list contract as run.
---- Every row a query yields, each row a dense list of typed cells in column
---- order. SQL NULL is an explicit `kind = "null"` cell.
-function Sqlite.rows(handle: Sqlite.Handle, sql: string,
-                      values?: {Sqlite.Value}): Sqlite.Rows | nil, string
-  local statement, trouble = handle:prepare(sql)
-  if statement == nil then
-    return nil, trouble
+--- The row `statement` was just stepped to, as typed cells in column
+--- order. Its columns are asked after each step: a schema change
+--- re-prepares the statement, and its columns with it.
+local function cells_of(statement: Sqlite.Statement): Sqlite.Row
+  local row: Sqlite.Row = {}
+  for index = 0, statement:columns() - 1 do
+    row[index + 1] = cell_of(statement, index)
   end
-  local bound, why = bind(statement, values or {})
-  if not bound then
-    statement:finalize()
-    return nil, why
+  return row
+end
+
+--- The row `statement` was just stepped to, as the bytes of each column
+--- in order. Asked after each step, as [`cells_of`] is.
+local function texts_of(statement: Sqlite.Statement): {string}
+  local row: {string} = {}
+  for index = 0, statement:columns() - 1 do
+    row[index + 1] = statement:bytes(index)
   end
-  local out: Sqlite.Rows = {}
+  return row
+end
+
+--- Steps `statement` once and gives `project` the row it stands on: the
+--- projection, or `nil` and "" when the statement is done, or `nil` and
+--- why when the step failed. [`Sqlite.rows`], [`Sqlite.text_rows`] and
+--- [`Sqlite.query`] all step through it, so they agree on what a failure
+--- says.
+local function step_row<T>(statement: Sqlite.Statement,
+                           project: function(Sqlite.Statement): T): T | nil, string
+  local state, failure = statement:step()
+  if state == nil then
+    return nil, failure ~= "" and failure or "sqlite: the step failed"
+  end
+  if state == "done" then
+    return nil, ""
+  end
+  return project(statement), ""
+end
+
+--- Every row of `statement` as `project` gives it, and the statement
+--- finalized: the rows, or `nil` and why a step failed.
+local function each_row<T>(statement: Sqlite.Statement,
+                           project: function(Sqlite.Statement): T): {T} | nil, string
+  local out: {T} = {}
   while true do
-    local state, failure = statement:step()
-    if state == nil then
+    local row, failure = step_row(statement, project)
+    if row == nil then
       statement:finalize()
-      return nil, failure
-    end
-    if state == "done" then
-      break
-    end
-    local row: Sqlite.Row = {}
-    -- Asked after each step: a schema change re-prepares the
-    -- statement, and its columns with it.
-    for index = 0, statement:columns() - 1 do
-      row[index + 1] = Sqlite.cell(statement, index)
+      if failure ~= "" then
+        return nil, failure
+      end
+      return out, ""
     end
     out[#out + 1] = row
   end
-  statement:finalize()
-  return out, ""
+end
+
+--- Every row a query yields, each a dense list of typed cells in column
+--- order; SQL NULL is a cell with `kind = "null"`. Answers the rows, or
+--- `nil` and why. `values` follows [`Sqlite.run`]'s contract.
+function Sqlite.rows(handle: Sqlite.Handle, sql: string,
+                      values?: {Sqlite.Value}): Sqlite.Rows | nil, string
+  local statement, trouble = prepared(handle, sql, values)
+  if statement == nil then
+    return nil, trouble
+  end
+  return each_row(statement, cells_of)
 end
 
 local query_mt: metatable<Sqlite.Query> = {
@@ -244,11 +363,11 @@ local query_mt: metatable<Sqlite.Query> = {
   end,
 }
 
---- Parameters follow the same complete-list contract as run.
 --- A query whose rows are read one at a time, as `rows` gives them but
 --- never all held at once: nil and why when the statement does not
---- prepare or bind. The statement stays open, and the handle cannot
---- close, until the last row is read, a step fails, or the query is
+--- prepare or bind (`values` follows [`Sqlite.run`]'s contract). The
+--- statement stays open, and the handle cannot close, until the last
+--- row is read, a step fails, or the query is
 --- closed; hold it in a `<close>` variable to close it on a `break` or
 --- an error too.
 ---
@@ -258,23 +377,18 @@ local query_mt: metatable<Sqlite.Query> = {
 --- write on the same connection to a table the query reads may be
 --- read back by it, without end for an insert into a table scanned
 --- whole; collect what to write first. The statement runs at the first
---- read, not before: `Sqlite.run` is for one that yields no rows.
+--- read, not before: [`Sqlite.run`] is for one that yields no rows.
 ---
 ---     local q <close> = assert(Sqlite.query(db, "SELECT id, body FROM t"))
 ---     for row in q:each() do print(row[1].integer, row[2].text) end
 ---     assert(q:failure() == "", q:failure())
 function Sqlite.query(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Query | nil, string
-  local prepared, trouble = handle:prepare(sql)
-  if prepared == nil then
+  local opened, trouble = prepared(handle, sql, values)
+  if opened == nil then
     return nil, trouble
   end
-  local statement: Sqlite.Statement = prepared
-  local bound, why = bind(statement, values or {})
-  if not bound then
-    statement:finalize()
-    return nil, why
-  end
+  local statement: Sqlite.Statement = opened
   local open = true
   local ended = false
   local failed = ""
@@ -289,22 +403,15 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
     if failed ~= "" then return nil, failed end
     if ended then return nil, "" end
     if not open then return nil, "sqlite: the query is closed" end
-    local state, failure = statement:step()
-    if state == nil then
-      failed = failure ~= "" and failure or "sqlite: the step failed"
+    local row, failure = step_row(statement, cells_of)
+    if row == nil then
+      if failure == "" then
+        ended = true
+      else
+        failed = failure
+      end
       finish()
-      return nil, failed
-    end
-    if state == "done" then
-      ended = true
-      finish()
-      return nil, ""
-    end
-    local row: Sqlite.Row = {}
-    -- Asked after each step: a schema change re-prepares the
-    -- statement, and its columns with it.
-    for index = 0, statement:columns() - 1 do
-      row[index + 1] = Sqlite.cell(statement, index)
+      return nil, failure
     end
     return row, ""
   end
@@ -324,44 +431,35 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
   return q, ""
 end
 
---- A direct text projection for callers whose SQL already defines the desired
---- coercion. SQLite's byte representation is returned for every value: NULL,
---- empty text, and empty blob all become `""`; integers and floats use
---- SQLite's text formatting; text and blobs remain byte strings, including NUL.
+--- A direct text projection for callers whose SQL already defines the
+--- coercion they want. SQLite's byte representation is returned for
+--- every value: NULL, empty text and empty blob all become `""`;
+--- integers and floats use SQLite's text formatting; text and blobs
+--- remain byte strings, including NUL.
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
                            values?: {Sqlite.Value}): {{string}} | nil, string
-  local statement, trouble = handle:prepare(sql)
+  local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
   end
-  local bound, why = bind(statement, values or {})
-  if not bound then
-    statement:finalize()
-    return nil, why
-  end
-  local out: {{string}} = {}
-  while true do
-    local state, failure = statement:step()
-    if state == nil then
-      statement:finalize()
-      return nil, failure
-    end
-    if state == "done" then
-      break
-    end
-    local row: {string} = {}
-    -- Asked after each step: a schema change re-prepares the
-    -- statement, and its columns with it.
-    for index = 0, statement:columns() - 1 do
-      row[index + 1] = statement:bytes(index)
-    end
-    out[#out + 1] = row
-  end
-  statement:finalize()
-  return out, ""
+  return each_row(statement, texts_of)
 end
 
---- Runs `work` inside a transaction, rolling back when it fails.
+--- Runs `work` inside a transaction and commits when it answers `true`.
+--- When `work` answers `false` and why, or the commit fails, the
+--- transaction rolls back and this answers `false` and that reason. When
+--- `work` raises, the transaction rolls back and the same error is
+--- raised again. A transaction already open on `handle` makes `BEGIN`
+--- fail, so calls do not nest.
+---
+--- The statements of one transaction are written through the same
+--- handle:
+---
+---     local ok, why = Sqlite.transact(db, function(): boolean, string
+---       local a, trouble = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "a" } })
+---       if not a then return false, trouble end
+---       return Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "b" } })
+---     end)
 function Sqlite.transact(handle: Sqlite.Handle,
                           work: function(): boolean, string): boolean, string
   local started, trouble = handle:exec("BEGIN")

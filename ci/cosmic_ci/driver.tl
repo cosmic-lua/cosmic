@@ -9,8 +9,11 @@ local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local Prerelease = require("cosmic_ci.prerelease")
 local Runner = require("cosmic_ci.runner")
+local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
+local SuiteOutput = require("cosmic_ci.suite_output")
 local Verdicts = require("cosmic_ci.verdicts")
+local ZigPrune = require("cosmic_ci.zig_prune")
 
 local function open_database(path: string): Sqlite.Handle
   return State.open(path)
@@ -19,7 +22,7 @@ end
 local function run(argv: {string}): integer
   local phase, timeout_text, executable = argv[1], argv[2], argv[3]
   assert(phase and timeout_text and executable,
-    "usage: driver.tl run PHASE TIMEOUT_MS -- EXECUTABLE [ARG...]")
+    "usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE [ARG...]")
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
@@ -28,7 +31,7 @@ local function run(argv: {string}): integer
   local runner: Runner.Context = { database = context.db, worker = context.worker,
     run = context.run, attempt = context.attempt, candidate = context.root }
   return Runner.operation(runner, phase, { argv = command, cwd = context.root,
-    timeout_ms = timeout }).code
+    timeout_ns = timeout }).code
 end
 
 local function clean(value: string): string
@@ -58,6 +61,7 @@ local function summarize(_argv: {string}): integer
        WHERE s.event = 'start'
        ORDER BY s.id
     ]]))
+    local suites = State.suite_rows(db)
     assert(db:close())
     lines[#lines + 1] = "| Worker | Run | Attempt | Phase | Status | ms | Exit | Signal | Detail |\n"
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
@@ -66,6 +70,13 @@ local function summarize(_argv: {string}): integer
       for i = 1, 9 do cells[i] = clean(row[i]) end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
+    -- Each suite's row (orchestration's `record_suite`), for a reader
+    -- and for `report`, which reads the same rows from the uploaded
+    -- database.
+    if #suites > 0 then
+      lines[#lines + 1] = "\n## Cosmic CI suites\n\n"
+      lines[#lines + 1] = SuiteOutput.markdown(suites)
+    end
   end
   Context.summarize(table.concat(lines))
   return 0
@@ -73,23 +84,31 @@ end
 
 --- Each command: what it does and takes, for `driver.tl --help`, and
 --- its handler, which gets the words after the command with the
---- driver's own path at slot 0. None takes options, so a word that
---- begins with "-" goes after a "--": `run`'s command line does.
+--- driver's own path at slot 0. A command that takes options names
+--- them in `spec` and is run by `options`, given what its line held;
+--- the rest take none, so a word that begins with "-" goes after a
+--- "--": `run`'s command line does.
 local record Command
   about: string
   usage: string
   handler: function({string}): integer
+  spec: {string:boolean | Flags.Option}
+  options: function(Flags.Parsed): integer
 end
 
 local commands: {string:Command} = {
   run = { about = "run a command as one recorded operation of the phase",
-    usage = "PHASE TIMEOUT_MS -- EXECUTABLE [ARG...]", handler = run },
+    usage = "PHASE TIMEOUT_NS -- EXECUTABLE [ARG...]", handler = run },
   summarize = { about = "write the operations recorded so far as a table",
     usage = "", handler = summarize },
-  ["compiles-trim"] = { about = "trim the build cache to the compiles used since SINCE",
-    usage = "SINCE", handler = Compiles.trim_command },
-  ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE",
-    usage = "SINCE", handler = Verdicts.trim_command },
+  ["compiles-trim"] = { about = "trim the build cache to the compiles used since SINCE, digest it, and count those RESTORED lacks",
+    usage = "SINCE [RESTORED]", handler = Compiles.trim_command },
+  ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE, and digest them",
+    usage = "SINCE|whole", handler = Verdicts.trim_command },
+  ["zig-prune"] = { about = "remove the zig build outputs no manifest of a current step vouches for",
+    usage = "", handler = ZigPrune.prune_command },
+  ["verdicts-merge"] = { about = "add the verdicts of the merge queue's run ahead, in DIR, to this run's",
+    usage = "DIR", handler = Verdicts.merge_command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",
@@ -106,16 +125,21 @@ local commands: {string:Command} = {
     usage = "", handler = Images.build_command },
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
+  report = { about = "print CI's recent runs' times and suites, from GitHub through gh",
+    usage = "[options]", spec = Report.spec, options = Report.command },
 }
 
 return function(argv: {integer:string}): integer
   local dispatched: {string:Flags.Command} = {}
   for name, entry in pairs(commands) do
     local handler = entry.handler
+    local options = entry.options
     dispatched[name] = {
       about = entry.about,
       usage = entry.usage,
+      spec = entry.spec,
       run = function(got: Flags.Parsed): integer
+        if options then return options(got) end
         local rest: {integer:string} = { [0] = argv[0] }
         for i, word in ipairs(got.words) do rest[i] = word end
         return handler(rest)

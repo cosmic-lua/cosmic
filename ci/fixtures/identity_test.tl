@@ -1,13 +1,54 @@
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
+local Test = require("cosmic.test")
+
+-- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
+-- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
+-- which holds the database it was written from, and the prefix of the
+-- product it was made from (COSMIC_FIXTURE_PRODUCT's `prefix`: its
+-- launcher, manifest and cores): each is in every verdict's key, so no
+-- verdict stands for a product part it was not reached on
+-- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
+-- A file of another target's is not there, and is keyed as missing.
+-- `system`: runtime.* and the applications a build writes launch through
+-- /bin/sh, and the fixtures run uname, mkfifo, cat and tee through
+-- /usr/bin/env (cosmic_ci/process.tl).
+Test.needs{
+  host = {
+    "$COSMIC_FIXTURE_PRODUCT/prefix",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.old",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix-length",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.new",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.basis",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.missing",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.sanitized",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-x86_64-linux-musl",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-aarch64-linux-musl",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.corrupt-aarch64-macos",
+    "$COSMIC_FIXTURE_RUNTIME/runtime_test.tl",
+    "$COSMIC_FIXTURE_RUNTIME/hello_main.tl",
+    "$COSMIC_FIXTURE_RUNTIME/second_main.tl",
+    "$COSMIC_FIXTURE_RUNTIME/targets.tsv",
+    "$COSMIC_FIXTURE_RUNTIME/sanitized-target-id",
+    "$COSMIC_FIXTURE_RUNTIME/sanitized-core-name",
+    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-x86_64-linux-musl/cosmic-core",
+    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-aarch64-linux-musl/cosmic-core",
+    "$COSMIC_FIXTURE_RUNTIME/sanitized-cores/sanitized-aarch64-macos/cosmic-core",
+    "$COSMIC_FIXTURE_RUNTIME/tool.tar",
+    "$COSMIC_FIXTURE_RUNTIME/focused-embed.tar",
+  },
+  system = true,
+}
 
 local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 local chmod, host_uname = Process.chmod, Process.host_uname
 
--- Both inputs must contain the entire prefix; neither must end at its boundary.
+-- Compares the first `length` bytes of two files, each of which must hold at
+-- least that many.
 local function compare_file_prefixes(left: string, right: string,
     length: integer)
   assert(#left >= length,
@@ -34,28 +75,11 @@ local function copy_tree(label: string, from: string, to: string)
   assert(copied, label .. ": " .. trouble)
 end
 
--- Removes every test module beneath `directory` but the one named `keep`
--- directly in it.
-local function drop_other_tests(directory: string, keep: string)
-  local function walk(dir: string, top: boolean)
-    for _, name in ipairs((assert(Fs.list(dir)))) do
-      local path = dir .. "/" .. name
-      local kind = assert(Fs.stat(path)).kind
-      if kind == "dir" then
-        walk(path, false)
-      elseif name:match("_test%.tl$") and not (top and name == keep) then
-        assert(Fs.remove(path))
-      end
-    end
-  end
-  walk(directory, true)
-end
-
--- Counts the plain files directly inside `directory`. The portable cache is
--- assumed flat, the same assumption launcher_test.tl's `only_core` and
--- `no_private_entries` make about a cache directory.
--- The cores a cache holds: its public entries. A name beginning with "."
--- is the launcher's or startup's own (a verified stamp, a repair lock).
+-- Counts the cores a cache holds: the plain files directly inside
+-- `directory`, its public entries. A name beginning with "." is the
+-- launcher's or startup's own (a verified stamp, a repair lock). The
+-- portable cache is assumed flat, as launcher_test.tl's `only_core` and
+-- `no_private_entries` assume of a cache directory.
 local function count_cache_files(directory: string): integer
   local count = 0
   for _, name in ipairs((assert(Fs.list(directory)))) do
@@ -68,7 +92,7 @@ local function count_cache_files(directory: string): integer
 end
 
 -- Find the single generated target whose uname fields match this host.
--- `Fixture.targets` discards those fields, so it cannot perform this lookup.
+-- [`Fixture.targets`] discards those fields, so it cannot perform this lookup.
 local function host_target_field(fixture_dir: string, work: string,
     diagnostics: string): string
   local sysname = host_uname(work, diagnostics, "-s", "sysname")
@@ -135,14 +159,14 @@ end
 
 local function expect_tally(capture: Fixture.Capture, ran: integer,
     stood: integer)
-  Fixture.contains(capture.out, "test: PASS (1 tests, 1 modules; " ..
+  Fixture.contains(capture.out, "test: PASS (1 test, 1 module; " ..
     tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
 end
 
 -- Run the raw sanitized core outside its runtime wrapper, with the full private
 -- COSMIC_PORTABLE_* contract supplied by hand and the artifact/core opened
 -- on descriptors 8/9.
-local function run_sanitized(fixture_dir: string, root: string,
+local function run_sanitized(fixture_dir: string, tool: string,
     project: string, counter: string, work: string,
     diagnostics: string): Fixture.Capture
   local artifact = fixture_dir .. "/runtime.sanitized"
@@ -156,18 +180,16 @@ local function run_sanitized(fixture_dir: string, root: string,
     "/cosmic-core"
 
   local entry_cache = work .. "/entry-cache"
-  -- tool.tl's own require("build.artifact")/require("test.portable")
-  -- resolve relative to the process cwd, so this must
-  -- run from `root`, matching identity test's own unwrapped invocation
-  -- (no `cd`, so it inherited the whole script's cwd, which is `root`).
+  -- tool.tl's own require("build.artifact") and require("test.portable")
+  -- resolve relative to the process cwd, so this runs from `tool`.
   local entry_out = Fixture.run("sanitized-entry",
-    { fixture_dir .. "/runtime.old", root .. "/test/portable/tool.tl",
-      "entry", artifact, target_id, "2" }, root, diagnostics,
+    { fixture_dir .. "/runtime.old", tool .. "/test/portable/tool.tl",
+      "entry", artifact, target_id, "2" }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = entry_cache })
   local offset, length, digest = Fixture.small(entry_out.out, 256):match(
     "^(%d+)[ \t]+(%d+)[ \t]+([0-9a-f]+)\n?$")
   assert(offset and length and digest, "sanitized entry fields are invalid")
-  chmod(core, 0x1ed)
+  Fixture.assert_executable(core)
 
   -- The artifact and core open on the descriptors the private contract names.
   return Fixture.succeeded("sanitized", Fixture.call_with_descriptors("sanitized",
@@ -236,23 +258,21 @@ end
 -- cover the portable database, the retained prefix, and host programs
 -- made from the running core; every one of them must run, none answered
 -- from a verdict, however many the file holds. It is a test of its own,
--- apart from the primary project's, which reads nothing it writes: the
--- one run took 21 s on a slow macOS runner (run 36345675442), most of the
--- 30 s the two once had together.
+-- apart from the primary project's, which reads nothing it writes. Alone
+-- it takes 21 s on a slow macOS runner, most of the 30 s the two take
+-- together.
 local function test_identity_focused_embed(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
 
-  local focused = work .. "/focused-embed"
-  Fixture.mkdir(focused)
-  copy_tree("copy-build", root .. "/build", focused .. "/build")
-  -- The rest of build/'s tests are no part of this one's closure, and
-  -- compiling them was most of this step: over the test's own deadline on
-  -- a slow macOS runner.
-  drop_other_tests(focused .. "/build", "embed_test.tl")
+  -- The candidate's build/ with no test but embed_test.tl
+  -- (cosmic_ci/runtime_setup.tl): the rest of build/'s tests are no part
+  -- of this one's closure, and compiling them was most of this step,
+  -- over the test's own deadline on a slow macOS runner.
+  local focused = Fixture.unpack(fixture_dir .. "/focused-embed.tar",
+    work .. "/focused-embed")
   local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
     "test", "build/embed_test.tl" }, focused, diagnostics,
     { COSMIC_PORTABLE_CACHE = work .. "/cache" })
@@ -261,7 +281,7 @@ local function test_identity_focused_embed(tmp: string)
     cases = cases + 1
   end
   assert(cases > 0, "build/embed_test.tl holds no tests")
-  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. " tests, 1 modules; " ..
+  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. (cases == 1 and " test" or " tests") .. ", 1 module; " ..
     cases .. " ran, 0 stood")
 end
 
@@ -269,17 +289,17 @@ end
 -- check it again transported to a new location.
 local function test_identity_primary(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
+  local tool = Fixture.tool_tree(fixture_dir, work)
 
   local project = work .. "/project"
   Fixture.mkdir(project .. "/cmd/hello")
   Fixture.copy(fixture_dir .. "/runtime_test.tl", project .. "/runtime_test.tl")
   Fixture.copy(fixture_dir .. "/hello_main.tl", project .. "/cmd/hello/main.tl")
   Fixture.mkdir(project .. "/cmd/second")
-  Fixture.copy(root .. "/ci/testdata/portable/cmd/second/main.tl",
+  Fixture.copy(fixture_dir .. "/second_main.tl",
     project .. "/cmd/second/main.tl")
   local counter = project .. "/test-runs"
   local cache = work .. "/cache"
@@ -361,31 +381,34 @@ local function test_identity_primary(tmp: string)
     fixture_dir .. "/runtime.old", "unchanged"), 0, 1)
 
   -- These artifact bytes have a different application DB and prefix
-  -- padding, but exactly the same selected raw core and runtime basis.
+  -- padding, but exactly the same selected raw core and runtime basis:
+  -- the runtime identity is the release's (verify-verdicts, below). The
+  -- test runs again all the same: each key holds what selected the core,
+  -- the artifact's launcher and manifest (build/declared_key.tl's
+  -- `launcher_identity`), whose padding moved, as a sandboxed run's does.
   expect_tally(run_release(project, cache, counter, diagnostics,
-    fixture_dir .. "/runtime.new", "application"), 0, 1)
+    fixture_dir .. "/runtime.new", "application"), 1, 0)
 
   -- A project database is searched ahead of the binary after attachment. Its
   -- rows must not override validated portable context or the binary's
   -- basis.
-  -- Both tool.tl calls below run from `root`, matching identity test's
-  -- own unwrapped invocations (no `cd "$project"`, unlike most of this
-  -- function): tool.tl's require("build.artifact")/require("test.portable")
-  -- resolve relative to the process cwd, and `project`
-  -- has no build/ or test/ tree for them to find.
+  -- Both tool.tl calls below run from `tool`, not `project`: tool.tl's
+  -- require("build.artifact") and require("test.portable") resolve
+  -- relative to the process cwd, and `project` has no build/ or test/
+  -- tree for them to find.
   Fixture.run("spoof-database", { fixture_dir .. "/runtime.old",
-    root .. "/test/portable/tool.tl", "spoof-database",
-    project .. "/o/cosmic.db" }, root, diagnostics,
+    tool .. "/test/portable/tool.tl", "spoof-database",
+    project .. "/o/cosmic.db" }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.basis", "basis"), 1, 0)
-  expect_tally(run_sanitized(fixture_dir, root, project, counter, work,
+  expect_tally(run_sanitized(fixture_dir, tool, project, counter, work,
     diagnostics), 1, 0)
 
   Fixture.run("verify-verdicts", { fixture_dir .. "/runtime.old",
-    root .. "/test/portable/tool.tl", "verify-verdicts",
-    project .. "/o/build.db", counter }, root, diagnostics,
+    tool .. "/test/portable/tool.tl", "verify-verdicts",
+    project .. "/o/build.db", counter }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   local missing = work .. "/missing-project"

@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.fs`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.fs`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table.
 
@@ -7,14 +7,39 @@ local Proc = require("cosmic.proc")
 
 local Example = {}
 
---- Standard input is a descriptor like any other: `Fs.take` reads it,
---- and `Proc.is_tty` says whether a person is typing into it.
+--- Standard input is a descriptor like any other: [`Fs.take`] reads it,
+--- and [`Proc.is_tty`] says whether a person is typing into it.
 function Example.stdin()
   if Proc.is_tty(Fs.stdin) then
     print("standard input is a terminal")
   else
     print("standard input is a pipe, a file or nothing")
   end
+end
+
+--- A file is read whole, as bytes, in one call: the counterpart of
+--- [`Fs.write`], which puts a whole string in its place.
+function Example.read()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path = dir .. "/note"
+  assert(Fs.write(path, "hello"))
+  local data = assert(Fs.read(path))
+  print(data)
+  assert(data == "hello", data)
+  assert(Fs.remove_tree(dir))
+end
+
+--- What `stat` says of a file: its kind and its size in bytes. `mode`
+--- holds the permission bits too (`mode & 0xfff`, as `chmod` sets them),
+--- less the umask for a file just made.
+function Example.stat()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path = dir .. "/notes.txt"
+  assert(Fs.write(path, "hello\n"))
+  local st = assert(Fs.stat(path))
+  print(st.kind, st.size)
+  assert(st.kind == "file" and st.size == 6, st.kind)
+  assert(Fs.remove_tree(dir))
 end
 
 --- A link stores its target as written, and `readlink` reads it back
@@ -41,18 +66,25 @@ function Example.chmod()
   assert(Fs.remove_tree(dir))
 end
 
---- A file set to an exact size through a descriptor open for writing:
---- shorter cuts it, longer pads it with zero bytes.
-function Example.truncate()
+--- A file written under a temporary name and renamed onto its path
+--- when `close` succeeds, so a reader never sees half of it: `abort`
+--- (or a failure) leaves the path as it was. `sync` first makes the
+--- bytes durable before the rename can reach the disk.
+function Example.create()
   local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
   local path = dir .. "/record"
-  local fd = assert(Fs.open_write(path))
-  assert(Fs.put(fd, "header and body"))
-  assert(Fs.truncate(fd, 6))
-  assert(Fs.close(fd))
+  assert(Fs.write(path, "old"))
+  local draft = assert(Fs.create(path))
+  assert(draft:write("new, but not yet"))
+  assert(draft:abort())
+  assert(Fs.read(path) == "old")
+  local file = assert(Fs.create(path))
+  assert(file:write("new"))
+  assert(file:sync())
+  assert(file:close())
   local data = assert(Fs.read(path))
   print(data)
-  assert(data == "header", data)
+  assert(data == "new", data)
   assert(Fs.remove_tree(dir))
 end
 

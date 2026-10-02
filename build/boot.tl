@@ -8,13 +8,17 @@
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
 local Time = require("cosmic.time")
+local identity = require("build.identity")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
 local compiler = require("build.compiler")
+local derivation = require("build.derivation")
 local importer = require("build.importer")
+local plural = require("build.plural")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local writer = require("build.writer")
+local String = require("cosmic.string")
 
 local log = Log.new("cosmic")
 
@@ -97,7 +101,7 @@ local function boot(root: string, argv: {integer:string},
       log:verdict("boot", false, checked_records_trouble)
       return 1
     end
-    if checked_records:sub(1, #records) ~= records then
+    if not String.starts_with(checked_records, records) then
       log:verdict("boot", false, "checked records do not begin with release records")
       return 1
     end
@@ -135,13 +139,13 @@ local function boot(root: string, argv: {integer:string},
     log:verdict("boot", false, stage_trouble)
     return 1
   end
-  local fingerprint, print_trouble = work.record_fingerprint(handle)
+  local fingerprint, print_trouble = identity.record_fingerprint(handle.db)
   if fingerprint == nil then
     local _, _ = work.close(handle)
     log:verdict("boot", false, print_trouble)
     return 1
   end
-  local kept, keep_trouble = work.put_compiler(handle, compiler_source)
+  local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
   if not kept then
     local _, _ = work.close(handle)
     log:verdict("boot", false, keep_trouble)
@@ -165,22 +169,10 @@ local function boot(root: string, argv: {integer:string},
   -- The tree's own identities, which are this boot's: the bridge runs the
   -- tree's build code. Parsed first, so the compiler closure is whole on a
   -- fresh working database and keys exactly as a warm build does.
-  local shared = shared_compiles.for_build()
-  local derived, derive_trouble = importer.derive(handle, true, compiler, shared)
-  local identities, identity_trouble: work.Identities, string = nil, derive_trouble
-  if derived ~= nil then
-    identities, identity_trouble = work.record_identities(handle)
-  end
-  if derived == nil or identities == nil then
-    -- `compile` finishes the cache; here nothing will.
-    if shared ~= nil then shared.finish() end
-    local _, _ = work.close(handle)
-    log:verdict("boot", false, identity_trouble)
-    return 1
-  end
-
-  local result, compile_trouble =
-    importer.compile(handle, compiler, identities.compiler, false, shared)
+  local result, compile_trouble = importer.compile_tree(handle, compiler,
+    function(recorded: identity.Identities): string, string
+      return recorded.compiler, ""
+    end, false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -238,12 +230,13 @@ local function boot(root: string, argv: {integer:string},
     return 1
   end
 
-  log:verdict("boot", true, #targets .. " targets, " .. staged.files ..
-    " files staged, " .. derived.parsed + result.parses.parsed .. " sources parsed, " ..
-    derived.shared + result.parses.shared .. " taken from another checkout, " ..
-    result.compiled .. " modules compiled, " ..
+  log:verdict("boot", true, plural.count(#targets, "target") .. ", " ..
+    plural.count(staged.files, "file") .. " staged, " ..
+    plural.count(result.parses.parsed, "source") .. " parsed, " ..
+    result.parses.shared .. " taken from another checkout, " ..
+    plural.count(result.compiled, "module") .. " compiled, " ..
     result.shared .. " taken from another checkout, " ..
-    #database .. " database bytes, " .. clock.took(started))
+    plural.count(#database, "database byte") .. ", " .. clock.took(started))
   return 0
 end
 

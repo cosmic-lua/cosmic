@@ -1,11 +1,9 @@
---- The shape a project's own files take for cosmic to recognize them
---- as more than plain library code -- a name `build/analyzer.tl`
---- compares literally, a position `build/positions.tl` checks, or a
---- file suffix `build/work.tl` matches, not
---- a symbol any one function's doc comment could state on its own.
---- `cosmic docs <word>` finds each field below directly. A field is
---- named for the file it shapes (`tests`), not for a verb: `cosmic docs
---- test` is `cosmic.cli`'s, the verb.
+--- Where a project's files go so cosmic finds them. To write a test, add a
+--- `<name>_test.tl` file: tests live in `<name>_test.tl`, examples in
+--- `<name>_example.tl`, and modules are named by their path from the
+--- project root. Each field below is one
+--- convention. A field is named for the file it shapes (`tests`), not
+--- for a verb: `cosmic docs test` is [`cosmic.cli`]'s, the verb.
 local record Layout
   --- a worked example: a `<name>_example.tl` file must return a
   --- record literally named `Example`, one field per example --
@@ -22,7 +20,7 @@ local record Layout
   --- functions -- direct elements of the file, never inside another
   --- statement -- are discovered and run by `cosmic test`. No return
   --- value and no registration; the name alone is the rule. Its
-  --- verdict line's "N ran, M stood" is `test.Tally`: ran counts
+  --- verdict line's "N ran, M stood" is [`test.Tally`]: ran counts
   --- tests actually executed this time, stood the ones answered from
   --- an unchanged prior verdict instead
   tests: string

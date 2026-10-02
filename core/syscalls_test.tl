@@ -3,34 +3,41 @@
 --- failure a correct caller meets at runtime comes back as `nil` (for a
 --- value) or `false` (for an effect), then the error, then the errno.
 ---
---- Each test calls the C through `cosmic.sys` directly rather than
+--- Each test calls the C through [`cosmic.sys`] directly rather than
 --- through the typed modules above it, so a binding is held to its own
 --- promise and not to whatever a wrapper makes of it; so too core/process.h's
 --- calls and `digest` and `hmac`, through the raw tables the store hands
---- `cosmic.child` and `cosmic.hash`. `sys.exit` is the one binding with
+--- [`cosmic.child`] and [`cosmic.hash`]. [`sys.exit`] is the one binding with
 --- no test here: it ends the process the test runs in.
 
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
-local observations = require("build.filesystem_observations")
 local stand_in = require("build.stand_in")
+local sandbox_skip = require("build.sandbox_skip")
+local Time = require("cosmic.time")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
---- What the syscall table is tested on: /proc, the whole environment,
---- processes it holds, and the program itself, whose core a stand-in
---- program is built from (build/stand_in.tl): what a child here runs,
---- confined or not, reading nothing of the system's.
+--- What the syscall table is tested on: /proc and the whole
+--- environment: a stand-in program (build/stand_in.tl) is
+--- what a child here runs, reading nothing of the system's. The cases
+--- that start this program itself to run a chunk, or unveil a child's
+--- root -- which a worker that declares neither `lua` nor `nests`
+--- cannot (see core/syscalls_tool_test.tl) -- are
+--- core/syscalls_tool_test.tl's, and the one that reads the program's
+--- own path core/artifact_fd_tool_test.tl's.
 Test.needs{
   host = { "/proc" },
   env = { "*" },
-  processes = true,
-  tool = true,
+  network = { "127.0.0.1" },
 }
 
 local type Searcher = function(string): any, any
@@ -48,33 +55,14 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
---- Whether the run holds this host to confining a process: with
---- COSMIC_SANDBOX=must (see build.filesystem_observations'
---- `must_confine`), a sandbox the kernel refuses -- no Landlock, no
---- pledge, no unveiling -- fails its test here rather than passing it
---- unchecked.
--- TODO: count each sandbox test that returns early here as skipped, in
--- the run's summary beside ran, stood and assumed, once build/test.tl's
--- tally has a skipped verdict: today, without COSMIC_SANDBOX=must, a
--- host that cannot sandbox passes them as though it had checked them.
---- The descriptors `observations.program` hands its child, as
---- `process.spawn` takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only `cosmic.child`
---- reads.
-local function spawn_fds(started: observations.Program): {integer:integer}
-  local fds: {integer:integer} = {}
-  for number, fd in pairs(started.options.fds) do
-    if fd is integer then
-      fds[number] = fd
-    else
-      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
-    end
-  end
-  return fds
-end
-
-local function sandbox_required(): boolean
-  return sys.getenv("COSMIC_SANDBOX") == "must"
+--- Says a sandbox test is skipped ([`Test.skip`]) where this Linux host
+--- refuses the sandbox it is about -- no Landlock, no pledge -- as it
+--- returns early: the run counts it skipped rather than passed, and a
+--- run held to sandboxing (COSMIC_SANDBOX=must among them) fails it.
+--- Another platform has no such sandbox to check, and returns silently
+--- (build.sandbox_skip).
+local function unsandboxable(what: string, trouble: string)
+  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -82,16 +70,6 @@ end
 --- only itself, so one confined needs nothing of the system's own.
 local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/stand-in")))
-end
-
---- What a confined `probe` is given to read: itself, and /proc and
---- /dev/null where this host has them.
-local function probe_reads(probe: string): {string}
-  local reads: {string} = { probe }
-  for _, path in ipairs({ "/proc", "/dev/null" }) do
-    if sys.stat(path) ~= nil then reads[#reads + 1] = path end
-  end
-  return reads
 end
 
 --- Asserts `value, message, number` is the failure shape: `nil` or
@@ -110,6 +88,11 @@ end
 local function failed_with(errno: integer, value: any, message: any, number: any)
   failed(value, message, number)
   assert(number == errno, "expected errno " .. errno .. ", got " .. tostring(number))
+end
+
+--- The file at `path`, or "" where it cannot be read.
+local function read_file(path: string): string
+  return (Fs.read(path)) or ""
 end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
@@ -224,6 +207,37 @@ local function test_stat_and_lstat_describe_a_directory(tmp: string)
   assert(assert(sys.lstat(dir)).kind == "dir")
 end
 
+--- Leaves a socket file at `path`: a listener's, moved there, so its
+--- close -- which removes the file it made only while its name is
+--- still that file -- leaves it.
+local function socket_file(path: string)
+  local listening = path .. ".listening"
+  local listener = assert(Net.listen(Net.unix(listening)))
+  assert(sys.rename(listening, path))
+  assert(listener:close())
+end
+
+--- A socket file, a named pipe and a device are each named for what
+--- they are, by the mode's type and the same words on every system,
+--- rather than lumped together as "other". No test reaches "block", or
+--- a device in a listing: a worker is given no block device, and no
+--- directory of the system's to list.
+local function test_stat_names_a_socket_a_fifo_and_a_device(tmp: string)
+  local socket = tmp .. "/socket"
+  socket_file(socket)
+  local found = assert(sys.lstat(socket)).kind
+  assert(found == "socket", found)
+  assert(sys.mkfifo(tmp .. "/fifo"))
+  found = assert(sys.stat(tmp .. "/fifo")).kind
+  assert(found == "fifo", found)
+  found = assert(sys.stat("/dev/null")).kind
+  assert(found == "char", found)
+  local fd = assert(sys.open("/dev/null", sys.O_RDONLY))
+  local st = sys.fstat(fd)
+  sys.close(fd)
+  assert(st ~= nil and st.kind == "char")
+end
+
 local function test_stat_and_lstat_refuse_a_missing_path(tmp: string)
   failed_with(sys.ENOENT, sys.stat(tmp .. "/missing"))
   failed_with(sys.ENOENT, sys.lstat(tmp .. "/missing"))
@@ -309,6 +323,37 @@ local function test_chmod(tmp: string)
   failed_with(sys.ENOENT, sys.chmod(tmp .. "/missing", 384))
 end
 
+--- chown sets a path's owner and group -- here to what they are, which
+--- any owner may -- or leaves either at -1; an id past a 32-bit one's
+--- range raises.
+local function test_chown(tmp: string)
+  sys.close(create(tmp .. "/a"))
+  local own = assert(sys.stat(tmp .. "/a"))
+  local changed, trouble = sys.chown(tmp .. "/a", own.uid, own.gid)
+  assert(changed == true, trouble)
+  assert(sys.chown(tmp .. "/a", -1, -1))
+  local after = assert(sys.stat(tmp .. "/a"))
+  assert(after.uid == own.uid and after.gid == own.gid)
+  failed_with(sys.ENOENT, sys.chown(tmp .. "/missing", own.uid, own.gid))
+  raises(sys.chown, tmp .. "/a", -2, own.gid)
+  raises(sys.chown, tmp .. "/a", own.uid, 4294967295)
+end
+
+--- dumpable answers whether this process may be dumped, 0, 1 or 2,
+--- and sets it to 0 or 1 first where asked; any other value raises. Off
+--- Linux it is ENOSYS.
+local function test_dumpable()
+  local now, trouble, errno = sys.dumpable()
+  if now == nil then
+    assert(errno == sys.ENOSYS, trouble)
+    return
+  end
+  assert(now == 0 or now == 1 or now == 2, tostring(now))
+  if now ~= 2 then assert(sys.dumpable(now) == now) end
+  raises(sys.dumpable, 2)
+  raises(sys.dumpable, -1)
+end
+
 local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(sys.mkdir(tmp .. "/d"))
   sys.close(create(tmp .. "/d/a"))
@@ -323,22 +368,29 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(next((assert(sys.readdir(tmp .. "/d/sub")))) == nil)
 end
 
---- A directory under `tmp` holding a file, a directory, and a link to
---- each and to nothing.
+--- A directory under `tmp` holding a file, a directory, a named pipe,
+--- a socket file, and a link to each of the first two and to nothing.
 local function linked_directory(tmp: string): string
   local d = tmp .. "/d"
   assert(sys.mkdir(d))
   sys.close(create(d .. "/file"))
   assert(sys.mkdir(d .. "/sub"))
+  assert(sys.mkfifo(d .. "/fifo"))
+  socket_file(d .. "/socket")
   assert(sys.symlink("file", d .. "/to_file"))
   assert(sys.symlink("sub", d .. "/to_dir"))
   assert(sys.symlink("missing", d .. "/dangling"))
   return d
 end
 
---- Checks readdir's answer for `linked_directory`.
+--- The entries of [`linked_directory`].
+local LINKED_ENTRIES <const> = 7
+
+--- Checks readdir's answer for [`linked_directory`].
 local function names_links_as_links(entries: {string:string}, what: string)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
+  assert(entries["fifo"] == "fifo", what .. ": a named pipe: " .. tostring(entries["fifo"]))
+  assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
   assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
   assert(entries["to_dir"] == "link", what .. ": a link to a directory: " .. tostring(entries["to_dir"]))
   assert(entries["dangling"] == "link", what .. ": a dangling link: " .. tostring(entries["dangling"]))
@@ -354,7 +406,7 @@ end
 local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
   if testing.configuration ~= "sanitized" then return end
   local d = linked_directory(tmp)
-  for skip = 0, 4 do
+  for skip = 0, LINKED_ENTRIES - 1 do
     testing.fail_at("readdir_d_type", skip)
     local entries = assert(sys.readdir(d))
     assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
@@ -534,7 +586,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   if ruleset == nil then
     -- No Landlock: not built in, turned off, or refused by a filter (a
     -- container's seccomp profile).
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no Landlock ruleset: " .. trouble)
+    unsandboxable("Landlock ruleset", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
     return
   end
@@ -582,6 +634,34 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
 end
 
+--- A ruleset holds files and not the network, on every kernel: a child
+--- held to one reaches a listener of this process's over TCP on
+--- loopback and over a unix socket file, as one held to none does.
+local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
+  local probe = probe_in(tmp)
+  local tcp = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(5) }))
+  local socket = tmp .. "/s"
+  local unix = assert(Net.listen(Net.unix(socket), { timeout_ns = Time.seconds(5) }))
+  local ruleset, trouble = process.landlock_ruleset({ probe }, {})
+  if ruleset == nil then
+    assert(tcp:close() and unix:close())
+    unsandboxable("Landlock ruleset", trouble)
+    return
+  end
+  local output = create(tmp .. "/said")
+  local pid = assert(process.spawn(probe, { probe,
+    "connect-tcp 127.0.0.1 " .. tostring(tcp.address.port) .. "; connect " .. socket },
+    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
+  sys.close(ruleset)
+  local status = assert(process.waitpid(pid, false))
+  local said = assert(sys.pread(output, 4096, 0))
+  sys.close(output)
+  assert(status.code == 0 and said == "connected\nconnected\n", said)
+  assert(assert(tcp:accept()):close())
+  assert(assert(unix:accept()):close())
+  assert(tcp:close() and unix:close())
+end
+
 --- A process held to running what is beneath some paths runs a program
 --- beneath them and no other -- one written after the hold included --
 --- and what it starts is held too; it still reads and writes as before.
@@ -607,7 +687,7 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   sys.close(create(given .. "/a/f"))
   local held, trouble, errno = process.landlock_restrict_execute({ tmp .. "/bin", given })
   if not held then
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no Landlock: " .. trouble)
+    unsandboxable("Landlock", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
     return
   end
@@ -616,6 +696,14 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   -- What it starts is held too: the program may not run the copy.
   assert(status_of(probe, { probe, "run " .. elsewhere .. " || exit 7" }) == 7)
   assert(sys.rename(given .. "/a/f", given .. "/b/f"))
+  -- So may one in a directory made after the hold, beneath none -- but
+  -- not into one where it could be run, which it could not before.
+  local later = tmp .. "/later"
+  assert(sys.mkdir(later, 0x1c0) and sys.mkdir(later .. "/a", 0x1c0))
+  sys.close(create(later .. "/f"))
+  assert(sys.rename(later .. "/f", later .. "/a/f"))
+  local moved, _, moved_errno = sys.rename(later .. "/a/f", given .. "/a/f")
+  assert(not moved and moved_errno == sys.EXDEV, "a file moved to where it could be run")
   -- Reading and writing are as they were.
   local written = create(tmp .. "/after")
   assert(sys.write(written, "w") == 1)
@@ -630,11 +718,9 @@ end
 --- A pledged child runs under a seccomp filter, and so does what it
 --- starts; an unpledged one runs as this process does (under a filter
 --- of its own when a container gives it one), and a promise no one keeps
---- is refused before anything starts. (That the filter refuses a socket
---- of a family not promised is seen only from outside, with strace.)
--- TODO: check a refused socket from inside the child once cosmic.sys can
--- open one: curl, the only socket maker, words a refused socket and a
--- refused connection alike.
+--- is refused before anything starts. A socket of a family not promised
+--- is refused (EPERM), where one promised is made and then refused its
+--- connection.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local probe = probe_in(tmp)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
@@ -647,8 +733,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
       nil, nil, nil, output, output, false, nil, sandbox)
     if pid == nil then
       sys.close(output)
-      assert(not sandbox_required() or sandbox == nil,
-        "COSMIC_SANDBOX=must, but no pledge: " .. trouble)
+      if sandbox ~= nil then unsandboxable("pledge", trouble) end
       assert(errno == sys.ENOSYS, trouble)
       return "unsupported"
     end
@@ -663,7 +748,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
     local ok, trouble, errno = process.spawn(probe, { probe }, nil, nil, nil,
       nil, nil, false, nil, { pledge = {} })
     if ok == nil then
-      assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no pledge: " .. trouble)
+      unsandboxable("pledge", trouble)
       assert(errno == sys.ENOSYS)
     else
       process.waitpid(ok, false)
@@ -679,12 +764,28 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
+  if pledged ~= "unsupported" then
+    local function connected(promises: {string}): string
+      local output = create(tmp .. "/connect")
+      local pid = assert(process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
+        nil, nil, nil, output, output, false, nil, { pledge = promises }))
+      assert(assert(process.waitpid(pid, false)).code == 0)
+      local said = assert(sys.pread(output, 4096, 0))
+      sys.close(output)
+      return said
+    end
+    local socket = tmp .. "/none.sock: "
+    local unpromised = connected({})
+    assert(unpromised == socket .. "Operation not permitted\n", unpromised)
+    local promised = connected({ "unix" })
+    assert(promised == socket .. "No such file or directory\n", promised)
+  end
 end
 
---- A child starts on this process's memory rather than a copy of it,
---- but with a descriptor table of its own: the descriptors it closes and
---- moves to hand its program the ones asked for, and a later step that
---- fails, leave every one of this process's as it was.
+--- A child has a descriptor table of its own, though it starts on this
+--- process's memory on Linux: the descriptors closed and moved to hand
+--- its program the ones asked for, and a later step that fails, leave
+--- every one of this process's as it was.
 local function test_a_child_s_descriptors_are_its_own(tmp: string)
   local probe = probe_in(tmp)
   local held: {integer} = {}
@@ -708,6 +809,99 @@ local function test_a_child_s_descriptors_are_its_own(tmp: string)
   end
   assert(sys.fstat(report) ~= nil)
   sys.close(report)
+end
+
+--- A descriptor this process holds open across exec reaches a child
+--- only where the child is handed it: one below the highest handed and
+--- one above it are closed there, and one handed as its own number is
+--- open.
+local function test_a_child_is_handed_only_the_descriptors_asked_for(tmp: string)
+  local probe = probe_in(tmp)
+  local report = create(tmp .. "/report")
+  local below, handed, kept, above = 110, 120, 121, 130
+  for _, fd in ipairs({ below, handed, kept, above }) do
+    failed_with(sys.EBADF, sys.fd_flags(fd))
+    assert(sys.dup2(report, fd))
+    assert(not closed_on_exec(fd))
+  end
+  local pid = assert(process.spawn(probe, { probe, "fd-closed " .. below .. "; fd-closed " ..
+    above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
+    nil, nil, nil, nil, nil, false, { [handed] = report, [kept] = kept }))
+  local status = assert(process.waitpid(pid, false))
+  assert(status.code == 0, tostring(status.code))
+  assert(assert(sys.pread(report, 64, 0)) == "handed\nkept\n")
+  for _, fd in ipairs({ below, handed, kept, above, report }) do sys.close(fd) end
+end
+
+--- A program named by a relative path is found from the directory its
+--- child is given, absolute or relative, as exec in that directory
+--- finds it.
+local function test_a_relative_program_is_found_from_the_child_s_directory(tmp: string)
+  assert(sys.mkdir(tmp .. "/bin", 0x1c0))
+  assert(stand_in.place(probe_in(tmp), tmp .. "/bin/probe"))
+  local function status_of(path: string, cwd: string): integer
+    local pid = assert(process.spawn(path, { path, "exit 3" }, nil, cwd, nil, nil, nil, false))
+    return assert(process.waitpid(pid, false)).code
+  end
+  assert(status_of("probe", tmp .. "/bin") == 3)
+  assert(status_of("./probe", tmp .. "/bin") == 3)
+  assert(status_of("bin/probe", tmp) == 3)
+  local before = assert(sys.getcwd())
+  assert(sys.chdir(tmp))
+  -- Put the directory back before anything below can raise: every test
+  -- after this one runs in this same process.
+  local pid, trouble = process.spawn("../bin/probe", { "probe", "exit 3" }, nil, "bin", nil,
+    nil, nil, false)
+  sys.chdir(before)
+  assert(pid ~= nil, trouble)
+  assert(assert(process.waitpid(pid, false)).code == 3)
+end
+
+--- Two descriptors handed crosswise, each the other's number, reach the
+--- child each at the number asked: neither move overwrites the source
+--- the other reads.
+local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: string)
+  local probe = probe_in(tmp)
+  local first, second = 140, 141
+  local files: {integer: integer} = {}
+  for _, fd in ipairs({ first, second }) do
+    failed_with(sys.EBADF, sys.fd_flags(fd))
+    files[fd] = create(tmp .. "/" .. fd)
+    assert(sys.dup2(files[fd], fd))
+  end
+  local pid = assert(process.spawn(probe, { probe, "write-fd " .. first .. " first; write-fd " ..
+    second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
+  assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
+  for fd, file in pairs(files) do
+    sys.close(fd)
+    sys.close(file)
+  end
+end
+
+--- A child is put in a process group of its own only where asked.
+local function test_a_child_s_process_group_is_its_own_where_asked(tmp: string)
+  local probe = probe_in(tmp)
+  local own = assert(sys.getpgid(0))
+  for _, grouped in ipairs({ true, false }) do
+    local pid = assert(process.spawn(probe, { probe, "sleep 10000" }, nil, nil, nil, nil, nil,
+      grouped))
+    local group = assert(sys.getpgid(pid))
+    assert(sys.kill(pid, sys.SIGKILL))
+    assert(assert(process.waitpid(pid, false)).signal == sys.SIGKILL)
+    assert(group == (grouped and pid or own), tostring(group))
+  end
+end
+
+--- A program that cannot be executed fails the start with exec's own
+--- errno.
+local function test_a_start_fails_with_the_errno_exec_failed_with(tmp: string)
+  local plain = tmp .. "/plain"
+  sys.close(create(plain))
+  failed_with(sys.EACCES, process.spawn(plain, { plain }, nil, nil, nil, nil, nil, false))
+  failed_with(sys.ENOENT, process.spawn(tmp .. "/missing", { "missing" }, nil, nil, nil, nil,
+    nil, false))
 end
 
 --- Every signal is blocked while a child starts, so none runs a handler
@@ -762,572 +956,40 @@ local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
   assert(ignored(child) & bit == 0, child)
 end
 
---- An unveiled child has a root of its own holding only the paths it was
---- given, at their own names once resolved: a path outside them is not
---- there to stat, one given to read is read-only -- but /proc, a procfs
---- of its own pid namespace, whose processes' entries it may write, and
---- which has no /proc/sys; or, where the kernel refuses one, the host's,
---- read-only whole -- one given to write is written, it keeps no capability, and an offline one
---- has no network but a loopback. An empty unveiling leaves it nothing,
---- not even a program to run. Where unprivileged namespaces are refused,
---- spawning one says so.
-local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
-  local probe = probe_in(tmp)
-  local inside, outside, out = tmp .. "/in", tmp .. "/out", tmp .. "/w"
-  for _, dir in ipairs({ inside, outside, out }) do assert(sys.mkdir(dir, 0x1c0)) end
-  local written = create(inside .. "/f")
-  assert(sys.write(written, "in") == 2)
-  sys.close(written)
-  sys.close(create(outside .. "/f"))
-  assert(sys.symlink(inside, tmp .. "/link"))
-  -- Given through a link, a path is had under the name it resolves to and,
-  -- as a link to that, under the name given; a file can be given as well
-  -- as a directory: /dev/null alone of /dev, and the program alone of
-  -- the directory it is in.
-  local reads: {string} = { tmp .. "/link" }
-  for _, path in ipairs(probe_reads(probe)) do reads[#reads + 1] = path end
-  local report = create(tmp .. "/report")
-  local pid, trouble, errno = process.spawn(probe, { probe,
-    "cat link/f; print; present out/f && print outside-seen || print outside-absent; " ..
-    "cat " .. assert(sys.realpath(inside)) .. "/f; print; " ..
-    "write link/g x || print read-only; write w/f w && cat w/f; status-field CapEff; " ..
-    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || print 1" },
-    nil, tmp, nil, report, report, false, nil,
-    { unveil = { reads = reads, writes = { out } }, offline = true })
-  if pid == nil then
-    sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
-    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return
-  end
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  local said = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(said == "in\noutside-absent\nin\nread-only\nw\n" ..
-    "CapEff:\t0000000000000000\n1\n", said)
-  -- The parent is not held.
-  assert(sys.stat(outside .. "/f") ~= nil)
-  -- With /proc, /dev/fd leads into it; a directory made above a given
-  -- path has the mode of the one it stands for, as a cache that checks
-  -- its own directory's mode needs.
-  local private = tmp .. "/private"
-  assert(sys.mkdir(private, 0x1c0))
-  assert(sys.mkdir(private .. "/inner", 0x1ed))
-  local mirrored: {string} = { "/proc", private .. "/inner" }
-  for _, path in ipairs(reads) do mirrored[#mirrored + 1] = path end
-  -- Whether a file is writable, by opening it to append, which writes
-  -- nothing (`writable`), not by its mode, which says nothing of the mount.
-  local second = create(tmp .. "/second")
-  local again = assert(process.spawn(probe, { probe,
-    "present /dev/fd/0 && print fd; mode " .. assert(sys.realpath(private)) ..
-    "; ls /tmp; write /tmp/f t && cat /tmp/f; " ..
-    "present /proc/sys && print host-proc || print own-proc; " ..
-    "writable /proc/self/uid_map && print own-writable || print own-read-only; " ..
-    "writable /proc/sys/vm/swappiness || print sys-read-only" },
-    nil, "/", nil, second, second, false, nil,
-    { unveil = { reads = mirrored }, offline = true }))
-  assert(assert(process.waitpid(again, false)).code == 0)
-  local seen = assert(sys.pread(second, 4096, 0))
-  sys.close(second)
-  -- And a /tmp of its own, empty but for the paths given beneath the
-  -- host's, which it can write to; /proc its own, whose processes'
-  -- entries it writes, so it can confine a child in turn; or, where the
-  -- kernel refuses it one, the host's, read-only whole.
-  -- And a /tmp of its own, empty but for the paths given beneath the
-  -- host's -- each at the name it resolves to, and, given through a
-  -- link, the link -- which it can write to; /proc its own, whose
-  -- processes' entries it writes, so it can confine a child in turn;
-  -- or, where the kernel refuses it one, the host's, read-only whole.
-  local under_tmp: {string:boolean} = {}
-  for _, path in ipairs(mirrored) do
-    for _, name in ipairs({ path, (assert(sys.realpath(path))) }) do
-      local top = name:match("^/tmp/([^/]+)")
-      if top ~= nil then under_tmp[top] = true end
-    end
-  end
-  local listed: {string} = {}
-  for name in pairs(under_tmp) do listed[#listed + 1] = name .. "\n" end
-  table.sort(listed)
-  local common = "fd\n700\n" .. table.concat(listed) .. "t\n"
-  local own = observations.own_proc_given()
-  assert(seen == common .. (own and "own-proc\nown-writable\n" or "host-proc\nown-read-only\n") ..
-    "sys-read-only\n", seen)
-  local nothing, _, nothing_errno = process.spawn(probe, { probe }, nil, tmp,
-    nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
-  assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
-end
-
---- Starts `probe` on `script`, confined to `probe_reads`, offline unless
---- `online`, in /, with `output` its standard output and error: its pid,
---- or nil where the kernel will not confine it, which fails the test
---- under COSMIC_SANDBOX=must.
-local function start_confined(probe: string, script: string, output: integer,
-                              online?: boolean): integer | nil
-  local pid, trouble, errno = process.spawn(probe, { probe, script }, nil, "/", nil,
-    output, output, false, nil,
-    { unveil = { reads = probe_reads(probe) }, offline = not online })
-  if pid ~= nil then return pid end
-  assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
-  assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-    errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-  return nil
-end
-
---- Runs `script` as `start_confined` starts it, its output in `tmp`: its
---- status and what it printed, or nil where the kernel will not confine
---- it.
-local function run_confined(tmp: string, probe: string, script: string,
-                            online?: boolean): raw_process.ChildStatus | nil, string
-  local report = create(tmp .. "/report")
-  local pid = start_confined(probe, script, report, online)
-  local status: raw_process.ChildStatus | nil = nil
-  if pid ~= nil then status = assert(process.waitpid(pid, false)) end
-  local said = assert(sys.pread(report, 65536, 0))
-  sys.close(report)
-  return status, said
-end
-
---- A path given with a name in `at` is bound there, and not at its own
---- name: a tree given at /tree is read, and written where given to
---- write, at /tree alone, so what a child sees of it names nothing of
---- where the host keeps it -- its working directory there answers
---- /tree -- and a directory bound at /tmp is its /tmp, which it has none
---- of its own beside. A name that is not absolute and plain, is /, or
---- is given for a path not unveiled, is refused.
-local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
-  local probe = probe_in(tmp)
-  local reads = probe_reads(probe)
-  local tree, scratch = tmp .. "/checkout", tmp .. "/scratch"
-  for _, dir in ipairs({ tree, tree .. "/sub", scratch }) do assert(sys.mkdir(dir, 0x1c0)) end
-  local written = create(tree .. "/sub/f")
-  assert(sys.write(written, "in") == 2)
-  sys.close(written)
-  local real_tree = assert(sys.realpath(tree))
-  local given: {string} = { tree }
-  for _, path in ipairs(reads) do given[#given + 1] = path end
-  -- The program is bound at a name of its own: its own, beneath this
-  -- test's directory, would be beneath /tmp too, where `scratch` is.
-  local report = create(tmp .. "/report")
-  local pid, trouble, errno = process.spawn("/probe", { "/probe",
-    "cat sub/f; print; cwd; present " .. real_tree .. " && print own-name || print no-own-name; " ..
-    "write /tmp/g w && print tmp-written; write sub/g x || print tree-read-only" },
-    nil, "/tree", nil, report, report, false, nil,
-    { unveil = { reads = given, writes = { scratch },
-      at = { [tree] = "/tree", [scratch] = "/tmp", [probe] = "/probe" } }, offline = true })
-  if pid == nil then
-    sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
-    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return
-  end
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  local said = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(said == "in\n/tree\nno-own-name\ntmp-written\ntree-read-only\n", said)
-  -- What it wrote at /tmp is in the directory bound there.
-  local fd = assert(sys.open(scratch .. "/g", sys.O_RDONLY))
-  assert(sys.read(fd, 16) == "w\n")
-  sys.close(fd)
-  for _, bad in ipairs({ "relative", "/", "/a/../b", "/a/" }) do
-    assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-      { unveil = { reads = { tree }, at = { [tree] = bad } } }), "bound at " .. bad)
-  end
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { unveil = { reads = { tree }, at = { [scratch] = "/tmp" } } }), "at a path not unveiled")
-  -- A name placed beneath a path bound from the host goes through no
-  -- link there: one leading out, or climbing, refuses the start rather
-  -- than make a file where the link leads.
-  local victim = tmp .. "/victim"
-  assert(sys.mkdir(victim, 0x1c0))
-  assert(sys.symlink(victim, tree .. "/out"))
-  assert(sys.symlink("../victim", tree .. "/up"))
-  for _, placed in ipairs({ "/tree/out/new.txt", "/tree/up/new.txt", "/tree/out" }) do
-    local escaped, _, escaped_errno = process.spawn(probe, { probe }, nil, "/",
-      nil, nil, nil, false, nil, { unveil = { reads = { tree, tree .. "/sub/f", table.unpack(reads) },
-        at = { [tree] = "/tree", [tree .. "/sub/f"] = placed } }, offline = true })
-    if escaped ~= nil then process.waitpid(escaped, false) end
-    assert(escaped == nil, "placed through a link at " .. placed)
-    assert(sys.errno_name(escaped_errno) == "ELOOP" or (not sandbox_required() and
-      (escaped_errno == sys.ENOSYS or escaped_errno == sys.EPERM or escaped_errno == sys.EACCES or
-        escaped_errno == sys.EINVAL or escaped_errno == sys.ENOSPC)), tostring(escaped_errno))
-  end
-  assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
-  -- Two paths bound at one name, or a name beneath the old root's, are
-  -- refused as arguments.
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { unveil = { reads = { tree, scratch }, at = { [tree] = "/x", [scratch] = "/x" } } }))
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { unveil = { reads = { tree }, at = { [tree] = "/.old/x" } } }))
-  -- The host's /proc bound through `at` -- here at /proc itself, so the
-  -- child has no procfs of its own there, only the host's -- is the
-  -- host's state, and mounted read-only, given to write as it may be:
-  -- the stand-in, a native program, finds itself in it, and its own pid
-  -- there is the host's, not the 2 its own namespace gives it.
-  local without_proc: {string} = {}
-  for _, path in ipairs(reads) do
-    if path ~= "/proc" then without_proc[#without_proc + 1] = path end
-  end
-  local proc_report = create(tmp .. "/proc-report")
-  local proc_pid = process.spawn(probe, { probe, "status-field Pid; cat /proc/self/mountinfo" },
-    nil, "/", nil, proc_report, proc_report, false, nil,
-    { unveil = { reads = without_proc, writes = { "/proc" }, at = { ["/proc"] = "/proc" } },
-      offline = true })
-  if proc_pid ~= nil then
-    local proc_status = assert(process.waitpid(proc_pid, false))
-    local proc_said = assert(sys.pread(proc_report, 1 << 20, 0))
-    assert(proc_status.code == 0, proc_said)
-    local own_pid = assert(proc_said:match("^Pid:%s*(%d+)\n"), proc_said)
-    assert(own_pid ~= "2", "a procfs of its own at /proc: " .. proc_said)
-    assert(proc_said:find(" /proc ro[, ]") ~= nil, proc_said)
-  else
-    -- It started above, so it starts here, as it would anywhere.
-    error("the host's /proc could not be bound through at")
-  end
-  sys.close(proc_report)
-end
-
---- An unveiled child is pid 2 of a pid namespace of its own, beneath the
---- sandbox's init, pid 1: it cannot signal a process outside it, of its
---- own user as it may be -- here a stand-in of this process's, which it
---- tries to kill -- and its /proc, a procfs of that namespace, lists
---- its init, itself and what it starts, and nothing else; where the
---- kernel refuses a procfs of its own (a container masking parts of its
---- /proc), it is the host's, which shows the host's processes, though
---- it cannot signal them.
-local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tmp: string)
-  local probe = probe_in(tmp)
-  local outside = assert(process.spawn(probe, { probe, "sleep 30000" }, nil, nil, nil,
-    nil, nil, false))
-  local status, said = run_confined(tmp, probe, "status-field Pid; signal KILL " ..
-    tostring(outside) .. " && print killed || print spared; present /proc/" ..
-    tostring(outside) .. " && print seen || print unseen; cat /proc/1/comm; ls /proc")
-  -- Still running, not a zombie, which a signal of 0 would find too.
-  local alive = assert(process.waitpid(outside, true)).pid == 0
-  if alive then
-    assert(sys.kill(outside, sys.SIGKILL))
-    assert(process.waitpid(outside, false))
-  end
-  if status == nil then return end
-  assert(status.code == 0, said)
-  assert(alive, "the confined child killed a process outside it: " .. said)
-  local lines: {string} = {}
-  for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
-  assert(lines[1]:match("^Pid:%s*2$") and lines[2] == "spared", said)
-  if lines[4] ~= "cosmic-init" then
-    assert(not observations.own_proc_given(), "no procfs of its own: " .. said)
-    return -- the host's /proc
-  end
-  assert(lines[3] == "unseen", said)
-  local listed: {integer:boolean} = {}
-  for i = 5, #lines do
-    local entry = lines[i]
-    local number = math.tointeger(tonumber(entry))
-    if number ~= nil then
-      listed[number] = true
-      assert(number <= 8, "a process not its own in its /proc: " .. said)
-    else
-      assert(entry == "self" or entry == "thread-self", "more than its processes: " .. said)
-    end
-  end
-  assert(listed[1] and listed[2], said)
-end
-
---- An unveiled child's status is its program's, as an unconfined one's
---- is -- its exit code, a signal it sent itself, one from outside it
---- does not catch -- which it would not be as its pid namespace's pid 1,
---- to which a signal it does not catch is not delivered. When it ends,
---- what it left running in its namespace ends too: a sleep started in
---- the background holding its output open lets that pipe end at once.
---- And an orphan in it is the init's to reap, left no zombie -- which
---- only a procfs of its own shows, listing its init and itself and no
---- more: where the kernel refuses one, its /proc is the host's, whose
---- zombies are not its namespace's, and that is not checked.
-local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
-  local probe = probe_in(tmp)
-  local exited = run_confined(tmp, probe, "exit 7")
-  if exited == nil then return end
-  assert(exited.code == 7 and exited.signal == -1)
-  -- Its init is gone with it once the wait answers: no child of this
-  -- process is one any more, and none is left a zombie.
-  assert(#process.sandbox_inits() == 0, "an init outlived the wait for its program")
-  local children = sys.open("/proc/thread-self/children", sys.O_RDONLY)
-  if children ~= nil then
-    local listed = sys.read(children, 65536) or ""
-    sys.close(children)
-    for number in listed:gmatch("%d+") do
-      local comm = sys.open("/proc/" .. number .. "/comm", sys.O_RDONLY)
-      if comm ~= nil then
-        local name = sys.read(comm, 64)
-        sys.close(comm)
-        assert(name ~= "cosmic-init\n", "an init is still a child: " .. number)
-      end
-    end
-  end
-  local own = assert(run_confined(tmp, probe, "signal TERM; exit 3"))
-  assert(own.code == -1 and own.signal == sys.SIGTERM, "a signal of its own: " .. own.code)
-  local quiet = create(tmp .. "/quiet")
-  local sleeping = assert(start_confined(probe, "sleep 30000", quiet))
-  sys.close(quiet)
-  assert(sys.kill(sleeping, sys.SIGTERM))
-  local ended = assert(process.waitpid(sleeping, false))
-  assert(ended.code == -1 and ended.signal == sys.SIGTERM,
-    "a signal from outside: " .. tostring(ended.code))
-  local ends = assert(process.pipe())
-  local left = assert(start_confined(probe, "start " .. probe .. " sleep 30000; print started",
-    ends.writer))
-  sys.close(ends.writer)
-  assert(assert(process.waitpid(left, false)).code == 0)
-  assert(process.set_nonblocking(ends.reader, true))
-  local read = ""
-  local closed = false
-  local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 10 * 1000000000
-  while not closed and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    assert(process.poll({ ends.reader }, { process.POLLIN }, 100))
-    local data, _, errno = sys.read(ends.reader, 4096)
-    if data == "" then closed = true
-    elseif data ~= nil then read = read .. data
-    else assert(errno == sys.EAGAIN, "read: " .. tostring(errno)) end
-  end
-  sys.close(ends.reader)
-  assert(read == "started\n" and closed, "what it left running outlived it: " .. read)
-  -- One it runs starts one more, which outlives it: an orphan.
-  local status, said = run_confined(tmp, probe, "run " .. probe .. " start " .. probe ..
-    " sleep 100; sleep 1000; cat /proc/1/comm; ls /proc")
-  assert(status ~= nil and status.code == 0, said)
-  -- Only a procfs of its own shows its namespace's processes alone: its
-  -- init and itself, and no orphan, reaped or not.
-  if observations.own_proc_given() then
-    local processes: {string} = {}
-    for line in said:gmatch("[^\n]+") do
-      if line:match("^%d+$") or line == "cosmic-init" then processes[#processes + 1] = line end
-    end
-    table.sort(processes)
-    assert(table.concat(processes, " ") == "1 2 cosmic-init", said)
-  end
-end
-
---- The files of a confined child's /proc it may open to write, each its
---- own processes' alone or its own session's, as /proc/<pid>/<name> or
---- /proc/<pid>/task/<tid>/<name>:
-local own_writable: {string:string} = {
-  -- A user namespace's maps and its setgroups, written once by a
-  -- process mapping the namespace it made: how it confines one of its own.
-  uid_map = "maps its own user namespace", gid_map = "maps its own user namespace",
-  projid_map = "maps its own user namespace", setgroups = "its own user namespace's",
-  -- What the kernel does to the process itself.
-  oom_adj = "its own OOM score", oom_score_adj = "its own OOM score",
-  coredump_filter = "what of its own memory a core dump holds",
-  clear_refs = "its own pages' referenced bits", sched = "its own scheduling statistics",
-  timerslack_ns = "its own timer slack", comm = "its own name",
-  mem = "its own memory, which only a process that may ptrace it opens",
-  timens_offsets = "the time namespace its own children would start in",
-  ["fail-nth"] = "fault injection in its own calls",
-  ["make-it-fail"] = "fault injection in its own calls",
-  -- Its session's: one of the sandbox's own, since the program and its
-  -- init each start one (core/syscalls.c's `run_program`).
-  autogroup = "its own session's autogroup",
-  -- Its audit login id: its own process's, but one the host's audit log
-  -- names it by, which the kernel lets it set while it is unset (and
-  -- only with CAP_AUDIT_CONTROL once set) -- a gap core/syscalls.c's
-  -- `place_proc` leaves a TODO for.
-  loginuid = "its own, though the host's audit log reads it",
+--- The features `cpu_features` can answer, by machine.
+local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
+  x86_64 = { aes = true, pclmulqdq = true, sse4_1 = true, ssse3 = true },
+  aarch64 = { aes = true, asimd = true, crc32 = true, pmull = true },
+  arm64 = { aes = true, asimd = true, crc32 = true, pmull = true },
 }
 
---- A confined child can change no state of the host's through its /proc:
---- walking the whole of it, every file that opens to write -- appending,
---- which writes nothing -- is one of its own processes' (`own_writable`,
---- or the security module's attributes of the process, attr/*), and none
---- is outside a process's directory, since its /proc is a procfs of its
---- own pid namespace, holding nothing of the host's. Where the kernel
---- refuses it one, its /proc is the host's, read-only whole, and nothing
---- opens -- but a device a container's runtime bound over an entry
---- (/dev/null, masking /proc/kcore and the like), which a read-only mount
---- does not hold, and which is no file of the host's state: a listing
---- takes it for the file it hides, so each is looked at again, where it
---- leads (`find-writable`).
-local function test_a_confined_child_can_write_no_host_state_through_its_proc(tmp: string)
-  local probe = probe_in(tmp)
-  -- Offline and online: an online child's /proc/<pid>/net is its
-  -- parent's network namespace's.
-  for _, online in ipairs({ false, true }) do
-    local status, said = run_confined(tmp, probe, "find-writable /proc; print done", online)
-    if status == nil then return end
-    assert(status.code == 0 and said:sub(-5) == "done\n", said)
-    local own = observations.own_proc_given()
-    local opened = 0
-    for path in said:gmatch("([^\n]+)\n") do
-      if path ~= "done" then
-        opened = opened + 1
-        assert(own, "a file of the host's /proc opens to write: " .. path)
-        local rest = path:match("^/proc/[%w-]+/task/%d+/(.+)$") or
-          path:match("^/proc/%d+/(.+)$") or path:match("^/proc/self/(.+)$") or
-          path:match("^/proc/thread%-self/(.+)$")
-        assert(rest ~= nil, "a file outside a process's directory opens to write: " .. path)
-        assert(own_writable[rest] ~= nil or rest:match("^attr/") ~= nil,
-          "a file not the process's own opens to write: " .. path)
-      end
-    end
-    -- Its own maps, at least, where it can confine one of its own.
-    assert(not own or opened > 0, said)
+--- `cpu_features` names each feature this processor has, of those it
+--- can answer for its machine, once and in byte order, as
+--- /proc/cpuinfo's "flags" or "Features" does where the worker has one
+--- to read: its own procfs, a sandbox's, has none.
+local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
+  local names = assert(sys.uname())
+  local known = KNOWN_FEATURES[names.machine] or {}
+  local features = sys.cpu_features()
+  for i, name in ipairs(features) do
+    assert(known[name], names.machine .. " answers " .. name)
+    assert(i == 1 or features[i - 1] < name, "not in byte order, or twice: " .. name)
   end
-end
-
---- What a chunk of this program's starts a confined child with: the
---- raw process table, and the paths it reads, from `...`, colon-joined,
---- the program first.
-local chunk_preamble <const> = [==[
-local sys = require("cosmic.sys")
-local process
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.child")
-  if type(loader) == "function" and type(extra) == "table" then process = extra end
-end
-local reads = {}
-for path in (...):gmatch("[^:]+") do reads[#reads + 1] = path end
-]==]
-
---- A confined child ends when the process that started it does, killed
---- or ended by a signal from a terminal, not left running on its own:
---- its init ends with its parent, and its namespace with the init. This
---- process takes the orphans, as a subreaper, so no one but the kernel
---- ends them: `cosmic test`'s runner, a subreaper itself, would end any
---- that reached it as strays, and pass this with the init's end undone.
-local function test_a_confined_child_ends_with_its_parent(tmp: string)
-  local probe = probe_in(tmp)
-  local adopting = process.subreaper()
-  if not adopting then return end -- no subreaper to be (not Linux)
-  local report = create(tmp .. "/parent")
-  local started = observations.program({ "-e", chunk_preamble .. [==[
-local pid, trouble = process.spawn(reads[1], { reads[1], "sleep 30000" }, nil, "/", nil,
-  nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
-print(pid or "refused " .. trouble)
-sys.nanosleep(30 * 1000000000)
-]==], table.concat(probe_reads(probe), ":") })
-  local parent = assert(process.spawn(started.argv[1], started.argv, started.options.env, tmp,
-    nil, report, report, false,
-    spawn_fds(started)))
-  local said = ""
-  local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 30 * 1000000000
-  while not said:find("\n") and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    assert(sys.nanosleep(10 * 1000000))
-    said = assert(sys.pread(report, 4096, 0))
+  local cpuinfo = read_file("/proc/cpuinfo")
+  if cpuinfo == "" then return end
+  local listed: {string:boolean} = {}
+  for line in cpuinfo:gmatch("[^\n]+") do
+    local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
+    for flag in (flags or ""):gmatch("%S+") do listed[flag] = true end
   end
-  sys.close(report)
-  assert(sys.kill(parent, sys.SIGKILL))
-  assert(process.waitpid(parent, false))
-  if said:find("^refused ") then
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but: " .. said)
-    return
+  local expected: {string} = {}
+  for name in pairs(known) do
+    if listed[name] then expected[#expected + 1] = name end
   end
-  local child = assert(math.tointeger(tonumber(said:match("^(%d+)\n"))), said)
-  -- This process adopted it: it ends by the kernel's SIGKILL, its
-  -- namespace's end, within seconds, where it would sleep on for 30.
-  local ended: raw_process.ChildStatus | nil = nil
-  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
-  while ended == nil and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    local status = assert(process.waitpid(child, true))
-    if status.pid == child then ended = status else assert(sys.nanosleep(10 * 1000000)) end
-  end
-  if ended == nil then assert(sys.kill(child, sys.SIGKILL)) end
-  -- The rest it adopted: the init, ended with its parent.
-  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
-  while assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    local status = process.waitpid(-1, true)
-    if status == nil then break end
-    if status.pid == 0 then assert(sys.nanosleep(10 * 1000000)) end
-  end
-  assert(ended ~= nil, "the confined child outlived its parent")
-  assert(ended.signal == sys.SIGKILL, "ended by " .. tostring(ended.signal))
-end
-
---- /proc given to write is no more the host's to change than given to
---- read: a procfs of the child's own is writable, and holds no /proc/sys;
---- where the kernel refuses one, the host's is bound read-only all the
---- same, and so is a path beneath it given to write -- where this
---- process has one: in a sandbox of its own (a sandboxed `cosmic test`
---- worker's), its /proc has no /proc/sys to give.
-local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: string)
-  local probe = probe_in(tmp)
-  local without: {string} = {}
-  for _, path in ipairs(probe_reads(probe)) do
-    if path ~= "/proc" then without[#without + 1] = path end
-  end
-  local writes: {string} = { "/proc" }
-  if sys.stat("/proc/sys/kernel") ~= nil then writes[2] = "/proc/sys/kernel" end
-  local report = create(tmp .. "/written")
-  local pid, trouble, errno = process.spawn(probe, { probe,
-    "writable /proc/sys/vm/swappiness && print sys-writable || print sys-read-only; " ..
-    "writable /proc/sys/kernel/hostname && print name-writable || print name-read-only" },
-    nil, "/", nil, report, report, false, nil,
-    { unveil = { reads = without, writes = writes }, offline = true })
-  if pid == nil then
-    sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
-    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return
-  end
-  assert(assert(process.waitpid(pid, false)).code == 0)
-  local said = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(said == "sys-read-only\nname-read-only\n", said)
-end
-
---- Starting and waiting for a confined child costs milliseconds, not the
---- second `waitpid` gives a sandbox's init to end once its program has
---- (core/syscalls.c's `end_sandbox_init`): a run of `cosmic test` that
---- confines each of its processes, as build/shared_verdicts_test.tl's
---- nested runs do, would pay that second for every one. Each of a few
---- runs of a confined program that exits at once takes well under half
---- a second, and leaves no init behind.
-local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: string)
-  local probe = probe_in(tmp)
-  local slowest = 0
-  for _ = 1, 5 do
-    local started = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
-    local status = run_confined(tmp, probe, "exit 0")
-    if status == nil then return end
-    local took = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) - started
-    assert(status.code == 0)
-    assert(#process.sandbox_inits() == 0, "an init outlived the wait for its program")
-    if took > slowest then slowest = took end
-  end
-  assert(slowest < 500 * 1000000, "a confined start and wait took " ..
-    tostring(slowest // 1000000) .. " ms")
-end
-
---- An offline child's loopback is up, as a host's is: the kernel gives
---- lo its 127.0.0.1 only when lo comes up, so the child's own routing
---- table (/proc/self/net is the reader's network namespace) holds that
---- address as a local route. The child is this program, reading it.
--- TODO: connect to a closed port of 127.0.0.1 and hold the child to
--- ECONNREFUSED, not ENETUNREACH, once cosmic.sys can open a socket or
--- core/http.c answers a failed request with CURLINFO_OS_ERRNO: curl's own
--- message words the two alike.
-local function test_an_offline_child_s_loopback_is_up(tmp: string)
-  local report = create(tmp .. "/report")
-  local started = observations.program({ "-e",
-    "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
-    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" })
-  local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
-    tmp, nil, report, report, false,
-    spawn_fds(started),
-    { offline = true })
-  if pid == nil then
-    sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no network namespace: " .. trouble)
-    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return
-  end
-  local status = assert(process.waitpid(pid, false))
-  local said = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(status.code == 0 and said == "up\n", said)
+  table.sort(expected)
+  assert(table.concat(features, " ") == table.concat(expected, " "),
+    "cpu_features answers " .. table.concat(features, " ") .. ", /proc/cpuinfo lists " ..
+    table.concat(expected, " "))
 end
 
 local function test_cpu_count_is_at_least_one()
@@ -1364,6 +1026,7 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.rename(nul, tmp .. "/moved"))
   failed_with(sys.EINVAL, sys.rename(file, tmp .. "/moved\0x"))
   failed_with(sys.EINVAL, sys.chmod(nul, 511))
+  failed_with(sys.EINVAL, sys.chown(nul, -1, -1))
   failed_with(sys.EINVAL, sys.readdir(tmp .. "\0x"))
   failed_with(sys.EINVAL, sys.tree_digest(tmp .. "\0x", false))
   failed_with(sys.EINVAL, sys.chdir(tmp .. "\0x"))
@@ -1383,19 +1046,13 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   raises(sys.execve, program, { "program", "-c\0x" }, {})
   raises(sys.execve, program, { "program" }, { A = "b\0c" })
   -- spawn refused a NUL before this rule existed, by raising, and
-  -- `cosmic.child` relies on that; it never truncates either way.
+  -- [`cosmic.child`] relies on that; it never truncates either way.
   raises(process.spawn, tmp .. "\0/program", { "program" }, nil, nil, nil, nil, nil, false)
   raises(process.spawn, program, { "program" }, nil, tmp .. "\0x", nil, nil, nil, false)
   -- The file the truncated paths name is exactly as it was.
   local st = assert(sys.stat(file))
   assert(st.kind == "file" and st.mode & 511 == 420)
   assert(sys.stat(tmp .. "/moved") == nil and sys.lstat(tmp .. "/link") == nil)
-end
-
-local function test_executable_is_a_file()
-  local path = assert(sys.executable())
-  assert(path:sub(1, 1) == "/", "the executable's path is absolute")
-  assert(assert(sys.stat(path)).kind == "file")
 end
 
 --- The core's own lookup of its path refuses a buffer the path does not
@@ -1429,11 +1086,76 @@ local function test_getpid_is_stable_and_positive()
   assert(sys.getpid() == pid)
 end
 
+--- A process's group is its own group's by pid as by 0; a pid no
+--- process has is refused, and one no pid can be raises.
+local function test_getpgid_names_a_process_group()
+  local group = assert(sys.getpgid(0))
+  assert(group > 0 and sys.getpgid(sys.getpid()) == group)
+  failed_with(sys.ESRCH, sys.getpgid(2147483647))
+  raises(sys.getpgid, -1)
+  raises(sys.getpgid, 2147483648)
+end
+
 local function test_getuid_owns_what_the_process_creates(tmp: string)
   local path = tmp .. "/mine"
   assert(sys.mkdir(path))
   local st = assert(sys.stat(path))
   assert(st.uid == sys.getuid(), tostring(st.uid) .. " " .. tostring(sys.getuid()))
+end
+
+--- The real group and the supplementary groups are those Linux's
+--- /proc/self/status lists (its Gid line's first, its Groups line, each
+--- in its own order); where there is no such file, each is at least an
+--- id.
+local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with()
+  local gid = sys.getgid()
+  local groups = assert(sys.getgroups())
+  assert(math.type(gid) == "integer" and gid >= 0, tostring(gid))
+  for _, group in ipairs(groups) do
+    assert(math.type(group) == "integer" and group >= 0, tostring(group))
+  end
+  local status = read_file("/proc/self/status")
+  if status == "" then return end
+  assert(status:match("\nGid:%s+(%d+)") == tostring(gid), status)
+  local listed: {string} = {}
+  for group in (status:match("\nGroups:([^\n]*)") or ""):gmatch("%d+") do
+    listed[#listed + 1] = group
+  end
+  local answered: {string} = {}
+  for i, group in ipairs(groups) do answered[i] = tostring(group) end
+  assert(table.concat(answered, " ") == table.concat(listed, " "),
+    table.concat(answered, " ") .. " | " .. table.concat(listed, " "))
+end
+
+--- `setrlimit` holds the process to a soft limit `getrlimit` then
+--- answers, which it can raise again to the hard one; it refuses a soft
+--- limit above a finite hard one, and a negative limit, a resource past
+--- an int or not a resource at all. Where the hard one is none, as
+--- macOS's RLIMIT_NOFILE's is, a soft one of none is the system's to
+--- refuse or to bound (macOS may do either), so it is only given back.
+local function test_setrlimit_holds_the_process_to_what_getrlimit_answers()
+  local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  assert(limits.soft > 0 and limits.soft <= limits.hard, limits.soft .. " " .. limits.hard)
+  local lower = limits.soft - 1
+  assert(sys.setrlimit(sys.RLIMIT_NOFILE, lower, limits.hard))
+  local lowered = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  assert(lowered.soft == lower and lowered.hard == limits.hard, lowered.soft .. " " .. lowered.hard)
+  assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
+  assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft)
+  if limits.hard ~= math.maxinteger then
+    failed_with(sys.EINVAL, sys.setrlimit(sys.RLIMIT_NOFILE, limits.hard + 1, limits.hard))
+    assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft, "a refusal moved it")
+  else
+    local unbounded, why, errno = sys.setrlimit(sys.RLIMIT_NOFILE, math.maxinteger, limits.hard)
+    assert(unbounded or errno == sys.EINVAL, why)
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
+  end
+  failed_with(sys.EINVAL, sys.getrlimit(99999))
+  failed_with(sys.EINVAL, sys.setrlimit(99999, 1, 1))
+  raises(sys.setrlimit, sys.RLIMIT_NOFILE, -1, limits.hard)
+  raises(sys.setrlimit, sys.RLIMIT_NOFILE, limits.soft, -1)
+  raises(sys.getrlimit, (1 << 32) + sys.RLIMIT_NOFILE)
+  raises(sys.setrlimit, (1 << 32) + sys.RLIMIT_NOFILE, limits.soft, limits.hard)
 end
 
 local function test_clocks_read_and_the_monotonic_one_advances()
@@ -1530,25 +1252,238 @@ local function test_sandbox_inits_lists_the_inits_still_running()
   if names.sysname ~= "Linux" then assert(#before == 0) end
 end
 
+--- `children` lists the children of the thread that starts them, a
+--- child still running among them and gone once reaped; off Linux there
+--- is no such list, ENOSYS.
+local function test_children_lists_a_running_child_until_it_is_reaped(tmp: string)
+  local probe = probe_in(tmp)
+  local ends = assert(process.pipe())
+  local pid = assert(process.spawn(probe, { probe, "cat" }, nil, tmp, ends.reader, nil, nil, false))
+  sys.close(ends.reader)
+  local running, trouble, errno = process.children()
+  sys.close(ends.writer)
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  local names = assert(sys.uname())
+  if names.sysname ~= "Linux" then
+    assert(running == nil and errno == sys.ENOSYS, trouble)
+    return
+  end
+  assert(running ~= nil, trouble)
+  local listed = false
+  for _, child in ipairs(running) do
+    assert(math.type(child) == "integer" and child > 0)
+    if child == pid then listed = true end
+  end
+  assert(listed, "the running child " .. pid .. " is not listed")
+  for _, child in ipairs((assert(process.children()))) do
+    assert(child ~= pid, "the reaped child " .. pid .. " is still listed")
+  end
+end
+
+--- Of a /proc/<pid>/uid_map or gid_map's text, whether it maps `id`
+--- inside: what `maps_id` is checked against.
+local function listed_in_map(text: string, id: integer): boolean
+  for line in text:gmatch("[^\n]+") do
+    local inside, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+    local first, many = math.tointeger(tonumber(inside)), math.tointeger(tonumber(count))
+    if first ~= nil and many ~= nil and id >= first and id < first + many then return true end
+  end
+  return false
+end
+
+--- `maps_id` answers whether this process's user namespace maps an id
+--- as a user and as a group, as its maps list them: false with EINVAL
+--- where either does not; off Linux, ENOSYS. An id no namespace can
+--- map, -1 or past 32 bits, raises.
+local function test_maps_id_answers_as_the_namespace_maps_list()
+  local names = assert(sys.uname())
+  local users, groups = read_file("/proc/self/uid_map"), read_file("/proc/self/gid_map")
+  for _, id in ipairs({ 0, 1, sys.getuid(), 65532, 65534, 4294967294 }) do
+    local ok, why, errno = process.maps_id(id)
+    if names.sysname ~= "Linux" then
+      assert(not ok and errno == sys.ENOSYS, why)
+    elseif listed_in_map(users, id) and listed_in_map(groups, id) then
+      assert(ok, id .. ": " .. tostring(why))
+    else
+      failed(ok, why, errno)
+      assert(errno == sys.EINVAL, id .. ": " .. tostring(why))
+    end
+  end
+  raises(process.maps_id, -1)
+  raises(process.maps_id, 4294967295)
+end
+
+--- `may_map_ids` answers whether this process is root holding
+--- CAP_SETGID (6), CAP_SETUID (7) and CAP_SETFCAP (31) in effect, as
+--- /proc/self/status says: false with EPERM where it is not; off Linux,
+--- ENOSYS.
+local function test_may_map_ids_answers_as_the_status_says()
+  local ok, why, errno = process.may_map_ids()
+  local names = assert(sys.uname())
+  if names.sysname ~= "Linux" then
+    assert(not ok and errno == sys.ENOSYS, why)
+    return
+  end
+  local status = read_file("/proc/self/status")
+  local effective = assert(status:match("\nUid:%s+%d+%s+(%d+)"), status)
+  local caps = assert(math.tointeger(tonumber(assert(status:match("\nCapEff:%s+(%x+)")):sub(-8), 16)))
+  local root = effective == "0" and (caps >> 6) & 1 == 1 and (caps >> 7) & 1 == 1 and
+    (caps >> 31) & 1 == 1
+  if root then
+    assert(ok, why)
+  else
+    failed(ok, why, errno)
+    assert(errno == sys.EPERM, why)
+  end
+end
+
+--- `own_proc` answers whether a sandbox gets a procfs of its own here:
+--- true, or false with the errno the kernel refused one with -- as it
+--- does a worker a Landlock ruleset holds, which may mount nothing --
+--- and off Linux, ENOSYS. That a sandbox then gets what it says is
+--- build/confine_test.tl's.
+local function test_own_proc_answers_or_says_why_not()
+  local ok, why, errno = process.own_proc()
+  if assert(sys.uname()).sysname ~= "Linux" then
+    assert(not ok and errno == sys.ENOSYS, why)
+  elseif not ok then
+    failed(ok, why, errno)
+  end
+end
+
+--- `sandbox_platform` answers true on Linux, the one platform with a
+--- sandbox, whatever this host refuses of it, and false with ENOSYS
+--- elsewhere.
+local function test_sandbox_platform_answers_true_on_linux_alone()
+  local ok, why, errno = process.sandbox_platform()
+  if assert(sys.uname()).sysname == "Linux" then
+    assert(ok == true and why == nil, why)
+  else
+    failed(ok, why, errno)
+    assert(errno == sys.ENOSYS, why)
+  end
+end
+
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
---- public `cosmic.sys`'s: a public `waitpid(-1)` would take the status
+--- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
 --- of a child a `Child` handle owns from under it, and a public signal
---- guard would be a second one beside `Child.guard`'s.
+--- guard would be a second one beside [`Child.guard`]'s. `poll` and
+--- `set_nonblocking`, which wait on any descriptor, are the public
+--- table's alone.
 local function test_the_process_calls_are_off_the_public_table()
   local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
-  for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "relaunch", "pipe",
-      "set_nonblocking", "poll", "ignore_sigpipe", "landlock_ruleset",
+  for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "maps_id",
+      "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
+      "ignore_sigpipe", "landlock_ruleset", "exit_watch",
       "landlock_restrict_execute",
-      "guard_child_signals", "unguard_child_signals", "cancelled_child_signal" }) do
+      "guard_child_signals", "unguard_child_signals", "child_signal_read", "child_signal_fd" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type(raw[name]) == "function", name .. " is not in the raw process table")
+  end
+  for _, name in ipairs({ "poll", "set_nonblocking", "POLLIN", "POLLOUT", "POLLERR", "POLLHUP",
+      "POLLNVAL" }) do
+    assert(public[name] ~= nil, "cosmic.sys." .. name .. " is not public")
+    assert(raw[name] == nil, name .. " is in the raw process table too")
   end
   for _, name in ipairs({ "digest", "hmac" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type((hash as {string: any})[name]) == "function", name .. " is not raw hash's")
   end
+end
+
+--- A descriptor given more than once answers in every entry, each
+--- only the events that entry asked for, as Linux answers it: macOS
+--- answers only one entry of such a descriptor, left to itself.
+local function test_poll_answers_every_entry_of_a_descriptor_given_twice()
+  local ends = assert(process.pipe())
+  assert(sys.write(ends.writer, "x") == 1)
+  local revents = assert(sys.poll(
+    { ends.writer, ends.reader, ends.writer, -1, ends.reader, ends.writer },
+    { sys.POLLIN, sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT, sys.POLLIN | sys.POLLOUT }, 0))
+  sys.close(ends.reader)
+  sys.close(ends.writer)
+  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
+  assert(#revents == 6, said)
+  assert(revents[1] == 0, "a writing end asked to read: " .. said)
+  assert(revents[2] & sys.POLLIN ~= 0 and revents[2] & sys.POLLOUT == 0, said)
+  assert(revents[3] & sys.POLLOUT ~= 0 and revents[3] & sys.POLLIN == 0, said)
+  assert(revents[4] == 0, "an unwatched entry: " .. said)
+  assert(revents[5] == 0, "a reading end asked to write: " .. said)
+  assert(revents[6] & sys.POLLOUT ~= 0 and revents[6] & sys.POLLIN == 0, said)
+end
+
+--- A hangup and a descriptor not open are answered in every entry of a
+--- descriptor given twice, whatever each asked for.
+local function test_poll_answers_a_hangup_and_a_closed_descriptor_in_every_entry()
+  local ends = assert(process.pipe())
+  sys.close(ends.writer)
+  local closed = assert(sys.dup(ends.reader))
+  sys.close(closed)
+  local revents = assert(sys.poll({ ends.reader, ends.reader, closed, closed },
+    { sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT }, 0))
+  sys.close(ends.reader)
+  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
+  assert(revents[1] & sys.POLLHUP ~= 0 and revents[2] & sys.POLLHUP ~= 0, said)
+  assert(revents[3] & sys.POLLNVAL ~= 0 and revents[4] & sys.POLLNVAL ~= 0, said)
+end
+
+--- `poll` watches as many descriptors as the kernel lets a process
+--- watch, past the 1024 it was once held to, and -1 is left unwatched.
+--- Each is a distinct copy of one pipe's reading end, since a descriptor
+--- given more than once goes to the kernel once. RLIMIT_NOFILE's soft
+--- limit is raised for them first where it is lower (1024 under
+--- systemd's default, 256 on macOS), and put back after; a hard limit
+--- too low to raise it to fails the test.
+--- Closes `fds` and puts RLIMIT_NOFILE's `limits` back when it leaves
+--- scope, so a failed assertion leaves neither behind for the next test.
+local record Restored
+  fds: {integer}
+  limits: sys.Limits
+  metamethod __close: function(Restored)
+end
+
+local restored_mt: metatable<Restored> = {
+  __close = function(r: Restored)
+    for _, fd in ipairs(r.fds) do sys.close(fd) end
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, r.limits.soft, r.limits.hard))
+  end,
+}
+
+local function test_poll_watches_past_a_thousand_descriptors()
+  local wanted <const> = 1100
+  local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  local held <close> = setmetatable({ fds = {}, limits = limits } as Restored, restored_mt)
+  -- Room for the copies beside whatever the worker holds open already.
+  local room = math.min(wanted + 256, limits.hard)
+  if limits.soft < room then assert(sys.setrlimit(sys.RLIMIT_NOFILE, room, limits.hard)) end
+  local ends = assert(process.pipe())
+  held.fds[1], held.fds[2] = ends.reader, ends.writer
+  assert(sys.write(ends.writer, "x") == 1)
+  local fds: {integer} = {}
+  local events: {integer} = {}
+  local trouble: string
+  while #fds < wanted do
+    local copy: integer
+    copy, trouble = sys.dup(ends.reader)
+    if copy == nil then break end
+    fds[#fds + 1] = copy
+    held.fds[#held.fds + 1] = copy
+    events[#events + 1] = sys.POLLIN
+  end
+  assert(#fds == wanted, #fds .. " copies under a hard limit of " .. limits.hard ..
+    ": " .. tostring(trouble))
+  fds[#fds + 1] = -1
+  events[#events + 1] = sys.POLLIN
+  assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
+  local revents, failure = sys.poll(fds, events, 0)
+  assert(revents ~= nil, failure)
+  assert(#revents == wanted + 1, "one answer per descriptor, not " .. #revents)
+  for i = 1, wanted do
+    assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
+  end
+  assert(revents[wanted + 1] == 0, "an unwatched descriptor answered " .. revents[wanted + 1])
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32
@@ -1639,6 +1574,19 @@ local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
   assert(missing == nil and errno == sys.ENOENT)
 end
 
+--- /dev/full answers every read with zeros and every write with ENOSPC,
+--- so a tree holding it is not special. Every Linux worker is given it
+--- (build.confine's `runtime_paths`): one without it is skipped, and
+--- elsewhere there is nothing to check.
+local function test_a_tree_digest_of_dev_full_is_not_special()
+  if sys.stat("/dev/full") == nil then
+    sandbox_skip.refused("this worker has no /dev/full")
+    return
+  end
+  local walked = assert(sys.tree_digest("/dev/full", false))
+  assert(not walked.special, "/dev/full answers from nothing past the tree")
+end
+
 --- An entry the walk is refused -- a file it may not read, a directory
 --- it may not list -- is digested by its permissions and owner, and the
 --- tree is not special for it: no process with no more privilege than
@@ -1706,6 +1654,166 @@ local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
   assert(assert(sys.stat(tmp .. "/f")).size == 7)
   local ok, why, errno = sys.ftruncate(fd, 0)
   assert(not ok and why ~= "" and errno == sys.EBADF, why)
+end
+
+--- A lock belongs to the open file: a second open of the same file is
+--- refused an exclusive lock the first holds, whether it asks once or
+--- waits, until the first unlocks or closes.
+local function test_flock_excludes_another_open_until_released(tmp: string)
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  local ok, why, errno = sys.flock(second, "exclusive")
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  ok, why, errno = sys.flock(second, "shared", 30)
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(sys.flock(first, "unlock"))
+  assert(sys.flock(second, "shared"))
+  assert(sys.flock(first, "shared"))
+  ok, why, errno = sys.flock(first, "exclusive")
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(sys.close(second))
+  assert(sys.flock(first, "exclusive", -1))
+  local third = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.close(first))
+  assert(sys.flock(third, "exclusive"))
+  assert(sys.close(third))
+  ok, why, errno = sys.flock(third, "exclusive")
+  assert(not ok and why ~= "" and errno == sys.EBADF, why)
+  raises(sys.flock, 0, "both")
+  raises(sys.flock, 0, "exclusive", -2)
+  raises(sys.flock, 0, "exclusive", 1 << 40)
+end
+
+--- `flock_kind` says whether a flock and an fcntl lock -- SQLite's --
+--- exclude each other: with an exclusive flock held through one open of
+--- a file, SQLite's write lock through another is taken where they are
+--- "apart" and refused where they are "shared". A descriptor not open
+--- fails, EBADF.
+local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: string)
+  local path = tmp .. "/lock.db"
+  local fd = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x180))
+  local kind, trouble = sys.flock_kind(fd)
+  assert(kind == "apart" or kind == "shared", trouble)
+  assert(sys.flock(fd, "exclusive"))
+  local db = assert(Sqlite.open(path, { writable = true }))
+  -- Asked once: a connection waits a minute for a lock by default.
+  assert(db:exec("PRAGMA busy_timeout = 0"))
+  local taken, why = db:exec("BEGIN IMMEDIATE")
+  assert(taken == (kind == "apart"), kind .. ": " .. tostring(why))
+  assert(db:close())
+  assert(sys.close(fd))
+  local none, said, errno = sys.flock_kind(fd)
+  failed(none, said, errno)
+  assert(errno == sys.EBADF, said)
+end
+
+--- `flock_kind`'s reading of an NFS file's mount (checked core only,
+--- whose instrument reaches it): the lines of its device, the third
+--- field, say whether local_lock "flock" or "all" is among the
+--- filesystem's own options, after the lone "-"; a mount's own options
+--- before it, another device's line, a word that only begins so, and a
+--- line that does not parse say nothing.
+local function test_flock_kind_reads_an_nfs_mounts_local_lock()
+  if testing.configuration ~= "sanitized" then return end
+  local sample = table.concat({
+    "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw",
+    "30 22 0:40 / /home rw,relatime shared:5 - nfs4 server:/home " ..
+      "rw,vers=4.2,rsize=1048576,local_lock=none,addr=10.0.0.1",
+    "31 22 0:41 / /mnt/my\\040share rw master:3 shared:7 - nfs server:/a local_lock=flock,rw",
+    "32 22 0:42 / /srv rw - nfs server:/srv rw,vers=3,local_lock=all",
+    "33 22 0:43 / /opt rw,local_lock=flock - nfs server:/opt rw,local_lock=flocks",
+    "a line that does not parse",
+    "34 22 0:44 / /mnt/nosep rw shared:9 local_lock=flock",
+  }, "\n") .. "\n"
+  local want: {string:boolean} = { ["8:1"] = false, ["0:40"] = false, ["0:41"] = true,
+    ["0:42"] = true, ["0:43"] = false, ["0:44"] = false, ["0:4"] = false, ["0:420"] = false }
+  for device, local_flock in pairs(want) do
+    assert(testing.mountinfo_local_flock(sample, device) == local_flock, device)
+  end
+  assert(not testing.mountinfo_local_flock("", "0:41"))
+  assert(testing.mountinfo_local_flock("32 22 0:42 / /srv rw - nfs s:/srv local_lock=all", "0:42"),
+    "a last line with no newline")
+end
+
+--- Whether the wake pipe of the open guards has a byte to read.
+local function woken(fd: integer): boolean
+  local revents = assert(sys.poll({ fd }, { sys.POLLIN }, 0))
+  return revents[1] & sys.POLLIN ~= 0
+end
+
+--- Guards nest. A signal moves the stamp every guard reads and wakes
+--- the pipe; the handler stays until the last guard closes, which
+--- closes the pipe. Closing the inner guard hands the waits to the
+--- outer, which has not read the signal the inner did: a lock's wait
+--- ends at it then, though it did not under the inner guard.
+local function test_signal_guards_nest_and_the_outer_sees_what_the_inner_read(tmp: string)
+  local unit = process.SIGNAL_STAMP_UNIT
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  local outer = assert(process.guard_child_signals())
+  local fd = process.child_signal_fd()
+  assert(fd >= 0 and not woken(fd))
+  local inner = assert(process.guard_child_signals())
+  assert(inner == outer and process.child_signal_fd() == fd)
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  assert(woken(fd), "a caught signal left the pipe unreadable")
+  local seen = process.child_signal_read(true)
+  assert(seen > outer and seen % unit == sys.SIGTERM, tostring(seen))
+  local ok, why, errno = sys.flock(second, "exclusive", 50)
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(process.unguard_child_signals(outer) == seen)
+  assert(process.child_signal_fd() == fd, "an inner close closed the pipe")
+  ok, why, errno = sys.flock(second, "exclusive", -1)
+  assert(not ok and errno == sys.EINTR, why)
+  -- Still caught, not acted on: the process outlives it.
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local later = process.child_signal_read(true)
+  assert(later // unit == seen // unit + 1 and later % unit == sys.SIGINT, tostring(later))
+  assert(process.unguard_child_signals(0) == later)
+  assert(process.child_signal_fd() == -1)
+  assert(process.unguard_child_signals(0) == later, "a close with none open closes nothing")
+  assert(sys.close(first))
+  assert(sys.close(second))
+end
+
+--- An inner guard sees nothing of a signal caught before it opened: a
+--- lock's wait under it runs to its timeout.
+local function test_an_inner_signal_guard_sees_no_earlier_signal(tmp: string)
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  local outer = assert(process.guard_child_signals())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  local inner = assert(process.guard_child_signals())
+  assert(inner > outer)
+  local ok, why, errno = sys.flock(second, "exclusive", 50)
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(process.unguard_child_signals(outer))
+  assert(process.unguard_child_signals(0))
+  assert(sys.close(first))
+  assert(sys.close(second))
+end
+
+--- A wait for a lock ends when a guard catches a signal, as every
+--- other wait in the tree does, however long it had left.
+local function test_flock_waiting_ends_on_a_caught_signal(tmp: string)
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  assert(process.guard_child_signals())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local ok, why, errno = sys.flock(second, "exclusive", -1)
+  local caught = assert(process.unguard_child_signals(0))
+  assert(caught % process.SIGNAL_STAMP_UNIT == sys.SIGINT, tostring(caught))
+  assert(not ok and errno == sys.EINTR, why)
+  assert(sys.close(first))
+  assert(sys.close(second))
 end
 
 --- A failure's message is the table's (core/errnos.c), not libc's: a
@@ -1779,14 +1887,14 @@ local function test_access_asks_what_this_process_may_do(tmp: string)
   raises(sys.access, path, 0x100)
 end
 
---- `mkfifo` makes a named pipe, which `lstat` calls "other" and a
+--- `mkfifo` makes a named pipe, which `lstat` calls "fifo" and a
 --- second make refuses; opened with O_NONBLOCK, its reading end opens
 --- with no writer rather than waiting for one.
 local function test_mkfifo_makes_a_named_pipe(tmp: string)
   local path = tmp .. "/pipe"
   assert(sys.mkfifo(path, 0x180))
   local st = assert(sys.lstat(path))
-  assert(st.kind == "other" and st.mode & 0x1ff == 0x180, st.kind)
+  assert(st.kind == "fifo" and st.mode & 0x1ff == 0x180, st.kind)
   failed_with(sys.EEXIST, sys.mkfifo(path))
   local reader = assert(sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK))
   assert(sys.read(reader, 64) == "")

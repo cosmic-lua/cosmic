@@ -1,11 +1,9 @@
 #define _XOPEN_SOURCE 700
 
 #include "vfs.h"
-#include "vfs_wrap.h"
+#include "portable.h"
 
-#include <errno.h>
 #include <string.h>
-#include <unistd.h>
 
 /* The retained descriptor does the reading; this VFS shifts its database
  * range and refuses every write. */
@@ -16,23 +14,19 @@ struct cosmic_file {
   int fd;
 };
 
+/* The VFS this one wraps: SQLite's default, kept in `pAppData`. */
+static sqlite3_vfs *base_vfs (sqlite3_vfs *vfs) {
+  return (sqlite3_vfs *)vfs->pAppData;
+}
+
 static int file_close (sqlite3_file *file) {
   (void)file;
   return SQLITE_OK; /* the retained descriptor is borrowed until DB close */
 }
 
 static int retained_read (int fd, void *buf, int amount, sqlite3_int64 at) {
-  unsigned char *p = buf;
-  int left = amount;
-  while (left > 0) {
-    ssize_t got = pread(fd, p, (size_t)left, (off_t)at);
-    if (got < 0 && errno == EINTR) continue;
-    if (got <= 0) return SQLITE_IOERR_READ;
-    p += (size_t)got;
-    left -= (int)got;
-    at += (sqlite3_int64)got;
-  }
-  return SQLITE_OK;
+  return cosmic_read_at(fd, buf, (size_t)amount, (uint64_t)at) ? SQLITE_OK
+                                                                : SQLITE_IOERR_READ;
 }
 
 static int file_read (sqlite3_file *file, void *buf, int amount,
@@ -144,7 +138,7 @@ static int registered_fd = -1;
 
 static int vfs_open (sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file,
                      int flags, int *out_flags) {
-  sqlite3_vfs *lower_vfs = cosmic_vfs_base(vfs);
+  sqlite3_vfs *lower_vfs = base_vfs(vfs);
   struct cosmic_file *f = (struct cosmic_file *)file;
   memset(f, 0, sizeof *f);
   f->fd = -1;
@@ -191,7 +185,35 @@ static int vfs_full_pathname (sqlite3_vfs *vfs, const char *name, int room,
     memcpy(out, name, length + 1);
     return SQLITE_OK;
   }
-  return cosmic_vfs_base(vfs)->xFullPathname(cosmic_vfs_base(vfs), name, room, out);
+  return base_vfs(vfs)->xFullPathname(base_vfs(vfs), name, room, out);
+}
+
+/* Every other call is the base VFS's, which this one keeps in
+ * `pAppData`. */
+static int vfs_delete (sqlite3_vfs *vfs, const char *name, int sync) {
+  return base_vfs(vfs)->xDelete(base_vfs(vfs), name, sync);
+}
+
+static int vfs_access (sqlite3_vfs *vfs, const char *name, int flags, int *out) {
+  return base_vfs(vfs)->xAccess(base_vfs(vfs), name, flags, out);
+}
+
+static int vfs_randomness (sqlite3_vfs *vfs, int amount, char *out) {
+  return base_vfs(vfs)->xRandomness(base_vfs(vfs), amount, out);
+}
+
+static int vfs_sleep (sqlite3_vfs *vfs, int micros) {
+  return base_vfs(vfs)->xSleep(base_vfs(vfs), micros);
+}
+
+/* The base's own xCurrentTime is NULL: the build omits what is
+ * deprecated, and SQLite asks a VFS of version 2 this instead. */
+static int vfs_current_time (sqlite3_vfs *vfs, sqlite3_int64 *out) {
+  return base_vfs(vfs)->xCurrentTimeInt64(base_vfs(vfs), out);
+}
+
+static int vfs_last_error (sqlite3_vfs *vfs, int room, char *out) {
+  return base_vfs(vfs)->xGetLastError(base_vfs(vfs), room, out);
 }
 
 int cosmic_vfs_register (const char *path, int fd, int64_t offset,
@@ -211,10 +233,25 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
    * process, so this one object is static; it is written once, before
    * any database is opened, and read-only after. */
   static sqlite3_vfs vfs;
-  vfs = cosmic_vfs_wrapping(sqlite3_vfs_find(NULL), COSMIC_VFS_NAME,
-                            (int)sizeof(struct cosmic_file), vfs_open);
-  if (vfs.zName == NULL) return SQLITE_ERROR;
-  vfs.xFullPathname = vfs_full_pathname;
+  sqlite3_vfs *base = sqlite3_vfs_find(NULL);
+  if (base == NULL || base->iVersion < 2 || base->xCurrentTimeInt64 == NULL) {
+    return SQLITE_ERROR;
+  }
+  vfs = (sqlite3_vfs){
+    .iVersion = 2,
+    .szOsFile = (int)sizeof(struct cosmic_file) + base->szOsFile,
+    .mxPathname = base->mxPathname,
+    .zName = COSMIC_VFS_NAME,
+    .pAppData = base,
+    .xOpen = vfs_open,
+    .xDelete = vfs_delete,
+    .xAccess = vfs_access,
+    .xFullPathname = vfs_full_pathname,
+    .xRandomness = vfs_randomness,
+    .xSleep = vfs_sleep,
+    .xGetLastError = vfs_last_error,
+    .xCurrentTimeInt64 = vfs_current_time,
+  };
   return sqlite3_vfs_register(&vfs, 0);
 }
 

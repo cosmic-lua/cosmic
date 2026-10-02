@@ -12,9 +12,11 @@ local Fuzz = require("build.fuzz")
 local embed = require("build.embed")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+--- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
+Test.needs{ tool = true, store = true }
 
 local TRAILER <const> = 48
 local MANIFEST <const> = 4096
@@ -60,8 +62,9 @@ local function set_field(s: string, at: integer, width: integer, value: integer)
 end
 
 --- Fields worth aiming at, as {offset in its block, width}: the
---- trailer's version, length and four ranges, and the manifest header's
---- and first two entries' fields.
+--- trailer's version, its length, and the manifest's and database's
+--- offsets and lengths; and the manifest header's and first two
+--- entries' fields.
 local TRAILER_FIELDS <const> = { { 9, 4 }, { 13, 4 }, { 17, 8 }, { 25, 8 }, { 33, 8 }, { 41, 8 } }
 local MANIFEST_FIELDS <const> = { { 9, 4 }, { 13, 4 }, { 17, 8 }, { 25, 4 }, { 29, 4 },
   { 33, 4 }, { 37, 4 }, { 41, 8 }, { 49, 8 }, { 89, 4 }, { 93, 4 }, { 97, 8 }, { 105, 8 } }
@@ -125,7 +128,7 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
       local database = tail.database:sub(1, #tail.database - cut) .. f[4]
       rewrite(f[1] .. database .. f[2])
       local r, trouble = Child.run({ program }, {
-        stdout = "capture", stderr = "capture", timeout_ms = 10000 })
+        stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) })
       if r == nil then return false, "run: " .. trouble end
       if r.timed_out then return false, "hung past 10 s" end
       if r.ok and r.stdout == "ok\n" then return true, "" end

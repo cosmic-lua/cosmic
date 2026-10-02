@@ -5,7 +5,7 @@
 --- it into `o/`, compiles every module it holds, and refuses to go on
 --- when the running binary is stale against that tree. That is right
 --- for a project, and wrong for a script whose job is to repair the
---- tree: `bin/zig`, which rebuilds a stale core, cannot itself need a
+--- tree: [`bin/zig`], which rebuilds a stale core, cannot itself need a
 --- fresh one. A standalone run reads the one file, checks and compiles
 --- it in memory with the embedded compiler, and calls it. Nothing is
 --- staged, nothing under `o/` is written, the tree around the file is
@@ -19,7 +19,7 @@
 --- or a single changed byte compiles afresh. That cache is the one
 --- thing a run writes; one that cannot be written is skipped. Cached
 --- Lua is run without another check, so the cache lives only where
---- `Fs.cache_dir` vouches no other user can write -- a directory of
+--- [`Fs.cache_dir`] vouches no other user can write -- a directory of
 --- this user's own, 0700 when made, never a shared fallback such as
 --- `/tmp` -- and each file is written 0600; with no such directory
 --- (neither variable set, say) every run compiles afresh.
@@ -39,7 +39,6 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Removed = require("cosmic.removed")
 local Store = require("cosmic.store")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
@@ -53,7 +52,7 @@ end
 
 --- A checker environment that answers `cosmic.*` from this binary's own
 --- sources and nothing else: no path is searched.
-local function environment(built: compiler): compiler.Env | nil, string
+function standalone.environment(built: compiler): compiler.Env | nil, string
   teal.serve_standard(built)
   local env, trouble = built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
@@ -61,7 +60,7 @@ local function environment(built: compiler): compiler.Env | nil, string
   if env == nil then
     return nil, trouble
   end
-  for _, name in ipairs(Removed.order) do
+  for _, name in ipairs(teal.withheld) do
     env.globals[name] = nil
     env.modules[name] = nil
   end
@@ -69,10 +68,10 @@ local function environment(built: compiler): compiler.Env | nil, string
 end
 
 --- Where a clean compile of `source` by this binary is kept: nil when
---- there is no cache directory `Fs.cache_dir` will vouch for, and so
+--- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
 --- no cache.
 local function cached_path(source: string, variables?: {string:string}): string | nil
-  local dir, _ = Fs.cache_dir("standalone", variables)
+  local dir, _ = Fs.cache_dir("standalone", { environment = variables })
   if dir == nil then
     return nil
   end
@@ -96,7 +95,7 @@ local function generate(file: string, source: string): string | nil, string
   if built == nil then
     return nil, load_trouble
   end
-  local env, env_trouble = environment(built)
+  local env, env_trouble = standalone.environment(built)
   if env == nil then
     return nil, env_trouble
   end
@@ -124,7 +123,7 @@ end
 --- `file`'s Teal, checked and compiled to a loaded chunk -- from the
 --- cache when this binary compiled these exact bytes cleanly before.
 --- The cache is found through `variables` when given (as
---- `Fs.cache_dir` finds it), and this process's own otherwise.
+--- [`Fs.cache_dir`] finds it), and this process's own otherwise.
 function standalone.compile(file: string, source: string,
                             variables?: {string:string}): standalone.Main | nil, string
   local cached = cached_path(source, variables)

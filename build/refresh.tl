@@ -1,9 +1,9 @@
 --- `cosmic refresh`: a copy of a cosmic binary whose data is newer.
 ---
 --- A binary carries data the build read from the tree -- the CA roots
---- it trusts (`build.roots`), the time zones `cosmic.time` falls back
+--- it trusts ([`build.roots`]), the time zones [`cosmic.time`] falls back
 --- on -- and that data goes stale on its own schedule, not the code's.
---- This rewrites the database an executable carries (`artifact.split`)
+--- This rewrites the database an executable carries ([`artifact.split`])
 --- with each dataset replaced from a newer release, and puts it back
 --- behind the same head -- launcher, cores and manifest byte for byte --
 --- in a new file: the tool itself by default, or any program `cosmic
@@ -11,16 +11,16 @@
 --- binary it reads is never written.
 ---
 --- Each dataset is one entry of `datasets`: the component its
---- release is recorded under in the bill of materials (`build.bom`),
+--- release is recorded under in the bill of materials ([`build.bom`]),
 --- how to fetch the newest release upstream, and how to read one --
 --- fetched, or a file given on the command line -- into the rows the
 --- binary carries. It is read with the very functions a boot reads the
---- tree's own copy with (`roots.put`, `work.write_zones`,
---- `Vendor.kept` under the PIN's rules), so a release refreshed in makes
+--- tree's own copy with ([`roots.put`], [`work.write_zones`],
+--- [`Vendor.kept`] under the PIN's rules), so a release refreshed in makes
 --- the table a build from that release would have. Every row is checked
 --- before anything is written: a certificate the TLS stack cannot read
---- (`Http.check_certificate`, as `core/http.c` reads each root), or a
---- zone `cosmic.time` cannot read, refuses the release.
+--- ([`Http.check_certificate`], as [`core/http.c`] reads each root), or a
+--- zone [`cosmic.time`] cannot read, refuses the release.
 ---
 --- The component's row records the release: its version, where it came
 --- from and its sha256. A release whose sha256 is the one already
@@ -33,7 +33,6 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
-local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
@@ -46,8 +45,12 @@ local roots = require("build.roots")
 local work = require("build.work")
 
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 local record refresh
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- A release of a dataset, as a file on disk.
   record Source
     path: string
@@ -91,7 +94,7 @@ local record refresh
     drop: {string}
   end
 
-  --- What `vendor/tzdata/PIN` keeps of the sdist.
+  --- What [`vendor/tzdata/PIN`] keeps of the sdist.
   tzdata_rules: Rules
   --- Every dataset a refresh can replace, in the order it replaces them.
   datasets: {Dataset}
@@ -142,25 +145,14 @@ local record Index
   urls: {File}
 end
 
-local INDEX <const> = Shape.record({
-  info = Shape.record({ version = Shape.string }),
-  urls = Shape.list(Shape.record({
-    packagetype = Shape.string,
-    url = Shape.string,
-    digests = Shape.map(Shape.string),
-  })),
-})
+local INDEX <const> = Shape.record_of("Index")
 
 --- The newest sdist of `tzdata` PyPI's JSON description names: its
 --- version, URL and sha256.
 function refresh.tzdata_release(text: string): refresh.Source | nil, string
-  local decoded, trouble = Json.decode(text)
-  if decoded == nil then
-    return nil, "PyPI's description of tzdata: " .. trouble
-  end
-  local index, shape_trouble: Index | nil, string = Shape.into(decoded, INDEX)
+  local index, trouble = INDEX:decode_into(text)
   if index == nil then
-    return nil, "PyPI's description of tzdata: " .. shape_trouble
+    return nil, "PyPI's description of tzdata: " .. trouble
   end
   if not index.info.version:match("^[%w%.]+$") then
     return nil, "PyPI's description of tzdata names an odd version: " .. index.info.version
@@ -175,8 +167,8 @@ function refresh.tzdata_release(text: string): refresh.Source | nil, string
   return nil, "PyPI's description of tzdata " .. index.info.version .. " names no sdist"
 end
 
---- What `vendor/tzdata/PIN` keeps of the sdist, less its version:
---- `strip` holds a `%s` for it. `build/refresh_test.tl` holds these to
+--- What [`vendor/tzdata/PIN`] keeps of the sdist, less its version:
+--- `strip` holds a `%s` for it. [`build/refresh_test.tl`] holds these to
 --- the PIN, so a boot and a refresh keep the same files.
 refresh.tzdata_rules = {
   strip = "tzdata-%s/src/tzdata/",
@@ -207,9 +199,9 @@ local cacert: refresh.Dataset = {
     if date == nil then
       return nil, cacert_latest .. ": names no date for its Mozilla data"
     end
-    -- Recorded by the dated name, which keeps naming these bytes after
-    -- the newest has moved on: fetched again by it, so the record
-    -- names what it holds.
+    -- Fetched again by the dated name, which keeps naming these bytes
+    -- after the newest has moved on, so the recorded URL names what the
+    -- binary holds.
     local url = cacert_dated:format(date)
     local path = scratch .. "/cacert.pem"
     local sha256 = Hash.hex_sha256(pem)
@@ -231,7 +223,7 @@ local cacert: refresh.Dataset = {
     if #found == 0 then
       return nil, path .. ": holds no certificate"
     end
-    -- A root the TLS stack cannot read is one `core/http.c` drops as it
+    -- A root the TLS stack cannot read is one [`core/http.c`] drops as it
     -- loads them: left out here too, and named, so a bundle with one
     -- root this build cannot read still refreshes the rest. A bundle
     -- with none it can read would leave a binary trusting nothing.
@@ -292,8 +284,8 @@ local tzdata: refresh.Dataset = {
   -- unpacked tzdata), naming its version by the `# version` line of the
   -- `tzdata.zi` beside it; today only the sdist PyPI publishes is read.
   -- A system zoneinfo holds its aliases as links (and some a `posix ->
-  -- .` loop), so reading one wants `Fs.walk_following`, as
-  -- work.read_zoneinfo walks, not `Fs.walk`, which lists no link.
+  -- .` loop), so reading one wants [`Fs.walk_following`], as
+  -- work.read_zoneinfo walks, not [`Fs.walk`], which lists no link.
   read = function(path: string, scratch: string): refresh.Release | nil, string
     local entries, trouble = Archive.list(path)
     if entries == nil then
@@ -378,7 +370,7 @@ local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
 end
 
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
---- records it; one line saying what changed.
+--- records it. Answers one line saying what changed.
 local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refresh.Source,
                        scratch: string): string | nil, string
   local bytes, trouble = Fs.read(source.path)
@@ -420,7 +412,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
     return nil, made_trouble
   end
   local change = sha256 == was[3] and version .. " (as it was)" or was[1] .. " -> " .. version
-  local line = ("%s %s, %d rows"):format(dataset.name, change, release.count)
+  local line = ("%s %s, %s"):format(dataset.name, change, plural.count(release.count, "row"))
   for _, why in ipairs(release.left_out) do
     line = line .. "\n  left out " .. why
   end
@@ -435,9 +427,10 @@ local function same_file(a: string, b: string): boolean
   return sa ~= nil and sb ~= nil and sa.dev == sb.dev and sa.ino == sb.ino
 end
 
---- The executable at `binary` with each of `chosen` replaced from its
---- source -- `sources[name]`, a file, or fetched upstream when that is
---- nil -- written to `out`; a line per dataset saying what changed.
+--- The executable at `binary` with each dataset of `chosen` replaced from its
+--- source (`sources[name]`, a file, or fetched upstream when that is
+--- nil), written to `out`. Answers a line per dataset saying what
+--- changed.
 function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
                         sources: {string:string}): {string} | nil, string
   local bytes, trouble = Fs.read(binary)
@@ -465,7 +458,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     if not written then
       return write_trouble
     end
-    local opened, open_trouble = Sqlite.open(path, true)
+    local opened, open_trouble = Sqlite.open(path, { writable = true })
     if opened == nil then
       return path .. ": " .. open_trouble
     end
@@ -538,8 +531,8 @@ end
 
 local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...] [dataset...]"
 
---- `cosmic refresh`'s command line: see `Cli.refresh`.
-function refresh.run(argv: {integer:string}): integer
+--- `cosmic refresh`'s command line: see [`cosmic.cli.Cli.refresh`].
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer
     log:verdict("refresh", code == 0, detail .. ", " .. clock.took(started))
@@ -549,7 +542,7 @@ function refresh.run(argv: {integer:string}): integer
     log:complain("refresh: " .. why .. "; " .. usage)
     return finish(2, "usage: see `cosmic help refresh`")
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.refresh)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.refresh.spec)
   if parsed == nil then
     return refuse(parse_trouble)
   end
@@ -616,5 +609,18 @@ function refresh.run(argv: {integer:string}): integer
   end
   return finish(0, "wrote " .. out)
 end
+
+--- The `refresh` verb as [`build/verb_list.tl`] lists it. What it copies is
+--- a binary, not the tree, but its own code is the tree's: a stale tool
+--- rebuilds first, as `bom` does.
+refresh.spec = {
+  name = "refresh",
+  guide = "none: refreshes the vendored CA bundle for the tree's maintainers, described by `cosmic help refresh`",
+  tests = { "build.refresh_test", "build.refresh_tool_test", "build.refresh_store_test" },
+  run = function(argv: {integer:string}): integer return run(argv) end,
+  bare = false,
+  takes = "the datasets to fetch",
+  fresh = true,
+}
 
 return refresh

@@ -15,16 +15,17 @@
 
 #define COSMIC_VFS_NAME "cosmic"
 
-/* Registers the VFS and the one (path, offset, length) triple it will
- * ever open as the main database: `path` must later match exactly, and
- * `offset`/`length` come from here, never from a URI. Safe to call more
- * than once; the triple is replaced and the VFS itself registers once.
+/* Registers the VFS and the one (path, fd, offset, length) it will ever
+ * open as the main database: `path` must later match exactly, and the
+ * bytes are read from `fd` between `offset` and `length`, which come
+ * from here, never from a URI. Safe to call more than once; the four
+ * are replaced and the VFS itself registers once.
  * Returns SQLite's own status: SQLITE_OK, or why it refused. */
 int cosmic_vfs_register (const char *path, int fd, int64_t offset,
                          int64_t length);
 
 /* Writes the `file:` URI that opens `path` through this VFS, read-only
- * and immutable. `path` must be the one `cosmic_vfs_register` was given.
+ * and immutable. `path` must be the one [`cosmic_vfs_register`] was given.
  * Returns false when the URI does not fit in `room`. */
 bool cosmic_vfs_uri (char *into, size_t room, const char *path);
 

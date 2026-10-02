@@ -71,8 +71,8 @@ end
 --- How many distinct significant words of `message` are whole words of
 --- `candidate`, case aside: the check on the one row the query ranked
 --- first, since bm25 alone does not tell a real match from one shared
---- ordinary word ("files", found by hand). Distinct and whole, because a
---- word said three times is one word, and "os" is not in "cosmic".
+--- ordinary word such as "files". Distinct and whole, because a word
+--- said three times is one word, and "os" is not in "cosmic".
 local function shared_words(message: string, candidate: string): integer
   local present: {string:boolean} = {}
   for word in candidate:gmatch("[%w]+") do
@@ -117,11 +117,13 @@ local function guidance_lines(head: string, text: string): string
   return table.concat(lines, "\n") .. "\n"
 end
 
---- The best catalog row of `handle` for `message`, as the lines that
---- print its guidance, or nil when it has none: no catalog, no row
---- sharing two or more significant words with it, or no guidance on the
---- row it shares them with.
-local function guidance_in(handle: Sqlite.Handle, message: string): string | nil
+--- What the catalog of the one database `handle` says beneath an
+--- uncaught error's `message`, in the lines [`Errors.guidance`] prints: the
+--- best row's guidance, or nil when it has none -- no catalog, no row
+--- sharing two or more significant words with the message, or no
+--- guidance on the row it shares them with. [`Errors.guidance`] asks each
+--- database the store holds in turn.
+function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
   local query = catalog_query(message)
   if query == nil then
     return nil
@@ -161,7 +163,7 @@ end
 --- caught.
 function Errors.guidance(message: string): string | nil
   for _, handle in ipairs(Store.databases()) do
-    local found = guidance_in(handle, message)
+    local found = Errors.guidance_in(handle, message)
     if found ~= nil then
       return found
     end

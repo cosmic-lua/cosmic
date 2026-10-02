@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.time`'s TZif reader (RFC 8536), which
+--- Fuzz properties for [`cosmic.time`]'s TZif reader (RFC 8536), which
 --- reads files from the host and from wherever a caller's bytes came
 --- from: `zone_from_tzif` is total -- whatever bytes it is handed, it
 --- answers a zone or a failure and never raises, and a zone it answers
@@ -154,7 +154,7 @@ local function total(data: string): boolean, string
     local from_ok, back = pcall(Time.from_civil, c, zone)
     if not from_ok then return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back)) end
     if back == ns then Fuzz.label("round trip") end
-    local format_ok, text = pcall(Time.format_rfc3339, ns, { zone = zone, zone_name = true })
+    local format_ok, text = pcall(Time.format_rfc3339, ns, zone, { zone_name = true })
     if not format_ok then return false, ("format_rfc3339(%d) raised: %s"):format(ns, text) end
   end
   return true, ""
@@ -196,7 +196,7 @@ local function reads_back(input: string): boolean, string
     end
     local back, back_why = Time.from_civil(c, zone)
     if back ~= ns then
-      return ("at %d: %s read back as %s: %s"):format(ns, Time.format_rfc3339(ns, { zone = zone }),
+      return ("at %d: %s read back as %s: %s"):format(ns, Time.format_rfc3339(ns, zone),
         tostring(back), back_why)
     end
     return nil

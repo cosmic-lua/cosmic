@@ -1,5 +1,5 @@
 /*
- * Test instruments, as `cosmic.internal.testing`. The checked core
+ * Test instruments, as [`cosmic.internal.testing`]. The checked core
  * carries them (core/testing_checked.c): a failing allocator, which is
  * how a test reaches the paths a Lua call takes when an allocation
  * fails, and the counted C heap (core/memory.h) that draws from the

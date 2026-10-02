@@ -12,29 +12,21 @@
  *
  * Lua never runs inside a curl callback: the callbacks only copy bytes
  * into plain C buffers and return plain integers, exactly like
- * core/sqlite.c's callbacks touch no Lua state either. Every call back
- * into curl happens from `open` or `read`, between bytecode
- * instructions, so a `luaL_error` there unwinds ordinary Lua frames
- * only.
+ * core/sqlite.c's callbacks touch no Lua state either. Every call that
+ * drives curl happens from a binding (`open`, `read`, `close`), between
+ * bytecode instructions, so a `luaL_error` there unwinds ordinary Lua
+ * frames only.
  *
  * `open` drives the transfer until the final response's headers are
- * known, and a response's headers are final once curl hands over the
- * first byte of its body or the whole transfer is over: curl delivers
- * no body for a 1xx or for a redirect it follows itself, so neither
- * ever looks final. The status and headers are then read from curl
+ * known. They are final at the blank line ending a header block that is
+ * neither a 1xx's nor a redirect curl follows itself ([`header_cb`]), or
+ * else once curl hands over the first byte of a body or the whole
+ * transfer is over. The status and headers are then read from curl
  * (CURLINFO_RESPONSE_CODE, and the header API's last request) rather
  * than parsed here. Nothing drives the transfer further until `read`
  * does; the write callback bounds what one drive can buffer by pausing
  * the transfer once more than ~1 MiB is unread, and `read` resumes it
- * once the buffer drains below that.
- *
- * `start` begins a request whose body the caller streams: it returns
- * before anything is sent, `write` hands curl each chunk -- the read
- * callback serves it from a C buffer and pauses the transfer once that
- * is empty -- driving the transfer until curl has taken all of it, and
- * `finish` ends the body and drives the transfer on until the final
- * response's headers are known, as `open` does. A body whose size is
- * not given goes chunked. */
+ * once the buffer drains below that. */
 
 #include "http.h"
 
@@ -58,7 +50,7 @@
 #include "fail.h"
 #include "fault.h"
 #include "memory.h"
-#include "observed.h"
+#include "process.h"
 #include "store.h"
 
 #define HANDLE_TYPE "cosmic.http.handle"
@@ -117,22 +109,10 @@ struct transfer {
   size_t body_len;
   size_t body_cap;
 
-  /* A streamed request body: what `write` handed over and the read
-   * callback has not given curl yet, from `upload_at` to `upload_len`. */
-  char *upload;
-  size_t upload_at;
-  size_t upload_len;
-  size_t upload_cap;
-  curl_off_t upload_size;  /* `body_size`, or -1 when not given */
-  curl_off_t upload_taken; /* every byte `write` has taken */
-
   int ready;  /* the final response's headers are known, or it is over */
   int headed; /* the final response's header block has ended */
   int follow; /* curl follows a redirect's Location itself */
   int paused; /* the write callback paused the transfer */
-  int streamed;        /* `start` made it: the body comes from `write` */
-  int upload_ended;    /* `finish` ended the streamed body */
-  int upload_paused;   /* the read callback paused the transfer */
   int done;   /* curl_multi says the transfer is over */
   int closed; /* close() (or __gc) has run */
   CURLcode result;
@@ -143,9 +123,10 @@ struct transfer {
 static int curl_ready;
 static CURLM *shared_multi;
 static struct script *live_scripts;
-/* What a failure the carried roots may cause says after it: how to
- * trust more, and how this binary, or a program built with it, gets
- * newer ones -- from a file when the stale roots cannot reach curl.se. */
+/* The advice that follows a failure the carried roots may have caused:
+ * how to trust more roots, and how to write a copy of this binary, or of
+ * a program built with it, that carries newer ones, which it can read
+ * from a file when the stale roots cannot reach curl.se. */
 #define STALE_ROOTS \
   "the CA roots this binary carries may not include this peer's: " \
   "$SSL_CERT_FILE names more to trust, and `cosmic refresh cacert " \
@@ -156,7 +137,7 @@ static struct script *live_scripts;
  * (`ca_roots`, which build/roots.tl fills from Mozilla's bundle), plus
  * the certificates in $SSL_CERT_FILE when it names a readable file --
  * which is how a TLS-intercepting proxy's own CA gets trusted. Parsed
- * once and kept for the life of the process: `use_roots` hands it to
+ * once and kept for the life of the process: [`use_roots`] hands it to
  * every TLS connection, a proxy's included. */
 static mbedtls_x509_crt roots;
 
@@ -204,13 +185,12 @@ static bool add_cert_file (void) {
   return ok;
 }
 
-/* Fills `roots` from the `ca_roots` rows of the database attached to the
- * running binary: the last one the store searches, as it trusts for the
- * standard library, so a project's database never adds a root. Returns
- * NULL, or why not, leaving `roots` empty: a binary with no roots
- * refuses every request, plain http too, rather than trusting some
- * other set -- one whose own database is missing or holds none is
- * broken, and says so at its first request. */
+/* Fills `roots` from the `ca_roots` rows of the last database the store
+ * searches, which is always the binary's own, so a project's database
+ * never adds a root. Returns NULL, or why not, leaving `roots` empty.
+ * A binary with no roots refuses every request, plain http too, rather
+ * than trusting some other set: one whose own database is missing or
+ * holds none is broken, and says so at its first request. */
 static const char *load_roots (lua_State *L) {
   int count = cosmic_store_count(L);
   sqlite3 *db = count > 0 ? cosmic_store_database(L, count) : NULL;
@@ -307,7 +287,7 @@ static const char *http_ready (lua_State *L) {
  * why not. */
 static const char *header_problem (const char *name, size_t name_len,
                                    const char *value, size_t value_len) {
-  if (name_len == 0) return "a header name must not be empty";
+  if (name_len == 0) return "a header name is empty";
   for (size_t i = 0; i < name_len; i++) {
     if (name[i] == '\r' || name[i] == '\n') {
       return "a header name must not contain CR or LF";
@@ -348,8 +328,8 @@ static int is_token (const char *method, size_t len) {
  * returns as `nil, err`. */
 _Noreturn static void bad_option (lua_State *L, const char *key,
                                   const char *want) {
-  luaL_argerror(L, 2, lua_pushfstring(L, "opts.%s must be %s", key, want));
-  abort(); /* luaL_argerror never returns */
+  luaL_error(L, "http: opts.%s must be %s", key, want);
+  abort(); /* luaL_error never returns */
 }
 
 /* Pushes opts[key] and returns it, or NULL when it is nil; anything but
@@ -384,13 +364,40 @@ static long opt_integer (lua_State *L, const char *key, long fallback,
     if (lua_type(L, -1) == LUA_TNUMBER) v = lua_tointegerx(L, -1, &ok);
     if (!ok) bad_option(L, key, "an integer");
     if (v < 0 || v > max) {
-      luaL_argerror(L, 2,
-                    lua_pushfstring(L, "opts.%s must be between 0 and %I",
-                                    key, max));
+      luaL_error(L, "http: opts.%s must be between 0 and %I", key, max);
     }
   }
   lua_pop(L, 1);
   return (long)v;
+}
+
+/* opts.redirect_protocols, a list of "http" and "https" (nil: both), as
+ * the static string curl's CURLOPT_REDIR_PROTOCOLS_STR takes. Any other
+ * entry, or a list of the wrong shape or an empty one (curl takes no
+ * empty set; `follow = false` is how to take no redirect), raises. */
+static const char *opt_redirect_protocols (lua_State *L) {
+  static const char *const names[] = { NULL, "http", "https", "http,https" };
+  const char *want = "a list of one or more of \"http\" and \"https\"";
+  lua_getfield(L, 2, "redirect_protocols");
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    return names[3];
+  }
+  if (lua_type(L, -1) != LUA_TTABLE) bad_option(L, "redirect_protocols", want);
+  int allowed = 0;
+  lua_Unsigned count = lua_rawlen(L, -1);
+  for (lua_Unsigned i = 1; i <= count; i++) {
+    lua_rawgeti(L, -1, (lua_Integer)i);
+    size_t length = 0;
+    const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : NULL;
+    if (name != NULL && length == 4 && memcmp(name, "http", 4) == 0) allowed |= 1;
+    else if (name != NULL && length == 5 && memcmp(name, "https", 5) == 0) allowed |= 2;
+    else bad_option(L, "redirect_protocols", want);
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  if (allowed == 0) bad_option(L, "redirect_protocols", want);
+  return names[allowed];
 }
 
 static int opt_boolean (lua_State *L, const char *key, int fallback) {
@@ -580,24 +587,6 @@ static size_t write_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
   return len;
 }
 
-/* Gives curl the streamed body's next bytes, 0 once `finish` has ended
- * it, or pauses the transfer until `write` hands over more. */
-static size_t read_cb (char *buffer, size_t size, size_t nitems, void *userdata) {
-  struct transfer *t = userdata;
-  size_t room = size * nitems;
-  size_t left = t->upload_len - t->upload_at;
-  if (left > 0) {
-    size_t n = left < room ? left : room;
-    memcpy(buffer, t->upload + t->upload_at, n);
-    t->upload_at += n;
-    if (t->upload_at == t->upload_len) t->upload_at = t->upload_len = 0;
-    return n;
-  }
-  if (t->upload_ended) return 0;
-  t->upload_paused = 1;
-  return CURL_READFUNC_PAUSE;
-}
-
 /* Marks the transfer ready at the blank line ending the final
  * response's header block: not an interim 1xx one, and not a redirect
  * curl is about to follow (a 3xx carrying a Location, with follow on).
@@ -686,13 +675,12 @@ static CURLMcode pump_once (const char **which) {
   return CURLM_OK;
 }
 
-/* Undoes the write or the read callback's pause; curl has one call for
- * both. Clearing the flags first matters: curl may call either
- * callback, which may pause again, from inside curl_easy_pause. */
+/* Undoes the write callback's pause. Clearing the flag first matters:
+ * curl may call the callback, which may pause again, from inside
+ * curl_easy_pause. */
 static void resume (struct transfer *t) {
-  if ((!t->paused && !t->upload_paused) || t->easy == NULL) return;
+  if (!t->paused || t->easy == NULL) return;
   t->paused = 0;
-  t->upload_paused = 0;
   curl_easy_pause(t->easy, CURLPAUSE_CONT);
 }
 
@@ -761,10 +749,6 @@ static void transfer_release (struct transfer *t) {
   t->body = NULL;
   t->body_cap = 0;
   t->body_len = 0;
-  cosmic_free(t->upload);
-  t->upload = NULL;
-  t->upload_cap = 0;
-  t->upload_at = t->upload_len = 0;
   t->closed = 1;
 }
 
@@ -773,7 +757,7 @@ static void transfer_release (struct transfer *t) {
 static struct transfer *checked (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (t->closed) {
-    luaL_error(L, "the response is closed"); /* throws: use after close is
+    luaL_error(L, "http: the response is closed"); /* throws: use after close is
                                                 a bug, as in core/sqlite.c */
   }
   return t;
@@ -831,21 +815,24 @@ static int failed (lua_State *L, const char *why) {
   return 2;
 }
 
-/* `nil, err` for the multi handle's refusal, naming the call. A macro
- * rather than a function: nothing a test does on a release core makes
- * a multi call fail, and every function of a core is one a test must
- * enter (build/c_functions.tl). */
-#define MULTI_FAILED(L, which, mc) \
-  failed((L), lua_pushfstring((L), "%s: %s", (which), curl_multi_strerror(mc)))
+/* The multi handle's refusal, naming the call, pushed as a message;
+ * MULTI_FAILED answers it as `nil, err`. Macros rather than functions:
+ * nothing a test does on a release core makes a multi call fail, and
+ * every function of a core is one a test must enter
+ * (build/c_functions.tl). */
+#define MULTI_MESSAGE(L, which, mc) \
+  lua_pushfstring((L), "%s: %s", (which), curl_multi_strerror(mc))
+#define MULTI_FAILED(L, which, mc) failed((L), MULTI_MESSAGE(L, which, mc))
 
 static int handle_read (lua_State *L) {
   struct transfer *t = checked(L);
   lua_Integer max = luaL_optinteger(L, 2, 65536);
-  luaL_argcheck(L, max > 0, 2, "must be positive");
+  if (max <= 0) luaL_error(L, "http: read's max must be positive");
 
   if (t->body_len == 0) {
     resume(t);
     while (t->body_len == 0 && !t->done) {
+      if (cosmic_signal_caught()) return failed(L, "interrupted");
       const char *which = NULL;
       CURLMcode mc = pump_once(&which);
       if (mc != CURLM_OK) return MULTI_FAILED(L, which, mc);
@@ -869,108 +856,6 @@ static int handle_read (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
-/* `false, err` for a streamed body's failure. */
-static int upload_failed (lua_State *L) {
-  lua_pushboolean(L, 0);
-  lua_insert(L, -2);
-  return 2;
-}
-
-/* Why a streamed transfer that curl has ended cannot take more: curl's
- * failure, or a server that answered before the body was all sent. */
-static int upload_over (lua_State *L, struct transfer *t) {
-  if (t->result != CURLE_OK) {
-    push_transfer_error(L, t);
-  } else {
-    lua_pushliteral(L, "the server answered before the request body was sent");
-  }
-  return upload_failed(L);
-}
-
-/* The started request whose body is still open, or raises: a write or
- * a finish on any other is a bug in the caller. */
-static struct transfer *uploading (lua_State *L) {
-  struct transfer *t = checked(L);
-  if (!t->streamed) luaL_error(L, "the request's body was not streamed");
-  if (t->upload_ended) luaL_error(L, "the request's body is already finished");
-  return t;
-}
-
-/* write(data): hands `data` to curl, driving the transfer until curl
- * has taken all of it. True and "", or false and why once the transfer
- * failed or the server answered first; raises when there is no memory
- * to hold it. */
-static int handle_write (lua_State *L) {
-  struct transfer *t = uploading(L);
-  size_t len;
-  const char *data = luaL_checklstring(L, 2, &len);
-  if (t->done) return upload_over(L, t);
-  if (t->upload_size >= 0 && (curl_off_t)len > t->upload_size - t->upload_taken) {
-    lua_pushfstring(L, "the body is longer than its body_size of %I bytes",
-                    (lua_Integer)t->upload_size);
-    return upload_failed(L);
-  }
-  if (len == 0) {
-    lua_pushboolean(L, 1);
-    return cosmic_succeeded(L);
-  }
-  if (t->upload == NULL || t->upload_len + len > t->upload_cap) {
-    size_t want = t->upload_cap == 0 ? 16384 : t->upload_cap;
-    while (want < t->upload_len + len) want *= 2;
-    char *grown = cosmic_realloc(t->upload, want);
-    if (grown == NULL) return luaL_error(L, "no memory for the request body");
-    t->upload = grown;
-    t->upload_cap = want;
-  }
-  memcpy(t->upload + t->upload_len, data, len);
-  t->upload_len += len;
-  t->upload_taken += (curl_off_t)len;
-  resume(t);
-  /* A final response that came first and filled the body buffer has
-   * paused the transfer, which sends no more until the caller reads it:
-   * the write stops there rather than wait on itself. */
-  while (t->upload_len > 0 && !t->done && !(t->ready && t->paused)) {
-    const char *which = NULL;
-    CURLMcode mc = pump_once(&which);
-    if (mc != CURLM_OK) {
-      lua_pushfstring(L, "%s: %s", which, curl_multi_strerror(mc));
-      return upload_failed(L);
-    }
-  }
-  if (t->upload_len > 0) return upload_over(L, t);
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
-}
-
-/* finish(): ends the streamed body and drives the transfer until the
- * final response's headers are known. True and "", or false and why
- * when the body is short of its `body_size` or the request failed
- * before them. */
-static int handle_finish (lua_State *L) {
-  struct transfer *t = uploading(L);
-  if (t->upload_size >= 0 && t->upload_taken < t->upload_size) {
-    lua_pushfstring(L, "the body is shorter than its body_size of %I bytes: %I written",
-                    (lua_Integer)t->upload_size, (lua_Integer)t->upload_taken);
-    return upload_failed(L);
-  }
-  t->upload_ended = 1;
-  resume(t);
-  while (!t->ready) {
-    const char *which = NULL;
-    CURLMcode mc = pump_once(&which);
-    if (mc != CURLM_OK) {
-      lua_pushfstring(L, "%s: %s", which, curl_multi_strerror(mc));
-      return upload_failed(L);
-    }
-  }
-  if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
-    push_transfer_error(L, t);
-    return upload_failed(L);
-  }
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
-}
-
 /* What curl has written to a scripted transfer's connections so far,
  * all of them in order; "" for a transfer over the network. */
 static int handle_sent (lua_State *L) {
@@ -981,7 +866,7 @@ static int handle_sent (lua_State *L) {
   }
   script_step(t->script);
   if (t->script->sent_lost) {
-    luaL_error(L, "no memory to record what curl sent");
+    luaL_error(L, "http: no memory to record what curl sent");
   }
   lua_pushlstring(L, t->script->sent != NULL ? t->script->sent : "",
                   t->script->sent_len);
@@ -1002,10 +887,9 @@ struct request {
   const char *method; /* NULL: GET, or POST when there is a body */
   const char *body;   /* NULL: none */
   size_t body_len;
-  int streamed;       /* the body comes from `write`, `body_size` long */
-  long body_size;     /* -1: not known, so sent chunked */
   int follow;
   int verbose;
+  const char *redirect_protocols; /* a static CURLOPT_REDIR_PROTOCOLS_STR */
   long max_redirects;
   long connect_timeout_ms;
   long timeout_ms;
@@ -1038,25 +922,18 @@ static CURLcode set_method (struct transfer *t, const struct request *r,
     SET(CURLOPT_NOBODY, 1L);
     return CURLE_OK;
   }
-  if (r->streamed) {
-    SET(CURLOPT_POST, 1L);
-    SET(CURLOPT_READFUNCTION, read_cb);
-    SET(CURLOPT_READDATA, (void *)t);
-    SET(CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)r->body_size);
-  } else if (r->body != NULL) {
+  if (r->body != NULL) {
     SET(CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)r->body_len);
     SET(CURLOPT_POSTFIELDS, r->body);
   } else if (method != NULL && strcmp(method, "POST") == 0) {
     SET(CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)0);
     SET(CURLOPT_POSTFIELDS, "");
   }
-  /* A streamed body is sent with CURLOPT_POST, so any other method,
-   * GET included, is named.
-   * TODO: a string `body` with `method = "GET"` goes as a POST, since
-   * CURLOPT_POSTFIELDS makes it one and GET is not named: name it too,
-   * as a streamed body's is, once a caller sends a GET with a body. */
+  /* TODO: a string `body` with `method = "GET"` goes as a POST, since
+   * CURLOPT_POSTFIELDS makes it one and GET is not named: name it too
+   * once a caller sends a GET with a body. */
   if (method != NULL && strcmp(method, "POST") != 0 &&
-      (r->streamed || strcmp(method, "GET") != 0)) {
+      strcmp(method, "GET") != 0) {
     SET(CURLOPT_CUSTOMREQUEST, method);
   }
   return CURLE_OK;
@@ -1069,7 +946,7 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   SET(CURLOPT_PRIVATE, (void *)t);
   SET(CURLOPT_URL, r->url);
   SET(CURLOPT_PROTOCOLS_STR, "http,https");
-  SET(CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+  SET(CURLOPT_REDIR_PROTOCOLS_STR, r->redirect_protocols);
   SET(CURLOPT_NOSIGNAL, 1L);
   SET(CURLOPT_FOLLOWLOCATION, r->follow ? CURLFOLLOW_OBEYCODE : 0L);
   SET(CURLOPT_MAXREDIRS, r->max_redirects);
@@ -1099,9 +976,8 @@ static CURLcode configure_script (struct transfer *t, const char **which) {
   SET(CURLOPT_CONNECT_TO, t->connect_to);
   SET(CURLOPT_PROXY, "");
   /* https too: the reply is then the server's side of the handshake,
-   * which is how a test sees a certificate verified by `use_roots`. */
+   * which is how a test sees a certificate verified by [`use_roots`]. */
   SET(CURLOPT_PROTOCOLS_STR, "http,https");
-  SET(CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
   SET(CURLOPT_FRESH_CONNECT, 1L);
   SET(CURLOPT_FORBID_REUSE, 1L);
   return CURLE_OK;
@@ -1189,14 +1065,9 @@ static const char *headers_build (lua_State *L, struct transfer *t) {
   return NULL;
 }
 
-/* `open`, or with `streamed`, `start`: the request is made and sent the
- * same way, but `start` takes no `body`, takes a `body_size`, and
- * returns before anything is sent, for `write` and `finish` to go on. */
-static int open_request (lua_State *L, int streamed) {
+static int http_open (lua_State *L) {
   struct request r;
   memset(&r, 0, sizeof r);
-  r.streamed = streamed;
-  r.body_size = -1;
   size_t url_len;
   r.url = luaL_checklstring(L, 1, &url_len);
   if (lua_isnoneornil(L, 2)) {
@@ -1216,6 +1087,7 @@ static int open_request (lua_State *L, int streamed) {
   if (has_script) script_check(L);
   r.follow = opt_boolean(L, "follow", 1);
   r.verbose = opt_boolean(L, "verbose", 0);
+  r.redirect_protocols = opt_redirect_protocols(L);
   r.max_redirects = opt_integer(L, "max_redirects", 10, MAX_REDIRECTS);
   r.connect_timeout_ms = opt_integer(L, "connect_timeout_ms",
                                      DEFAULT_CONNECT_TIMEOUT_MS, LONG_MAX);
@@ -1225,10 +1097,6 @@ static int open_request (lua_State *L, int streamed) {
   r.low_speed_seconds = opt_integer(L, "low_speed_seconds",
                                     DEFAULT_LOW_SPEED_SECONDS,
                                     MAX_LOW_SPEED_SECONDS);
-  if (streamed) {
-    if (r.body != NULL) bad_option(L, "body", "nil: a started request's body is written");
-    r.body_size = opt_integer(L, "body_size", -1, LONG_MAX);
-  }
 
   /* Then what they say: a value curl could not send as given is
    * `nil, err`. curl takes C strings, so a NUL anywhere would silently
@@ -1236,17 +1104,8 @@ static int open_request (lua_State *L, int streamed) {
   if (r.method != NULL && !is_token(r.method, method_len)) {
     return failed(L, "invalid method: must be an HTTP token");
   }
-  if (streamed && r.method != NULL && strcmp(r.method, "HEAD") == 0) {
-    return failed(L, "invalid method: a HEAD request has no body to write");
-  }
   if (memchr(r.url, '\0', url_len) != NULL) {
     return failed(L, "invalid url: contains a NUL byte");
-  }
-  /* A request that could reach past the process is noted before it
-   * connects (core/observed.h); a scripted one connects nowhere. */
-  if (cosmic_observing && !has_script &&
-      !cosmic_observed_note(COSMIC_OBSERVED_HTTP, r.url, url_len)) {
-    return failed(L, "not enough memory to observe the request");
   }
   if (has_headers) {
     lua_pushvalue(L, 5);
@@ -1279,8 +1138,6 @@ static int open_request (lua_State *L, int streamed) {
     return failed(L, "curl_easy_init failed");
   }
   t->follow = r.follow;
-  t->streamed = streamed;
-  t->upload_size = (curl_off_t)r.body_size;
   const char *which = NULL;
   CURLcode rc = configure(t, &r, &which);
   if (rc != CURLE_OK) return setopt_failed(L, t, which, rc);
@@ -1293,19 +1150,6 @@ static int open_request (lua_State *L, int streamed) {
       transfer_release(t);
       return failed(L, unbuilt);
     }
-  }
-  if (streamed) {
-    /* No `Expect: 100-continue`, which curl would add to a body of no
-     * known size and then wait a second for: after the caller's own
-     * headers, so one the caller sets is the one curl finds first. */
-    struct curl_slist *more = COSMIC_FAULT("curl_slist_append")
-                                  ? NULL
-                                  : curl_slist_append(t->request_headers, "Expect:");
-    if (more == NULL) {
-      transfer_release(t);
-      return failed(L, "curl_slist_append failed for the request headers");
-    }
-    t->request_headers = more;
   }
   if (t->request_headers != NULL) {
     rc = COSMIC_FAULT("curl_easy_setopt(CURLOPT_HTTPHEADER)")
@@ -1343,7 +1187,11 @@ static int open_request (lua_State *L, int streamed) {
     transfer_release(t);
     return MULTI_FAILED(L, "curl_multi_add_handle", mc);
   }
-  while (!streamed && !t->ready) {
+  while (!t->ready) {
+    if (cosmic_signal_caught()) {
+      transfer_release(t);
+      return failed(L, "interrupted");
+    }
     mc = pump_once(&which);
     if (mc != CURLM_OK) {
       transfer_release(t);
@@ -1351,7 +1199,7 @@ static int open_request (lua_State *L, int streamed) {
     }
   }
   /* A failure after the headers is the body's, for `read` to report. */
-  if (!streamed && t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
+  if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
     lua_pushnil(L);
     push_transfer_error(L, t);
     transfer_release(t);
@@ -1361,24 +1209,15 @@ static int open_request (lua_State *L, int streamed) {
   return cosmic_succeeded(L);
 }
 
-static int http_open (lua_State *L) {
-  return open_request(L, 0);
-}
-
-static int http_start (lua_State *L) {
-  return open_request(L, 1);
-}
-
 static const luaL_Reg handle_methods[] = {
   {"status", handle_status}, {"url", handle_url},
   {"headers", handle_headers}, {"read", handle_read},
-  {"write", handle_write},   {"finish", handle_finish},
   {"sent", handle_sent},     {"close", handle_close},
   {NULL, NULL},
 };
 
 /* check_certificate(der): true, "" when mbedtls reads `der` as one
- * X.509 certificate, as `load_roots` reads each of `ca_roots`; false
+ * X.509 certificate, as [`load_roots`] reads each of `ca_roots`; false
  * and why when it does not. What `cosmic refresh` holds a
  * new bundle to, so a root the binary would drop is refused before it
  * is written. Raises when mbedtls had no memory to read it. */
@@ -1394,7 +1233,7 @@ static int http_check_certificate (lua_State *L) {
   int parsed = mbedtls_x509_crt_parse_der(&crt, (const unsigned char *)der, len);
   mbedtls_x509_crt_free(&crt);
   if (parsed == MBEDTLS_ERR_X509_ALLOC_FAILED) {
-    return luaL_error(L, "no memory to read a certificate");
+    return luaL_error(L, "http: no memory to read a certificate");
   }
   if (parsed != 0) {
     /* mbedtls_strerror names none of X509's codes in this build. */
@@ -1405,13 +1244,11 @@ static int http_check_certificate (lua_State *L) {
     lua_pushstring(L, why);
     return 2;
   }
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static const luaL_Reg module[] = {
   {"open", http_open},
-  {"start", http_start},
   {"check_certificate", http_check_certificate},
   {NULL, NULL},
 };

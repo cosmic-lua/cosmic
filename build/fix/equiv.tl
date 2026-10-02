@@ -1,40 +1,38 @@
 --- Whether two parses mean the same thing.
 ---
---- A renderer that only ever checked its own output against a golden
---- string, or against itself run twice, would be checking that it is
---- CONSISTENT, not that it is right: `local x <const> = 5` re-emitted
---- as `local x < const > = 5` is stable, idempotent, and wrong. So
---- `cosmic fix` reparses what it wrote and compares the two trees here,
---- field by field, ignoring only what a rewrite is allowed to move.
+--- A renderer checked only against a golden string, or against itself
+--- run twice, would be shown consistent, not right: `local x <const> = 5`
+--- re-emitted as `local x < const > = 5` is stable, idempotent and
+--- wrong. So `cosmic fix` reparses what it wrote and compares the two
+--- trees here, field by field, ignoring only what a rewrite may move.
 ---
---- What is ignored: a node's own position (`y`, `x`, `yend`, `xend`),
---- the filename stamped on it, the type identifier tl hands out from a
---- counter, and the comments the parser attached to statements -- those
---- are compared separately, off the token stream, where every comment
---- in the file appears exactly once. What is compared: everything else,
---- including the fields a type object carries, so a record body that
---- lost a field or a `<const>` that became something else is a
---- difference.
+--- Ignored: a node's position (`y`, `x`, `yend`, `xend`, and those of a
+--- list the parser stamps one on), the filename stamped on it, the type
+--- identifier tl hands out from a counter, and the comments the parser
+--- attached to statements. Comments are compared separately, off the
+--- token stream, where each appears exactly once. Everything else is
+--- compared, including the fields a type object carries, so a record
+--- body that lost a field or a `<const>` that became something else is
+--- a difference.
 ---
 --- `if_parent` is skipped rather than followed: an "if_block" node
---- points back at its own enclosing "if" statement, a real cycle. The
---- enclosing statement is compared anyway, from the top.
+--- points back at its enclosing "if" statement, a cycle. That statement
+--- is compared anyway, from the top.
 ---
---- What stops the walk is a set of PAIRS -- one before-side table
---- together with the after-side table it is being compared against --
---- and not of before-side tables alone. A cycle still terminates, since
---- coming back around brings the same pair with it, but a table reached
---- twice by two DIFFERENT routes is compared twice, once against each
---- of the two things the other tree holds there. tl's parser output is
---- not a tree: `local record Node is {Node}` in this tree's own
---- `build/ast/node.tl` hands the same type object back as both the
---- record's element type and its interface list's, so the second route
---- to it is real. Keyed on the before side alone, whatever the after
---- tree held at the end of that second route would never be looked at,
---- and a renderer that changed it would be waved through.
+--- The walk keeps a set of pairs, one before-side table with the
+--- after-side table it is compared against, not a set of before-side
+--- tables. A cycle still terminates, since coming back around brings
+--- the same pair, but a table reached by two different routes is
+--- compared once against each thing the other tree holds there. tl's
+--- parser output is not a tree: `local record Node is {Node}` in
+--- [`build/ast/node.tl`] yields the same type object as the record's
+--- element type and as its interface list's. Keyed on the before side
+--- alone, what the after tree held at the end of the second route would
+--- go unchecked, and a renderer that changed it would pass.
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
+local plural = require("build.plural")
 
 local type Node = ast.Node
 
@@ -74,19 +72,40 @@ local function has_metadata(t: {any:any}): boolean
   return kind is string or typename is string or op is string or text is string
 end
 
+--- Fields that hold a coordinate wherever they hold a number, even on a
+--- table with no metadata: the parser stamps where some lists close on
+--- the list itself (a `<T>` list's `yend` and `xend`). A field map
+--- never holds a number under these names, since its values are type
+--- objects.
+local coordinate: {string:boolean} = {
+  ["y"] = true,
+  ["x"] = true,
+  ["yend"] = true,
+  ["xend"] = true,
+}
+
 --- The keys worth comparing on one table, both sides' keys together.
 local function keys_of(a: {any:any}, b: {any:any}): {any}
   local metadata = has_metadata(a) and has_metadata(b)
+  local function compared(k: any): boolean
+    if not (k is string) then
+      return true
+    end
+    if metadata then
+      return not positional[k]
+    end
+    return not (coordinate[k] and math.type(a[k]) == "integer" and math.type(b[k]) == "integer")
+  end
   local seen: {any:boolean} = {}
   local out: {any} = {}
   for k in pairs(a) do
-    if not metadata or not (k is string) or not positional[k] then
+    if compared(k) then
       seen[k] = true
       out[#out + 1] = k
     end
   end
   for k in pairs(b) do
-    if not seen[k] and (not metadata or not (k is string) or not positional[k]) then
+    if not seen[k] and compared(k) then
       out[#out + 1] = k
     end
   end
@@ -157,7 +176,7 @@ local function same_comments(before: {compiler.Token},
                              after: {compiler.Token}): boolean, string
   local was, now = comments(before), comments(after)
   if #was ~= #now then
-    return false, "had " .. #was .. " comments, now has " .. #now
+    return false, "had " .. plural.count(#was, "comment") .. ", now has " .. #now
   end
   for i, text in ipairs(was) do
     if now[i] ~= text then

@@ -1,24 +1,25 @@
---- Worked examples for `cosmic.child`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.child`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- The processes the examples start, as a program would: this program
---- itself, past its launcher (`Proc.relaunch`), so no start takes a
+--- What the examples start, as a program would: this program
+--- itself, past its launcher ([`Proc.relaunch`]), so no start takes a
 --- shell.
-Test.needs{ processes = true, tool = true }
+Test.needs{ tool = true }
 
 -- TODO: confine the processes these examples start, once an example
 -- may declare what its processes need, as a test does through
--- `observations.confine`: examples are shown by `cosmic docs`, and may
--- not import build.filesystem_observations.
+-- build.confine's `confine`: examples are shown by `cosmic docs`, and may
+-- not import build.confine.
 
 local Example = {}
 
@@ -38,8 +39,8 @@ function Example.guard()
     running[i] = assert(Child.start(argv, { env = again.env, fds = again.fds }))
   end
   while #running > 0 and guard:cancelled() == 0 do
-    local done, trouble = Child.wait_any(running, 100)
-    if done == nil and trouble ~= "" then error(trouble) end
+    local done, trouble = Child.wait_any(running, Time.ms(100))
+    if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
     local still: {Child.Handle} = {}
     for _, h in ipairs(running) do
       if rawequal(h, done) then
@@ -76,7 +77,7 @@ function Example.release()
     else
       local taken = guard:take()
       if taken ~= 0 then assert(h:stop(taken)) end
-      Time.sleep_ns(10 * 1000 * 1000)
+      Time.sleep_ns(Time.ms(10))
     end
   end
   local caught = assert(guard:release())

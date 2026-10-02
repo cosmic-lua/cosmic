@@ -1,5 +1,7 @@
+local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local test_inputs = require("build.test_inputs")
+local key_parts = require("build.key_parts")
 local type analyzer = require("build.analyzer")
 local type declared_inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -17,13 +19,15 @@ end
 --- A declaration of what `fields` names, the rest left out.
 local function declaring(fields: analyzer.Declared): analyzer.Declared
   return { line = 1, reads = fields.reads or {}, host = fields.host or {},
-    env = fields.env or {}, network = fields.network or {}, processes = fields.processes == true,
-    tool = fields.tool == true, store = fields.store == true }
+    env = fields.env or {}, network = fields.network or {},
+    tool = fields.tool == true, lua = fields.lua == true,
+    standalone = fields.standalone == true, store = fields.store == true }
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
---- module of its own and one only a declaration file answers for; the
---- helper runs fuzz properties when `fuzzes` says so.
+--- module of its own and one only a declaration file answers for, and a
+--- module nothing requires. The helper runs fuzz properties when
+--- `fuzzes` says so.
 local function tree(inputs?: analyzer.Declared, fuzzes?: boolean): Module, {string:Module}
   local helper_requires = { "lib.deep", "lib.declared" }
   if fuzzes then helper_requires[#helper_requires + 1] = "build.fuzz" end
@@ -56,16 +60,7 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
   assert(effective.env.COSMIC_SANDBOX)
   assert(not effective.env.USER and not effective.env["*"])
   assert(next(effective.network) == nil)
-  assert(not effective.processes and not effective.tool and not effective.store)
-  assert(test_inputs.covers_tree(effective, "lib/helper.tl", "o"))
-  assert(not test_inputs.covers_tree(effective, "lib/other.tl", "o"))
-  -- What a directory an input sits in is, but not what it holds.
-  assert(test_inputs.covers_tree(effective, "lib/deep", "s"))
-  assert(test_inputs.covers_tree(effective, ".", "s"))
-  assert(not test_inputs.covers_tree(effective, ".", "d"))
-  assert(not test_inputs.covers_tree(effective, "lib/deep", "d"))
-  assert(not test_inputs.covers_tree(effective, "lib/deep", "o"))
-  assert(not test_inputs.covers_env(effective, "USER"))
+  assert(not effective.tool and not effective.store)
 end
 
 --- The modules a worker lets a test `require` of the tree are the
@@ -78,63 +73,26 @@ local function test_the_closure_names_its_modules()
     "lib.declared lib.deep lib.helper lib.thing_test")
 end
 
---- A module's declaration adds to its defaults, each path with all
---- beneath it.
+--- A module's declaration adds to its defaults.
 local function test_a_declaration_adds_to_the_defaults()
   local m, by_path = tree(declaring({ reads = { "data/" }, host = { "/etc/localtime" },
-    env = { "*" }, network = { "127.0.0.1" }, processes = true, tool = true, store = true }))
+    env = { "*" }, network = { "127.0.0.1" }, tool = true, store = true }))
   local effective = test_inputs.effective(m, by_path, staged)
-  assert(test_inputs.covers_tree(effective, "data/a/b.txt", "o"))
-  assert(test_inputs.covers_tree(effective, "data", "d"))
-  assert(not test_inputs.covers_tree(effective, "database", "o"))
-  assert(test_inputs.covers_tree(effective, "o/bin/cosmic", "o"))
-  assert(test_inputs.covers_tree(effective, "o/cosmic.db", "o"))
-  assert(test_inputs.covers_host(effective, "/etc/localtime", "o"))
-  assert(test_inputs.covers_host(effective, "/etc", "s"))
-  assert(not test_inputs.covers_host(effective, "/etc/passwd", "o"))
-  assert(test_inputs.covers_env(effective, "ANYTHING"))
-  assert(test_inputs.covers_network(effective, "http://127.0.0.1:1/x"))
-  assert(test_inputs.covers_network(effective, "HTTP://user@127.0.0.1"))
-  assert(not test_inputs.covers_network(effective, "https://example.com/"))
-  assert(effective.processes)
-end
-
---- A worker runs offline when its module declares no network, or only
---- hosts each `localhost`, `::1` or a strict dotted-quad `127.a.b.c`,
---- spelled as a request's host is; any other spelling, a port,
---- brackets, a range, `0.0.0.0`, a name or `*` among them puts it
---- online.
-local function test_a_worker_is_offline_when_it_declares_loopback_hosts_alone()
-  local function only(hosts: {string}): boolean
-    local effective: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {},
-      network = {}, processes = false, tool = false, store = false }
-    for _, host in ipairs(hosts) do effective.network[host] = true end
-    return test_inputs.offline(effective)
-  end
-  assert(only({}), "no network is offline")
-  for _, host in ipairs({ "127.0.0.1", "127.0.0.2", "127.255.255.255", "127.1.20.0",
-    "localhost", "::1" }) do
-    assert(only({ host }), host)
-  end
-  assert(only({ "127.0.0.1", "127.0.0.2", "::1", "localhost" }))
-  for _, host in ipairs({ "*", "0.0.0.0", "128.0.0.1", "10.0.0.1", "127.1", "127.0.1",
-    "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
-    "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::",
-    "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "LOCALHOST", "localhost.",
-    "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
-    assert(not only({ host }), host)
-  end
-  assert(not only({ "127.0.0.1", "example.com" }), "a mixed set")
+  assert(table.concat(effective.reads, " ") == "data/", table.concat(effective.reads, " "))
+  assert(table.concat(effective.host, " ") == "/etc/localtime")
+  assert(effective.env["*"] and effective.env.TMPDIR)
+  assert(effective.network["127.0.0.1"] and next(effective.network, "127.0.0.1") == nil)
+  assert(effective.tool and effective.store)
 end
 
 --- Every fuzz corpus is a default input of a test whose closure runs
---- properties, where `build.fuzz` looks for one -- a property's name
+--- properties, where [`build.fuzz`] looks for one -- a property's name
 --- may be computed -- and of no other test.
 local function test_a_fuzz_tests_corpora_are_default_inputs(tmp: string)
   local m, by_path = tree(nil, true)
   local effective = test_inputs.effective(m, by_path, staged)
   local name = "Keep " .. string.rep("me", 1) .. "!"
-  -- `build.fuzz` names the directory it looks in, in its report of a
+  -- [`build.fuzz`] names the directory it looks in, in its report of a
   -- failure.
   local ok, report = pcall(Fuzz.run, {
     name = name, dir = tmp, iters = 1,
@@ -143,19 +101,19 @@ local function test_a_fuzz_tests_corpora_are_default_inputs(tmp: string)
   })
   local corpus = tostring(report):match("mkdir %-p (%S+) ")
   assert(not ok and corpus ~= nil, tostring(report))
-  assert(test_inputs.covers_tree(effective, corpus .. "/0123.input", "o"), corpus)
-  assert(test_inputs.covers_tree(effective, test_inputs.plain(corpus), "d"), corpus)
+  local reads = table.concat(effective.reads, " ")
+  assert(reads == "testdata/fuzz/", reads)
+  assert(test_inputs.plain(corpus):sub(1, #reads) == reads, corpus)
   local plain, plain_by_path = tree()
-  assert(not test_inputs.covers_tree(test_inputs.effective(plain, plain_by_path, staged),
-    corpus .. "/0123.input", "o"))
+  assert(#test_inputs.effective(plain, plain_by_path, staged).reads == 0)
 end
 
 --- A `host` path whose first name is `$NAME` is where NAME says, in the
 --- environment a worker is given, and declares NAME; a worker is given
---- it there, and it is spelled as declared. The audit names a path at
---- or beneath where a variable the module declares says by that
---- variable, the longest such value first; a key, only by one a `host`
---- path names.
+--- it there, and it is spelled as declared. A path at or beneath where
+--- a variable the module declares says is spelled by that variable, the
+--- longest such value first; for a key, only by one a `host` path
+--- names.
 local function test_a_host_path_a_variable_names_is_where_it_says()
   local m, by_path = tree(declaring({ host = { "$PRODUCT/o/bin/cosmic", "/fixture/written" },
     env = { "OTHER" } }))
@@ -169,9 +127,6 @@ local function test_a_host_path_a_variable_names_is_where_it_says()
     effective.host[2] == "/fixture/written", table.concat(effective.host, " "))
   assert(effective.spelled["/fixture/product/o/bin/cosmic"] == "$PRODUCT/o/bin/cosmic")
   assert(effective.spelled["/fixture/written"] == nil)
-  assert(test_inputs.covers_host(effective, "/fixture/product/o/bin/cosmic", "o"))
-  assert(test_inputs.covers_host(effective, "/fixture/product/o", "s"))
-  assert(not test_inputs.covers_host(effective, "/fixture/product/o/bin/other", "o"))
   assert(test_inputs.spelling(effective, "/fixture/product/o/bin/other") ==
     "$PRODUCT/o/bin/other")
   assert(test_inputs.spelling(effective, "/fixture/product") == "$PRODUCT")
@@ -214,6 +169,30 @@ local function test_a_host_path_that_cannot_be_given_is_named()
   assert(trouble({ "$PRODUCT/f" }, { PRODUCT = "/fixture/product/" }) == "")
 end
 
+--- A `host` path that is a directory where the host has it, written
+--- out or where a variable says, fails its module's tests, naming the
+--- declaration: a key holds a host path by what the file holds, and none
+--- walks a directory. A path that is not there is given, as a file
+--- of another platform's is (/proc, which no key could hold by what it
+--- holds: build/declared_key_test.tl, which declares it).
+local function test_a_host_directory_is_refused_but_proc(tmp: string)
+  local dir = assert(Fs.absolute(tmp)) .. "/dir"
+  assert(Fs.mkdirs(dir))
+  assert(Fs.write(dir .. "/f", "f"))
+  local function trouble(host: {string}): string
+    local m, by_path = tree(declaring({ host = host }))
+    local effective = test_inputs.effective(m, by_path, staged)
+    test_inputs.resolve(effective, { D = dir }, { "/fixture/tree" })
+    return effective.unresolved
+  end
+  for _, declared in ipairs({ dir, "$D", "$D/" }) do
+    local said = trouble({ dir .. "/f", declared })
+    assert(said == string.format("Test.needs host %q: %s is a directory; host names files, " ..
+      "or /proc: declare the files the tests read", declared, dir), said)
+  end
+  assert(trouble({ dir .. "/f", "$D/f", dir .. "/missing" }) == "")
+end
+
 --- A path as a declaration spells it.
 local function test_a_path_is_spelled_plainly()
   assert(test_inputs.plain("./not/there/") == "not/there")
@@ -224,52 +203,106 @@ local function test_a_path_is_spelled_plainly()
   assert(test_inputs.plain("/../top") == "/top")
 end
 
---- The audit of a module names each undeclared input once, beside the
---- tests that read it, and the declaration that would hold them all:
---- what the module declares with the rest added, many files of one
---- directory as the directory.
-local function test_a_report_groups_tests_and_suggests_a_declaration()
-  local m = tree(declaring({ reads = { "data/" }, env = { "PATH" } }))
-  local found: {string:{test_inputs.Finding}} = {
-    test_one = {
-      { field = "reads", value = "vendor/x/a" }, { field = "reads", value = "vendor/x/b" },
-      { field = "reads", value = "vendor/x/c" }, { field = "reads", value = "vendor/x/d" },
-      { field = "env", value = "HOME" },
-    },
-    test_two = { { field = "env", value = "HOME" }, { field = "processes", value = "/bin/sh" } },
-  }
-  local lines = test_inputs.report(m, found)
-  local text = table.concat(lines, "\n")
-  assert(lines[1] == "audit: lib.thing_test (lib/thing_test.tl): 2 of 2 tests read what " ..
-    "they do not declare", text)
-  assert(text:find("\n  test_one, test_two:\n    env          HOME\n", 1, true), text)
-  assert(text:find("\n  test_one:\n    reads        vendor/x/a, vendor/x/b, vendor/x/c, " ..
-    "vendor/x/d\n", 1, true), text)
-  assert(text:find("\n  test_two:\n    processes    /bin/sh\n", 1, true), text)
-  assert(lines[#lines] == '  declare: Test.needs { reads = { "data/", ' ..
-    '"vendor/x/" }, env = { "HOME", "PATH" }, processes = true }', text)
-  assert(#test_inputs.report(m, { test_one = {}, test_two = {} }) == 0)
-end
-
 --- A declaration's canonical text is one for each declaration: what the
---- build reads and what `needs` is handed agree on `network = true` and
---- `{ "*" }`, a flag `false` and none, an empty list and none; the
---- literal's order and its duplicates are kept; and a value is quoted,
---- so no two declarations share a text.
+--- build reads and what `needs` is handed agree on a flag `false` and
+--- none, an empty list and none; the literal's order and its duplicates
+--- are kept; and a value is quoted, so no two declarations share a text.
 local function test_canonical_text_names_one_declaration()
   local function of(needs: declared_inputs.Needs): string
     return test_inputs.canonical(test_inputs.as_declared(needs))
   end
   assert(test_inputs.canonical(nil) == "" and of(nil) == "")
-  assert(of({}) == "" and of({ reads = {}, tool = false, network = false }) == "")
-  assert(of({ network = true }) == of({ network = { "*" } }))
-  assert(of({ network = true }) == test_inputs.canonical(declaring({ network = { "*" } })))
+  assert(of({}) == "" and of({ reads = {}, tool = false, network = {} }) == "")
+  assert(of({ network = { "127.0.0.1" } }) ==
+    test_inputs.canonical(declaring({ network = { "127.0.0.1" } })))
   assert(of({ reads = { "a", "b" } }) ~= of({ reads = { "b", "a" } }))
   assert(of({ reads = { "a", "a" } }) ~= of({ reads = { "a" } }))
   assert(of({ reads = { "a\nreads \"b\"" } }) ~= of({ reads = { "a", "b" } }))
   assert(of({ reads = { "a b" } }) ~= of({ reads = { "a", "b" } }))
   assert(of({ env = { "A" } }) ~= of({ host = { "A" } }))
-  assert(of({ reads = { "x" }, processes = true, store = true }) ==
-    'reads "x"\nprocesses true\nstore true', of({ reads = { "x" }, processes = true, store = true }))
+  assert(of({ reads = { "x" }, tool = true, store = true }) ==
+    'reads "x"\ntool true\nstore true', of({ reads = { "x" }, tool = true, store = true }))
   assert(of({ tool = true }) == test_inputs.canonical(declaring({ tool = true })))
+  assert(of({ lua = true }) == "lua true" and
+    of({ lua = true }) == test_inputs.canonical(declaring({ lua = true })))
+  assert(of({ lua = true, standalone = true }) == "lua true\nstandalone true" and
+    of({ lua = true, standalone = true }) ==
+      test_inputs.canonical(declaring({ lua = true, standalone = true })))
+end
+
+--- A module that declares `lua` holds in its closure each module of the
+--- tree `cosmic -e` loads (`lua_loads`), as its files and by name, so
+--- its key holds them and every process it starts may load them -- but
+--- not what one of them requires only inside a function, as dispatch
+--- requires each verb's modules: an edit to those runs its tests no more
+--- than an edit to any module outside its closure does.
+local function test_a_lua_closure_holds_what_e_loads_and_no_more()
+  local m, by_path = tree(declaring({ lua = true }))
+  for _, name in ipairs(test_inputs.lua_loads) do
+    by_path[name] = module(name, name:gsub("%.", "/") .. ".tl",
+      name == "build.dispatch" and { "build.importer", "build.exit_status" } or {})
+  end
+  by_path["build.importer"] = module("build.importer", "build/importer.tl", {})
+  local names = test_inputs.modules(m, by_path, staged)
+  local held: {string:boolean} = {}
+  for _, name in ipairs(names) do held[name] = true end
+  for _, name in ipairs(test_inputs.lua_loads) do assert(held[name], name) end
+  assert(not held["build.importer"], "what dispatch requires lazily is out")
+  assert(held["lib.helper"] and held["lib.deep"], "the module's own closure is in")
+  local effective = test_inputs.effective(m, by_path, staged)
+  assert(effective.lua and effective.files["build/dispatch.tl"])
+  assert(not effective.files["build/importer.tl"])
+  -- Without it, none of them.
+  local plain, plain_by_path = tree()
+  for name, one in pairs(by_path) do plain_by_path[name] = plain_by_path[name] or one end
+  local without = table.concat(test_inputs.modules(plain, plain_by_path, staged), " ")
+  assert(not without:find("build.dispatch", 1, true), without)
+end
+
+--- A module that declares `lua` alone holds none of what `cosmic
+--- --standalone` loads beyond `-e` (`standalone_loads`): an edit to the
+--- checker runs its tests no more, and its children may not load it.
+--- One that declares `standalone` beside it holds each of them too.
+local function test_only_a_standalone_closure_holds_what_standalone_loads()
+  local function names_of(declared: analyzer.Declared): {string:boolean}, test_inputs.Effective
+    local m, by_path = tree(declared)
+    for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
+      for _, name in ipairs(list) do
+        by_path[name] = module(name, name:gsub("%.", "/") .. ".tl", {})
+      end
+    end
+    local held: {string:boolean} = {}
+    for _, name in ipairs(test_inputs.modules(m, by_path, staged)) do held[name] = true end
+    return held, test_inputs.effective(m, by_path, staged)
+  end
+  local chunk, chunk_effective = names_of(declaring({ lua = true }))
+  local both, both_effective = names_of(declaring({ lua = true, standalone = true }))
+  for _, name in ipairs(test_inputs.lua_loads) do assert(chunk[name] and both[name], name) end
+  for _, name in ipairs(test_inputs.standalone_loads) do
+    assert(not chunk[name], name .. " is held by a module that declares lua alone")
+    assert(both[name], name)
+  end
+  assert(not chunk_effective.files["build/teal.tl"] and both_effective.files["build/teal.tl"])
+  assert(not chunk_effective.standalone and both_effective.standalone)
+  -- No module is on both ways' lists: each is held by the narrowest.
+  local on_e: {string:boolean} = {}
+  for _, name in ipairs(test_inputs.lua_loads) do on_e[name] = true end
+  for _, name in ipairs(test_inputs.standalone_loads) do assert(not on_e[name], name) end
+end
+
+--- What `lua` adds to a closure is no reader of the compiler's identity
+--- (`compiler_sought`): build.dispatch, which reads it past requiring
+--- build.importer, does not key a module that declares `lua` by the
+--- compiler's identity, so an edit to the compiler runs it no more; a
+--- reader of its own closure, build.importer, still does, and a module
+--- that does not declare `lua` is sought whole.
+local function test_what_lua_adds_reads_no_compiler()
+  local closure = { "lib.thing_test" }
+  for _, name in ipairs(test_inputs.lua_loads) do closure[#closure + 1] = name end
+  for _, name in ipairs(test_inputs.standalone_loads) do closure[#closure + 1] = name end
+  assert(key_parts.reads_compiler(closure), "build.dispatch reads it")
+  assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
+  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
+  closure[#closure + 1] = "build.importer"
+  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
 end

@@ -1,25 +1,25 @@
---- The error-slot discipline `build.contracts` holds a checked module
---- to: a flagged and an allowed case for each thing it tells apart.
+--- The rules [`build.contracts`] holds a checked module to: a flagged
+--- and an allowed case for each thing it tells apart.
 local ast = require("build.ast")
 local contracts = require("build.contracts")
 local receivers = require("build.receivers")
 local teal = require("build.teal")
--- In the closure, so the checker's `Store.source` of its declaration
--- (`teal.serve_standard`) is read past the worker's hold on the store.
+-- In the closure, so the checker's [`Store.source`] of its declaration
+-- ([`teal.serve_standard`]) is read past the worker's hold on the store.
 local type _ = require("cosmic.internal.process")
 
 local built = teal.lazy()
 
---- What `contracts.check` says of `source`, a module the checker takes
+--- What [`contracts.check`] says of `source`, a module the checker takes
 --- as it is, with a fallible value `get`, a fallible effect `put`, and
 --- two calls that are not fallible in front of it.
 local function problems_in(source: string, exemptions?: contracts.Exemptions): {string}
-  -- A case may require the real `cosmic.sys`.
+  -- A case may require the real [`cosmic.sys`].
   teal.serve_standard(built)
   local env = assert(built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
   }))
-  -- A stand-in `cosmic.log`, known to the checker the way the importer
+  -- A stand-in [`cosmic.log`], known to the checker the way the importer
   -- makes a compiled module known to the ones after it.
   local log_code, log_result = built.gen(table.concat({
     "local record Log",
@@ -268,7 +268,7 @@ local function test_a_fallible_function_declares_exactly_two_results()
     "  return 1, 2, 'x'\nend\nuse(f)")
 end
 
---- A function stored into a field of `cosmic.sys` stands in for a
+--- A function stored into a field of [`cosmic.sys`] stands in for a
 --- binding and keeps the binding's `nil, error, errno`.
 local function test_a_stand_in_for_a_sys_binding_keeps_its_errno()
   local sys = "local sys = require('cosmic.sys')\n"
@@ -382,6 +382,16 @@ local function test_a_reason_compared_with_anything_but_empty_is_flagged()
   flags(bound .. "use(v, err < 'm')", read)
   flags(bound .. "use(v, err >= TIMEOUT)", read)
   allows(bound .. "use(v, TIMEOUT, err == nil, nil ~= err, err ~= '')")
+end
+
+--- The two words every wait answers are what a reason may be compared
+--- with: a caller tells a deadline or a cancel from a failure by them.
+local function test_a_reason_compared_with_the_shared_wait_words_is_allowed()
+  local read = "a failure's reason is read for what it says"
+  local bound = "local Poll = { TIMEOUT = 'timed out', CANCELLED = 'cancelled', OTHER = 'x' }\n" ..
+    "local v, err = get()\n"
+  allows(bound .. "use(v, err == Poll.TIMEOUT, Poll.CANCELLED ~= err)")
+  flags(bound .. "use(v, err == Poll.OTHER)", read)
 end
 
 --- What only wraps a name reads the name.
@@ -699,7 +709,7 @@ local function test_the_raw_process_table_is_held_as_bindings_are()
     "return M", "M.adopt: calls cosmic.internal.process.subreaper itself and answers a bare boolean")
 end
 
---- Rule 11: an exported wrapper over a fallible `cosmic.sys` binding
+--- Rule 11: an exported wrapper over a fallible [`cosmic.sys`] binding
 --- answers the binding's failure.
 local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
   local sys = "local sys = require('cosmic.sys')\nlocal record M end\n"

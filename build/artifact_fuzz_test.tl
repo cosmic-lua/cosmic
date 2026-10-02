@@ -1,4 +1,4 @@
---- Fuzz property for `artifact.split`: `cosmic refresh` reads the
+--- Fuzz property for [`artifact.split`]: `cosmic refresh` reads the
 --- trailer of whatever file `--binary` names, so a corrupt one must be
 --- refused by name -- never a raise, nor a head and database that are
 --- not the file's own bytes. Each input edits a small program's
@@ -8,6 +8,7 @@
 local Fuzz = require("build.fuzz")
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
+local String = require("cosmic.string")
 
 local records = "1\t1\trelease\tx86\tLinux\tx86_64\n"
 local core = "ELF-x86-core"
@@ -72,7 +73,7 @@ local function test_split_is_total(tmp: string)
         return true, ""
       end
       Fuzz.label("split")
-      if input:sub(1, #parts.head) ~= parts.head or
+      if not String.starts_with(input, parts.head) or
          input:sub(#parts.head + 1, #parts.head + #parts.database) ~= parts.database or
          #parts.head + #parts.database + 48 ~= #input then
         return false, "the parts are not the file's own bytes"

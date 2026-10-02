@@ -1,6 +1,17 @@
+local Time = require("cosmic.time")
+local Sqlite = require("cosmic.sqlite")
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
+
+local Test = require("cosmic.test")
+
+--- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
+--- `fixture`), its workers are given the environment they declare:
+--- all of it, which says where the candidate and its products are
+--- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
+--- keys every unsandboxed run by declaration gives a worker only that.
+Test.needs{ env = { "*" } }
 
 local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
@@ -10,12 +21,12 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- rebuilds run beside it, and past fixture.tl's 30 s default for a child
 -- on a loaded one. The driver bounds each test here at 120 s
 -- (orchestration.tl), which this leaves room inside.
-local rebuild_timeout_ms <const> = 90000
+local rebuild_timeout_ns <const> = Time.seconds(90)
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
--- which must itself be exactly `length` bytes: a length mismatch on either
--- side, or a byte difference within the compared range, is a failure with a
--- message; a program longer than `length` still passes, since only its
+-- which must itself be exactly `length` bytes. A length mismatch on either
+-- side, or a byte difference within the compared range, fails with a
+-- message. A program longer than `length` still passes, since only its
 -- prefix matters.
 local function compare_prefix(expected: string, program: string,
     length: integer): boolean, string
@@ -33,11 +44,10 @@ local function compare_prefix(expected: string, program: string,
   return true, ""
 end
 
--- Splits text into lines without dropping empty ones (unlike
--- `gmatch("[^\n]+")`, which every other fixture-test's line-oriented parsing
--- uses on inputs that are known not to contain blank lines). Assumes the
--- text ends with a trailing newline, as every source file in the tree does;
--- joining the result with "\n" and appending one final "\n" reproduces it.
+-- Splits text into lines without dropping empty ones, as
+-- `gmatch("[^\n]+")` does. Assumes the text ends with a trailing newline,
+-- as every source file in the tree does: joining the result with "\n" and
+-- appending one final "\n" reproduces it.
 local function split_lines(text: string): {string}
   local lines: {string} = {}
   local at = 1
@@ -71,13 +81,11 @@ local function insert_after(lines: {string}, marker: string,
   return out
 end
 
--- `git archive HEAD | tar -xf -` the candidate root into a fresh tree, the
--- same fixture every rebuild/refusal case starts from.
-local function archive_tree(root: string, tree: string, diagnostics: string)
-  Fixture.mkdir(tree)
-  Fixture.run("git-archive", { "/bin/sh", "-c",
-    "git -C \"$1\" archive HEAD | tar -xf - -C \"$2\"", "sh", root, tree },
-    root, diagnostics)
+-- A fresh tree, the tree the product was booted from
+-- (COSMIC_FIXTURE_SOURCE), the same fixture every rebuild/refusal case
+-- starts from.
+local function archive_tree(tree: string)
+  Fixture.source_tree(tree)
 end
 
 -- Copies the fixture-only runtime into the archived tree's `o/bin/cosmic`,
@@ -96,7 +104,7 @@ local function apply_step8_edit(tree: string)
   lines = insert_after(lines, "local Time = require(\"cosmic.time\")",
     { "local step8_sys = require(\"cosmic.sys\")" })
   lines = insert_after(lines,
-    "function test.run(argv: {integer:string}): integer", {
+    "local function run(argv: {integer:string}): integer", {
       "  assert(argv[1] == \"test\")",
       "  assert(argv[2] == \"build/embed_test.tl\")",
       "  assert(argv[3] == \"argument with spaces\")",
@@ -118,7 +126,7 @@ local function apply_docs_marker_edit(tree: string)
   local path = tree .. "/build/docs.tl"
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
-    "function docs.run(argv: {integer:string}): integer",
+    "local function run(argv: {integer:string}): integer",
     { "  local _, _ = Fs.put(Fs.stdout, \"step8-docs-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
@@ -159,14 +167,14 @@ end
 -- itself from the database at the same logical path. Then, in the same
 -- case, a core input edit is checked to be refused without touching the
 -- artifact.
-local function run_rebuild_case(root: string, fixture_dir: string,
+local function run_rebuild_case(fixture_dir: string,
     tmp: string, action: string)
   local case_root = tmp .. "/case-" .. action
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local original_hash = Fixture.hash(program)
   local prefix_length = read_prefix_length(fixture_dir)
@@ -202,7 +210,7 @@ local function run_rebuild_case(root: string, fixture_dir: string,
     release(case_root, diagnostics, "first-" .. action, go)
     -- The rebuilt artifact starts once more at the same logical path.
     await_ready(case_root, diagnostics, "second-" .. action, ready,
-      rebuild_timeout_ms)
+      rebuild_timeout_ns)
     release(case_root, diagnostics, "second-" .. action, go)
 
     local result = finish(child)
@@ -278,14 +286,14 @@ end
 -- patch, or an edited launcher generator) is refused outright, when
 -- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
 -- touching the artifact.
-local function run_refusal_case(root: string, fixture_dir: string,
+local function run_refusal_case(fixture_dir: string,
     tmp: string, name: string)
   local case_root = tmp .. "/refuse-" .. name
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before = Fixture.hash(program)
 
@@ -315,7 +323,7 @@ local function run_refusal_case(root: string, fixture_dir: string,
     "artifact")
 end
 
--- A pure unit test of `compare_prefix` itself, with three synthetic cases: an
+-- A pure unit test of [`compare_prefix`] itself, with three synthetic cases: an
 -- exact match, a program too short to hold the expected prefix, and a mutated
 -- byte within the compared range.
 local function test_self_rebuild_prefix_comparison(_tmp: string)
@@ -333,38 +341,35 @@ end
 -- Each way of losing the artifact is a test of its own, so each self-rebuild
 -- has a test's whole time limit to itself rather than half of one.
 local function test_self_rebuild_after_a_rename(tmp: string)
-  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_ROOT"),
-    Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "rename")
+  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "rename")
 end
 
 local function test_self_rebuild_after_an_unlink(tmp: string)
-  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_ROOT"),
-    Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "unlink")
+  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "unlink")
 end
 
 local function test_self_rebuild_refusals(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   for _, name in ipairs({ "tl-pin", "tl-patch", "launcher" }) do
-    run_refusal_case(root, fixture_dir, tmp, name)
+    run_refusal_case(fixture_dir, tmp, name)
   end
 end
 
 -- `cosmic docs` never compiles the tree itself, unlike `test`, so it relies
 -- entirely on `build.reboot.stale_exit` to notice a stale embedded copy of
--- `build.docs` and rebuild before running -- the case `AGENTS.md`'s "an
--- edit to Teal needs no boot" promise depends on for a verb other than
--- `test`. A first call against an edited tree rebuilds once and shows the
--- edit; a second, now-fresh call shows it again without rebuilding again.
+-- `build.docs` and rebuild before running. That is the case AGENTS.md's
+-- promise that a tool older than the tree rebuilds itself depends on for
+-- a verb other than `test`. A first call against an edited tree rebuilds
+-- once and shows the edit; a second, now-fresh call shows it again without
+-- rebuilding again.
 local function test_self_rebuild_docs_verb(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-docs"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
@@ -372,7 +377,7 @@ local function test_self_rebuild_docs_verb(tmp: string)
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
   local outcome = Fixture.call_with_environment("docs-rebuild",
     { program, "docs", "cosmic.child" }, tree, diagnostics, values,
-    rebuild_timeout_ms)
+    rebuild_timeout_ns)
   assert(outcome.result.code == 0, "docs: exit status was " ..
     tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-docs-marker")
@@ -392,13 +397,103 @@ local function test_self_rebuild_docs_verb(tmp: string)
     "docs: second invocation reported staleness though the tool is fresh")
 end
 
+-- Runs of one stale tool started at once in one checkout -- an editor's,
+-- a watcher's and a terminal's -- rebuild it one at a time: each either
+-- rebuilds it or waits for the run that is and re-enters on the tool that
+-- run wrote, and every one shows the edit. Unserialized, their rebuilds
+-- would write o/cosmic.db, o/carried.db and the tool under one another,
+-- and end in "disk I/O error" or "portable program database has no SQLite
+-- header" and a spurious "(the tool is stale)" failure.
+local function test_self_rebuild_by_concurrent_runs(tmp: string)
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-concurrent"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(tree)
+  local program = place_runtime(fixture_dir, tree)
+  local before_hash = Fixture.hash(program)
+  apply_docs_marker_edit(tree)
+
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  supervised(function(active: {Running})
+    for n = 1, 3 do
+      active[#active + 1] = start("concurrent-" .. tostring(n),
+        { program, "docs", "cosmic.child" }, tree, values, diagnostics)
+    end
+    local rebuilt = 0
+    for _, child in ipairs(active) do
+      local result = finish(child, rebuild_timeout_ns)
+      local err = Fixture.read(child.err)
+      assert(result.ok, child.label .. ": exit status " ..
+        tostring(result.code) .. ", want 0; it said:\n" .. err)
+      Fixture.contains(child.out, "step8-docs-marker")
+      -- Started together, before any rebuild could land, each run meets
+      -- the tool stale: it rebuilds, waits for the run that does (or for
+      -- one writing o/cosmic.db, which holds the same lock), or finds
+      -- that run's rebuild already landed and enters it.
+      assert(err:find("the tool is stale; rebuilding it from the tree", 1, true) or
+        err:find("in this checkout is [^\n]*; waiting for it") or
+        err:find("rebuilt the tool; entering it", 1, true),
+        child.label .. ": neither rebuilt the tool, waited nor entered " ..
+        "another's; it said:\n" .. err)
+      rebuilt = rebuilt + count_occurrences(err,
+        "the tool is stale; rebuilding it from the tree")
+    end
+    assert(rebuilt >= 1, "concurrent: no run rebuilt the tool")
+  end)
+  assert(Fixture.hash(program) ~= before_hash,
+    "concurrent: no run changed the artifact")
+end
+
+-- A run a reboot entered (COSMIC_REBOOTED) that would refuse as still
+-- stale refuses at once, though another run holds the rebuild lock: it
+-- neither waits for that run nor, re-entering after it, rebuilds, so
+-- runs that cannot settle the tool do not rebuild it by turns for good.
+local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-rebooted"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(tree)
+  local program = place_runtime(fixture_dir, tree)
+  local before_hash = Fixture.hash(program)
+  apply_docs_marker_edit(tree)
+
+  -- The rebuild lock's SQLite half, which a tool from before the flock
+  -- holds alone and every run still waits for (build.rebuild_lock).
+  local lock = assert(Sqlite.open(tree .. "/o/rebuild.lock", { writable = true }))
+  assert(lock:exec("BEGIN IMMEDIATE"))
+  local held_ok, failure = pcall(function(): boolean
+    for _, entered in ipairs({ "1", "2" }) do
+      local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
+        COSMIC_REBOOTED = entered })
+      local outcome = Fixture.call_with_environment("rebooted-" .. entered,
+        { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+      assert(outcome.result.code == 3, "rebooted " .. entered ..
+        ": exit status was " .. tostring(outcome.result.code) .. ", want 3")
+      Fixture.contains(outcome.err, "the tool is still stale after a reboot")
+      assert(not Fixture.read(outcome.err):find("waiting for it", 1, true),
+        "rebooted " .. entered .. ": waited for the rebuild lock")
+    end
+    return true
+  end)
+  local _, _ = lock:close()
+  if not held_ok then error(failure) end
+  assert(Fixture.hash(program) == before_hash,
+    "rebooted: a refusing run changed the artifact")
+end
+
 -- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
 -- does for `docs`: a `fix` the stale tool ran itself would not print it.
 local function apply_fix_marker_edit(tree: string)
   local path = tree .. "/build/fix/init.tl"
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
-    "function fix.run(argv: {integer:string}): integer",
+    "local function run(argv: {integer:string}): integer",
     { "  local _, _ = Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
@@ -406,14 +501,13 @@ end
 -- `fix` in cosmic's own tree fixes with the tree's rules and layout, so a
 -- tool older than the tree rebuilds itself before it fixes anything.
 local function test_self_rebuild_fix_verb(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-fix"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_fix_marker_edit(tree)
@@ -421,7 +515,7 @@ local function test_self_rebuild_fix_verb(tmp: string)
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
   local outcome = Fixture.call_with_environment("fix-rebuild",
     { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values,
-    rebuild_timeout_ms)
+    rebuild_timeout_ns)
   assert(outcome.result.code == 0, "fix: exit status was " ..
     tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-fix-marker")
@@ -441,21 +535,21 @@ local function test_self_rebuild_fix_verb(tmp: string)
     "fix: second invocation reported staleness though the tool is fresh")
 end
 
--- A stale cosmic that is not the tree's own tool -- one outside `o/`, as a
--- release, the bootstrap cache's or one on PATH is -- refuses rather than
+-- A stale cosmic that is not the tree's own tool (one outside `o/`, as a
+-- release, the bootstrap cache's or one on PATH is) refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
--- file. `docs` meets it in `build.reboot.stale_exit`, `test` and a file run in `build.reboot.guard`,
--- and `db` with an option it lacks in the check build/dispatch.tl makes
--- before it calls a refused command line a usage error.
+-- file. `docs` meets the refusal in `build.reboot.stale_exit`, `test` and
+-- a file run in `build.reboot.guard`, and `db` with an option it lacks in
+-- the check build/dispatch.tl makes before it calls a refused command
+-- line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-foreign"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = case_root .. "/elsewhere/cosmic"
   Fixture.mkdir(case_root .. "/elsewhere")
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)

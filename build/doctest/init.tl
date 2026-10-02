@@ -1,15 +1,15 @@
---- Turns a markdown doc's fenced code-block examples into one compiled
---- Teal source string, per doc/meta.md's grammar. The result is an
---- ordinary `kind = "test"` module's own source: `build.importer`'s
---- `collect` treats it exactly like a hand-written `_test.tl`, discovers
---- its tests through the same `build.analyzer.analyze`, and runs them
---- through the same `build.test`. Nothing here runs a test, discovers
---- one, or records a verdict -- that would be the doctest machinery of
---- its own doc/meta.md says a doc never needs.
+--- Turns a markdown doc's fenced code-block examples into one Teal
+--- source string, per doc/meta.md's grammar. The result is the source of
+--- an ordinary `kind = "test"` module: [`build.importer`]'s `collect`
+--- treats it like a hand-written `_test.tl`, discovers its tests through
+--- [`build.analyzer.analyze`] and runs them through [`build.test`]. Nothing
+--- here runs a test, discovers one, or records a verdict: doc/meta.md
+--- says a doc needs no doctest machinery of its own.
 local markdown = require("build.doctest.markdown")
 local generate = require("build.doctest.generate")
 
 local record doctest
+  type Entry = generate.Entry
 end
 
 --- @param source string the doc's own markdown text
@@ -26,7 +26,20 @@ function doctest.extract(source: string, file: string): string | nil, string
   if blocks == nil then
     return nil, block_trouble
   end
-  return generate.from_blocks(blocks, file)
+  return generate.from_blocks(blocks, file, generate.prose(source))
+end
+
+--- The examples of a doc, each as its reader copies it (skips left
+--- out): what `extract` makes into functions, before the wrapping.
+--- @param source string the doc's own markdown text
+--- @return {generate.Entry} | nil nil on a grammar error, as `extract`
+--- @return string why
+function doctest.entries(source: string): {generate.Entry} | nil, string
+  local blocks, block_trouble = markdown.parse_blocks(source)
+  if blocks == nil then
+    return nil, block_trouble
+  end
+  return generate.entries(blocks)
 end
 
 return doctest

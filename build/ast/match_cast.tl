@@ -1,43 +1,37 @@
---- Cast-position matching for `build.ast.match`'s `$X as $T` support.
+--- Cast-position matching for [`build.ast.match`]'s `$X as $T` support.
 ---
---- `$T` in type position desugars to the bare identifier `_T` -- a
---- valid Teal type name -- so the compiled pattern's own `casttype` is
---- a NOMINAL type spelled like a capture, indistinguishable from a
---- real one-word type name (`Foo`) except by that spelling.
---- `capture_name` tells the two apart; `match` binds the WHOLE
---- candidate `cast` node for a capture (so a later `$T:PATTERN`
---- predicate, or a rewrite item, can reach the site's rendered type
---- text) and otherwise compares two casts' rendered type text for
---- equality -- the only type-aware comparison this feature makes.
----
---- Operates entirely on already-parsed nodes and type payloads.
+--- `$T` in type position desugars to the identifier `_T`, a valid Teal
+--- type name, so the compiled pattern's `casttype` is a nominal type
+--- that only its spelling tells from a real one-word type name (`Foo`).
+--- [`capture_name`] tells the two apart. For a capture, `match` binds the
+--- whole candidate `cast` node, so a `$T:PATTERN` predicate or a
+--- rewrite item can reach the site's rendered type text. Otherwise it
+--- compares the two casts' rendered type text for equality, the only
+--- type-aware comparison this feature makes.
 local node_mod = require("build.ast.node")
 
 local type Node = node_mod.Node
 
---- Narrow a generic type/node value to a plain string-keyed view -- a
---- cast's own type payload (`casttype`) and its nested type fields
---- (`elements`, `keys`, `values`, `types`, `names`) are tl-parser
---- fields no `Node` record names, since a cast's payload is a parsed
---- TYPE, not an AST node. One cast site, reused by every read below.
+--- Narrow a generic type/node value to a string-keyed view. A cast's
+--- `casttype` and its nested type fields (`elements`, `keys`, `values`,
+--- `types`, `names`) are tl-parser fields no [`Node`] record names,
+--- since the payload is a parsed type, not an AST node.
 --- @param t any A generic type/node value
 --- @return {string: any} The same value, viewed as a string-keyed map
 local function type_view(t: any): {string: any}
   return t as {string: any} -- cast: tl-parser field this Node kind doesn't name
 end
 
---- `t`'s own array part, viewed generically for indexed reads --
---- `names` (a nominal type's dotted parts) and `types` (a union's
---- members) are plain Lua arrays on a type-view table.
+--- `t` viewed as an array: `names` (a nominal type's dotted parts) and
+--- `types` (a union's members) are plain Lua arrays on a type view.
 --- @param t any A type-view field expected to be an array
 --- @return {any} The same value, viewed as an array
 local function type_array(t: any): {any}
   return t as {any} -- cast: array view of a generic type-node field
 end
 
---- Is `t` (a cast's `casttype`) a capture in TYPE position (`$T` in
---- `EXPR as $T`)? See the module doc for why a nominal type named like
---- a capture IS one.
+--- Is `t` (a cast's `casttype`) a capture in type position (`$T` in
+--- `EXPR as $T`)? A nominal type spelled like a capture is one.
 --- @param t any A parsed type node (a cast's `casttype`), or nil
 --- @return string|nil The capture name (`_T`), or nil when `t` is not one
 local function capture_name(t: any): string | nil
@@ -59,16 +53,13 @@ local function capture_name(t: any): string | nil
   return nil
 end
 
---- Render a parsed Teal TYPE back to source-shaped text, for comparing
---- a cast site's actual type against a pattern's literal type text.
---- Handles the shapes `--find` patterns need to write -- primitive
---- names, dotted nominals, arrays, maps, unions -- and falls back to
---- the type's own `typename` for anything else (a function type, a
---- tuple): not a full type-to-string, but honest, and sufficient for
---- rendered-text EQUALITY, the only comparison this feature makes.
---- Building the text from the parsed type's own structure rather than
---- source tokens means `{string: any}` and `{string:any}` are already
---- the same rendering, with no separate whitespace pass.
+--- Render a parsed Teal type as source-shaped text, to compare a cast
+--- site's type with a pattern's literal type text. Handles primitive
+--- names, dotted nominals, arrays, maps and unions; any other type
+--- (a function, a tuple) renders as its `typename`. That suffices for
+--- equality, but it is not a full type-to-string. The text comes from
+--- the parsed structure, so `{string: any}` and `{string:any}` render
+--- alike.
 --- @param t any A parsed type node (a cast's `casttype`), or nil
 --- @return string The type's source-shaped text (`""` for nil)
 local function render(t: any): string
@@ -99,9 +90,9 @@ local function render(t: any): string
   return tostring(tn)
 end
 
---- Match one pattern `cast` node against one candidate `cast` node --
---- `build.ast.match`'s own `match_value` calls this once it has
---- confirmed both sides carry `kind == "cast"`.
+--- Match a pattern `cast` node against a candidate `cast` node.
+--- [`build.ast.match`]'s `match_value` calls this once both sides have
+--- `kind == "cast"`.
 --- @param pv {any: any} The pattern's own `cast` node
 --- @param nv {any: any} The candidate `cast` node
 --- @param caps {string: Node} Capture bindings accumulated so far

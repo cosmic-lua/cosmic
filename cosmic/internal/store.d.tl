@@ -21,19 +21,21 @@ local record store
 
   --- One module's compiled bytes, for a caller that must load the chunk
   --- in an environment of its own.
-  bytecode: function(path: string): string | nil, string
+  bytecode: function(name: string): string | nil, string
 
   --- One entry of the meta table, which is where the build records what
-  --- it decided. Nil when no database holds that key.
+  --- it decided. Nil when no database holds that key; under a hold, a
+  --- key outside its `meta_keys` is answered only by a database attached
+  --- since it went up, and raises where none of those holds it.
   meta: function(key: string): string | nil
 
   --- One module's Teal source, or a declaration's, from the binary's own
   --- database and no other: what a checker building another tree needs
   --- to type a `require` of this one's modules.
-  source: function(path: string): string | nil, string
+  source: function(name: string): string | nil, string
 
   --- Every database `require` searches, in search order, each as a
-  --- borrowed `cosmic.sqlite` handle that reads only and never closes
+  --- borrowed [`cosmic.sqlite`] handle that reads only and never closes
   --- the connection under it.
   databases: function(): {sqlite.Handle}
 
@@ -59,8 +61,22 @@ local record store
   --- the set holds as keys, saying why of a module with the first text
   --- and why of `databases` with the second; raises when one is up
   --- already. While it is up, the searcher, `bytecode`, `source` and
-  --- `requires` answer none of those names, and `databases` raises.
-  hold: function(names: {string:boolean}, why: string, why_databases: string)
+  --- `requires` answer none of those names, and `databases` raises;
+  --- `meta` of a key the set `meta_keys` does not hold searches only the
+  --- databases attached since, raising with `why_meta` when none of
+  --- those answers.
+  hold: function(names: {string:boolean}, why: string, why_databases: string,
+                 meta_keys: {string:boolean}, why_meta: string)
+
+  --- Private: holds every process this one starts from now on, and each
+  --- one those start, as `hold` holds this one, before its main module
+  --- loads: on every module and declaration its own database holds but
+  --- those `value` names -- the module's path, a space, the `meta` keys
+  --- it lets through joined by commas, then each module name, each after
+  --- a space. The hold travels in each environment
+  --- the core starts a process with, in place of any it is given; raises
+  --- when one is set already.
+  hold_children: function(value: string)
 
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.

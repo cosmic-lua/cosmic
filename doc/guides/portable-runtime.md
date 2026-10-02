@@ -34,7 +34,7 @@ The `sanitized` step adds one configuration-2 core for the build host. That
 checked core is a test artifact, not a fourth shipped target.
 
 The `boot` step runs the new host core in bridge mode. It loads the bridge,
-`core/bridge.lua`, and the vendored Teal compiler from the staged tree, then calls
+[`core/bridge.lua`], and the vendored Teal compiler from the staged tree, then calls
 [`build.boot`](../../build/boot.tl). This is the path that works when no older
 Cosmic executable exists.
 
@@ -50,7 +50,7 @@ compiles the staged tree. [`build.writer`](../../build/writer.tl) projects the
 result into `o/cosmic.db`, a fresh host-neutral database. The projection has a
 smaller schema, deterministic insertion order, natural keys, and no working
 history. In cosmic's own tree, the database the tool carries is
-`o/carried.db`, which `writer.carried` derives from the projection by leaving
+`o/carried.db`, which [`writer.carried`] derives from the projection by leaving
 out the tree's own tests and examples, and every row about one, and every
 docs, uses and examples row but the public standard library's (and the doc
 rows the error catalog's guidance joins to).
@@ -71,7 +71,6 @@ local Store = require("cosmic.store")
 
 assert(Store.meta("compiler") ~= nil)
 assert(Store.meta("runtime_basis") ~= nil)
-assert(Store.meta("projected") ~= nil)
 print("projection identities: present")
 ```
 
@@ -92,7 +91,7 @@ core, and renders launcher arms with
 the exact bytes, and writes one fixed-size manifest entry per target and
 configuration. Unused manifest space is zero.
 
-`artifact.program` appends a projected database and fixed trailer to the shared
+[`artifact.program`] appends a projected database and fixed trailer to the shared
 prefix:
 
 The regions appear in this order; their sizes are not to scale:
@@ -112,7 +111,7 @@ unique. The database must begin with the SQLite header.
 runtime trusts a range.
 
 The running build receives a private capability for its validated artifact.
-`build.artifact.trusted_prefix` reads the reusable prefix through that
+[`build.artifact.trusted_prefix`] reads the reusable prefix through that
 capability and never reopens the executable pathname. This tested example
 observes the prefix's shell header and manifest marker:
 
@@ -211,13 +210,19 @@ name the violated contract, close adopted descriptors, and exit before the
 module store opens.
 
 A running program can start itself again without its launcher.
-`Proc.relaunch` describes the exact process: the physical core it is running,
+[`Proc.relaunch`] describes the exact process: the physical core it is running,
 `--artifact` with its logical path, its retained artifact descriptor and a new
 descriptor on its core, and the private contract naming both, filled from the
 manifest entry startup already validated. The child's startup checks that
 contract like any other, so a relaunch cannot land on a different core: a
 checked build relaunches as a checked build, and `cosmic test` workers run
 under the runtime identity their verdicts are recorded for.
+
+Lua never reads through the retained artifact descriptor: every binding that
+takes a descriptor refuses it ([`core/check.h`]'s `cosmic_checkfd`), as does an
+open that reaches it through `/proc/<pid>/fd` or `/dev/fd`, and `spawn` hands
+it on only as its child's artifact descriptor, as [`Proc.relaunch`] does, and
+only from a process that may still run its own core.
 
 ## expose one immutable database
 
@@ -244,8 +249,8 @@ compiles the project into the project's `o/cosmic.db`. The projection copies
 needed standard-library modules, then adds project modules, files, and a main
 entry.
 
-The output database contains no raw cores. `embed.tree` obtains the exact
-retained prefix and calls `artifact.program` for each application. Applications
+The output database contains no raw cores. [`embed.tree`] obtains the exact
+retained prefix and calls [`artifact.program`] for each application. Applications
 built together share launcher, core, and manifest bytes while their database
 suffixes differ. Output appears only after the complete database and program
 are written. A library tree with no `cmd/<name>/main.tl` produces no executable.
@@ -272,7 +277,7 @@ reuse the validated prefix. The rebuild projects a new database, combines it
 with that prefix, atomically replaces the logical artifact, and re-executes the
 original arguments and environment once.
 
-The logical artifact is the path returned by `Proc.executable()`. Running a
+The logical artifact is the path returned by [`Proc.executable()`]. Running a
 copy outside the checkout rewrites that copy; it does not redirect the rebuild
 to `o/bin/cosmic`. A read-only logical path therefore fails. Rename and unlink
 remain supported because the running process reads the retained descriptor.
@@ -286,11 +291,13 @@ rebuild finish after the starting artifact is renamed or unlinked.
 
 ## test identity and transport
 
-[`build.test`](../../build/test.tl) keys a verdict by the compiled test, runtime
-identity, and supported observations. Those observations include file contents,
-stat results, directory listings, and environment reads. A test that spawns a
-process, or reads outside the tree beyond its temporary directories, is not
-answered from a stored verdict. An unchanged application database cannot hide a
+[`build.test`](../../build/test.tl) keys a verdict by what the test declares,
+before it runs ([`build/declared_key.tl`](../../build/declared_key.tl)): its
+import closure, the inputs its [`Test.needs`] names and their contents and
+values, the core and runtime identity, and the host. Sandboxed, where the
+kernel allows it, a worker sees only those inputs, so a test that reads what it
+does not declare fails rather than standing on a verdict; a test that reaches
+the network beyond loopback has no key and runs every time. An unchanged application database cannot hide a
 changed core or runtime basis. Verdict and coverage history live only in
 `o/build.db` and are bounded.
 
@@ -310,7 +317,7 @@ divide the runtime contract into observable boundaries:
 - `identity_test.tl` moves one working database through release and
   checked contexts and proves which verdicts run or stand.
 - the pinned CI driver's own snapshot and boundary checks
-  (`ci/cosmic_ci/orchestration.tl`) snapshot the raw working database
+  ([`ci/cosmic_ci/orchestration.tl`]) snapshot the raw working database
   immediately and across a workflow boundary. Integrity checks use
   disposable copies, so inspection cannot recover or alter captured bytes.
 
@@ -319,8 +326,9 @@ the release product independently on Linux x86-64, Linux ARM64, macOS ARM64, and
 Alpine x86-64 -- the last running as a job container on an Ubuntu runner,
 building and testing natively on musl/BusyBox like every other leg. In a full
 run (merge queue, main, or a manual run) every matrix leg runs the runtime
-fixtures, identity proof, and delayed database boundaries; the Linux x86-64 leg
-also runs the checked core's suite. Each producer records the product hash
+fixtures, identity proof, and delayed database boundaries, and a job of its
+own on the Linux x86-64 leg's host runs the checked core's suite beside them.
+Each producer records the product hash
 before and after execution; the provenance join requires all four uploaded
 `cosmic` files to match those attestations and each other.
 
@@ -407,3 +415,14 @@ print("manifest: names the running core")
 ```output
 manifest: names the running core
 ```
+
+[`artifact.program`]: ../../build/artifact.tl
+[`build.artifact.trusted_prefix`]: ../../build/artifact.tl
+[`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
+[`core/bridge.lua`]: ../../core/bridge.lua
+[`core/check.h`]: ../../core/check.h
+[`embed.tree`]: ../../build/embed.tl
+[`Proc.executable()`]: ../../cosmic/proc.tl
+[`Proc.relaunch`]: ../../cosmic/proc.tl
+[`Test.needs`]: ../../cosmic/test.tl
+[`writer.carried`]: ../../build/writer.tl

@@ -1,0 +1,10 @@
+file: tl.tl
+note: the record simulate_g builds for `_G` had no file or position, so an error about it -- `local n: integer = _G`, which is_a reports at the type it refuses -- failed Err_at's assertions instead of being reported. Give it the place `_G` is read at, as a_type gives every other type the place it is made at
+--- find
+            if node.tk == "_G" then
+               t, node.attribute = self:simulate_g()
+--- replace
+            if node.tk == "_G" then
+               t, node.attribute = self:simulate_g()
+               t.f, t.x, t.y = node.f, node.x, node.y
+--- end

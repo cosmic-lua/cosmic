@@ -3,9 +3,8 @@
 local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 
---- `relaunch` lives in the raw process table, under the reserved
---- `cosmic.internal.` namespace -- see cosmic/store.tl for
---- why.
+-- `relaunch` lives in the raw process table, under the reserved
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
 local type raw_process = require("cosmic.internal.process")
 
 local extra: any = select(2, ...)
@@ -17,19 +16,32 @@ else
 end
 
 local record Proc
+  --- What [`Proc.exec`] reads.
+  record ExecOptions
+    --- The program's whole environment, by name: it replaces this
+    --- process's rather than adding to it. Nil inherits this process's.
+    env: {string:string}
+  end
+
   --- How to start this same program again: the executable and the
   --- arguments that must lead its command line, the environment entries
   --- to add, and the descriptors to hand the child (see
-  --- `Child.Options.fds`).
+  --- [`Child.Options.fds`]).
   record Relaunch
+    --- The executable and the arguments that lead the command line.
     argv: {string}
+    --- Entries to add to the child's environment.
     env: {string:string}
+    --- Descriptors to hand the child, as [`Child.Options.fds`] takes them.
     fds: {integer:integer}
+    --- The working directory this process started in, for the child's
+    --- [`Child.Options.cwd`]; nil where it could not be read then.
+    cwd: string
   end
 end
 
---- The descriptors a relaunched child sees its artifact and core as:
---- high, so they stay clear of any a caller hands it.
+-- The descriptors a relaunched child sees its artifact and core as:
+-- high, so they stay clear of any a caller hands it.
 local ARTIFACT_FD <const> = 254
 local CORE_FD <const> = 255
 
@@ -68,16 +80,16 @@ end
 --- private startup contract its launcher would give it, so the child
 --- skips the launcher and cannot land on another core -- a checked build
 --- relaunches as a checked build. A host program is executed again as it
---- is, since it has no launcher to skip. Append the child's own arguments to
---- `argv`, add `env` to its environment, and pass `fds` to
---- `Child.start`. Nil for a process not started from a portable
---- artifact; `Proc.executable` is the way to start that one again.
+--- is: `argv` is just its path, and `env` and `fds` are empty. Append the
+--- child's own arguments to `argv`, add `env` to its environment, and pass
+--- `fds` to [`Child.start`]. Returns nil and why when this process has no
+--- artifact to start again, or its executable or core cannot be reopened.
 function Proc.relaunch(): Proc.Relaunch | nil, string
   if relaunch ~= nil then return relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
   if found.host then
-    relaunch = { argv = { found.path }, env = {}, fds = {} }
+    relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
     return relaunch, ""
   end
   -- One core descriptor serves every relaunch; it is closed on exec, so
@@ -86,16 +98,17 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
     argv = { found.path, "--artifact", assert(found.artifact) },
     env = assert(found.environment),
     fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
+    cwd = found.cwd,
   }
   return relaunch, ""
 end
 
---- The search list `find` uses when PATH is unset, as execvp does.
+-- The search list `find` uses when PATH is unset, as execvp does.
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 
 --- Where the program `name` would run from, found as a shell (or `which`,
---- or `command -v`) finds it:
---- `name` itself when it holds a slash, else the first executable file
+--- or `command -v`) finds it: `name` itself when it holds a slash, else
+--- the first executable file
 --- of that name in `path` -- a colon-separated list, PATH's value by
 --- default -- where an empty entry is the working directory. A relative
 --- entry gives a relative answer, as a shell's would. Nothing runnable
@@ -103,7 +116,7 @@ local DEFAULT_PATH <const> = "/bin:/usr/bin"
 --- executable (a shell's 127 and 126). An empty name raises.
 function Proc.find(name: string, path?: string): string | nil, string
   if name == "" then
-    error("Proc.find: the name is empty", 2)
+    error("proc: find's name is empty", 2)
   end
   if name:find("/", 1, true) ~= nil then
     return name, ""
@@ -134,15 +147,17 @@ function Proc.is_tty(fd: integer): boolean
   return sys.isatty(fd)
 end
 
---- Replaces this process with another program. This is lower-level than
---- os.execute: it does not invoke a shell, wait for a child, or return command
---- status. There is no io.popen stream API. On success the process keeps the
---- same process id,
---- the given arguments with the program's own name first, and the
---- given environment. It returns only when it fails.
-function Proc.exec(path: string, argv: {string},
-                   environment: {string:string}): boolean, string
-  local _, trouble = sys.execve(path, argv, environment)
+--- Replaces this process with the program `argv[1]` names, run with
+--- `argv` -- its first element the path, and the program's own name --
+--- and `opts.env` as its whole environment, by default this process's
+--- own; the process id stays the same. As [`Child.start`] takes
+--- `argv` and `opts.env`. No shell is involved, and no `PATH` is
+--- searched. It returns only when it fails.
+function Proc.exec(argv: {string}, opts?: Proc.ExecOptions): boolean, string
+  local path = argv[1]
+  if path == nil then error("proc: argv is empty", 2) end
+  local environment = opts ~= nil and opts.env or nil
+  local _, trouble = sys.execve(path, argv, environment or sys.environ())
   return false, path .. ": " .. trouble
 end
 

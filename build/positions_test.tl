@@ -1,6 +1,6 @@
 local positions = require("build.positions")
 
---- A module record for `positions.check`: `file` decides its path and
+--- A module record for [`positions.check`]: `file` decides its path and
 --- kind the way the importer's `inputs` view does, and `requires` is
 --- what it imports.
 local function module_at(file: string, requires: {string}): positions.Module
@@ -15,7 +15,7 @@ local function module_at(file: string, requires: {string}): positions.Module
   }
 end
 
---- `positions.check` over `files` (each file and what it requires), in a
+--- [`positions.check`] over `files` (each file and what it requires), in a
 --- project tree or in cosmic's own.
 local function positioned(files: {{string}}, own_tree: boolean): boolean, string
   local modules: {positions.Module} = {}
@@ -57,7 +57,7 @@ local function test_position_closes_a_nested_directory_without_an_entry()
 end
 
 --- A top-level directory with no `init.tl` is a namespace of flat
---- modules, each public, the way `cosmic/fs.tl` is `cosmic.fs`; so is
+--- modules, each public, the way [`cosmic/fs.tl`] is [`cosmic.fs`]; so is
 --- the entry of a directory inside one.
 local function test_position_opens_a_top_level_namespace()
   local ok, trouble = positioned({

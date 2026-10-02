@@ -75,7 +75,17 @@ local function test_classes_and_fields_carry_their_prose()
   assert(by_symbol["O_RDONLY"].text == "open for reading", by_symbol["O_RDONLY"].text)
   local module = by_symbol[""].text
   assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
-    "and on macOS. Derived from core/syscalls.h.", module)
+    "and on macOS.", module)
+end
+
+--- The table is documented under the name every caller gives it,
+--- `local sys = require("cosmic.sys")`, so `cosmic docs sys.open` and
+--- the module page say [`sys.open`], as a caller writes it.
+local function test_the_table_is_documented_as_sys()
+  local source = assert(gen_syscalls.declaration(header))
+  assert(source:find("\nlocal record sys\n", 1, true), source)
+  assert(source:find("\nreturn sys\n", 1, true), source)
+  assert(not source:find("record syscalls", 1, true), source)
 end
 
 --- The generated source names, for each declaration, its line in the
@@ -174,5 +184,46 @@ local function test_constants_are_held_to_their_class()
   for _, case in ipairs(cases) do
     local read, trouble = gen_syscalls.read(with(case.entries))
     assert(read == nil and trouble:find(case.refusal, 1, true), trouble)
+  end
+end
+
+--- A `userdata` class is a userdata record: its `fun(...)` fields are
+--- methods, written without spaces as a field's type is one word, and
+--- one named `__*` a metamethod. A class of any other parent is refused.
+local function test_a_userdata_class_declares_methods_and_metamethods()
+  local function with(class: string): string
+    return lines({
+      "/*",
+      " * --- A thing that owns something.",
+      " * ---@class " .. class,
+      " * ---@field fd fun(self:Owner):integer what it owns",
+      " * ---@field close fun(self:Owner):boolean,string,integer lets it go",
+      " * ---@field __close fun(self:Owner) lets it go, quietly",
+      " */",
+      "",
+      "/*",
+      " * --- Makes one.",
+      " * ---@return Owner|nil owner the one made, or nil on failure",
+      " * ---@return string error what went wrong",
+      " * ---@return integer errno the error number",
+      " */",
+      "COSMIC_SYSCALL(make, 0);",
+    })
+  end
+  local source = assert(gen_syscalls.declaration(with("Owner: userdata")))
+  for _, want in ipairs({
+    "  record Owner\n    userdata\n",
+    "    fd: function(self: Owner): integer\n",
+    "    close: function(self: Owner): boolean, string, integer\n",
+    "    metamethod __close: function(self: Owner)\n",
+    "  make: function(): Owner | nil, string, integer\n",
+  }) do
+    assert(source:find(want, 1, true), want .. " missing from:\n" .. source)
+  end
+  local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  for _, class in ipairs({ "Owner: table", "Owner userdata" }) do
+    local refused, why = gen_syscalls.read(with(class))
+    assert(refused == nil and why:find("a parent other than userdata", 1, true), class .. ": " .. why)
   end
 end

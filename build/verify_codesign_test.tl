@@ -1,16 +1,10 @@
---- `build/verify_codesign.tl` on any host: the skip everywhere but
+--- [`build/verify_codesign.tl`] on any host: the skip everywhere but
 --- macOS, and on macOS, over a stand-in for codesign, both of its calls
 --- and a failing one's status.
 local Fs = require("cosmic.fs")
 local VerifyCodesign = require("build.verify_codesign")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
---- The program's core, which building the stand-in codesign reads
---- (`build.stand_in`). The stand-in reads none of the environment it
---- inherits, so a test's verdict turns on none of it.
-Test.needs{ tool = true }
 
 --- A stand-in program built under `dir`, outside the PATH it searches.
 local function stand_in_under(dir: string): string
@@ -18,7 +12,7 @@ local function stand_in_under(dir: string): string
 end
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
---- arguments to `log` and exits `status`.
+--- arguments to the log it answers and exits `status`.
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
   assert(stand_in.place(probe, dir .. "/codesign",
@@ -54,8 +48,8 @@ local function test_a_codesign_ended_by_a_signal_is_128_past_it(dir: string)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 143)
 end
 
---- codesign is found on the PATH given, as the shell script found it:
---- none there, or one without execute permission, is 127.
+--- codesign is found on the PATH given: none there, or one without
+--- execute permission, is 127.
 local function test_a_codesign_not_on_path_is_127(dir: string)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 127)
   unstartable_codesign(dir, 0x1ed)
@@ -80,8 +74,8 @@ local function test_the_first_codesign_on_path_runs(dir: string)
 end
 
 local function test_main_answers_help_and_refuses_an_option()
-  -- Help wherever it is asked, and nothing verified: before, a second
-  -- word was a usage error and "-x" was taken as the binary's path.
+  -- Help is answered wherever it is asked, and nothing is verified: a
+  -- second word is no usage error and "-x" is not the binary's path.
   assert(VerifyCodesign.main({ [1] = "a", [2] = "--help" }) == 0)
   assert(VerifyCodesign.main({ [1] = "-h" }) == 0)
   assert(VerifyCodesign.main({ [1] = "-x" }) == 2)

@@ -1,20 +1,23 @@
---- A sandboxed test's verdict key: a digest of what the test was given
---- (`build.test_sandbox`), computed before it runs, from its declared
---- inputs alone (`build.test_inputs`), rather than of what it was seen
+--- A test's verdict key: a digest of what the test was given
+--- ([`build.test_sandbox`]), computed before it runs, from its declared
+--- inputs alone ([`build.test_inputs`]), rather than of what it was seen
 --- to read, and a verdict under it stands with no observation to replay.
+--- Every run keys so, sandboxed or not; unsandboxed, the key holds
+--- where the tree is too ([`Spec.tree`]).
 ---
 --- A sandboxed worker reads its declared inputs, and besides them what
---- every worker is given (`observations.worker_unveil`): /proc, the
---- devices every program takes for granted (/dev/null, /dev/zero,
---- /dev/urandom), the program and its core, and a store at
+--- every worker is given (build.confine's `worker_unveil`): /proc, the
+--- devices a program takes for granted (/dev/null, /dev/zero,
+--- /dev/urandom) and /dev/full, the program's core -- and the program
+--- itself only where its module declares `tool` -- and a store at
 --- o/cosmic.db, held as below -- and the system's own paths (/usr,
 --- /bin, /lib, /etc and the like) only where its module declares
 --- `system`; and it runs as whoever runs the tests, with their
 --- capabilities. The key holds the rest by the host's identity
---- (`host_identity`), the system's where the module declares `system`
---- (`system_identity`), and the runtime's, not by their contents: what
+--- ([`host_identity`]), the system's where the module declares `system`
+--- ([`system_identity`]), and the runtime's, not by their contents: what
 --- is left out is in the TODOs on each. It may not run this program
---- unless it declares `tool` (`observations.forbid_running`), which
+--- unless it declares `tool` (build.confine's `forbid_running`), which
 --- runs the tool's own modules, which no key of the test holds but
 --- o/bin's.
 ---
@@ -22,128 +25,161 @@
 ---
 --- - the test: its module's path and its name (`id`);
 --- - `version`, which names how the rest are computed;
---- - the test harness every worker runs, as the running binary carries
----   it (`harness`): each module a worker loads besides its test's
----   closure (`build.test_worker`'s `worker.loads`), the plan of its
----   sandbox's maker (`build.test`'s `harness_own`), and the code that
----   makes a key and looks a verdict up under one (`build.test`'s
+--- - the test harness's epoch (build/harness_epoch.tl), in place of
+---   the harness's own code: each module a worker loads besides its
+---   test's closure ([`build.test_worker`]'s [`worker.loads`]), the plan of
+---   its sandbox's maker ([`build.test`]'s `harness_own`), and the code
+---   that makes a key and looks a verdict up under one ([`build.test`]'s
 ---   `key_code`: build.test, and this module's closure and
----   build.shared_verdicts'), each by its source and its bytecode --
----   COSMIC_TEST_HARNESS_SALT, for a test alone, stands in for a change
----   to it;
+---   build.shared_verdicts'), none of which a key holds by what it is
+---   -- COSMIC_TEST_HARNESS_EPOCH, for a test alone, stands in for a
+---   bump -- and the timeout its worker runs under (`timeout_ns`);
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark
 ---   (`runtime`); and, where an artifact runs it (o/bin/cosmic, or a
----   portable cosmic), what runs that core (`launcher_identity`);
---- - the host it runs on (`host_identity`): its kernel and processor,
+---   portable cosmic), what runs that core ([`launcher_identity`]);
+--- - the host it runs on ([`host_identity`]): its kernel and processor,
 ---   the user and capabilities the tests run with, which /proc a
 ---   sandbox gets and what the host says of itself; and, only for a
----   module that declares `system`, or a `host` directory, which is
----   keyed by its name alone (`host`), what the host has installed
----   (`system_identity`): its packages and the system it says it is;
---- - the module's graph key (`build.positions`' `graph_key`), over its
+---   module that declares `system`, what the host has installed
+---   ([`system_identity`]): its packages and the system it says it is;
+--- - the module's graph key ([`build.positions`]' `graph_key`), over its
 ---   import graph's kinds and sources, the standard library's included;
---- - the compiler's identity (`build.work`'s `Identities`), as the
+--- - the compiler's identity ([`build.identity`]'s `Identities`), as the
 ---   running tool names it, only where the module's import closure holds
 ---   a module that reads it (`compiler_readers`), which a worker's
----   `Store.meta` answers from the tool's own database --
+---   [`Store.meta`] answers from the tool's own database --
 ---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
 ---   compiler of another identity that makes the same bytecode;
---- - the declaration itself, as `test_inputs.canonical` spells it;
+--- - the declaration itself, as [`test_inputs.canonical`] spells it;
 --- - the contents of every input it declares or is given by default:
 ---   each file of its import closure; each path of the tree it `reads`
 ---   and the fuzz corpora, a file by its contents and a directory by
 ---   its listing and every entry's contents beneath it; o/bin when it
 ---   declares `tool`, each program in it -- and the program that runs
----   it (`program_identity`) -- by its image and the rows it carries,
+---   it ([`program_identity`]) -- by its image and the rows it carries,
 ---   but for those every edit of the tree moves (`program`); the
 ---   projection, o/cosmic.db, when it declares `store`, and else the
 ---   address of the store of its closure it is given there in the
 ---   projection's place; and each `host` path -- one a variable names
 ---   (`$NAME/path`) by that spelling and by all it holds, as a path of
 ---   the tree is, not by where the variable says it is;
---- - the environment its worker is given (`test_sandbox.environment`):
+--- - the environment its worker is given ([`test_sandbox.environment`]):
 ---   the pinned variables and the declared ones, all of them for `"*"`
 ---   -- a value where a variable a `host` path names says, or beneath
----   it, by that variable's name.
+---   it, by that variable's name;
+--- - where the tree is, only for a worker no sandbox gives it at /tree
+---   ([`Spec`]'s `tree`).
 ---
 --- The compiler is held by what it made, not by its identity. Its
 --- identity digests every module a compile or a parse runs to decide
---- what it stores (`build.work`'s `compiler_identity`), most of whose
+--- what it stores ([`build.identity`]'s `compiler_identity`), most of whose
 --- edits change nothing it makes (a refactor, a comment, a faster
 --- path): holding it would run every test again for an edit to any of
 --- them. What a worker runs of the
 --- compiler's making is the bytecode of its closure's modules, which
---- its store holds by address (`build.closure_store`'s `address`,
---- over each module's bytecode and the rows a store carries of it) or
---- the projection by its contents, and the harness's -- cosmic's own
---- main, which every worker runs first, among it -- which `harness`
---- holds by bytecode; the compiler Teal itself compiles to
---- (`vendor.tl`) is carried beside build.teal, the one module that
+--- its store holds, keyed by its bytes ([`store_digest`]; the store
+--- carries each module's bytecode and the rows it has of it) as the
+--- projection is by its contents; the compiler Teal itself compiles
+--- to (`vendor.tl`) is carried beside build.teal, the one module that
 --- loads it, by its bytecode too. Whether a module compiles at all is
 --- no verdict of a test: a build that refuses one runs none. So what a
---- worker runs of the tree is keyed exactly when it is of its closure
---- or of the harness, and `build.test_worker`'s `judge` fails a test
---- whose worker loaded a module the tool carries that is of neither --
---- a top-level require added to build.test_worker, a lazy one a worker
---- reaches -- naming it. The harness is what a worker loads, not
---- every module its modules require: a `local type` require is erased
---- by Teal and loads nothing, and what an imported type does at run
---- time (an `is` against a record's `where`, an enum's membership) is
---- compiled into the importer's bytecode, which `harness` holds.
+--- worker runs of the tree is keyed exactly when it is of its closure,
+--- and else stands under the epoch as the rest of the harness does;
+--- [`build.test_worker`]'s `judge` fails a test whose worker loaded a
+--- module the tool carries that is of neither its closure nor the
+--- harness -- a top-level require added to build.test_worker, a lazy
+--- one a worker reaches -- naming it, so the harness's digest
+--- ([`build.test`]'s `harness`) is over all a worker runs. The harness
+--- is what a worker loads, not every module its modules require: a
+--- `local type` require is erased by Teal and loads nothing, and what
+--- an imported type does at run time (an `is` against a record's
+--- `where`, an enum's membership) is compiled into the importer's
+--- bytecode.
 ---
---- The code that computes a key is held too, by its source and
---- bytecode as the rest of the harness is: a version of it that maps a
+--- The harness -- what a worker loads, the sandbox's maker, and the
+--- code that computes a key -- is held by the epoch rather than by its
+--- source, so an edit to it, a comment's or a doc's, runs no test
+--- again that does not import it. The epoch is bumped by hand for one
+--- that can alter a pass or a fail: a version of this code that maps a
 --- test's inputs to the key another version computes for other inputs
---- -- a digest that misses a rewrite of the same size and times -- keeps
---- its verdict under that key, in o/build.db and in the verdicts every
---- checkout shares, where it would stand after the fix. So each version
---- of build.test, of this module and what it requires, and of
---- build.shared_verdicts keys apart, and any edit to one of them, a
---- comment's or a doc's too, runs every sandboxed test again: holding
---- it by what Lua runs of it instead would take a walk of Lua's dump
---- format by hand, more code to trust where a mistake leaves wrong
---- verdicts standing. That holds what build.test decides of a
---- worker's holds as well -- the names of the tree's modules and
---- declarations a `require` or a lookup in the store refuses -- which
---- it hands a worker and no other part of a key names. It would be
---- unsound to read the compiler's identity by any means but
---- `Store.meta`'s `compiler` and `compiled_by`, held as above.
+--- -- a digest that misses a rewrite of the same size and times --
+--- keeps its verdict under that key, in o/build.db and in the verdicts
+--- every checkout shares, where it would stand after the fix unless
+--- the epoch moves with it; so, too, does a pass a test earned through
+--- a hole in its sandbox, where a fix that tightens a hold or a bind
+--- moves no other part of its key. build/harness_epoch_test.tl holds the
+--- harness's digest, over each of its modules' source and bytecode, to the one
+--- build/harness_epoch.tl acknowledges, so no edit to it lands without
+--- that choice made, and CI's merge queue runs every test for a change
+--- that makes it. That holds what build.test decides of a worker's
+--- holds as well -- the names of the tree's modules and declarations a
+--- `require` or a lookup in the store refuses -- which it hands a
+--- worker and no other part of a key names. It would be unsound to
+--- read the compiler's identity by any means but [`Store.meta`]'s
+--- `compiler` and `compiled_by`.
 ---
 --- The host caches it declares are not: they are content-addressed,
---- and never change a result (`build.caches`). Nor are the variables
---- the runner adds to start a worker at all (`Proc.relaunch`'s, and
+--- and never change a result ([`build.caches`]). Nor are the variables
+--- the runner adds to start a worker at all ([`Proc.relaunch`]'s, and
 --- COSMIC_COVERAGE_STARTUP): they name where the core is and which
 --- descriptors it is handed, which the runtime identity holds already,
 --- and would name where this host keeps its cache in every key. A test
---- that declares `network` beyond loopback hosts has no key that holds
---- what it reached, and always runs; nor does one that reads a declared
---- directory holding a link that leads out of the tree, which a sandbox
---- follows to what the key would not hold.
+--- that reads a declared directory holding a link that leads out of the
+--- tree has no key, and always runs: a sandbox follows the link to what
+--- the key would not hold. One that declares `network` names loopback
+--- addresses alone ([`cosmic.test`]), which its worker's own loopback
+--- answers offline: they are keyed with the declaration.
 ---
---- Nothing in a key names where the tree is -- a path of it is keyed by
---- its name there, and a variable's value, each of its `:`-separated
---- parts, by `observations.tree_name` -- so another checkout of the same
---- content reaches the same key, and a verdict is shared by it alone
---- (`build.shared_verdicts`).
+--- Nothing in a sandboxed key names where the tree is -- a path of it
+--- is keyed by its name there, and a variable's value, each of its
+--- `:`-separated parts, by `tree_name` -- so another checkout of the
+--- same content reaches the same key, and a verdict is shared by it
+--- alone ([`build.shared_verdicts`]). A worker no sandbox holds sees the
+--- tree where it is, not at /tree, so its key holds that path too
+--- ([`Spec`]'s `tree`): it shares only with a checkout at the same path.
 ---
 --- Files are hashed once a run, and a file whose `lstat` says the same
---- as when a run last hashed it is not read at all: `Digests` remembers
+--- as when a run last hashed it is not read at all: [`Digests`] remembers
 --- each hash by what `lstat` said of the file, its change time included,
 --- and o/build.db keeps them from run to run.
 
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local core_image = require("build.core_image")
+local hashing = require("build.digest")
+local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 
+-- Hashed and spelled through build.digest and build.key_parts, and
+-- timed through the binding, not cosmic.hash, cosmic.codec or
+-- cosmic.time: a key's value turns on no library module outside the
+-- harness (build.test's `harness`).
+local hex, hex_sha256 = key_parts.hex, hashing.hex_sha256
+
+--- The realtime clock, in nanoseconds since the epoch, straight from
+--- the binding.
+local function now_ns(): integer
+  local reading, trouble = sys.clock_gettime(sys.CLOCK_REALTIME)
+  if reading == nil then error("clock_gettime(CLOCK_REALTIME): " .. trouble, 2) end
+  return reading
+end
+
+--- The monotonic clock, in nanoseconds, straight from the binding.
+local function monotonic_ns(): integer
+  local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
+  if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2) end
+  return reading
+end
+
 local record declared_key
+  --- build.key_parts', answered as this module's own.
   compiler_readers: {string}
+  reads_compiler: function(closure: {string}): boolean
 
   --- What a run knows of the files it keys, kept for the run.
   record Digests
@@ -173,84 +209,117 @@ local record declared_key
     --- What names the tests whose specs are the same but for `id`:
     --- their module's path.
     group: string
-    --- The module's `graph_key` (`build.positions`): its key less the
+    --- The module's `graph_key` ([`build.positions`]): its key less the
     --- compiler.
     module_key: string
     runtime: string
     --- The compiler's identity as the running tool's `meta` names it --
     --- its `compiler` and `compiled_by` -- where the module's closure
-    --- reads it (`reads_compiler`), and "" elsewhere.
+    --- reads it ([`reads_compiler`]), and "" elsewhere.
     compiler: string
-    --- The test harness a worker runs, as the running binary carries it
-    --- (`harness`): every worker runs it, the tree's or not.
-    harness: string
+    --- The harness's epoch (build/harness_epoch.tl), which stands for
+    --- the code every worker runs, the tree's or not, and for the code
+    --- that computes this key.
+    epoch: string
+    --- The timeout its worker runs under, in nanoseconds.
+    timeout_ns: integer
     --- The program a test that runs this program runs
-    --- (`program_identity`): o/bin/cosmic, or o/sanitized's, or a
+    --- ([`program_identity`]): o/bin/cosmic, or o/sanitized's, or a
     --- portable cosmic, whichever is running.
     program: string
-    --- The host's identity (`host_identity`), which every key holds.
+    --- The host's identity ([`host_identity`]), which every key holds.
     host: string
-    --- What the host has installed (`system_identity`), which only the
-    --- key of a module that declares `system`, or a `host` directory,
-    --- holds; nil for none.
+    --- What the host has installed ([`system_identity`]), which only the
+    --- key of a module that declares `system` holds; nil for none.
     system: string
     --- Where an artifact runs the tests (Store.meta's
     --- `runtime_context` "portable-v1": o/bin/cosmic, or a portable
-    --- cosmic), what runs its core (`launcher_identity`); nil where a
+    --- cosmic), what runs its core ([`launcher_identity`]); nil where a
     --- host program does, whose core is all there is ahead of its
     --- database.
     launcher: string
-    --- The module's declaration, as `test_inputs.canonical` spells it.
+    --- The module's declaration, as [`test_inputs.canonical`] spells it.
     declaration: string
     effective: test_inputs.Effective
     --- The environment its worker is given.
     environment: {string:string}
     --- Whether its worker may run this program though its module does
-    --- not declare `tool` (`build.test`'s `can_forbid`): o/bin is keyed
+    --- not declare `tool` ([`build.test`]'s `can_forbid`): o/bin is keyed
     --- as if it did.
     runs_tool: boolean
-    --- The address of the store of its module's import closure its
-    --- worker is given at o/cosmic.db where its module does not declare
-    --- `store` (`build.closure_store`'s `address`), or nil where it is
-    --- given the whole projection, keyed by its contents.
+    --- The digest of the bytes of the store of its module's import
+    --- closure its worker is given at o/cosmic.db where its module does
+    --- not declare `store` ([`store_digest`]), or nil where it is given
+    --- the whole projection, keyed by its contents.
     closure_store: string
+    --- Where the tree is, for a worker no sandbox gives it at /tree
+    --- ([`build.test`]'s `launch`, unsandboxed),
+    --- which sees it where it is: its verdict may turn on that path, so
+    --- it stands only in a checkout there. Nil for a sandboxed worker,
+    --- whose key names no place of the tree.
+    tree: string
   end
 
-  --- Where `host_identity` and `system_identity` look, for a test: each
+  --- Where [`host_identity`] and [`system_identity`] look, for a test: each
   --- a path, but `sysname`, `machine`, `own_proc`, whether a sandbox gets
   --- a /proc of its own, `host_id`, the value of `host_variable`,
-  --- `system_id`, the value of `system_variable`, and `uid`.
+  --- `system_id`, the value of `system_variable`, and the ids.
   record HostSources
     packages: {string}
     --- The system the host says it is, then its kernel's release and
-    --- version: `system_identity` reads the first, `host_identity` the
+    --- version: [`system_identity`] reads the first, [`host_identity`] the
     --- other two. Where it is nil, `system_sources(sysname)`.
     system: {string}
     --- The kernel `uname` names, which chooses where `system` looks
-    --- when it is nil (`system_sources`).
+    --- when it is nil ([`system_sources`]).
     sysname: string
     system_id: string
     status: string
-    cpuinfo: string
-    --- The machine whose features `cpuinfo` keys (`dispatched`).
+    --- The processor's features, as [`sys.cpu_features`] names them.
+    cpu_features: {string}
+    --- The machine whose features `cpu_features` keys (`dispatched`).
     machine: string
     own_proc: boolean
     host_id: string
     uid: integer
+    --- The group and the supplementary groups this process runs with,
+    --- as [`sys.getgid`] and [`sys.getgroups`] answer them, which a host
+    --- with no /proc/self/status (`status`) is keyed by in place of its
+    --- Gid and Groups lines.
+    gid: integer
+    groups: {integer}
+    --- The user and group a sandboxed worker runs as in place of this
+    --- process's ([`build.test_sandbox`]'s `worker_user`), nil for its
+    --- own: the key holds the worker's, which the kernel judges it by.
+    worker_uid: integer
+    worker_gid: integer
+    --- The system's paths [`system_identity`] walks, where it walks them:
+    --- by default [`confine.system_paths`], less /etc ([`walked_paths`]).
+    walked: {string}
   end
 end
+
+-- The parts of a key a worker spells too, which build.key_parts holds
+-- so a worker loads none of this module: taken here, and the compiler's
+-- readers answered as this module's own, so no caller of them moves.
+local key_part, tree_name = key_parts.key_part, key_parts.tree_name
+declared_key.compiler_readers = key_parts.compiler_readers
+declared_key.reads_compiler = key_parts.reads_compiler
 
 --- What every key begins with, which names how its parts are computed:
 --- bumped by hand for a fix to how one is computed by code no key
 --- holds by its code -- the build's, which computes a module's graph
---- key (`build.importer`) -- which would otherwise leave standing a
+--- key ([`build.importer`]) -- which would otherwise leave standing a
 --- verdict kept under a key computed wrong. A change to this code moves
---- every key by itself: it is held by its source and bytecode (above).
-local version <const> = "declared-3"
+--- no key by itself: one that can alter a verdict bumps the harness's
+--- epoch (build/harness_epoch.tl), which every key holds (above).
+--- build/declared_key_pins_test.tl pins that graph key over a fixed
+--- tree, and fails, naming this, when an edit moves it.
+local version <const> = "declared-4"
 
 --- A file modified this recently may be modified again within the same
 --- timestamp tick, which `lstat` would not tell: hashed again rather
---- than remembered, as `build.work` stages it.
+--- than remembered, as [`build.work`] stages it.
 local settle_ns <const> = 2 * 1000 * 1000 * 1000
 
 --- What `lstat` says of a file that its hash is remembered by: its
@@ -266,9 +335,9 @@ end
 --- A run's digests of the tree at `root`, seeded with `remembered`, what
 --- `kept` answered in an earlier run -- absolute path, what `lstat` said,
 --- sha256.
--- The build's staged hashes are not taken: its stage keeps no change
--- time, so a file rewritten in place with its modification time set
--- back would answer the hash it had before.
+--- The build's staged hashes are not taken: its stage keeps no change
+--- time, so a file rewritten in place with its modification time set
+--- back would answer the hash it had before.
 function declared_key.digests(root: string, remembered?: {{string}}): declared_key.Digests
   local hashed: {string:string} = {}
   for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end
@@ -310,8 +379,8 @@ local function contents(digests: declared_key.Digests, path: string, st: sys.Sta
   local data, _ = Fs.read(path)
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end
-  local hash = Hash.hex_sha256(data)
-  if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
+  local hash = hex_sha256(data)
+  if st.mtime * 1000000000 + st.mtime_ns < now_ns() - settle_ns then
     digests.hashed[path] = said .. "\0" .. hash
   end
   return hash
@@ -321,8 +390,11 @@ end
 --- with what the program carrying it does: `boot_hash`, a digest of
 --- every file the tool's trees hold but their tests, and
 --- `projected`, the signature of the whole projection it was written
---- from. What reads them at run time compares them with a value the
---- same binary carries, or with a tree's own fingerprint, which at test
+--- from. A tool no longer carries `projected` ([`build.writer`]'s
+--- `carried` leaves it out), but one whose database an older writer
+--- wrote still does: the first stage of a rebuild from an older tool.
+--- What reads them at run time compares them with a value the same
+--- binary carries, or with a tree's own fingerprint, which at test
 --- time is the tree the binary was built from (a stale tool rebuilds
 --- before it tests, or refuses) and in a fixture is a tree of the
 --- test's own; or names a cache entry by them, or prints them -- none
@@ -348,7 +420,7 @@ local function carried_digest(database: string): string | nil, string
   if not written then
     trouble = write_trouble
   else
-    local db, open_trouble = Sqlite.open(path, false)
+    local db, open_trouble = Sqlite.open(path)
     if db == nil then
       trouble = open_trouble
     else
@@ -391,7 +463,7 @@ local function carried_digest(database: string): string | nil, string
         end
       end
       local _, _ = db:close()
-      if trouble == "" then answer = Hash.hex_sha256(table.concat(lines, "\n")) end
+      if trouble == "" then answer = hex_sha256(table.concat(lines, "\n")) end
     end
   end
   local _, _ = Fs.remove_tree(scratch)
@@ -406,13 +478,16 @@ local function remembered(digests: declared_key.Digests, name: string, st: sys.S
                           compute: function(data: string): string): string
   local said = signature(st)
   digests.used[name] = true
-  local was = digests.hashed[name] or digests.this_run[name]
-  if was ~= nil and was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  -- This run's first: a file rewritten since an earlier run kept its
+  -- hash is taken again by what this run read, not read at every look.
+  for _, was in ipairs({ digests.this_run[name] or "", digests.hashed[name] or "" }) do
+    if was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  end
   local data, _ = Fs.read(name:match("^[^\0]*\0(.*)$"))
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end
   local hash = compute(data)
-  if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
+  if st.mtime * 1000000000 + st.mtime_ns < now_ns() - settle_ns then
     digests.hashed[name] = said .. "\0" .. hash
   else
     -- Too fresh to keep for a later run, but a program just rebuilt is
@@ -424,70 +499,145 @@ local function remembered(digests: declared_key.Digests, name: string, st: sys.S
 end
 
 --- What the regular file at `path`, which `st` describes, runs as, for
---- a key: where it is an artifact (`artifact.split`), the digest of
+--- a key: where it is an artifact ([`artifact.split`]), the digest of
 --- everything ahead of its database -- the launcher, the cores and
---- their manifest -- whether it is a host program, and the rows it
---- carries (`carried_digest`), which is all a run of it can turn on;
---- else the digest of its contents. Remembered in `digests` as a file's
+--- their manifest, each core that carries debug information by its
+--- image ([`artifact.keyed_head`]) -- whether it is a host program, and
+--- the rows it carries ([`carried_digest`]), which is all a run of it can
+--- turn on; else the digest of its contents, or of its image where it
+--- is a core that carries debug information (build.core_image), as
+--- the checked core a run extracts is. Remembered in `digests` as a file's
 --- hash is, under a name of its own.
 ---
 --- So a program rebuilt from a tree whose edit moved nothing it carries
 --- keys the same, though `tree_wide_meta` moved every byte of its
---- database's meta: `projected` moves with an edit to a test, which no
---- binary carries, though a test is no part of `boot_hash` and so
---- rebuilds no tool; a boot writes one anyway.
+--- database's meta. A tool no longer carries `projected`, which moves
+--- with an edit to a test ([`build.writer`]'s `carried`), so a boot
+--- after one writes the same bytes; `boot_hash` moves with any other
+--- file of the tree, carried or not.
 --- What reads those rows, and why none can turn a verdict:
 ---
 --- - `boot_hash`: build.reboot compares it with the fingerprint of the
----   tree a run is in -- cosmic's own tree only (`build.tree`'s
+---   tree a run is in -- cosmic's own tree only ([`build.tree`]'s
 ---   `is_own`) -- which is the running tool's own tree at test time,
 ---   since a run rebuilds a stale tool before it tests, or refuses; a
 ---   fixture's tree is a test's own, whose fingerprint matches only a
 ---   tree holding every file of the tool's trees, each of which that
 ---   test would declare, and each keyed by it. build.writer's `running`
----   and build.importer's `receivers_identity` and `running_analyzer`
----   ask the same question of the tree, or only whether there is one;
----   `analyzer_identity` and `receivers_identity` name the binary by it
----   only where it carries no source for its analyzer, which a built
+---   and build.importer's `running_analyzer` and build.compilation's
+---   `receivers_identity` ask the same question of the tree, or only
+---   whether there is one; `analyzer_identity` and `receivers_identity`
+---   name the binary by it only where it carries no source for the code
+---   they name, which a built
 ---   binary does; the value names a cache entry (build.standalone's
 ---   `cached_path`), and the bill of materials' version (build.bom),
 ---   which only moves a name; and an unsandboxed verdict's identity
 ---   (build.test's `identity_of`), which a sandboxed key is not.
 --- - `projected`: build.writer reads it from a projection it wrote, to
----   skip writing the same one again, never from a binary.
+---   skip writing the same one again, never from a binary, which carries
+---   it only when an older writer wrote its database.
 ---
---- And every sandboxed worker runs this same binary, with these same
---- rows in reach of `Store.meta`, whether its test declares `tool` or
---- not, and no key of one that does not has ever held them.
+--- And every sandboxed worker runs this same binary, whether its test
+--- declares `tool` or not; one that does not declare `store` reads
+--- through [`Store.meta`] only the rows its key holds, and `boot_hash`
+--- ([`build.test_worker`]'s `held_meta`), while one that declares it has
+--- these same rows in reach, which its key holds by the projection's
+--- contents, but for these.
+-- The names "program-v2" and "launcher-v2" version the formulas below:
+-- a change to either takes a new name, so what the old one remembered
+-- is not read.
 local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
-  return remembered(digests, "program\0" .. path, st, function(data: string): string
+  return remembered(digests, "program-v2\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
-    if split == nil then return Hash.hex_sha256("file\n" .. data) end
+    if split == nil then
+      -- A core that carries debug information, as the checked core
+      -- does, by its image (build.core_image).
+      local image = core_image.digest(data)
+      return hex_sha256(image ~= nil and ("image\n" .. image) or ("file\n" .. data))
+    end
+    -- TODO: remember this beyond one tree's o/build.db, keyed by the
+    -- program's bytes, as shared_verdicts' `stores_v1` remembers a
+    -- store's digest by its address: every fresh tree digests the whole
+    -- carried database again (~0.25 s on a 4-core host, several times
+    -- that on a loaded runner), the largest fixed cost of a `cosmic
+    -- test` a tool test starts in a checkout of its own whose tests run
+    -- the program (build.test's `program_of` spares one whose tests
+    -- none do).
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.
-    return Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
-      Hash.hex_sha256(split.head) .. "\n" .. carried) or ("unread\n" .. data))
+    return hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
+      hex_sha256(artifact.keyed_head(split.head)) .. "\n" .. carried) or ("unread\n" .. data))
   end)
+end
+
+--- The runtime identity a key holds ([`Spec.runtime`]) of the running
+--- core, whose bytes' digest in hex is `host_image` ([`Store.meta`]'s),
+--- given `raw`, the identity the binary names (`Store.meta("runtime")`),
+--- and its runtime basis `basis`: `raw` where the core is keyed by its
+--- bytes whole, as every release core is; else one of its image
+--- ([`core_image.runtime`]), as the checked core, which carries DWARF,
+--- is. Remembered in `digests` by `host_image`, so a run on a core an
+--- earlier one keyed reads none of its bytes again.
+function declared_key.runtime_identity(digests: declared_key.Digests, raw: string,
+                                       host_image: string, basis: string): string
+  local name = "runtime-image\0" .. host_image
+  digests.used[name] = true
+  local said, image: string, string = nil, nil
+  local was = digests.hashed[name]
+  if was ~= nil then said, image = was:match("^([^\0]*)\0(%x+)$") end
+  if said == nil then
+    local core, _ = artifact.trusted_core()
+    if core == nil or hex(core.digest) ~= host_image then return raw end
+    local digest = core_image.digest(core.bytes)
+    if digest == nil then
+      said, image = "whole", host_image
+    else
+      said, image = string.format("image %d %d", core.target_id, core.configuration_id),
+        hex(digest)
+    end
+    digests.hashed[name] = said .. "\0" .. image
+  end
+  local target, configuration = said:match("^image (%d+) (%d+)$")
+  if target == nil or configuration == nil then return raw end
+  return core_image.runtime(image, math.tointeger(tonumber(target)) or 0,
+    math.tointeger(tonumber(configuration)) or 0, basis)
 end
 
 --- What of the artifact at `path` runs every test of a run it starts,
 --- whether the test runs the program or not: everything ahead of its
 --- database -- the launcher that selects and checks a core, the cores
---- and their manifest -- and whether it is a host program, as a digest;
+--- and their manifest, a core that carries debug information by its
+--- image ([`artifact.keyed_head`]) -- and whether it is a host program,
+--- as a digest;
 --- its contents' where it is no artifact, "missing" where it is not a
 --- regular file. Remembered in `digests` as `program` is. The runtime
---- identity (`Spec.runtime`) holds the core a run selects, but not what
+--- identity ([`Spec.runtime`]) holds the core a run selects, but not what
 --- selected it: a key of a run an artifact starts holds this too
---- (`Spec.launcher`).
+--- ([`Spec.launcher`]).
 function declared_key.launcher_identity(digests: declared_key.Digests, path: string): string
   local st, _ = sys.stat(path)
   if st == nil or st.kind ~= "file" then return "missing" end
-  return remembered(digests, "launcher\0" .. path, st, function(data: string): string
+  return remembered(digests, "launcher-v2\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
-    if split == nil then return Hash.hex_sha256("file\n" .. data) end
-    return Hash.hex_sha256("head\n" .. tostring(split.host) .. "\n" .. split.head)
+    if split == nil then return hex_sha256("file\n" .. data) end
+    return hex_sha256("head\n" .. tostring(split.host) .. "\n" ..
+      artifact.keyed_head(split.head))
   end)
+end
+
+--- The digest of the bytes of the closure store at `path`
+--- ([`build.closure_store`]'s `write`), which a key holds as its
+--- [`Spec.closure_store`], or "missing" where it is not a regular file.
+--- Remembered in `digests` as `program` is, so a store written this
+--- run is read once however many keys hold it. A store's bytes, not its
+--- address, since the address digests the code that writes it too: an
+--- edit to that code which writes the same bytes -- a comment in
+--- build/schema.tl -- moves no key.
+function declared_key.store_digest(digests: declared_key.Digests, path: string): string
+  local st, _ = sys.stat(path)
+  if st == nil or st.kind ~= "file" then return "missing" end
+  return remembered(digests, "store\0" .. path, st, hex_sha256)
 end
 
 --- What one entry is, for its line in a key: "missing", "file" and its
@@ -562,7 +712,7 @@ end
 --- every entry beneath it, links unfollowed, in name order -- each by
 --- its name beneath `path`, what it is and what it holds; each file as
 --- a `program` where `programs` says to. A link is judged against
---- `bounds` (`leads_out`), the tree where nil.
+--- `bounds` ([`leads_out`]), the tree where nil.
 local function tree(digests: declared_key.Digests, path: string, programs?: boolean,
                     bounds?: {string}): string
   local tag = (programs and "p\0" or bounds ~= nil and "v\0" or "t\0") .. path
@@ -600,18 +750,17 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
     end
     walk(path, "", 0)
     if refused ~= nil then return "refused " .. refused end
-    return "dir " .. Hash.hex_sha256(table.concat(lines, "\n"))
+    return "dir " .. hex_sha256(table.concat(lines, "\n"))
   end)
 end
 
 --- What a path outside the tree holds, as a key keeps it: a file by its
---- contents, and anything else by what it is.
--- TODO: key a host directory by what it holds -- /usr's entries' stamps
--- take half a second to walk, every run -- once something cheaper
--- answers for it (a package database's stamp, or a digest the host
--- keeps): today a directory is keyed by its name alone, and a verdict
--- stands across an update of what it holds, as it does across one of
--- the kernel.
+--- contents, and anything else by what it is. A declared one is a file,
+--- or /proc ([`cosmic.test`]'s `host`), which every worker is given and no
+--- key could hold by what it holds: a directory is refused before any
+--- key is made ([`test_inputs.resolve`]). What the system's own
+--- directories hold, which a module that declares `system` is given, is
+--- keyed by the package database and a walk of them ([`system_identity`]).
 local function host(digests: declared_key.Digests, path: string): string
   return once(digests, "h\0" .. path, function(): string
     local _, answer = entry(digests, path, true)
@@ -620,7 +769,7 @@ local function host(digests: declared_key.Digests, path: string): string
 end
 
 --- `relative`, a path of the tree as a declaration names it, as
---- `test_inputs.plain` spells it, and where it is under the tree: ""
+--- [`test_inputs.plain`] spells it, and where it is under the tree: ""
 --- for one that names no place in it, which a sandbox does not give
 --- either.
 local function of_tree(digests: declared_key.Digests, relative: string): string, string
@@ -630,38 +779,39 @@ local function of_tree(digests: declared_key.Digests, relative: string): string,
   return plain, digests.root .. "/" .. plain
 end
 
---- The digest of what a test of `spec` is given, but for its name.
+--- The digest of what a test of `spec` is given, but for its name, or
+--- "refused " and why there is none.
 local inputs_of: function(declared_key.Digests, declared_key.Spec): string
 
 --- The key of the test `spec` describes, over what `digests` finds now,
 --- or nil and why there is none: a declared directory holds a link out
---- of the tree (`leads_out`).
+--- of the tree ([`leads_out`]).
 function declared_key.compute(digests: declared_key.Digests,
                               spec: declared_key.Spec): string | nil, string
-  local started = Time.monotonic_ns()
+  local started = monotonic_ns()
   -- All but the test's name is its module's, and the same for each of
   -- its tests: digested once, while a snapshot holds.
   local inputs = once(digests, "m\0" .. spec.group, function(): string
     return inputs_of(digests, spec)
   end)
-  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
   if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
-  return Hash.hex_sha256(version .. "\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
+  return hex_sha256(version .. "\n" .. key_part("i", spec.id, "") .. "\n" ..
     inputs), ""
 end
 
 --- A variable's value as a key holds it: each of its `:`-separated
 --- parts that is a path of the tree by its name there
---- (`observations.tree_name`), as PATH's are, and each that is where a
+--- (`tree_name`), as PATH's are, and each that is where a
 --- variable a `host` path of `effective` names says, or beneath it, by
---- that variable's name (`test_inputs.spelling`): what is there is
+--- that variable's name ([`test_inputs.spelling`]): what is there is
 --- keyed by its contents, and its place is no more an input than the
 --- tree's.
 local function held_value(value: string, root: string,
                           effective: test_inputs.Effective): string
   local parts: {string} = {}
   for part in (value .. ":"):gmatch("([^:]*):") do
-    local held = observations.tree_name(part, root)
+    local held = tree_name(part, root)
     if held == part and part:sub(1, 1) == "/" then
       held = test_inputs.spelling(effective, test_inputs.plain(part), true)
       if held == test_inputs.plain(part) then held = part end
@@ -671,19 +821,28 @@ local function held_value(value: string, root: string,
   return table.concat(parts, ":")
 end
 
---- The digest of what `spec`'s test is given, but for its name.
-inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): string
-  local part = observations.key_part
+--- What `spec`'s test is given, but for its name, as the lines whose
+--- digest its key holds (`compute`) -- each a `key_part`, which frames
+--- what it names so that no two specs spell one -- or nil and why there
+--- is none: a declared directory holds a link out of the tree
+--- ([`leads_out`]). build/declared_key_fuzz_test.tl holds distinct specs
+--- to distinct preimages, and build/declared_key_test.tl holds every
+--- field of a [`Spec`] to moving the key `compute` makes of it.
+function declared_key.preimage(digests: declared_key.Digests,
+                               spec: declared_key.Spec): string | nil, string
+  local part = key_part
   local effective = spec.effective
   local lines: {string} = {
     part("m", spec.module_key, ""),
     part("runtime", spec.runtime, ""),
     part("compiler", spec.compiler, ""),
-    part("harness", spec.harness or "", ""),
+    part("epoch", spec.epoch, ""),
+    part("timeout", tostring(spec.timeout_ns), ""),
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
   if spec.launcher ~= nil then lines[#lines + 1] = part("launcher", spec.launcher, "") end
+  if spec.tree ~= nil then lines[#lines + 1] = part("tree", spec.tree, "") end
   local files: {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)
@@ -703,17 +862,17 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     -- only what the whole tree's edits move leaves it.
     local _, bin = of_tree(digests, "o/bin")
     local answer = tree(digests, bin, true)
-    if answer:sub(1, 8) == "refused " then return answer end
+    if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
     lines[#lines + 1] = part("tool", "o/bin", answer)
     -- And what actually runs, which need not be o/bin/cosmic.
     lines[#lines + 1] = part("program", spec.program or "", "")
   end
   -- The store its worker is given at o/cosmic.db: the whole projection,
   -- by its contents, where the module declares `store`; else the store
-  -- of its closure, by its address, which is a digest of all its bytes
-  -- follow from -- so neither an edit to a module outside the closure
-  -- nor adding or removing one moves it (`build.closure_store`'s
-  -- `address`). The names of the tree's modules a worker
+  -- of its closure, by its bytes ([`store_digest`]), which neither an
+  -- edit to a module outside the closure nor adding or removing one
+  -- moves ([`build.closure_store`]'s `address`), nor an edit to the code
+  -- that writes it that writes the same bytes. The names of the tree's modules a worker
   -- refuses a `require` of are no part of it: a name there only turns
   -- such a `require` into a refusal, never into a load.
   if effective.store then
@@ -728,7 +887,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     if not seen[plain] then
       seen[plain] = true
       local answer = path ~= "" and tree(digests, path) or "outside"
-      if answer:sub(1, 8) == "refused " then return answer end
+      if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
       lines[#lines + 1] = part("r", plain, answer)
     end
   end
@@ -741,10 +900,8 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     return declared ~= nil and ("v\0" .. declared) or ("h\0" .. path)
   end
   table.sort(hosts, function(a: string, b: string): boolean return named(a) < named(b) end)
-  -- What the host has installed, for a module given the system's paths,
-  -- and for one given a directory of the host's, which `host` keys by
-  -- its name alone: the package database stands for what either holds.
-  -- /proc and /dev are no package's: every worker is given them.
+  -- What the host has installed, for a module given the system's paths:
+  -- the package database stands for what they hold.
   local installed = effective.system
   local spelled = effective.spelled or {}
   for _, path in ipairs(hosts) do
@@ -758,12 +915,10 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
         -- elsewhere.
         local real, _ = sys.realpath(path)
         local answer = tree(digests, path, false, { path, real or path })
-        if answer:sub(1, 8) == "refused " then return answer end
+        if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
         lines[#lines + 1] = part("v", declared, answer)
       else
-        local answer = host(digests, path)
-        if answer == "dir" and not observations.in_runtime(path) then installed = true end
-        lines[#lines + 1] = part("h", path, answer)
+        lines[#lines + 1] = part("h", path, host(digests, path))
       end
     end
   end
@@ -775,12 +930,18 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root,
       effective))
   end
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  return table.concat(lines, "\n"), ""
+end
+
+inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): string
+  local preimage, why = declared_key.preimage(digests, spec)
+  if preimage == nil then return "refused " .. why end
+  return hex_sha256(preimage)
 end
 
 --- The processor's features a core running on `machine` chooses code
---- by, which is all a key holds of what /proc/cpuinfo lists:
---- `host_identity` says which code reads each, and
+--- by, which is all a key holds of what [`sys.cpu_features`] answers:
+--- [`host_identity`] says which code reads each, and
 --- build/dispatched_features_test.tl holds the vendored sites to this.
 --- A machine not named here, whose cores no audit has read, keys its
 --- whole list.
@@ -807,17 +968,13 @@ function declared_key.dispatched(machine?: string): {string}
   return sorted
 end
 
---- The processor's features `cpuinfo` (/proc/cpuinfo by default) lists
---- -- "flags" on x86, "Features" on arm -- each once, in byte order,
+--- The processor's features as `listed` names them -- this processor's
+--- own ([`sys.cpu_features`]) by default -- each once, in byte order,
 --- less those a core on `machine` (this host's, by default) chooses no
 --- code by (`dispatched`).
-local function features(cpuinfo?: string, machine?: string): {string}
-  local text, _ = Fs.read(cpuinfo or "/proc/cpuinfo")
+local function features(listed?: {string}, machine?: string): {string}
   local seen: {string:boolean} = {}
-  for line in (text or ""):gmatch("[^\n]+") do
-    local listed = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
-    for flag in (listed or ""):gmatch("%S+") do seen[flag] = true end
-  end
+  for _, flag in ipairs(listed or sys.cpu_features()) do seen[flag] = true end
   if machine == nil then
     local names, _ = sys.uname()
     machine = names ~= nil and names.machine or nil
@@ -838,8 +995,8 @@ local package_databases: {string} = {
   "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/rpm/Packages",
 }
 
---- Where `host_identity` and `system_identity` read the system the
---- host says it is, and its kernel's release and version (`HostSources`'
+--- Where [`host_identity`] and [`system_identity`] read the system the
+--- host says it is, and its kernel's release and version ([`HostSources`]'
 --- `system`).
 local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osrelease",
   "/proc/sys/kernel/version" }
@@ -859,9 +1016,9 @@ local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osreleas
 local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.plist",
   "/System/Library/CoreServices/SystemVersion.plist", "" }
 
---- Where `host_identity`, `system_identity` and `host_features` read
+--- Where [`host_identity`], [`system_identity`] and [`host_features`] read
 --- the system the host says it is and its kernel's release and version
---- (`HostSources`' `system`) on a host whose kernel `uname` names
+--- ([`HostSources`]' `system`) on a host whose kernel `uname` names
 --- `sysname`: `darwin_system` on "Darwin", and /etc/os-release and
 --- /proc's elsewhere.
 function declared_key.system_sources(sysname: string): {string}
@@ -872,7 +1029,7 @@ function declared_key.system_sources(sysname: string): {string}
 end
 
 --- `from`'s `system`, or, where it names none, this host's, or the one
---- whose kernel its `sysname` names (`system_sources`).
+--- whose kernel its `sysname` names ([`system_sources`]).
 local function system_of(from: declared_key.HostSources): {string}
   if from.system ~= nil then return from.system end
   local sysname = from.sysname
@@ -883,18 +1040,18 @@ local function system_of(from: declared_key.HostSources): {string}
   return declared_key.system_sources(sysname)
 end
 
---- The variable a host names more of itself in than `host_identity`
+--- The variable a host names more of itself in than [`host_identity`]
 --- finds there: CI's legs, the container they run in -- its image, the
 --- seccomp profile and options it is started with, the container
 --- engine's version -- which no file inside it tells.
 local host_variable <const> = "COSMIC_HOST_ID"
 
 --- The variable a host names what it has installed in beyond what
---- `system_identity` finds in its files: on macOS, where there is no
+--- [`system_identity`] finds in its files: on macOS, where there is no
 --- package database, what the sealed system volume does not hold --
 --- Xcode and its command line tools, whose shims /usr/bin's git, make
 --- and cc are, and /opt/homebrew and /usr/local -- as CI's macOS leg
---- names its runner image there. Only `system_identity` reads it, so
+--- names its runner image there. Only [`system_identity`] reads it, so
 --- only a module given the system's paths is keyed by it.
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
@@ -908,53 +1065,51 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 ---   what a sandbox is (namespaces, Landlock's ABI, whether a procfs may
 ---   be mounted), are the kernel's;
 --- - its name and machine (`uname`): the core a run selects;
---- - the processor's features a core chooses code by (/proc/cpuinfo's
----   flags, each once, `dispatched`);
+--- - the processor's features a core chooses code by
+---   ([`sys.cpu_features`], each once, `dispatched`);
 --- - the user, groups and capabilities this process -- and so every
 ---   worker -- runs with, and whether no_new_privs and a seccomp filter
----   hold it (/proc/self/status): whether a file's permissions refuse a
+---   hold it (/proc/self/status; on macOS, which has none, the user and
+---   groups [`sys.getgid`] and [`sys.getgroups`] answer, each group
+---   once, sorted): whether a file's permissions refuse a
 ---   read, whether a sandbox may map ids or nest another, and which
----   calls a filter refuses are theirs;
+---   calls a filter refuses are theirs. A worker a root runner runs as a
+---   user of its own ([`HostSources`]' `worker_uid`) is held as that user
+---   with no supplementary group and no capability in effect, as an
+---   unprivileged runner of that user's is -- the bounding set,
+---   no_new_privs and the filter stay this process's, which the worker's
+---   are -- but apart from such a runner's worker, by the user it was
+---   dropped from, whose sandbox gave it what that user alone may read;
 --- - whether a sandbox gets a /proc of its own
----   (`observations.own_proc_given`), which a test of the sandbox
+---   ([`confine.own_proc_given`]), which a test of the sandbox
 ---   expects different things of; and
 --- - what the host says of itself besides (`host_variable`): CI names
 ---   the container's seccomp profile and engine there, which decide
 ---   what a sandbox may do, beside its image.
 ---
 --- What the host has installed -- its packages and the system it says
---- it is -- is `system_identity`'s, which only the key of a module given
+--- it is -- is [`system_identity`]'s, which only the key of a module given
 --- the system's paths holds: a worker that is not given them reads
 --- nothing of them. Worked out once a run. `sources` moves where it
 --- looks, for a test; a field it leaves nil is this host's own. Of
 --- these, what differs between runners of one CI leg -- the processor's
 --- features and the kernel -- names the leg's verdict cache too
---- (`host_features`, .github/scripts/host-features.sh): a change to how
+--- ([`host_features`], .github/scripts/host-features.sh): a change to how
 --- either is keyed changes both, and the script.
 -- TODO: key the image apart from the seccomp profile and the engine, in
--- `system_identity`, once ci.yml names them in variables of their own
+-- [`system_identity`], once ci.yml names them in variables of their own
 -- (with the verdict caches' naming, which a later change reconsiders):
 -- today COSMIC_HOST_ID holds all three, and every key holds it, so
 -- CI's legs of two images share no verdict that turns on neither.
 -- TODO: key the kernel by what a test can tell of it -- its series and
 -- the features the core probes (Landlock's ABI, whether a user
 -- namespace may mount a procfs) -- rather than its release and build
--- string whole, once the core reports what it found (a `cosmic.sys`
+-- string whole, once the core reports what it found (a [`cosmic.sys`]
 -- table of the probes' answers): today every kernel update splits
 -- every verdict, though almost none turns on it.
--- TODO: key whether a new network namespace gets IPv6 -- /proc/sys/net/ipv6
--- there at all (ipv6.disable=1 at boot), net.ipv6.conf.all.disable_ipv6
--- and net.core.devconf_inherit_init_net -- which the kernel's release
--- alone does not say: a test that declares `::1` runs offline
--- (`test_inputs.offline`), where `::1` is there or not by them. No test
--- declares `::1` today, so no verdict stands on it yet.
--- TODO: key the groups this process runs with where there is no
--- /proc/self/status (macOS), once cosmic.sys carries getgid and
--- getgroups: today a macOS key holds the uid alone, so a verdict
--- reached as a member of a group stands for a user not in it.
 function declared_key.host_identity(digests: declared_key.Digests,
                                     sources?: declared_key.HostSources): string
-  local started = Time.monotonic_ns()
+  local started = monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
   local system = system_of(from)
@@ -968,77 +1123,247 @@ function declared_key.host_identity(digests: declared_key.Digests,
   end
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
-  -- Each distinct feature once, sorted: every processor lists them.
-  -- Only those the code a test runs chooses code by (`dispatched`),
-  -- which an audit of the vendored C and the disassembled cores found:
+  -- Each distinct feature once, sorted. Only those the code a test
+  -- runs chooses code by (`dispatched`), which an audit of the vendored
+  -- C and the disassembled cores found:
   -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
   -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
   -- crc32_arm64.h (`crc32`). No Linux core links a libm that
   -- dispatches: every one, the checked core too, is static musl, and
-  -- the libm zig and musl carry chooses no code by the processor. A
-  -- checked core that linked a glibc host's libm keyed `fma`, `avx2`
-  -- and `fma4`, which chose its pow, asin, acos and atan2's variants;
-  -- none of its verdicts can stand for another core, since every key
-  -- holds the core's digest (`runtime`). Nothing else the core carries
-  -- dispatches, nor does its build, so the
-  -- processor's model and microcode, which choose no code, are not
-  -- keyed either. The whole list split GitHub's hosted runners of one
-  -- leg on flags nothing reads (avx512*, a hypervisor's bits,
-  -- md_clear), each split a verdict not shared. A vendored library that
-  -- comes to dispatch on another feature adds it to `dispatched` and to
-  -- .github/scripts/host-features.sh alike.
-  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo, from.machine), " ")
-  lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
+  -- the libm zig and musl carry chooses no code by the processor. (A
+  -- glibc host's libm would choose the variants of pow, asin, acos and
+  -- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
+  -- stand for another, since every key holds the core's digest
+  -- (`runtime`).) Nothing else the core carries dispatches, nor does
+  -- its build, so the processor's model and microcode, which choose no
+  -- code, are not keyed either. The whole list would split GitHub's
+  -- hosted runners of one leg on flags nothing reads (avx512*, a
+  -- hypervisor's bits, md_clear), and each split is a verdict not
+  -- shared. A vendored library that comes to dispatch on another
+  -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
+  -- answers (core/syscalls.c) and to .github/scripts/host-features.sh
+  -- alike.
+  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
+  local worker_uid, worker_gid = from.worker_uid, from.worker_gid
+  lines[#lines + 1] = "uid " .. tostring(worker_uid or from.uid or sys.getuid())
+  -- Dropped from the runner's user, which built its root and so gave it
+  -- what that user alone reads: apart from that user's own runner's.
+  if worker_uid ~= nil then
+    lines[#lines + 1] = "dropped from " .. tostring(from.uid or sys.getuid())
+  end
   local status, _ = Fs.read(from.status or "/proc/self/status")
   for line in (status or ""):gmatch("[^\n]+") do
     local name = line:match("^(%a+):")
-    if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
+    if worker_uid ~= nil and worker_gid ~= nil and (name == "Uid" or name == "Gid") then
+      local id = tostring(name == "Uid" and worker_uid or worker_gid)
+      lines[#lines + 1] = name .. ":\t" .. id .. "\t" .. id .. "\t" .. id .. "\t" .. id
+    elseif worker_uid ~= nil and name == "Groups" then
+      lines[#lines + 1] = "Groups:\t "
+    elseif worker_uid ~= nil and name ~= nil and name:sub(1, 3) == "Cap" and name ~= "CapBnd" then
+      lines[#lines + 1] = name .. ":\t0000000000000000"
+    elseif name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
         name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
       lines[#lines + 1] = line
     end
   end
+  if status == nil then
+    -- No /proc/self/status (macOS): the bindings answer its Gid and
+    -- Groups, each group once, sorted, since the system lists them in
+    -- an order of its own. A list that cannot be read keys apart from
+    -- every one that can.
+    local groups: {integer} = from.groups
+    local trouble: string
+    if worker_uid ~= nil then
+      groups = {}
+    elseif groups == nil then
+      groups, trouble = sys.getgroups()
+    end
+    lines[#lines + 1] = "gid " .. tostring(worker_gid or from.gid or sys.getgid())
+    if groups == nil then
+      lines[#lines + 1] = "groups unread: " .. tostring(trouble)
+    else
+      local seen: {integer:boolean} = {}
+      local sorted: {integer} = {}
+      for _, group in ipairs(groups) do
+        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end
+      end
+      table.sort(sorted)
+      local named: {string} = {}
+      for i, group in ipairs(sorted) do named[i] = tostring(group) end
+      lines[#lines + 1] = "groups " .. table.concat(named, " ")
+    end
+  end
   local own = from.own_proc
-  if own == nil then own = observations.own_proc_given() end
+  if own == nil then own = confine.own_proc_given() end
   lines[#lines + 1] = "own proc " .. tostring(own)
   local host_id = from.host_id
   if host_id == nil then host_id = sys.getenv(host_variable) or "" end
   lines[#lines + 1] = "host " .. host_id
-  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
+  return hex_sha256(table.concat(lines, "\n"))
+end
+
+--- The system's paths the walk of what is installed covers: `paths`,
+--- by default those a sandbox gives a module that declares `system`
+--- ([`confine.system_paths`]), but /etc, and any other named `etc`. /etc
+--- is the host's configuration, not what it has installed, and changes
+--- with it -- a user added (every CI leg adds one as it starts), the
+--- clock's drift saved -- so walking it would run every `system` module
+--- again on every host, every time; what of it a key needs, the system
+--- it says it is, is read by name.
+local function walked_paths(paths: {string}): {string}
+  local out: {string} = {}
+  for _, path in ipairs(paths) do
+    if path:match("[^/]+$") ~= "etc" then out[#out + 1] = path end
+  end
+  return out
+end
+
+--- What `paths` hold, by a walk of each: every file beneath it by its
+--- name, what it is, its mode, size and modification time, a link by
+--- where it leads, and a directory by its name and mode -- what a file
+--- changed by hand, or a package installed from source, moves, and
+--- that a copy of the same image or disk answers alike on every host
+--- it runs on, as the inode, device and change time, which the walk
+--- leaves out, do not: a file rewritten with its size and modification
+--- time put back is not told apart, for good, as a key of the tree
+--- holds no times at all. A directory's own size and modification
+--- time are left out too: what they say of it, its entries added,
+--- removed or renamed, its names say, and they move besides with every
+--- cache written beneath it and removed again. A path that is a link
+--- is walked no further (a merged /usr's /bin is walked as /usr/bin); a
+--- directory it cannot list is said so; an entry on another device than
+--- its path, bound there, by its name alone. Answers the digest, each
+--- directory walked with what `lstat` said of it, and the latest time
+--- one of them was modified, in nanoseconds.
+-- TODO: walk in C, as [`sys.tree_digest`] walks by stamps, once it can
+-- digest by these fields alone, leaving out the inode, device and
+-- change time: here each entry's `lstat` crosses into Lua, which takes
+-- about twice its walk (a second of /usr's 85,000 entries on an idle
+-- host), paid wherever [`remembered_walk`] cannot answer.
+local function walk_system(paths: {string}): string, {string}, integer
+  local lines: {string} = {}
+  local directories: {string} = {}
+  local latest = 0
+  local function walk(path: string, dev: integer | nil)
+    local st, trouble = sys.lstat(path)
+    if st == nil then
+      lines[#lines + 1] = path .. " missing " .. tostring(trouble)
+      return
+    end
+    if dev ~= nil and st.dev ~= dev then
+      lines[#lines + 1] = path .. " mounted"
+      return
+    end
+    if st.kind == "dir" then
+      lines[#lines + 1] = path .. " dir " .. tostring(st.mode)
+      directories[#directories + 1] = path .. "\t" .. signature(st)
+      latest = math.max(latest, st.mtime * 1000000000 + st.mtime_ns)
+    else
+      local line = path .. " " .. st.kind .. " " .. tostring(st.mode) .. " " ..
+        tostring(st.size) .. " " .. tostring(st.mtime) .. "." .. tostring(st.mtime_ns)
+      if st.kind == "link" then
+        local target, _ = sys.readlink(path)
+        line = line .. " " .. tostring(target)
+      end
+      lines[#lines + 1] = line
+      return
+    end
+    local entries, refused = sys.readdir(path)
+    if entries == nil then
+      lines[#lines + 1] = path .. " unlisted " .. tostring(refused)
+      return
+    end
+    local names: {string} = {}
+    for name in pairs(entries) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do walk(path .. "/" .. name, st.dev) end
+  end
+  for _, path in ipairs(paths) do walk(path, nil) end
+  return hex_sha256(table.concat(lines, "\n")), directories, latest
+end
+
+--- The walk of `paths` ([`walk_system`]), remembered in `digests` as a
+--- file's hash is, under a name no file has, by what `lstat` says of
+--- each directory it walked and of `packages`, the package database:
+--- answered from there while none of them moved, and walked again
+--- otherwise. A package manager, or `install`, puts each file in place
+--- by a rename, which moves its directory; a file written in place, its
+--- directory untouched, is not seen until something else moves one --
+--- a remembered walk stands on that, where a walk of every run would
+--- not, for a second and a half. A directory that moved too recently
+--- for `lstat` to tell another move apart is not remembered.
+local function remembered_walk(digests: declared_key.Digests, paths: {string},
+                               packages: string): string
+  local name = "\1walked\0" .. table.concat(paths, "\0")
+  digests.used[name] = true
+  local was = digests.hashed[name]
+  local said, hash = (was or ""):match("^([^\0]*)\0(%x+)$")
+  if said ~= nil then
+    local still = said:sub(1, #packages + 1) == packages .. "\n"
+    if still then
+      for line in said:sub(#packages + 2):gmatch("[^\n]+") do
+        local path, stamp = line:match("^(.*)\t(.*)$")
+        local st, _ = sys.lstat(path or "")
+        if st == nil or st.kind ~= "dir" or signature(st) ~= stamp then
+          still = false
+          break
+        end
+      end
+    end
+    if still then return hash end
+  end
+  local walked, directories, latest = walk_system(paths)
+  digests.read = digests.read + 1
+  if latest < now_ns() - settle_ns then
+    digests.hashed[name] = packages .. "\n" .. table.concat(directories, "\n") .. "\0" .. walked
+  else
+    digests.hashed[name] = nil
+  end
+  return walked
 end
 
 --- What the host has installed, as the key of a module given the
---- system's paths (`Test.needs`'s `system`) holds it: the database of
+--- system's paths ([`Test.needs`]'s `system`) holds it: the database of
 --- the packages it has installed (`package_databases`), by contents,
 --- where there is one, hashed only when its `lstat` moves; the system
 --- it says it is (/etc/os-release; on macOS, the system volume's
---- SystemVersion.plist, `darwin_system`); and what it names of itself
---- besides (`system_variable`). `sources` moves where it looks
---- (`packages`, `system`'s first path, `system_id`), for a test.
--- TODO: key what a package database does not say: a file under /usr,
--- /etc or /lib changed by hand or by a tool other than the package
--- manager, a package installed from source into /usr/local, and a
--- container image's own layers where no `host_variable` names the
--- image. Wants a walk of the system's paths cheap enough to take every
--- run (/usr's stamps take half a second). Nor is the clock keyed: a
--- test whose verdict turns on the date stands on one reached another
--- day, which only a forced run (CI's scheduled one) catches.
+--- SystemVersion.plist, `darwin_system`); what it names of itself
+--- besides (`system_variable`); and, with `walk`, which a run holding
+--- such a module asks for once, what the system's paths hold beneath
+--- them but /etc ([`walk_system`], remembered by [`remembered_walk`]),
+--- which a package database does not say: a file under /usr or /lib
+--- changed by hand or by a tool other than the package manager, a
+--- package installed from source into /usr/local, a container image's
+--- own layers. `sources` moves where it looks
+--- (`packages`, `system`'s first path, `system_id`, `walked`), for a
+--- test.
+---
+--- On macOS, the system's paths are the sealed system volume's, which
+--- the OS build names, and walking them adds nothing; what a
+--- developer's Mac has installed beyond it -- Xcode or its command line
+--- tools, /opt/homebrew, /usr/local -- is keyed by nothing here. CI's
+--- macOS leg names its runner image in COSMIC_SYSTEM_ID.
 -- TODO: key what a developer's Mac has installed beyond the sealed
--- system volume -- Xcode or its command line tools, /opt/homebrew,
--- /usr/local, the programs a test finds on PATH there -- where no
--- COSMIC_SYSTEM_ID names it, as CI's macOS leg names its image: wants
--- a digest of each cheap enough to take every run (Xcode's version,
--- Homebrew's installed list). Today such a Mac keys a `system` module
--- by the OS build alone, so a verdict stands across an update of them.
+-- system volume (Xcode's or its command line tools' version, a walk of
+-- /opt/homebrew and /usr/local's bin) for a module that declares
+-- `system`: since every unsandboxed run stands on declared keys (plan
+-- 4.2's PR 3), a `system` test there stands across an upgrade of any
+-- of them until a forced run, where an observed key once ran it.
+-- TODO: key the clock: a test whose verdict turns on the date stands on
+-- one reached another day, which only a forced run (CI's scheduled one)
+-- catches.
 function declared_key.system_identity(digests: declared_key.Digests,
-                                      sources?: declared_key.HostSources): string
-  local started = Time.monotonic_ns()
+                                      sources?: declared_key.HostSources, walk?: boolean): string
+  local started = monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
+  local packages = "none"
   for _, path in ipairs(from.packages or package_databases) do
     local st, _ = sys.stat(path)
     if st ~= nil and st.kind == "file" then
       lines[#lines + 1] = "packages " .. path .. " " .. contents(digests, path, st)
+      packages = path .. " " .. signature(st)
       break
     end
   end
@@ -1050,28 +1375,33 @@ function declared_key.system_identity(digests: declared_key.Digests,
   local system_id = from.system_id
   if system_id == nil then system_id = sys.getenv(system_variable) or "" end
   lines[#lines + 1] = "system " .. system_id
-  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  if walk then
+    lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
+      packages)
+  end
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
+  return hex_sha256(table.concat(lines, "\n"))
 end
 
---- What of `host_identity` differs between runners of one CI leg, as
+--- What of [`host_identity`] differs between runners of one CI leg, as
 --- the first 16 hex digits of a sha256: the processor's features, a
 --- line each (`features`), then the kernel's release and version as
 --- their files hold them, a missing one as empty -- on macOS, the
 --- system volume's SystemVersion.plist, and nothing (`darwin_system`).
 --- It is what .github/scripts/host-features.sh prints, which names a
 --- leg's verdict cache, so a run restores one whose keys its host
---- reaches. `sources` moves where it looks (`cpuinfo`, `machine`,
---- `sysname`, and `system`'s second and third paths), for a test.
+--- reaches. `sources` stands in for what it reads of this host
+--- (`cpu_features`, `machine`, `sysname`, and `system`'s second and
+--- third paths), for a test.
 function declared_key.host_features(sources?: declared_key.HostSources): string
   local from: declared_key.HostSources = sources or {}
   local system = system_of(from)
   local parts: {string} = {}
-  for _, flag in ipairs(features(from.cpuinfo, from.machine)) do
+  for _, flag in ipairs(features(from.cpu_features, from.machine)) do
     parts[#parts + 1] = flag .. "\n"
   end
   for i = 2, 3 do
-    -- None ("", macOS's version) is read as nothing, as in `host_identity`.
+    -- None ("", macOS's version) is read as nothing, as in [`host_identity`].
     local text: string = nil
     if (system[i] or "") ~= "" then
       local read, _ = Fs.read(system[i])
@@ -1079,17 +1409,15 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
     end
     parts[#parts + 1] = text or ""
   end
-  return Hash.hex_sha256(table.concat(parts)):sub(1, 16)
+  return hex_sha256(table.concat(parts)):sub(1, 16)
 end
 
---- The test harness every worker runs, as a digest: each module of
---- `names` by name and what it is, from `sources` (what each module
---- is, by name: `build.test` gives its source's hash and its
---- bytecode's, so what the compiler made of it moves it as its source
---- does), as the running binary's own database holds them. Nothing
---- they require is walked: `names` is what a worker runs, which
---- `build.test_worker`'s `judge` holds it to. A module no source
---- names is left out.
+--- A digest of the modules `names` names, each by its name and what
+--- `sources` says it is ([`build.test`]'s `harness`: its source's hash
+--- for the harness's digest, and its bytecode's hash beside it for the
+--- closure store's salt), sorted, so their order is no part of it.
+--- Nothing they require is walked. A module no source names is left
+--- out.
 function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: {string:boolean} = {}
   local lines: {string} = {}
@@ -1100,11 +1428,11 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
     end
   end
   table.sort(lines)
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  return hex_sha256(table.concat(lines, "\n"))
 end
 
 --- What this very program is, for a test that runs it: each of `paths`
---- (`observations.itself()`: the program and its core) by what it runs
+--- (build.confine's `itself()`: the program and its core) by what it runs
 --- as (`program`) -- an artifact by its image and the rows it carries,
 --- anything else by contents -- worked out only when its `lstat` moves.
 --- The stamp that says a core was verified (`.verified-<core>`) is left
@@ -1119,39 +1447,7 @@ function declared_key.program_identity(digests: declared_key.Digests, paths: {st
       "missing"
     ::continue::
   end
-  return Hash.hex_sha256(table.concat(lines, "\n"))
-end
-
---- The modules of the tree that read the compiler's identity
---- (`Store.meta`'s `compiler` or `compiled_by`), which a closure store
---- does not carry: a worker's reads of it are answered from the running
---- tool's own `meta`, so a test whose closure holds one of them is keyed
---- by the tool's (`Spec.compiler`). build/compiler_readers_test.tl fails
---- when a module of the tree reads it and is not named here.
-declared_key.compiler_readers = {
-  "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.test", "core.allocation_test", "cosmic.store_test", "doc.guides.portable-runtime",
-}
-
---- Whether an import closure, the names of its modules, holds a module
---- that reads the compiler's identity (`compiler_readers`).
-function declared_key.reads_compiler(closure: {string}): boolean
-  local readers: {string:boolean} = {}
-  for _, name in ipairs(declared_key.compiler_readers) do readers[name] = true end
-  for _, name in ipairs(closure) do
-    if readers[name] then return true end
-  end
-  return false
-end
-
---- Whether a test of `effective` has a key at all: one that reaches the
---- network does not, whatever it reached being no input a key holds --
---- but for one that declares only loopback hosts, whose worker the
---- sandbox keeps offline, where they reach nothing past it: the answer
---- is `test_inputs.offline`'s, which `build.test_sandbox`'s `plan`
---- takes too.
-function declared_key.keyable(effective: test_inputs.Effective): boolean
-  return test_inputs.offline(effective)
+  return hex_sha256(table.concat(lines, "\n"))
 end
 
 return declared_key

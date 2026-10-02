@@ -1,22 +1,21 @@
---- Proves the two groups of narrowing patch/tl adds past 06: a bare
---- variable narrows across a statement-form `assert(x, ...)`
---- (07-assert-narrows.txt), and `x.field` on a plain-variable base
---- narrows the same way a bare variable already does -- truthy read,
---- `assert`, `== nil` / `~= nil`, and the early-return shape --
---- through the fact-key mechanism 08 through 14 add. Each positive
---- case is paired with a negative one proving the narrow is dropped
---- on a write, and one proving a chained base (`a.b.field`, whose
---- base is itself a field access rather than a bare variable) is
---- never narrowed at all. Past 19: `a or b` drops a's nil
---- (20-or-drops-nil.txt); an `if` with no `else` no longer counts as
---- ending the block holding it (21); and a guard ending in `break`,
---- `goto` or `error(...)` narrows below it as one ending in `return`
---- already did (22 through 25), each with a case proving the narrow
---- stays out of code that control falling through can reach.
+--- Proves the narrowing that patch/tl adds. A bare variable narrows
+--- across a statement-form `assert(x, ...)` (07-assert-narrows.txt).
+--- `x.field` on a plain-variable base narrows as a bare variable does
+--- -- truthy read, `assert`, `== nil` / `~= nil`, and the early-return
+--- shape -- through the fact-key mechanism of 08 through 14. Each such
+--- positive case has a negative one proving a write drops the narrow,
+--- and one proving a chained base (`a.b.field`, whose base is itself a
+--- field access rather than a bare variable) is never narrowed.
+---
+--- Further: `a or b` drops a's nil (20-or-drops-nil.txt); an `if` with
+--- no `else` does not end the block holding it (21); and a guard
+--- ending in `break`, `goto` or `error(...)` narrows below it as one
+--- ending in `return` does (22 through 25), each with a case proving
+--- the narrow stays out of code that control falling through can reach.
 ---
 --- Every fixture is a single file in its own fresh subdirectory,
---- rather than several files sharing one `tmp`, because `build.
---- importer` compiles every `.tl` file it finds under a root
+--- rather than several files sharing one `tmp`, because
+--- [`build.importer`] compiles every `.tl` file it finds under a root
 --- together: two independent fixtures sharing a root would fail or
 --- pass as one unit rather than on their own.
 

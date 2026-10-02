@@ -9,14 +9,14 @@ local Test = require("cosmic.test")
 local sql = require("build.sql")
 
 --- The program's own database is read through a handle
---- (`Store.databases()`), which reads every module's rows too.
+--- ([`Store.databases()`]), which reads every module's rows too.
 Test.needs{ store = true }
 
 --- A temporary root whose o/cosmic.db holds one small table.
 local function project(): string
   local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
   assert(Fs.mkdirs(root .. "/o"))
-  local db = assert(Sqlite.open(root .. "/o/cosmic.db", true))
+  local db = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
     "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
     "(3, char(27) || '[31m' || char(127) || '\\N')"))
@@ -32,7 +32,7 @@ local function argv_of(words: {string}): {integer:string}
   return argv
 end
 
---- The database `sql.source` picks for a command line, or nil and why.
+--- The database [`sql.source`] picks for a command line, or nil and why.
 local function source(root: string, words: {string}): sql.Source | nil, string
   local parsed = assert(Flags.parse(argv_of(words), 2, { ["--db"] = true, ["--build"] = false,
     ["--store"] = false }))
@@ -50,7 +50,10 @@ end
 local function run(root: string, words: {string}): integer, Written
   local written: Written = { out = {}, err = {}, verdict = "" }
   local code = sql.run(argv_of(words), root, {
-    out = function(line: string) written.out[#written.out + 1] = line end,
+    out = function(line: string): boolean, string
+      written.out[#written.out + 1] = line
+      return true, ""
+    end,
     err = function(line: string) written.err[#written.err + 1] = line end,
     verdict = function(passed: boolean, detail: string)
       assert(written.verdict == "", "a second verdict: " .. written.verdict)

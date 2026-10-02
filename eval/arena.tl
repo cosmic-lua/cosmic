@@ -5,7 +5,7 @@
 ---     cosmic --standalone eval/arena.tl <task> <cosmic-binary> <dir>
 ---
 --- `<task>` names eval/task/<task>.md; eval/journal.md is appended to
---- it. `eval/arena` runs this on the bootstrap cosmic, as bin/vendor
+--- it. [`eval/arena`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only, and finds
 --- eval/ from this script's own path.
 local Fs = require("cosmic.fs")
@@ -13,10 +13,6 @@ local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 
 local record Arena
-end
-
-local function under(path: string, dir: string): boolean
-  return path == dir or path:sub(1, #dir + 1) == dir .. "/"
 end
 
 --- The prompt the solver is given, naming the arena's own paths.
@@ -58,7 +54,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   -- A repository that cannot be resolved is compared as it is spelled.
   local resolved_repo, _ = Fs.absolute(repo)
   local real_repo = resolved_repo or repo
-  if under(dir, eval) or under(dir, repo) then
+  if Fs.within(dir, eval) or Fs.within(dir, repo) then
     return nil, dir .. " is inside the repository; put the arena outside it"
   end
   local name = dir:match("([^/]+)$")
@@ -90,7 +86,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, ptrouble
   end
   dir = (physical == "/" and "" or physical) .. rest .. "/" .. name
-  if under(dir, real_repo) then
+  if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local made, mtrouble = Fs.mkdirs(dir:match("^(.*)/[^/]+$"))
@@ -104,7 +100,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, ptrouble
   end
   dir = (physical == "/" and "" or physical) .. "/" .. name
-  if under(dir, real_repo) then
+  if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local new, ntrouble, errno = sys.mkdir(dir)
@@ -139,7 +135,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     end
     hashes[#hashes + 1] = Hash.hex_sha256(file[2]) .. "  " .. file[1] .. "\n"
   end
-  -- The binary is 0755 whatever the umask, as `chmod 755` made it.
+  -- The binary is 0755 whatever the umask.
   local executable, etrouble = Fs.chmod(dir .. "/bin/cosmic", 0x1ed)
   if not executable then
     return nil, etrouble

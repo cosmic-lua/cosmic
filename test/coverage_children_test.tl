@@ -1,20 +1,23 @@
 --- Processes a test starts report the core's C they ran (see
---- `Coverage.children`): the core carries the directory to each process
+--- [`Coverage.children`]): the core carries the directory to each process
 --- it starts, whatever environment the program gives it, and the
 --- process never sees it. Run a level down, in a process of its own, so
 --- the directory is this test's rather than its worker's.
 
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local sandbox_skip = require("build.sandbox_skip")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
---- /proc, where a confined child's coverage is found; and the program
---- itself, which its tests start.
-Test.needs{ host = { "/proc" }, tool = true }
+--- /proc, where a confined child's coverage is found; the program
+--- itself, which its tests start; and `nests`, for the child it confines
+--- in a root of its own.
+Test.needs{ host = { "/proc" }, tool = true, nests = true }
 
 local function test_a_started_process_reports_its_c(tmp: string)
   if next(Coverage.native_lines()) == nil then return end
@@ -29,18 +32,19 @@ return function(): integer
   return 0
 end
 ]]))
-  -- TODO: start this program through `observations.program`, in this
+  -- TODO: start this program through [`this_program.program`], in this
   -- parent and in test_processes_confined_apart_report_apart's, once it
-  -- moves to `cosmic.test` (the TODO above it in
-  -- build/filesystem_observations.tl): a file run cannot reach build/,
+  -- moves to [`cosmic.test`] (the TODO above it in
+  -- build/this_program.tl): a file run cannot reach build/,
   -- so each relaunches by hand.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
+local Time = require("cosmic.time")
 return function(argv: {string}): integer
   Coverage.children(argv[1])
-  -- This program again, past its launcher, as `observations.program`
+  -- This program again, past its launcher, as `this_program.program`
   -- starts it (a file run cannot reach build/), in an empty environment
   -- but for how to start the core: only the core can carry the
   -- directory.
@@ -52,16 +56,16 @@ return function(argv: {string}): integer
   words[#words + 1] = argv[2]
   local r = assert(Child.run(words, { env = relaunch ~= nil and relaunch.env or {},
     fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
-    stderr = "capture", timeout_ms = 30000 }))
+    stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   print(assert(r.stdout):match("^(%a+)"))
   return 0
 end
 ]]))
-  local started = observations.program({ "parent.tl", reports,
+  local started = this_program.program({ "parent.tl", reports,
     tmp .. "/child/child.tl", tmp .. "/child" },
-    { env = observations.environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ms = 60000 })
+    { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
+      stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "unseen\n", "the child saw the directory: " .. tostring(r.stdout))
@@ -89,7 +93,7 @@ local function test_processes_confined_apart_report_apart(tmp: string)
   -- start -- itself alone, every Linux core being static
   -- (core/linkage_test.tl) -- and the directory it reports to.
   local reads: {string} = {}
-  for _, path in ipairs(observations.itself()) do reads[#reads + 1] = path end
+  for _, path in ipairs(confine.itself()) do reads[#reads + 1] = path end
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if Fs.exists(path) then reads[#reads + 1] = path end
   end
@@ -135,18 +139,18 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = observations.program({ "parent.tl", reports, table.concat(reads, "\n") },
-    { env = observations.environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ms = 60000 })
+  local started = this_program.program({ "parent.tl", reports, table.concat(reads, "\n") },
+    { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
+      stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local said = assert(r.stdout)
-  if said:find("^host%-proc ") then return end
-  -- A kernel that confines nothing (no user namespaces for this user, or
-  -- no Linux: ENOSYS), as the sandbox's other tests take it: a failure
-  -- only under COSMIC_SANDBOX=must.
-  if said:find("^unconfinable ") then
-    assert(Env.get("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. said)
+  -- A /proc the host's container keeps read-only, or a kernel that
+  -- confines nothing (no user namespaces for this user, or no Linux:
+  -- ENOSYS), as the sandbox's other tests take it: skipped where the
+  -- platform could confine (build.sandbox_skip).
+  if said:find("^host%-proc ") or said:find("^unconfinable ") then
+    sandbox_skip.refused("the parent could not confine its child: " .. said)
     return
   end
   assert(said == "exited 0\n", said)
@@ -161,21 +165,21 @@ end
 end
 
 --- A process reports only to a directory named by a core of its own
---- build: the variable carries the naming core's signature, and one
---- another build's core named -- or one with none, as a release before
---- the signature names it -- is passed on but never reported to, since
---- that core's lines are another build's C (bin/zig's pinned release,
---- started by a test, is such a core).
+--- build: the variable carries the naming core's signature. A directory
+--- named by another build's core, or by one that carries no signature
+--- (an older release), is passed on but never reported to, since that
+--- core's lines are another build's C (bin/zig's pinned release, started
+--- by a test, is such a core).
 local function test_a_process_of_another_build_does_not_report(tmp: string)
   if next(Coverage.native_lines()) == nil then return end
   for index, value in ipairs({ "0000000000000000:" .. tmp .. "/foreign",
       tmp .. "/unsigned" }) do
     local dir = value:match("[^:]*$")
     assert(Fs.mkdirs(dir))
-    local env = observations.environment()
+    local env = this_program.environment()
     env.COSMIC_COVERAGE_CHILDREN = value
-    local started = observations.program({ "-e", "return 0" },
-      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 60000 })
+    local started = this_program.program({ "-e", "return 0" },
+      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok, tostring(r.stderr))
     local names = assert(Fs.list(dir))

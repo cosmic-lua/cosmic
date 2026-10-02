@@ -4,13 +4,11 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local stand_in = require("build.stand_in")
-local Test = require("cosmic.test")
-
---- The program's core, which building a stand-in reads.
-Test.needs{ tool = true }
+local artifact = require("build.artifact")
 
 --- A stand-in built under `tmp`.
 local function built(tmp: string): string
@@ -20,15 +18,15 @@ end
 --- Runs `argv` to its end with only `env`, its output captured.
 local function run(argv: {string}, env?: {string:string}, input?: string): Child.Result
   return (assert(Child.run(argv, { env = env or {}, input = input, stdout = "capture",
-    stderr = "capture", timeout_ms = 30000 })))
+    stderr = "capture", timeout_ns = Time.seconds(30) })))
 end
 
 --- Waits, a little at a time, until `path` exists.
 local function await(path: string)
-  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + Time.seconds(30)
   while Fs.exists(path) ~= true do
     assert(Time.monotonic_ns() < deadline, "waited for " .. path)
-    local _, _ = sys.nanosleep(5 * 1000 * 1000)
+    local _, _ = sys.nanosleep(Time.ms(5))
   end
 end
 
@@ -117,8 +115,7 @@ local function test_the_file_verbs(tmp: string)
   assert(r.stdout == "one two\nthree\nfirst\nf\ng\nlog\npipe\nsub\n2\n1\n" .. here ..
     "\nstill here\n", r.stdout)
   assert(Fs.read(d .. "/where") == here .. "\n")
-  -- A named pipe is none of a file, a directory or a link.
-  assert(assert(Fs.stat(d .. "/pipe")).kind == "other", assert(Fs.stat(d .. "/pipe")).kind)
+  assert(assert(Fs.stat(d .. "/pipe")).kind == "fifo", assert(Fs.stat(d .. "/pipe")).kind)
   assert(assert(Fs.stat(d .. "/sub")).kind == "dir")
   -- `cat` alone copies its input to its end.
   local fed = run({ probe, "cat; print end" }, {}, "fed\nthrough")
@@ -158,7 +155,7 @@ local function test_the_signal_verbs(tmp: string)
     "; signal INT @" .. group .. "; exit 3" }, { env = {} }))
   assert(Fs.write(group .. ".writing", "-" .. tostring(grouped.pid) .. "\n"))
   assert(Fs.rename(group .. ".writing", group))
-  local grouped_ended = assert(grouped:wait(30000))
+  local grouped_ended = assert(grouped:wait(Time.seconds(30)))
   assert(grouped_ended.code == 0,
     tostring(grouped_ended.code) .. " " .. tostring(grouped_ended.signal))
 
@@ -170,14 +167,14 @@ local function test_the_signal_verbs(tmp: string)
   local started = Time.monotonic_ns()
   local other = run({ probe, "signal TERM " .. tostring(sleeper.pid) .. "; print sent" })
   assert(other.ok and other.stdout == "sent\n", tostring(other.stdout))
-  local ended = assert(sleeper:wait(30000))
+  local ended = assert(sleeper:wait(Time.seconds(30)))
   assert(ended.code == 9, tostring(ended.code) .. " " .. tostring(ended.signal))
-  assert(Time.monotonic_ns() - started < 10 * 1000 * 1000 * 1000)
+  assert(Time.monotonic_ns() - started < Time.seconds(10))
 
   -- `sleep-forever` untrapped ends of the signal itself.
   local forever = assert(Child.start({ probe, "sleep-forever" }, { env = {} }))
   assert(forever:stop(sys.SIGTERM))
-  local stopped = assert(forever:wait(30000))
+  local stopped = assert(forever:wait(Time.seconds(30)))
   assert(stopped.signal == sys.SIGTERM, tostring(stopped.code))
 end
 
@@ -188,13 +185,13 @@ local function test_it_sleeps_and_waits(tmp: string)
   local started = Time.monotonic_ns()
   local slept = run({ probe, "sleep 60; print woke" })
   assert(slept.ok and slept.stdout == "woke\n", tostring(slept.stdout))
-  assert(Time.monotonic_ns() - started >= 60 * 1000 * 1000)
+  assert(Time.monotonic_ns() - started >= Time.ms(60))
   local flag = tmp .. "/flag"
   local waiting = assert(Child.start({ probe, "write " .. tmp .. "/waiting w; wait-for " ..
     flag .. "; print seen" }, { env = {}, stdout = "capture" }))
   await(tmp .. "/waiting")
   assert(Fs.write(flag, ""))
-  local seen = assert(waiting:wait(30000))
+  local seen = assert(waiting:wait(Time.seconds(30)))
   assert(seen.ok and seen.stdout == "seen\n", tostring(seen.stdout))
 end
 
@@ -230,15 +227,13 @@ local function test_the_process_verbs(tmp: string)
   end
 end
 
---- A build that fails says why, from the process it ran in.
+--- A build that cannot be written says why.
 local function test_a_failed_build_says_why(tmp: string)
   local dir = tmp .. "/stand-in"
-  assert(Fs.mkdirs(dir .. "/cmd/broken"))
-  assert(Fs.write(dir .. "/cmd/broken/main.tl", "return function(): integer return 'x' end\n"))
+  assert(Fs.write(dir, "a file where its directory would be\n"))
   local probe, trouble = stand_in.build(dir)
   assert(probe == nil, probe)
-  assert(trouble:find("building the stand-in failed: ", 1, true), trouble)
-  assert(trouble:find("cmd/broken/main.tl", 1, true), trouble)
+  assert(trouble:find(dir, 1, true), trouble)
 end
 
 --- Commands chain as a shell's do: `&&` goes on to the next only past a
@@ -310,7 +305,7 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
     local word = how:match("(%S+)$")
     -- In no group of its own, which a wait would end with it.
     local r = assert(Child.run({ probe, how .. "; print gone on" },
-      { env = {}, process_group = false, stdout = "capture", timeout_ms = 30000 }))
+      { env = {}, process_group = false, stdout = "capture", timeout_ns = Time.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
     assert(not Fs.exists(tmp .. "/bin/done-" .. word), "it did not wait")
     assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
@@ -328,7 +323,7 @@ local function test_a_signal_to_itself_that_does_not_land_ends_it_soon(tmp: stri
   local took = Time.monotonic_ns() - started
   assert(r.code == 4 and r.stdout == "", tostring(r.code) .. " " .. tostring(r.stdout))
   assert(assert(r.stderr):find("SIGTERM sent to itself did not end it", 1, true), r.stderr)
-  assert(took >= 2 * 1000 * 1000 * 1000 and took < 20 * 1000 * 1000 * 1000, tostring(took))
+  assert(took >= Time.seconds(2) and took < Time.seconds(20), tostring(took))
   -- A trap that ends it still does.
   local trapped = run({ probe, "trap -; trap 6; signal INT" })
   assert(trapped.code == 6, tostring(trapped.code))
@@ -344,9 +339,20 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   assert(r.stdout == "SET=x\nEMPTY=\nUNSET unset\n", r.stdout)
   -- Handed one at 3, it writes there.
   local handed = assert(Child.run({ probe, "write-fd 3 to three" },
-    { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ms = 30000 }))
+    { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(handed.ok, tostring(handed.stderr))
   assert(assert(sys.pread(fd, 64, 0)) == "to three\n")
+  -- `connect` says why a unix socket file cannot be connected to.
+  local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
+  assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",
+    missing.stdout)
+  -- `connect-tcp` says why a port cannot be connected to, and refuses
+  -- a port that is none.
+  local refused = run({ probe, "connect-tcp 127.0.0.1 1" }, {})
+  assert(refused.ok and refused.stdout == "127.0.0.1:1: Connection refused\n", refused.stdout)
+  local portless = run({ probe, "connect-tcp 127.0.0.1 70000" })
+  assert(portless.code == 1 and assert(portless.stderr):find("no port 70000", 1, true),
+    tostring(portless.stderr))
   assert(sys.close(fd))
   local unnamed = run({ probe, "write-fd x y" })
   assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),
@@ -373,4 +379,30 @@ local function test_a_file_naming_it_on_its_first_line_runs_its_body(tmp: string
   assert(Fs.write(empty, "#!" .. probe .. "\n", 0x1ed))
   local ran = run({ empty })
   assert(ran.ok and ran.stdout == "", tostring(ran.stdout))
+end
+
+--- The stand-in is a host program whose main module is named under
+--- neither `build.*` nor `cosmic.*`, so it loads untrusted, as one
+--- `cosmic build --host` makes: it carries no `build.*` row at all, and
+--- does carry what the core itself requires of a program
+--- ([`cosmic.errors`]), but not [`cosmic.removed`], which only words a
+--- refusal of a removed global its probe never reaches for.
+local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
+  local parts = assert(artifact.split((assert(Fs.read(built(tmp))))))
+  assert(parts.host)
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, parts.database))
+  local db = assert(Sqlite.open(path))
+  local function one(sql: string): string
+    local rows = assert(Sqlite.text_rows(db, sql))
+    return rows[1] and rows[1][1] or ""
+  end
+  assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")
+  assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")
+  assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")
+  assert(one("SELECT count(*) FROM modules WHERE path IN " ..
+    "('cosmic.errors', 'cosmic.child')") == "2")
+  assert(one("SELECT count(*) FROM modules WHERE path = 'cosmic.removed'") == "0")
+  assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
+  assert(db:close())
 end

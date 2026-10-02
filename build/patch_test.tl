@@ -1,4 +1,4 @@
---- The patch applier (`build/patch.tl`), run on trees built here.
+--- The patch applier ([`build/patch.tl`]), run on trees built here.
 local Fs = require("cosmic.fs")
 local Patch = require("build.patch")
 local sys = require("cosmic.sys")
@@ -41,8 +41,7 @@ local function test_no_patch_directory_leaves_the_copy_pristine(dir: string)
 end
 
 --- A file keeps its permission bits, which a patched one keeps too; one
---- its owner cannot write is still written whole. (Whether anything was
---- synced is not seen here.)
+--- its owner cannot write is still written whole.
 local function test_a_copy_keeps_each_files_mode(dir: string)
   checkout(dir .. "/root", { ["run.sh"] = "echo old\n", ["plain.h"] = "x\n",
     ["fixed.h"] = "y\n" },
@@ -134,31 +133,54 @@ local function test_records_apply_in_name_order_and_only_txt_counts(dir: string)
 end
 
 --- The directory a tree is prepared into is named by its contents: the
---- applier, every vendored file and every record. Unchanged, it is found
---- again as it stands; any one changed, it is another directory.
+--- patched tree as written. Unchanged, it is found again as it stands;
+--- any byte of it changed, it is another directory.
 local function test_a_prepared_tree_is_named_by_its_contents(dir: string)
   local root = dir .. "/root"
   checkout(root, { ["a.h"] = "one\n" }, { ["01.txt"] = record("a.h", "one", "two") })
   local cache = dir .. "/cache"
-  local first = assert(Patch.prepare(root, "lib", cache, "applier"))
+  local first = assert(Patch.prepare(root, "lib", cache))
   assert(Fs.read(first .. "/a.h") == "two\n")
   -- A tree found again is not written again.
   assert(Fs.write(first .. "/marker", "kept"))
-  assert(Patch.prepare(root, "lib", cache, "applier") == first)
+  assert(Patch.prepare(root, "lib", cache) == first)
   assert(Fs.read(first .. "/marker") == "kept")
 
-  assert(Patch.prepare(root, "lib", cache, "another applier") ~= first)
   assert(Fs.write(root .. "/vendor/lib/a.h", "one\n\n"))
-  local vendored = assert(Patch.prepare(root, "lib", cache, "applier"))
+  local vendored = assert(Patch.prepare(root, "lib", cache))
   assert(vendored ~= first and Fs.read(vendored .. "/a.h") == "two\n\n")
   assert(Fs.write(root .. "/patch/lib/01.txt", record("a.h", "one", "three")))
-  local recorded = assert(Patch.prepare(root, "lib", cache, "applier"))
+  local recorded = assert(Patch.prepare(root, "lib", cache))
   assert(recorded ~= vendored and Fs.read(recorded .. "/a.h") == "three\n\n")
+  local mode = assert(sys.stat(root .. "/vendor/lib/a.h")).mode & 0x1ff
+  assert(sys.chmod(root .. "/vendor/lib/a.h", mode ~ 0x40))
+  local moded = assert(Patch.prepare(root, "lib", cache))
+  assert(moded ~= recorded, "a file's mode changed and its tree kept its name")
+  assert(sys.chmod(root .. "/vendor/lib/a.h", mode))
 
   -- Another checkout of the same tree names the same directory.
   local other = dir .. "/other"
   checkout(other, { ["a.h"] = "one\n\n" }, { ["01.txt"] = record("a.h", "one", "three") })
-  assert(Patch.prepare(other, "lib", cache, "applier") == recorded)
+  assert(Patch.prepare(other, "lib", cache) == recorded)
+end
+
+--- A tree is named by what is written, not by what writes it: records
+--- that write the same bytes -- a note reworded, a record renamed, or
+--- split in two -- name the same directory, so zig, keyed by a source's
+--- path, compiles none of it again; the applier's own source is in no
+--- key for the same reason.
+local function test_records_writing_the_same_bytes_name_the_same_tree(dir: string)
+  local root = dir .. "/root"
+  checkout(root, { ["a.h"] = "one\n" }, { ["01.txt"] = record("a.h", "one", "three") })
+  local cache = dir .. "/cache"
+  local first = assert(Patch.prepare(root, "lib", cache))
+  assert(Fs.write(root .. "/patch/lib/01.txt",
+    "file: a.h\nnote: reworded\n--- find\none\n--- replace\nthree\n--- end\n"))
+  assert(Patch.prepare(root, "lib", cache) == first, "a reworded note named another tree")
+  assert(Fs.write(root .. "/patch/lib/01.txt", record("a.h", "one", "two")))
+  assert(Fs.write(root .. "/patch/lib/02.txt", record("a.h", "two", "three")))
+  assert(Patch.prepare(root, "lib", cache) == first, "records split in two named another tree")
+  assert(#assert(Fs.list(cache)) == 2, "a tree of the same bytes was written again")
 end
 
 --- A tree whose record fails leaves nothing at its name.
@@ -166,9 +188,10 @@ local function test_a_failed_tree_leaves_nothing_behind(dir: string)
   local root = dir .. "/root"
   checkout(root, { ["a.h"] = "one\n" }, { ["01.txt"] = record("a.h", "absent", "x") })
   local cache = dir .. "/cache"
-  local made, err = Patch.prepare(root, "lib", cache, "applier")
+  local made, err = Patch.prepare(root, "lib", cache)
   assert(made == nil and err:find("found 0 matches", 1, true), err)
-  assert(#assert(Fs.list(cache)) == 0, "a failed tree left something in the cache")
+  local left, _ = Fs.list(cache)
+  assert(left == nil or #left == 0, "a failed tree left something in the cache")
 end
 
 --- Every vendored tree with a PIN, in name order.
@@ -183,7 +206,8 @@ local function test_names_are_the_pinned_trees(dir: string)
 end
 
 --- A link is not upstream source: neither it nor what it names is
---- copied, and a loop of them stops nothing. An empty directory is.
+--- copied, and a loop of them stops nothing. An empty directory is
+--- copied.
 local function test_links_are_left_out_and_empty_directories_kept(dir: string)
   checkout(dir .. "/root", { ["a.h"] = "x\n" })
   assert(Fs.write(dir .. "/outside", "not the tree's"))

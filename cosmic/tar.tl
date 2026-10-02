@@ -6,32 +6,20 @@
 --- buffers a whole archive: a body is read or written in chunks, so an
 --- archive far larger than memory streams through in bounded space.
 --- Compression, when there is any, wraps the underlying
---- `Stream.Reader`/`Stream.Writer` before it reaches this module --
---- see `cosmic.archive`.
+--- [`Stream.Reader`]/[`Stream.Writer`] before it reaches this module --
+--- see [`cosmic.archive`].
 
 local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 
 local record Tar
-  enum Kind
-    "file"
-    "dir"
-    "symlink"
-    "hardlink"
-    --- Anything else: a device, a FIFO, a GNU sparse file (typeflag
-    --- `S`, or pax `GNU.sparse.*` records), or a typeflag this module
-    --- does not know. Its body, if any, is still skipped correctly.
-    "other"
-  end
-
-  record Entry
-    path: string
-    kind: Kind
-    mode: integer
-    size: integer
-    mtime: integer
-    linkpath: string
+  --- A tar's entry: a [`Stream.ArchiveEntry`] that also says who owns it
+  --- and which typeflag its header carries.
+  record Entry is Stream.ArchiveEntry
+    --- The owner's numeric user id.
     uid: integer
+    --- The owner's numeric group id.
     gid: integer
     --- The header's typeflag byte, for telling apart what `kind`
     --- lumps together as "other".
@@ -42,21 +30,13 @@ local record Tar
     open: function(Entry): Stream.Reader | nil, string
   end
 
-  record Reader
+  record Reader is Stream.ArchiveReader
     --- The next entry, or nil and `""` once the archive's two zero
     --- blocks are reached (or the stream simply ends there). An error
     --- is sticky: every later call returns it again.
     next: function(Reader): Entry | nil, string
     --- Closes the Stream.Reader this one reads from.
     close: function(Reader): boolean, string
-  end
-
-  record EntryOptions
-    mode: integer
-    mtime: integer
-    --- Required when the body passed to `add_file` is a Stream.Reader rather
-    --- than a string, since a tar header states a size before its body.
-    size: integer
   end
 
   record WriterOptions
@@ -69,18 +49,41 @@ local record Tar
   --- Once any call fails, the underlying Stream.Writer is aborted and every
   --- later call, `close` included, returns that failure: a half-written
   --- archive is never committed. A call after `close` fails too.
-  record Writer
-    add_file: function(Writer, string, string | Stream.Reader, opts?: EntryOptions): boolean, string
-    add_dir: function(Writer, string, opts?: EntryOptions): boolean, string
-    add_symlink: function(Writer, string, string, opts?: EntryOptions): boolean, string
-    close: function(Writer): boolean, string
+  record Writer is Stream.ArchiveWriter
+    --- Adds a regular file at `path` with `data` as its body. A
+    --- [`Stream.Reader`] body needs `opts.size`, since a tar header
+    --- states a size before its body, and is read to that many bytes,
+    --- which it then requires; a string body must match `opts.size`
+    --- when that is given. A `size` that is no integer, or is negative,
+    --- raises. The reader is not closed. Returns `true, ""`, or `false`
+    --- and why.
+    add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: Stream.EntryOptions): boolean, string
+    --- Adds a directory entry at `path`, to which a trailing `/` is
+    --- added if missing. Returns `true, ""`, or `false` and why.
+    add_dir: function(self: Writer, path: string, opts?: Stream.EntryOptions): boolean, string
+    --- Adds a symbolic link at `path` pointing at `target`. Returns
+    --- `true, ""`, or `false` and why.
+    add_symlink: function(self: Writer, path: string, target: string, opts?: Stream.EntryOptions): boolean, string
+    --- Writes the archive's end blocks and closes the underlying
+    --- Stream.Writer, committing it. Returns `true, ""`, or `false` and why.
+    close: function(self: Writer): boolean, string
     --- Abandons the archive: aborts the underlying Stream.Writer.
-    abort: function(Writer): boolean, string
+    abort: function(self: Writer): boolean, string
   end
 end
 
 local BLOCK <const> = 512
-local OCTAL_11_LIMIT <const> = 1 << 33 -- 8^11, what 11 octal digits hold
+
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "tar: " .. why
+end
+
+--- The most of an entry's body read at once, as [`cosmic.stream`] reads.
+local chunk_size <const> = 1 << 16
+--- 8^11, what 11 octal digits hold.
+local OCTAL_11_LIMIT <const> = 1 << 33
 --- The largest `L`/`K`/`x`/`g` body read into memory. Real ones are a
 --- path or a handful of records; a header claiming more is refused
 --- rather than allocated.
@@ -164,24 +167,11 @@ end
 --- end of stream before any of it arrived; or nil, false, an error --
 --- including a short read that never reaches a full block.
 local function read_block_or_eof(raw: Stream.Reader): string | nil, boolean, string
-  local first, trouble = raw:read(BLOCK)
-  if first == nil then
-    if trouble ~= "" then return nil, false, trouble end
-    return nil, true, ""
-  end
-  if #first == BLOCK then return first, false, "" end
-  local parts: {string} = { first }
-  local got = #first
-  while got < BLOCK do
-    local chunk, rtrouble = raw:read(BLOCK - got)
-    if chunk == nil then
-      if rtrouble ~= "" then return nil, false, rtrouble end
-      return nil, false, "tar: truncated header block"
-    end
-    parts[#parts + 1] = chunk
-    got = got + #chunk
-  end
-  return table.concat(parts), false, ""
+  local block, trouble = Stream.read_up_to(raw, BLOCK)
+  if block == nil then return nil, false, trouble end
+  if block == "" then return nil, true, "" end
+  if #block < BLOCK then return nil, false, "tar: truncated header block" end
+  return block, false, ""
 end
 
 local function is_zero_block(block: string): boolean
@@ -196,8 +186,8 @@ end
 --- block boundary, for an `L`/`K`/`x`/`g` special entry's own body.
 local function read_special_body(raw: Stream.Reader, size: integer): string | nil, string
   if size < 0 or size > SPECIAL_BODY_LIMIT then
-    return nil, "tar: a long-name or pax header body of " .. tostring(size) ..
-      " bytes is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit"
+    return refuse("a long-name or pax header body of " .. String.counted(size, "byte") ..
+      " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit")
   end
   local data, trouble = Stream.read_exact(raw, size)
   if data == nil then return nil, trouble end
@@ -206,19 +196,24 @@ local function read_special_body(raw: Stream.Reader, size: integer): string | ni
   return data, ""
 end
 
---- A GNU `L`/`K` body: a name with trailing NULs. A NUL before the
---- end would hide the rest of the name from every system call that
---- sees it, so it is refused.
+--- The refusal of `text`, which `what` names, when it holds a NUL
+--- byte: every system call would take it as the end of the string and
+--- never see the rest. "" when it holds none.
+local function nul_refusal(text: string, what: string): string
+  if text:find("\0", 1, true) == nil then return "" end
+  return "tar: NUL byte " .. what
+end
+
+--- A GNU `L`/`K` body: a name with trailing NULs, which are dropped.
 local function long_field(data: string): string | nil, string
   local name = data:gsub("%z+$", "")
-  if name:find("\0", 1, true) ~= nil then
-    return nil, "tar: NUL byte inside a GNU long name"
-  end
+  local refusal = nul_refusal(name, "inside a GNU long name")
+  if refusal ~= "" then return nil, refusal end
   return name, ""
 end
 
 --- The `key=value` records of a pax extended header body, each
---- prefixed with its own decimal byte length. Only the keys `apply_pax`
+--- prefixed with its own decimal byte length. Only the keys [`apply_pax`]
 --- reads are kept, and every `GNU.sparse.*` key folds into one
 --- valueless `GNU.sparse.` marker, so global (`g`) headers, which last
 --- for the reader's lifetime, retain a handful of values however many
@@ -247,6 +242,7 @@ local function parse_pax(body: string): {string:string}
   return out
 end
 
+--- What a regular header says, the pax records and long names applied.
 local record Fields
   name: string
   linkname: string
@@ -254,15 +250,18 @@ local record Fields
   mtime: integer
   uid: integer
   gid: integer
+  mode: integer
+  typeflag: string
+  kind: Stream.EntryKind
+  --- Whether a pax record named a GNU sparse file, which `kind` says too.
   sparse: boolean
 end
 
 local function apply_pax(fields: {string:string}, f: Fields): boolean, string
   for key, value in pairs(fields) do
     if key == "path" or key == "linkpath" then
-      if value:find("\0", 1, true) ~= nil then
-        return false, "tar: NUL byte inside a pax " .. key
-      end
+      local refusal = nul_refusal(value, "inside a pax " .. key)
+      if refusal ~= "" then return false, refusal end
       if key == "path" then f.name = value else f.linkname = value end
     elseif key == "size" then
       local n = math.tointeger(tonumber(value))
@@ -278,12 +277,59 @@ local function apply_pax(fields: {string:string}, f: Fields): boolean, string
   return true, ""
 end
 
-local function kind_of(typeflag: string): Tar.Kind
+local function kind_of(typeflag: string): Stream.EntryKind
   if typeflag == "0" or typeflag == "\0" or typeflag == "7" then return "file" end
   if typeflag == "5" then return "dir" end
   if typeflag == "2" then return "symlink" end
   if typeflag == "1" then return "hardlink" end
   return "other"
+end
+
+--- The fields of the regular header `block`, whose checksum has been
+--- checked. `long_name` and `long_link` are those of the `L` and `K`
+--- headers before it, and the pax records of an `x` header before it
+--- (`pax_local`) and of every `g` header so far (`pax_global`) are
+--- applied over what the block says, the entry's own first. Nil and why
+--- when a field is refused.
+local function parse_header(block: string, long_name: string | nil, long_link: string | nil,
+    pax_local: {string:string} | nil, pax_global: {string:string}): Fields | nil, string
+  local name = long_name
+  if name == nil then
+    name = text_at(block, 1, 100)
+    -- A ustar prefix is only there when byte 346 is not NUL.
+    if block:byte(346) ~= 0 then name = text_at(block, 346, 155) .. "/" .. name end
+  end
+  local linkname = long_link or (block:byte(158) ~= 0 and text_at(block, 158, 100) or "")
+  local size = numeric_at(block, 125, 12)
+  if size == nil then return nil, out_of_range("size") end
+  local mtime = numeric_at(block, 137, 12)
+  if mtime == nil then return nil, out_of_range("mtime") end
+  -- An 8-byte field's 63 bits always fit, but its type says nil.
+  local uid = numeric_at(block, 109, 8)
+  if uid == nil then return nil, out_of_range("uid") end
+  local gid = numeric_at(block, 117, 8)
+  if gid == nil then return nil, out_of_range("gid") end
+  local raw_mode = numeric_at(block, 101, 8)
+  if raw_mode == nil then return nil, out_of_range("mode") end
+  local typeflag = block:sub(157, 157)
+  local f: Fields = {
+    name = name, linkname = linkname, size = size, mtime = mtime, uid = uid, gid = gid,
+    mode = raw_mode & 0xFFF, typeflag = typeflag, sparse = false,
+  }
+  if pax_local ~= nil or next(pax_global) ~= nil then
+    local ok, trouble = apply_pax(pax_global, f)
+    if ok and pax_local ~= nil then ok, trouble = apply_pax(pax_local, f) end
+    if not ok then return nil, trouble end
+  end
+  if f.size < 0 then return refuse("negative entry size") end
+  -- Its padding added, a size this near the integer limit could wrap
+  -- negative, and `next` would skip none of its body; a block below the
+  -- limit is a bound no padding crosses.
+  if f.size > math.maxinteger - BLOCK then
+    return refuse("entry size " .. tostring(f.size) .. " is too large")
+  end
+  f.kind = (typeflag == "S" or f.sparse) and "other" or kind_of(typeflag)
+  return f, ""
 end
 
 --- How much a reader asks of its underlying Reader at a time.
@@ -370,18 +416,18 @@ local body_mt: metatable<Body> = { __index = Body_methods }
 
 Body_methods.read = function(self: Body, max: integer): string | nil, string
   if self.failed then return nil, self.failed end
-  if self.closed then return nil, "tar: entry body is closed" end
+  if self.closed then return refuse("the entry body is closed") end
   local state = self.state
   if self.generation ~= state.generation then
-    return nil, "tar: entry is no longer current"
+    return refuse("entry is no longer current")
   end
   local left = self.left
   if left <= 0 then return nil, "" end
-  local want = max or (1 << 16)
+  local want = max or chunk_size
   if want > left then want = left end
   local chunk, rtrouble = state.raw:read(want)
   if chunk == nil then
-    self.failed = rtrouble ~= "" and rtrouble or "tar: unexpected end of archive"
+    self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
     return nil, self.failed
   end
   self.left = left - #chunk
@@ -416,11 +462,11 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
   local entry_mt: metatable<Tar.Entry> = {
     __index = {
       open = function(e: Tar.Entry): Stream.Reader | nil, string
-        if e ~= state.current then return nil, "tar: entry is no longer current" end
+        if e ~= state.current then return refuse("entry is no longer current") end
         -- A second `open` on the same entry would share `left` and
         -- `pending_skip` with the first and read wherever that one
         -- left off, silently -- refuse it.
-        if state.opened then return nil, "tar: entry already opened once" end
+        if state.opened then return refuse("entry already opened once") end
         state.opened = true
         local body: Body = setmetatable({
           state = state, generation = state.generation, left = state.size, closed = false,
@@ -432,7 +478,7 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
 
   tr.next = function(_self: Tar.Reader): Tar.Entry | nil, string
     if failed then return nil, failed end
-    if closed then return nil, "tar: reader is closed" end
+    if closed then return refuse("the reader is closed") end
     if ended then return nil, "" end
     state.generation = state.generation + 1
     state.current = nil
@@ -442,9 +488,9 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
     -- read failed; this says what was being done.
     if not skipped then return fail("tar: cannot skip to the next entry: " .. dtrouble) end
 
-    local long_name: string
-    local long_link: string
-    local pax_local: {string:string}
+    local long_name: string | nil
+    local long_link: string | nil
+    local pax_local: {string:string} | nil
 
     while true do
       local block, at_eof, trouble = read_block_or_eof(src)
@@ -479,62 +525,23 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
           for key, value in pairs(parse_pax(data)) do pax_global[key] = value end
         end
       else
-        local name = long_name
-        if name == nil then
-          name = text_at(block, 1, 100)
-          -- A ustar prefix is only there when byte 346 is not NUL.
-          if block:byte(346) ~= 0 then name = text_at(block, 346, 155) .. "/" .. name end
-        end
-        local linkname = long_link or (block:byte(158) ~= 0 and text_at(block, 158, 100) or "")
-        local size = numeric_at(block, 125, 12)
-        if size == nil then return fail(out_of_range("size")) end
-        local mtime = numeric_at(block, 137, 12)
-        if mtime == nil then return fail(out_of_range("mtime")) end
-        -- An 8-byte field's 63 bits always fit, but its type says nil.
-        local uid = numeric_at(block, 109, 8)
-        if uid == nil then return fail(out_of_range("uid")) end
-        local gid = numeric_at(block, 117, 8)
-        if gid == nil then return fail(out_of_range("gid")) end
-        local raw_mode = numeric_at(block, 101, 8)
-        if raw_mode == nil then return fail(out_of_range("mode")) end
-        local mode = raw_mode & 0xFFF
-        local sparse = false
-        if pax_local ~= nil or next(pax_global) ~= nil then
-          local f: Fields = {
-            name = name, linkname = linkname, size = size, mtime = mtime, uid = uid, gid = gid,
-            sparse = false,
-          }
-          local ok, ptrouble = apply_pax(pax_global, f)
-          if ok and pax_local ~= nil then ok, ptrouble = apply_pax(pax_local, f) end
-          if not ok then return fail(ptrouble) end
-          name, linkname, size, mtime, uid, gid, sparse =
-            f.name, f.linkname, f.size, f.mtime, f.uid, f.gid, f.sparse
-        end
-        if size < 0 then return fail("tar: negative entry size") end
-        -- Its padding added, a size this near the integer limit could
-        -- wrap negative, and `next` would skip none of its body; a block
-        -- below the limit is a bound no padding crosses.
-        if size > math.maxinteger - BLOCK then
-          return fail("tar: entry size " .. tostring(size) .. " is too large")
-        end
-        state.pending_skip = size + padding_of(size)
-
-        local kind = kind_of(typeflag)
-        if typeflag == "S" or sparse then kind = "other" end
+        local f, ftrouble = parse_header(block, long_name, long_link, pax_local, pax_global)
+        if f == nil then return fail(ftrouble) end
+        state.pending_skip = f.size + padding_of(f.size)
         local entry: Tar.Entry = setmetatable({
-          path = name,
-          kind = kind,
-          mode = mode,
-          size = size,
-          mtime = mtime,
-          linkpath = linkname,
-          uid = uid,
-          gid = gid,
+          path = f.name,
+          kind = f.kind,
+          mode = f.mode,
+          size = f.size,
+          mtime = f.mtime,
+          linkpath = f.linkname,
+          uid = f.uid,
+          gid = f.gid,
           typeflag = typeflag,
         }, entry_mt)
         state.current = entry
         state.opened = false
-        state.size = size
+        state.size = f.size
         return entry, ""
       end
     end
@@ -567,10 +574,9 @@ local function oct(n: integer, width: integer): string
   return string.format("%0" .. tostring(width - 1) .. "o", n) .. "\0"
 end
 
+--- The zero bytes that carry `size` bytes of data to a block boundary.
 local function pad_bytes(size: integer): string
-  local rem = size % BLOCK
-  if rem == 0 then return "" end
-  return string.rep("\0", BLOCK - rem)
+  return string.rep("\0", padding_of(size))
 end
 
 --- A path split for the ustar name/prefix fields: the rightmost `/`
@@ -595,12 +601,13 @@ local function split_ustar(path: string): string, string, boolean
   return path:sub(1, best - 1), path:sub(best + 1), true
 end
 
+--- A ustar header block. Every entry is owned by uid and gid 0 with no
+--- user or group name, as [`Tar.WriterOptions`] documents.
 local function build_header(name: string, prefix: string, typeflag: string, size: integer,
-    mode: integer, uid: integer, gid: integer, mtime: integer, linkname: string,
-    uname: string, gname: string): string
-  local block = txt(name, 100) .. oct(mode, 8) .. oct(uid, 8) .. oct(gid, 8) ..
+    mode: integer, mtime: integer, linkname: string): string
+  local block = txt(name, 100) .. oct(mode, 8) .. oct(0, 8) .. oct(0, 8) ..
     oct(size, 12) .. oct(mtime, 12) .. string.rep(" ", 8) .. typeflag ..
-    txt(linkname, 100) .. "ustar\0" .. "00" .. txt(uname, 32) .. txt(gname, 32) ..
+    txt(linkname, 100) .. "ustar\0" .. "00" .. txt("", 32) .. txt("", 32) ..
     oct(0, 8) .. oct(0, 8) .. txt(prefix, 155) .. string.rep("\0", 12)
   local checksum = string.format("%06o", header_sum(block)) .. "\0 "
   return block:sub(1, 148) .. checksum .. block:sub(157)
@@ -623,7 +630,7 @@ local function pax_header(real_name: string, records: string): string
   local base = real_name:match("([^/]+)/?$") or real_name
   local pax_name = "PaxHeaders/" .. base
   if #pax_name > 100 then pax_name = pax_name:sub(1, 100) end
-  return build_header(pax_name, "", "x", #records, 0, 0, 0, 0, "", "", "") ..
+  return build_header(pax_name, "", "x", #records, 0, 0, "") ..
     records .. pad_bytes(#records)
 end
 
@@ -631,40 +638,24 @@ end
 function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   opts = opts or {}
   local deterministic = opts.deterministic or false
-  local closed = false
-  local failed: string
+  local sink = Stream.sticky(w, "tar")
   local tw: Tar.Writer = {}
-
-  local function fail(trouble: string): boolean, string
-    if failed == nil then
-      failed = trouble ~= "" and trouble or "tar: write failed"
-      local _, _ = w:abort()
-    end
-    return false, failed
+  -- What a body is copied to: the sink, which keeps a write's failure.
+  local body_sink: Stream.Writer = {}
+  body_sink.write = function(_self: Stream.Writer, data: string): boolean, string
+    return sink:put(data)
   end
-
-  local function usable(): boolean, string
-    if failed then return false, failed end
-    if closed then return false, "tar: writer is closed" end
-    return true, ""
-  end
-
-  local function put(data: string): boolean, string
-    local ok, trouble = w:write(data)
-    if not ok then return fail(trouble) end
-    return true, ""
-  end
+  body_sink.close = function(_self: Stream.Writer): boolean, string return true, "" end
+  body_sink.abort = body_sink.close
 
   local function put_entry(path: string, typeflag: string, size: integer,
       mode: integer, mtime: integer, linkname: string): boolean, string
-    local ok, trouble = usable()
+    local ok, trouble = sink:usable()
     if not ok then return false, trouble end
-    if path:find("\0", 1, true) ~= nil or linkname:find("\0", 1, true) ~= nil then
-      return false, "tar: NUL byte in a path"
-    end
-    if size < 0 then return false, "tar: negative size" end
+    local refusal = nul_refusal(path, "in a path")
+    if refusal == "" then refusal = nul_refusal(linkname, "in a link target") end
+    if refusal ~= "" then return false, refusal end
     if deterministic then mtime = 0 end
-    local uid, gid, uname, gname = 0, 0, "", ""
     local prefix, name, fits = split_ustar(path)
     local link_fits = #linkname <= 100
     local size_fits = size < OCTAL_11_LIMIT
@@ -675,21 +666,24 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
       if not link_fits then records[#records + 1] = pax_record("linkpath", linkname) end
       if not size_fits then records[#records + 1] = pax_record("size", tostring(size)) end
       if not mtime_fits then records[#records + 1] = pax_record("mtime", tostring(mtime)) end
-      ok, trouble = put(pax_header(path, table.concat(records)))
+      ok, trouble = sink:put(pax_header(path, table.concat(records)))
       if not ok then return false, trouble end
       if not fits then prefix, name = "", path:sub(-100) end
     end
     local header_size = size_fits and size or 0
     local header_mtime = mtime_fits and mtime or (mtime < 0 and 0 or OCTAL_11_LIMIT - 1)
-    local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF, uid, gid,
-      header_mtime, linkname:sub(1, 100), uname, gname)
-    return put(header)
+    local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
+      header_mtime, linkname:sub(1, 100))
+    return sink:put(header)
   end
 
   tw.add_file = function(_self: Tar.Writer, path: string, data: string | Stream.Reader,
-      fopts?: Tar.EntryOptions): boolean, string
+      fopts?: Stream.EntryOptions): boolean, string
     fopts = fopts or {}
     local size = fopts.size
+    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
+      error("tar: opts.size must be an integer of at least 0", 2)
+    end
     if size == nil then
       if data is string then
         size = #data
@@ -703,29 +697,23 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     if not ok then return false, trouble end
     if data is string then
       if #data ~= size then
-        return fail("tar: add_file: body is " .. tostring(#data) .. " bytes, not " .. tostring(size))
+        return sink:fail("tar: add_file: body is " .. String.counted(#data, "byte") .. ", not " .. String.counted(size, "byte"))
       end
-      ok, trouble = put(data)
+      ok, trouble = sink:put(data)
       if not ok then return false, trouble end
     else
-      local written = 0
-      while written < size do
-        local want = size - written
-        if want > (1 << 16) then want = 1 << 16 end
-        local chunk, rtrouble = data:read(want)
-        if chunk == nil then
-          if rtrouble ~= "" then return fail(rtrouble) end
-          return fail("tar: add_file: reader ended before its stated size")
-        end
-        ok, trouble = put(chunk)
-        if not ok then return false, trouble end
-        written = written + #chunk
+      ok, trouble = Stream.copy_n(data, body_sink, size)
+      if not ok then
+        -- A failed write is the sink's already, said as the Writer said it.
+        local usable, failure = sink:usable()
+        if not usable then return false, failure end
+        return sink:fail("tar: add_file: " .. trouble)
       end
     end
-    return put(pad_bytes(size))
+    return sink:put(pad_bytes(size))
   end
 
-  tw.add_dir = function(_self: Tar.Writer, path: string, fopts?: Tar.EntryOptions): boolean, string
+  tw.add_dir = function(_self: Tar.Writer, path: string, fopts?: Stream.EntryOptions): boolean, string
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ed
     local mtime = fopts.mtime or 0
@@ -734,7 +722,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   end
 
   tw.add_symlink = function(_self: Tar.Writer, path: string, target: string,
-      fopts?: Tar.EntryOptions): boolean, string
+      fopts?: Stream.EntryOptions): boolean, string
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ff
     local mtime = fopts.mtime or 0
@@ -742,23 +730,11 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   end
 
   tw.close = function(_self: Tar.Writer): boolean, string
-    if failed then return false, failed end
-    if closed then return true, "" end
-    local ok, trouble = put(string.rep("\0", 2 * BLOCK))
-    closed = true
-    if not ok then return false, trouble end
-    ok, trouble = w:close()
-    if not ok then
-      failed = trouble
-      return false, trouble
-    end
-    return true, ""
+    return sink:close(string.rep("\0", 2 * BLOCK))
   end
 
   tw.abort = function(_self: Tar.Writer): boolean, string
-    if closed or failed then return true, "" end
-    closed = true
-    return w:abort()
+    return sink:abort()
   end
 
   return tw

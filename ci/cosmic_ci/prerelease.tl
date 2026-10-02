@@ -12,9 +12,12 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Plural = require("cosmic_ci.plural")
+local String = require("cosmic.string")
 
 local record Prerelease
-  --- The platform legs, in the order `sort` lists their products.
+  --- The platform legs, in the byte order of their products'
+  --- directories' names, the order `stage` expects them in.
   lanes: {string}
   --- The assets a published prerelease holds, and the order a resumed
   --- draft uploads the missing ones in.
@@ -64,8 +67,8 @@ local function substituted(text: string): string
   return (text:gsub("\n+$", ""))
 end
 
---- Whether an expected-platforms file says 4, as `test "$(cat f)" = 4`
---- held it.
+--- Whether an expected-platforms file says 4: its text, trailing newlines
+--- aside, is exactly "4", as `test "$(cat f)" = 4` would test it.
 function Prerelease.expects_four(text: string): boolean
   return substituted(text) == "4"
 end
@@ -87,8 +90,8 @@ function Prerelease.sums(digest: string): string
   return digest .. "  cosmic\n"
 end
 
---- source.json for the staged release: the object `jq -n` wrote, laid
---- out as jq lays it out, keys in byte order.
+--- source.json for the staged release: the object laid out as `jq -n`
+--- lays it out, keys in byte order.
 function Prerelease.source_json(commit: string, digest: string, run_url: string): string
   local text = assert(Json.encode({ commit = commit, digest = digest, run_url = run_url },
     { pretty = true }))
@@ -116,7 +119,7 @@ function Prerelease.source_valid(text: string, commit: string, digest: string,
   if source.digest ~= digest then return false, "source.json names another digest" end
   local run_url = source.run_url
   if not run_url is string then return false, "source.json's run_url is no string" end
-  if run_url:sub(1, #run_prefix) ~= run_prefix
+  if not String.starts_with(run_url, run_prefix)
       or not run_url:sub(#run_prefix + 1):match("^[0-9]+$") then
     return false, "source.json's run_url is not " .. run_prefix .. "<run id>"
   end
@@ -125,7 +128,7 @@ end
 
 --- The HTTP status `gh api --include` printed: the second field of the
 --- last line that begins `HTTP/<version> <digits>`, as
---- `awk '/^HTTP\/[0-9.]+ [0-9]+/ { code=$2 }'` found it. nil when no
+--- `awk '/^HTTP\/[0-9.]+ [0-9]+/ { code=$2 }'` finds it. nil when no
 --- line does, as when the request never reached the API.
 function Prerelease.http_status(output: string): string | nil
   local code: string | nil = nil
@@ -141,7 +144,7 @@ end
 --- published prerelease holds.
 function Prerelease.complete_assets(names: {string}): boolean, string
   if #names ~= #Prerelease.assets then
-    return false, "the release holds " .. #names .. " assets, not " .. #Prerelease.assets
+    return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. #Prerelease.assets
   end
   local seen: {string:boolean} = {}
   for _, name in ipairs(names) do seen[name] = true end
@@ -213,8 +216,8 @@ end
 --- notes. Raises on the first product that fails a check.
 function Prerelease.stage(s: Prerelease.Stage)
   local found = product_directories(s.products)
-  assert(#found == #Prerelease.lanes, "expected " .. #Prerelease.lanes ..
-    " product directories, found " .. #found)
+  assert(#found == #Prerelease.lanes, "expected " .. Plural.count(#Prerelease.lanes, "product directory", "product directories") ..
+    ", found " .. #found)
   for i, lane in ipairs(Prerelease.lanes) do
     assert(found[i] == "portable-product-" .. lane,
       "expected portable-product-" .. lane .. ", found " .. found[i])
@@ -257,27 +260,32 @@ function Prerelease.publish_context(env: {string:string}): Prerelease.Publish
 end
 
 --- Runs gh with `args`, stdin empty, its stderr this process's. Its
---- stdout is captured when `stdout` is "capture", else "inherit" or
---- "null". The result, whatever gh answered.
-local function gh_run(p: Prerelease.Publish, args: {string}, stdout: string): Child.Result
+--- stdout is captured when `capture`, else this process's. The result,
+--- whatever gh answered.
+local function gh_run(p: Prerelease.Publish, args: {string}, capture: boolean): Child.Result
   local argv: {string} = { p.gh }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local result, trouble = Child.run(argv, { env = p.env, stdin = "null",
-    stdout = stdout, capture_limit = capture_limit })
+  local options: Child.Options = { env = p.env, stdin = "null", capture_limit = capture_limit }
+  -- A branch for each mode, which a literal in the field's own type
+  -- names, rather than a mode chosen in a `string`: the release this
+  -- tree's tests run on takes `stdout` as a string, and the tree's own
+  -- as an enum.
+  if capture then options.stdout = "capture" else options.stdout = "inherit" end
+  local result, trouble = Child.run(argv, options)
   assert(result ~= nil, "gh " .. args[1] .. ": " .. trouble)
   assert(not result.truncated, "gh " .. args[1] .. ": output past the capture limit")
   return result
 end
 
 --- Runs gh with `args`, which must succeed; its stdout, when captured.
-local function gh(p: Prerelease.Publish, args: {string}, stdout?: string): string
-  local result = gh_run(p, args, stdout or "inherit")
+local function gh(p: Prerelease.Publish, args: {string}, capture?: boolean): string
+  local result = gh_run(p, args, capture or false)
   assert(result.ok, "gh " .. table.concat(args, " ") .. " failed")
   return result.stdout or ""
 end
 
 local function gh_object(p: Prerelease.Publish, args: {string}): {string:any}
-  local text = gh(p, args, "capture")
+  local text = gh(p, args, true)
   local value, why = Json.decode_object(text)
   assert(value ~= nil, "gh " .. table.concat(args, " ") .. ": no JSON object: " .. why)
   return value
@@ -287,7 +295,7 @@ end
 --- an HTTP 404 and nothing else. Every other failure, a transport error
 --- or another status, raises, so it can never lead to creating anything.
 local function api_probe(p: Prerelease.Publish, endpoint: string): boolean
-  local result = gh_run(p, { "api", "--include", endpoint }, "capture")
+  local result = gh_run(p, { "api", "--include", endpoint }, true)
   if result.ok then return true end
   local status = Prerelease.http_status(result.stdout or "")
   assert(status == "404", "gh api " .. endpoint .. " failed (HTTP status " ..
@@ -310,8 +318,7 @@ end
 --- The tag names the commit being published. It is resolved as a tag,
 --- through git/ref/tags/, and not by commits/<name>, which would also
 --- take a branch of that name; an annotated tag is peeled to the commit
---- it tags. A deliberate change from the shell script, which checked
---- commits/<tag>: a branch named for the tag passed it.
+--- it tags.
 local function verify_tag(p: Prerelease.Publish)
   local tag = tag_of(p)
   local ref = gh_object(p, { "api", "repos/" .. p.repository .. "/git/ref/tags/" .. tag })
@@ -345,18 +352,16 @@ local function workflows_moved(p: Prerelease.Publish): boolean
   return false
 end
 
---- The tag exists, naming the commit: made when the API says it is
---- absent. False, with nothing made, when GitHub refuses the tag as it
---- refuses a GITHUB_TOKEN, which holds no `workflows` permission, some
---- refs across a workflow change: an HTTP 403 "Resource not accessible
---- by integration" where the default branch's workflows differ from the
---- commit's. Run 36333356031's tag for 525e6f1, which itself changes
---- ci.yml, was refused once #2244, which added and deleted workflows,
---- had landed on main. GitHub documents no rule: 5d8993a was tagged
---- while main's actionlint.yml differed from its own, so a differing
---- workflow is only a necessary condition, and the skip asks no more.
---- Any other refusal raises, as does a compare that lists no workflow
---- (past its 300 files, too).
+--- Whether the tag exists, naming the commit: made when the API says it
+--- is absent. False, with nothing made, when GitHub refuses the tag as
+--- it refuses a GITHUB_TOKEN, which holds no `workflows` permission,
+--- some refs across a workflow change: an HTTP 403 "Resource not
+--- accessible by integration" where the default branch's workflows
+--- differ from the commit's. GitHub documents no rule for it: a commit
+--- has been tagged while main's actionlint.yml differed from its own, so
+--- a differing workflow is only a necessary condition, and the skip asks
+--- no more. Any other refusal raises, as does a compare that lists no
+--- workflow (past its 300 files, too).
 -- TODO: publish with a token that holds the `workflows` permission (a
 -- GitHub App's installation token, kept as a secret) rather than
 -- GITHUB_TOKEN, so such a commit is tagged too, and drop the skip.
@@ -365,7 +370,7 @@ local function ensure_tag(p: Prerelease.Publish): boolean
   if not api_probe(p, "repos/" .. p.repository .. "/git/ref/tags/" .. tag) then
     local made = gh_run(p, { "api", "--include", "--method", "POST",
       "repos/" .. p.repository .. "/git/refs", "-f", "ref=refs/tags/" .. tag,
-      "-f", "sha=" .. p.commit }, "capture")
+      "-f", "sha=" .. p.commit }, true)
     if not made.ok then
       local status = Prerelease.http_status(made.stdout or "")
       local body = made.stdout or ""
@@ -440,15 +445,15 @@ end
 --- verifies the one already there. A draft left by an interrupted run is
 --- resumed only by accepting the assets it holds that are identical to
 --- the staged ones. Raises on any failure; the line to print on success,
---- or on a skip (`ensure_tag`), a warning annotation.
+--- or on a skip ([`ensure_tag`]), a warning annotation.
 function Prerelease.publish(p: Prerelease.Publish): string
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))
   -- The get-by-tag endpoint only promises published releases. Listing
   -- releases with authentication also finds an interrupted draft.
   local ids = Prerelease.release_ids(gh(p, { "api", "--paginate", "--slurp", "--method", "GET",
-    "repos/" .. p.repository .. "/releases?per_page=100" }, "capture"), tag)
-  assert(#ids <= 1, #ids .. " releases are tagged " .. tag)
+    "repos/" .. p.repository .. "/releases?per_page=100" }, true), tag)
+  assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
   if #ids == 1 then
     verify_tag(p)
     local state = view(p, "isDraft,isPrerelease")

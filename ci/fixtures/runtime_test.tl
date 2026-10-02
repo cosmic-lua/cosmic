@@ -4,11 +4,43 @@ local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
+local Test = require("cosmic.test")
+local String = require("cosmic.string")
+
+-- What the runtime setup made (COSMIC_FIXTURE_RUNTIME,
+-- cosmic_ci/runtime_setup.tl), each file the tests read or run by name,
+-- which holds the database it was written from, and the prefix of the
+-- product it was made from (COSMIC_FIXTURE_PRODUCT's `prefix`: its
+-- launcher, manifest and cores): each is in every verdict's key, so no
+-- verdict stands for a product part it was not reached on
+-- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
+-- A core of another target's is not there, and is keyed as missing.
+-- `system`: runtime.* launch through /bin/sh, and the fixtures run
+-- uname, mkfifo, cat and tee through /usr/bin/env (cosmic_ci/process.tl).
+Test.needs{
+  host = {
+    "$COSMIC_FIXTURE_PRODUCT/prefix",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.old",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.old.prefix-sha256",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.new",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.new.prefix-sha256",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.release",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.release.prefix-sha256",
+    "$COSMIC_FIXTURE_RUNTIME/runtime.incompatible",
+    "$COSMIC_FIXTURE_RUNTIME/probe.tl",
+    "$COSMIC_FIXTURE_RUNTIME/tool.tar",
+    "$COSMIC_FIXTURE_RUNTIME/hooked-build/targets.tsv",
+    "$COSMIC_FIXTURE_RUNTIME/hooked-build/core/x86_64-linux-musl/cosmic-core",
+    "$COSMIC_FIXTURE_RUNTIME/hooked-build/core/aarch64-linux-musl/cosmic-core",
+    "$COSMIC_FIXTURE_RUNTIME/hooked-build/core/aarch64-macos/cosmic-core",
+  },
+  system = true,
+}
 
 local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
-local chmod, host_uname = Process.chmod, Process.host_uname
+local host_uname = Process.host_uname
 
 local function small_line(path: string): string
   return (assert(Fixture.small(path, 256):match("^(%S+)"), path .. " is empty"))
@@ -26,15 +58,18 @@ end
 -- FIFO pause/release and process supervision.
 --------------------------------------------------------------------------
 
--- `hook == "after_validation"`
--- pauses through the native `COSMIC_PORTABLE_STARTUP_TEST_READY`/`_GO` hook
+-- Starts `program` paused at `hook`, and answers the child and the pipe
+-- that releases it. The hook "after_validation" pauses through the native
+-- `COSMIC_PORTABLE_STARTUP_TEST_READY`/`_GO` hook
 -- (test/portable/startup_hook.c), which fires at one fixed point in real
--- startup regardless of a hook name, and runs `tool.tl retained-prefix-probe`
--- from `root`. Every other hook name (e.g. "after_select") instead goes
--- through the named `COSMIC_PORTABLE_TEST_HOOK`/`_READY`/`_GO` mechanism
--- (the same one launcher_test.tl's `hook_environment` drives), running
--- the copied `probe.tl` fixture script from `work/run space`.
-local function run_paused(root: string, work: string, diagnostics: string,
+-- startup whatever the hook's name, and runs `tool.tl
+-- retained-prefix-probe` from `tool`, the runtime setup's copy of it
+-- ([`Fixture.tool_tree`]). Every other hook name (e.g.
+-- "after_select") goes through the named
+-- `COSMIC_PORTABLE_TEST_HOOK`/`_READY`/`_GO` mechanism (the one
+-- launcher_test.tl's `hook_environment` drives), running the copied
+-- `probe.tl` fixture script from `work/run space`.
+local function run_paused(tool: string, work: string, diagnostics: string,
     hook: string, program: string, cache: string, expected_hash: string,
     expected_marker: string): Running, string
   local ready = fifo(work, diagnostics, "ready")
@@ -46,8 +81,8 @@ local function run_paused(root: string, work: string, diagnostics: string,
       COSMIC_PORTABLE_STARTUP_TEST_READY = ready,
       COSMIC_PORTABLE_STARTUP_TEST_GO = go,
     })
-    child = start("paused", { program, root .. "/test/portable/tool.tl",
-      "retained-prefix-probe", expected_hash, expected_marker }, root,
+    child = start("paused", { program, tool .. "/test/portable/tool.tl",
+      "retained-prefix-probe", expected_hash, expected_marker }, tool,
       values, diagnostics)
   else
     local values = Fixture.environment({
@@ -80,15 +115,14 @@ local function host_identifier(work: string, diagnostics: string): string
 end
 
 -- The manifest header is a run of human-readable lines within the first
--- 16384 bytes, each beginning "  HOST" for the target it selects. This
--- mirrors launcher_test.tl's own already-proven header scan (same
--- `"  " .. host` prefix check).
+-- 16384 bytes, each beginning "  HOST" for the target it selects, as
+-- launcher_test.tl's header scan checks (the same `"  " .. host` prefix).
 local function selected_header_line(artifact_bytes: string, host: string):
     string
   local header = artifact_bytes:sub(1, 16384)
   local line: string | nil = nil
   for candidate in header:gmatch("[^\n]+") do
-    if candidate:sub(1, #host + 2) == "  " .. host then
+    if String.starts_with(candidate, "  " .. host) then
       assert(line == nil, "duplicate selected manifest header line")
       line = candidate
     end
@@ -142,7 +176,6 @@ local function test_runtime_startup_phases(tmp: string)
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
-  chmod(fixture_dir .. "/runtime.old", 0x1ed)
 
   local phases = Fixture.run("phases", { fixture_dir .. "/runtime.old",
     "help" }, work, diagnostics,
@@ -186,9 +219,9 @@ local function test_runtime_logical_paths(tmp: string)
     { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(help_absolute.out, "cosmic -- a runtime")
 
-  -- Occupied 8 and 9 no longer conflict with the portable contract: the
-  -- shell chooses another pair and the real runtime adopts the exported
-  -- numbers.
+  -- Occupied descriptors 8 and 9 do not conflict with the portable
+  -- contract: the shell chooses another pair and the real runtime adopts
+  -- the exported numbers.
   local occupied = run_with_descriptors("help-occupied-descriptors",
     fixture_dir .. "/runtime.release", fixture_dir .. "/runtime.release",
     { work .. "/bin/cosmic-runtime", "help" }, work, diagnostics,
@@ -202,7 +235,7 @@ local function test_runtime_logical_paths(tmp: string)
   Fixture.run("help-cwd-relative", { "./cosmic-runtime", "help" },
     work .. "/bin", diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
-  -- `Child.start`/`Child.run` never do a PATH search of their own ("argv[1]
+  -- [`Child.start`]/[`Child.run`] never do a PATH search of their own ("argv[1]
   -- is used exactly as given: there is no PATH search" -- cosmic.child), so
   -- PATH-based execution uses `/usr/bin/env`, with the runtime's directory
   -- prepended to PATH.
@@ -233,11 +266,10 @@ end
 -- real environment -- both are set to the same string here.
 local function test_runtime_environment_scrubbing(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
-  chmod(fixture_dir .. "/runtime.old", 0x1ed)
+  local tool = Fixture.tool_tree(fixture_dir, work)
 
   local cache = work .. "/cache-environment"
   local names = { "COSMIC_PORTABLE_ADJACENT_A", "COSMIC_PORTABLE_ADJACENT_B" }
@@ -256,13 +288,13 @@ local function test_runtime_environment_scrubbing(tmp: string)
   values.COSMIC_PORTABLE_CACHE = cache
 
   local argv: {string} = { fixture_dir .. "/runtime.old",
-    root .. "/test/portable/tool.tl", "environment-clean", cache }
+    tool .. "/test/portable/tool.tl", "environment-clean", cache }
   for _, name in ipairs(names) do argv[#argv + 1] = name end
 
-  -- tool.tl's own require("build.artifact")/require("test.portable")
-  -- resolve relative to the process cwd, so this (like
-  -- every other tool.tl invocation here) must run from `root`, not `work`.
-  local outcome = Fixture.run("environment-clean", argv, root, diagnostics,
+  -- tool.tl's require("build.artifact") and require("test.portable")
+  -- resolve relative to the process cwd, so this (like every other tool.tl
+  -- invocation here) runs from `tool`, not `work`.
+  local outcome = Fixture.run("environment-clean", argv, tool, diagnostics,
     values)
   Fixture.contains(outcome.out, "portable environment: clean")
 end
@@ -308,7 +340,7 @@ local function test_runtime_private_contract(tmp: string)
     target_id)
   local wrong_core = fixture_dir .. "/hooked-build/core/" .. target ..
     "/cosmic-core"
-  chmod(wrong_core, 0x1ed)
+  Fixture.assert_executable(wrong_core)
 
   -- Any private field marks a strict portable launch, even without
   -- --artifact; it cannot propagate through or enter the raw-core --boot
@@ -332,11 +364,11 @@ local function test_runtime_private_contract(tmp: string)
     configuration_id, offset, length, digest, "unrepresentable",
     "2147483648", "9", "portable artifact descriptor field is invalid")
 
-  -- A different build of the same target/configuration is the executing
-  -- inode and FD9, but differs from the manifest's exact core bytes and is
-  -- rejected, as "executing core length differs from manifest" or the same
-  -- for its digest; Fixture.contains is a plain substring match, so this
-  -- uses a Lua pattern for the alternation.
+  -- A different build of the same target and configuration, run as the
+  -- executing inode on FD 9, differs from the manifest's exact core bytes
+  -- and is rejected: "executing core length differs from manifest", or the
+  -- same for its digest. Fixture.contains is a plain substring match, so
+  -- this uses a Lua pattern for the alternation.
   local wrong_core_run = run_with_descriptors("wrong-core",
     fixture_dir .. "/runtime.release", wrong_core,
     { wrong_core, "--artifact", fixture_dir .. "/runtime.release", "help" },
@@ -361,11 +393,10 @@ end
 
 local function test_runtime_corrupt_ranges(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
-  chmod(fixture_dir .. "/runtime.release", 0x1ed)
+  local tool = Fixture.tool_tree(fixture_dir, work)
 
   local host = host_identifier(work, diagnostics)
   local release_bytes = Fixture.read(fixture_dir .. "/runtime.release")
@@ -376,8 +407,8 @@ local function test_runtime_corrupt_ranges(tmp: string)
 
   local cache = work .. "/cache-release"
   Fixture.run("corrupt-ranges", { fixture_dir .. "/runtime.release",
-    root .. "/test/portable/tool.tl", "corrupt-ranges",
-    fixture_dir .. "/runtime.release", work, tostring(offset) }, root,
+    tool .. "/test/portable/tool.tl", "corrupt-ranges",
+    fixture_dir .. "/runtime.release", work, tostring(offset) }, tool,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
   local selected_corrupt: string | nil = nil
@@ -396,8 +427,8 @@ local function test_runtime_corrupt_ranges(tmp: string)
 
     local probe = Fixture.call_with_environment("corrupt-probe-" ..
       tostring(index),
-      { path, root .. "/test/portable/tool.tl", "retained-prefix-probe",
-        release_hash, "corrupt" }, root, diagnostics,
+      { path, tool .. "/test/portable/tool.tl", "retained-prefix-probe",
+        release_hash, "corrupt" }, tool, diagnostics,
       Fixture.environment({ COSMIC_PORTABLE_CACHE = cache }))
     assert(not probe.result.ok,
       "retained-prefix-probe against a corrupt range unexpectedly succeeded")
@@ -439,7 +470,6 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
-  chmod(fixture_dir .. "/runtime.release", 0x1ed)
   local cache = work .. "/cache-stamped"
   local values = { COSMIC_PORTABLE_CACHE = cache }
   local program = fixture_dir .. "/runtime.release"
@@ -457,14 +487,14 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   if Fs.exists(stamp) then
     local cold = assert(sys.lstat(core))
     local prefix = string.format("%d|%d|%d|", cold.size, cold.ino, cold.mtime)
-    assert(Fixture.read(stamp):sub(1, #prefix) == prefix,
+    assert(String.starts_with(Fixture.read(stamp), prefix),
       "a cold stamp does not record the entry")
   end
   assert(Time.sleep_ns(1100000000))
   Fixture.run("stamp-warm", { program, "help" }, work, diagnostics, values)
   local st = assert(sys.lstat(core))
   local recorded = string.format("%d|%d|%d|", st.size, st.ino, st.mtime)
-  assert(Fixture.read(stamp):sub(1, #recorded) == recorded,
+  assert(String.starts_with(Fixture.read(stamp), recorded),
     "stamp does not record the entry")
 
   local bytes = Fixture.read(core)
@@ -485,10 +515,10 @@ end
 -- launch selects all-new bytes.
 local function test_runtime_replace_while_paused(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
+  local tool = Fixture.tool_tree(fixture_dir, work)
 
   local old_hash = small_line(fixture_dir .. "/runtime.old.prefix-sha256")
   local new_hash = small_line(fixture_dir .. "/runtime.new.prefix-sha256")
@@ -500,7 +530,7 @@ local function test_runtime_replace_while_paused(tmp: string)
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
 
   supervised(function(active: {Running})
-    local child, go = run_paused(root, work, diagnostics, "after_validation",
+    local child, go = run_paused(tool, work, diagnostics, "after_validation",
       program, cache, old_hash, "old")
     active[#active + 1] = child
 
@@ -516,8 +546,8 @@ local function test_runtime_replace_while_paused(tmp: string)
       "replace-while-paused: paused probe output differs")
 
     local fresh = Fixture.call_with_environment("post-replace",
-      { program, root .. "/test/portable/tool.tl", "retained-prefix-probe",
-        new_hash, "new" }, root, diagnostics,
+      { program, tool .. "/test/portable/tool.tl", "retained-prefix-probe",
+        new_hash, "new" }, tool, diagnostics,
       Fixture.environment({ COSMIC_PORTABLE_CACHE = cache }))
     assert(fresh.result.ok, "post-replace probe failed")
     assert(Fixture.small(fresh.out, 256) == "new " .. new_hash .. "\n",
@@ -529,10 +559,10 @@ end
 -- retained descriptor.
 local function test_runtime_unlink_while_paused(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
+  local tool = Fixture.tool_tree(fixture_dir, work)
 
   local old_hash = small_line(fixture_dir .. "/runtime.old.prefix-sha256")
   local cache = work .. "/cache-unlink"
@@ -540,7 +570,7 @@ local function test_runtime_unlink_while_paused(tmp: string)
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
 
   supervised(function(active: {Running})
-    local child, go = run_paused(root, work, diagnostics, "after_validation",
+    local child, go = run_paused(tool, work, diagnostics, "after_validation",
       program, cache, old_hash, "old")
     active[#active + 1] = child
 
@@ -556,18 +586,18 @@ local function test_runtime_unlink_while_paused(tmp: string)
 end
 
 -- Replacement after shell selection but before open cannot pair old
--- launcher claims with an incompatible complete artifact and never reaches
--- boot mode. This is the one race that uses the "after_select" hook rather
--- than "after_validation" (an earlier point in startup), so it runs the
--- copied `probe.tl` fixture script from `work/run space` via the bare
--- `COSMIC_PORTABLE_TEST_HOOK` mechanism instead of `tool.tl
--- retained-prefix-probe` from `root`.
+-- launcher claims with an incompatible complete artifact, and never reaches
+-- boot mode. This is the one race that uses the "after_select" hook, an
+-- earlier point in startup than "after_validation", so it runs the copied
+-- `probe.tl` fixture script from `work/run space` via the bare
+-- `COSMIC_PORTABLE_TEST_HOOK` mechanism, not `tool.tl
+-- retained-prefix-probe` from `tool`.
 local function test_runtime_mismatch_after_select(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
+  local tool = Fixture.tool_tree(fixture_dir, work)
   Fixture.mkdir(work .. "/run space")
   Fixture.copy(fixture_dir .. "/probe.tl", work .. "/run space/probe.tl")
 
@@ -577,7 +607,7 @@ local function test_runtime_mismatch_after_select(tmp: string)
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
 
   supervised(function(active: {Running})
-    local child, go = run_paused(root, work, diagnostics, "after_select",
+    local child, go = run_paused(tool, work, diagnostics, "after_select",
       program, cache, old_hash, "old")
     active[#active + 1] = child
 
@@ -592,8 +622,8 @@ local function test_runtime_mismatch_after_select(tmp: string)
     local err = Fixture.read(child.err)
     assert(err:find("extracted core digest differs", 1, true) ~= nil,
       "mismatch-after-select: expected failure message not found")
-    -- A hard bug (startup falling all the way back to treating this as no
-    -- tree to boot at all) rather than the expected rejection; surfaced
+    -- Startup falling all the way back to treating this as no tree to
+    -- boot is a hard bug, not the expected rejection, so it is surfaced
     -- loudly.
     assert(err:find("no tree to boot", 1, true) == nil,
       "mismatch-after-select: startup fell back to \"no tree to boot\" " ..
@@ -605,28 +635,27 @@ end
 -- 7. Timing observations.
 --------------------------------------------------------------------------
 
--- Record real runtime.release entry cost independently of the tiny launcher
+-- Records the real runtime.release entry cost, apart from the tiny launcher
 -- payload timings. These observations are informational and set no
 -- threshold.
 local function test_runtime_timing(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
-  chmod(fixture_dir .. "/runtime.release", 0x1ed)
+  local tool = Fixture.tool_tree(fixture_dir, work)
 
   local runtime_bytes = #Fixture.read(fixture_dir .. "/runtime.release")
   local driver_cache = work .. "/runtime-timing-driver-cache"
   local timing_cache = work .. "/runtime-timing-cache"
 
   local cold = Fixture.run("timing-cold", { fixture_dir .. "/runtime.release",
-    root .. "/test/portable/tool.tl", "time-runtime",
-    fixture_dir .. "/runtime.release", timing_cache }, root, diagnostics,
+    tool .. "/test/portable/tool.tl", "time-runtime",
+    fixture_dir .. "/runtime.release", timing_cache }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = driver_cache })
   local warm = Fixture.run("timing-warm", { fixture_dir .. "/runtime.release",
-    root .. "/test/portable/tool.tl", "time-runtime",
-    fixture_dir .. "/runtime.release", timing_cache }, root, diagnostics,
+    tool .. "/test/portable/tool.tl", "time-runtime",
+    fixture_dir .. "/runtime.release", timing_cache }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = driver_cache })
 
   assert(Fs.put(Fs.stderr, "portable runtime.release entry cold timing (" ..

@@ -1,55 +1,42 @@
---- Generic, cycle-guarded traversal of a `build.ast.node` `Node` tree,
+--- Generic, cycle-guarded traversal of a [`build.ast.node`] [`Node`] tree,
 --- plus span computation over it: a node's start and end position as
 --- the whole subtree actually occupies, not just wherever the parser
 --- happened to stamp its own `y`/`x`.
 ---
---- `walk` and the span functions share the same reflection: a Node's
---- CHILD-shaped fields (`e1`, `e2`, `if_blocks`, `exp`, `body`, `exps`,
---- and the array part every "statements"/"expression_list" node
---- carries) are read generically, through the table itself, rather
---- than named one by one -- so a tl node kind this module has never
---- heard of still gets walked correctly.
+--- `walk` and the span functions read a Node's child-shaped fields
+--- (`e1`, `e2`, `if_blocks`, `exp`, `body`, `exps`, and the array part
+--- of every "statements"/"expression_list" node) generically, through
+--- the table itself rather than by name, so a tl node kind this module
+--- does not know still gets walked.
 ---
---- The one place that reflection needs care: a NAMED field can hold
---- either a real node (a `Node`) or a BARE array of nodes with no
---- position of its own (`if_blocks`; a "statements" node's own array
---- part, reached again through a DIFFERENT node's named field).
---- Checking `is {any: any}` cannot tell the two apart -- Teal's generic
---- map type structurally covers an array too, so it matches EITHER
---- shape at runtime. That was exactly the first version of this walk's
---- bug: an `elseif v is {any} then ...` fallback placed after an
---- `is {any: any}` branch never ran, so `if_blocks` was silently never
---- descended into at all. `classify` below checks the actual `kind`
---- field instead -- present as a string on every real `Node`, and on
---- nothing else reachable this way, including the "op" node's own
---- `OpInfo` payload table (`build/ast/node.tl`'s `.op` field), which
---- the live parser also stamps with `y`/`x` (arity and precedence live
---- there too) but never with `kind`. A `y`-field check reads that
---- payload as a real node too -- inert for span computation only
---- because `OpInfo.y`/`.x` duplicate the enclosing "op" node's own
---- position, but it violates `walk`'s "once per node reached" contract
---- and a consumer built on `walk` (a matcher) has no such guarantee to
---- lean on. Confirmed against a real "if" fixture and against
---- `os.execute(cmd)`'s "op" payload rather than assumed from reading
---- tl's grammar alone.
----
+--- A named field holds either a real node or a bare array of nodes
+--- with no position of its own (`if_blocks`; a "statements" node's
+--- array part, reached through another node's named field). Testing
+--- `is {any: any}` cannot tell them apart, because Teal's generic map
+--- type also matches an array at runtime, so an `is {any}` fallback
+--- placed after it never runs and `if_blocks` would never be entered.
+--- `classify` checks the `kind` field instead. Every real [`Node`] has a
+--- string `kind`, and nothing else reachable this way does. That
+--- includes the "op" node's `OpInfo` payload ([`build/ast/node.tl`]),
+--- which the parser stamps with `y`/`x` but not `kind`. Taking it for a
+--- node would break `walk`'s "once per node reached" contract, though
+--- span computation would not notice, since [`OpInfo.y`]/`.x` repeat the
+--- "op" node's own position.
 local type compiler = require("build.compiler")
 local node_mod = require("build.ast.node")
 
 local type Node = node_mod.Node
 
---- `node`'s own array part, viewed generically for `ipairs` -- every
---- "statements"/"expression_list" node's own elements, in source
---- order.
+--- `node`'s array part, viewed generically for `ipairs`: the elements
+--- of a "statements" or "expression_list" node, in source order.
 --- @param node Node
 --- @return {any} The same table, viewed as an array
 local function array_of(node: Node): {any}
   return node
 end
 
---- `node`'s own table, viewed generically for `pairs` -- named fields
---- and array part alike, since Lua's `pairs` walks every key
---- regardless of how Teal typed them.
+--- `node`'s table, viewed generically for `pairs`, which walks named
+--- fields and array part alike.
 --- @param node Node
 --- @return {any: any} The same table, viewed as a generic map
 local function map_of(node: Node): {any: any}
@@ -71,9 +58,9 @@ local function classify(value: any): Node | nil, {any} | nil
   return nil, value
 end
 
---- Call `consider` once for every child value reachable from `node`'s
---- own fields, in array-part-then-named-field order -- the shared
---- reflection `walk`, `span_start` and `span_end` each fold over.
+--- Call `consider` once for every child value in `node`'s fields, array
+--- part first and then the named fields. `walk`, [`span_start`] and
+--- [`span_end`] are each a fold over it.
 --- @param node Node
 --- @param consider function(any) Called once per array element and per named field
 local function each_child(node: Node, consider: function(any))
@@ -137,10 +124,9 @@ local function children(node: Node, skipped?: {string: boolean}, passed?: {Node}
 end
 
 --- Walk `node`'s subtree in depth-first order, calling `visit` once on
---- every node reached, `node` itself first. Cycle-guarded by identity:
---- an "if_block" node's `if_parent` points back at its own enclosing
---- "if" statement, a real cycle rather than a copy, so a plain
---- recursive descent would loop forever without one.
+--- every node reached, `node` itself first. A guard by identity stops
+--- the cycle through an "if_block" node's `if_parent`, which points
+--- back at its enclosing "if" statement.
 --- @param node Node The subtree root
 --- @param visit function(Node) Called once per node, in depth-first order
 local function walk(node: Node, visit: function(Node))
@@ -168,12 +154,11 @@ local function walk(node: Node, visit: function(Node))
   go(node)
 end
 
---- The start position of `node`'s own SPAN: the minimum position over
---- the whole subtree, not just `node.y`/`node.x`. tl's parser stamps a
---- compound node's `y`/`x` where it FINISHED constructing the node,
---- which for a call or a binary op is often mid-expression -- e.g.
---- `os.execute(cmd)`'s "@funcall" op node records the position right
---- after `(`, not `os`'s own leftmost column.
+--- The start of `node`'s span: the minimum position over the subtree,
+--- not just `node.y`/`node.x`. tl's parser stamps a compound node's
+--- `y`/`x` where it finished building the node, often mid-expression:
+--- the "@funcall" op node of `os.execute(cmd)` records the position
+--- after `(`, not the column of `os`.
 --- @param node Node
 --- @return integer The 1-based line
 --- @return integer The 1-based column
@@ -208,15 +193,11 @@ local function span_start(node: Node): integer, integer
   return compute(node, {})
 end
 
---- Is there a real close-bracket token -- `)`, `]`, or `}` -- at
---- 1-based (`y`, `x`)? A single-character token, so its own position
---- IS the position to match against: `t.x` is a token's START column
---- while the `xend` this is matched against (`trusted_end` below) is
---- the INCLUSIVE last column of whatever it was stamped from, and
---- those two only ever coincide for a token exactly one character
---- wide -- true of every close bracket, which is why a plain equality
---- check on (`y`, `x`) suffices here and would not for a multi-column
---- token.
+--- Is there a close-bracket token, `)`, `]` or `}`, at 1-based (`y`, `x`)?
+--- `t.x` is a token's first column and the `xend` compared with it
+--- (see `trusted_end`) is the inclusive last column. They coincide only
+--- for a one-character token, which every close bracket is, so
+--- comparing (`y`, `x`) suffices here and would not for a longer token.
 --- @param tokens {compiler.Token} The token stream from the SAME parse as the node
 --- @param y integer
 --- @param x integer
@@ -231,29 +212,23 @@ local function is_close_bracket_at(tokens: {compiler.Token},
   return false
 end
 
---- The end position of `node`'s own SPAN: the inclusive last column of
---- its own last token, over the whole subtree.
+--- The end of `node`'s span: the inclusive last column of the last
+--- token in the subtree.
 ---
---- `yend`/`xend`, where the parser stamped one at all, need a two-way
---- gate: a "statements" (block) node's own `yend`/`xend` IS its true
---- end -- the terminator that stopped it (`end`/`else`/`until`) is the
---- ONLY place a block's true close lives, since an empty or short
---- block has no descendant token that reaches it. Every OTHER kind's
---- `yend`/`xend` comes from the same generic list parser, correct when
---- the terminator is a real delimiter belonging to the node itself (a
---- call's `)`), but for a list with none of its own (`return a + b`'s
---- `expression_list`, stopped only by the ENCLOSING block's `end`
---- three lines later) it points at someone else's token -- the same
---- `kind` (`expression_list`) either way, so the kind alone cannot
---- tell the two apart. This checks the actual token at the reported
---- position instead: trust it only when it is a real close-bracket,
---- otherwise recurse to the real leftmost/rightmost descendant leaf --
---- confirmed against `os.execute(cmd)` and a bare `return a + b` both
---- landing correctly, not assumed from reading the parser alone.
+--- Where the parser stamped a `yend`/`xend`, it is trusted in two
+--- cases. A "statements" (block) node's is its true end: the
+--- terminator that stopped it (`end`, `else`, `until`) is the only
+--- place an empty or short block's close lives. Any other kind's comes
+--- from the generic list parser. It is right when the node owns its
+--- terminator (a call's `)`), but a list with none of its own, like the
+--- `expression_list` of `return a + b`, ends at the enclosing block's
+--- `end`, which may be lines later. Both cases have the same kind, so
+--- the token at the reported position decides: it is trusted only
+--- when it is a close bracket. Otherwise the end is that of the last
+--- descendant.
 --- @param node Node
---- @param tokens {compiler.Token} The token stream from the SAME parse
----   (`Parsed.tokens`) -- needed for the bracket check above. A raw byte
----   offset for splicing is a different need, `build.ast.rewrite`'s job.
+--- @param tokens {compiler.Token} The token stream from the same parse
+---   ([`Parsed.tokens`]), for the bracket check
 --- @return integer The 1-based line
 --- @return integer The 1-based column
 local function span_end(node: Node, tokens: {compiler.Token}): integer, integer

@@ -15,12 +15,31 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <linux/openat2.h>
+#include <sys/syscall.h>
+/* glibc shows O_PATH only to _GNU_SOURCE, which this file does not ask
+ * for; its value is the kernel's, the same on every target here. */
+#ifndef O_PATH
+#define O_PATH 010000000
+#endif
+/* Likewise AT_EMPTY_PATH, and fchmodat2 (Linux 6.6), whose number is
+ * the same on every target here. */
+#ifndef AT_EMPTY_PATH
+#define AT_EMPTY_PATH 0x1000
+#endif
+#ifndef SYS_fchmodat2
+#define SYS_fchmodat2 452
+#endif
+#endif
 
 #include "check.h"
 #include "crypto.h"
@@ -28,13 +47,15 @@
 #include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
-#include "observed.h"
+#include "process.h"
+#include "portable.h"
 #include "psa/crypto.h"
+#include "store.h"
 #include "syscalls.h"
 
-/* The one place the two systems name the same field differently. macOS
- * keeps a timespec once _DARWIN_C_SOURCE asks for the full header level
- * mkdtemp also needs, and Linux always did. */
+/* The one place the two systems name the same field differently: macOS
+ * has the timespec fields as st_mtimespec once _DARWIN_C_SOURCE asks for
+ * the full header level mkdtemp needs too, Linux as st_mtim. */
 #if defined(__APPLE__)
 #define COSMIC_MTIME_SECONDS(st) ((st).st_mtimespec.tv_sec)
 #define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtimespec.tv_nsec)
@@ -56,6 +77,10 @@ static const char *mode_kind (mode_t mode) {
   if (S_ISREG(mode)) return "file";
   if (S_ISDIR(mode)) return "dir";
   if (S_ISLNK(mode)) return "link";
+  if (S_ISSOCK(mode)) return "socket";
+  if (S_ISFIFO(mode)) return "fifo";
+  if (S_ISCHR(mode)) return "char";
+  if (S_ISBLK(mode)) return "block";
   return "other";
 }
 
@@ -90,24 +115,231 @@ static void push_stat (lua_State *L, const struct stat *st) {
   lua_setfield(L, -2, "kind");
 }
 
+/* Whether `path`, spelled plainly, is a descriptor's own name that
+ * reaches `artifact`: /dev/fd/<its descriptor> -- on macOS no link but
+ * a node of its own (fdesc), whose stat need not be the artifact's, and
+ * which an open copies the descriptor from and a chmod reaches it
+ * through -- or any /dev/fd/<n> or /proc/.../fd/<n> (/proc/<pid>/fd,
+ * /proc/<pid>/task/<tid>/fd, /proc/self/fd, /proc/thread-self/fd) whose
+ * target is the artifact. */
+static bool descriptor_name (const char *path, const struct cosmic_artifact *artifact) {
+  /* A leading "//" is one "/" here, but realpath may keep it. */
+  while (path[0] == '/' && path[1] == '/') path++;
+  const char *number = NULL;
+  bool dev = strncmp(path, "/dev/fd/", 8) == 0;
+  if (dev) {
+    number = path + 8;
+  } else if (strncmp(path, "/proc/", 6) == 0) {
+    const char *last = strrchr(path, '/');
+    if (last == NULL || last < path + 9 || strncmp(last - 3, "/fd/", 4) != 0) return false;
+    number = last + 1;
+  } else {
+    return false;
+  }
+  if (*number == '\0') return false;
+  long value = 0;
+  for (const char *at = number; *at != '\0'; at++) {
+    if (*at < '0' || *at > '9' || value > INT_MAX / 10) return false;
+    value = value * 10 + (*at - '0');
+  }
+  if (dev && value == artifact->fd) return true;
+  struct stat st;
+  return stat(path, &st) == 0 && (uint64_t)st.st_dev == artifact->device &&
+         (uint64_t)st.st_ino == artifact->inode;
+}
+
+/* Whether `path` reaches a descriptor's own name ([`descriptor_name`]):
+ * as given, with its directory resolved -- "//dev/fd/<n>", "/./proc/...",
+ * a name relative to /proc/self/fd, a directory that is a link to one --
+ * and, where `follow` says, through a link at its last part, each
+ * followed in turn; without it, the last part is the call's own, which
+ * a link there leaves as it is. */
+static bool reaches_descriptor_name (const char *path, bool follow,
+                                     const struct cosmic_artifact *artifact) {
+  char at[PATH_MAX], directory[PATH_MAX], real[PATH_MAX], joined[PATH_MAX],
+      target[PATH_MAX];
+  if (snprintf(at, sizeof at, "%s", path) >= (int)sizeof at) return false;
+  for (int hops = 0;; hops++) {
+    if (descriptor_name(at, artifact)) return true;
+    const char *slash = strrchr(at, '/');
+    const char *base = slash == NULL ? at : slash + 1;
+    if (slash == NULL) snprintf(directory, sizeof directory, ".");
+    else if (slash == at) snprintf(directory, sizeof directory, "/");
+    else snprintf(directory, sizeof directory, "%.*s", (int)(slash - at), at);
+    if (*base != '\0' && realpath(directory, real) != NULL &&
+        snprintf(joined, sizeof joined, "%s/%s", strcmp(real, "/") == 0 ? "" : real,
+                 base) < (int)sizeof joined &&
+        descriptor_name(joined, artifact))
+      return true;
+    /* As many links as the kernel follows (Linux's 40) before ELOOP. */
+    if (!follow || hops == 40) return false;
+    ssize_t length = readlink(at, target, sizeof target - 1);
+    if (length < 0) return false;
+    target[length] = '\0';
+    int made = target[0] == '/'
+                   ? snprintf(joined, sizeof joined, "%s", target)
+                   : snprintf(joined, sizeof joined, "%s/%s", directory, target);
+    if (made < 0 || made >= (int)sizeof joined) return false;
+    memcpy(at, joined, (size_t)made + 1);
+  }
+}
+
+/* Why a call may not act on `path` (EACCES), or 0 where it may: whether
+ * `path` names the file `artifact` retains a descriptor on --
+ * following a last link where `follow` says, as the call it is asked
+ * for will -- reached through a descriptor rather than by a name it
+ * has: /proc/<pid>/fd/<n>, /dev/fd/<n> or a link to either, which hand
+ * a caller the artifact whatever the sandbox gives it by name, as the
+ * retained descriptor itself would (core/check.h's `cosmic_checkfd`).
+ * `reached` is the stat of the file the call holds or has opened by
+ * `path` ([`probe_file`], `open`), which is the file judged; NULL judges
+ * the file `path` names now, asked before a call that may write
+ * (O_TRUNC, chmod), so a refusal leaves the file as it was.
+ *
+ * On Linux every such name stats as the file it reaches, so a path whose
+ * stat is not the artifact's costs that stat alone. One that is: the
+ * kernel says how it got there, walking it again refusing every
+ * descriptor link (openat2's RESOLVE_NO_MAGICLINKS), which reaches the
+ * artifact only by a name, where it could be reached as well -- and
+ * where it could, the name gives it anyway, so a link swapped on the
+ * path between the call and this walk gains nothing; with `reached`, a
+ * walk that fails, or reaches another file, refuses. That
+ * refuses the program named through /proc/self/cwd/... or
+ * /proc/self/root/... too, which are such links: this program's own
+ * file is the one file refused that way, and it has a name of its own to
+ * be reached by. Where openat2 is not to be had -- macOS, a kernel older
+ * than 5.6, a filter refusing it -- the path is walked by hand
+ * ([`reaches_descriptor_name`]), and what resolves under /dev or /proc is
+ * refused too. A walk that fails otherwise answers its own errno, which
+ * the call would have met. */
+static int artifact_through_descriptor (const char *path, bool follow,
+                                        const struct cosmic_artifact *artifact,
+                                        const struct stat *reached) {
+  if (artifact == NULL) return 0;
+  struct stat st;
+  bool named = false;
+  if (reached != NULL) {
+    st = *reached;
+    named = true;
+  } else {
+    named = (follow ? stat(path, &st) : lstat(path, &st)) == 0;
+  }
+  named = named && (uint64_t)st.st_dev == artifact->device &&
+          (uint64_t)st.st_ino == artifact->inode;
+#if defined(__linux__)
+  if (!named) return 0;
+#endif
+#if defined(__linux__) && defined(SYS_openat2)
+  struct open_how how;
+  memset(&how, 0, sizeof how);
+  how.flags = O_PATH | O_CLOEXEC | (follow ? 0 : O_NOFOLLOW);
+  how.resolve = RESOLVE_NO_MAGICLINKS;
+  long walked = syscall(SYS_openat2, AT_FDCWD, path, &how, sizeof how);
+  if (walked >= 0) {
+    struct stat again;
+    bool same = fstat((int)walked, &again) == 0 && again.st_dev == st.st_dev &&
+                again.st_ino == st.st_ino;
+    close((int)walked);
+    return same ? 0 : EACCES;
+  }
+  /* A descriptor link on the way is refused ELOOP (or EXDEV, for one
+   * that leaves the walk's root). */
+  if (errno == ELOOP || errno == EXDEV) return EACCES;
+  if (errno != ENOSYS && errno != EPERM) return reached != NULL ? EACCES : errno;
+#endif
+  if (reaches_descriptor_name(path, follow, artifact)) return EACCES;
+  if (!named) return 0;
+  char resolved[PATH_MAX];
+  if (realpath(path, resolved) == NULL) return reached != NULL ? EACCES : errno;
+  bool through = strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/proc/", 6) == 0 ||
+                 strncmp(resolved, "/dev/", 5) == 0 || strncmp(resolved, "/proc/", 6) == 0;
+  return through ? EACCES : 0;
+}
+
+#if defined(__linux__)
+/* The file `path` names -- through a link at its last part where
+ * `follow` says -- held by an O_PATH descriptor in *probe, which the
+ * caller closes, once [`artifact_through_descriptor`] lets a call act on
+ * it: 0, else why not, or the errno the walk met, which the call would
+ * have. The call then acts on the descriptor, never on the name again,
+ * so a link a process swaps in on the path after the check moves
+ * nothing: what was judged is what changes. */
+static int probe_file (const char *path, bool follow, const struct cosmic_artifact *artifact,
+                       int *probe) {
+  *probe = open(path, O_PATH | O_CLOEXEC | (follow ? 0 : O_NOFOLLOW));
+  if (*probe < 0) return errno;
+  struct stat st;
+  int refused = fstat(*probe, &st) != 0 ? errno
+                                         : artifact_through_descriptor(path, follow, artifact, &st);
+  if (refused != 0) {
+    close(*probe);
+    *probe = -1;
+  }
+  return refused;
+}
+
+/* `probe`'s own name in this process's /proc, where a call that takes
+ * no descriptor reaches the file it holds: false where it does not fit. */
+static bool probe_name (int probe, char *name, size_t room) {
+  int made = snprintf(name, room, "/proc/self/fd/%d", probe);
+  return made > 0 && (size_t)made < room;
+}
+#endif
+
+#if defined(__linux__)
+/* Truncates `fd`, opened by `open` from `flags` less O_TRUNC, as
+ * O_TRUNC would have: a regular file alone, and one opened only to read
+ * through its /proc name, which asks the write permission O_TRUNC does:
+ * so an open for reading alone with O_TRUNC needs /proc mounted, and
+ * fails ENOENT where it is not. 0, or an errno. */
+static int truncate_opened (int fd, int flags) {
+  struct stat st;
+  if (fstat(fd, &st) != 0) return errno;
+  if (!S_ISREG(st.st_mode)) return 0;
+  if ((flags & O_ACCMODE) != O_RDONLY) return ftruncate(fd, 0) == 0 ? 0 : errno;
+  char name[32];
+  if (!probe_name(fd, name, sizeof name)) return ENAMETOOLONG;
+  return truncate(name, 0) == 0 ? 0 : errno;
+}
+#endif
+
 COSMIC_SYSCALL(open, 3) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   int flags = cosmic_checkint(L, 2);
   int mode = cosmic_optint(L, 3, 0644);
-  /* Noted before it opens: an open may make the file it names. */
-  if (cosmic_observing &&
-      !cosmic_observed_note(COSMIC_OBSERVED_OPEN, path, strlen(path))) {
-    return cosmic_fail(L, ENOMEM);
-  }
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  bool follow = (flags & O_NOFOLLOW) == 0;
+  int refused = artifact_through_descriptor(path, follow, artifact, NULL);
+  if (refused != 0) return cosmic_fail(L, refused);
+  /* The file opened is judged again, once it is open: a link swapped on
+   * the path since the check could have led the open to the artifact.
+   * So where there is one, a truncation waits for that judgment -- on
+   * Linux; elsewhere a process runs unsandboxed, and has the program by
+   * its name anyway. */
+  int truncating = 0;
+#if defined(__linux__)
+  if (artifact != NULL) truncating = flags & O_TRUNC;
+#endif
   int fd;
   do {
     /* Every descriptor this table opens is close-on-exec: a child
      * process is never handed a file it was not given on purpose. */
-    fd = open(path, flags | O_CLOEXEC, (mode_t)mode);
+    fd = open(path, (flags & ~truncating) | O_CLOEXEC, (mode_t)mode);
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
     return cosmic_fail(L, errno);
+  }
+  if (artifact != NULL) {
+    struct stat st;
+    refused = fstat(fd, &st) != 0 ? errno : artifact_through_descriptor(path, follow, artifact, &st);
+#if defined(__linux__)
+    if (refused == 0 && truncating) refused = truncate_opened(fd, flags);
+#endif
+    if (refused != 0) {
+      close(fd);
+      return cosmic_fail(L, refused);
+    }
   }
   lua_pushinteger(L, fd);
   return 1;
@@ -151,7 +383,7 @@ COSMIC_SYSCALL(open_temporary, 2) {
 }
 
 COSMIC_SYSCALL(close, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   if (close(fd) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -187,18 +419,8 @@ static size_t read_room (int fd, lua_Integer count, off_t offset) {
   return (size_t)(count < room ? count : room);
 }
 
-/* TODO: refuse, from Lua, the descriptor a portable start retains on the
- * artifact (COSMIC_PORTABLE_ARTIFACT_FD; core/vfs.c reads the embedded
- * database through it) -- in `read`, `pread`, `lseek`, `fstat`, `dup`,
- * `dup2`, `fd_flags` and every other binding that takes one, in
- * `spawn`'s descriptor map and standard streams, and in an open of
- * /proc/self/fd/<it> or /dev/fd/<it> -- once each can ask the store for
- * it (core/store.h's `cosmic_store_artifact`). Today a test reads the
- * program's every carried module through it, with no path opened for a
- * capture to see and nothing a key of a test that does not declare
- * `tool` holds, past build/test_worker.tl's hold on the store. */
 COSMIC_SYSCALL(read, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   if (count < 0) {
     return luaL_argerror(L, 2, "count is negative");
@@ -221,7 +443,7 @@ COSMIC_SYSCALL(read, 2) {
 }
 
 COSMIC_SYSCALL(pread, 3) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   lua_Integer offset = luaL_checkinteger(L, 3);
   if (count < 0) {
@@ -248,7 +470,7 @@ COSMIC_SYSCALL(pread, 3) {
 }
 
 COSMIC_SYSCALL(write, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   size_t len;
   const char *data = luaL_checklstring(L, 2, &len);
   ssize_t put;
@@ -263,7 +485,7 @@ COSMIC_SYSCALL(write, 2) {
 }
 
 COSMIC_SYSCALL(lseek, 3) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer offset = luaL_checkinteger(L, 2);
   int whence = cosmic_checkint(L, 3);
   off_t at = lseek(fd, (off_t)offset, whence);
@@ -275,7 +497,7 @@ COSMIC_SYSCALL(lseek, 3) {
 }
 
 COSMIC_SYSCALL(fstat, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   struct stat st;
   if (fstat(fd, &st) != 0) {
     return cosmic_fail(L, errno);
@@ -285,13 +507,6 @@ COSMIC_SYSCALL(fstat, 1) {
 }
 
 COSMIC_SYSCALL(stat, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_STAT, cosmic_query_stat);
-  }
-  return cosmic_query_stat(L);
-}
-
-int cosmic_query_stat (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
@@ -303,13 +518,6 @@ int cosmic_query_stat (lua_State *L) {
 }
 
 COSMIC_SYSCALL(lstat, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_LSTAT, cosmic_query_lstat);
-  }
-  return cosmic_query_lstat(L);
-}
-
-int cosmic_query_lstat (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
@@ -326,18 +534,6 @@ COSMIC_SYSCALL(mkdir, 2) {
   int mode = cosmic_optint(L, 2, 0755);
   if (mkdir(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
-  }
-  /* Noted once it is made, as the test's own; one the log cannot keep
-   * is taken back. The rmdir is of the empty directory this call made
-   * a moment ago, in a parent it could write: it fails only where
-   * another process raced into it, and then the directory stays, no
-   * directory of the test's own -- a read beneath it is resolved as
-   * any other path's, which keys it no less -- and the call still says
-   * why it failed: its record could not be kept. */
-  if (cosmic_observing &&
-      !cosmic_observed_note(COSMIC_OBSERVED_MKDIR, path, strlen(path))) {
-    (void)rmdir(path);
-    return cosmic_fail_effect(L, ENOMEM);
   }
   return cosmic_ok(L);
 }
@@ -375,22 +571,87 @@ COSMIC_SYSCALL(chmod, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   int mode = cosmic_checkint(L, 2);
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+#if defined(__linux__)
+  /* On the file the check held ([`probe_file`]): through fchmodat2, or,
+   * on a kernel older than 6.6, the probe's /proc name. Without an
+   * artifact there is nothing to check, and the call is by name. */
+  if (artifact == NULL) {
+    if (chmod(path, (mode_t)mode) != 0) return cosmic_fail_effect(L, errno);
+    return cosmic_ok(L);
+  }
+  int probe = -1;
+  int refused = probe_file(path, true, artifact, &probe);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  int number = 0;
+  if (syscall(SYS_fchmodat2, probe, "", (mode_t)mode, AT_EMPTY_PATH) != 0) {
+    number = errno;
+    char name[32];
+    /* A filter that knows no fchmodat2 may answer EPERM, which the
+     * call by name answers again where it is the file's own. Where
+     * that name is not there (no /proc), the first answer stands. */
+    if ((number == ENOSYS || number == EPERM) && probe_name(probe, name, sizeof name)) {
+      if (chmod(name, (mode_t)mode) == 0) number = 0;
+      else if (errno != ENOENT) number = errno;
+    }
+  }
+  close(probe);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+#else
+  /* Checked, then called by name: a link swapped between the two could
+   * lead the call elsewhere, but only unsandboxed, where the program
+   * is to be had by its name anyway. */
+  int refused = artifact_through_descriptor(path, true, artifact, NULL);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
   if (chmod(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
   }
   return cosmic_ok(L);
+#endif
+}
+
+/* `chown`'s id argument `arg`: -1, which leaves the id as it is, or
+ * an id, 0 to one short of -1 as a 32-bit id. A value outside them
+ * raises. */
+static unsigned owner_id (lua_State *L, int arg) {
+  lua_Integer value = luaL_checkinteger(L, arg);
+  if (value == -1) return (unsigned)-1;
+  if (value < 0 || value >= (lua_Integer)UINT32_MAX)
+    return (unsigned)luaL_argerror(L, arg, "an id is -1 or 0 to 4294967294");
+  return (unsigned)value;
+}
+
+COSMIC_SYSCALL(chown, 3) {
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  uid_t user = (uid_t)owner_id(L, 2);
+  gid_t group = (gid_t)owner_id(L, 3);
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+#if defined(__linux__)
+  /* On the file the check held ([`probe_file`]), as `chmod` is. */
+  if (artifact == NULL) {
+    if (chown(path, user, group) != 0) return cosmic_fail_effect(L, errno);
+    return cosmic_ok(L);
+  }
+  int probe = -1;
+  int refused = probe_file(path, true, artifact, &probe);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  int number = fchownat(probe, "", user, group, AT_EMPTY_PATH) == 0 ? 0 : errno;
+  close(probe);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+#else
+  int refused = artifact_through_descriptor(path, true, artifact, NULL);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  if (chown(path, user, group) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+#endif
 }
 
 static void release_dir (void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_READDIR, cosmic_query_readdir);
-  }
-  return cosmic_query_readdir(L);
-}
-
-int cosmic_query_readdir (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   /* Filling the table allocates, and an allocation can raise: the guard
@@ -436,6 +697,14 @@ int cosmic_query_readdir (lua_State *L) {
       kind = "file";
     } else if (type == DT_LNK) {
       kind = "link";
+    } else if (type == DT_SOCK) {
+      kind = "socket";
+    } else if (type == DT_FIFO) {
+      kind = "fifo";
+    } else if (type == DT_CHR) {
+      kind = "char";
+    } else if (type == DT_BLK) {
+      kind = "block";
     } else if (type == DT_UNKNOWN) {
       struct stat st;
       if (dir_fd >= 0 && fstatat(dir_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0) {
@@ -449,13 +718,6 @@ int cosmic_query_readdir (lua_State *L) {
 }
 
 COSMIC_SYSCALL(getcwd, 0) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_GETCWD, cosmic_query_getcwd);
-  }
-  return cosmic_query_getcwd(L);
-}
-
-int cosmic_query_getcwd (lua_State *L) {
   char room[PATH_MAX];
   if (getcwd(room, sizeof room) == NULL) {
     return cosmic_fail(L, errno);
@@ -467,12 +729,6 @@ int cosmic_query_getcwd (lua_State *L) {
 COSMIC_SYSCALL(chdir, 1) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  /* Noted as a stat of where it goes, from where it was made, before it
-   * goes. */
-  if (cosmic_observing &&
-      !cosmic_observed_ask(L, COSMIC_OBSERVED_STAT, cosmic_query_stat)) {
-    return cosmic_fail_effect(L, ENOMEM);
-  }
   if (chdir(path) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -480,13 +736,6 @@ COSMIC_SYSCALL(chdir, 1) {
 }
 
 COSMIC_SYSCALL(realpath, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_REALPATH, cosmic_query_realpath);
-  }
-  return cosmic_query_realpath(L);
-}
-
-int cosmic_query_realpath (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   char room[PATH_MAX];
@@ -516,18 +765,6 @@ COSMIC_SYSCALL(mkdtemp, 1) {
   if (mkdtemp(room) == NULL) {
     return cosmic_fail(L, errno);
   }
-  /* Noted once it is made, as the test's own; one the log cannot keep
-   * is taken back. The rmdir is of the empty directory this call made
-   * a moment ago, in a parent it could write: it fails only where
-   * another process raced into it, and then the directory stays, no
-   * directory of the test's own -- a read beneath it is resolved as
-   * any other path's, which keys it no less -- and the call still says
-   * why it failed: its record could not be kept. */
-  if (cosmic_observing &&
-      !cosmic_observed_note(COSMIC_OBSERVED_MKDTEMP, room, len)) {
-    (void)rmdir(room);
-    return cosmic_fail(L, ENOMEM);
-  }
   lua_pushstring(L, room);
   return 1;
 }
@@ -544,13 +781,6 @@ COSMIC_SYSCALL(symlink, 2) {
 }
 
 COSMIC_SYSCALL(readlink, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_READLINK, cosmic_query_readlink);
-  }
-  return cosmic_query_readlink(L);
-}
-
-int cosmic_query_readlink (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   char room[PATH_MAX];
@@ -597,14 +827,47 @@ COSMIC_SYSCALL(utimensat, 5) {
   times[0] = time_or_omit(L, 2);
   times[1] = time_or_omit(L, 4);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  /* Not followed, as the call is not: on Linux /proc/<pid>/fd/<n> is a
+   * link, whose own times are the ones set, so this refuses only a name
+   * that is no link -- macOS's /dev/fd/<n>. */
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+#if defined(__linux__)
+  /* Without an artifact, by name, as there is nothing to check; with
+   * one, on the file the check held ([`probe_file`]), by an empty path from
+   * it -- which a kernel older than 5.8 refuses, EINVAL: there, by the
+   * probe's /proc name, which leads to the file the probe holds and no
+   * further, a link included. */
+  if (artifact == NULL) {
+    if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0)
+      return cosmic_fail_effect(L, errno);
+    return cosmic_ok(L);
+  }
+  int probe = -1;
+  int refused = probe_file(path, false, artifact, &probe);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  int number = 0;
+  if (utimensat(probe, "", times, AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW) != 0) {
+    number = errno;
+    char name[32];
+    if (number == EINVAL && probe_name(probe, name, sizeof name))
+      number = utimensat(AT_FDCWD, name, times, 0) == 0 ? 0 : errno;
+  }
+  close(probe);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+#else
+  /* As `chmod`'s: checked, then called by name. */
+  int refused = artifact_through_descriptor(path, false, artifact, NULL);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
   if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0) {
     return cosmic_fail_effect(L, errno);
   }
   return cosmic_ok(L);
+#endif
 }
 
 COSMIC_SYSCALL(ftruncate, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer length = luaL_checkinteger(L, 2);
   luaL_argcheck(L, length >= 0, 2, "the length is negative");
   if (ftruncate(fd, (off_t)length) != 0) {
@@ -613,21 +876,33 @@ COSMIC_SYSCALL(ftruncate, 2) {
   return cosmic_ok(L);
 }
 
+COSMIC_SYSCALL(flock, 3) {
+  int fd = cosmic_checkfd(L, 1);
+  static const char *const names[] = {"exclusive", "shared", "unlock", NULL};
+  static const int operations[] = {LOCK_EX, LOCK_SH, LOCK_UN};
+  int operation = operations[luaL_checkoption(L, 2, NULL, names)];
+  int timeout = cosmic_optint(L, 3, 0);
+  luaL_argcheck(L, timeout >= -1, 3, "timeout is out of range");
+  /* Asked without waiting, and again after each sleep, so the wait
+   * can end at a deadline or a caught signal, which a blocking
+   * flock could not. */
+  int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  int64_t pause = 1;
+  for (;;) {
+    if (flock(fd, operation | LOCK_NB) == 0) return cosmic_ok(L);
+    if (errno == EINTR) continue;
+    if (errno != EWOULDBLOCK) return cosmic_fail_effect(L, errno);
+    int failure = cosmic_paused(deadline, &pause);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
+  }
+}
+
 COSMIC_SYSCALL(access, 2) {
   const char *path = cosmic_path(L, 1);
   int mode = cosmic_checkint(L, 2);
   luaL_argcheck(L, (mode & ~(R_OK | W_OK | X_OK)) == 0, 2,
                 "not 0 or R_OK, W_OK and X_OK or'd together");
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  /* Noted as a stat of the path, which holds its mode and owner.
-   * TODO: key what else the answer turns on -- the process's ids, a
-   * mount's noexec or read-only flag, an ACL -- which no stat record
-   * holds, and the shared verdict cache keys a stat by its kind, size
-   * and mode alone. */
-  if (cosmic_observing &&
-      !cosmic_observed_ask(L, COSMIC_OBSERVED_STAT, cosmic_query_stat)) {
-    return cosmic_fail_effect(L, ENOMEM);
-  }
   /* AT_EACCESS only where the effective ids differ from the real ones,
    * where alone it changes the answer: musl asks faccessat2 for any
    * flag, which an older container's seccomp profile refuses with
@@ -650,7 +925,7 @@ COSMIC_SYSCALL(mkfifo, 2) {
 }
 
 COSMIC_SYSCALL(fsync, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   if (fsync(fd) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -661,16 +936,20 @@ COSMIC_SYSCALL(fsync, 1) {
  * special, since what lies below goes unseen. */
 #define TREE_DEPTH_MAX 128
 
+/* The devices whose every answer is the same or random, so a tree
+ * holding one is not special. */
+static const char *const inert_devices[] = { "/dev/null", "/dev/zero", "/dev/full", "/dev/urandom" };
+
 /* A walk of a tree for `tree_digest`: the digest being built, whether
- * files are hashed by their contents, the devices whose every answer is
- * the same or random, the name below the tree of the entry being
- * walked, and whether the walk has met anything that answers from past
- * the tree or that it could not see -- either of which no digest can
- * hold, so the tree is special. */
+ * files are hashed by their contents, which of `inert_devices` this host
+ * has, the name below the tree of the entry being walked, and whether
+ * the walk has met anything that answers from past the tree or that it
+ * could not see -- either of which no digest can hold, so the tree is
+ * special. */
 struct tree_walk {
   psa_hash_operation_t hash;
   int contents;
-  dev_t inert[3];
+  dev_t inert[sizeof inert_devices / sizeof *inert_devices];
   int inert_count;
   int special;
   int failed;
@@ -892,7 +1171,7 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
     if (!walk->failed) {
       int number = tree_name_push(walk, names[i]);
       if (number != 0) walk->failed = number;
-      else tree_walk_entry(walk, dirfd(dir), names[i], depth + 1);
+      else tree_walk_entry(walk, fd, names[i], depth + 1);
       walk->name_length = length;
       walk->name[length] = '\0';
     }
@@ -902,19 +1181,10 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
   closedir(dir);
 }
 
-/* Logged as one record of the walk, not one of each entry: its answer is
- * what a key holds, walked again when the key is made. With contents and
- * without, it is two calls to the log, as a key walks each its own way. */
+/* No caller in the tree yet but its tests: kept for the TODO above
+ * build/declared_key.tl's `walk_system`, which is to walk the system's
+ * paths in C through it (see core/syscalls.h). */
 COSMIC_SYSCALL(tree_digest, 2) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, lua_toboolean(L, 2) ? COSMIC_OBSERVED_TREE_DIGEST
-                                                       : COSMIC_OBSERVED_TREE_STAMPS,
-                                cosmic_query_tree_digest);
-  }
-  return cosmic_query_tree_digest(L);
-}
-
-int cosmic_query_tree_digest (lua_State *L) {
   const char *given = cosmic_path(L, 1);
   if (given == NULL) return cosmic_fail(L, EINVAL);
   int contents = lua_toboolean(L, 2);
@@ -927,10 +1197,9 @@ int cosmic_query_tree_digest (lua_State *L) {
   walk->contents = contents;
   walk->name_room = 64;
   walk->name = malloc(walk->name_room);
-  static const char *const inert[] = { "/dev/null", "/dev/zero", "/dev/urandom" };
-  for (size_t i = 0; i < sizeof inert / sizeof *inert; i++) {
+  for (size_t i = 0; i < sizeof inert_devices / sizeof *inert_devices; i++) {
     struct stat device;
-    if (stat(inert[i], &device) == 0 && S_ISCHR(device.st_mode)) {
+    if (stat(inert_devices[i], &device) == 0 && S_ISCHR(device.st_mode)) {
       walk->inert[walk->inert_count++] = device.st_rdev;
     }
   }

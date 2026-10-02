@@ -1,68 +1,60 @@
---- The output buffer `build.fix` renders into, and the one place
+--- The output buffer [`build.fix`] renders into, and the one place
 --- comments and blank lines are placed.
 ---
---- The renderer never adds or removes a line break: every construct is
---- emitted from its own node's kind, but WHERE the source put a
---- newline, the output puts one too. That makes the cursor's own source
---- line the coordinate everything else hangs off, and it is why this
---- buffer tracks a source line rather than an output line.
+--- The renderer never adds or removes a line break. Each construct is
+--- emitted from its node's kind, but wherever the source had a newline
+--- the output has one. So the coordinate everything hangs off is the
+--- cursor's source line, and the buffer tracks that rather than an
+--- output line.
 ---
---- Comments are not attached to AST nodes at all -- tl's lexer hangs
---- each one on the token that follows it -- so they are placed by line
---- instead. When the cursor moves from source line A to a later line B:
---- every comment still unwritten that sat on A is a trailing comment
---- and goes one space after whatever the output line already holds;
---- every comment on a line between them gets a line of its own, at its
---- own column; and a line in that gap that is blank and carries no
---- comment becomes one blank line, a run of them collapsing to one. A
---- comment inside a range the renderer wrote out verbatim (type syntax,
---- a record body) came along with the bytes, and `consume` is how the
---- renderer says so.
+--- tl's lexer hangs each comment on the token that follows it, so
+--- comments are placed by line, not attached to AST nodes. When the
+--- cursor moves from source line A to a later line B:
+--- - every unwritten comment on A is a trailing comment and goes one
+---   space after what the output line already holds;
+--- - every comment on a line between them gets a line of its own, at
+---   its own column;
+--- - a blank line in the gap with no comment becomes one blank line,
+---   and a run of them collapses to one.
+--- A comment inside a range written verbatim (type syntax, a record
+--- body) came along with the bytes, and `consume` says so.
 ---
 --- An own-line comment keeps its own column rather than borrowing the
---- indentation of whatever follows it, for the same reason every other
---- line here keeps its column: a comment can sit where no statement
---- does -- alone inside an empty branch, halfway down a multi-line
---- expression -- and there is nothing after it whose indentation would
---- be the right one to borrow.
+--- indentation of what follows it. It can sit where no statement does,
+--- alone inside an empty branch or halfway down a multi-line
+--- expression, and nothing after it has the right indentation to
+--- borrow.
 ---
---- One line in that gap can hold SEVERAL comments -- a long one
---- (`--[[ ... ]]`) closing on it and another one after that, or two
---- long ones in a row -- so the comments of a line are written as a
---- run: the first at its own column, every later one a single space
---- along, and only the last of them ending in a line break. Where the
---- run reaches the line being moved to, because the source wrote code
---- after a `]]`, even that last break is not written: `gap` reports the
---- line it finished on and `advance` carries on along that line rather
---- than opening a new one.
+--- One line in the gap can hold several comments: a long one
+--- (`--[[ ... ]]`) closing on it followed by another, or two long ones
+--- in a row. They are written as a run: the first at its own column,
+--- each later one a space along, and only the last ending in a line
+--- break. When the run reaches the line being moved to because the
+--- source wrote code after a `]]`, even that break is not written.
+--- `gap` reports the line it finished on and `advance` continues along
+--- that line.
 ---
---- A comment on that line with no code after it is the line's TRAILING
---- comment (`q ]] local x = 2 -- why`) and is not part of the run: it
---- belongs after the statement, and writing a `--` comment in front of
---- the code would comment the line out. Which of the two a comment is
---- comes from the token it hangs on: a comment the lexer hung on a
---- token of its own last line has code after it there.
+--- A comment on that line with no code after it is the line's trailing
+--- comment (`q ]] local x = 2 -- why`) and is not part of the run. It
+--- goes after the statement, since a `--` comment written in front of
+--- the code would comment it out. A comment has code after it when the
+--- lexer hung it on a token of its own last line.
 ---
---- A run need not begin on an EARLIER line than the one being moved to.
---- `--[[ q ]] print(1)` opens its line with a comment and writes the
---- code behind it on that same line, so the run begins on the line
---- being moved to and ends there, and `advance` again carries on along
---- it. What makes that comment the start of a run rather than the
---- line's trailing one is the same pair of facts as everywhere else:
---- the source wrote code after it, and nothing but whitespace before
---- it. A comment with code BEFORE it as well -- `f(--[[ x ]] 1)` -- is
---- no part of any line's opening, and `ahead` writes it where it was,
---- in front of the code it introduces, with no line break in play at
---- all. `ahead` writes it in front of the next NODE, which is one
---- token too far along when an operator the renderer writes itself
---- stands between the two; that gap, what it costs and what closing it
---- would take are written out at `ahead`.
+--- A run can also begin on the line being moved to. `--[[ q ]] print(1)`
+--- opens its line with a comment and writes the code behind it, so the
+--- run begins and ends on that line and `advance` continues along it.
+--- Such a comment starts a run because the source wrote code after it
+--- and only whitespace before it. A comment with code before it as
+--- well (`f(--[[ x ]] 1)`) opens no line: `ahead` writes it where it
+--- was, in front of the code it introduces, with no line break
+--- involved. `ahead` writes it in front of the next node, which is one
+--- token too far when an operator the renderer writes itself stands
+--- between the two (see `ahead`).
 ---
---- Because a comment can open a statement's line, where that line began
---- is `opening_column`'s answer rather than the statement's own first
---- keyword. A statement the renderer indents somewhere else travels the
---- distance ITS LINE travels, and every line continuing the statement
---- travels the same distance with it.
+--- Because a comment can open a statement's line, [`opening_column`]
+--- gives where that line began, not where the statement's first keyword
+--- sits. A statement the renderer indents elsewhere moves by the
+--- distance its line moves, and every continuation line moves with it.
 
 local String = require("cosmic.string")
 
@@ -76,6 +68,8 @@ local record Emitter
   line: integer
   --- Whether source line `y` holds nothing but whitespace.
   blank: {integer:boolean}
+  --- Source line `y`'s text.
+  lines: {integer:string}
   --- Every comment the token stream carries, in source order.
   comments: {compiler.Comment}
   --- Whether the comment at the same index has CODE after it on the
@@ -153,24 +147,22 @@ local function new(source: string, tokens: {compiler.Token}): Emitter
       end
     end
   end
-  return { parts = {}, line = 0, blank = blank, comments = comments,
+  return { parts = {}, line = 0, blank = blank, lines = wrote, comments = comments,
            code_after = code_after, opens_line = opens_line, at = 1,
            shift = 0, indent = 0, bare = true }
 end
 
---- Follow `s` through the output line in progress. Every newline it
---- carries starts that line over, and the spaces a line opens with are
---- its indentation -- so this holds whether the line was opened by
---- `advance`, by a comment written into a gap, or by the middle of a
---- range copied out verbatim.
+--- Follow `s` through the output line in progress. A newline starts the
+--- line over, and the spaces a line opens with are its indentation,
+--- whether `advance`, a comment written into a gap, or the middle of a
+--- verbatim range opened the line.
 ---
---- SPACES, counted one per column: a line opening with tabs reads as no
---- indentation at all. Nothing here ever writes a tab, so the only line
---- that can open with one is inside a range copied out verbatim, and
---- the only thing that reads the number back is a function literal
---- opening a block mid-line -- which would then be indented from column
---- zero. Accepted: the output stays stable and says the same thing,
---- only at a column the literal was not written at.
+--- Only spaces count, one per column: a line opening with tabs reads as
+--- no indentation. Nothing here writes a tab, so only a verbatim range
+--- can open a line with one, and only a function literal opening a
+--- block mid-line reads the number back. That literal would then be
+--- indented from column zero. This is accepted: the output is stable
+--- and says the same thing, at a column the literal was not written at.
 local function track(e: Emitter, s: string)
   if s == "" then
     return
@@ -200,14 +192,48 @@ local function text(e: Emitter, s: string)
   e.line = e.line + newlines(s)
 end
 
+--- How many bytes the output line in progress holds.
+local function column(e: Emitter): integer
+  local width = 0
+  for i = #e.parts, 1, -1 do
+    local part = e.parts[i]
+    local after = part:match("\n([^\n]*)$")
+    if after ~= nil then
+      return width + #after
+    end
+    width = width + #part
+  end
+  return width
+end
+
 --- Every comment still unwritten that sat on the cursor's own line or
---- earlier: a trailing comment, one space after whatever the output
---- line already holds.
-local function trailing(e: Emitter)
-  while e.at <= #e.comments and e.comments[e.at].y <= e.line do
+--- earlier, written as trailing comments one space after what the
+--- output line already holds, on the way to line `y`.
+---
+--- A long comment among them can close on a later line. The comments
+--- after its `]]` on that line join the run when nothing the renderer
+--- has still to write stands between: when that line comes before `y`,
+--- all its code is written already; on `y` itself, only when the source
+--- wrote nothing between them and the `]]`.
+local function trailing(e: Emitter, y: integer)
+  local line = e.line
+  -- The column just past the last comment written, on the line it ended on.
+  local after = 0
+  while e.at <= #e.comments do
     local c = e.comments[e.at]
+    if c.y > line then
+      if c.y ~= e.line then
+        break
+      end
+      local between = (e.lines[c.y] or ""):sub(after, c.x - 1)
+      if c.y >= y and between:match("^%s*$") == nil then
+        break
+      end
+    end
     put(e, " " .. c.text)
-    e.line = e.line + newlines(c.text)
+    local closing = newlines(c.text)
+    e.line = e.line + closing
+    after = closing > 0 and #(c.text:match("[^\n]*$") or "") + 1 or c.x + #c.text
     e.at = e.at + 1
   end
 end
@@ -224,35 +250,36 @@ end
 --- Write the own-line comments and blank lines of the gap between the
 --- cursor's line and `y`.
 ---
---- The comments a line carries are written as a RUN: the next one
---- starts on the line the one before it ended on, so it goes a single
---- space along rather than under it, and the line break comes after the
---- last of them. A long comment (`--[[ ... ]]`) opening in the gap can
---- CLOSE on `y` itself, and a run can as easily OPEN on `y`: those are
---- the two ways a run is not on lines of its own, and both are the
---- source having written code after it. The run is then written without
---- the newline the others end in, and the second return says which line
---- the gap actually finished on, so the caller knows it is already
---- where it was moving to and has no break to write.
+--- The comments a line carries are written as a run: the next one
+--- starts on the line the one before it ended on, so it goes a space
+--- along rather than under it, and the line break comes after the last.
+--- A long comment (`--[[ ... ]]`) opening in the gap can close on `y`,
+--- and a run can open on `y`. Both are the source having written code
+--- after it, and the run is then written without the newline the
+--- others end in. The second return says which line the gap finished
+--- on, so the caller knows it is already where it was moving to and has
+--- no break to write.
 ---
 --- Once the run has reached `y`, it takes only the comments the source
---- wrote code after, because those are the ones that sit in FRONT of
---- the code being moved to. A comment with nothing after it on that
---- line is the line's trailing comment and is left for `trailing` to
---- write after the statement -- putting a `--` one in front of the code
---- would comment the line out.
+--- wrote code after and in front of column `x`, since those sit in
+--- front of the code being moved to. A comment with nothing after it
+--- on that line is the line's trailing comment and is left for
+--- `trailing` to write after the statement, because a `--` comment in
+--- front of the code would comment the line out; one further along the
+--- line is written where the code reaches it.
 ---
---- Starting a run on `y` takes one fact more: the comment has to be
---- what that line OPENS with. `--[[ q ]] print(1)` is a run of one, and
---- the statement is written behind it; `f(--[[ x ]] 1)` has code in
---- front of the comment as well, so the comment opens nothing and
---- `ahead` writes it where the source had it instead.
+--- A run starts on `y` only when the comment is what that line opens
+--- with. `--[[ q ]] print(1)` is a run of one and the statement is
+--- written behind it. `f(--[[ x ]] 1)` has code before the comment
+--- too, so it opens nothing and `ahead` writes it where the source had
+--- it.
 --- @param e Emitter
 --- @param y integer The line being moved to
+--- @param x integer The column on `y` being moved to
 --- @return boolean Whether a blank line is still owed, which the caller
 ---   emits last so a run of blanks before `y` collapses to one
 --- @return integer The line the gap finished on
-local function gap(e: Emitter, y: integer): boolean, integer
+local function gap(e: Emitter, y: integer, x: integer): boolean, integer
   local pending = false
   local cy = e.line + 1
   while cy <= y do
@@ -265,7 +292,7 @@ local function gap(e: Emitter, y: integer): boolean, integer
       local ended = cy
       local opened = false
       while e.at <= #e.comments and e.comments[e.at].y == ended
-            and (ended < y or e.code_after[e.at]) do
+            and (ended < y or (e.code_after[e.at] and e.comments[e.at].x < x)) do
         local c = e.comments[e.at]
         put(e, (opened and " " or indent_of(e, c.x)) .. c.text)
         ended = ended + newlines(c.text)
@@ -286,59 +313,60 @@ local function gap(e: Emitter, y: integer): boolean, integer
 end
 
 --- Every comment still unwritten that the source wrote on line `y` in
---- front of column `x`, and wrote CODE after: it stands between where
---- the output is and what is about to be written there, so it is
---- written in front of that, one space between them.
+--- front of column `x`, with code after it. It stands between where the
+--- output is and what is about to be written, so it is written in front
+--- of that, with one space between.
 ---
---- This is the placement for a comment no line break is involved with
---- at all -- one written into the middle of a line, like the `--[[ x
---- ]]` of `f(--[[ x ]] 1)`. Only a long comment can have code after it,
---- since a `--` one runs to the end of its line, so nothing written
---- here can comment out what follows it.
+--- This places a comment that no line break is involved with, one
+--- written into the middle of a line like the `--[[ x ]]` of
+--- `f(--[[ x ]] 1)`. Only a long comment can have code after it, since
+--- a `--` comment runs to the end of its line, so nothing written here
+--- can comment out what follows.
 ---
---- The column is what keeps the renderer from dragging a comment
---- BACKWARDS past code it was written behind. `local x = --[[ c ]] 1`
---- leads to the name `x` before it leads to the value, and the comment
---- belongs to neither the name nor anything else it merely sits after.
+--- The column stops the renderer dragging a comment backwards past code
+--- it was written behind. `local x = --[[ c ]] 1` leads to the name `x`
+--- before the value, and the comment belongs to neither the name nor
+--- anything else it merely sits after.
 ---
---- KNOWN GAP, and the one thing this placement gets wrong. This is
---- reached only from `advance`, and `advance` runs only when a NODE's
---- lead is about to be written. The operators and keywords between two
---- nodes -- `=`, `,`, `.`, `:`, `(`, `in`, `function`, an attribute's
---- `<const>` -- are written straight from the tree by `put` and `text`,
---- which ask nothing about comments, so a comment the source wrote in
---- front of one of those waits here until the NEXT node's lead, by
---- which time the operator is already in the buffer. It comes back out
---- one token further along than it went in: `local a --[[ c ]] = 1`
---- becomes `local a = --[[ c ]] 1`, and `for k --[[ q ]], v in t do`
---- becomes `for k, --[[ q ]] v in t do`.
----
---- What it costs: only placement. The comment is never lost, so
---- `equiv.same_comments` stays satisfied; the moved result is its own
---- fixed point, so a second pass does not walk it further along; and
---- the class needs a comment written INSIDE a line, with code on both
---- sides of it, which is why nothing in this tree meets it -- a `---`
---- doc comment runs to the end of its line and so can never have code
---- after it.
----
---- What closing it takes: a source position for every token the
---- renderer writes itself, not just for the nodes. The tree does not
---- carry one -- tl records no position for an assignment's `=` -- so it
---- would come from the token stream, which `build.fix.typescan` already
---- indexes by position: a cursor over that stream, advanced by every
---- write site in `build.fix.stmt`, `.expr` and `.sig`, turning each
---- operator write into a flush of the comments standing before that
---- token. That makes comment placement a property of every token write
---- rather than of node leads alone, and it is the model this module
---- would have to be rebuilt on.
+--- A comment written in front of an operator or keyword the renderer
+--- writes itself moves one token along. `advance` runs only when a
+--- node's lead is about to be written, and the tokens between two nodes
+--- (`=`, `,`, `.`, `:`, `(`, `in`, `function`, an attribute's `<const>`)
+--- are written by `put` and `text`, which ask nothing about comments.
+--- So the comment waits for the next node's lead, by when the operator
+--- is in the buffer: `local a --[[ c ]] = 1` becomes
+--- `local a = --[[ c ]] 1`, and `for k --[[ q ]], v in t do` becomes
+--- `for k, --[[ q ]] v in t do`. Only placement suffers. The comment is
+--- kept, so `equiv.same_comments` holds, and the moved result is its
+--- own fixed point. Nothing in this tree meets it, since it needs a
+--- comment inside a line with code on both sides, and a `---` doc
+--- comment runs to the end of its line.
 --- @param e Emitter
 --- @param y integer The source line being moved to
 --- @param x integer The column on it the next thing written sits at
+-- TODO: give every token the renderer writes itself a source position,
+-- so comments standing before it are flushed by that write. The tree
+-- has none (tl records no position for an assignment's `=`), so it
+-- would come from the token stream [`build.fix.typescan`] already
+-- indexes: a cursor over it, advanced by every write site in
+-- [`build.fix.stmt`], `.expr` and `.sig`. Comment placement would then
+-- belong to every token write, not to node leads alone, which is the
+-- model this module would be rebuilt on.
 local function ahead(e: Emitter, y: integer, x: integer)
   while e.at <= #e.comments do
     local c = e.comments[e.at]
     if not e.code_after[e.at] or c.y ~= y or c.x >= x then
       return
+    end
+    -- A space parts it from code before it, which against a unary `-`
+    -- is what keeps its `--` from reading as `---`, a line comment
+    -- taking the rest of the line; an opening bracket keeps it close.
+    local i = #e.parts
+    while i > 0 and e.parts[i] == "" do
+      i = i - 1
+    end
+    if i > 0 and e.parts[i]:sub(-1):match("[%s%(%[{]") == nil then
+      put(e, " ")
     end
     put(e, c.text .. " ")
     e.line = e.line + newlines(c.text)
@@ -346,16 +374,12 @@ local function ahead(e: Emitter, y: integer, x: integer)
   end
 end
 
---- The column source line `y` really opens at, for a construct whose
---- own first character sits at column `x`.
----
---- Which is `x` itself, unless the source opened that line with a
---- comment and wrote the construct behind it (`--[[ q ]] print(1)`).
---- A statement indented somewhere else travels the distance its LINE
---- travels, and every line continuing the statement travels the same
---- distance with it, so the column that distance is measured from is
---- the line's own -- not the keyword's, which a comment in front of it
---- had already pushed along.
+--- The column source line `y` opens at, for a construct whose first
+--- character sits at column `x`. That is `x`, unless the source opened
+--- the line with a comment and wrote the construct behind it
+--- (`--[[ q ]] print(1)`). A statement indented elsewhere moves by the
+--- distance its line moves, so that distance is measured from the
+--- line's column, not the keyword's, which the comment pushed along.
 --- @param e Emitter
 --- @param y integer The source line
 --- @param x integer The column the construct's first character sits at
@@ -392,7 +416,7 @@ local function advance(e: Emitter, y: integer, pad: string, inline: string,
     return
   end
   if #e.parts > 0 then
-    trailing(e)
+    trailing(e, y)
     if e.line >= y then
       -- The trailing comment of the cursor's own line spanned lines and
       -- closed on the one being moved to, so the break the source wrote
@@ -401,11 +425,12 @@ local function advance(e: Emitter, y: integer, pad: string, inline: string,
       -- from it, the same as after a run that reaches `y`.
       put(e, " ")
       e.line = y
+      ahead(e, y, x)
       return
     end
     put(e, "\n")
   end
-  local pending, ended = gap(e, y)
+  local pending, ended = gap(e, y, x)
   if ended >= y then
     -- A comment run in the gap ran into `y` itself, so the output is
     -- already on the line being moved to and the break the source had
@@ -420,6 +445,7 @@ local function advance(e: Emitter, y: integer, pad: string, inline: string,
   end
   put(e, pad)
   e.line = y
+  ahead(e, y, x)
 end
 
 --- Drop every comment at or before (`y`, `x`) as already written: the
@@ -442,7 +468,7 @@ end
 --- @param e Emitter
 --- @return string
 local function done(e: Emitter): string
-  trailing(e)
+  trailing(e, math.maxinteger)
   if e.at <= #e.comments then
     -- A line past the end of the last comment, which the file has no
     -- code on at all: column 1, since nothing there was written behind
@@ -465,6 +491,7 @@ local record EmitModule
   consume: function(e: Emitter, y: integer, x: integer)
   done: function(e: Emitter): string
   opening_column: function(e: Emitter, y: integer, x: integer): integer
+  column: function(e: Emitter): integer
 end
 
 local M: EmitModule = {
@@ -475,6 +502,7 @@ local M: EmitModule = {
   consume = consume,
   done = done,
   opening_column = opening_column,
+  column = column,
 }
 
 return M

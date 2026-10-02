@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L /* unsetenv */
+
 #include "store.h"
 
 #include <limits.h>
@@ -7,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "check.h"
 #include "fail.h"
 #include "lauxlib.h"
 #include "compress.h"
@@ -14,23 +17,28 @@
 #include "crypto.h"
 #include "hash.h"
 #include "process.h"
+#include "socket.h"
 #include "http.h"
 #include "json.h"
 #include "guard.h"
 #include "memory.h"
-#include "observed.h"
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
-/* The hold `store_hold` puts up: the set of names no lookup answers, why
- * of a module and why of `databases`, each in the registry once it is up
- * and nil until then. */
+/* The hold [`store_hold`] puts up: the set of names no lookup answers, why
+ * of a module and why of `databases`, the set of `meta` keys every
+ * database answers and why of any other, and how many databases the list
+ * held as it went up, each in the registry once it is up and nil until
+ * then. */
 #define STORE_HOLD "cosmic.store.hold"
 #define STORE_HOLD_WHY "cosmic.store.hold.why"
 #define STORE_HOLD_WHY_ALL "cosmic.store.hold.why_all"
+#define STORE_HOLD_META "cosmic.store.hold.meta"
+#define STORE_HOLD_WHY_META "cosmic.store.hold.why_meta"
+#define STORE_HOLD_COUNT "cosmic.store.hold.count"
 
 #ifndef COSMIC_TARGET_NAME
 #error "build.zig must define COSMIC_TARGET_NAME"
@@ -48,9 +56,8 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
 }
 
 /* Whether a prepare or a step failed for memory rather than for the
- * database: SQLite's own, or the observed VFS (core/sqlite.c) refused a
- * record of a file it read. That is the process out of memory, which
- * raises like any allocation, not a database to die of. */
+ * database: SQLite's own allocation refused. That is the process out of
+ * memory, which raises like any allocation, not a database to die of. */
 static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
 
 /* Where the raw `cosmic.internal.*` values live: never in
@@ -63,40 +70,37 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * `require` passes it. Calling the searcher by hand yields the same
  * value, and that is no escalation: the raw table reaches nothing the
  * wrapper does not already reach. The store's raw table included: each
- * of its lookups of a module consults the hold (`store_hold`) itself,
+ * of its lookups of a module consults the hold ([`store_hold`]) itself,
  * none hands out a handle while one is up, and nothing lifts one, so a
  * caller that reaches it past its wrapper reads no more of a held
  * module than the wrapper would. (The process table's `waitpid` can
- * reap a child no handle of the caller's owns, which `cosmic.child`
+ * reap a child no handle of the caller's owns, which [`cosmic.child`]
  * never does; that is a caller breaking its own bookkeeping, and why
  * the table is off the public surface, not a privilege gained.) */
-/* TODO: hold the raw tables a test reaches this way to what their
- * wrappers let it do, or keep them from a test worker's tests: the one
- * `cosmic.sqlite`'s searcher hands out carries the observations' own
- * `observe`, `observed` and `exclude_held` (core/sqlite.c), with
- * which a test could hide what it reads from the capture its unsandboxed
- * key and `--audit` are made of. The claim above holds of the store's
- * table, not yet of that one. */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* Every wrapper that is handed a raw value when loaded trusted, and the
  * raw value's name. Being listed here is also what reserves a name
- * outside `cosmic.*` for the binary's own tree (`names_reserved`), so
+ * outside `cosmic.*` for the binary's own tree ([`names_reserved`]), so
  * one entry is the whole grant: a project database can never shadow a
  * wrapper named here, and any `build.*` name not named here stays
  * project first. `open` builds that value; it is NULL where other
- * code registers it -- `cosmic_store_install` the store, core/surface.c
- * the coverage collector (despite its raw name, a holdover from when it
- * carried the real `debug` library), and `cosmic_store_open_raw` all
- * the others, a raw value shared by several wrappers once, at its first
- * entry. `build.test_worker` gets the store's to put a hold up
- * (`store_hold`), which `cosmic.store` does not offer. `build.fuzz` gets the instruction budget alone, which shares
- * the coverage collector's hook but none of its collection. The
- * process table is `cosmic.child`'s and `cosmic.proc`'s;
- * `build.filesystem_observations` is handed it, SQLite's and the
- * syscall table's log together (`open_observations`). */
-static int open_observations (lua_State *L);
-
+ * code registers it -- [`cosmic_store_install`] the store, core/surface.c
+ * the coverage collector (its raw name, [`cosmic.internal.debug`], holds no
+ * debug library), and [`cosmic_store_open_raw`] all the others, a raw
+ * value shared by several wrappers once, at its first entry.
+ * [`build.test_worker`] gets the store's to put a hold up ([`store_hold`]),
+ * which [`cosmic.store`] does not offer. [`build.coverage_hits`] gets the
+ * collector's, to read the open window in place, which [`cosmic.coverage`]
+ * does not offer. [`build.fuzz`] gets the instruction
+ * budget alone, which shares the coverage collector's hook but none of
+ * its collection. The process table is [`cosmic.child`]'s,
+ * [`cosmic.proc`]'s and [`build.confine`]'s, whose stand-in for its `spawn`
+ * confines each child a test starts. [`build.digest`] shares
+ * [`cosmic.hash`]'s, so the code that computes a verdict key hashes
+ * through no raw function a test can replace: it takes them as it
+ * loads, and only a hasher's `update` and `digest`, in the runner alone,
+ * are still looked up on its metatable. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -106,14 +110,16 @@ static const struct raw_module {
   {"build.artifact", "cosmic.internal.store", NULL},
   {"build.test_worker", "cosmic.internal.store", NULL},
   {"cosmic.coverage", "cosmic.internal.debug", NULL},
+  {"build.coverage_hits", "cosmic.internal.debug", NULL},
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
+  {"build.digest", "cosmic.internal.hash", NULL},
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},
-  {"build.filesystem_observations", "cosmic.internal.observations",
-    open_observations},
+  {"build.confine", "cosmic.internal.process", NULL},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
+  {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
   {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
 };
@@ -163,22 +169,6 @@ static int raw_value (lua_State *L, const char *name) {
   return 1;
 }
 
-/* `build.filesystem_observations`' raw value: the process table, whose
- * `spawn` it stands in for to confine each child a test starts; SQLite's,
- * whose record of the files SQLite opens it drains; and the syscall
- * table's log of what its calls were asked and answered
- * (core/observed.c's `cosmic_open_observed`), which it drains too. The first two are
- * registered by entries above its own in `raw_modules`, which
- * `cosmic_store_open_raw` opens in order. */
-static int open_observations (lua_State *L) {
-  lua_createtable(L, 0, 3);
-  if (raw_value(L, "cosmic.internal.process")) lua_setfield(L, -2, "process");
-  if (raw_value(L, "cosmic.internal.sqlite")) lua_setfield(L, -2, "sqlite");
-  cosmic_open_observed(L);
-  lua_setfield(L, -2, "syscalls");
-  return 1;
-}
-
 /* A loader that answers with its own upvalue, ignoring whatever it was
  * called with -- what a package.preload entry needs, since the preload
  * searcher calls it with a fixed "extra" of its own. */
@@ -187,7 +177,7 @@ static int return_upvalue (lua_State *L) {
   return 1;
 }
 
-/* Whether a hold is up (`store_hold`) and, for a `name` not NULL,
+/* Whether a hold is up ([`store_hold`]) and, for a `name` not NULL,
  * whether its set holds that name. Read raw, so nothing the set's owner
  * hung on it runs here; it raises only on memory, before any lookup
  * holds a resource. */
@@ -218,6 +208,26 @@ static void push_refusal (lua_State *L, const char *name) {
   else
     lua_pushfstring(L, "Store.databases() is held: %s", why);
   lua_remove(L, -2);
+}
+
+/* How many databases, from the first, a lookup of the `meta` row `key`
+ * searches of the `count` the list holds: every one, but while a hold is
+ * up whose set of `meta` keys does not hold `key`, only those attached
+ * since it went up, which [`store_attach`] puts ahead of the rest -- a
+ * test's own, keyed by what it declares it reads -- and none while
+ * [`store_alone`] has set them aside. Read raw, as `held` reads. */
+static lua_Integer meta_reach (lua_State *L, const char *key,
+                               lua_Integer count) {
+  if (!held(L, NULL)) return count;
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_META);
+  lua_pushstring(L, key);
+  bool answered = lua_rawget(L, -2) != LUA_TNIL && lua_toboolean(L, -1);
+  lua_pop(L, 2);
+  if (answered) return count;
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_COUNT);
+  lua_Integer at_hold = lua_tointeger(L, -1);
+  lua_pop(L, 1);
+  return count > at_hold ? count - at_hold : 0;
 }
 
 /* Reads one module's bytecode out of one database. Returns 1 with the
@@ -288,10 +298,17 @@ static sqlite3 *database_at (lua_State *L, int list, lua_Integer index) {
   return db;
 }
 
+/* The binary's own database, the last of the list at `list`, or NULL
+ * when there is none. */
+static sqlite3 *binary_database (lua_State *L, int list) {
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  return count > 0 ? database_at(L, list, count) : NULL;
+}
+
 /* The one searcher. Its upvalue is the list of databases, in the order
  * they are searched: index `count` is always the one attached to the
- * running binary, because `store_attach` only ever prepends. A reserved
- * name (`names_reserved`: under `cosmic.*`, or a wrapper in
+ * running binary, because [`store_attach`] only ever prepends. A reserved
+ * name ([`names_reserved`]: under `cosmic.*`, or a wrapper in
  * `raw_modules`) resolves there first and a project's own database
  * second, so a database that smuggles in a module of that name can never
  * shadow the binary's own -- everything else stays project first, which
@@ -346,7 +363,7 @@ static int store_searcher (lua_State *L) {
 
 /* What a statement on a store connection may do: read. Every connection
  * the store searches is handed out as a borrowed handle
- * (`store_databases`), and a read-only open still leaves a connection
+ * ([`store_databases`]), and a read-only open still leaves a connection
  * its own writable temp schema -- where a `CREATE TEMP TABLE modules`
  * would stand in front of the rows `require` loads -- and ATTACH.
  * Anything but a query is refused when it is prepared. FTS5, which the
@@ -375,7 +392,7 @@ static int reads_only (void *unused, int action, const char *first,
 
 static void release_database (void *db) { sqlite3_close_v2(db); }
 
-/* Whether `store_alone` has set the attached databases aside: nothing is
+/* Whether [`store_alone`] has set the attached databases aside: nothing is
  * attached until it puts them back, so its restore never grows the list. */
 static int set_aside;
 
@@ -393,13 +410,10 @@ static int store_attach (lua_State *L) {
   }
   struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
   sqlite3 *db = NULL;
-  /* Through the VFS `cosmic.sqlite` opens on, so a test that attaches
-   * a database (a project's, or o/build.db) is keyed by it: the default
-   * one's reads go where build.filesystem_observations never sees. No
-   * SQLITE_OPEN_URI, as there: `path` is a filename, so a `file:` URI's
-   * `vfs=` never picks an unobserved VFS instead. */
-  int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY,
-                           COSMIC_SQLITE_OBSERVED_VFS);
+  /* Through the default VFS, as every connection [`cosmic.sqlite`] opens
+   * is. No SQLITE_OPEN_URI, as there: `path` is a filename, so a `file:`
+   * URI's `vfs=` never picks another VFS. */
+  int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, NULL);
   guard->resource = db;
   if (rc == SQLITE_OK) {
     rc = sqlite3_set_authorizer(db, reads_only, NULL);
@@ -426,8 +440,7 @@ static int store_attach (lua_State *L) {
   lua_seti(L, list, 1);
   guard->resource = NULL;
 
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static void release_statement (void *stmt) { sqlite3_finalize(stmt); }
@@ -528,12 +541,10 @@ static const char *inflate_top (lua_State *L) {
  * some other tree needs in order to type a `require` of this one's
  * modules. Only the binary's rows answer, so a project's own database
  * can never stand in for the standard library's types. The build stores
- * both deflated (`build.writer`), so each is inflated here. */
+ * both deflated ([`build.writer`]), so each is inflated here. */
 static int store_source (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
-  int list = lua_upvalueindex(1);
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  sqlite3 *db = count > 0 ? database_at(L, list, count) : NULL;
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   static const char *queries[] = {
     "SELECT source FROM main.decls WHERE path = ?1",
     "SELECT source FROM main.modules WHERE path = ?1",
@@ -594,8 +605,7 @@ static void push_hex (lua_State *L, const unsigned char *bytes, size_t length) {
 static int push_portable_runtime (lua_State *L,
                                   const struct cosmic_artifact *artifact,
                                   int list) {
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
+  sqlite3 *binary = binary_database(L, list);
   if (binary == NULL || !database_meta(L, binary, "runtime_basis")) {
     lua_pushnil(L);
     return 1;
@@ -642,8 +652,7 @@ static int push_portable_runtime (lua_State *L,
 }
 
 static int push_binary_meta (lua_State *L, int list, const char *key) {
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
+  sqlite3 *binary = binary_database(L, list);
   if (binary != NULL && database_meta(L, binary, key)) return 1;
   lua_pushnil(L);
   return 1;
@@ -706,9 +715,16 @@ static int store_meta (lua_State *L) {
     return 1;
   }
 
-  for (lua_Integer i = 1; i <= count; i++) {
+  lua_Integer reach = meta_reach(L, key, count);
+  for (lua_Integer i = 1; i <= reach; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db != NULL && database_meta(L, db, key)) return 1;
+  }
+  if (reach < count) {
+    lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_META);
+    lua_pushfstring(L, "Store.meta of \"%s\" is held: %s", key,
+                    lua_tostring(L, -1));
+    return lua_error(L);
   }
   lua_pushnil(L);
   return 1;
@@ -760,10 +776,10 @@ static int store_alone (lua_State *L) {
 }
 
 /* Every database `require` searches, in search order, each as a
- * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
+ * borrowed [`cosmic.sqlite`] handle: what a verb that reads the shipped
  * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
  * path to any of them, since the binary's own is inside the binary.
- * The handles read only -- `reads_only` refuses anything but a query on
+ * The handles read only -- [`reads_only`] refuses anything but a query on
  * the store's connections, a temp table and ATTACH included; `close` on
  * one is a no-op, and the store keeps the connections for as long as
  * the process runs. */
@@ -773,9 +789,12 @@ static int store_databases (lua_State *L) {
    * while a hold is up none is handed out: the hold cannot sort rows. */
   /* TODO: hand out, while a hold is up, a handle on a database attached
    * since it went up -- a test's own, keyed by what it declares it
-   * reads -- once the list can tell those apart from the ones the hold
-   * covers (`store_alone` moves every one) without the binary's losing
-   * its place as the last. */
+   * reads -- through a lookup of its own. The list tells those apart
+   * already ([`STORE_HOLD_COUNT`], as [`meta_reach`] reads it), but this
+   * answers every database `require` searches, the binary's last: a
+   * caller handed only the test's own would query less than it asked
+   * for, and answer silently, where it raises now. Waits on a caller
+   * that needs one. */
   if (held(L, NULL)) {
     push_refusal(L, NULL);
     return lua_error(L);
@@ -793,13 +812,6 @@ static int store_databases (lua_State *L) {
   return 1;
 }
 
-/* The binary's own database, or NULL when there is none. */
-static sqlite3 *binary_database (lua_State *L) {
-  int list = lua_upvalueindex(1);
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  return count > 0 ? database_at(L, list, count) : NULL;
-}
-
 /* Why a zone query failed, as nil and a message: `db`'s own error, or a
  * raise when it failed for memory. */
 static int zones_failed (lua_State *L, sqlite3 *db, int rc) {
@@ -813,9 +825,9 @@ static int zones_failed (lua_State *L, sqlite3 *db, int rc) {
 
 /* The names the binary's own `imports` table records the module `name`
  * requiring, as a list, sorted: none for a name it holds no row of. Nil
- * and why when a hold holds `name` (`store_hold`), or the query failed:
+ * and why when a hold holds `name` ([`store_hold`]), or the query failed:
  * what walks the binary's module graph a name at a time, each held as a
- * lookup of that module is, where a handle (`store_databases`) would
+ * lookup of that module is, where a handle ([`store_databases`]) would
  * read every module's rows. */
 static int store_requires (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
@@ -824,7 +836,7 @@ static int store_requires (lua_State *L) {
     push_refusal(L, name);
     return 2;
   }
-  sqlite3 *db = binary_database(L);
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   if (db == NULL) {
     lua_pushnil(L);
     lua_pushliteral(L, "the running binary has no database");
@@ -870,7 +882,7 @@ static int store_requires (lua_State *L) {
  * the query failed. */
 static int store_zoneinfo (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
-  sqlite3 *db = binary_database(L);
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   if (db == NULL) {
     lua_pushnil(L);
     lua_pushliteral(L, "the running binary has no database");
@@ -903,9 +915,9 @@ static int store_zoneinfo (lua_State *L) {
 }
 
 /* Every time zone name the binary's own database carries, as a set, or
- * nil and why when the query failed: as `store_zoneinfo`, no handle. */
+ * nil and why when the query failed: as [`store_zoneinfo`], no handle. */
 static int store_zone_names (lua_State *L) {
-  sqlite3 *db = binary_database(L);
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   if (db == NULL) {
     lua_pushnil(L);
     lua_pushliteral(L, "the running binary has no database");
@@ -941,9 +953,12 @@ static int store_zone_names (lua_State *L) {
 /* Puts up a hold, for the rest of the process: while it is up, a lookup
  * of a name the set at 1 holds as a key -- the searcher's, `bytecode`'s,
  * `source`'s, `requires`' -- answers as if no database held it, saying
- * why with the text at 2, and `databases` raises the text at 3. A test
- * worker holds a test so to the modules its verdict is keyed by. The
- * set is consulted as it stands, not copied. Nothing takes a hold down,
+ * why with the text at 2, and `databases` raises the text at 3; and a
+ * `meta` lookup of a key the set at 4 does not hold searches only the
+ * databases attached since ([`meta_reach`]), raising the text at 5 when
+ * none of those answers. A test worker holds a test so to the modules
+ * and rows its verdict is keyed by. The sets are consulted as they
+ * stand, not copied. Nothing takes a hold down,
  * nor puts up another: what runs under one -- a finalizer a test left,
  * run after the test is over -- cannot loosen or replace it. The set is
  * stored last, which is what puts the hold up: should a store before it
@@ -953,14 +968,201 @@ static int store_hold (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checkstring(L, 2);
   luaL_checkstring(L, 3);
+  luaL_checktype(L, 4, LUA_TTABLE);
+  luaL_checkstring(L, 5);
   if (held(L, NULL)) {
     return luaL_error(L, "the store is held already");
   }
-  lua_settop(L, 3);
+  lua_settop(L, 5);
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, -1);
+  lua_pop(L, 1);
+  lua_pushinteger(L, count);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_COUNT);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_META);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_META);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_ALL);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
   return 0;
+}
+
+/* The hold a test's worker hands every process its test starts
+ * (build/test_worker.tl's `hold_children`), for a module that declares
+ * `lua` ([`cosmic.test`]): each such process is held as the worker is
+ * ([`store_hold`]), to the worker's closure, so what it runs of the
+ * program's own database is what the test's key holds. The value
+ * travels as COSMIC_TEST_CHILD_HOLD in every environment the core starts
+ * a process with, in place of any the program gave it
+ * ([`cosmic_store_environment`]); it is taken out of this process's own
+ * before any Lua runs ([`cosmic_store_prepare`]), passed on to what this
+ * one starts in turn, and put up before the main module loads
+ * ([`cosmic_store_hold_inherited`]). Nothing takes it off: what runs
+ * under it can neither read it nor start a process without it, but by
+ * a host program that starts this one with an environment of its own,
+ * which a module that declares `lua` may not run (build/analyzer.tl).
+ *
+ * Its value is the module's path, a space, the `meta` keys the hold lets
+ * through joined by commas, and each name of a module the process may
+ * load, each after a space. */
+#define CHILD_HOLD_NAME "COSMIC_TEST_CHILD_HOLD"
+static char *child_hold_entry; /* CHILD_HOLD_NAME "=" value, or NULL */
+static bool child_hold_inherited; /* this process was started under one */
+static bool child_hold_lost;      /* ... but could not keep it */
+
+/* Sets the entry the processes this one starts are given to `value`. */
+static bool set_child_hold (const char *value) {
+  size_t size = sizeof CHILD_HOLD_NAME + strlen(value) + 1;
+  char *entry = malloc(size);
+  if (!entry) return false;
+  snprintf(entry, size, "%s=%s", CHILD_HOLD_NAME, value);
+  free(child_hold_entry);
+  child_hold_entry = entry;
+  return true;
+}
+
+/* hold_children(value): every process this one starts from now on, and
+ * every one those start, is held so; raises when they are already. */
+static int store_hold_children (lua_State *L) {
+  const char *value = luaL_checkstring(L, 1);
+  if (child_hold_entry != NULL) {
+    return luaL_error(L, "the processes this one starts are held already");
+  }
+  if (!set_child_hold(value)) return luaL_error(L, "not enough memory");
+  return 0;
+}
+
+void cosmic_store_prepare (void) {
+  const char *value = getenv(CHILD_HOLD_NAME);
+  if (value == NULL) return;
+  if (value[0] != '\0') {
+    if (set_child_hold(value)) child_hold_inherited = true;
+    else child_hold_lost = true;
+  }
+  unsetenv(CHILD_HOLD_NAME);
+}
+
+char **cosmic_store_environment (char **envp) {
+  if (child_hold_entry == NULL) return envp;
+  size_t count = 0;
+  for (; envp[count]; count++) {}
+  char **given = malloc((count + 2) * sizeof *given);
+  if (!given) return NULL;
+  size_t name = sizeof CHILD_HOLD_NAME; /* with its '=' in place of the NUL */
+  size_t kept = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (strncmp(envp[i], child_hold_entry, name) != 0) given[kept++] = envp[i];
+  }
+  given[kept++] = child_hold_entry;
+  given[kept] = NULL;
+  return given;
+}
+
+/* Sets each name of the list from `from` to `end`, split at
+ * `separator`, true in the table at `into`. */
+static void name_each (lua_State *L, int into, const char *from, const char *end,
+                       char separator) {
+  while (from < end) {
+    const char *stop = memchr(from, separator, (size_t)(end - from));
+    if (stop == NULL) stop = end;
+    if (stop > from) {
+      lua_pushlstring(L, from, (size_t)(stop - from));
+      lua_pushboolean(L, 1);
+      lua_rawset(L, into);
+    }
+    from = stop + 1;
+  }
+}
+
+/* Puts up the hold this process inherited (`child_hold_entry`): on
+ * every module and declaration the binary's own database holds but
+ * those its value names. [`cosmic.removed`], which the core requires to
+ * say what to write instead of a removed global, is held like any
+ * other: a process whose test's closure does not hold it says only that
+ * the name is not available (core/surface.c's `raise_removed`). */
+static int put_up_inherited (lua_State *L) {
+  const char *value = child_hold_entry + sizeof CHILD_HOLD_NAME;
+  const char *end = value + strlen(value);
+  const char *module_end = strchr(value, ' ');
+  if (module_end == NULL) return luaL_error(L, "%s names no module", CHILD_HOLD_NAME);
+  const char *meta_end = strchr(module_end + 1, ' ');
+  if (meta_end == NULL) meta_end = end;
+  lua_pushlstring(L, value, (size_t)(module_end - value));
+  int module = lua_gettop(L);
+  lua_newtable(L);
+  int meta = lua_gettop(L);
+  name_each(L, meta, module_end + 1, meta_end, ',');
+  lua_newtable(L);
+  int allowed = lua_gettop(L);
+  name_each(L, allowed, meta_end, end, ' ');
+  lua_newtable(L);
+  int names = lua_gettop(L);
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
+  sqlite3 *db = binary_database(L, lua_gettop(L));
+  lua_pop(L, 1);
+  if (db != NULL) {
+    struct cosmic_guard *guard = cosmic_guard_push(L, release_statement);
+    sqlite3_stmt *stmt = NULL;
+    int rc = sqlite3_prepare_v2(db,
+      "SELECT path FROM main.modules UNION SELECT path FROM main.decls", -1, &stmt, NULL);
+    guard->resource = stmt;
+    if (rc != SQLITE_OK) {
+      if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+      die_unreadable(db);
+    }
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+      const char *path = (const char *)sqlite3_column_text(stmt, 0);
+      if (path == NULL) return luaL_error(L, "not enough memory");
+      lua_pushstring(L, path);
+      if (lua_rawget(L, allowed) == LUA_TNIL) {
+        lua_pushstring(L, path);
+        lua_pushboolean(L, 1);
+        lua_rawset(L, names);
+      }
+      lua_pop(L, 1);
+    }
+    if (rc != SQLITE_DONE) {
+      if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+      die_unreadable(db);
+    }
+    cosmic_guard_release(guard);
+  }
+  const char *who = lua_tostring(L, module);
+  lua_pushcfunction(L, store_hold);
+  lua_pushvalue(L, names);
+  lua_pushfstring(L, "%s declares lua = true, so what a process its tests start runs of "
+    "this program is keyed by its import closure and by what `cosmic -e` loads "
+    "(build/test_inputs.tl's `lua_loads`) alone, and by what `cosmic --standalone` loads "
+    "(`standalone_loads`) only where it declares standalone = true beside lua. Require the "
+    "module at the top level of %s, declare standalone = true beside lua where its tests "
+    "run a file --standalone, or declare tool = true in its Test.needs in place of lua",
+    who, who);
+  lua_pushfstring(L, "a handle reads every module's rows, and %s declares lua = true, so "
+    "what a process its tests start reads of this program is keyed by its import "
+    "closure alone. Declare tool = true in its Test.needs in place of lua", who);
+  lua_pushvalue(L, meta);
+  lua_pushfstring(L, "%s declares lua = true, so what a process its tests start reads of "
+    "this program is keyed by its import closure alone, which does not hold that row. "
+    "Declare tool = true in its Test.needs in place of lua", who);
+  lua_call(L, 5, 0);
+  return 0;
+}
+
+bool cosmic_store_hold_inherited (lua_State *L) {
+  if (child_hold_lost) {
+    fprintf(stderr, "cosmic: no memory to keep the hold its test's worker handed it\n");
+    return false;
+  }
+  if (!child_hold_inherited) return true;
+  lua_pushcfunction(L, put_up_inherited);
+  if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+    const char *why = lua_tostring(L, -1);
+    fprintf(stderr, "cosmic: the hold its test's worker handed it: %s\n",
+            why == NULL ? "failed" : why);
+    lua_pop(L, 1);
+    return false;
+  }
+  return true;
 }
 
 /* Private capability handed only to the trusted build.artifact chunk. */
@@ -1090,6 +1292,8 @@ static int open_store_module (lua_State *L,
   lua_setfield(L, -2, "zone_names");
   lua_pushcfunction(L, store_hold);
   lua_setfield(L, -2, "hold");
+  lua_pushcfunction(L, store_hold_children);
+  lua_setfield(L, -2, "hold_children");
   lua_pushlightuserdata(L, (void *)artifact);
   lua_pushcclosure(L, store_trusted_prefix, 1);
   lua_setfield(L, -2, "trusted_prefix");
@@ -1098,6 +1302,23 @@ static int open_store_module (lua_State *L,
   lua_setfield(L, -2, "trusted_core");
   lua_remove(L, -2);
   return 1;
+}
+
+/* Answers whether the hold lets the module named by the light userdata
+ * at 1 through ([`held`]), under [`cosmic_store_lets`]'s protected call:
+ * `held` raises on memory. */
+static int ask_lets (lua_State *L) {
+  lua_pushboolean(L, !held(L, lua_touserdata(L, 1)));
+  return 1;
+}
+
+bool cosmic_store_lets (lua_State *L, const char *name) {
+  if (!lua_checkstack(L, 2)) return false;
+  lua_pushcfunction(L, ask_lets);
+  lua_pushlightuserdata(L, (void *)name);
+  bool lets = lua_pcall(L, 1, 1, 0) == LUA_OK && lua_toboolean(L, -1);
+  lua_pop(L, 1);
+  return lets;
 }
 
 int cosmic_store_count (lua_State *L) {
@@ -1113,6 +1334,20 @@ const struct cosmic_artifact *cosmic_store_artifact (lua_State *L) {
   lua_pop(L, 1);
   if (artifact == NULL || artifact->fd < 0) return NULL;
   return artifact;
+}
+
+void cosmic_argfd (lua_State *L, int arg, lua_Integer fd) {
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact != NULL && fd == (lua_Integer)artifact->fd)
+    luaL_argerror(L, arg, "is this program's retained artifact descriptor, "
+                          "through which every module it carries could be "
+                          "read");
+}
+
+int cosmic_checkfd (lua_State *L, int arg) {
+  int fd = cosmic_checkint(L, arg);
+  cosmic_argfd(L, arg, fd);
+  return fd;
 }
 
 sqlite3 *cosmic_store_database (lua_State *L, int index) {

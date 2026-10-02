@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.time`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.time`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table.
 
@@ -15,10 +15,94 @@ local Example = {}
 --- jumps the way the wall clock can.
 function Example.sleep_ns()
   local before = Time.monotonic_ns()
-  assert(Time.sleep_ns(1000000))
+  assert(Time.sleep_ns(Time.ms(1)))
   local waited = Time.monotonic_ns() - before
-  print(waited >= 1000000)
-  assert(waited >= 1000000, tostring(waited))
+  print(waited >= Time.ms(1))
+  assert(waited >= Time.ms(1), tostring(waited))
+end
+
+--- A count of milliseconds as the nanoseconds every function here takes.
+--- A fraction is fine while the span is a whole number of nanoseconds,
+--- and one that is not is refused.
+function Example.ms()
+  print(Time.ms(250), Time.ms(0.5))
+  assert(Time.ms(250) == 250000000 and Time.ms(0.5) == 500000)
+  local ok, why = pcall(Time.ms, 0.0000001)
+  print(ok, why)
+  assert(not ok)
+end
+
+--- Seconds as nanoseconds: a deadline five seconds from the monotonic
+--- clock.
+function Example.seconds()
+  local deadline = Time.monotonic_ns() + Time.seconds(5)
+  print(Time.seconds(5), Time.seconds(0.25))
+  assert(Time.seconds(5) == 5000000000 and Time.seconds(0.25) == 250000000)
+  assert(deadline > Time.monotonic_ns())
+end
+
+--- Minutes as nanoseconds: ninety seconds, written two ways.
+function Example.minutes()
+  print(Time.minutes(1.5), Time.minutes(2))
+  assert(Time.minutes(1.5) == Time.seconds(90) and Time.minutes(2) == 120000000000)
+  local ok, why = pcall(Time.minutes, math.maxinteger)
+  print(ok, why)
+  assert(not ok)
+end
+
+--- Hours as nanoseconds: what a day is on a clock that never changes.
+function Example.hours()
+  print(Time.hours(24), Time.hours(0.5))
+  assert(Time.hours(24) == 86400 * 1000000000 and Time.hours(0.5) == Time.minutes(30))
+end
+
+--- A span as the count of a unit that covers it, for a call that takes
+--- milliseconds: a nanosecond is one millisecond, never none.
+function Example.ceil()
+  local ms = Time.ms(1)
+  print(Time.ceil(1, ms), Time.ceil(Time.ms(5), ms), Time.ceil(Time.ms(5) + 1, ms))
+  assert(Time.ceil(0, ms) == 0 and Time.ceil(1, ms) == 1)
+  assert(Time.ceil(Time.ms(5), ms) == 5 and Time.ceil(Time.ms(5) + 1, ms) == 6)
+  assert(Time.ceil(-1, ms) == 0 and Time.ceil(Time.seconds(2), Time.seconds(1)) == 2)
+  local ok, why = pcall(Time.ceil, 1, 0)
+  print(ok, why)
+  assert(not ok)
+end
+
+--- A duration as people write it: a calendar part (years, months, days)
+--- and an exact part in nanoseconds, with one sign for the whole. Text
+--- that is not one is refused with why.
+function Example.parse_duration()
+  local d = assert(Time.parse_duration("1y2mo3d4h5m6.5s"))
+  print(d.years, d.months, d.days, d.ns)
+  assert(d.years == 1 and d.months == 2 and d.days == 3)
+  assert(d.ns == Time.hours(4) + Time.minutes(5) + Time.seconds(6.5))
+  local back = Time.parse_duration("-90m")
+  assert(back ~= nil and back.ns == -Time.minutes(90))
+  local none, why = Time.parse_duration("5 minutes")
+  assert(none == nil)
+  print(why)
+end
+
+--- What a person typed as a moment: local time on a zone's calendar, and
+--- how a time its clocks repeat is read -- refused by default, or the
+--- earlier or the later of its two moments as asked.
+function Example.from_civil()
+  local tokyo = assert(Time.zone("Asia/Tokyo"))
+  local midnight = assert(Time.parse_rfc3339("2026-09-25T00:00:00Z"))
+  local nine: Time.Civil = { year = 2026, month = 9, day = 25, hour = 9, minute = 0, second = 0,
+    ns = 0 }
+  assert(Time.from_civil(nine, tokyo) == midnight, "09:00 in Tokyo is midnight UTC")
+  local ny = assert(Time.zone("America/New_York"))
+  local twice: Time.Civil = { year = 2026, month = 11, day = 1, hour = 1, minute = 30, second = 0,
+    ns = 0 }
+  print(Time.from_civil(twice, ny))
+  for _, how in ipairs({ "earlier", "later" } as {Time.Disambiguation}) do
+    local ns = assert(Time.from_civil(twice, ny, { disambiguation = how }))
+    print(how, Time.format_rfc3339(ns, ny))
+  end
+  local earlier = assert(Time.from_civil(twice, ny, { disambiguation = "earlier" }))
+  assert(Time.format_rfc3339(earlier, ny) == "2026-11-01T01:30:00-04:00")
 end
 
 --- A moment named on the UTC calendar, and written as RFC 3339 text.
@@ -28,7 +112,7 @@ function Example.civil()
   print(c.year, c.month, c.day, c.weekday, c.yday)
   assert(c.year == 2000 and c.month == 2 and c.day == 29 and c.weekday == 2 and c.yday == 60)
   print(Time.format_rfc3339(ns))
-  print(Time.format_rfc3339(ns, { digits = 0 }))
+  print(Time.format_rfc3339(ns, nil, { digits = 0 }))
 end
 
 --- A timestamp with an offset read back as nanoseconds, and a calendar
@@ -45,15 +129,30 @@ function Example.parse_rfc3339()
 end
 
 --- A month past January 31 names no day unless asked to take the
---- month's last; the whole months between two dates count the same way.
+--- month's last, and a duration's exact part, here an hour and a half, is
+--- added to the moment the calendar part reaches.
 function Example.add_calendar()
   local jan31 = assert(Time.parse_rfc3339("2024-01-31T09:00:00Z"))
   print(Time.add_calendar(jan31, { months = 1 }))
-  local feb = assert(Time.add_calendar(jan31, { months = 1 }, { overflow = "clamp" }))
+  local feb = assert(Time.add_calendar(jan31, { months = 1, ns = Time.minutes(90) }, nil,
+    { overflow = "clamp" }))
   print(Time.format_rfc3339(feb))
-  assert(Time.format_rfc3339(feb) == "2024-02-29T09:00:00Z")
-  print(Time.days_between(jan31, feb), Time.months_between(jan31, feb))
-  assert(Time.days_between(jan31, feb) == 29 and Time.months_between(jan31, feb) == 0)
+  assert(Time.format_rfc3339(feb) == "2024-02-29T10:30:00Z")
+end
+
+--- The whole years, months and days from one moment to another, and the
+--- hours, minutes and seconds left over, as a duration that adds back
+--- to the second moment. The months count as Java's do: January 31 to
+--- February 29 is none.
+function Example.between()
+  local from = assert(Time.parse_rfc3339("2024-01-31T09:00:00Z"))
+  local to = assert(Time.parse_rfc3339("2026-03-15T10:30:00Z"))
+  local span = assert(Time.between(from, to))
+  print(Time.format_duration(span))
+  assert(span.years == 2 and span.months == 1 and span.days == 15 and span.ns == Time.minutes(90))
+  assert(Time.add_calendar(from, span, nil, { overflow = "clamp" }) == to)
+  local leap = assert(Time.parse_rfc3339("2024-02-29T09:00:00Z"))
+  assert(assert(Time.between(from, leap)).months == 0)
 end
 
 --- A moment's UTC date, and a date read back as its midnight.
@@ -92,26 +191,23 @@ function Example.zone()
   local c = Time.civil(ns, ny)
   print(c.hour, c.offset, c.abbreviation, c.dst)
   assert(c.hour == 12 and c.offset == -14400 and c.abbreviation == "EDT" and c.dst)
-  print(Time.format_rfc3339(ns, { zone = ny, zone_name = true }))
+  print(Time.format_rfc3339(ns, ny, { zone_name = true }))
   local skipped: Time.Civil = { year = 2026, month = 3, day = 8, hour = 2, minute = 30, second = 0,
-    nanosecond = 0 }
+    ns = 0 }
   print(Time.from_civil(skipped, ny))
   local later = assert(Time.from_civil(skipped, ny, { disambiguation = "compatible" }))
-  print(Time.format_rfc3339(later, { zone = ny }))
-  assert(Time.format_rfc3339(later, { zone = ny }) == "2026-03-08T03:30:00-04:00")
+  print(Time.format_rfc3339(later, ny))
+  assert(Time.format_rfc3339(later, ny) == "2026-03-08T03:30:00-04:00")
 end
 
 --- The host's own zone: the carried one `TZ`, /etc/localtime or /etc/timezone names.
 function Example.local_zone()
   local here, why = Time.local_zone()
   assert(here ~= nil, why)
-  print(here.name, Time.format_rfc3339(Time.now_ns(), { zone = here, digits = 0 }))
-end
-
---- Sydney's rules as a POSIX TZ string: daylight saving time from the
---- first Sunday of October to the first of April, across the new year.
-function Example.zone_from_posix()
-  local sydney = assert(Time.zone_from_posix("AEST-10AEDT,M10.1.0,M4.1.0/3"))
+  print(here.name, Time.format_rfc3339(Time.now_ns(), here, { digits = 0 }))
+  -- A TZ string with its own rules, Sydney's: daylight saving time from
+  -- the first Sunday of October to the first of April, across the new year.
+  local sydney = assert(Time.local_zone({ tz = "AEST-10AEDT,M10.1.0,M4.1.0/3" }))
   local ns = assert(Time.parse_rfc3339("2027-01-01T00:00:00+11:00"))
   local c = Time.civil(ns, sydney)
   print(c.abbreviation, c.offset)
@@ -125,8 +221,8 @@ end
 --- which could as well have been read from a file.
 function Example.zone_from_tzif()
   local tokyo = assert(Time.zone_from_tzif(assert(Store.zoneinfo("Asia/Tokyo")), "Asia/Tokyo"))
-  print(Time.format_rfc3339(0, { zone = tokyo, zone_name = true }))
-  assert(Time.format_rfc3339(0, { zone = tokyo, zone_name = true }) ==
+  print(Time.format_rfc3339(0, tokyo, { zone_name = true }))
+  assert(Time.format_rfc3339(0, tokyo, { zone_name = true }) ==
     "1970-01-01T09:00:00+09:00[Asia/Tokyo]")
 end
 
@@ -137,6 +233,9 @@ function Example.parse_rfc3339_zoned()
   print(zoned.ns, zoned.zone.name)
   assert(zoned.zone.name == "America/New_York" and zoned.ns == 1782921600 * 1000000000)
   print(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-05:00[America/New_York]"))
+  local plain = assert(Time.parse_rfc3339_zoned("2026-07-01T21:30:00+05:30"))
+  print(plain.zone.name)
+  assert(plain.zone.name == "+05:30" and plain.ns == zoned.ns)
 end
 
 return Example

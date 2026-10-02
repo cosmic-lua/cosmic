@@ -56,8 +56,8 @@ local record sqlite
     --- Runs every statement in `sql`, discarding any rows, with no
     --- parameter binding: schema DDL, PRAGMAs, or several
     --- `;`-separated statements in one call -- the one thing
-    --- `Sqlite.run`, `rows` and `text_rows` cannot do, since each of
-    --- those prepares exactly one statement. Reach for `Sqlite.run`
+    --- [`Sqlite.run`], `rows` and `text_rows` cannot do, since each of
+    --- those prepares exactly one statement. Reach for [`Sqlite.run`]
     --- once a value needs binding.
     exec: function(Handle, sql: string): boolean, string
     --- Compiles `sql`, which must hold exactly one statement.
@@ -73,34 +73,30 @@ local record sqlite
     --- this connection: 0 before any has run on it, and a table
     --- declared `WITHOUT ROWID` never changes it.
     last_insert_rowid: function(Handle): integer
+    --- Sets one of the connection's limits, named as SQLite's
+    --- `SQLITE_LIMIT_*` without the prefix, lower-cased (`"attached"`,
+    --- `"sql_length"`, `"length"`, `"column"`, `"expr_depth"`,
+    --- `"compound_select"`, `"vdbe_op"`, `"function_arg"`,
+    --- `"like_pattern_length"`, `"variable_number"`, `"trigger_depth"`,
+    --- `"worker_threads"`), and answers the value it had. A negative
+    --- `value` changes nothing, so it reads the limit; a value above the
+    --- library's own ceiling is lowered to it. An unknown name raises.
+    limit: function(Handle, name: string, value: integer): integer
   end
 
   --- `writable` opens for reading and writing, creating the file when it
   --- is missing; without it the database is read-only. Every handle
   --- knows `sha256(X)`, `digest(A, X)` and `hmac(A, K, X)`, the digests
-  --- the core provides, so a query hashes in place.
-  open: function(path: string, writable?: boolean): Handle | nil, string
-  --- Turns on or off recording the files SQLite opens or asks after,
-  --- while it is on, through a connection `open` made -- the database,
-  --- its journal and WAL, an attached one; never a temporary file it
-  --- deletes on close. Turning it on also records every such file a
-  --- connection holds open now, but those `exclude_held` named, as though it
-  --- were opened now: a connection opened before reads it from here on.
-  --- `false`, and a message, when one of them could not be kept, as
-  --- when memory runs out; recording is on regardless. What is recorded
-  --- stays until `observed` drains it.
-  observe: function(on: boolean): boolean, string, integer
-  --- Every path recorded since the last call, each once, as SQLite
-  --- names it: absolute, the database's own links resolved, a journal
-  --- or WAL named after it. Forgets them.
-  observed: function(): {string}
-  --- Excludes every file a connection holds open at this moment:
-  --- `observe` never records one of them for being held, though it
-  --- records one a connection opens again. Files, not connections: a
-  --- journal or WAL a connection opens later is held and handed over.
-  --- For the process that runs captures, whose own connections are no
-  --- input of what it captures.
-  exclude_held: function()
+  --- the core provides, so a query hashes in place. `immutable` opens
+  --- read-only a file nothing will change while it is open (SQLite's
+  --- `immutable=1`): no lock is taken and no `-wal`, `-shm` or journal
+  --- file is made or read, so a WAL-mode database with its `-wal` gone
+  --- opens without leaving either beside it, and a statement holds
+  --- nothing another process's write waits on. A `-wal` is never read,
+  --- so a database with commits still in its `-wal` shows without them:
+  --- open it the ordinary read-only way instead. Giving it with
+  --- `writable` raises.
+  open: function(path: string, writable?: boolean, immutable?: boolean): Handle | nil, string
   --- The SQLite library's version, such as "3.53.4".
   version: string
 end

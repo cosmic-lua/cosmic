@@ -1,14 +1,14 @@
---- That `build.fix.equiv` actually reports a difference, which is the
+--- That [`build.fix.equiv`] actually reports a difference, which is the
 --- half of it nothing else would notice going wrong.
 ---
 --- `cosmic fix` refuses to write a file whose rendered text does not
---- parse back to the tree it came from, so a comparison that quietly
---- answered "same" to everything would turn that guard off and leave no
---- trace. Each case here is a change a broken renderer could plausibly
---- make -- an attribute dropped, one attribute swapped for the other, a
---- comment lost, two operands transposed -- and each has to be caught.
---- The last case is the other direction: spacing alone is not a
---- difference, or the guard would refuse every file it ever fixed.
+--- parse back to the tree it came from, so a comparison that answered
+--- "same" to everything would turn that guard off without a trace. Each
+--- case here is a change a broken renderer could plausibly make (an
+--- attribute dropped or swapped for the other, a comment lost, two
+--- operands transposed) and each has to be caught. The spacing cases
+--- go the other way: spacing alone is not a difference, or the guard
+--- would refuse every file it fixed.
 
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
@@ -76,12 +76,11 @@ local function test_spacing_alone_is_not_a_difference()
   assert(kept, "spacing counted as a comment change: " .. difference)
 end
 
---- tl's parser output is not a tree: one table can sit at two places
---- at once, which `local record Node is {Node}` in this tree's own
---- `build/ast/node.tl` is enough to produce. A comparison that stopped
---- at a before-side table it had already visited would look at only the
---- first of the two things the after tree holds opposite it, and wave
---- the second one through whatever it said.
+--- tl's parser output is not a tree: one table can sit at two places,
+--- as `local record Node is {Node}` in [`build/ast/node.tl`] produces. A
+--- comparison that stopped at a before-side table it had already
+--- visited would look at only the first of the two things the after
+--- tree holds opposite it and pass the second whatever it held.
 local function test_a_node_reached_by_two_routes_is_compared_on_both()
   local shared: {any:any} = { kind = "string", tk = "\"one\"" }
   local before: {any:any} = { kind = "statements" }
@@ -95,9 +94,8 @@ local function test_a_node_reached_by_two_routes_is_compared_on_both()
   assert(difference:find("two", 1, true) ~= nil, "got: " .. difference)
 end
 
---- And the guard that makes the above possible still stops a real
---- cycle, which is what it was there for: without one this call does
---- not return at all.
+--- The pair guard still stops a real cycle; without it this call would
+--- not return.
 local function test_a_cycle_is_not_followed_forever()
   local before: {any:any} = { kind = "statements" }
   before["body"] = before
@@ -127,4 +125,14 @@ local function test_record_spacing_alone_is_not_a_difference()
     "local record R\n\n  -- field\n  x: string\n  f: integer\nend\n")
   assert(same, "record spacing counted as a difference: " .. difference)
   assert(kept, "record spacing changed comments: " .. difference)
+end
+
+--- A list of type arguments carries where it closes, with no kind of
+--- its own to say so: an indented generic moved left is the same tree.
+local function test_where_a_type_argument_list_closes_is_no_difference()
+  local same, _, difference = compare("  local function f<T>(x: T) end\n",
+    "local function f<T>(x: T) end\n")
+  assert(same, "got: " .. difference)
+  local record_same, _, record_difference = compare(" local record R<T> end\n", "local record R<T> end\n")
+  assert(record_same, "got: " .. record_difference)
 end

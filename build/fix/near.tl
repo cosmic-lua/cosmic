@@ -3,14 +3,14 @@
 --- public standard library's, and one that looks like a duplicate earns
 --- a note -- never a failure, since both tests are heuristics. The note
 --- names the function to look at, so a project's `Paths.which` is met
---- with the library's `Proc.find` when it is written, not after.
+--- with the library's [`Proc.find`] when it is written, not after.
 ---
 --- Two things make a note:
 ---
 --- - The function is named for a command or C call (`COMMANDS`) that
 ---   another module's function names as code (`` `which` ``,
 ---   `` `mkdir -p` ``) -- what it stands in for -- and no other public
----   symbol but a raw `cosmic.sys` binding is called that. Within one
+---   symbol but a raw [`cosmic.sys`] binding is called that. Within one
 ---   module a backticked name is nearly always a reference to that very
 ---   sibling, so only other modules count.
 --- - The two doc comments share most of their words: at least
@@ -18,7 +18,7 @@
 ---   `MIN_WORDS` of their own.
 ---
 --- Either is dropped when the function's own documentation already
---- names the other, qualified (`Proc.find`) or as code (`` `find` ``).
+--- names the other, qualified ([`Proc.find`]) or as code (`` `find` ``).
 -- TODO: tell a sibling a module's documentation refers to from a command
 -- it stands in for, so a function named after a command that a sibling
 -- in its own module already stands in for (Proc.which beside Proc.find)
@@ -37,7 +37,7 @@ local record near
     kind: string
     --- Its own name (`find`).
     symbol: string
-    --- The name it was written as (`Proc.find`).
+    --- The name it was written as ([`Proc.find`]).
     source_symbol: string
     --- Its declaration, one line: its parameters are backticked in its
     --- documentation as a matter of course.
@@ -81,7 +81,7 @@ for name in ([[
 end
 
 --- Modules whose documentation names things as examples of something
---- else: `cosmic.removed` lists the names the library no longer has.
+--- else: [`cosmic.removed`] lists names the runtime withholds.
 local EXAMPLES_ONLY: {string: boolean} = { ["cosmic.removed"] = true }
 
 local STOP: {string: boolean} = {}
@@ -104,7 +104,7 @@ local function words(text: string): {string: boolean}, integer
   return set, count
 end
 
---- A symbol's last name, lowercased: `find` for `Proc.find`.
+--- A symbol's last name, lowercased: `find` for [`Proc.find`].
 local function last_name(symbol: string): string
   return (symbol:match("([%w_]+)$") or symbol):lower()
 end
@@ -125,7 +125,7 @@ local function stands_in(other: near.Known, name: string): boolean
 end
 
 --- Whether `text` already names `other`: by the name it was written as
---- (`Proc.find`), or by its own name as code (`` `find` ``). A bare word
+--- ([`Proc.find`]), or by its own name as code (`` `find` ``). A bare word
 --- does not count: short names (find, list, rename) are everyday verbs.
 local function names(text: string, other: near.Known): boolean
   local lower = text:lower()

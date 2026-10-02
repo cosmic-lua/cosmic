@@ -1,22 +1,13 @@
 local teal = require("build.teal")
 local analyzer = require("build.analyzer")
+local Test = require("cosmic.test")
 
 local built, load_trouble = teal.load()
 if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))
 end
 
---- Joins lines the way a real source file would read. Fixtures are
---- built from a table of plain string literals, assembled at run time,
---- rather than as a long-bracket literal sitting directly in THIS
---- file's own source: this file is itself a `_test.tl` module the real
---- importer discovers and parses, and a fixture string embedded here
---- as literal `[[...]]` text would put its own `local function
---- test_*` sample right into this file's real AST for the discovery
---- pass under test to find -- exactly the ambiguity `analyze`
---- no longer has to resolve, since a string built this way is never
---- anything but a "string" node's `conststr`, whichever implementation
---- reads it.
+--- Joins lines the way a real source file would read.
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end
@@ -67,10 +58,8 @@ local function test_ignores_non_test_functions()
   assert(found[1] == "test_uses_helper")
 end
 
---- A `local function test_*` declared inside another function is a
---- child of that OTHER function's own body, never a direct element of
---- the chunk's own top-level statement array, and is not a test some
---- other function happens to declare for itself.
+--- A `local function test_*` declared inside another function is no
+--- test: only the chunk's own top-level statements are searched.
 local function test_ignores_indented_functions()
   local source = lines({
     "local function outer()",
@@ -94,11 +83,10 @@ local function test_discovers_nothing_when_there_is_no_test()
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- A source SAMPLE held as a `[[...]]` long-bracket string parses to a
---- single "string" node, never a chunk-level statement of its own kind
---- -- its own `local function test_something()` text is never a
---- candidate for `analyze` to find at all, structurally, rather
---- than excluded by tracking where the bracket opens and closes.
+--- A source sample held as a `[[...]]` long-bracket string parses to a
+--- single "string" node, so its `local function test_something()` text
+--- is never a candidate for `analyze`: no tracking of where the bracket
+--- opens and closes is needed.
 local function test_ignores_a_fake_test_inside_a_plain_long_bracket()
   local source = lines({
     "local sample = [[",
@@ -123,9 +111,8 @@ local function test_ignores_a_fake_test_inside_a_leveled_long_bracket()
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- A long COMMENT parses to no statement at all -- tl's lexer consumes
---- it as a comment attached to the following token, so it never
---- reaches the parser as source text in the first place.
+--- A long comment parses to no statement: tl's lexer attaches it to the
+--- following token, so it never reaches the parser as source text.
 local function test_ignores_a_fake_test_inside_a_long_comment()
   local source = lines({
     "--[[",
@@ -171,9 +158,8 @@ local function test_discovers_a_real_test_before_a_bracket_region()
   assert(found[1] == "test_real")
 end
 
---- An ordinary quoted string holding the same text as a plain literal,
---- on one line, parses to a "string" node either way; confirm this
---- still is not one.
+--- A quoted string on one line holding the same text is a "string" node
+--- too, and no test.
 local function test_ignores_a_quoted_string_naming_a_test()
   local source = lines({
     'local x = "local function test_x()"',
@@ -227,26 +213,23 @@ local function test_has_top_level_return_false_inside_a_bracket()
   assert(not has_return(source))
 end
 
---- A table constructor return is still a genuine top-level return:
---- `has_top_level_return` checks the statement's own `kind`, so what
---- the return's own expression happens to be shaped like never
---- matters, unlike a text pattern that has to special-case it.
+--- A table constructor return is a genuine top-level return:
+--- `has_top_level_return` checks the statement's `kind`, whatever shape
+--- its expression has.
 local function test_has_top_level_return_true_for_a_table_constructor()
   local source = lines({ "return { 1, 2, 3 }" })
   assert(has_return(source))
 end
 
---- A `return` immediately followed by a comment, with no value, is
---- still the chunk's genuine top-level return.
+--- A `return` with no value, followed by a comment, is a top-level
+--- return.
 local function test_has_top_level_return_true_with_a_trailing_comment()
   local source = lines({ "return -- nothing to give back" })
   assert(has_return(source))
 end
 
---- An ordinary snake_case identifier assignment that happens to start
---- with the six letters `return` parses to an `"assignment"` node, not
---- `"return"` -- there is no shared text prefix for a checker to get
---- wrong, unlike `%f[^%w_]` over raw source.
+--- An assignment to an identifier that starts with the letters `return`
+--- parses to an `"assignment"` node, not `"return"`.
 local function test_has_top_level_return_false_for_return_prefixed_assignment()
   local source = lines({
     "local function test_one()",
@@ -264,9 +247,8 @@ local function test_has_top_level_return_false_for_return_prefixed_call()
   assert(not has_return(source))
 end
 
---- `return(x)`, a genuine return of a parenthesized expression with no
---- space before the `(`, must still be flagged: the two cases above
---- must not overcorrect and swallow this legitimate one.
+--- `return(x)`, a return of a parenthesized expression with no space
+--- before the `(`, is still a top-level return.
 local function test_has_top_level_return_true_for_a_parenthesized_return()
   local source = lines({ "return(x)" })
   assert(has_return(source))
@@ -308,6 +290,19 @@ local function test_catalogs_a_false_return()
   })
   local found = catalog(source)
   assert(#found == 1)
+  assert(found[1].message == "the thing is busy right now", found[1].message)
+end
+
+--- A module's own `return refuse("why")`, which answers `nil, "module: why"`,
+--- is catalogued by the literal it is given.
+local function test_catalogs_a_refuse_return()
+  local source = lines({
+    "local function try_thing(): nil, string",
+    "  return refuse(\"the thing is busy right now\")",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 1, "expected one entry, got " .. #found)
   assert(found[1].message == "the thing is busy right now", found[1].message)
 end
 
@@ -441,6 +436,111 @@ local function test_documents_a_function()
   assert(entry.line == 4, tostring(entry.line))
 end
 
+--- A comment that opens a function's body is not part of its signature,
+--- nor is one between its parameters.
+local function test_a_body_comment_is_not_part_of_the_signature()
+  local by_symbol = docs(lines({
+    "--- Ends in a tail call.",
+    "local function tail(path: string,  -- where",
+    "                    mode?: string): string | nil, string",
+    "  -- A tail call: the caller is blamed.",
+    "  -- Second line.",
+    "  return path, mode",
+    "end",
+    "--- Wrapped.",
+    "local function wrapped(",
+    "  _opts: Options, --[[ block ]] _mode: Mode",
+    "): Inner",
+    "  return nil",
+    "end",
+    "--- Bare.",
+    "local function bare(): string",
+    "  -- nothing yet",
+    "end",
+  }))
+  assert(by_symbol["tail"].signature ==
+    "local function tail(path: string, mode?: string): string | nil, string",
+    by_symbol["tail"].signature)
+  assert(by_symbol["wrapped"].signature ==
+    "local function wrapped(_opts: Options, _mode: Mode): Inner",
+    by_symbol["wrapped"].signature)
+  assert(by_symbol["bare"].signature == "local function bare(): string",
+    by_symbol["bare"].signature)
+end
+
+--- A `local` type is the module's own unless a signature the module
+--- hands out names it, or the returned variable is typed as it.
+local function test_a_local_type_is_exported_only_when_reached()
+  local by_symbol = docs(lines({
+    "local record Cursor",
+    "  at: integer",
+    "end",
+    "local record Options",
+    "  size: Sizing",
+    "end",
+    "local record Sizing",
+    "  wide: boolean",
+    "end",
+    "local record Surface",
+    "  name: string",
+    "end",
+    "local record State",
+    "end",
+    "local record Thing",
+    "  open: function(opts: Options, other: Other.State): string",
+    "end",
+    "local thing: Thing = {}",
+    "return thing",
+  }))
+  assert(not by_symbol["Cursor"].exported and not by_symbol["Cursor.at"].exported)
+  assert(by_symbol["Thing"].exported and by_symbol["Thing.open"].exported)
+  assert(by_symbol["Options"].exported and by_symbol["Options.size"].exported)
+  assert(by_symbol["Sizing"].exported and by_symbol["Sizing.wide"].exported)
+  assert(not by_symbol["Surface"].exported)
+  -- `Other.State` is another module's, not this one's `State`.
+  assert(not by_symbol["State"].exported)
+end
+
+--- A member named `_x` is no caller's to read, so a `local` type only its
+--- signature names stays the module's own.
+local function test_a_local_type_only_a_private_member_names_stays_private()
+  local by_symbol = docs(lines({
+    "local record Pipe",
+    "  fd: integer",
+    "end",
+    "local record Handle",
+    "  _pipes: {Pipe}",
+    "  pid: integer",
+    "end",
+    "local record Thing",
+    "  open: function(): Handle",
+    "end",
+    "local thing: Thing = {}",
+    "return thing",
+  }))
+  assert(by_symbol["Handle"].exported and by_symbol["Handle.pid"].exported)
+  assert(not by_symbol["Pipe"].exported and not by_symbol["Pipe.fd"].exported)
+end
+
+--- A `--` note beside a `---` block (a `TODO:` under it) is not part of
+--- the documentation; a run of `--` alone still is.
+local function test_a_plain_comment_beside_a_doc_block_is_not_documentation()
+  local by_symbol = docs(lines({
+    "--- Opens a thing.",
+    "-- TODO: open two.",
+    "local function open_thing()",
+    "end",
+    "",
+    "-- Closes a thing.",
+    "-- Twice, even.",
+    "local function close_thing()",
+    "end",
+  }))
+  assert(by_symbol["open_thing"].text == "Opens a thing.", by_symbol["open_thing"].text)
+  assert(by_symbol["close_thing"].text == "Closes a thing.\nTwice, even.",
+    by_symbol["close_thing"].text)
+end
+
 --- A function with no comment of its own is still a symbol, with an
 --- empty text: `cosmic docs` can still say where it lives.
 local function test_an_undocumented_function_is_still_a_symbol()
@@ -501,6 +601,234 @@ local function test_an_opening_comment_above_a_require_is_the_modules()
   assert(by_symbol["count"].text == "How many.")
 end
 
+--- A comment opening the file on its first record is the module's row
+--- too, and stays the record's own text.
+local function test_an_opening_comment_on_a_record_is_the_modules_too()
+  local by_symbol = docs(lines({
+    "--- The thing module.",
+    "local record Thing",
+    "  size: integer",
+    "end",
+    "return Thing",
+  }))
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
+  assert(by_symbol["Thing"].text == "The thing module.", by_symbol["Thing"].text)
+end
+
+--- The same for a `local type ... = require` opening the file.
+local function test_an_opening_comment_on_a_type_is_the_modules_too()
+  local by_symbol = docs(lines({
+    "--- The thing module.",
+    "local type Fs = require(\"cosmic.fs\")",
+    "return {}",
+  }))
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
+end
+
+--- A script opening with a `#!` line and a comment documents the
+--- module: the shebang is no code, and blank lines before the run do not
+--- end it. A function directly below keeps the run as its own.
+local function test_an_opening_comment_after_a_shebang_is_the_modules()
+  local by_symbol = docs(lines({
+    "#!/usr/bin/env cosmic",
+    "",
+    "--- A script.",
+    "--- It runs things.",
+    "",
+    "--- Runs one.",
+    "local function run()",
+    "end",
+  }))
+  local module = by_symbol[""]
+  assert(module ~= nil, "no module doc")
+  assert(module.text == "A script.\nIt runs things.", module.text)
+  assert(module.line == 3, tostring(module.line))
+  assert(by_symbol["run"].text == "Runs one.", by_symbol["run"].text)
+
+  local adjacent = docs(lines({
+    "#!/usr/bin/env cosmic",
+    "--- Runs one.",
+    "local function run()",
+    "end",
+  }))
+  assert(adjacent[""] == nil, "the function's comment was taken as the module's")
+  assert(adjacent["run"].text == "Runs one.", adjacent["run"].text)
+
+  local on_record = docs(lines({
+    "#!/usr/bin/env cosmic",
+    "-- A script's record.",
+    "local record Thing",
+    "end",
+  }))
+  assert(on_record[""] ~= nil and on_record[""].text == "A script's record.")
+  assert(on_record["Thing"].text == "A script's record.")
+end
+
+--- Blank lines before the opening comment do not hide it from the module
+--- either.
+local function test_an_opening_comment_after_blank_lines_is_the_modules()
+  local by_symbol = docs(lines({
+    "",
+    "",
+    "--- The thing module.",
+    "",
+    "local count = 3",
+  }))
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
+end
+
+--- A comment trailing a field on its own line is a note on that field,
+--- not the documentation of the next; a doc comment written right below
+--- it still is.
+local function test_a_trailing_field_comment_is_not_the_next_fields_doc()
+  local by_symbol = docs(lines({
+    "local record Thing",
+    "  s: string -- why it is a string",
+    "  t: string",
+    "  u: integer -- a note",
+    "  --- What u2 is.",
+    "  u2: integer",
+    "  wide: function(a: string, -- the first",
+    "                 b: string): string",
+    "  v: boolean",
+    "  enum Kind",
+    "    \"a\" -- the first kind",
+    "    \"b\"",
+    "  end",
+    "end",
+    "return Thing",
+  }))
+  assert(by_symbol["s"].text == "", by_symbol["s"].text)
+  assert(by_symbol["t"].text == "", by_symbol["t"].text)
+  assert(by_symbol["u2"].text == "What u2 is.", by_symbol["u2"].text)
+  assert(by_symbol["v"].text == "", by_symbol["v"].text)
+  assert(by_symbol["Kind.b"].text == "", by_symbol["Kind.b"].text)
+end
+
+--- A comment trailing a statement is not the doc comment of the
+--- declaration below it either.
+local function test_a_trailing_statement_comment_is_not_the_next_ones_doc()
+  local by_symbol = docs(lines({
+    "local limit = 3 -- how many",
+    "local function run()",
+    "end",
+    "local count = 4 -- how much",
+    "--- Runs.",
+    "local function go()",
+    "end",
+  }))
+  assert(by_symbol["run"].text == "", by_symbol["run"].text)
+  assert(by_symbol["go"].text == "Runs.", by_symbol["go"].text)
+end
+
+--- A record's `metamethod` fields are rows of their own, of kind
+--- `metamethod`, with their signature and doc comment, after its fields.
+local function test_documents_a_records_metamethods()
+  local by_symbol, all = docs(lines({
+    "local record Thing",
+    "  --- Calls the thing.",
+    "  metamethod __call: function(Thing, integer): string",
+    "  metamethod __close: function(Thing)",
+    "  size: integer",
+    "  --- Looks a member up.",
+    "  metamethod __index: function(Thing,",
+    "                                 string): any",
+    "end",
+    "return Thing",
+  }))
+  local call = by_symbol["__call"]
+  assert(call ~= nil, "no row for __call")
+  assert(call.kind == "metamethod", call.kind)
+  assert(call.source_symbol == "Thing.__call", call.source_symbol)
+  assert(call.exported)
+  assert(call.signature == "metamethod __call: function(Thing, integer): string",
+    call.signature)
+  assert(call.text == "Calls the thing.", call.text)
+  assert(by_symbol["__close"].text == "", by_symbol["__close"].text)
+  assert(by_symbol["__index"].signature ==
+    "metamethod __index: function(Thing, string): any", by_symbol["__index"].signature)
+  assert(by_symbol["__index"].text == "Looks a member up.")
+  local order: {string} = {}
+  for _, entry in ipairs(all) do
+    order[#order + 1] = entry.symbol
+  end
+  assert(table.concat(order, " ") == "Thing size __call __close __index",
+    table.concat(order, " "))
+end
+
+--- The `__is` a `where` clause makes up has no source of its own and no
+--- row.
+local function test_a_where_clause_adds_no_metamethod_row()
+  local _, all = docs(lines({
+    "local record Sized",
+    "  where self.size >= 0",
+    "  size: integer",
+    "end",
+    "return Sized",
+  }))
+  for _, entry in ipairs(all) do
+    assert(entry.kind ~= "metamethod", entry.symbol)
+  end
+end
+
+--- A field's stored signature runs to the end of its type, however many
+--- lines the source spent on it, and stops at the next field.
+local function test_a_multi_line_field_keeps_its_whole_signature()
+  local by_symbol = docs(lines({
+    "local record Calls",
+    "  gen: function(input: string, env: string,",
+    "                options: any): string | nil,",
+    "                               string",
+    "  exists: function(path: string): boolean",
+    "  name: string",
+    "end",
+    "return Calls",
+  }))
+  assert(by_symbol["gen"].signature ==
+    "gen: function(input: string, env: string, options: any): string | nil, string",
+    by_symbol["gen"].signature)
+  assert(by_symbol["exists"].signature == "exists: function(path: string): boolean")
+  assert(by_symbol["name"].signature == "name: string")
+end
+
+--- A generic function-typed field is stored at its own lines, whole:
+--- the parser stamps such a type where its arguments end, which is the
+--- next field's line.
+local function test_a_generic_field_keeps_its_own_signature()
+  local by_symbol = docs(lines({
+    "local record Calls",
+    "  map: function<T,",
+    "                U>(items: {T}, each: function(item: T): U): {U}",
+    "  wide: function<",
+    "    T>(item: T): T",
+    "  name: string",
+    "end",
+    "return Calls",
+  }))
+  assert(by_symbol["map"].signature ==
+    "map: function<T, U>(items: {T}, each: function(item: T): U): {U}",
+    by_symbol["map"].signature)
+  assert(by_symbol["map"].line == 2, by_symbol["map"].line)
+  assert(by_symbol["wide"].signature == "wide: function< T>(item: T): T",
+    by_symbol["wide"].signature)
+  assert(by_symbol["name"].signature == "name: string")
+end
+
+--- A comment inside a multi-line type is not part of the signature: joined
+--- onto one line it would swallow the words after it.
+local function test_a_comment_inside_a_field_type_is_left_out()
+  local by_symbol = docs(lines({
+    "local record Shape",
+    "  kind: string | -- the usual",
+    "    integer",
+    "  next: string",
+    "end",
+    "return Shape",
+  }))
+  assert(by_symbol["kind"].signature == "kind: string | integer",
+    by_symbol["kind"].signature)
+end
+
 --- A file that is only a comment documents its module.
 local function test_a_comment_only_file_documents_the_module()
   local by_symbol = docs(lines({ "--- Nothing but words." }))
@@ -554,8 +882,9 @@ local function test_documents_a_record_and_its_fields()
   for _, entry in ipairs(all) do
     order[#order + 1] = entry.symbol
   end
+  -- The opening comment sits on the record, so it is the module's row too.
   assert(table.concat(order, " ") ==
-    "Thing path Options Options.create Kind Kind.dir Kind.file read",
+    " Thing path Options Options.create Kind Kind.dir Kind.file read",
     table.concat(order, " "))
 end
 
@@ -644,9 +973,10 @@ local function test_repeat_condition_uses_the_body_scope()
 end
 
 --- A member read straight off a literal `require` is a use of that
---- module's member, as `build/dispatch.tl` reaches each verb's `run`;
---- a `require` of a computed name is not, since its target is unknown,
---- nor a call of a local or parameter that shadows `require`.
+--- module's member, as [`build/dispatch.tl`] calls [`build.reboot`]'s
+--- `stale_exit`. A `require` of a computed name is not, since its
+--- target is unknown, nor a call of a local or parameter that shadows
+--- `require`.
 local function test_a_member_of_an_inline_require_is_a_reference()
   local found = assert(analyzer.analyze(built, lines({
     'local name = "cosmic.fs"',
@@ -940,8 +1270,8 @@ local function declared(source: string): analyzer.Declared | nil, string
 end
 
 --- A top-level `Test.needs { ... }` is read as data, field by field,
---- with `network = true` as any host and the line it starts on, whatever
---- the local is named and in either call form.
+--- with the line it starts on, whatever the local is named and in either
+--- call form.
 local function test_a_needs_call_is_read_as_data()
   local got, trouble = declared(lines({
     'local Test = require("cosmic.test")',
@@ -950,8 +1280,8 @@ local function test_a_needs_call_is_read_as_data()
     '  reads = { "vendor/cacert/", "bin/zig.pin" },',
     '  host = { "/etc/localtime" },',
     '  env = { "PATH" },',
-    "  network = true,",
-    "  processes = true, tool = false, store = true,",
+    '  network = { "127.0.0.1", "127.0.0.2" },',
+    "  tool = false, nests = true, store = true,",
     "}",
   }))
   assert(got ~= nil, trouble)
@@ -959,20 +1289,21 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.reads == 2 and got.reads[1] == "vendor/cacert/" and got.reads[2] == "bin/zig.pin")
   assert(#got.host == 1 and got.host[1] == "/etc/localtime")
   assert(#got.env == 1 and got.env[1] == "PATH")
-  assert(#got.network == 1 and got.network[1] == "*")
-  assert(got.processes and not got.tool and got.store)
-  -- A host path a variable names, whole or beneath it.
+  assert(#got.network == 2 and got.network[1] == "127.0.0.1" and got.network[2] == "127.0.0.2")
+  assert(not got.tool and got.nests and got.store)
+  -- A host file a variable names, and /proc or a directory beneath it,
+  -- the one place host takes a directory.
   local named = assert(declared(lines({
     'local Test = require("cosmic.test")',
-    'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$PRODUCT", "$_P1/" } }',
+    'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$_P1/x", "/proc/", "/proc/self/" } }',
   })))
-  assert(#named.host == 3 and named.host[1] == "$FIXTURE_ROOT/o/bin/cosmic" and
-    named.host[2] == "$PRODUCT" and named.host[3] == "$_P1/")
+  assert(#named.host == 4 and named.host[1] == "$FIXTURE_ROOT/o/bin/cosmic" and
+    named.host[2] == "$_P1/x" and named.host[3] == "/proc/" and named.host[4] == "/proc/self/")
   local hosts = assert(declared(lines({
     'local t = require("cosmic.test")',
     't.needs({ network = { "127.0.0.1" } })',
   })))
-  assert(hosts.network[1] == "127.0.0.1" and not hosts.processes and hosts.line == 2)
+  assert(hosts.network[1] == "127.0.0.1" and not hosts.tool and hosts.line == 2)
   local none, none_trouble = declared("local function test_x() end\n")
   assert(none == nil and none_trouble == "", none_trouble)
   -- A jump at the top of a module that declares nothing is its own.
@@ -986,7 +1317,7 @@ local function test_a_needs_call_is_read_as_data()
   assert(other == nil and other_trouble == "", other_trouble)
 end
 
---- A cache is declared by a name the build knows (`build.caches`), and
+--- A cache is declared by a name the build knows ([`build.caches`]), and
 --- another name is refused, naming the line and the names there are.
 local function test_a_cache_is_declared_by_a_known_name()
   local got, trouble = declared(lines({
@@ -1013,7 +1344,29 @@ end
 --- refused, naming its line and what is wrong with it.
 local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
-    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, network" },
+    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, lua, nests, network" },
+    -- No test reaches beyond loopback, which is 127/8.
+    { 'Test.needs { network = true }', "fixture_test.tl:3: test.needs: network = true: " ..
+      "network takes loopback addresses 127.a.b.c only: no test reaches another host" },
+    { 'Test.needs { network = { "127.0.0.1", "example.com" } }', 'test.needs: network ' ..
+      '"example.com": network takes loopback addresses 127.a.b.c only' },
+    { 'Test.needs { network = { "::1" } }', 'network "::1": network takes loopback addresses' },
+    { 'Test.needs { network = { "localhost" } }',
+      'network "localhost": network takes loopback addresses' },
+    { 'Test.needs { network = false }', "network takes a list of string literals, written out" },
+    -- `lua` holds what the tests start to its key, which a host program,
+    -- a cached cosmic or `tool`'s wider key would slip past.
+    { 'Test.needs { lua = true, tool = true }', "fixture_test.tl:3: test.needs: lua is refused beside tool" },
+    { 'Test.needs { lua = true, system = true }', "lua is refused beside system: a host program" },
+    { 'Test.needs { lua = true, caches = { "zig" } }', "lua is refused beside caches" },
+    { 'Test.needs { standalone = true }', "standalone is refused without lua" },
+    -- A host path names a file, or /proc.
+    { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
+      "files, or /proc: declare the files the tests read" },
+    { 'Test.needs { host = { "$PRODUCT" } }', 'host: "$PRODUCT" names all PRODUCT holds, a ' ..
+      "directory; host names files, or /proc" },
+    { 'Test.needs { host = { "$PRODUCT/" } }', 'names all PRODUCT holds, a directory' },
+    { 'Test.needs { host = { "$PRODUCT/o/bin/" } }', '"$PRODUCT/o/bin/" names a directory' },
     { 'Test.needs { reads = { "x\\ty" } }',
       'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
     { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },
@@ -1059,4 +1412,346 @@ local function test_a_malformed_needs_call_is_refused()
     local line = case[2]:match("^fixture_test.tl:%d+: ") or "fixture_test.tl:3: "
     assert(trouble:find(line, 1, true) ~= nil, trouble)
   end
+end
+
+--- An example's source starts with the file's top-level `require` lines
+--- its body names, and, for the first example only, the top-level calls.
+local function test_an_example_carries_the_requires_it_uses()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+    "",
+    "function Example.hash()",
+    "  print(Hash.hex(\"x\"))",
+    "end",
+    "",
+    "return Example",
+  }))
+  assert(#found == 2, tostring(#found))
+  assert(found[1].source == lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+  assert(found[2].source == lines({
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "function Example.hash()",
+    "  print(Hash.hex(\"x\"))",
+    "end",
+  }):gsub("\n$", ""), found[2].source)
+end
+
+--- A comment that leads the statement after a `require` or a call is
+--- that statement's, not the text of the one above it, even when the
+--- next statement is a `local`, whose own position skips its keyword.
+local function test_a_comment_before_the_next_local_is_not_carried()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "-- TODO: something about the next one.",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "-- A note on the record.",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+    "-- trailing",
+    "local later = 1",
+    "",
+    "return Example",
+  }))
+  assert(#found == 1, tostring(#found))
+  assert(not found[1].source:find("--", 1, true), found[1].source)
+  assert(found[1].source:find("Fs.setup{ key = 1 }\n\nfunction Example.read()", 1, true),
+    found[1].source)
+end
+
+--- A file-local helper the body calls is carried above the function,
+--- after the requires, with the comment above it; one nothing calls is
+--- not, and neither is the `Example` record.
+local function test_an_example_carries_the_helpers_it_calls()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "--- A scratch path.",
+    "local function scratch(): string",
+    "  return assert(Fs.mkdtemp(\"x-\"))",
+    "end",
+    "",
+    "local function unused(): string",
+    "  return \"never\"",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(scratch())",
+    "end",
+  }))
+  assert(#found == 1, tostring(#found))
+  assert(found[1].source == lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "--- A scratch path.",
+    "local function scratch(): string",
+    "  return assert(Fs.mkdtemp(\"x-\"))",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(scratch())",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A helper another helper calls is carried too, and the require only
+--- that one names, all in source order.
+local function test_an_example_carries_a_helpers_helper()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "local BASE <const> = \"x-\"",
+    "",
+    "local function inner(): string",
+    "  return BASE .. Hash.hex(\"y\")",
+    "end",
+    "",
+    "local function outer(): string",
+    "  return inner()",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(outer())",
+    "end",
+  }))
+  assert(found[1].source == lines({
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "local BASE <const> = \"x-\"",
+    "",
+    "local function inner(): string",
+    "  return BASE .. Hash.hex(\"y\")",
+    "end",
+    "",
+    "local function outer(): string",
+    "  return inner()",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(outer())",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A `local record` only a type annotation names is a helper.
+local function test_an_example_carries_a_record_named_only_in_a_type()
+  local found = examples(lines({
+    "local record Release",
+    "  tag: string",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local value: Release = { tag = \"v1\" }",
+    "  print(value.tag)",
+    "end",
+  }))
+  assert(found[1].source:find("^local record Release\n  tag: string\nend\n\nfunction Example%.read"),
+    found[1].source)
+end
+
+--- A helper longer than the cap is left out, and so is one that would
+--- take the carried helpers over their total.
+local function test_a_long_helper_is_not_carried()
+  local long: {string} = { "local function long(): integer" }
+  for at = 1, 15 do long[#long + 1] = "  local v" .. at .. " = " .. at end
+  long[#long + 1] = "  return v1"
+  long[#long + 1] = "end"
+  local source = lines(long) .. lines({
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(long())",
+    "end",
+  })
+  local found = examples(source)
+  assert(found[1].source == "function Example.read()\n  print(long())\nend", found[1].source)
+end
+
+--- A helper is carried by a free name of the body alone: a body-local
+--- of the same name, a word in a string and one in a comment carry
+--- nothing, and neither does a plain `--` note above a carried helper.
+local function test_helpers_are_carried_by_free_names_only()
+  local found = examples(lines({
+    "local function text(): string",
+    "  return \"x\"",
+    "end",
+    "",
+    "local function quoted(): string",
+    "  return \"y\"",
+    "end",
+    "",
+    "local function noted(): string",
+    "  return \"z\"",
+    "end",
+    "",
+    "-- TODO: a note that stays in the file.",
+    "--- Really used.",
+    "local function used(): string",
+    "  return \"u\"",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local text = \"mine\"",
+    "  -- noted() is only in this comment",
+    "  print(text, \"quoted()\", used())",
+    "end",
+  }))
+  assert(found[1].source == lines({
+    "--- Really used.",
+    "local function used(): string",
+    "  return \"u\"",
+    "end",
+    "",
+    "function Example.read()",
+    "  local text = \"mine\"",
+    "  -- noted() is only in this comment",
+    "  print(text, \"quoted()\", used())",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A name that is bound before the helper's name would be read, in a
+--- nested function's parameter, does not carry the helper either; a
+--- multi-name `local` is carried whole.
+local function test_a_parameter_shadows_a_helper_and_a_multi_name_local_is_whole()
+  local found = examples(lines({
+    "local A <const>, B <const> = 1, 2",
+    "",
+    "local function shadowed(): string",
+    "  return \"s\"",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local f = function(shadowed: string): string return shadowed end",
+    "  print(f(\"a\"), B)",
+    "end",
+  }))
+  assert(found[1].source:find("^local A <const>, B <const> = 1, 2\n\nfunction Example%.read"),
+    found[1].source)
+end
+
+--- A `needs` declaration of one table, as the build reads it: the
+--- refusal, or "" when it reads.
+local function refusal_of(declaration: string): string
+  local got, trouble = declared(lines({
+    'local Test = require("cosmic.test")',
+    "Test.needs " .. declaration,
+  }))
+  if got == nil then return trouble end
+  return ""
+end
+
+--- Each field `Needs` has is one the build reads, taking what the type
+--- does, and the build knows no field more, so a call `needs` takes and
+--- a declaration the build reads are the same set. The build names the
+--- fields it knows when it refuses another.
+local function test_every_field_of_needs_is_one_the_build_reads()
+  local every: Test.Needs = {
+    reads = {}, host = {}, env = {}, network = {}, tool = true, lua = true,
+    standalone = true, nests = true, store = true, system = true, caches = {},
+  }
+  local flags: {string:boolean} = {}
+  local named: {string} = {}
+  for name, value in pairs(every as {string:any}) do
+    named[#named + 1] = name
+    flags[name] = value is boolean
+  end
+  table.sort(named)
+  for _, name in ipairs(named) do
+    -- Spelled as the field takes it, beside what it may stand beside.
+    local given = flags[name] and "true" or "{}"
+    local beside = (name == "standalone") and "lua = true, " or ""
+    local why = refusal_of("{ " .. beside .. name .. " = " .. given .. " }")
+    assert(why == "", name .. ": " .. why)
+    local other = flags[name] and "{}" or "true"
+    assert(refusal_of("{ " .. name .. " = " .. other .. " }"):find(name .. " takes", 1, true),
+      name .. " takes the other shape")
+  end
+  local unknown = refusal_of("{ reeds = {} }")
+  assert(unknown:find("it has " .. table.concat(named, ", "), 1, true), unknown)
+end
+
+--- A test reaches loopback alone (R1), and loopback is 127/8, written
+--- as a request names it (R2): a strict dotted quad `127.a.b.c` may be
+--- declared; `::1`, `localhost`, any other name or address, and any
+--- other spelling of one of 127/8 are refused, naming the rule.
+local function test_network_takes_loopback_addresses_alone()
+  for _, host in ipairs({ "127.0.0.1", "127.0.0.2", "127.255.255.255", "127.1.20.0" }) do
+    assert(refusal_of('{ network = { "' .. host .. '" } }') == "", host)
+  end
+  for _, host in ipairs({ "*", "0.0.0.0", "128.0.0.1", "10.0.0.1", "127.1", "127.0.1",
+    "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
+    "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::", "::1",
+    "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "localhost", "LOCALHOST",
+    "localhost.", "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
+    local refused = refusal_of('{ network = { "' .. host .. '" } }')
+    assert(refused:find(string.format("network %q: network takes loopback addresses " ..
+      "127.a.b.c only", host), 1, true) ~= nil, host .. ": " .. refused)
+  end
+  assert(refusal_of("{ network = true }"):find("network = true: network takes loopback " ..
+    "addresses", 1, true))
+end
+
+--- `lua` stands alone or beside what cannot start the program past its
+--- hold; beside `tool` or `store`, which key the whole program already,
+--- or `system` or a cache, whose host program or cached cosmic could
+--- start it unheld, it is refused, naming the field it meets.
+local function test_lua_is_refused_beside_what_starts_the_program_unheld()
+  assert(refusal_of("{ lua = true }") == "")
+  assert(refusal_of("{ lua = true, standalone = true }") == "")
+  assert(refusal_of('{ tool = true, store = true, system = true, caches = { "zig" } }') == "")
+  for name, field in pairs({ tool = "tool = true", store = "store = true",
+    system = "system = true", caches = 'caches = { "zig" }' }) do
+    local why = refusal_of("{ lua = true, " .. field .. " }")
+    assert(why:find("lua is refused beside " .. name, 1, true), why)
+  end
+end
+
+--- `standalone` widens what `lua` holds, so alone it is refused, naming
+--- `lua`.
+local function test_standalone_is_refused_without_lua()
+  local why = refusal_of("{ standalone = true }")
+  assert(why:find("standalone is refused without lua", 1, true), why)
 end

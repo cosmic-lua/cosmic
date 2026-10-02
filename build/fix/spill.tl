@@ -2,21 +2,20 @@
 --- `assert(...)` whose extra values land where they should not.
 ---
 --- Lua's `assert` returns every value it was given, and the checker
---- says so (`patch/tl/15-assert-returns-every-value.txt`). So at the end
---- of an argument list, a table constructor, or a return,
---- `f(assert(g()))` hands `g`'s error slot on to `f` as a second
---- argument, and the checker refuses it when `f` has no room for that
---- value or the wrong type for it. It then also reports, at the very
---- `assert(` it means, `spill.message`. Wrapping that call in
---- parentheses keeps only its first value, which is what such code
---- always meant.
+--- says so ([`patch/tl/15-assert-returns-every-value.txt`]). So at the end
+--- of an argument list, a table constructor or a return,
+--- `f(assert(g()))` passes `g`'s error slot on to `f` as a second
+--- argument. The checker refuses that when `f` has no room for the
+--- value or a different type for it, and reports [`spill.message`] at the
+--- `assert(` concerned. Wrapping the call in parentheses keeps only its
+--- first value, which is what such code always meant.
 ---
---- The structural rules in `build.fix.rule` cannot make this fix: a
+--- The structural rules in [`build.fix.rule`] cannot make this fix: a
 --- pattern cannot tell `f(assert(g()))` where `f` takes one value from
 --- one where it takes both, and parenthesizing the second would drop a
---- value on purpose passed. So this stage asks the checker instead: it
---- builds the tree, reads the positions the checker names, wraps exactly
---- those calls, and builds again until the checker names none.
+--- value passed on purpose. So this stage asks the checker: it builds
+--- the tree, reads the positions the checker names, wraps exactly those
+--- calls, and builds again until the checker names none.
 
 local Store = require("cosmic.store")
 local ast = require("build.ast")
@@ -47,7 +46,7 @@ function spill.sites(text: string): spill.Sites
   local found: spill.Sites = {}
   for line in String.lines(text) do
     local file, y, x, rest = line:match("^(.-):(%d+):(%d+): (.*)$")
-    if file ~= nil and rest:sub(1, #spill.message) == spill.message then
+    if file ~= nil and String.starts_with(rest, spill.message) then
       local at = found[file]
       if at == nil then
         at = {}

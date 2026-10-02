@@ -1,11 +1,13 @@
---- Fuzz properties for `cosmic.time`'s RFC 3339 text: what
+--- Fuzz properties for [`cosmic.time`]'s RFC 3339 text: what
 --- `format_rfc3339` writes, in UTC or moved to any offset, parses back
 --- to the moment it came from; and `parse_rfc3339` is total -- whatever
 --- bytes it is handed, it answers a moment or a failure and never
 --- raises, and a moment it accepts formats back to text naming the same
 --- one. The same holds for the date-only text and the HTTP dates, in
---- all three of RFC 9110's forms. `FUZZ_SEED` and `FUZZ_ITERS` pick the
---- inputs (build/fuzz/init.tl).
+--- all three of RFC 9110's forms. `between` answers a duration of one
+--- sign for any two moments in any zone, which text round trips, and in
+--- a zone whose offset is fixed `add_calendar` adds back to the second
+--- moment. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
 local Time = require("cosmic.time")
@@ -38,7 +40,7 @@ local function at_offset(ns: integer, minutes: integer, opts: Time.FormatOptions
     return nil
   end
   local sign = minutes < 0 and "-" or "+"
-  local text = Time.format_rfc3339(ns + shift, opts)
+  local text = Time.format_rfc3339(ns + shift, nil, opts)
   return text:sub(1, -2) .. ("%s%02d:%02d"):format(sign, math.abs(minutes) // 60, math.abs(minutes) % 60)
 end
 
@@ -59,7 +61,7 @@ local function round_trips(input: string): boolean, string
     end
     if want ~= ns then Fuzz.label("cut") end
   end
-  local utc = Time.format_rfc3339(ns, opts)
+  local utc = Time.format_rfc3339(ns, nil, opts)
   local back, why = Time.parse_rfc3339(utc)
   if back ~= want then
     return false, ("%d wrote %s, which parsed as %s: %s"):format(ns, utc, tostring(back), why)
@@ -227,5 +229,63 @@ local function test_http_and_date_parse_are_total(tmp: string)
     end,
     check = text_parse_holds,
     requires = { "http parsed", "date parsed" },
+  })
+end
+
+local BETWEEN_ZONES <const> = { "UTC", "Asia/Kolkata", "America/New_York", "Pacific/Apia",
+  "Europe/London", "Europe/Dublin", "Antarctica/Troll", "Australia/Lord_Howe" }
+
+--- Two moments from 1897 through 2128, which reach each zone's history
+--- of changes, and a zone, packed.
+local function gen_pair(src: Fuzz.Source): string
+  local function moment(): integer
+    return src:int(-2500000000, 5000000000) * NS + (src:int(0, 2) == 0 and 0 or src:int(0, NS - 1))
+  end
+  local from = moment()
+  -- Often near the first, where the calendar's small counts and its edges are.
+  local to = src:int(0, 2) == 0 and from + src:int(-40, 40) * 86400 * NS + src:int(-5, 5) * 3600 * NS
+    or moment()
+  return string.pack("<i8i8", from, to) .. Fuzz.pick(src, BETWEEN_ZONES)
+end
+
+local function between_holds(input: string): boolean, string
+  local from, to = string.unpack("<i8i8", input)
+  local name = input:sub(17)
+  local zone = assert(Time.zone(name))
+  local ok, span = pcall(Time.between, from, to, zone)
+  if not ok then return false, "raised: " .. tostring(span) end
+  local d = span as Time.Duration
+  local text_ok, text = pcall(Time.format_duration, d)
+  if not text_ok then return false, ("%d to %d in %s: %s"):format(from, to, name, tostring(text)) end
+  local back = Time.parse_duration(text)
+  if back == nil or back.years ~= d.years or back.months ~= d.months or back.days ~= d.days
+      or back.ns ~= d.ns then
+    return false, text .. " does not read back"
+  end
+  local dir = to > from and 1 or to < from and -1 or 0
+  if (d.years * dir < 0) or (d.months * dir < 0) or (d.days * dir < 0) or (d.ns * dir < 0) then
+    return false, ("%d to %d in %s: %s is against the sign of the span"):format(from, to, name, text)
+  end
+  Fuzz.label(to < from and "negative" or "positive")
+  if d.months ~= 0 then Fuzz.label("months") end
+  if d.days ~= 0 then Fuzz.label("days") end
+  if name ~= "UTC" and name ~= "Asia/Kolkata" then Fuzz.label("a zone with changes") end
+  local moved, why = Time.add_calendar(from, d, zone,
+    { overflow = "clamp", disambiguation = "compatible" })
+  if moved ~= to then
+    return false, ("%d to %d in %s: %s adds to %s: %s"):format(from, to, name, text,
+      tostring(moved), tostring(why))
+  end
+  return true, ""
+end
+
+local function test_between_adds_back_to_the_second_moment(tmp: string)
+  Fuzz.run({
+    name = "between round trip",
+    dir = tmp,
+    gen = gen_pair,
+    check = between_holds,
+    requires = { "negative", "positive", "months", "days", "a zone with changes" },
+    shares = { negative = 0.2, months = 0.2, days = 0.2, ["a zone with changes"] = 0.5 },
   })
 end

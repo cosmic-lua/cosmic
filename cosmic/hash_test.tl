@@ -8,6 +8,10 @@ local Sqlite = require("cosmic.sqlite")
 
 local fox = "The quick brown fox jumps over the lazy dog"
 
+local record Holder
+  h: Hash.Hasher
+end
+
 local vectors: {{string}} = {
   { "md5", "", "d41d8cd98f00b204e9800998ecf8427e" },
   { "sha1", "abc", "a9993e364706816aba3e25717850c26c9cd0d89d" },
@@ -48,6 +52,170 @@ local function test_hmac_matches_published_vectors()
     local algorithm = v[1] as Hash.Algorithm
     assert(Codec.hex(Hash.hmac(algorithm, "key", fox)) == v[2], v[1])
   end
+end
+
+--- The raw HMAC of `message` fed to [`Hash.hmac_hasher`] in pieces of `step` bytes.
+local function chunked_hmac(algorithm: Hash.Algorithm, key: string, message: string, step: integer): string
+  local mac = assert(Hash.hmac_hasher(algorithm, key))
+  local at = 1
+  while at <= #message do
+    mac:update(message:sub(at, at + step - 1))
+    at = at + step
+  end
+  return (assert(mac:digest()))
+end
+
+local function test_incremental_hmac_matches_published_vectors()
+  local ones = string.rep("\x0b", 20)
+  local long_key = string.rep("\xaa", 131)
+  local text = "Test Using Larger Than Block-Size Key - Hash Key First"
+  -- RFC 4231 cases 1, 2 and 6 (SHA-256), RFC 2202 cases 1, 2 and 6 (MD5, SHA-1).
+  local cases: {{string}} = {
+    { "sha256", ones, "Hi There", "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7" },
+    { "sha256", "Jefe", "what do ya want for nothing?",
+      "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843" },
+    { "sha256", long_key, text, "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54" },
+    { "md5", string.rep("\x0b", 16), "Hi There", "9294727a3638bb1c13f48ef8158bfc9d" },
+    { "md5", "Jefe", "what do ya want for nothing?", "750c783e6ab0b503eaa86e310a5db738" },
+    { "md5", string.rep("\xaa", 80), text, "6b1ab7fe4bd7bf8f0b62e6ce61b9d0cd" },
+    { "sha1", string.rep("\x0b", 20), "Hi There", "b617318655057264e28bc0b6fb378c8ef146be00" },
+    { "sha1", "Jefe", "what do ya want for nothing?", "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79" },
+    { "sha1", string.rep("\xaa", 80), text, "aa4ae5e15272d00e95705637ce8a3b55ed402112" },
+  }
+  for _, case in ipairs(cases) do
+    local algorithm = case[1] as Hash.Algorithm
+    for _, step in ipairs({ 1, 3, 64, 1000 }) do
+      assert(Codec.hex(chunked_hmac(algorithm, case[2], case[3], step)) == case[4],
+        case[1] .. " in chunks of " .. step)
+    end
+  end
+end
+
+--- What an HMAC key is padded to, per algorithm (the rate of a SHA-3 sponge).
+local blocks: {Hash.Algorithm:integer} = {
+  ["md5"] = 64, ["sha1"] = 64, ["sha224"] = 64, ["sha256"] = 64, ["sha384"] = 128, ["sha512"] = 128,
+  ["sha3-224"] = 144, ["sha3-256"] = 136, ["sha3-384"] = 104, ["sha3-512"] = 72,
+}
+
+local function test_incremental_hmac_agrees_with_hmac_for_every_algorithm()
+  local message = string.rep("0123456789abcdef", 40)
+  for algorithm, block in pairs(blocks) do
+    -- Each algorithm's own block boundary, besides the lengths every one meets.
+    for _, length in ipairs({ 0, 1, 64, 71, 72, 73, 104, 136, 144, 145, 300, block - 1, block, block + 1 }) do
+      local key = string.rep("k", length)
+      local want = Hash.hmac(algorithm, key, message)
+      for _, step in ipairs({ 1, 7, 128, #message }) do
+        assert(chunked_hmac(algorithm, key, message, step) == want,
+          algorithm .. " key " .. length .. " chunks of " .. step)
+      end
+      -- An empty message: no update at all, and one empty update.
+      local none = assert(Hash.hmac_hasher(algorithm, key))
+      assert(none:digest() == Hash.hmac(algorithm, key, ""))
+      local empty = assert(Hash.hmac_hasher(algorithm, key))
+      empty:update("")
+      assert(empty:digest() == Hash.hmac(algorithm, key, ""))
+    end
+  end
+end
+
+--- Starting an HMAC imports its key into one of the crypto library's
+--- 32 slots (MBEDTLS_PSA_KEY_SLOT_COUNT); the operation keeps a copy,
+--- so the slot must be released at once. A slot left behind would make
+--- the thirty-third live hasher fail to start.
+local function test_many_unfinished_incremental_hmacs_can_be_live_at_once()
+  local live: {Hash.Hasher} = {}
+  for i = 1, 100 do
+    local mac, trouble = Hash.hmac_hasher("sha256", "key" .. i)
+    assert(mac ~= nil, "hasher " .. i .. ": " .. trouble)
+    mac:update("message " .. i)
+    live[i] = mac
+  end
+  for i, mac in ipairs(live) do
+    assert(mac:digest() == Hash.hmac("sha256", "key" .. i, "message " .. i), "hasher " .. i)
+  end
+end
+
+local function test_incremental_hmac_is_finished_by_digest()
+  local mac = assert(Hash.hmac_hasher("sha256", "key"))
+  mac:update("abc")
+  assert(mac:digest() == Hash.hmac("sha256", "key", "abc"))
+  assert(not pcall(mac.update, mac, "more"))
+  assert(not pcall(mac.digest, mac))
+  assert(not pcall(Hash.hmac_hasher, "nonesuch" as Hash.Algorithm, "key"))
+  do local _abandoned <close> = assert(Hash.hmac_hasher("sha256", "key")) end
+end
+
+local function test_incremental_hmac_throws_naming_the_finished_hasher()
+  local mac = assert(Hash.hmac_hasher("sha256", "key"))
+  assert(mac:digest())
+  local ok, trouble = pcall(function(): string, string
+    return mac:digest()
+  end)
+  assert(not ok and tostring(trouble):find("hash: the hasher is finished", 1, true), tostring(trouble))
+  local updated = pcall(mac.update, mac, "more")
+  assert(not updated)
+  local _, why = pcall(function(): any
+    mac:update("more")
+    return nil
+  end)
+  assert(tostring(why):find("hash: the hasher is finished", 1, true), tostring(why))
+end
+
+local function test_incremental_hmac_raises_on_an_unknown_algorithm()
+  local ok, trouble = pcall(Hash.hmac_hasher, "sha0" as Hash.Algorithm, "key")
+  assert(not ok)
+  assert(tostring(trouble):find("hash: no such digest algorithm", 1, true), tostring(trouble))
+end
+
+local function test_incremental_hmac_answers_an_empty_error()
+  local mac, trouble = Hash.hmac_hasher("sha256", "key")
+  assert(mac ~= nil and trouble == "", trouble)
+  mac:update(fox)
+  local code, dtrouble = mac:digest()
+  assert(code == Hash.hmac("sha256", "key", fox) and dtrouble == "", dtrouble)
+end
+
+local function test_a_closed_incremental_hmac_is_finished()
+  local kept: Hash.Hasher
+  do
+    local mac <close> = assert(Hash.hmac_hasher("sha512", "key"))
+    mac:update("abc")
+    kept = mac
+  end
+  assert(not pcall(kept.update, kept, "more"))
+  assert(not pcall(kept.digest, kept))
+  -- Closing a finished one is harmless too.
+  do
+    local mac <close> = assert(Hash.hmac_hasher("sha3-256", "key"))
+    assert(mac:digest())
+  end
+end
+
+local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
+  local saved: Hash.Hasher
+  local holder: Holder = setmetatable({} as Holder, {
+    __gc = function(self: Holder) saved = self.h end,
+  } as metatable<Holder>)
+  holder.h = assert(Hash.hmac_hasher("sha256", "key"))
+  holder = nil
+  collectgarbage()
+  collectgarbage()
+  assert(saved ~= nil, "the finalizer ran")
+  assert(not pcall(saved.update, saved, "abc"))
+  assert(not pcall(saved.digest, saved))
+end
+
+--- Two incremental HMACs under different keys, fed alternately, do not
+--- share state: each answers what a one-shot HMAC under its own key does.
+local function test_incremental_hmacs_are_independent()
+  local one = assert(Hash.hmac_hasher("sha256", "one"))
+  local two = assert(Hash.hmac_hasher("sha256", "two"))
+  one:update("a")
+  two:update("x")
+  one:update("b")
+  two:update("y")
+  assert(one:digest() == Hash.hmac("sha256", "one", "ab"))
+  assert(two:digest() == Hash.hmac("sha256", "two", "xy"))
 end
 
 --- HMAC takes a key of any length (RFC 2104): an empty one, and one
@@ -98,7 +266,7 @@ end
 local function test_an_unknown_algorithm_raises()
   local ok, trouble = pcall(Hash.digest, "sha0" as Hash.Algorithm, "abc")
   assert(not ok)
-  assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil,
+  assert(tostring(trouble):find("hash: no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
 end
 
@@ -162,7 +330,7 @@ end
 local function test_hasher_raises_on_an_unknown_algorithm()
   local ok, trouble = pcall(Hash.hasher, "sha0" as Hash.Algorithm)
   assert(not ok)
-  assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil,
+  assert(tostring(trouble):find("hash: no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
 end
 
@@ -172,10 +340,6 @@ local function test_hasher_and_digest_carry_an_empty_error()
   hasher:update("abc")
   local digest, dtrouble = hasher:digest()
   assert(digest == Hash.digest("sha256", "abc") and dtrouble == "", dtrouble)
-end
-
-local record Holder
-  h: Hash.Hasher
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()

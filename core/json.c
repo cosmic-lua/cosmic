@@ -32,17 +32,12 @@
 #define DEFAULT_DEPTH 64
 #define MAX_DEPTH 1000
 
-/* An array with holes whose highest index is past this and past twice
- * its count of values is refused even with `sparse_as_null`: a table
- * like {[1e9] = 1} is not a billion-element array anyone meant. */
-#define SPARSE_SAFE 10
-#define SPARSE_RATIO 2
-
 /* yyjson allocates and frees through these, on the heap the core's own
  * C uses (core/memory.h), so the checked core counts its blocks and can
- * refuse one. The fault point refuses yyjson's allocation alone, as an
- * allocation walk cannot: that refuses every one after too, so the
- * message yyjson's refusal answers could never be built. */
+ * refuse one. The fault point refuses yyjson's allocation alone. An
+ * allocation walk cannot: it refuses every allocation after the refused
+ * too, so the message that answers yyjson's refusal could never be
+ * built. */
 static void *json_malloc (void *ctx, size_t size) {
   (void)ctx;
   return COSMIC_FAULT("json_malloc") ? NULL : cosmic_malloc(size);
@@ -74,7 +69,7 @@ static int checked_depth (lua_State *L, int arg) {
   int exact = 0;
   lua_Integer depth = lua_tointegerx(L, arg, &exact);
   if (!exact || depth < 1 || depth > MAX_DEPTH) {
-    luaL_error(L, "max_depth must be an integer from 1 to %d", MAX_DEPTH);
+    luaL_error(L, "json: max_depth must be an integer from 1 to %d", MAX_DEPTH);
   }
   return (int)depth;
 }
@@ -197,13 +192,12 @@ struct layout {
 
 /* The line and column of byte `pos` of `text`, both counted from 1,
  * the column in bytes. A line ends at \n, \r, or \r\n taken as one:
- * the line ends JSON's whitespace holds. In JSON5, it ends at U+2028
- * or U+2029 (E2 80 A8, E2 80 A9) too, as JSON5 reads each as a line
- * terminator -- inside a quoted string as well, where JSON5 takes one
- * raw, as an editor breaks the line there; RFC 8259 has either only
- * inside a string, where it is a character like any other and adds
- * its three bytes to the column. A record is one line whatever it
- * holds. */
+ * the line ends JSON's whitespace holds. In JSON5 it ends at U+2028 or
+ * U+2029 (E2 80 A8, E2 80 A9) too, which JSON5 reads as line
+ * terminators even raw inside a quoted string, as an editor breaks the
+ * line there. In RFC 8259 either can appear only inside a string, where
+ * it is a character like any other and adds its three bytes to the
+ * column. A record is one line whatever it holds. */
 static void position (const char *text, size_t pos,
                       const struct layout *layout, size_t *line,
                       size_t *column) {
@@ -237,10 +231,10 @@ static void position (const char *text, size_t pos,
 /* The offset of the first array or object in `text` that opens with
  * `max_depth` others already open around it: the one decode refuses.
  * yyjson keeps no offsets in its document, so this counts brackets in
- * the text, which read cleanly, skipping strings -- single-quoted ones
- * too, and comments, as JSON5 has them, and `#` ones. Outside a string
- * a text that read cleanly holds `//`, a block comment's opening or `#`
- * only as a comment.
+ * the text, which read cleanly. It skips strings, single-quoted ones
+ * too, and comments: `//` and block comments as JSON5 has them, and
+ * `#` ones. Outside a string, text that read cleanly holds `//`, a
+ * block comment's opening or `#` only as the start of a comment.
  * A line comment ends where yyjson ends it: at \n or \r, and in JSON5
  * (`json5`) at U+2028 or U+2029 too. */
 static size_t deep_offset (const char *text, size_t len, int max_depth,
@@ -275,10 +269,10 @@ static size_t deep_offset (const char *text, size_t len, int max_depth,
   return len;
 }
 
-/* nil and where `text` stopped being JSON, as a line and a column of
- * bytes, both counted from 1; a record's line alone when it ran out
- * of memory or holds no value (where comments are read, only a
- * comment). */
+/* Pushes nil and where `text` stopped being JSON, as a line and a column
+ * of bytes, both counted from 1. A record that ran out of memory or holds
+ * no value (where comments are read, only a comment) names its line
+ * alone. */
 static int read_failure (lua_State *L, const char *text, size_t len,
                          const struct layout *layout,
                          const yyjson_read_err *err) {
@@ -435,15 +429,8 @@ struct encoding {
   size_t cap;
   /* The stack slot holding the `null` stand-in. */
   int null_index;
-  /* One level's indentation, and whether to lay the text out at all. */
-  const char *indent;
-  size_t indent_len;
+  /* Whether to lay the text out over lines, two spaces a level. */
   int pretty;
-  int sorted;
-  int nan_as_null;
-  int sparse_as_null;
-  /* Write every character past ASCII as a \u escape. */
-  int ascii;
   int max_depth;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
@@ -525,6 +512,9 @@ static void prepend_key (struct encoding *e, const char *s, size_t n) {
 }
 
 static int put (struct encoding *e, const char *s, size_t n) {
+  /* Nothing to copy, and `e->p` is still NULL before the first byte:
+   * memcpy takes no null pointer, even for no bytes. */
+  if (n == 0) return 0;
   if (n > e->cap - e->len) {
     size_t room = e->cap == 0 ? 256 : e->cap;
     while (room - e->len < n) {
@@ -549,7 +539,7 @@ static int put_break (struct encoding *e, int depth) {
   if (!e->pretty) return 0;
   if (PUT_LITERAL(e, "\n") < 0) return -1;
   for (int i = 0; i < depth; i++) {
-    if (put(e, e->indent, e->indent_len) < 0) return -1;
+    if (PUT_LITERAL(e, "  ") < 0) return -1;
   }
   return 0;
 }
@@ -592,30 +582,6 @@ static int is_utf8 (const unsigned char *s, size_t n) {
 
 static const char hex[] = "0123456789abcdef";
 
-/* `cp` as \uXXXX, or as a surrogate pair of them past U+FFFF. */
-static int put_unicode_escape (struct encoding *e, uint32_t cp) {
-  char out[12];
-  size_t length = 0;
-  uint32_t units[2];
-  size_t count = 1;
-  units[0] = cp;
-  if (cp > 0xffff) {
-    cp -= 0x10000;
-    units[0] = 0xd800 | (cp >> 10);
-    units[1] = 0xdc00 | (cp & 0x3ff);
-    count = 2;
-  }
-  for (size_t u = 0; u < count; u++) {
-    out[length++] = '\\';
-    out[length++] = 'u';
-    out[length++] = hex[(units[u] >> 12) & 0xf];
-    out[length++] = hex[(units[u] >> 8) & 0xf];
-    out[length++] = hex[(units[u] >> 4) & 0xf];
-    out[length++] = hex[units[u] & 0xf];
-  }
-  return put(e, out, length);
-}
-
 static int put_string (struct encoding *e, const char *s, size_t n) {
   if (!is_utf8((const unsigned char *)s, n)) {
     return refuse(e, "cannot encode a string that is not UTF-8");
@@ -624,20 +590,6 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
   size_t start = 0;
   for (size_t i = 0; i < n; i++) {
     unsigned char c = (unsigned char)s[i];
-    if (c >= 0x80 && e->ascii) {
-      if (put(e, s + start, i - start) < 0) return -1;
-      /* The string is valid UTF-8, so the lead byte says how many
-       * continuation bytes follow, and they are there. */
-      size_t extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : 1;
-      uint32_t cp = c & (0x3f >> extra);
-      for (size_t k = 1; k <= extra; k++) {
-        cp = (cp << 6) | ((unsigned char)s[i + k] & 0x3f);
-      }
-      if (put_unicode_escape(e, cp) < 0) return -1;
-      i += extra;
-      start = i + 1;
-      continue;
-    }
     if (c >= 0x20 && c != '"' && c != '\\') continue;
     if (put(e, s + start, i - start) < 0) return -1;
     start = i + 1;
@@ -676,7 +628,6 @@ static int put_number (struct encoding *e, int idx) {
   } else {
     double f = (double)lua_tonumber(L, idx);
     if (!isfinite(f)) {
-      if (e->nan_as_null) return PUT_LITERAL(e, "null");
       return refuse(e, isnan(f) ? "cannot encode NaN"
                                 : "cannot encode an infinite number");
     }
@@ -690,7 +641,7 @@ static int put_number (struct encoding *e, int idx) {
 
 static int put_value (struct encoding *e, int idx, int depth);
 
-/* The array at `idx`, `top` elements long, holes written as `null`. */
+/* The array at `idx`, `top` elements long, none of them missing. */
 static int put_array (struct encoding *e, int idx, lua_Integer top,
                       int depth) {
   lua_State *L = e->L;
@@ -748,51 +699,37 @@ static int compare_sorted (const void *a, const void *b) {
 }
 
 /* The object at `idx`, which has `count` string keys and nothing else,
- * its members in byte order of their keys when sorting. */
+ * its members in byte order of their keys. */
 static int put_object (struct encoding *e, int idx, lua_Integer count,
                        int depth) {
   lua_State *L = e->L;
   if (PUT_LITERAL(e, "{") < 0) return -1;
-  if (!e->sorted) {
-    int first = 1;
-    lua_pushnil(L);
-    while (lua_next(L, idx) != 0) {
-      int top = lua_gettop(L);
-      if (put_member(e, top - 1, top, first, depth) < 0) {
-        lua_pop(L, 2);
-        return -1;
-      }
-      first = 0;
-      lua_pop(L, 1);
-    }
-  } else {
-    struct sorted_key *keys =
-        lua_newuserdatauv(L, (size_t)count * sizeof *keys, 0);
-    lua_Integer n = 0;
-    lua_pushnil(L);
-    while (lua_next(L, idx) != 0) {
-      lua_pop(L, 1);
-      keys[n].s = lua_tolstring(L, -1, &keys[n].n);
-      n++;
-    }
-    qsort(keys, (size_t)n, sizeof *keys, compare_sorted);
-    for (lua_Integer i = 0; i < n; i++) {
-      /* TODO: each member pushes its key again to find its value, which
-       * interns a long key a second time. Collect the members into a
-       * Lua table in the first pass and sort that; measure first. */
-      lua_pushlstring(L, keys[i].s, keys[i].n);
-      lua_pushvalue(L, -1);
-      lua_rawget(L, idx);
-      int top = lua_gettop(L);
-      int status = put_member(e, top - 1, top, i == 0, depth);
-      lua_pop(L, 2);
-      if (status < 0) {
-        lua_pop(L, 1);
-        return -1;
-      }
-    }
+  struct sorted_key *keys =
+      lua_newuserdatauv(L, (size_t)count * sizeof *keys, 0);
+  lua_Integer n = 0;
+  lua_pushnil(L);
+  while (lua_next(L, idx) != 0) {
     lua_pop(L, 1);
+    keys[n].s = lua_tolstring(L, -1, &keys[n].n);
+    n++;
   }
+  qsort(keys, (size_t)n, sizeof *keys, compare_sorted);
+  for (lua_Integer i = 0; i < n; i++) {
+    /* TODO: each member pushes its key again to find its value, which
+     * interns a long key a second time. Collect the members into a
+     * Lua table in the first pass and sort that; measure first. */
+    lua_pushlstring(L, keys[i].s, keys[i].n);
+    lua_pushvalue(L, -1);
+    lua_rawget(L, idx);
+    int top = lua_gettop(L);
+    int status = put_member(e, top - 1, top, i == 0, depth);
+    lua_pop(L, 2);
+    if (status < 0) {
+      lua_pop(L, 1);
+      return -1;
+    }
+  }
+  lua_pop(L, 1);
   if (count > 0 && put_break(e, depth) < 0) return -1;
   return PUT_LITERAL(e, "}");
 }
@@ -865,19 +802,10 @@ static int put_table (struct encoding *e, int idx, int depth) {
   }
   if (count == 0) return marked ? PUT_LITERAL(e, "[]") : PUT_LITERAL(e, "{}");
   if (top > count) {
-    if (!e->sparse_as_null) {
-      snprintf(e->failure, sizeof e->failure,
-               "cannot encode an array with a hole (index %lld is nil)",
-               (long long)first_hole(L, idx, top));
-      return -1;
-    }
-    if (top > SPARSE_SAFE && top / SPARSE_RATIO > count) {
-      snprintf(e->failure, sizeof e->failure,
-               "cannot encode an array this sparse: its highest index is"
-               " %lld, and only %lld of its slots hold a value",
-               (long long)top, (long long)count);
-      return -1;
-    }
+    snprintf(e->failure, sizeof e->failure,
+             "cannot encode an array with a hole (index %lld is nil)",
+             (long long)first_hole(L, idx, top));
+    return -1;
   }
   return put_array(e, idx, top, depth);
 }
@@ -907,33 +835,16 @@ static int put_value (struct encoding *e, int idx, int depth) {
   }
 }
 
-/* Whether `s` is only JSON's own whitespace, as an indent must be. */
-static int is_blank (const char *s, size_t n) {
-  for (size_t i = 0; i < n; i++) {
-    if (s[i] != ' ' && s[i] != '\t') return 0;
-  }
-  return 1;
-}
-
-/* encode(value, pretty?, indent?, sorted?, max_depth?, nan_as_null?,
- * sparse_as_null?, ascii?): `value` as JSON text, and "". nil and a message
- * when it holds something JSON cannot say. */
+/* encode(value, pretty?, max_depth?): `value` as JSON text, and "". nil and
+ * a message when it holds something JSON cannot say. */
 static int json_encode (lua_State *L) {
   luaL_checkany(L, 1);
   struct encoding e;
   memset(&e, 0, sizeof e);
   e.L = L;
   e.pretty = lua_toboolean(L, 2);
-  e.indent = luaL_optlstring(L, 3, "  ", &e.indent_len);
-  if (!is_blank(e.indent, e.indent_len)) {
-    return luaL_error(L, "indent must be spaces and tabs");
-  }
-  e.sorted = lua_isnoneornil(L, 4) ? 1 : lua_toboolean(L, 4);
-  e.max_depth = checked_depth(L, 5);
-  e.nan_as_null = lua_toboolean(L, 6);
-  e.sparse_as_null = lua_toboolean(L, 7);
-  e.ascii = lua_toboolean(L, 8);
-  lua_settop(L, 8);
+  e.max_depth = checked_depth(L, 3);
+  lua_settop(L, 3);
   lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY);
   e.null_index = lua_gettop(L);
   e.guard = cosmic_guard_push(L, cosmic_free);

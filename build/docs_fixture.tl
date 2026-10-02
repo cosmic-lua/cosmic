@@ -1,18 +1,19 @@
 --- A shipped database for a test, made from sources by the build's own
 --- code rather than from rows written by hand.
 ---
---- A test of `build.docs` or of a reader of the `docs`, `uses` and
+--- A test of [`build.docs`] or of a reader of the `docs`, `uses` and
 --- `examples` tables needs rows shaped as the build writes them: an
 --- exported member's own name (`find`) beside the name it was written
---- as (`Proc.find`), a use recorded without the module's record. Rows
+--- as ([`Proc.find`]), a use recorded without the module's record. Rows
 --- written by hand drift from that shape silently. Here each source is
---- staged into a working database as `build.work` stages a tree, parsed
---- by `build.importer.derive` -- the same `build.analyzer` analysis a
---- build runs -- and projected by `build.writer.write_result`, the
+--- staged into a working database as [`build.work`] stages a tree, parsed
+--- by [`build.importer.derive`] -- the same [`build.analyzer`] analysis a
+--- build runs -- and projected by [`build.writer.write_result`], the
 --- function that writes `o/cosmic.db`.
 
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
+local link_index = require("build.link_index")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -24,10 +25,10 @@ end
 --- its own under a directory one test shares.
 local written = 0
 
---- The shipped database the tree `files` would build to, written as
---- a file of its own under `dir` and opened read-only. `files` maps each file's path
---- in the tree (`cosmic/fs.tl`, `cosmic/fs_example.tl`, `app/main.tl`,
---- `core/syscalls.h`) to its contents; a path decides a module's import
+--- The shipped database the tree `files` would build to, written as a
+--- file of its own under `dir` and opened read-only. `files` maps each file's path
+--- in the tree ([`cosmic/fs.tl`], [`cosmic/fs_example.tl`], `app/main.tl`,
+--- [`core/syscalls.h`]) to its contents; a path decides a module's import
 --- path and kind as it does in a tree. Nothing is compiled, so a source
 --- need not type-check, and every module the tree holds is planned.
 function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Handle
@@ -47,12 +48,12 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   local handle: work.Handle = { db = db, root = dir, run = 1, inside = false }
   local built = assert(teal.load())
   assert(importer.derive(handle, true, built))
-  -- `build.importer.compile` plans each module under its key, beside
+  -- [`build.importer.compile`] plans each module under its key, beside
   -- its compile; this stands in for both, planning every module with
   -- nothing compiled, which no table the fixture is for reads.
   -- TODO: a use through a typed value (`w:add_file(...)`, which
-  -- `build.receivers` finds) is recorded only while a module compiles,
-  -- so no fixture has one; plan through `importer.compile` once it can
+  -- [`build.receivers`] finds) is recorded only while a module compiles,
+  -- so no fixture has one; plan through [`importer.compile`] once it can
   -- compile a tree staged without a root on disk.
   assert(db:exec(
     "INSERT INTO plan (path, key, ordinal) SELECT path, source_hash, " ..
@@ -63,11 +64,13 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
     "SELECT key, '', '', '', 0 FROM plan"))
   written = written + 1
   local path = dir .. "/cosmic-" .. written .. ".db"
+  -- A fixture's tree stands in for cosmic's own, whose links name its
+  -- own standard library and not the binary's.
   assert(writer.write_result(handle, path, {
     modules = {}, tool = "", refused = {}, compiled = 0, cached = 0, shared = 0,
-  }))
+  }, nil, link_index.none))
   assert(db:close())
-  return (assert(Sqlite.open(path, false)))
+  return (assert(Sqlite.open(path)))
 end
 
 return docs_fixture

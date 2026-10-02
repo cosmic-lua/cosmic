@@ -9,14 +9,14 @@ local record testing
   configuration: string
 
   --- Grants the next `after` growing allocations and refuses every one
-  --- past them, until `allow_allocations`: a refused one raises "not
+  --- past them, until [`allow_allocations`]: a refused one raises "not
   --- enough memory" wherever Lua asked for it. The core's own C heap
   --- (core/memory.h) draws from the same count, and a refusal there is
   --- the NULL its caller must handle.
   fail_allocations: function(after: integer)
 
   --- Grants every allocation again, and answers how many were refused
-  --- since `fail_allocations`, Lua's and the C heap's together.
+  --- since [`fail_allocations`], Lua's and the C heap's together.
   allow_allocations: function(): integer
 
   --- How many statements are prepared and not yet finalized, across
@@ -38,16 +38,9 @@ local record testing
   --- each option core/http.c sets, and "json_malloc" for each block
   --- yyjson allocates (core/json.c; not its reallocations); each makes
   --- its call report a failure of its library's own shape instead of
-  --- being made. "readdir_d_type" is passed once per entry `sys.readdir`
+  --- being made. "readdir_d_type" is passed once per entry [`sys.readdir`]
   --- lists, and makes that entry's type unknown, as a filesystem that
   --- does not say leaves it, so the entry is asked with an lstat.
-  --- "observed_log" is passed each time the syscall table's log of what
-  --- its queries answered grows (core/syscalls.c), and refuses the
-  --- growth, so the call it would record fails as memory does.
-  --- "sqlite_observed" is passed each time `cosmic.sqlite`'s record of
-  --- the files SQLite opens takes a path it did not hold (core/sqlite.c),
-  --- and refuses it: the open fails as memory does, and `observe`,
-  --- handing a held file over, answers false.
   fail_at: function(point?: string, skip?: integer): boolean
 
   --- How many HTTP transfers hold curl state: made by an open, and not
@@ -58,6 +51,12 @@ local record testing
   --- when given a buffer of `room` bytes (1 to 4096), or nil when it
   --- says the path does not fit.
   executable_path: function(room: integer): string | nil
+
+  --- Whether `text`, a /proc/<pid>/mountinfo, lists the filesystem on
+  --- `device` ("major:minor", as its third field writes it) as mounted
+  --- with local_lock "flock" or "all" among the filesystem's own
+  --- options: what [`sys.flock_kind`] asks of an NFS file's mount.
+  mountinfo_local_flock: function(text: string, device: string): boolean
 end
 
 return testing

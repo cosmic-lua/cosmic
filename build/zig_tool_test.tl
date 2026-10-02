@@ -1,33 +1,36 @@
---- `build/zig.tl`'s tests that start a program: bin/zig itself, to see
---- the status a zig that cannot run exits with, and the stand-in zig
---- (`build.stand_in`), built from the program's core, that `Zig.run`
---- and a build answer or pass a signal on to. Apart from
---- build/zig_test.tl's so those stand while the tree moves.
+--- [`build/zig.tl`]'s tests that start this program: bin/zig itself, to
+--- see the status a zig that cannot run exits with, and a build that
+--- answers or passes on a signal the stand-in zig ([`build.stand_in`])
+--- sends. Apart from build/zig_test.tl's so those stand while the tree
+--- moves.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
+local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
+-- The script bin/zig runs, which its tests copy and start: of the
+-- closure, so its source is there to read.
 local Zig = require("build.zig")
 
 --- A source whose build a test interrupts, and the program itself, which
---- its tests start and whose core building the stand-in zig reads
---- (`build.stand_in`). bin/zig is started with an environment of the
+--- its tests start. bin/zig is started with an environment of the
 --- test's own, and the stand-in reads none of the one it inherits.
-Test.needs{ reads = { "build/patch.tl" }, tool = true }
+--- build/zig_fetch.tl is the script a cache miss starts.
+Test.needs{ reads = { "build/patch.tl", "build/zig_fetch.tl" }, tool = true }
 
---- `bin/zig` exits as a shell would when the zig it is given cannot
+--- [`bin/zig`] exits as a shell would when the zig it is given cannot
 --- run: 127 when there is none on PATH, 126 when there is one that is
 --- not executable.
 local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp: string)
   local script = assert(Fs.absolute("build/zig.tl"))
   local function run(): Child.Result
-    local started = observations.program({ "--standalone", script, "version" }, {
+    local started = this_program.program({ "--standalone", script, "version" }, {
       env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ms = 30000,
+      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
     })
     return (assert(Child.run(started.argv, started.options)))
   end
@@ -42,25 +45,38 @@ local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp:
   assert(denied_err:find("zig-for-test: permission denied", 1, true), denied_err)
 end
 
-local function test_run_answers_as_the_child_did(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Zig.run({ probe, "exit 0" }) == 0)
-  assert(Zig.run({ probe, "exit 3" }) == 3)
-  assert(Zig.run({ probe, "signal KILL" }) == 128 + sys.SIGKILL)
+--- A cache miss runs build/zig_fetch.tl in a process of its own, whose
+--- trouble comes back as ensure_installed's: a pin with no sha256 for
+--- the host fails there before any download, and leaves no scratch
+--- directory in the cache it was given.
+local function test_a_cache_miss_reports_the_fetch_scripts_trouble(tmp: string)
+  local root = assert(Fs.absolute("."))
+  local cache = tmp .. "/cache"
+  local pin: Zig.Pin = { version = "0.16.0", shas = {} }
+  local zig, trouble = Zig.ensure_installed(root, cache, cache .. "/0.16.0-x86_64-linux", pin,
+    "x86_64-linux")
+  assert(zig == nil, "a pin with no sha256 installed a zig")
+  assert(trouble:find("names no sha256 for x86_64-linux", 1, true) ~= nil, trouble)
+  local left = assert(Fs.list(cache))
+  assert(#left == 1 and left[1] == ".scratch-gate",
+    "unexpected cache entries after failed fetch: " .. table.concat(left, ", "))
+  assert(assert(Fs.stat(cache .. "/.scratch-gate")).kind == "file",
+    "the persistent scratch gate is not a regular file")
 end
 
-local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  -- The child has this process interrupted, as a `kill -INT` aimed at
-  -- bin/zig alone would; the child hears of it only if it is passed on.
-  local started = Time.monotonic_ns()
-  local status = Zig.run({ probe,
-    "trap 42; signal INT " .. tostring(sys.getpid()) .. "; sleep 10000" })
-  assert(status == 42, tostring(status))
-  assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
+--- build/zig_fetch.tl run without the words it needs exits 2, naming
+--- them.
+local function test_the_fetch_script_refuses_missing_words()
+  local script = assert(Fs.absolute("build/zig_fetch.tl"))
+  local started = this_program.program({ "--standalone", script, "/cache" }, {
+    env = {}, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30),
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 2, tostring(result.stderr))
+  assert((result.stdout or ""):find("usage: build/zig_fetch.tl", 1, true), result.stdout)
 end
 
---- A root of its own under `tmp` for `build/zig.tl` to build from: the
+--- A root of its own under `tmp` for [`build/zig.tl`] to build from: the
 --- script and the patch applier it runs first, and no vendored tree to
 --- patch. Answers the script's path there.
 local function bare_root(tmp: string): string
@@ -72,18 +88,18 @@ local function bare_root(tmp: string): string
   return tmp .. "/root/build/zig.tl"
 end
 
---- Runs `build/zig.tl` from `script` as bin/zig, building with the
+--- Runs [`build/zig.tl`] from `script` as bin/zig, building with the
 --- stand-in `tmp/zig-for-test`, and answers how it ended. Once it has
 --- started, `tmp/zig-pid` holds its pid -- negated, naming its process
 --- group, which it leads, when `group` -- for the stand-in to wait for
 --- and signal, as a shell's `$PPID` or `0` would name it.
 -- TODO: have the stand-in signal its parent, or its own process group,
--- itself, as the shell's `kill $PPID` and `kill 0` did, rather than wait
+-- itself, as a shell's `kill $PPID` and `kill 0` would, rather than wait
 -- for the pid in a file, once cosmic.sys carries getppid and a kill of
 -- pid 0 (its binding refuses 0 as out of range): today a program has
 -- neither, and /proc/self/stat, which names both, is Linux's alone.
 local function build_with_stand_in(tmp: string, script: string, group: boolean): Child.Result
-  local started = observations.program({ "--standalone", script, "build" }, {
+  local started = this_program.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture",
   })
@@ -91,12 +107,12 @@ local function build_with_stand_in(tmp: string, script: string, group: boolean):
   -- Written whole under another name, so the stand-in never reads half.
   assert(Fs.write(tmp .. "/zig-pid.writing", (group and "-" or "") .. tostring(h.pid)))
   assert(Fs.rename(tmp .. "/zig-pid.writing", tmp .. "/zig-pid"))
-  return (assert(h:wait(30000)))
+  return (assert(h:wait(Time.seconds(30))))
 end
 
---- A Ctrl-C that reached zig and `bin/zig` both, which zig caught and
---- exited cleanly from before `bin/zig` passed it on, is answered by
---- zig's status, as bash answers it: `bin/zig` exits 0 rather than
+--- A Ctrl-C that reached zig and [`bin/zig`] both, which zig caught and
+--- exited cleanly from before [`bin/zig`] passed it on, is answered by
+--- zig's status, as bash answers it: [`bin/zig`] exits 0 rather than
 --- dying of the SIGINT. The stub signals its whole group, as a terminal
 --- does, and exits at once, well inside the pass-on window.
 local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)
@@ -111,8 +127,8 @@ local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end
 
---- A SIGTERM sent to `bin/zig` alone that its child exits before being
---- passed is not swallowed: `bin/zig` ends of it, as it would have had
+--- A SIGTERM sent to [`bin/zig`] alone that its child exits before being
+--- passed is not swallowed: [`bin/zig`] ends of it, as it would have had
 --- it not been running a build.
 local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local script = bare_root(tmp)
@@ -122,4 +138,41 @@ local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local result = build_with_stand_in(tmp, script, false)
   assert(result.signal == sys.SIGTERM,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
+end
+
+--- A build of the boot step holds the checkout's rebuild lock while zig
+--- runs, so a `cosmic test` run or a rebuild in the checkout waits for
+--- it, and hands it on to zig, whose bridge writes o/cosmic.db holding
+--- it (build/writer.tl): the stand-in zig records the variable, and
+--- waits while this test finds the lock busy.
+local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
+  local script = bare_root(tmp)
+  local root = tmp .. "/root"
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+    "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
+  local started = this_program.program({ "--standalone", script, "build", "boot" }, {
+    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
+    stdout = "capture", stderr = "capture",
+  })
+  local h = assert(Child.start(started.argv, started.options))
+  local deadline = Time.monotonic_ns() + Time.seconds(20)
+  local handed: string | nil = nil
+  while handed == nil and Time.monotonic_ns() < deadline do
+    handed = Fs.read(tmp .. "/handed")
+    if handed == nil then assert(sys.nanosleep(Time.ms(20))) end
+  end
+  local taken, trouble = rebuild_lock.take(root, 0, "test")
+  if taken == "held" then rebuild_lock.release() end
+  assert(Fs.write(tmp .. "/go", ""))
+  local result = assert(h:wait(Time.seconds(20)))
+  assert(result.ok, tostring(result.stderr))
+  local named = tostring(handed):match("^%[(.*)%]\n$")
+  local given, _ = sys.stat(named or "")
+  local own, _ = sys.stat(root .. "/o/rebuild.lock")
+  assert(given ~= nil and own ~= nil and given.ino == own.ino and given.dev == own.dev,
+    "the boot handed on no lock of its tree: " .. tostring(handed))
+  assert(taken == "busy", "the boot's lock was taken under it: " .. tostring(taken) .. " " .. trouble)
+  assert(rebuild_lock.take(root, 0, "test") == "held", "the boot left the lock held")
+  rebuild_lock.release()
 end

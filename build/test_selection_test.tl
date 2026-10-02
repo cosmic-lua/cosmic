@@ -4,8 +4,9 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -15,15 +16,32 @@ local function invoke(root: string, output: string, selector: string): Child.Res
   -- Unsandboxed, whatever this run's switch: what is chosen, and what
   -- a choice runs and reports, is the same either way, and a sandbox
   -- nested in this test's own is one a host may refuse (root nests one
-  -- only two deep), where the run would go unsandboxed only there. The
-  -- rerun line it prints repeats the switch.
-  local env = observations.environment()
+  -- only two deep, where its runner cannot run its workers as a user of
+  -- their own). The rerun line it prints repeats the switch.
+  local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
   -- What its failing tests keep stays in this test's directory.
   env.TMPDIR = Fs.dirname(output)
-  local started = observations.program({ "test", selector }, {
+  local started = this_program.program({ "test", selector }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ms = 30000,
+    process_group = true, timeout_ns = Time.seconds(30),
+  })
+  local result, trouble = Child.run(started.argv, started.options)
+  assert(Fs.close(fd))
+  return (assert(result, trouble))
+end
+
+--- A run of `cosmic test` with `words` in `root`, as `invoke`'s.
+local function invoke_words(root: string, output: string, words: {string}): Child.Result
+  local fd = assert(Fs.open_write(output))
+  local env = this_program.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
+  env.TMPDIR = Fs.dirname(output)
+  local argv: {string} = { "test" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local started = this_program.program(argv, {
+    cwd = root, env = env, stdout = fd, stderr = fd,
+    process_group = true, timeout_ns = Time.seconds(30),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
@@ -58,7 +76,7 @@ local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
   local text = assert(Fs.read(output))
   assert(text:find("1 ran, 0 stood", 1, true), text)
   assert(not text:find("unrelated test executed", 1, true), text)
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage WHERE path = 'suite.helper'"))
   assert(db:close())
@@ -74,7 +92,7 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
     assert(result.ok, text)
     assert(text:find(expected, 1, true), text)
   end
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local by_run = assert(Sqlite.text_rows(db,
     "SELECT SUM(hit) FROM coverage WHERE path = 'suite.helper' " ..
     "GROUP BY ran_at_ns ORDER BY ran_at_ns"))
@@ -104,7 +122,7 @@ end
     local result = invoke(root, output, "./suite/selected_test.tl:test_selected")
     local text = assert(Fs.read(output))
     assert(result.ok, text)
-    assert(text:find("1 tests, 1 modules; " .. expected, 1, true), text)
+    assert(text:find("1 test, 1 module; " .. expected, 1, true), text)
     assert(not text:find("executed", 1, true), text)
   end
   local output = tmp .. "/module.out"
@@ -112,7 +130,7 @@ end
   local text = assert(Fs.read(output))
   assert(result.ok, text)
   assert(text:find("0 ran, 1 stood", 1, true), text)
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local credits = assert(Sqlite.text_rows(db, "SELECT test FROM coverage_by_test"))
   assert(db:close())
   assert(#credits == 1 and credits[1][1] == "suite.selected_test test_selected",
@@ -146,12 +164,12 @@ return Example
   local result = invoke(root, output, "suite/answer_example.tl:answer")
   local text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 tests, 1 modules; 1 ran", 1, true), text)
+  assert(text:find("1 test, 1 module; 1 ran", 1, true), text)
   output = tmp .. "/prefixed.out"
   result = invoke(root, output, "suite/answer_example.tl:Example.answer")
   text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 tests, 1 modules; 0 ran, 1 stood", 1, true), text)
+  assert(text:find("1 test, 1 module; 0 ran, 1 stood", 1, true), text)
 end
 
 --- A failing test's report names the selector that reruns it, quoted
@@ -213,10 +231,9 @@ local function test_cli_fails_when_no_module_matches(tmp: string)
   end
 end
 
---- Regression: `runs.elapsed_ns` must reflect how long the test function
---- itself actually took, not merely be present. A test that sleeps a known
---- short duration must be recorded as having taken at least that long, and
---- comfortably less than a generous upper bound.
+--- `runs.elapsed_ns` is how long the test function took, not merely a
+--- value: a test that sleeps 50 ms is recorded as taking at least that,
+--- and well under 5 s.
 local function test_records_the_tests_elapsed_duration(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/timing"))
@@ -229,7 +246,7 @@ end
   local output = tmp .. "/sleep.out"
   local result = invoke(root, output, "timing/sleep_test.tl")
   assert(result.ok, assert(Fs.read(output)))
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT elapsed_ns FROM runs WHERE path = 'timing.sleep_test' " ..
     "AND test = 'test_sleeps_a_known_duration'"))
@@ -237,9 +254,9 @@ end
   assert(#rows == 1, "expected exactly one recorded run")
   local elapsed = math.tointeger(tonumber(rows[1][1]))
   assert(elapsed ~= nil)
-  assert(elapsed >= 50 * 1000 * 1000,
+  assert(elapsed >= Time.ms(50),
     "elapsed_ns " .. tostring(elapsed) .. " is shorter than the sleep")
-  assert(elapsed < 5 * 1000 * 1000 * 1000,
+  assert(elapsed < Time.seconds(5),
     "elapsed_ns " .. tostring(elapsed) .. " is implausibly large")
 end
 
@@ -267,7 +284,7 @@ local function test_another_project_counts_none_of_the_cores_c(tmp: string)
   local output = tmp .. "/project.out"
   local result = invoke(root, output, "suite/selected_test.tl")
   assert(result.ok, assert(Fs.read(output)))
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local db = assert(Sqlite.open(root .. "/o/build.db"))
   local lines = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage WHERE path LIKE 'core/%'"))
   local credits = assert(Sqlite.text_rows(db,
@@ -282,14 +299,14 @@ end
 local function test_a_test_without_a_directory_fails_alone(tmp: string)
   local root = project(tmp)
   local output = tmp .. "/nowhere.out"
-  local environment = observations.environment()
+  local environment = this_program.environment()
   environment.TMPDIR = tmp .. "/missing"
   -- Unsandboxed, as `invoke` runs one: the directory is made before a
   -- worker starts, sandboxed or not.
   environment.COSMIC_TEST_SANDBOX = "0"
   local fd = assert(Fs.open_write(output))
-  local started = observations.program({ "test", "suite/selected_test.tl" }, {
-    cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ms = 30000,
+  local started = this_program.program({ "test", "suite/selected_test.tl" }, {
+    cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Time.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(Fs.close(fd))
@@ -297,4 +314,68 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   assert(not result.ok, text)
   assert(text:find("could not make a temporary directory", 1, true), text)
   assert(not text:find("attempt to perform arithmetic", 1, true), text)
+end
+
+--- The shares of `--shard I/N`, each run in a checkout of its own as
+--- CI's runners do, run every chosen test once between them, and the
+--- one that holds a failing test fails as a whole run would; a share
+--- that names no share is refused.
+local function test_the_shares_of_a_run_run_each_test_once(tmp: string)
+  local function shard_project(at: string): string
+    local root = at .. "/project"
+    assert(Fs.mkdirs(root .. "/suite"))
+    assert(Fs.write(root .. "/suite/a_test.tl", [[
+local function test_one() end
+local function test_two() end
+local function test_three() end
+]]))
+    assert(Fs.write(root .. "/suite/b_test.tl", [[
+local function test_four() end
+local function test_five()
+  error("the failing test ran")
+end
+]]))
+    return root
+  end
+  local seen: {string:integer} = {}
+  local failed = 0
+  for index = 1, 2 do
+    local at = tmp .. "/share-" .. tostring(index)
+    local root = shard_project(at)
+    local output = at .. "/run.out"
+    local result = invoke_words(root, output, { "--shard", tostring(index) .. "/2" })
+    local text = assert(Fs.read(output))
+    assert(text:find("; shard " .. tostring(index) .. " of 2)", 1, true), text)
+    if text:find("the failing test ran", 1, true) then
+      failed = failed + 1
+      assert(not result.ok and text:find("test: FAIL (1 of ", 1, true), text)
+    else
+      assert(result.ok, text)
+    end
+    local db = assert(Sqlite.open(root .. "/o/build.db"))
+    local rows = assert(Sqlite.text_rows(db, "SELECT path, test FROM runs"))
+    assert(db:close())
+    for _, row in ipairs(rows) do
+      local id = row[1] .. " " .. row[2]
+      seen[id] = (seen[id] or 0) + 1
+    end
+  end
+  assert(failed == 1, "the failing test failed " .. tostring(failed) .. " shares")
+  local ids: {string} = {}
+  for id, count in pairs(seen) do
+    assert(count == 1, id .. " ran in " .. tostring(count) .. " shares")
+    ids[#ids + 1] = id
+  end
+  table.sort(ids)
+  assert(table.concat(ids, ",") == table.concat({
+    "suite.a_test test_one", "suite.a_test test_three", "suite.a_test test_two",
+    "suite.b_test test_five", "suite.b_test test_four" }, ","), table.concat(ids, ","))
+  for _, refused in ipairs({ "3/2", "0/2", "1", "1/0", "a/b" }) do
+    local root = shard_project(tmp .. "/refused-" .. refused:gsub("/", "-"))
+    local output = tmp .. "/refused-" .. refused:gsub("/", "-") .. ".out"
+    local result = invoke_words(root, output, { "--shard", refused })
+    local text = assert(Fs.read(output))
+    assert(not result.ok and result.code == 2, text)
+    assert(text:find("--shard must be I/N", 1, true), text)
+  end
 end

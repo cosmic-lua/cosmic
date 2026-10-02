@@ -1,25 +1,24 @@
 --- Where a type ENDS, in the token stream tl already lexed.
 ---
---- tl's AST carries a type annotation as a semantic type OBJECT rather
---- than as a node: it has a start position and no end, no memory of how
---- the source spelled it, and -- for a record or enum body -- no trace
---- of the comments written between its fields. Re-rendering one from
---- that object would mean reinventing the whole type grammar and losing
---- those comments, so `build.fix` writes type syntax out as the
---- original bytes instead. This module is what says where those bytes
---- stop.
+--- tl's AST carries a type annotation as a semantic type object, not a
+--- node. It has a start position, an end only where its syntax closes
+--- with a bracket, no memory of how the source spelled it, and, for a
+--- record or enum body, no trace of the comments between its fields.
+--- Rendering one from that object would mean reinventing the type
+--- grammar and losing those comments, so [`build.fix`] writes type syntax
+--- as the original bytes. This module says where those bytes stop.
 ---
---- Two ways to find the end, and the renderer prefers the first
---- wherever it has one: a BOUND, some later position the AST already
---- knows (the next argument's own name, the `)` an argument list
---- records as its `xend`, the first token of a function's body), which
---- makes the answer "the last token before that"; or, where the AST
---- knows no such position -- a cast's type, a declaration's type list
---- with no initialiser after it -- a walk over the tokens themselves
---- following the shape of Teal's type syntax. The walk only has to find
---- the closing token, never to understand the type, so it tracks
---- brackets and the handful of tokens that continue a type rather than
---- parsing one.
+--- There are two ways to find the end, and the renderer prefers the
+--- first where it has one:
+--- - a bound, a later position the AST already knows (the next
+---   argument's name, the `)` an argument list records as its `xend`,
+---   the first token of a function's body). The end is the last token
+---   before it.
+--- - where the AST knows no such position (a cast's type, a
+---   declaration's type list with no initialiser after it), a walk over
+---   the tokens following the shape of Teal's type syntax. The walk
+---   only finds the closing token, so it tracks brackets and the few
+---   tokens that continue a type and does not parse one.
 
 local type compiler = require("build.compiler")
 
@@ -42,7 +41,7 @@ local function new(tokens: {compiler.Token}): Scan
 end
 
 --- The index of the token that starts at exactly (`y`, `x`), or nil
---- when no token does -- a type object whose position the parser
+--- when none does, as for a type object whose position the parser
 --- synthesized rather than read off the source.
 --- @param s Scan
 --- @param y integer
@@ -121,8 +120,7 @@ local function closing(s: Scan, i: integer): integer
 end
 
 --- The index of the `>` closing the type-argument list token `i` opens.
---- `>>` closes two at once, which is how tl's own lexer hands back a
---- nested `T<U<V>>`.
+--- `>>` closes two at once, as tl's lexer lexes a nested `T<U<V>>`.
 local function closing_angle(s: Scan, i: integer): integer
   local depth = 0
   local j = i
@@ -146,8 +144,24 @@ local function closing_angle(s: Scan, i: integer): integer
   return #s.tokens
 end
 
+--- The names tl's parser reads as a whole type at once: its
+--- `simple_types`, whatever follows them, and `table` unless a `.`
+--- follows it. A `<` after one is no type argument list but the
+--- comparison the type is an operand of, as in `a as integer < b`.
+local simple: {string:boolean} = {
+  ["nil"] = true,
+  ["any"] = true,
+  ["number"] = true,
+  ["string"] = true,
+  ["thread"] = true,
+  ["boolean"] = true,
+  ["integer"] = true,
+  ["self"] = true,
+  ["table"] = true,
+}
+
 local type_end: function(Scan, integer): integer
-local rets_end: function(Scan, integer): integer
+local rets_end: function(Scan, integer, ? boolean): integer
 
 --- The end of one type with no `|` alternatives after it.
 local function single_end(s: Scan, i: integer): integer
@@ -165,9 +179,12 @@ local function single_end(s: Scan, i: integer): integer
     end
     j = closing(s, j)
     if tk(s, j + 1) == ":" then
-      return rets_end(s, j + 2)
+      return rets_end(s, j + 2, true)
     end
     return j
+  end
+  if simple[text] and (text ~= "table" or tk(s, i + 1) ~= ".") then
+    return i
   end
   local j = i
   while tk(s, j + 1) == "." and is_name(tk(s, j + 2)) do
@@ -191,19 +208,40 @@ type_end = function(s: Scan, i: integer): integer
   return j
 end
 
+--- Whether token `i` starts a parameter: `name:`, `name?:`, `?T` or
+--- `...`, none of which can start a type. tl ends a function's return
+--- types before a `,` followed by one (its parse_trying_list's
+--- lookahead, with patch/tl's 30-return-types-end-before-a-parameter.txt),
+--- so that `function(f: function(): integer, n?: integer)` is two
+--- parameters.
+local function starts_a_parameter(s: Scan, i: integer): boolean
+  local t = s.tokens[i]
+  if t == nil then
+    return false
+  end
+  if t.tk == "?" or t.tk == "..." then
+    return true
+  end
+  return t.kind == "identifier"
+    and (tk(s, i + 1) == ":" or (tk(s, i + 1) == "?" and tk(s, i + 2) == ":"))
+end
+
 --- The index of the last token of a comma-separated list of types
 --- starting at token `i`, or of the parenthesized list it opens with.
 --- A function's return types and a declaration's type list are both
 --- this shape, and a variadic last one (`: any...`) ends at its `...`.
+--- A function's return types (`returns`) also end before a `,` that
+--- [`starts_a_parameter`] follows.
 --- @param s Scan
 --- @param i integer
+--- @param returns boolean|nil Whether the list is a function's return types
 --- @return integer
-rets_end = function(s: Scan, i: integer): integer
+rets_end = function(s: Scan, i: integer, returns?: boolean): integer
   if tk(s, i) == "(" then
     return closing(s, i)
   end
   local j = type_end(s, i)
-  while tk(s, j + 1) == "," do
+  while tk(s, j + 1) == "," and not (returns and starts_a_parameter(s, j + 2)) do
     j = type_end(s, j + 2)
   end
   if tk(s, j + 1) == "..." then
@@ -212,11 +250,47 @@ rets_end = function(s: Scan, i: integer): integer
   return j
 end
 
+--- Whether the type starting at token `i` ends in a function's return
+--- types that tl would read on into across a `,` after it: return types
+--- neither in parentheses nor closed by a `...`. A table entry ending
+--- in a cast to such a type needs a `;` after it, since tl reads the
+--- next entry after a `,` as one more return type.
+--- @param s Scan
+--- @param i integer
+--- @return boolean
+local function open_returns(s: Scan, i: integer): boolean
+  local last = i
+  local j = single_end(s, i)
+  while tk(s, j + 1) == "|" do
+    last = j + 2
+    j = single_end(s, last)
+  end
+  if tk(s, last) ~= "function" then
+    return false
+  end
+  local k = last + 1
+  if tk(s, k) == "<" then
+    k = closing_angle(s, k) + 1
+  end
+  if tk(s, k) ~= "(" then
+    return false
+  end
+  k = closing(s, k)
+  if tk(s, k + 1) ~= ":" or tk(s, k + 2) == "(" then
+    return false
+  end
+  j = type_end(s, k + 2)
+  while tk(s, j + 1) == "," and not starts_a_parameter(s, j + 2) do
+    j = type_end(s, j + 2)
+  end
+  return tk(s, j + 1) ~= "..."
+end
+
 --- The index of the first token spelled `word` at or after `i`, outside
---- any bracket opened after `i`. Used for the keywords the AST records
---- no position for at all -- the `then` closing a condition, the `do`
---- opening a loop's body -- so a source that put one on a line of its
---- own keeps it there.
+--- any bracket opened after `i`. It finds the keywords the AST records
+--- no position for (the `then` after a condition, the `do` opening a
+--- loop's body), so a source that put one on a line of its own keeps
+--- it there.
 --- @param s Scan
 --- @param i integer
 --- @param word string
@@ -239,8 +313,8 @@ local function word_after(s: Scan, i: integer, word: string): integer
 end
 
 --- The last token of a type region that ends before (`y`, `x`), with
---- any separator the bound left behind trimmed off. Used wherever the
---- AST already knows what follows the type.
+--- any separator before the bound trimmed off. For use where the AST
+--- knows what follows the type.
 --- @param s Scan
 --- @param y integer The bounding position's line
 --- @param x integer The bounding position's column
@@ -257,9 +331,11 @@ local record TypescanModule
   type Scan = Scan
   new: function(tokens: {compiler.Token}): Scan
   index_at: function(s: Scan, y: integer, x: integer): integer | nil
+  index_before: function(s: Scan, y: integer, x: integer): integer
   bounded_end: function(s: Scan, y: integer, x: integer): integer
   type_end: function(s: Scan, i: integer): integer
-  rets_end: function(s: Scan, i: integer): integer
+  rets_end: function(s: Scan, i: integer, returns?: boolean): integer
+  open_returns: function(s: Scan, i: integer): boolean
   closing: function(s: Scan, i: integer): integer
   closing_angle: function(s: Scan, i: integer): integer
   word_after: function(s: Scan, i: integer, word: string): integer
@@ -270,9 +346,11 @@ end
 local M: TypescanModule = {
   new = new,
   index_at = index_at,
+  index_before = index_before,
   bounded_end = bounded_end,
   type_end = type_end,
   rets_end = rets_end,
+  open_returns = open_returns,
   closing = closing,
   closing_angle = closing_angle,
   word_after = word_after,

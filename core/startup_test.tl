@@ -9,14 +9,15 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start past its launcher.
 Test.needs{ tool = true }
 
 local function environment(): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
   return env
@@ -27,7 +28,7 @@ local function run_relaunched(relaunch: Proc.Relaunch, argv: {string}): Child.Re
   local env = environment()
   for name, value in pairs(relaunch.env) do env[name] = value end
   return (assert(Child.run(argv, { env = env, fds = relaunch.fds,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
 end
 
 --- The core refuses an artifact it cannot name absolutely, before it

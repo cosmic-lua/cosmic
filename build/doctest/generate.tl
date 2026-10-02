@@ -1,9 +1,8 @@
---- The block sequence `build.doctest.markdown` reads out of a doc into
---- one Teal source string: the compiled file doc/meta.md promises,
---- indistinguishable in shape from a hand-written `_test.tl` once it
---- exists. Every example is a top-level function; nothing here runs
---- anything or discovers anything, both stay `build.test`'s and
---- `build.analyzer`'s jobs.
+--- Turns the block sequence [`build.doctest.markdown`] reads out of a doc
+--- into one Teal source string: the compiled file doc/meta.md promises,
+--- shaped like a hand-written `_test.tl`. Every example is a top-level
+--- function. Running them and discovering them stay [`build.test`]'s and
+--- [`build.analyzer`]'s jobs.
 local markdown = require("build.doctest.markdown")
 local String = require("cosmic.string")
 
@@ -34,20 +33,33 @@ local record Example
 end
 
 local record Item
-  kind: string -- "comment" | "example"
+  --- `"comment"` or `"example"`.
+  kind: string
   text: string | nil
   example: Example | nil
 end
 
 local record generate
+  --- One guide example as a reader copies it: the statements of its
+  --- opening block and its `continue` blocks, joined as the generated
+  --- test joins them.
+  record Entry
+    source: string
+    --- The doc line of the block that opens it.
+    line: integer
+    --- Whether `file=` companions come with it: its code then reads
+    --- them through the generated test's `tmp`, and is a project's
+    --- entry rather than a script to run alone.
+    companions: boolean
+    output: boolean
+  end
 end
 
---- Whether a block's content opens with a shebang line: real only as a
---- file's own first line, never as function-body code, so it forces a
---- skip regardless of the block's declared tag -- but only for a block
---- that would otherwise BECOME function-body code. A `file=` block's
---- content is a real file's content, where a shebang is ordinary, so
---- this is never asked of one.
+--- Whether a block's content opens with a shebang line. A shebang is
+--- valid only as a file's first line, never as function-body code, so it
+--- forces a skip whatever the block's tag. A `file=` block is a real
+--- file's content, where a shebang is ordinary, so this is never asked
+--- of one.
 local function is_shebang(content: string): boolean
   local first_line = content:match("^([^\n]*)")
   return first_line ~= nil and first_line:sub(1, 2) == "#!"
@@ -61,7 +73,7 @@ local function quote(s: string): string
   return string.format("%q", s)
 end
 
---- Turns the block sequence into the `Item` list `render` walks: one
+--- Turns the block sequence into the [`Item`] list `render` walks: one
 --- entry per skip comment or per example, in the order examples become
 --- runnable functions.
 --- @return {Item} | nil nil on a grammar error -- an `output` or
@@ -75,7 +87,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
 
   for _, b in ipairs(blocks) do
     if b.lang == "needs" then
-      -- The doc's declaration, which `from_blocks` writes at the top.
+      -- The doc's declaration, which [`from_blocks`] writes at the top.
     elseif b.lang == "text" then
       current = nil
     elseif b.lang == "output" then
@@ -104,15 +116,11 @@ local function to_items(blocks: {Block}): {Item} | nil, string
         pending_files = {}
         current = nil
       elseif b.modifiers.file ~= nil then
-        -- A `file=` block attaches to whichever example is open,
-        -- whether it was written before the entry (queued in
-        -- `pending_files` until an entry claims them) or after it
-        -- (attached to `current` directly, in place, so a later
-        -- `continue` or `output` still finds the same example open).
-        -- Only a `file=` with nothing open at all -- before any entry
-        -- in its run, or after the run already closed -- falls back
-        -- to `pending_files`, and is refused below if no entry ever
-        -- follows to claim it.
+        -- A `file=` block attaches to the open example, so a later
+        -- `continue` or `output` still finds that example open. With
+        -- none open (before any entry in its run, or after the run
+        -- closed) it waits in `pending_files` for the next entry, and is
+        -- refused below if none follows.
         local write: FileWrite = { path = b.modifiers.file, content = b.content,
                                     line = b.line }
         if current ~= nil then
@@ -158,9 +166,31 @@ local function to_items(blocks: {Block}): {Item} | nil, string
   return items, ""
 end
 
---- Splits `text` back into its own lines, indenting every non-blank one
---- so the generated source reads like a function body -- Teal itself
---- does not care, but a build failure quoting this file should.
+--- The examples a doc's blocks make, as [`Entry`] values, skips left out:
+--- what [`from_blocks`] turns into functions, without the wrapping, so a
+--- check can hold each to compiling on its own.
+--- @return {generate.Entry} | nil nil on the grammar error [`from_blocks`] names
+--- @return string why
+function generate.entries(blocks: {Block}): {generate.Entry} | nil, string
+  local items, trouble = to_items(blocks)
+  if items == nil then
+    return nil, trouble
+  end
+  local out: {generate.Entry} = {}
+  for _, item in ipairs(items) do
+    local example = item.example
+    if item.kind == "example" and example ~= nil then
+      out[#out + 1] = { source = table.concat(example.statements, "\n\n"),
+        line = example.line, companions = #example.files > 0,
+        output = example.has_output }
+    end
+  end
+  return out, ""
+end
+
+--- Appends the lines of `text` to `out`, indenting every non-blank one
+--- so a build failure quoting the generated source reads like a
+--- function body. Teal does not care.
 local function emit_indented(out: {string}, text: string)
   for line in String.lines(text) do
     if line == "" then
@@ -171,10 +201,9 @@ local function emit_indented(out: {string}, text: string)
   end
 end
 
---- Renders one example's function, its companion files materialized
---- first, its own statements verbatim, and -- only when it declared an
---- `output` block -- its own print capture and assertion appended
---- after them.
+--- Renders one example's function: its companion files first, then its
+--- statements verbatim, then, only when it has an `output` block, the
+--- print capture and the assertion on it.
 local function emit_example(out: {string}, file: string, example: Example)
   out[#out + 1] = "local function " .. example.name .. "(tmp: string)"
   out[#out + 1] = "  local _ = tmp"
@@ -201,31 +230,20 @@ local function emit_example(out: {string}, file: string, example: Example)
   end
   out[#out + 1] = "end"
   if not example.has_output then
-    -- Never called: `build.analyzer.analyze`'s `^test_` discovery only
-    -- ever names this a test when it is one, so nothing after this
-    -- compile step calls it, and tl's own "unused function" warning
-    -- about it is not a false positive the way a real test's is --
-    -- this line is what makes it true anyway, on purpose, the same
-    -- shape `local _ = tmp` above already uses for an argument no
-    -- statement here happens to read.
+    -- Nothing calls an `example_` function: [`build.analyzer.analyze`]
+    -- discovers only `^test_`. Reading it here keeps tl from warning
+    -- that it is unused, as `local _ = tmp` does for an argument no
+    -- statement reads.
     out[#out + 1] = "local _ = " .. example.name
   end
   out[#out + 1] = ""
 end
 
---- The block sequence into one Teal source string: a header comment,
---- the shared `__doctest_write`/`__doctest_capture` helpers when any
---- example actually needs one, then one function per example (or one
---- comment for a skip), in document order.
---- @param file string the doc's own path, named in a generated
----   assertion's failure message and in the header comment; never
----   prefixed onto an error this function itself returns -- the caller
----   already does that for every module, doc-derived or not
 --- Why `fields`, a doc's `needs` line, cannot stand between the braces
 --- of a table literal as it is, or "" when it can: a brace closing one
 --- it did not open, one left open, or a comment or long bracket that
 --- would swallow the close. Strings are skipped; the build reads what
---- is left field by field (`build.analyzer`), so this holds only that
+--- is left field by field ([`build.analyzer`]), so this holds only that
 --- the line stays one literal.
 local function unspliceable(fields: string): string
   local depth = 0
@@ -256,14 +274,58 @@ local function unspliceable(fields: string): string
   return ""
 end
 
---- A doc's `needs` block (`build.doctest.markdown`) becomes the
---- module's top-level `needs` call (`cosmic.test`), which the build
---- reads as it does a test module's. A second is refused.
+--- A doc's prose as a module's own documentation: its markdown less the
+--- title line (the module's name says it), the `needs` line, which
+--- renders as nothing, and blank lines around them. `cosmic docs` shows
+--- it, its first paragraph in the list of modules. "" for a doc with no
+--- prose.
+function generate.prose(source: string): string
+  local kept: {string} = {}
+  local fence: string | nil = nil
+  local titled = false
+  for line in String.lines(source) do
+    -- A fence closes with the opener's own marker in a run at least as
+    -- long ([`build.doctest.markdown`]).
+    local marker = line:match("^%s*([`~][`~][`~]+)")
+    if fence == nil and marker ~= nil then
+      fence = marker
+    elseif fence ~= nil and marker ~= nil and marker:sub(1, 1) == fence:sub(1, 1) and
+        #marker >= #fence and line:match("^%s*[`~]+%s*$") ~= nil then
+      fence = nil
+    end
+    if fence ~= nil or marker ~= nil then
+      kept[#kept + 1] = line
+    elseif line:match("^<!%-%- needs:.*%-%->%s*$") then
+      -- Renders as nothing.
+    elseif not titled and line:match("^#%s") then
+      titled = true
+    else
+      if line ~= "" then titled = true end
+      kept[#kept + 1] = line
+    end
+  end
+  return String.trim((table.concat(kept, "\n"):gsub("\n%s*\n%s*\n+", "\n\n")))
+end
+
+--- The block sequence as one Teal source string: a header comment, the
+--- shared `__doctest_write` and `__doctest_capture` helpers when an
+--- example needs one, then one function per example (or one comment for
+--- a skip), in document order.
+---
+--- A doc's `needs` block ([`build.doctest.markdown`]) becomes the module's
+--- top-level `needs` call ([`cosmic.test`]), which the build reads as it
+--- does a test module's. A second is refused.
+--- @param file string the doc's own path, named in a generated
+---   assertion's failure message and in the header comment; never
+---   prefixed onto an error this function itself returns -- the caller
+---   already does that for every module, doc-derived or not
 -- TODO: confine what a doc's examples start (doc/guides start this
 -- program and /bin/sh, so their verdicts never stand), once a generated
--- module can declare it where build.filesystem_observations is out of
+-- module can declare it where build.confine is out of
 -- reach: another project's docs compile without cosmic's build/.
-function generate.from_blocks(blocks: {Block}, file: string): string | nil, string
+--- @param prose the doc's prose ([`generate.prose`]), written first as
+---   the module's own documentation; "" or absent for none
+function generate.from_blocks(blocks: {Block}, file: string, prose?: string): string | nil, string
   local items, trouble = to_items(blocks)
   if items == nil then
     return nil, trouble
@@ -297,6 +359,12 @@ function generate.from_blocks(blocks: {Block}, file: string): string | nil, stri
   end
 
   local out: {string} = {}
+  if prose ~= nil and prose ~= "" then
+    for line in String.lines(prose) do
+      out[#out + 1] = line == "" and "---" or "--- " .. line
+    end
+    out[#out + 1] = ""
+  end
   out[#out + 1] = "-- Generated by build.doctest from " .. file .. "."
   out[#out + 1] = "-- A rebuild replaces this file whole from the doc; never edit it here"
   out[#out + 1] = ""
@@ -307,15 +375,12 @@ function generate.from_blocks(blocks: {Block}, file: string): string | nil, stri
   end
 
   if needs_fs then
-    -- Named `__doctest_fs`, never the bare `Fs` a doc's own entry
-    -- statements would naturally choose for their own
-    -- `require("cosmic.fs")`: that name has to stay free for a doc
-    -- author to declare again, inside their own entry, without
-    -- shadowing a module-level local of the same name -- unlike
-    -- shadowing the GLOBAL `print` (see `__doctest_capture` below),
-    -- shadowing an ordinary LOCAL carries a source position in tl's own
-    -- warning, so it would not match the one narrow message
-    -- `build.importer`'s discount looks for.
+    -- Not `Fs`, which a doc's entry would choose for its own
+    -- `require("cosmic.fs")`: declaring it again there would shadow this
+    -- local. tl's warning for shadowing a local carries a source
+    -- position, so [`build.importer`]'s discount (which matches only the
+    -- message for the global `print`, see `__doctest_capture` below)
+    -- would not drop it.
     out[#out + 1] = 'local __doctest_fs = require("cosmic.fs")'
     out[#out + 1] = ""
     out[#out + 1] =
@@ -384,8 +449,7 @@ function generate.from_blocks(blocks: {Block}, file: string): string | nil, stri
   end
 
   -- Where each example opens in the doc, which `cosmic docs` shows in
-  -- place of this file's own lines -- see `build.importer`'s
-  -- `origin_lines`.
+  -- place of this file's own lines ([`build.importer`]'s `origin_lines`).
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then

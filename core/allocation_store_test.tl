@@ -11,7 +11,7 @@ local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
---- `test_attach_leaves_no_connection_whenever_an_allocation_fails` counts
+--- [`test_attach_leaves_no_connection_whenever_an_allocation_fails`] counts
 --- the store's databases, which a test sees only when it declares the store.
 Test.needs{ store = true }
 
@@ -56,7 +56,7 @@ end
 local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
   local path = tmp .. "/project.db"
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, " ..
     "source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
   assert(db:close())

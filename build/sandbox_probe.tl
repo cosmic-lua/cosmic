@@ -13,13 +13,13 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
 -- In the closure, so the store's searcher answers it under a test
--- worker's hold on the store (`raw_process_table`).
+-- worker's hold on the store ([`raw_process_table`]).
 local _ = require("cosmic.child")
 
 local type Searcher = function(string): any, any
 
 --- The raw process table, as the store's searcher hands it to
---- `cosmic.child`'s loader (core/syscalls_test.tl finds it the same
+--- [`cosmic.child`]'s loader (core/syscalls_test.tl finds it the same
 --- way): no module requires it by name but under boot.
 -- TODO: start each child with cosmic.child's sandbox option and drop
 -- this function and its cast (build/contracts.tl's `casts`), once
@@ -40,7 +40,7 @@ local record SandboxProbe
   --- One part of the sandbox, as tried.
   record Part
     name: string
-    --- whether a test's confinement (`observations.confine`) needs it
+    --- whether a test's confinement (build.confine's `confine`) needs it
     needed: boolean
     held: boolean
     --- "held", or why not: an errno's name and message, or what the
@@ -138,12 +138,12 @@ local function tried(tmp: string, script: string, sandbox: raw_process.Sandbox):
   return false, how .. (words ~= "" and ": " .. words:sub(1, 200) or "")
 end
 
---- `tried`, for a child whose own /proc it cannot read -- one held to a
---- ruleset, which does not reach a /proc of the child's own
---- (core/process.h's `ruleset`) -- so what it is held to is read from
---- outside, from this process's /proc, while it waits on its stdin: that
---- it runs under a seccomp filter, one more than this process's own
---- (`filters`), and has no network interface but lo.
+--- `tried`, for a child that cannot read its own /proc: a ruleset does
+--- not reach a /proc of the child's own (core/process.h's `ruleset`).
+--- What the child is held to is read from outside instead, from this
+--- process's /proc, while the child waits on its stdin. It must run
+--- under a seccomp filter, one more than this process's own
+--- (`filters`), and have no network interface but lo.
 local function tried_from_outside(tmp: string, script: string, filters: string | nil,
                                   sandbox: raw_process.Sandbox): boolean, string
   local ends, pipe_trouble = process.pipe()
@@ -187,13 +187,13 @@ local function tried_from_outside(tmp: string, script: string, filters: string |
 end
 
 --- Tries each part of the sandbox, and all of them together, in `tmp`,
---- a fresh directory of the caller's: a child held to a Landlock
---- ruleset, a pledge, no network, an unveiled filesystem, the last two
---- as `observations.confine` holds a test's processes, and all four;
---- and, unveiled, whether the child is in a pid namespace of its own,
---- and whether its /proc is that namespace's own procfs or, where the
---- kernel refuses one (a container masking parts of its /proc), the
---- host's.
+--- a fresh directory of the caller's. The parts are a child held to a
+--- Landlock ruleset, a pledge, no network, and an unveiled filesystem
+--- (the last two as build.confine's `confine` holds a test's
+--- processes), then all four. For an unveiled child it also tries
+--- whether it is in a pid namespace of its own, and whether its /proc
+--- is that namespace's own procfs or, where the kernel refuses one (a
+--- container masking parts of its /proc), the host's.
 function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local root = assert(sys.realpath(tmp))
   local inside, outside = root .. "/in", root .. "/out"
@@ -248,10 +248,10 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   held, said = tried(root, own_pids, { unveil = { reads = reads, writes = {} }, offline = true })
   add("unveiled: a pid namespace of its own", false, held, said)
   held, said = tried(root, own_proc, { unveil = { reads = reads, writes = {} }, offline = true })
-  -- Needed: without it a confined process's /proc is the host's,
+  -- Needed: without its own /proc a confined process sees the host's,
   -- read-only, so a sandboxed test worker cannot confine what its test
-  -- starts; ci.yml's Linux legs are given it (--security-opt
-  -- systempaths=unconfined, in .github/scripts/leg-container.sh), so
+  -- starts. ci.yml's Linux legs get one from --security-opt
+  -- systempaths=unconfined (.github/scripts/leg-container.sh), and
   -- COSMIC_CI_REQUIRE_SANDBOX=1 fails a leg that loses it.
   add("unveiled: a /proc of its own", true, held, said)
   if ruleset == nil then
@@ -305,8 +305,8 @@ end
 
 --- Probes this host and prints the report; 0 whatever it found.
 function SandboxProbe.main(_argv: {integer:string}): integer
-  local names, _ = sys.uname()
-  if names == nil or names.sysname ~= "Linux" then
+  local sandboxes, _, _ = process.sandbox_platform()
+  if not sandboxes then
     assert(Fs.put(Fs.stdout, "Confinement: not probed; the sandbox is Linux's alone.\n"))
     return 0
   end

@@ -32,12 +32,14 @@
 --- of its dump and none of them is checked here.
 ---
 --- TODO: read `-Xclang -ast-dump=json` instead, through `cosmic.json`
---- and `cosmic.shape` (see doc/roadmap.md): `Json.decode` with a raised
+--- and [`cosmic.shape`] (see doc/roadmap.md): [`Json.decode`] with a raised
 --- `max_depth`, since clang's trees nest deeper than its default 64,
 --- after checking the memory a whole translation unit's dump takes. The
 --- JSON form names every field rather than leaving it to this module to
 --- read a line's text, and clang keeps it stable where the text form is
 --- only meant for people to read.
+
+local String = require("cosmic.string")
 
 local record tree
   --- One node of the dump.
@@ -82,7 +84,7 @@ local function normalized(file: string, root: string): string
   while file:sub(1, 2) == "./" do
     file = file:sub(3)
   end
-  if root ~= nil and file:sub(1, #root + 1) == root .. "/" then
+  if root ~= nil and String.starts_with(file, root .. "/") then
     file = file:sub(#root + 2)
   end
   return file

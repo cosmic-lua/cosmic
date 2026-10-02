@@ -1,195 +1,27 @@
---- Every export earns its place (doc/design.md, principle 5): a member
---- of a module's returned record in `build/`, `cmd/`, `eval/` or the
---- public `cosmic/` has a use outside its own module that is not a
---- test. For the standard library that use may be a worked example
---- (`cosmic/<module>_example.tl`) or a guide under doc/guides, each of
---- which is compiled and run like any other code, so an export no
---- program calls is kept only when a runnable example shows it. An
---- export only its own tests call is made local -- the test goes
---- through the public entry -- or is named in `allowed` with the reason
---- it is tested directly.
----
---- It is a whole-tree question, so it is asked of the whole tree's
---- shipped database, `o/cosmic.db`: its `docs` table holds every
---- export and its `uses` table every use the build found, through a
---- `require` alias (`build.analyzer`) or a value's checked type
---- (`build.receivers`).
+--- [`build.tree_checks`]' `exports` on fixture trees: which exports earn
+--- their place, and when an allowance goes stale. The tree's own
+--- exports are held to it by `cosmic fix --check .`, not here.
 
 local Sqlite = require("cosmic.sqlite")
-local Test = require("cosmic.test")
 local fixture = require("build.docs_fixture")
+local tree_checks = require("build.tree_checks")
 
---- A whole-tree question, asked of the projection itself.
-Test.needs{ store = true }
-
---- The exports kept although nothing outside their module but a test
---- uses them, by `<module>.<member>`, and why each is kept.
-local allowed: {string: string} = {}
-
-allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
-  "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
-  "states it on sources too small to be a file"
-allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
-  "workflows to takes a bare key by the same rule the layout writes one by"
-allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
-  "the workflows to, which the layout is also held to"
-allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
-for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
-  allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
-    "through, which no program in the tree does yet; its test and the workflows' own do"
-end
-allowed["build.declared_key.compiler_readers"] = "what build/compiler_readers_test.tl " ..
-  "holds the tree to: every module that reads the compiler's identity is one a key names"
-allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
-  "walked over the running binary's modules: every module build.importer requires is " ..
-  "in the compiler's identity or left out of it with a reason"
-allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
-  "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
-allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
-  "holds .github/scripts/host-features.sh to: it reads a macOS host's system where a key does"
-allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
-  "what executable_cached keeps against what this computes afresh"
-allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
-  "what the processes a test starts need, which only a test makes"
-allowed["build.filesystem_observations.must_confine"] = "a test's own declaration: " ..
-  "what the processes a test starts need, with no fallback, which only a test makes"
-allowed["build.filesystem_observations.held_to_sandbox"] = "what a test whose " ..
-  "assertion is about a nested run's sandbox asks, to fail where a run held to " ..
-  "sandboxing gave that run none, rather than return unchecked"
-allowed["build.filesystem_observations.reads_stat_times"] = "a test's own declaration: " ..
-  "that its verdict turns on stat's times, which only a test makes"
-allowed["build.test_sandbox.refusal"] = "tested directly: the test hands it each errno " ..
-  "a host refusing user namespaces answers, which no host running the suite can be made to"
-allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..
-  "line in the checker's own words"
-allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..
-  "text without a compile"
-for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "requires",
-                        "look_parse" }) do
-  allowed["build.shared_compiles." .. name] = "tested directly: build/shared_compiles_test.tl, " ..
-    "build/shared_parses_test.tl and build/importer_test.tl read and write the cache file " ..
-    "itself, to see what a build shared and what a salt does to a key"
-end
-allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
-  "list to every module the analysis requires"
-allowed["build.importer.analyzer_identity"] = "tested directly: the test names " ..
-  "the analyzer of a projection it wrote as the binary would, which no " ..
-  "running binary but the tree's own carries"
-allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
-  "boot names its analyzer by to what the tool it writes names it by, around a " ..
-  "derive run as a boot runs it, which no binary under the suite otherwise does"
-allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
-  "SQLite for the statement's plan, which must read `compiled` once rather " ..
-  "than probe it per row, and no behaviour tells the two apart"
-allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
-  "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
-allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..
-  "whose bin/zig is a stand-in, which no stale tool can reach"
-allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path " ..
-  "a tool was started as, which the running one cannot change"
-allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
-  "as an older binary would"
-allowed["cosmic.http.open"] = "the public way to read a response as it arrives: " ..
-  "the tree's own callers read theirs whole, through Http.get and Http.download"
-
---- Every export the tree's database `db` holds that nothing earns, as
---- `<file>:<line>: <module>.<member>`, sorted.
----
---- What counts as an export: a function or a value field of a module's
---- returned record, in a module whose file is in `build/`, `cmd/` or
---- `eval/`, or in `cosmic/` outside `cosmic/internal/`. Left out:
----
---- - a record, enum or type the module declares, and a field naming
----   one (`Module: Module`, a type's CamelCase name): a type is a
----   shape its members' uses already account for;
---- - a nested record's own fields (`Writer.add_file`): the shape of
----   a value the module hands out, which its caller reads or fills in
----   through that value;
---- - `main`, which `cosmic <file>` and `cosmic --standalone` call on a
----   module that returns a record carrying one, and a module that
----   returns a function (`build/boot.tl`), which its loader calls;
---- - a declaration file (`*.d.tl`) and `cosmic.sys`, whose members are
----   declared in C (`core/syscalls.h`), not in Teal.
----
---- What earns one: a use from another module that is not a `*_test.tl`;
---- for a module only tests import (`build/docs_fixture.tl`, test
---- support), a use from a test other than the module's own; and for a
---- program in `build/`, `cmd/` or `eval/` -- a module whose record
---- exports `main` or `run`, which fetches, execs or reads the working
---- tree and prints -- a use from its own tests, which drive each step
---- directly on a fixture. A module's own tests are `<module>_test`,
---- `<module>_<topic>_test` and the tests in its directory when it is
---- one (`build/fix/`), except the test of another module: `<x>_test`
---- where `<x>` is itself a module (`build.test_worker_test` is not
---- `build.test`'s). A public `cosmic/` module is never a program here:
---- what its tests call still needs a caller or an example.
--- TODO: the check is not transitive: an export used only by another
--- export that is itself allowed, or itself unused, counts as earned.
--- Walk the uses from what is earned outright once a use records the
--- function it sits in, not only its module and line.
--- TODO: `cosmic.sys` is left out, so a constant or binding in
--- core/syscalls.h that nothing uses (`EISDIR`, `SIGUSR1`)
--- is never flagged; hold its members to the same rule once the check
--- can tell a binding the Teal layer wraps from one nothing reaches.
--- TODO: hold a private build/ function's optional parameter to the same
--- standard -- one no call passes, tests included, is dropped -- once
--- `refs` records how many arguments each call passes; build/ast/node.tl's
--- `lang?`, build/c/rules.tl's `declared?` and build/artifact.tl's
--- `selected_configuration?` on `test_prefix` were found by hand.
-local function unearned(db: Sqlite.Handle): {string}
-  local rows = assert(Sqlite.text_rows(db,
-    "SELECT d.file || ':' || d.line || ': ' || d.module || '.' || d.symbol " ..
-    "FROM docs d " ..
-    "WHERE d.exported = 1 AND d.symbol <> '' AND instr(d.symbol, '.') = 0 " ..
-    "AND d.kind IN ('function', 'method', 'field') " ..
-    "AND d.signature NOT GLOB 'type *' AND d.symbol NOT GLOB '[A-Z]*[a-z]*' " ..
-    "AND d.symbol <> 'main' " ..
-    "AND NOT (d.kind = 'function' AND d.symbol = d.source_symbol) " ..
-    "AND (d.file GLOB 'build/*' OR d.file GLOB 'cmd/*' OR d.file GLOB 'eval/*' " ..
-    "OR (d.file GLOB 'cosmic/*' AND d.file NOT GLOB 'cosmic/internal/*')) " ..
-    "AND d.file GLOB '*.tl' AND d.file NOT GLOB '*.d.tl' " ..
-    "AND NOT EXISTS (SELECT 1 FROM uses u " ..
-    "WHERE u.module = d.module AND u.symbol = d.symbol " ..
-    "AND u.from_module <> d.module " ..
-    "AND (u.from_file NOT GLOB '*_test.tl' " ..
-    "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
-    "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
-    "OR (d.file NOT GLOB 'cosmic/*' " ..
-    "AND (u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
-    "AND (substr(u.from_module, 1, length(u.from_module) - 5) = d.module " ..
-    "OR NOT EXISTS (SELECT 1 FROM imports j " ..
-    "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
-    "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
-    "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
-    "AND p.symbol IN ('main', 'run'))))) " ..
-    "ORDER BY d.file, d.line"))
-  local out: {string} = {}
-  for _, row in ipairs(rows) do
-    out[#out + 1] = row[1]
-  end
-  return out
-end
-
---- What `unearned` finds that `excused` does not name, and each name in
---- `excused` that `unearned` no longer finds: an allowance outlives
---- the reason for it when the export is used or gone.
+--- What [`tree_checks.exports`] finds in `db` against `excused`: the
+--- exports it refuses, as `<file>:<line>: <module>.<member>`, and the
+--- allowances it finds stale, by name.
 local function judged(db: Sqlite.Handle, excused: {string: string}): {string}, {string}
-  local found: {string: boolean} = {}
-  local refused: {string} = {}
-  for _, line in ipairs(unearned(db)) do
-    local name = line:match(": ([^ ]+)$")
-    found[name] = true
-    if excused[name] == nil then
-      refused[#refused + 1] = line
+  local refused, stale: {string}, {string} = {}, {}
+  for _, line in ipairs(tree_checks.exports(db, excused)) do
+    local export = line:match("^(%S+:%d+: %S+): nothing outside")
+    local allowance = line:match("^(%S+): allowed, but")
+    if export ~= nil then
+      refused[#refused + 1] = export
+    elseif allowance ~= nil then
+      stale[#stale + 1] = allowance
+    else
+      error("not a line of the exports check: " .. line)
     end
   end
-  local stale: {string} = {}
-  for name in pairs(excused) do
-    if not found[name] then
-      stale[#stale + 1] = name
-    end
-  end
-  table.sort(stale)
   return refused, stale
 end
 
@@ -408,25 +240,4 @@ local function test_a_worked_example_earns_a_public_export(dir: string)
   local refused = judged(db, {})
   assert(table.concat(refused, "\n") == "cosmic/thing.tl:4: cosmic.thing.hidden",
     table.concat(refused, "\n"))
-end
-
---- The tree's own exports, read from the database the build wrote
---- before any test runs: every one is earned or allowed, and every
---- allowance still excuses something.
-local function test_every_export_in_the_tree_earns_its_place()
-  -- SQLite's open of it puts its bytes in the key (build/test.tl keys
-  -- o/cosmic.db, alone of o/), so the test runs again whenever a build
-  -- rewrites it.
-  local db = assert(Sqlite.open("o/cosmic.db", false))
-  local refused, stale = judged(db, allowed)
-  assert(db:close())
-  assert(#refused == 0, "exports nothing outside their module uses but a test -- " ..
-    "make each local, or name it in build/exports_test.tl's `allowed` with why. " ..
-    "A use is `alias.member` through a `local alias = require(...)`, " ..
-    "`require(...).member`, or a field read off a value of the module's " ..
-    "record type; an alias of an alias, a method call on the module, and " ..
-    "the module passed as a value are not seen:\n" ..
-    table.concat(refused, "\n"))
-  assert(#stale == 0, "allowances for exports now used or gone -- remove them:\n" ..
-    table.concat(stale, "\n"))
 end

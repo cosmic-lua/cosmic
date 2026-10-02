@@ -3,7 +3,7 @@ local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local shrink = require("build.fuzz.shrink")
 
---- The report `Fuzz.run` raises for `p`, which must fail.
+--- The report [`Fuzz.run`] raises for `p`, which must fail.
 local function report(p: Fuzz.Property): string
   local ok, err = pcall(Fuzz.run, p)
   assert(not ok, "the property held")
@@ -41,7 +41,7 @@ local function test_a_failure_is_shrunk_to_its_simplest_input()
     end,
   })
   assert(err:find("fuzz no high bytes: seed=1 iteration=%d+: a high byte"), err)
-  assert(err:find("draws and 1 bytes;", 1, true), err)
+  assert(err:find("draws and 1 byte;", 1, true), err)
   assert(err:find("input (hex): c8\n", 1, true), err)
   assert(err:find("reproduce: FUZZ_CASE=no-high-bytes:", 1, true), err)
   assert(err:find("or FUZZ_SEED=1 FUZZ_ITERS=", 1, true), err)
@@ -71,7 +71,7 @@ local function test_a_raise_fails_the_property_and_names_what_it_raised()
     end,
   })
   assert(err:find("raised: the parser gave up", 1, true), err)
-  assert(err:find("to 1 draws and 0 bytes;", 1, true), err)
+  assert(err:find("to 1 draw and 0 bytes;", 1, true), err)
 end
 
 -- The budget shares the VM's one hook with coverage, which `cosmic test`
@@ -221,8 +221,8 @@ local function test_a_report_says_how_to_keep_the_input(tmp: string)
 end
 
 -- Labels count what the drawn inputs reached; a required label no input
--- reached fails the run, and one some input reached lets it pass. What
--- is kept then held, so it is not left to be taken for a failure.
+-- reached fails the run, and one some input reached lets it pass. The
+-- kept input is removed on that failure, since it is no failing input.
 local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
   local function check(input: string): boolean, string
     Fuzz.label("checked")

@@ -1,18 +1,17 @@
 --- The CA roots a cosmic binary trusts: Mozilla's bundle
---- (`vendor/cacert/cacert.pem`), one row per certificate in the shipped
+--- ([`vendor/cacert/cacert.pem`]), one row per certificate in the shipped
 --- `ca_roots` table, each the certificate's DER bytes under its SHA-256
 --- and the label the bundle gives it.
 ---
---- The core once carried the bundle's PEM text in each of its cores;
---- the database carries it once, as DER, for every core the artifact
---- holds. `core/http.c` reads the rows out of the binary's own database
---- the first time a request needs them and hands mbedtls the chain it
---- parsed, for every TLS connection and every proxy's alike, so a
---- project's database, searched ahead of the binary's, never adds a
---- root.
+--- The database carries the bundle once, as DER, for every core the
+--- artifact holds, rather than as PEM text in each core. [`core/http.c`]
+--- reads the rows out of the binary's own database the first time a
+--- request needs them and hands mbedtls the chain it parsed, for every
+--- TLS connection and every proxy's alike. A project's database, though
+--- searched ahead of the binary's, never adds a root.
 ---
 --- The writer fills the table in cosmic's own projection alone, as it
---- does the bill of materials (`build.bom`); `carried` copies it into
+--- does the bill of materials ([`build.bom`]); `carried` copies it into
 --- the tool and `cosmic build` into every executable.
 
 local Codec = require("cosmic.codec")
@@ -76,12 +75,11 @@ function roots.parse(pem: string): {roots.Root} | nil, string
 end
 
 --- Writes `found` into the `ca_roots` table of the database `db` holds
---- as `qualifier`, which holds none yet: one row per certificate, a
---- bundle listing one twice trusting it once, in digest order --
---- `ca_roots` is a rowid table, so the order rows go in is the order of
---- the file's bytes. `cosmic refresh` writes a bundle it fetched this
---- way too, so a bundle whose every root the TLS stack reads makes the
---- same table either way.
+--- as `qualifier`, which must hold no rows yet: one row per distinct
+--- certificate, in digest order. `ca_roots` is a rowid table, so the
+--- order rows go in is the order of the file's bytes. `cosmic refresh`
+--- writes a bundle it fetched through this too, so the same roots make
+--- the same table either way.
 function roots.put(db: Sqlite.Handle, qualifier: string, found: {roots.Root}): boolean, string
   local by_digest: {string:roots.Root} = {}
   local digests: {string} = {}
@@ -109,9 +107,9 @@ end
 --- database `db` holds as `qualifier` (`"out."`, say). A tree with no
 --- bundle writes none; one whose bundle holds no certificate fails, so
 --- a binary never ships trusting nothing by accident.
---- TODO: hold the tree's bundle to `Http.check_certificate` as
+--- TODO: hold the tree's bundle to [`Http.check_certificate`] as
 --- `cosmic refresh` holds a fetched one, refusing a root the TLS stack
---- cannot read rather than shipping one `core/http.c` drops; the
+--- cannot read rather than shipping one [`core/http.c`] drops; the
 --- fixtures build/roots_test.tl fills from are bytes that are no
 --- certificate, and would need real ones first.
 function roots.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, string

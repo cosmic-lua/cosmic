@@ -3,7 +3,7 @@
 --- notices that license asks a copy to travel with.
 ---
 --- The facts live beside the pin they describe. A vendored tree's
---- `vendor/<name>/PIN` adds three keys to the ones `bin/vendor` reads:
+--- `vendor/<name>/PIN` adds three keys to the ones [`bin/vendor`] reads:
 ---
 ---     kind data                        "library" when absent
 ---     license MIT AND APSL-2.0         an SPDX expression, the rest of the line
@@ -11,8 +11,8 @@
 ---     notice src/lua.h:524-543         or those lines of it, 1-based
 ---
 --- `notice` repeats, and every key but `notice` is read once, the first
---- line naming it winning, as `bin/vendor` reads its own. A PIN is part
---- of what the core is built from (`work.record_fingerprint`'s image
+--- line naming it winning, as [`bin/vendor`] reads its own. A PIN is part
+--- of what the core is built from ([`build.identity.record_fingerprint`]'s image
 --- hash), so correcting one of these lines reboots the core as a
 --- version bump does. What cosmic's build links in without vendoring it
 --- -- zig's own runtime, and the musl libc the Linux cores are static
@@ -22,15 +22,15 @@
 --- published.
 ---
 --- The tool's database carries two tables built from these (see
---- `build.schema`): `components`, a row each, and `notices`, each
---- notice's text under the component that names it. `bom.fill` writes
---- them when the tool is built (`build.writer`'s `carried`), and refuses
+--- [`build.schema`]): `components`, a row each, and `notices`, each
+--- notice's text under the component that names it. [`bom.fill`] writes
+--- them when the tool is built ([`build.writer`]'s `carried`), and refuses
 --- a pin that names no license, so a newly vendored tree cannot ship
 --- without one. `cosmic bom` prints them.
 ---
 --- TODO: check each `license` as an SPDX expression of known ids rather
 --- than taking the line as written, once the tree vendors SPDX's license
---- list to check against; `build/bom_test.tl` only holds it to the
+--- list to check against; [`build/bom_test.tl`] only holds it to the
 --- `SPDX-License-Identifier` tags its tree's own files carry.
 
 local Cli = require("cosmic.cli")
@@ -45,10 +45,14 @@ local Time = require("cosmic.time")
 local bind = require("build.bind")
 local clock = require("build.clock")
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 local text = bind.text
 
 local record bom
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- One `notice` line: a file under the component's directory, and
   --- the lines of it to keep; `first` is nil for the whole file.
   record Notice
@@ -57,7 +61,7 @@ local record bom
     last: integer | nil
   end
 
-  --- One record, as `bom.parse` reads it.
+  --- One record, as [`bom.parse`] reads it.
   record Component
     name: string
     kind: string
@@ -106,7 +110,7 @@ end
 --- A record's text as a component named `name`: `version`, `url` and
 --- `license` must be present; `sha256` and `kind` may be absent. Keys
 --- this grammar does not know -- `strip`, `keep` and the rest
---- `bin/vendor` reads -- are skipped.
+--- [`bin/vendor`] reads -- are skipped.
 function bom.parse(name: string, source: string): bom.Component | nil, string
   local component: bom.Component = { name = name, kind = "library", version = "",
     url = "", sha256 = "", license = "", notices = {} }
@@ -129,7 +133,7 @@ function bom.parse(name: string, source: string): bom.Component | nil, string
     elseif key == "license" then
       component.license = value
     elseif key == "version" or key == "url" or key == "sha256" then
-      -- The first word, as `bin/vendor` reads these.
+      -- The first word, as [`bin/vendor`] reads these.
       local word = value:match("^%S+")
       if key == "version" then
         component.version = word
@@ -177,7 +181,7 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
     end
   end
   if number < notice.last then
-    return nil, path .. ": has " .. number .. " lines, not " .. notice.last
+    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. notice.last
   end
   return table.concat(kept, "\n") .. "\n"
 end
@@ -198,7 +202,7 @@ local function patches_of(root: string, name: string): string | nil, string
   end
   local lines: {string} = {}
   for _, file in ipairs(names) do
-    -- Only what `build/patch.tl` applies: a patch record is a `.txt`.
+    -- Only what [`build/patch.tl`] applies: a patch record is a `.txt`.
     if String.ends_with(file, ".txt") and #file > 4 then
       local data, read_trouble = Fs.read(directory .. "/" .. file)
       if data == nil then
@@ -418,17 +422,17 @@ end
 
 --- `cosmic bom [--licenses | --json <path>]`: what the running binary's
 --- own database says it is made of. Nothing is built or staged here:
---- `build/dispatch.tl` has a tool older than cosmic's own tree rebuild
---- itself first, since `build.reboot` requires this module through
---- `build.writer`.
-function bom.run(argv: {integer:string}): integer
+--- [`build/dispatch.tl`] has a tool older than cosmic's own tree rebuild
+--- itself first, since [`build.reboot`] requires this module through
+--- [`build.writer`].
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer
     log:verdict("bom", code == 0, detail .. ", " .. clock.took(started))
     return code
   end
   local usage = "cosmic bom [--licenses | --json <path>]"
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.bom)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.bom.spec)
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
     return finish(2, "usage: see `cosmic help bom`")
@@ -455,7 +459,7 @@ function bom.run(argv: {integer:string}): integer
       return finish(1, "the binary's own database")
     end
     log:say(notices)
-    return finish(0, #rows .. " components")
+    return finish(0, plural.count(#rows, "component"))
   end
   local path = parsed.values["--json"]
   if path ~= nil then
@@ -469,12 +473,25 @@ function bom.run(argv: {integer:string}): integer
       log:complain("bom: " .. path .. ": " .. write_trouble)
       return finish(1, path)
     end
-    return finish(0, #rows .. " components written to " .. path)
+    return finish(0, plural.count(#rows, "component") .. " written to " .. path)
   end
   for _, line in ipairs(lines_of(rows)) do
     log:say(line)
   end
-  return finish(0, #rows .. " components")
+  return finish(0, plural.count(#rows, "component"))
 end
+
+--- The `bom` verb as [`build/verb_list.tl`] lists it. The rows are the
+--- running binary's, so in cosmic's own tree a tool older than the tree
+--- rebuilds first, as `docs` does.
+bom.spec = {
+  name = "bom",
+  guide = "none: lists the components a binary carries, described by `cosmic help bom`; the quickstart does not cover it",
+  tests = { "build.bom_test", "build.bom_verb_test" },
+  run = function(argv: {integer:string}): integer return run(argv) end,
+  bare = false,
+  takes = "nothing",
+  fresh = true,
+}
 
 return bom

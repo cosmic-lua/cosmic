@@ -1,19 +1,15 @@
---- A real `Node` record for tl's parser output, and `parse()` to
+--- A real [`Node`] record for tl's parser output, and [`parse()`] to
 --- produce one.
 ---
 --- `tl.parse_program` returns its AST erased to `any`; this module is
---- the one cast that turns it into a real shape, covering the fields
---- tl's parser actually sets across the "op"/"variable"/"identifier"/
---- "string"/"if"/"if_block"/"statements"/"return"/"expression_list"/
---- "local_function" kinds.
+--- the one cast that gives it a shape, covering the fields tl's parser
+--- sets on the kinds this tree reads.
 ---
 --- tl's AST has real cycles: an "if_block" node's `if_parent` points
---- back at its own enclosing "if" statement, not a copy. Array-shaped
---- nodes ("statements", a block; "expression_list", a bare list) carry
---- their elements in the table's own array part rather than a named
---- field, which `Node is {Node}` models directly instead of needing a
---- second, generic array type alongside it.
----
+--- back at its enclosing "if" statement, not a copy. Array-shaped nodes
+--- ("statements", a block; "expression_list", a bare list) carry their
+--- elements in the table's own array part, which `Node is {Node}`
+--- models directly.
 local type compiler = require("build.compiler")
 
 --- The operator payload of an "op" node. The live parser also sets
@@ -33,7 +29,7 @@ local record OpInfo
 end
 
 --- A type as tl's parser builds it: a semantic object rather than a
---- node, so it has no `kind` and `build.ast.walk` never descends into
+--- node, so it has no `kind` and [`build.ast.walk`] never descends into
 --- one. It carries the position the type was read from, and -- where
 --- the type's own syntax closes with a bracket, as `{a: b}` does -- an
 --- end position too. It keeps no record of how the type was SPELLED,
@@ -59,7 +55,7 @@ local record TypeNode
   --- A union's alternatives.
   types: {TypeNode} | nil
   --- A `"nominal"`: the name it refers to, one entry per dotted part
-  --- (`Zip.Reader` is `{"Zip", "Reader"}`).
+  --- ([`Zip.Reader`] is `{"Zip", "Reader"}`).
   names: {string} | nil
 
   --- A `"typedecl"`: the record, enum, or alias it declares, and whether
@@ -75,10 +71,12 @@ local record TypeNode
   fields: {string: TypeNode} | nil
   field_order: {string} | nil
   field_comments: {string: {{compiler.Comment}}} | nil
-  --- A `"record"`'s metamethods by name and in source order, and
-  --- whether its values are userdata.
+  --- A `"record"`'s metamethods by name and in source order, the
+  --- comments tl attached to each (as `field_comments` holds a field's),
+  --- and whether its values are userdata.
   meta_fields: {string: TypeNode} | nil
   meta_field_order: {string} | nil
+  meta_field_comments: {string: {{compiler.Comment}}} | nil
   is_userdata: boolean | nil
   --- An `"enum"`: its values, and the comments attached to each.
   enumset: {string: boolean} | nil
@@ -88,9 +86,9 @@ end
 --- One node of a real (post-lex, post-parse) tl AST.
 ---
 --- Every field but `kind`/`f`/`y`/`x` is optional: which ones are set
---- depends on `kind`, and this record only names the fields the nine
---- kinds above actually carry. A field absent for a given kind reads
---- as `nil`, exactly as tl leaves it.
+--- depends on `kind`, and this record names only the fields of the
+--- kinds this tree reads. A field absent for a kind reads as `nil`,
+--- as tl leaves it.
 local record Node is {Node}
   --- The node's shape discriminator, e.g. `"op"`, `"if"`, `"statements"`.
   kind: string
@@ -136,7 +134,7 @@ local record Node is {Node}
   if_block_n: integer | nil
   --- The enclosing "if" statement this "if_block" belongs to -- a REAL
   --- cycle (this node reachable from itself), not a copy or shared
-  --- literal. A generic walk over `Node` needs an identity-keyed
+  --- literal. A generic walk over [`Node`] needs an identity-keyed
   --- visited set to terminate.
   if_parent: Node | nil
   --- "if_block": the branch's condition expression.
@@ -151,9 +149,8 @@ local record Node is {Node}
   exps: Node | nil
 
   --- "local_function": the declared name, an "identifier" node whose
-  --- own `tk` is the function's name -- `build.analyzer.analyze` reads
-  --- this to find every top-level `test_*` function without falling
-  --- back to a text pattern over the raw source.
+  --- own `tk` is the function's name. [`build.analyzer.analysis_of`] reads
+  --- it to find every top-level `test_*` function.
   name: Node | nil
 
   --- "identifier": the Lua 5.4 variable attribute this name was
@@ -163,16 +160,20 @@ local record Node is {Node}
   --- about this field rather than about the spacing of three tokens.
   attribute: string | nil
 
-  -- "local_declaration" and "assignment": the names being bound, a
-  -- "variable_list" node.
+  -- "local_declaration", "global_declaration" and "assignment": the
+  -- names being bound, a "variable_list" node.
   vars: Node | nil
-  --- "local_declaration": the type list written after the names, whose
-  --- own position is the `:` that opens it. Empty when the declaration
-  --- carries no annotation at all.
+  --- "local_declaration" and "global_declaration": the type list
+  --- written after the names, whose own position is the `:` that opens
+  --- it. Empty when the declaration carries no annotation at all.
   decltuple: TypeNode | nil
 
-  -- "local_function", "record_function", and a "function" literal.
+  -- "local_function", "global_function", "record_function", a
+  -- "function" literal, and a "macroexp".
   args: Node | nil
+  --- "local_macroexp": its definition, a "macroexp" node, whose `args`
+  --- are its parameters and `exp` the one expression it returns.
+  macrodef: Node | nil
   rets: TypeNode | nil
   --- Comments tl's parser attached to a statement directly. The
   --- renderer reads comments off the token stream instead, uniformly,
@@ -189,9 +190,11 @@ local record Node is {Node}
   -- "newtype": the record, enum, or type alias being declared.
   newtype: TypeNode | nil
 
-  -- "local_type": the name it binds, and what it binds to -- a
-  -- "newtype" node for a declaration or alias, any other expression for
-  -- a `local type x = require(...)`; also a "literal_table_item"'s value.
+  -- "local_type" and "global_type": the name it binds, and what it
+  -- binds to -- a "newtype" node for a declaration or alias, any other
+  -- expression for a `local type x = require(...)`, none for a `global
+  -- type x` that declares only the name; also a "literal_table_item"'s
+  -- value.
   var: Node | nil
   value: Node | nil
 
@@ -210,6 +213,21 @@ local record Node is {Node}
   --- never wrote.
   is_self: boolean | nil
 
+  --- "global_function": set when the source wrote `function f` with no
+  --- `global` in front, which tl reads as the same kind of node.
+  implicit_global_function: boolean | nil
+
+  -- "pragma": the name and value written after `--#pragma`.
+  pkey: string | nil
+  pvalue: string | nil
+
+  --- A statement: whether a `;` followed it, written or inserted by the
+  --- parser to settle a call's reading.
+  semicolon: boolean | nil
+  --- The "statements" node at the top of a file: the `#!` line it opens
+  --- with, without its line break.
+  hashbang: string | nil
+
   -- "goto" and "label": the name jumped to, or declared.
   label: string | nil
 
@@ -224,10 +242,8 @@ end
 --- from, together -- a later comment-loss check needs both from one
 --- parse, not two separate ones that could drift out of sync.
 ---
---- Bundled into one record rather than returned as separate slots:
---- `parse`'s first return admits nil (source that fails to lex or
---- parse), and a fallible return may declare at most two slots -- the
---- extras ride on the value's record instead.
+--- Bundled into one record because `parse` is fallible and a fallible
+--- return may declare at most two slots.
 local record Parsed
   --- The AST root: tl's own top-level "statements" node.
   node: Node
@@ -235,12 +251,10 @@ local record Parsed
   tokens: {compiler.Token}
 end
 
---- Lex and parse `source` into a `Node` tree and its token stream.
+--- Lex and parse `source` into a [`Node`] tree and its token stream.
 ---
---- Casts `parse_program`'s erased `any` result to `Node` the same way
---- every current consumer already casts it to its own narrower view at
---- its own call site.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- Casts `parse_program`'s erased `any` result to [`Node`].
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source string Source text to lex and parse
 --- @param name string Filename used in diagnostics and stamped onto every Node's `f`
 --- @return Parsed|nil The AST root plus the token stream, or nil on failure

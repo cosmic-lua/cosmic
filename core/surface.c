@@ -39,11 +39,12 @@ static const struct removed removed_names[] = {
   {"dofile", false},   {"loadfile", false}, {NULL, false},
 };
 
-/* `print` over the syscall table, so every byte the process writes goes
- * through one door. Each argument's text is pushed above the open
- * buffer, so it goes in with luaL_addvalue: every other buffer call
- * needs the buffer's own slot on top, and once the line outgrows the
- * buffer's inline room that slot is a heap box a stray pop would free. */
+/* `print`, writing its line to standard output with write(2) directly
+ * rather than through Lua's buffered stdio. Each argument's text is
+ * pushed above the open buffer, so it goes in with luaL_addvalue: every
+ * other buffer call needs the buffer's own slot on top, and once the
+ * line outgrows the buffer's inline room that slot is a heap box a
+ * stray pop would free. */
 static int surface_print (lua_State *L) {
   int count = lua_gettop(L);
   luaL_Buffer line;
@@ -84,10 +85,23 @@ static int surface_trace (lua_State *L) {
   return 1;
 }
 
+/* The traceback of the coroutine at 1, from its top: where one that
+ * raised stopped, of which `coroutine.resume` answers only the error.
+ * The running coroutine's starts at its caller, as `trace`'s does. */
+static int surface_trace_of (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTHREAD);
+  lua_State *co = lua_tothread(L, 1);
+  const char *message = luaL_optstring(L, 2, NULL);
+  luaL_traceback(L, co, message, co == L ? 1 : 0);
+  return 1;
+}
+
 static int open_errors (lua_State *L) {
-  lua_createtable(L, 0, 1);
+  lua_createtable(L, 0, 2);
   lua_pushcfunction(L, surface_trace);
   lua_setfield(L, -2, "trace");
+  lua_pushcfunction(L, surface_trace_of);
+  lua_setfield(L, -2, "trace_of");
   return 1;
 }
 
@@ -108,7 +122,8 @@ static int removed_message (lua_State *L) {
 /* Raises what to write instead of the removed `name` -- or of its
  * field `field`, when that is a string -- at the Lua code that reached
  * for it. When cosmic.removed cannot answer (no module searcher yet,
- * or no memory), the bare fact is raised instead. */
+ * no memory, or a held process whose closure lacks it), the bare fact
+ * is raised instead, naming the field as the catalog's words would. */
 static _Noreturn void raise_removed (lua_State *L, int name, int field) {
   name = lua_absindex(L, name);
   field = field == 0 ? 0 : lua_absindex(L, field);
@@ -123,6 +138,11 @@ static _Noreturn void raise_removed (lua_State *L, int name, int field) {
   if (lua_pcall(L, 2, 1, 0) != LUA_OK || lua_type(L, -1) != LUA_TSTRING) {
     lua_pop(L, 1);
     lua_pushvalue(L, name);
+    if (field != 0 && lua_type(L, field) == LUA_TSTRING) {
+      lua_pushliteral(L, ".");
+      lua_pushvalue(L, field);
+      lua_concat(L, 3);
+    }
     lua_pushliteral(L, " is not available");
     lua_concat(L, 2);
   }

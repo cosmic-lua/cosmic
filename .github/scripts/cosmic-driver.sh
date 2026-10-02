@@ -30,13 +30,13 @@ if [ "${1-}" = zig-cache ]; then
   echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
   # zig's global cache -- libc, compiler-rt and its standard library,
   # keyed by content -- is used where actions/cache restored it,
-  # outside the checkout, as is the project cache (below).
+  # outside the checkout, as its project cache is (the seed, below).
   echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
   # Where ci.yml restored the zig-build cache, whose zig-cache the
   # driver's builds use in place. Spelled from $RUNNER_TEMP, not
-  # `runner.temp`: in the alpine job container the expression is
-  # the host's path, which does not exist there, so the seed was
-  # never found and that leg recompiled vendor/ and core/ each run.
+  # `runner.temp`: in the alpine job container the expression is the
+  # host's path, which does not exist there, so the seed would not be
+  # found and the leg would recompile vendor/ and core/ each run.
   echo "COSMIC_ZIG_CACHE_SEED=$RUNNER_TEMP/zig-build" >> "$GITHUB_ENV"
   # The test verdicts every checkout shares (build/shared_verdicts.tl),
   # keyed by what each test declares (build/declared_key.tl), kept in a
@@ -45,10 +45,11 @@ if [ "${1-}" = zig-cache ]; then
   # where it passed (cosmic_ci/verdicts.tl). Whether a suite stands on
   # them is cosmic_ci/orchestration.tl's (`stands`): every leg does, in
   # a push's run and the merge queue's -- the Linux legs sandboxed, the
-  # macOS leg keyed by declared inputs unenforced
-  # (COSMIC_TEST_KEY=declared) -- and none in a manual or scheduled run.
+  # macOS leg keyed by declared inputs unenforced, as the tree's tool
+  # and pinned driver key every unsandboxed run -- and none in a manual or
+  # scheduled run.
   # The portable suite keeps its own file beside this one
-  # (`portable_verdicts`), in the same cache.
+  # (`suite_verdicts`), in the same cache.
   echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"
   # The compiles and parses every build of the leg shares
   # (build/shared_compiles.tl), in a cache of their own that ci.yml

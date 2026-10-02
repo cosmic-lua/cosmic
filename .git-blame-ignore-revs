@@ -1,0 +1,6 @@
+# Commits `git blame` and `cosmic todos` pass over: mechanical rewrites whose
+# changed lines were written earlier. Use with
+# `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
+# build: link plain references that resolve, across the tree (#2436)
+41484db5dc352cc6012e414d130cca4646d4b5bf

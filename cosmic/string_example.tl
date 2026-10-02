@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.string`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.string`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -44,6 +44,14 @@ end
 function Example.starts_with()
   assert(String.starts_with("--check", "--"))
   assert(not String.starts_with("-", "--"))
+end
+
+--- A count in a message, with the right plural.
+function Example.counted()
+  local message = String.counted(1, "entry", "entries") .. ", " ..
+    String.counted(3, "entry", "entries") .. ", " .. String.counted(2, "file")
+  print(message)
+  assert(message == "1 entry, 3 entries, 2 files")
 end
 
 return Example

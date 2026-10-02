@@ -1,11 +1,9 @@
---- Regression test for `build.writer`: `write_result` must trust only
---- the projection already sitting at `out`, never a record kept
---- somewhere else. The working database's own `meta` table -- what
---- the fix in this file replaces -- can drift from the file on disk:
---- `build/boot.tl` reuses one working database across several output
+--- Tests of [`build.writer`]: `write_result` must trust only the projection
+--- already sitting at `out`, never a record kept somewhere else. The
+--- working database's own `meta` table can drift from the file on disk:
+--- [`build/boot.tl`] reuses one working database across several output
 --- paths, and a snapshot of `o/build.db` restored after `o/cosmic.db`
---- moved on both leave a row that no longer describes the file it
---- once did.
+--- moved on both leave a row that no longer describes the file.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -60,7 +58,7 @@ end
 --- The signature a projection at `path` carries in its own `meta`
 --- table, or "" when it has none.
 local function projected(path: string): string
-  local db = assert(Sqlite.open(path, false))
+  local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'projected'"))
   assert(db:close())
@@ -118,7 +116,7 @@ local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
   local older = assert(writer.signature(handle, result, "an older binary"))
   assert(older ~= projected(tmp .. "/out.db"), "the binary must be part of the signature")
 
-  local db = assert(Sqlite.open(tmp .. "/out.db", true))
+  local db = assert(Sqlite.open(tmp .. "/out.db", { writable = true }))
   assert(Sqlite.run(db, "UPDATE meta SET value = ?1 WHERE key = 'projected'",
     { { text = older } }))
   assert(db:exec("INSERT INTO meta (key, value) VALUES ('older', 'x')"))
@@ -126,7 +124,7 @@ local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
 
   assert(writer.write_result(handle, tmp .. "/out.db", result))
   assert(work.close(handle))
-  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local out = assert(Sqlite.open(tmp .. "/out.db"))
   local rows = assert(Sqlite.text_rows(out, "SELECT key FROM meta WHERE key = 'older'"))
   assert(out:close())
   assert(#rows == 0, "a file another binary wrote must be rewritten")
@@ -147,7 +145,7 @@ local function test_a_declaration_ships_its_docs(tmp: string)
   }, "\n")))
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   assert(work.close(handle))
-  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local out = assert(Sqlite.open(tmp .. "/out.db"))
   local rows = assert(Sqlite.text_rows(out,
     "SELECT text, file, line FROM docs WHERE module = 'clock' AND symbol = 'now'"))
   assert(out:close())
@@ -202,7 +200,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
   assert(work.close(handle))
   -- A bill of materials, as cosmic's own tree's projection holds one.
-  local whole_db = assert(Sqlite.open(tmp .. "/whole.db", true))
+  local whole_db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
   assert(whole_db:exec("INSERT INTO components VALUES ('zlib', 'library', '1.3', 'Zlib', " ..
     "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
     "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10)); " ..
@@ -214,7 +212,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "the carried database is a function of the projection")
 
   local function rows(path: string, sql: string): {{string}}
-    local db = assert(Sqlite.open(path, false))
+    local db = assert(Sqlite.open(path))
     local found = assert(Sqlite.text_rows(db, sql))
     assert(db:close())
     return found
@@ -261,6 +259,41 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "the tool carries the projection's CA roots")
 end
 
+--- An edit to a test moves the projection and its signature, but not
+--- the database the tool carries, which leaves the test out: it carries
+--- none of the projection's `projected` row, so a tool built from the
+--- tree before the edit and one built after are the same bytes, and so
+--- is what a verdict keyed by them (CI's fixtures) turns on.
+local function test_an_edit_to_a_test_moves_nothing_the_tool_carries(tmp: string)
+  local root = tmp .. "/a"
+  local function edit(body: string)
+    assert(Fs.mkdirs(root))
+    assert(Fs.write(root .. "/greet_test.tl", table.concat({
+      'local greet = require("greet")',
+      "-- " .. body,
+      "local function test_hello()",
+      '  assert(greet.hello() == "hello, world")',
+      "end",
+      "",
+    }, "\n")))
+  end
+  edit("before")
+  local handle = build_and_write(root, "world", tmp .. "/before.db")
+  assert(work.close(handle))
+  edit("after")
+  handle = build_and_write(root, "world", tmp .. "/after.db")
+  assert(work.close(handle))
+  local signed = projected(tmp .. "/before.db")
+  assert(signed ~= "" and projected(tmp .. "/after.db") ~= signed,
+    "the edit to the test must move the projection's signature")
+  assert(writer.carried(tmp .. "/before.db", tmp .. "/carried_before.db"))
+  assert(writer.carried(tmp .. "/after.db", tmp .. "/carried_after.db"))
+  assert(projected(tmp .. "/carried_before.db") == "",
+    "the tool carries the projection's signature")
+  assert(Fs.read(tmp .. "/carried_before.db") == Fs.read(tmp .. "/carried_after.db"),
+    "an edit to a test moved the database the tool carries")
+end
+
 --- A projection ships what a reader of it loads -- each module's
 --- bytecode and its Teal source, deflated -- and not the Lua tl
 --- generated on the way, which only the working database's `compiled`
@@ -268,7 +301,7 @@ end
 local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   assert(work.close(handle))
-  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local out = assert(Sqlite.open(tmp .. "/out.db"))
   local columns = assert(Sqlite.text_rows(out,
     "SELECT name FROM pragma_table_info('modules') WHERE name = 'lua'"))
   local rows = assert(Sqlite.text_rows(out,
@@ -293,7 +326,7 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   assert(writer.write_result(handle, out, result))
   assert(work.close(handle))
   assert(projected(out) ~= before, "new zones sign a new projection")
-  local db = assert(Sqlite.open(out, false))
+  local db = assert(Sqlite.open(out))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data), ',' ORDER BY rowid) " ..
     "FROM zoneinfo"))
@@ -301,7 +334,7 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   assert(rows[1][1] == "A/Zone blob 6,Test/Zone blob 9", rows[1][1])
   -- And the tool built from the projection carries them too.
   assert(writer.carried(out, tmp .. "/carried.db"))
-  local carried = assert(Sqlite.open(tmp .. "/carried.db", false))
+  local carried = assert(Sqlite.open(tmp .. "/carried.db"))
   local kept = assert(Sqlite.text_rows(carried,
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
   assert(carried:close())
@@ -315,7 +348,7 @@ end
 --- from. A dropped module's rows go even so.
 local function test_the_carried_docs_are_the_public_standard_library_s(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, true))
+  local db = assert(Sqlite.open(whole, { writable = true }))
   for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
   for _, statement in ipairs({
@@ -328,6 +361,12 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
       "text, file, line) VALUES " ..
       "('cosmic.fs', 'Fs.read', 'Fs.read', 1, 'function', '', 'Reads a file.', 'f', 1), " ..
       "('cosmic.internal.fs', 'raw', 'raw', 1, 'function', '', 'Raw.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'Stat', 'raw.Stat', 1, 'record', '', 'A stat.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'Stat.size', 'raw.Stat.size', 1, 'field', '', 'Its size.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'open', 'raw.open', 1, 'field', '', 'Opens.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'Other', 'raw.Other', 1, 'record', '', 'Unreached.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'Other.n', 'raw.Other.n', 1, 'field', '', 'Unreached.', 'f', 1), " ..
+      "('cosmic.fs', 'Fs.Stat', 'Fs.Stat', 1, 'field', 'type Stat = raw_fs.Stat', 'A stat.', 'f', 1), " ..
       "('cosmic.fs_example', 'Example.read', 'Example.read', 1, 'function', '', " ..
       "'Shows it.', 'f', 1), " ..
       "('build.work', 'work.open', 'work.open', 1, 'function', '', " ..
@@ -344,12 +383,19 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
     "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
       "('cosmic.fs', 'read', 'Reads.', 'f', 1, 'Fs.read(p)'), " ..
       "('build.tree', 'own', 'Owns.', 'f', 1, 'tree.is_own(r)')",
+    "INSERT INTO links (module, symbol, path, anchor, from_file, line, column, from_module, " ..
+      "kind, form, source, text) VALUES " ..
+      "('cosmic.fs', 'read', '', '', 'f', 5, 1, 'cosmic.fs', 'symbol', 'shortcut', 'doc', 'r'), " ..
+      "('cosmic.fs', 'read', '', '', 'f', 6, 1, 'build.work', 'symbol', 'shortcut', 'doc', 'r'), " ..
+      "('', '', 'doc/a.md', '', 'f', 7, 1, 'cosmic.fs', 'file', 'inline', 'doc', 'a'), " ..
+      "('cosmic.fs', 'read', '', '', 'f', 8, 1, 'cosmic.fs_example', 'symbol', 'shortcut', " ..
+      "'doc', 'r')",
   }) do
     assert(db:exec(statement))
   end
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
-  local out = assert(Sqlite.open(tmp .. "/carried.db", false))
+  local out = assert(Sqlite.open(tmp .. "/carried.db"))
   local function column(sql: string): string
     local found = assert(Sqlite.text_rows(out,
       "SELECT coalesce(group_concat(v, ' '), '') FROM (" .. sql .. ")"))
@@ -359,11 +405,49 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   local uses = column("SELECT from_module || '>' || module AS v FROM uses " ..
     "ORDER BY module, symbol, from_module, line")
   local examples = column("SELECT module AS v FROM examples ORDER BY id")
+  local linked = column("SELECT from_module || ':' || line || '>' || module || path AS v " ..
+    "FROM links ORDER BY from_file, line")
   local indexed = column("SELECT d.module AS v FROM docs_fts JOIN docs d " ..
     "ON d.id = docs_fts.rowid WHERE docs_fts MATCH 'opens OR reads' ORDER BY d.id")
   assert(out:close())
-  assert(docs == "cosmic.fs build.work", "the docs carried: " .. docs)
+  -- The internal rows carried are the nested type and its member, which a
+  -- public alias's page lists, not the module's own function or field.
+  assert(docs == "cosmic.fs cosmic.internal.fs cosmic.internal.fs cosmic.fs build.work",
+    "the docs carried: " .. docs)
   assert(uses == "cosmic.fs>cosmic.fs", "the uses carried: " .. uses)
   assert(examples == "cosmic.fs", "the examples carried: " .. examples)
+  -- A link to a file names one of the tree's own, which a project lacks.
+  assert(linked == "cosmic.fs:5>cosmic.fs", "the links carried: " .. linked)
   assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)
+end
+
+--- A user guide is a generated test module, which the tool does not
+--- carry, but its prose is what `cosmic docs quickstart` answers with:
+--- its own doc row is carried, not the helpers its module declares, and
+--- a guide about the runtime's own construction is left to the tree.
+local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
+  local whole = tmp .. "/whole.db"
+  local db = assert(Sqlite.open(whole, { writable = true }))
+  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
+  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  for _, statement in ipairs({
+    "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "VALUES ('doc.guides.quickstart', 'doc/guides/quickstart.md', 'test', '', '', '', '', ''), " ..
+      "('doc.guides.portable-runtime', 'doc/guides/portable-runtime.md', 'test', '', '', '', '', '')",
+    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+      "text, file, line) VALUES " ..
+      "('doc.guides.quickstart', '', '', 1, 'module', '', 'A tour.', 'f', 1), " ..
+      "('doc.guides.quickstart', '__doctest_write', '__doctest_write', 0, 'function', '', " ..
+      "'A helper.', 'f', 1), " ..
+      "('doc.guides.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1)",
+  }) do
+    assert(db:exec(statement))
+  end
+  assert(db:close())
+  assert(writer.carried(whole, tmp .. "/carried.db"))
+  local out = assert(Sqlite.open(tmp .. "/carried.db"))
+  local found = assert(Sqlite.text_rows(out,
+    "SELECT coalesce(group_concat(module || '|' || text, ' '), '') FROM docs"))
+  assert(out:close())
+  assert(found[1][1] == "doc.guides.quickstart|A tour.", found[1][1])
 end

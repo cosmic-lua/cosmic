@@ -1,23 +1,19 @@
-local near = require("build.fix.near")
-local Store = require("cosmic.store")
-local analyzer = require("build.analyzer")
-local teal = require("build.teal")
-local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
-local Test = require("cosmic.test")
-local fixture = require("build.docs_fixture")
+--- [`build.fix.near`] on fixture databases. That the standard library as
+--- it stands earns no note against itself is held by `cosmic fix
+--- --check .`, which fails on a note on it ([`build.tree_checks`]'
+--- `standard`), not here.
 
---- The standard library's sources, which a test holds to earn no note,
---- and the whole projection, whose docs of every module it walks.
-Test.needs{ reads = { "cosmic/" }, store = true }
+local near = require("build.fix.near")
+local Sqlite = require("cosmic.sqlite")
+local fixture = require("build.docs_fixture")
 
 --- Lines as one source file's text.
 local function joined(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
 end
 
---- What `near.known` offers from the database the tree `files` builds
---- to, as `build.docs_fixture` makes it with the build's own code, and
+--- What [`near.known`] offers from the database the tree `files` builds
+--- to, as [`build.docs_fixture`] makes it with the build's own code, and
 --- each entry by the name it was written as, which must all be there.
 local function known_of(dir: string, files: {string: string},
                         wanted: {string}): {near.Known}, {string: near.Known}
@@ -231,36 +227,6 @@ local function test_nearly_the_same_words_are_noted(dir: string)
   assert(#near.notes("tools.x", {
     { source_symbol = "X.find", text = "Where it runs.", line = 1 },
   }, short) == 0)
-end
-
---- The standard library as it stands earns no note against itself, so a
---- note on a fixed file is about what that file adds.
-local function test_the_standard_library_earns_no_note()
-  local all = assert(near.known(Store.databases()))
-  assert(#all > 100, tostring(#all))
-  local built = assert(teal.load())
-  local by_module: {string: boolean} = {}
-  for _, entry in ipairs(all) do by_module[entry.module] = true end
-  local noted: {string} = {}
-  for module in pairs(by_module) do
-    local file = module:gsub("%.", "/") .. ".tl"
-    local source = Fs.read(file)
-    if source ~= nil then
-      local found = assert(analyzer.analyze(built, source, file))
-      local candidates: {near.Candidate} = {}
-      for _, entry in ipairs(found.docs) do
-        if entry.exported and (entry.kind == "function" or entry.kind == "method") and
-            entry.text ~= "" then
-          candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
-            text = entry.text, line = entry.line }
-        end
-      end
-      for _, note in ipairs(near.notes(module, candidates, all)) do
-        noted[#noted + 1] = file .. ":" .. note
-      end
-    end
-  end
-  assert(#noted == 0, table.concat(noted, "\n"))
 end
 
 --- A database built before the `docs` table existed offers nothing,

@@ -1,14 +1,18 @@
 --- Coverage for cosmic.http without the network: option and URL
 --- validation, a connection refused on a closed local port, and every
 --- response-handling case through the scripted transport
---- (`Options.script`), where each connection curl opens reads a canned
+--- ([`Http.Options.script`]), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
+local Child = require("cosmic.child")
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- Requests to a closed local port, which a loopback alone answers:
 --- the worker runs offline, and is keyed. The tests that start the
@@ -82,6 +86,31 @@ local function test_a_redirect_is_not_followed_when_follow_is_false()
   assert(response.status == 302)
   assert(body == "moved")
   assert(response.headers["location"] == "/next")
+end
+
+local function test_a_redirect_to_a_scheme_outside_redirect_protocols_is_refused()
+  local response, why = Http.open(url, { redirect_protocols = { "https" },
+    script = { reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "no") } })
+  assert(response == nil, "the redirect to http was followed")
+  assert(why:find("disabled (in redirect)", 1, true) ~= nil, why)
+end
+
+local function test_a_redirect_to_a_listed_scheme_is_followed()
+  for _, protocols in ipairs({ { "http" }, { "http", "https" } } as {{string}}) do
+    local response, body = fetch({ reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "yes") },
+      { redirect_protocols = protocols })
+    assert(response.status == 200 and body == "yes", body)
+  end
+end
+
+local function test_a_redirect_to_https_is_attempted_when_only_https_is_listed()
+  -- a canned reply cannot finish a TLS handshake, so the hop fails there:
+  -- what matters is that it is a TLS failure, not a refused scheme
+  local response, why = Http.open(url, { redirect_protocols = { "https" },
+    script = { reply("302 Found", "Location: https://other.test/next\r\n"), reply("200 OK", "", "no") } })
+  assert(response == nil)
+  assert(why:find("not supported or disabled", 1, true) == nil, why)
+  assert(why:find("Protocol", 1, true) == nil, why)
 end
 
 local function test_a_303_after_post_is_followed_with_get()
@@ -163,9 +192,9 @@ local function test_a_body_shorter_than_its_content_length_is_a_read_error()
 end
 
 local function test_open_returns_once_the_headers_arrive_before_any_body()
-  -- The headers come, the body never does. `open` used to wait for the
-  -- first body byte, so it failed here (and, on a live server that
-  -- stalls after its headers, tripped the low-speed limit) though the
+  -- The headers come, the body never does. An `open` that waited for
+  -- the first body byte would fail here (and, on a live server that
+  -- stalls after its headers, trip the low-speed limit) though the
   -- response's headers had arrived.
   local response, trouble = Http.open(url, { script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nX-Here: yes\r\n\r\n",
@@ -276,11 +305,10 @@ local function test_a_non_string_option_throws()
 end
 
 local function test_a_malformed_url_fails()
-  -- A port out of range: curl rejects this outright
-  -- (CURLE_URL_MALFORMAT), with no network access attempted -- unlike
-  -- "http:///no-host-here", which curl takes for "http://no-host-here"
-  -- and looks up, or a bare "example.com/" with no scheme, which curl
-  -- happily guesses "http://" onto and would actually try to reach.
+  -- A port out of range is rejected outright (CURLE_URL_MALFORMAT), with
+  -- no network access attempted. Other odd URLs would be looked up:
+  -- curl reads "http:///no-host-here" as "http://no-host-here", and
+  -- guesses "http://" onto a bare "example.com/".
   local response, trouble = Http.open("http://127.0.0.1:99999/")
   assert(response == nil)
   assert(trouble:find("URL", 1, true) ~= nil, trouble)
@@ -293,11 +321,9 @@ local function test_an_unsupported_scheme_fails()
 end
 
 local function test_connection_refused_on_a_closed_local_port()
-  -- Port 1 is the classic "closed, and never going to be listening"
-  -- probe port; nothing here binds it, and it is not a privileged
-  -- range issue since we are only connecting, not binding.
+  -- Nothing binds port 1, so the connection is refused.
   local response, trouble = Http.open("http://127.0.0.1:1/",
-    { connect_timeout_ms = 2000 })
+    { connect_timeout_ns = Time.seconds(2) })
   assert(response == nil)
   assert(trouble ~= "")
   assert(trouble:lower():find("refus", 1, true) ~= nil or
@@ -306,7 +332,7 @@ end
 
 local function test_get_reports_the_same_failure_as_open()
   local got, trouble = Http.get("http://127.0.0.1:1/",
-    { connect_timeout_ms = 2000 })
+    { connect_timeout_ns = Time.seconds(2) })
   assert(got == nil)
   assert(trouble ~= "")
 end
@@ -318,13 +344,13 @@ local function test_download_writes_verifies_and_renames(tmp: string)
     script = { reply("200 OK", "", data) } })
   assert(ok, trouble)
   assert(Fs.read(path) == data)
-  local names = assert(Fs.list(tmp))
+  local names = (assert(Fs.list(tmp)))
   assert(#names == 1 and names[1] == "got", "a temporary file was left behind")
 end
 
 local function test_download_never_writes_through_a_planted_part_file(tmp: string)
-  -- it used to open path .. ".part" with O_TRUNC, following a symlink
-  -- someone else put there, and sharing it with a concurrent download
+  -- Opening path .. ".part" with O_TRUNC would follow a symlink someone
+  -- else put there, and share the file with a concurrent download.
   local path = tmp .. "/got"
   assert(Fs.write(tmp .. "/victim", "keep me"))
   assert(Fs.symlink(tmp .. "/victim", path .. ".part"))
@@ -352,6 +378,24 @@ local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp:
   assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0)
 end
 
+local function test_download_names_its_path_when_it_cannot_make_the_file(tmp: string)
+  local path = tmp .. "/missing/got"
+  local ok, trouble = Http.download(url, path, { script = { reply("200 OK", "", "data") } })
+  assert(not ok and trouble:find(path .. ": ", 1, true) == 1, trouble)
+end
+
+--- A body that stops short fails the download, leaves the destination as
+--- it was, and removes the part it wrote.
+local function test_download_keeps_the_old_file_when_the_body_stops_short(tmp: string)
+  local path = tmp .. "/kept"
+  assert(Fs.write(path, "old"))
+  local ok = Http.download(url, path, { script = {
+    "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
+  } })
+  assert(not ok)
+  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+end
+
 local function test_download_fails_on_a_non_2xx_status(tmp: string)
   local ok, trouble = Http.download(url, tmp .. "/missing", { script = {
     reply("404 Not Found", "", "no"),
@@ -362,7 +406,7 @@ end
 
 local function test_download_reports_the_same_failure_as_open(tmp: string)
   local ok, trouble = Http.download("http://127.0.0.1:1/", tmp .. "/unreached",
-    { connect_timeout_ms = 2000 })
+    { connect_timeout_ns = Time.seconds(2) })
   assert(not ok)
   assert(trouble ~= "")
 end
@@ -413,9 +457,9 @@ local function test_an_ordinary_header_is_sent()
   assert(sent:find("\r\nX-Fine: a normal value\r\n", 1, true) ~= nil, sent)
 end
 
--- curl reads a method, header name and header value as C strings: a NUL
--- used to cut each short, so `X-A: v1` went out for "v1\0INJECT" and a
--- plain GET for "GET\0junk". Each is refused before any connection.
+-- curl reads a method, header name and header value as C strings, so a
+-- NUL would cut each short: `X-A: v1` would go out for "v1\0INJECT" and
+-- a plain GET for "GET\0junk". Each is refused before any connection.
 local function test_a_header_value_with_a_nul_is_rejected()
   local response, trouble = Http.open(url,
     { headers = { ["X-A"] = "v1\0INJECT" }, script = { reply("200 OK", "") } })
@@ -439,7 +483,7 @@ local function test_a_method_with_a_nul_is_refused()
   assert(trouble:find("method", 1, true) ~= nil, trouble)
 end
 
---- The message `Http.open` raises with for `opts`.
+--- The message [`Http.open`] raises with for `opts`.
 local function raised(opts: Http.Options): string
   opts.script = opts.script or {}
   local ok, err = pcall(Http.open, url, opts)
@@ -448,58 +492,82 @@ local function raised(opts: Http.Options): string
 end
 
 local function test_an_integer_option_takes_no_numeric_string()
-  local err = raised({ timeout_ms = "5" as integer })
-  assert(err:find("opts.timeout_ms must be an integer", 1, true) ~= nil, err)
+  local err = raised({ timeout_ns = "5" as integer })
+  assert(err:find("http: opts.timeout_ns must be an integer", 1, true) ~= nil, err)
 end
 
 local function test_an_integer_option_takes_no_fraction()
-  local err = raised({ connect_timeout_ms = 1.5 as integer })
-  assert(err:find("opts.connect_timeout_ms must be an integer", 1, true) ~= nil, err)
+  local err = raised({ connect_timeout_ns = 1.5 as integer })
+  assert(err:find("http: opts.connect_timeout_ns must be an integer", 1, true) ~= nil, err)
 end
 
 local function test_a_negative_timeout_is_refused_not_ignored()
-  -- curl refused -5 and kept its default: no timeout at all
-  local err = raised({ timeout_ms = -5 })
-  assert(err:find("opts.timeout_ms must be between 0 and", 1, true) ~= nil, err)
+  -- curl refuses -5 and keeps its default, which is no timeout at all.
+  local err = raised({ timeout_ns = -5 })
+  assert(err:find("http: opts.timeout_ns must be between 0 and", 1, true) ~= nil, err)
 end
 
 local function test_an_integer_option_curl_would_clamp_is_refused()
   local err = raised({ max_redirects = 40000 })
-  assert(err:find("opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
-  err = raised({ low_speed_seconds = 70000 })
-  assert(err:find("opts.low_speed_seconds must be between 0 and 65535", 1, true) ~= nil, err)
+  assert(err:find("http: opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
+  err = raised({ low_speed_ns = Time.seconds(70000) })
+  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. Time.seconds(65535), 1, true) ~= nil,
+    err)
 end
 
 local function test_zero_integer_options_are_accepted()
-  local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ms = 0,
-    max_redirects = 0, low_speed_bytes = 0, low_speed_seconds = 0 })
+  local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ns = 0,
+    max_redirects = 0, low_speed_bytes = 0, low_speed_ns = 0 })
   assert(response.status == 200 and body == "ok")
+end
+
+local function test_redirect_protocols_takes_a_list_of_http_and_https()
+  local err = raised({ redirect_protocols = "https" as {string} })
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = {} })
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "ftp" } })
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "HTTPS" } })
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
+  -- a name is compared whole, not up to a NUL: "http\0s" is not "http"
+  err = raised({ redirect_protocols = { "http\0s" } })
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "https\0" } })
+  assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
 end
 
 local function test_a_boolean_option_takes_only_a_boolean()
   local err = raised({ follow = "no" as boolean })
-  assert(err:find("opts.follow must be a boolean", 1, true) ~= nil, err)
+  assert(err:find("http: opts.follow must be a boolean", 1, true) ~= nil, err)
 end
 
 local function test_non_table_headers_raise_naming_the_option()
-  -- used to be "bad extra argument #-1 to 'open'"
+  -- The message names the option, not a bad argument number.
   local err = raised({ headers = "X-A: 1" as {string:string} })
-  assert(err:find("opts.headers must be a table", 1, true) ~= nil, err)
+  assert(err:find("http: opts.headers must be a table", 1, true) ~= nil, err)
   assert(err:find("#-1", 1, true) == nil, err)
 end
 
 local function test_a_non_string_script_entry_raises()
-  -- used to become an empty reply
+  -- A non-string entry is refused, not read as an empty reply.
   local err = raised({ script = { reply("200 OK", ""), 42 as string } })
-  assert(err:find("opts.script must be a list of strings", 1, true) ~= nil, err)
+  assert(err:find("http: opts.script must be a list of strings", 1, true) ~= nil, err)
 end
 
 local function test_an_option_curl_refuses_is_an_error_naming_it()
-  -- curl refuses a string option over 8 MB; the refusal used to be
-  -- ignored, and the request went ahead with no URL set at all
+  -- curl refuses a string option over 8 MB. Ignoring the refusal would
+  -- send the request with no URL set at all.
   local response, trouble = Http.open(url .. string.rep("a", 8000000), { script = {} })
   assert(response == nil)
   assert(trouble:find("CURLOPT_URL", 1, true) ~= nil, trouble)
+end
+
+local function test_read_refuses_a_max_below_one()
+  local response = assert(Http.open(url, { script = { reply("200 OK", "", "body") } }))
+  local ok, why = pcall(response.read, response, 0)
+  assert(not ok and tostring(why):find("http: read's max must be positive", 1, true), tostring(why))
+  response:close()
 end
 
 local function test_read_returns_an_empty_second_value_on_success()
@@ -524,7 +592,7 @@ local function test_a_close_variable_closes_the_response()
   assert(again and again_trouble == "")
 end
 
---- A response is a `cosmic.stream` Reader: what takes a file's Reader
+--- A response is a [`cosmic.stream`] Reader: what takes a file's Reader
 --- takes a body the same way.
 local function test_a_response_is_a_stream_reader()
   local body = string.rep("0123456789", 10000)
@@ -557,9 +625,9 @@ local function test_a_response_a_finalizer_revives_is_closed()
   assert(response ~= nil, "the finalizer ran")
   revived[1] = nil
   local ok, err = pcall(response.read, response)
-  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
+  assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   ok, err = pcall(response.sent, response)
-  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
+  assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   response:close()
 end
 
@@ -583,210 +651,106 @@ local function test_the_raw_handle_close_returns_no_values()
   assert(select("#", handle.close(handle)) == 0, "closing twice returns no values")
 end
 
---- A whole reply that leaves the connection open: a scripted reply
---- arrives before curl has sent the request, and one that closes the
---- connection would end an upload's body there.
-local function kept_open(status: string, body: string): string
-  return "HTTP/1.1 " .. status .. "\r\nContent-Length: " .. tostring(#body) ..
-    "\r\n\r\n" .. body
-end
-
---- Writes each of `chunks` to an upload over `script`, then answers
---- its response (whole body read, closed), that body, and what curl
---- sent.
-local function upload(script: {string}, chunks: {string}, opts?: Http.Options):
-    Http.Response, string, string
-  opts = opts or {}
-  opts.script = script
-  local up = assert(Http.upload(url, opts))
-  for _, chunk in ipairs(chunks) do assert(up:write(chunk)) end
-  assert(up:close())
-  local response = assert(up:response())
-  local body = assert(Stream.read_all(response))
-  local sent = response:sent()
-  assert(response:close())
-  return response, body, sent
-end
-
---- A body of no given size goes chunked, a chunk per write, with no
---- `Expect: 100-continue` to wait on.
-local function test_an_upload_sends_its_writes_chunked()
-  local response, body, sent = upload({ kept_open("200 OK", "done") },
-    { "hello, ", "cosmic!" })
-  assert(response.status == 200 and body == "done")
-  assert(sent:find("POST / HTTP/1.1\r\n", 1, true) == 1, sent)
-  assert(sent:find("\r\nTransfer-Encoding: chunked\r\n", 1, true) ~= nil, sent)
-  assert(sent:find("Expect:", 1, true) == nil, sent)
-  assert(sent:find("\r\n\r\n7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n", 1, true) ~= nil, sent)
-end
-
---- A given size is the Content-Length, and the body goes as written.
-local function test_an_upload_of_a_given_size_sends_a_content_length()
-  local _, _, sent = upload({ kept_open("201 Created", "") }, { "hello, ", "cosmic!" },
-    { method = "PUT", body_size = 14, headers = { ["Content-Type"] = "text/plain" } })
-  assert(sent:find("PUT / HTTP/1.1\r\n", 1, true) == 1, sent)
-  assert(sent:find("\r\nContent-Length: 14\r\n", 1, true) ~= nil, sent)
-  assert(sent:find("\r\nContent-Type: text/plain\r\n", 1, true) ~= nil, sent)
-  assert(sent:find("chunked", 1, true) == nil, sent)
-  assert(sent:sub(-18) == "\r\n\r\nhello, cosmic!", sent)
-end
-
---- An upload is a `cosmic.stream` Writer: `Stream.copy` fills it from a
---- Reader, far more than one buffer's worth.
-local function test_an_upload_is_a_stream_writer()
-  local data = string.rep("0123456789abcdef", 256 * 1024)
-  local up = assert(Http.upload(url, { body_size = #data,
-    script = { kept_open("200 OK", "ok") } }))
-  local writer: Stream.Writer = up
-  assert(assert(Stream.copy(Stream.from_string(data), writer)) == #data)
-  assert(writer:close())
-  local response = assert(up:response())
-  -- The reply came first, so curl may still be sending the body: the
-  -- transfer is over, and all of it sent, once the reply is read out.
-  assert(assert(Stream.read_all(response)) == "ok")
-  local sent = response:sent()
-  assert(sent:sub(-#data) == data, "the whole body was sent")
-  assert(response:close())
-end
-
---- `body` and a HEAD are refused, each as its kind of mistake.
-local function test_an_upload_refuses_a_body_and_a_head()
-  assert(not pcall(Http.upload, url, { body = "x", script = {} } as Http.Options))
-  assert(not pcall(Http.upload, url, { body_size = -1, script = {} } as Http.Options))
-  local up, trouble = Http.upload(url, { method = "HEAD", script = {} })
-  assert(up == nil and trouble:find("HEAD", 1, true) ~= nil, trouble)
-end
-
---- A request that fails says so from `close` and `response`, and
---- every later write fails too.
-local function test_a_failed_upload_says_why()
-  local up = assert(Http.upload(url, { script = {} }))
-  local wrote, trouble = up:write("x")
-  assert(not wrote and trouble ~= "", "a write with nowhere to go succeeded")
-  local closed, close_trouble = up:close()
-  assert(not closed and close_trouble ~= "", close_trouble)
-  local response, why = up:response()
-  assert(response == nil and why == close_trouble, why)
-  local again, again_trouble = up:write("y")
-  assert(not again and again_trouble:find("closed", 1, true) ~= nil, again_trouble)
-end
-
---- An aborted upload sends no more and has no response.
-local function test_an_aborted_upload_has_no_response()
-  local up = assert(Http.upload(url, { script = { reply("200 OK", "", "") } }))
-  assert(up:write("partial"))
-  assert(up:abort())
-  assert(up:abort())
-  assert(up:close(), "a close after abort is harmless, as a second abort is")
-  local response, why = up:response()
-  assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
-  assert(not up:write("more"))
-end
-
---- A server that refuses the request before its body is sent is heard:
---- the writes stop, and the response is the refusal.
-local function test_a_refusal_before_the_body_is_all_sent_is_the_response()
-  local up = assert(Http.upload(url, { script = {
-    reply("413 Content Too Large", "", "too big") } }))
-  local chunk = string.rep("x", 1 << 20)
-  local refused = ""
-  for _ = 1, 64 do
-    local ok, trouble = up:write(chunk)
-    if not ok then
-      refused = trouble
-      break
-    end
+local function test_a_cancelled_download_removes_its_part_file_and_makes_no_target(tmp: string)
+  local path = tmp .. "/got.bin"
+  local asked = 0
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", string.rep("x", 200000)) },
+    cancelled = function(): boolean
+      asked = asked + 1
+      return asked > 1
+    end,
+  })
+  assert(not ok and why == "interrupted", why)
+  assert(asked > 1, "asked between chunks")
+  assert(Fs.stat(path) == nil, "the target was created")
+  local names = (assert(Fs.list(tmp)))
+  for _, name in ipairs(names) do
+    assert(name ~= "got.bin" and not name:find("got.bin", 1, true), "left behind: " .. name)
   end
-  assert(refused:find("answered before", 1, true) ~= nil, refused)
-  local response = assert(up:response())
-  assert(response.status == 413)
-  assert(assert(Stream.read_all(response)) == "too big")
-  assert(response:close())
 end
 
---- A redirect that would send the body again cannot: what was written
---- is gone, so the request fails rather than send an empty body.
-local function test_an_upload_redirected_by_a_307_fails()
-  local up = assert(Http.upload(url, { script = {
-    reply("307 Temporary Redirect", "Location: /again\r\n", ""),
-    reply("200 OK", "", "ok") } }))
-  local _, _ = up:write("payload")
-  local closed, trouble = up:close()
-  assert(not closed and trouble:find("rewind", 1, true) ~= nil, trouble)
+local function test_a_download_never_cancelled_completes(tmp: string)
+  local path = tmp .. "/got.bin"
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean return false end,
+  })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
 end
 
---- A 303 needs no body resent: the request follows it as a GET.
-local function test_an_upload_redirected_by_a_303_follows_as_a_get()
-  local response, body, sent = upload({
-    "HTTP/1.1 303 See Other\r\nLocation: /again\r\nContent-Length: 0\r\n\r\n",
-    reply("200 OK", "", "fetched") }, { "payload" })
-  assert(response.status == 200 and body == "fetched")
-  assert(sent:find("POST / HTTP/1.1\r\n", 1, true) == 1, sent)
-  assert(sent:find("GET /again HTTP/1.1\r\n", 1, true) ~= nil, sent)
+local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: string)
+  local path = tmp .. "/got.bin"
+  local asked = 0
+  local total = 0
+  -- the ask after the last chunk, before the rename, is the last: an
+  -- interrupt that came in that window still leaves nothing
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean
+      asked = asked + 1
+      total = asked
+      return false
+    end,
+  })
+  assert(ok, why)
+  local last = total
+  -- one ask before the chunk, one before the read that finds the end,
+  -- and the last, with the body complete
+  assert(last == 3, "asked " .. tostring(last))
+  assert(Fs.remove(path))
+  asked = 0
+  ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean
+      asked = asked + 1
+      return asked == last
+    end,
+  })
+  assert(not ok and why == "interrupted", tostring(why))
+  assert(Fs.stat(path) == nil, "the target was created")
+  local names = (assert(Fs.list(tmp)))
+  assert(#names == 0, "left behind: " .. table.concat(names, ","))
 end
 
---- A write that would take the body past its given size fails and
---- takes none of it; the body then written to its size goes through.
-local function test_an_upload_refuses_a_body_past_its_size()
-  local up = assert(Http.upload(url, { body_size = 4,
-    script = { kept_open("200 OK", "ok") } }))
-  assert(up:write("ab"))
-  local wrote, trouble = up:write("cdef")
-  assert(not wrote and trouble:find("longer than its body_size of 4", 1, true) ~= nil, trouble)
-  assert(up:write("cd"))
-  assert(up:close())
-  local response = assert(up:response())
-  assert(response:sent():sub(-8) == "\r\n\r\nabcd", response:sent())
-  assert(response:close())
+local function test_a_caught_signal_ends_an_open_that_waits()
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local response, why = Http.open(url, { script = { reply("200 OK", "", "x") } })
+  local caught = assert(guard:release())
+  assert(response == nil and why == "interrupted", tostring(why))
+  assert(caught == sys.SIGINT, tostring(caught))
 end
 
---- A body short of its given size fails the request at `close`.
-local function test_an_upload_short_of_its_size_fails()
-  local up = assert(Http.upload(url, { body_size = 10,
-    script = { kept_open("200 OK", "ok") } }))
-  assert(up:write("abc"))
-  local closed, trouble = up:close()
-  assert(not closed and trouble:find("shorter than its body_size of 10 bytes: 3 written",
-    1, true) ~= nil, trouble)
-end
-
---- A GET named with a streamed body goes as a GET, not a POST.
-local function test_an_upload_names_its_method()
-  local _, _, sent = upload({ kept_open("200 OK", "") }, { "q" }, { method = "GET" })
-  assert(sent:find("GET / HTTP/1.1\r\n", 1, true) == 1, sent)
-end
-
---- A server that answers first with more than the body buffer holds,
---- keeping the connection open, cannot hold a write up: the transfer is
---- paused on the unread answer, so the write stops and says so, and the
---- response is there to read.
-local function test_a_large_early_answer_does_not_hang_a_write()
-  local answer = string.rep("x", 3 * 1024 * 1024)
-  local up = assert(Http.upload(url, { script = { kept_open("413 Content Too Large", answer) } }))
-  local chunk = string.rep("y", 1 << 20)
-  local refused = ""
-  for _ = 1, 64 do
-    local ok, trouble = up:write(chunk)
-    if not ok then
-      refused = trouble
-      break
-    end
+local function test_a_download_checks_every_digest_it_is_given(tmp: string)
+  local path = tmp .. "/two.bin"
+  local s256 = Hash.hex_sha256("hello")
+  local s512 = Codec.hex(Hash.digest("sha512", "hello"))
+  local ok, why = Http.download(url, path, { script = { reply("200 OK", "", "hello") },
+    sha256 = s256, sha512 = s512:upper() })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+  local other = tmp .. "/other.bin"
+  local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
+    sha256 = s256, sha512 = string.rep("0", 128) })
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true), bad_why)
+  assert(Fs.stat(other) == nil, "the target was created")
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(name == "two.bin", "left behind: " .. name)
   end
-  assert(refused:find("answered before", 1, true) ~= nil, refused)
-  local response = assert(up:response())
-  assert(response.status == 413)
-  assert(#assert(Stream.read_all(response)) == #answer)
-  assert(response:close())
 end
 
---- An upload left in a `<close>` variable before its `close` is aborted.
-local function test_a_close_variable_aborts_an_upload()
-  local kept: Http.Upload
-  do
-    local up <close> = assert(Http.upload(url, { script = { kept_open("200 OK", "") } }))
-    assert(up:write("partial"))
-    kept = up
-  end
-  local response, why = kept:response()
-  assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
+local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
+  local path = tmp .. "/only512.bin"
+  local s512 = Codec.hex(Hash.digest("sha512", "hello"))
+  local ok, why = Http.download(url, path, { script = { reply("200 OK", "", "hello") }, sha512 = s512 })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+  local other = tmp .. "/wrong512.bin"
+  local zeros = string.rep("0", 128)
+  local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") }, sha512 = zeros })
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true), bad_why)
+  assert(not bad_why:find("sha256", 1, true), bad_why)
+  assert(Fs.stat(other) == nil, "the target was created")
 end

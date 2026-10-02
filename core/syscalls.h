@@ -4,25 +4,36 @@
  * both and the sandbox has one door.
  *
  * Every entry is a LuaCATS annotation block followed by COSMIC_SYSCALL
- * naming it. The block is the source of truth: `build/gen_syscalls.tl`
+ * naming it. The block is the source of truth: [`build/gen_syscalls.tl`]
  * turns it into the Teal declaration and the documentation row, and
  * refuses a function whose annotation is missing a slot. A binding
  * cannot exist without its type, and the C surface cannot grow without
  * a diff in this file -- or in core/process.h, which declares, in the
- * same grammar, the calls only `cosmic.child` and `cosmic.proc` are
- * handed, as the raw `cosmic.internal.process`.
+ * same grammar, the calls only [`cosmic.child`], [`cosmic.proc`] and
+ * [`build.confine`] are handed, as the raw [`cosmic.internal.process`].
  *
  * Two shapes, and no third. An argument-shape error -- a degenerate
  * input no correct program passes -- raises. A failure a correct caller
  * meets at runtime returns `nil, error, errno` from a call that answers
- * a value and `false, error, errno` from an effect (`core/fail.h`): the
+ * a value and `false, error, errno` from an effect ([`core/fail.h`]): the
  * error in slot two, the errno in slot three, nothing else sharing a
  * slot. This table is the one place a third slot is allowed; a Teal
  * function over it answers in two.
+ *
+ * One descriptor is no argument's: the one a portable start retains on
+ * its artifact, through which the database the program carries is read.
+ * Every call here and in core/process.h that takes a descriptor raises
+ * on it (core/check.h's `cosmic_checkfd`), `close` included, so a loop
+ * closing every descriptor from 3 up raises at it (none in the tree
+ * does; `spawn` closes a child's for it); and `open`, `chmod` and
+ * `utimensat` refuse it named through /proc/<pid>/fd or /dev/fd, EACCES.
  */
 
 #ifndef COSMIC_SYSCALLS_H
 #define COSMIC_SYSCALLS_H
+
+#include <stdbool.h>
+#include <stddef.h>
 
 #include "lua.h"
 
@@ -39,14 +50,20 @@
  * the caller did not write (an archive entry, say), so every call that
  * takes one refuses such a path as a runtime failure, EINVAL, rather
  * than raising. A non-string still raises, as any argument-shape error
- * does. `spawn` (core/process.h), whose path and cwd refused a NUL by
- * raising before this rule, still does: `cosmic.child` depends on it,
- * and neither way truncates. `execve` and `landlock_ruleset` raise on
- * one too. */
+ * does. `spawn` (core/process.h) raises on a NUL in its path or cwd
+ * instead, which [`cosmic.child`] depends on; neither way truncates.
+ * `execve` and `landlock_ruleset` raise on one too. */
 const char *cosmic_path (lua_State *L, int index);
 
-/* Opens the table as the `cosmic.sys` module. */
+/* Opens the table as the [`cosmic.sys`] module. */
 int cosmic_open_syscalls (lua_State *L);
+
+/* Whether `text`, `used` bytes of a /proc/<pid>/mountinfo, lists the
+ * filesystem on `device` ("major:minor", as its third field writes it)
+ * as mounted with local_lock "flock" or "all" among the filesystem's
+ * own options, which keep an NFS client's flock apart from its fcntl
+ * locks (`flock_kind`). A line that does not parse is passed over. */
+bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *device);
 
 #endif
 
@@ -79,7 +96,7 @@ int cosmic_open_syscalls (lua_State *L);
  * ---@class Stat
  * ---@field size integer the size in bytes
  * ---@field mode integer the type and permission bits
- * ---@field kind string one of "file", "dir", "link", "other"
+ * ---@field kind string one of "file", "dir", "link" (a symbolic link), "socket", "fifo" (a named pipe), "char" (a character device), "block" (a block device), or "other" for any other type a system has
  * ---@field mtime integer the modification time, whole seconds
  * ---@field mtime_ns integer the nanoseconds part of the modification time
  * ---@field atime integer the access time, whole seconds
@@ -94,9 +111,11 @@ int cosmic_open_syscalls (lua_State *L);
  */
 
 /*
- * --- Opens a path and returns a descriptor.
+ * --- Opens a path and returns a descriptor. The program's own file named
+ * --- through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>, a link to
+ * --- one) is refused, EACCES, before anything is opened.
  * ---@param path string the path to open
- * ---@param flags integer the O_* flags, from `syscalls.O`
+ * ---@param flags integer the O_* flags, such as `O_RDONLY` or `O_WRONLY | O_CREAT`
  * ---@param mode? integer the mode for a newly created file, default 0o644
  * ---@return integer|nil fd the descriptor, or nil on failure
  * ---@return string error what went wrong, when fd is nil
@@ -170,7 +189,7 @@ COSMIC_SYSCALL(write, 2);
  * --- Moves a descriptor's offset and returns the new one.
  * ---@param fd integer the descriptor to move
  * ---@param offset integer how far to move
- * ---@param whence integer one of `syscalls.SEEK_SET`, `_CUR`, `_END`
+ * ---@param whence integer one of `SEEK_SET`, `SEEK_CUR`, `SEEK_END`
  * ---@return integer|nil offset the new offset, or nil on failure
  * ---@return string error what went wrong, when offset is nil
  * ---@return integer errno the error number, when offset is nil
@@ -243,7 +262,8 @@ COSMIC_SYSCALL(unlink, 1);
 COSMIC_SYSCALL(rename, 2);
 
 /*
- * --- Sets a path's permission bits.
+ * --- Sets a path's permission bits. The program's own file named through a
+ * --- descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>) is refused, EACCES.
  * ---@param path string the path to change
  * ---@param mode integer the permission bits to set
  * ---@return boolean ok false on failure
@@ -253,7 +273,18 @@ COSMIC_SYSCALL(rename, 2);
 COSMIC_SYSCALL(chmod, 2);
 
 /*
- * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it: "dir", "file", "link" for a symbolic link (never followed), or "other".
+ * --- Sets a path's owner and group, following a link at its last part. The program's own file named through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>) is refused, EACCES.
+ * ---@param path string the path to change
+ * ---@param uid integer the user to own it, or -1 to leave its owner
+ * ---@param gid integer the group to own it, or -1 to leave its group
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(chown, 3);
+
+/*
+ * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it (its `kind`): "link" for a symbolic link, which is never followed.
  * ---@param path string the directory to list
  * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure
  * ---@return string error what went wrong, when entries is nil
@@ -261,11 +292,17 @@ COSMIC_SYSCALL(chmod, 2);
  */
 COSMIC_SYSCALL(readdir, 1);
 
+/* `tree_digest` has no caller in the tree but its tests
+ * (core/syscalls_test.tl): it is kept for the TODO above
+ * build/declared_key.tl's `walk_system` ("walk in C, as [`sys.tree_digest`]
+ * walks by stamps"), which is to digest the system's paths through it
+ * rather than an `lstat` of each entry crossing into Lua. */
+
 /*
  * --- What a tree holds, digested: `tree_digest`'s answer.
  * ---@class TreeDigest
  * ---@field digest string the hex sha256 of every entry at and beneath the path, links unfollowed, in name order: each one's contents where asked for, and otherwise what `lstat` says of it -- type and permissions, size, modification and change times, and inode
- * ---@field special boolean whether it holds a socket, a FIFO or a device other than /dev/null, /dev/zero or /dev/urandom, each of which answers from past the tree, or anything the walk could not see: an entry it could not read or list, or one more than 128 directories down -- but for one it was refused (EACCES, EPERM), digested by its permissions and owner, which is all a process with no more privilege than the walk's could learn of it
+ * ---@field special boolean whether it holds a socket, a FIFO or a device other than /dev/null, /dev/zero, /dev/full or /dev/urandom, each of which answers from past the tree, or anything the walk could not see: an entry it could not read or list, or one more than 128 directories down -- but for one it was refused (EACCES, EPERM), digested by its permissions and owner, which is all a process with no more privilege than the walk's could learn of it
  */
 
 /*
@@ -350,10 +387,48 @@ COSMIC_SYSCALL(exit, 1);
 COSMIC_SYSCALL(getpid, 0);
 
 /*
+ * --- Returns the process group a process is in.
+ * ---@param pid integer the process id, or 0 for this process; a negative one raises
+ * ---@return integer|nil pgid the process group's identifier, or nil on failure
+ * ---@return string error what went wrong, when pgid is nil
+ * ---@return integer errno the error number, when pgid is nil
+ */
+COSMIC_SYSCALL(getpgid, 1);
+
+/*
  * --- Returns the real user identifier the process runs as.
  * ---@return integer uid the user identifier
  */
 COSMIC_SYSCALL(getuid, 0);
+
+/*
+ * --- Returns the real group identifier the process runs as.
+ * ---@return integer gid the group identifier
+ */
+COSMIC_SYSCALL(getgid, 0);
+
+/*
+ * --- The supplementary groups the process runs with, in the order the
+ * --- system keeps them, which may or may not hold the effective group
+ * --- (macOS's does, first; Linux's does where it was given one). On
+ * --- macOS they are the user's groups as directory services lists them,
+ * --- which may be more than NGROUPS_MAX and do not follow a change
+ * --- setgroups made. EINVAL where the list grew between the call's two
+ * --- looks at it.
+ * ---@return {integer}|nil groups each group's identifier, or nil on failure
+ * ---@return string error what went wrong, when groups is nil
+ * ---@return integer errno the error number, when groups is nil
+ */
+COSMIC_SYSCALL(getgroups, 0);
+
+/*
+ * --- Whether this process may be dumped, and its /proc files are its own user's to read and write (prctl's PR_GET_DUMPABLE): 1 where so, 0 where they are root's, 2 where a core dump would be root's alone. With `set`, 0 or 1, it is made so first. ENOSYS off Linux.
+ * ---@param set? integer 0 or 1 to make it so, or nil to only ask
+ * ---@return integer|nil dumpable 0, 1 or 2, or nil on failure
+ * ---@return string error what went wrong, when dumpable is nil
+ * ---@return integer errno the error number, when dumpable is nil
+ */
+COSMIC_SYSCALL(dumpable, 1);
 
 /*
  * --- Sets the file mode creation mask, the permission bits a new file or
@@ -363,6 +438,50 @@ COSMIC_SYSCALL(getuid, 0);
  * ---@return integer previous the mask before this call
  */
 COSMIC_SYSCALL(umask, 1);
+
+/*
+ * --- A resource's limits, as `getrlimit` answers them and `setrlimit`
+ * --- takes them. `math.maxinteger` stands for no limit (RLIM_INFINITY) on
+ * --- every system, and a limit at or past it is answered as none.
+ * ---@class Limits
+ * ---@field soft integer the limit the system holds the process to
+ * ---@field hard integer the most the soft limit may be raised to
+ */
+
+/*
+ * --- The limits the process is held to on `resource`.
+ * ---@param resource integer the resource, such as `RLIMIT_NOFILE`
+ * ---@return Limits|nil limits the soft and hard limits, or nil on failure
+ * ---@return string error what went wrong, when limits is nil
+ * ---@return integer errno the error number, when limits is nil
+ */
+COSMIC_SYSCALL(getrlimit, 1);
+
+/*
+ * --- Holds the process, and every child it starts afterwards, to
+ * --- `soft` on `resource`, with `hard` the most it may be raised to
+ * --- again; `math.maxinteger` stands for no limit. The process starts
+ * --- with RLIMIT_NOFILE's soft limit raised toward the hard one, as far
+ * --- as 10240 (macOS's kern.maxfilesperproc, where that is lower), so
+ * --- `getrlimit` answers the raised limit, not the one it was started
+ * --- with; a program it starts is given that one back, until this sets
+ * --- RLIMIT_NOFILE. A negative limit raises. A soft limit above the hard one is refused with EINVAL,
+ * --- and a hard one raised without the privilege to with EPERM. The
+ * --- system bounds RLIMIT_NOFILE besides: Linux refuses a limit past
+ * --- fs.nr_open with EPERM; macOS bounds a soft limit, or a hard one
+ * --- changed, by kern.maxfilesperproc (kern.maxfiles for root), and
+ * --- may refuse one past it with EINVAL or hold the process to the
+ * --- bound instead, a soft one of no limit included -- give its hard
+ * --- limit back as `getrlimit` answers it, and a soft one below that
+ * --- bound.
+ * ---@param resource integer the resource, such as `RLIMIT_NOFILE`
+ * ---@param soft integer the limit to hold the process to
+ * ---@param hard integer the most the soft limit may be raised to
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(setrlimit, 3);
 
 /*
  * --- Draws bytes from the operating system's entropy source, fit for a
@@ -431,6 +550,12 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
+ * --- The processor's features the core's vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "pclmulqdq", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32" and "pmull", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
+ * ---@return {string} features the features this processor has
+ */
+COSMIC_SYSCALL(cpu_features, 0);
+
+/*
  * --- The host as `uname(2)` names it: raw values, unnormalized, for a
  * --- caller to map onto its own host names.
  * ---@class Uname
@@ -448,7 +573,7 @@ COSMIC_SYSCALL(uname, 0);
 
 /*
  * --- Reads a clock, in nanoseconds.
- * ---@param clock integer one of `syscalls.CLOCK_REALTIME`, `_MONOTONIC`
+ * ---@param clock integer one of `CLOCK_REALTIME`, `CLOCK_MONOTONIC`
  * ---@return integer|nil nanoseconds the reading, or nil on failure
  * ---@return string error what went wrong, when nanoseconds is nil
  * ---@return integer errno the error number, when nanoseconds is nil
@@ -465,7 +590,7 @@ COSMIC_SYSCALL(clock_gettime, 1);
 COSMIC_SYSCALL(nanosleep, 1);
 
 /*
- * --- The symbolic name of an errno, the name <errno.h> gives it: the
+ * --- The symbolic name of an errno, the name C's errno header gives it: the
  * --- third slot of a failure is this OS's number (`EAGAIN` is 11 on
  * --- Linux and 35 on macOS), and its name is the same on both. On
  * --- Linux, where `EOPNOTSUPP` and `ENOTSUP` share a number, it is
@@ -517,7 +642,8 @@ COSMIC_SYSCALL(readlink, 1);
  * --- shape a Stat reports (`mtime`, `mtime_ns`). Nil seconds leave that
  * --- time as it is; nil nanoseconds are 0, and nanoseconds outside
  * --- [0, 1e9), or given without seconds, raise, as naming neither time
- * --- does. The link itself is changed, not its target.
+ * --- does. The link itself is changed, not its target. The program's own
+ * --- file named through a descriptor of it is refused, EACCES.
  * ---@param path string the path to change
  * ---@param atime_s? integer the access time's seconds, or nil to keep it
  * ---@param atime_ns? integer the nanoseconds after atime_s, default 0
@@ -550,6 +676,36 @@ COSMIC_SYSCALL(fsync, 1);
 COSMIC_SYSCALL(ftruncate, 2);
 
 /*
+ * --- Locks the file a descriptor is open on, as `flock(2)` does: the
+ * --- lock belongs to the open file, so another open of the same file,
+ * --- in this process or another, is refused a lock that conflicts with
+ * --- it, and it is released when every descriptor of that open is
+ * --- closed -- when the process ends, too. "exclusive" conflicts with
+ * --- every other lock, "shared" only with an exclusive one, and
+ * --- "unlock" releases what this open holds. A conflicting lock is
+ * --- waited for until `timeout_ms` has passed, "Operation timed out",
+ * --- or the innermost open `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
+ * --- call", each seen within a tenth of a second. Over NFS or SMB, an
+ * --- exclusive lock needs a descriptor open for writing.
+ * ---@param fd integer the descriptor, open on the file to lock
+ * ---@param how string "exclusive", "shared" or "unlock"
+ * ---@param timeout_ms? integer how long to wait, in milliseconds, from 0 (the default: ask once); -1 for no limit
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(flock, 3);
+
+/*
+ * --- How a `flock` of the file `fd` is open on stands to fcntl locks, SQLite's among them: "apart" where the two are kept apart, so neither excludes the other, as Linux keeps them on a local filesystem; "shared" where they are in one list, and a whole-file flock conflicts with an fcntl lock of another owner, even another open of this same process -- as Darwin and the BSDs keep them, and as Linux's clients of SMB, and of NFS but where it is mounted with local_lock "flock" or "all", make a flock a whole-file fcntl lock.
+ * ---@param fd integer the descriptor, open on the file to ask about
+ * ---@return string|nil kind "apart" or "shared", or nil on failure
+ * ---@return string error what went wrong, when kind is nil
+ * ---@return integer errno the error number, when kind is nil
+ */
+COSMIC_SYSCALL(flock_kind, 1);
+
+/*
  * --- Whether this process may reach `path` as `mode` asks: 0 for only
  * --- that it exists, else R_OK, W_OK and X_OK or'd together. It is
  * --- asked with the effective ids, as `execvp` and `open` ask, and
@@ -572,6 +728,39 @@ COSMIC_SYSCALL(access, 2);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(mkfifo, 2);
+
+/*
+ * --- Turns a descriptor's nonblocking mode on or off: on, a read or write
+ * --- that would wait fails with EAGAIN instead. The mode belongs to the
+ * --- open file, so every descriptor duplicated from it shares it.
+ * ---@param fd integer the descriptor
+ * ---@param on boolean true for nonblocking reads and writes
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(set_nonblocking, 2);
+
+/*
+ * --- Waits until one of the descriptors is ready or the timeout passes,
+ * --- and answers what happened to each, 0 for one not ready. A
+ * --- descriptor of -1 is not watched and answers 0, one below -1 raises,
+ * --- and one not open answers POLLNVAL. A descriptor given more than once
+ * --- is watched once, for every event its entries want, and each entry
+ * --- answers only its own events (and POLLERR, POLLHUP, POLLNVAL), on
+ * --- every system alike. A signal ends the wait early, as
+ * --- though nothing were ready. There is no count the call itself
+ * --- refuses: the kernel refuses more distinct descriptors than
+ * --- RLIMIT_NOFILE's soft limit (at most OPEN_MAX on macOS) with EINVAL;
+ * --- `setrlimit` raises it.
+ * ---@param fds {integer} the descriptors to watch
+ * ---@param events {integer} the POLL* mask wanted for each descriptor
+ * ---@param timeout_ms integer how long to wait, -1 for no limit
+ * ---@return {integer}|nil revents the POLL* mask that happened for each descriptor, or nil on failure
+ * ---@return string error what went wrong, when revents is nil
+ * ---@return integer errno the error number, when revents is nil
+ */
+COSMIC_SYSCALL(poll, 3);
 
 /*
  * --- The numbers the calls above take and give back. They come from
@@ -614,6 +803,7 @@ COSMIC_SYSCALL(mkfifo, 2);
  * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
  * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
+ * ---@field EMFILE integer no descriptor is free below RLIMIT_NOFILE's soft limit
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal
@@ -621,6 +811,12 @@ COSMIC_SYSCALL(mkfifo, 2);
  * ---@field SIGPIPE integer a write to a pipe nobody reads
  * ---@field SIGTERM integer request termination
  * ---@field SIGUSR1 integer the first user-defined signal
+ * ---@field POLLIN integer for `poll`: there is data to read, or a connection to accept
+ * ---@field POLLOUT integer for `poll`: a write would not wait
+ * ---@field POLLERR integer for `poll`: the descriptor is in error
+ * ---@field POLLHUP integer for `poll`: the other end hung up
+ * ---@field POLLNVAL integer for `poll`: the descriptor is not open
+ * ---@field RLIMIT_NOFILE integer for `getrlimit` and `setrlimit`: one more than the highest descriptor the process may open
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -659,6 +855,7 @@ COSMIC_CONSTANT(EOPNOTSUPP)
 COSMIC_CONSTANT(EPERM)
 COSMIC_CONSTANT(ENOSPC)
 COSMIC_CONSTANT(EINVAL)
+COSMIC_CONSTANT(EMFILE)
 COSMIC_CONSTANT(SIGHUP)
 COSMIC_CONSTANT(SIGINT)
 COSMIC_CONSTANT(SIGQUIT)
@@ -666,3 +863,9 @@ COSMIC_CONSTANT(SIGKILL)
 COSMIC_CONSTANT(SIGPIPE)
 COSMIC_CONSTANT(SIGTERM)
 COSMIC_CONSTANT(SIGUSR1)
+COSMIC_CONSTANT(POLLIN)
+COSMIC_CONSTANT(POLLOUT)
+COSMIC_CONSTANT(POLLERR)
+COSMIC_CONSTANT(POLLHUP)
+COSMIC_CONSTANT(POLLNVAL)
+COSMIC_CONSTANT(RLIMIT_NOFILE)

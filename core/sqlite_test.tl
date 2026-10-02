@@ -4,10 +4,12 @@
 --- rather than failing quietly.
 ---
 --- Each test drives a raw handle and statement directly, not the typed
---- helpers `cosmic.sqlite` builds over them, so every C method is held
+--- helpers [`cosmic.sqlite`] builds over them, so every C method is held
 --- to its own promise.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 
 --- Asserts `value, message` is the failure shape SQLite's methods use:
 --- `nil` or `false`, then a non-empty message. SQLite has no errno, so
@@ -23,6 +25,13 @@ end
 local function raises(fn: any, ...: any)
   local ok = pcall(fn as function(any...): (any...), ...)
   assert(not ok, "the call must raise")
+end
+
+--- Asserts calling `fn` with `...` raises, and the message holds `says`.
+local function raises_saying(says: string, fn: any, ...: any)
+  local ok, why = pcall(fn as function(any...): (any...), ...)
+  assert(not ok, "the call must raise")
+  assert(tostring(why):find(says, 1, true) ~= nil, tostring(why))
 end
 
 local function memory(): Sqlite.Handle
@@ -161,15 +170,15 @@ local function test_a_finalized_statement_raises_from_every_method()
   assert(select("#", statement:finalize()) == 0, "finalizing returns nothing")
   assert(select("#", statement:finalize()) == 0, "finalizing twice is harmless")
   for _, method in ipairs({ "step", "columns", "reset", "parameters" }) do
-    raises((statement as {string: any})[method], statement)
+    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement)
   end
   for _, method in ipairs({ "bind_null", "name", "kind", "integer", "number", "bytes" }) do
-    raises((statement as {string: any})[method], statement, 1)
+    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement, 1)
   end
-  raises(statement.bind_integer, statement, 1, 1)
-  raises(statement.bind_number, statement, 1, 1.0)
-  raises(statement.bind_text, statement, 1, "x")
-  raises(statement.bind_blob, statement, 1, "x")
+  raises_saying("sqlite: the statement is closed", statement.bind_integer, statement, 1, 1)
+  raises_saying("sqlite: the statement is closed", statement.bind_number, statement, 1, 1.0)
+  raises_saying("sqlite: the statement is closed", statement.bind_text, statement, 1, "x")
+  raises_saying("sqlite: the statement is closed", statement.bind_blob, statement, 1, "x")
   handle:close()
 end
 
@@ -186,22 +195,37 @@ local function test_a_closed_handle_raises_from_every_method()
   local handle = memory()
   assert(handle:close() == true)
   assert(handle:close() == true, "closing twice is harmless")
-  raises(handle.exec, handle, "SELECT 1")
-  raises(handle.prepare, handle, "SELECT 1")
-  raises(handle.changes, handle)
-  raises(handle.last_insert_rowid, handle)
+  raises_saying("sqlite: the database handle is closed", handle.exec, handle, "SELECT 1")
+  raises_saying("sqlite: the database handle is closed", handle.prepare, handle, "SELECT 1")
+  raises_saying("sqlite: the database handle is closed", handle.changes, handle)
+  raises_saying("sqlite: the database handle is closed", handle.last_insert_rowid, handle)
 end
 
 local function test_open_reports_a_path_it_cannot_open(tmp: string)
-  failed(Sqlite.open(tmp .. "/missing/db", true))
+  failed(Sqlite.open(tmp .. "/missing/db", { writable = true }))
   -- Read-only never creates the file it was asked for.
   failed(Sqlite.open(tmp .. "/missing.db"))
+end
+
+--- The options are a table. A boolean would read as truthy through the
+--- raw binding, so a Lua caller passing `true` is refused rather than
+--- made writable.
+local function test_open_refuses_options_that_are_not_a_table(tmp: string)
+  local open: any = Sqlite.open
+  for _, given in ipairs({ true, false, "writable", 1 } as {any}) do
+    local ok, why = pcall(open as function(string, any): (any, any), tmp .. "/never.db", given)
+    assert(not ok and tostring(why):find("sqlite: open: options is a table", 1, true) ~= nil, tostring(why))
+  end
+  assert(Fs.exists(tmp .. "/never.db") == false)
+  -- An explicit false is the same as leaving the option out.
+  failed(Sqlite.open(tmp .. "/never.db", { writable = false }))
+  assert(Fs.exists(tmp .. "/never.db") == false)
 end
 
 local function test_a_nul_byte_in_a_path_or_exec_sql_is_refused(tmp: string)
   -- SQLite reads both as C strings, so the NUL used to cut them short:
   -- the path opened tmp/a.db, and exec skipped what followed
-  local handle, trouble = Sqlite.open(tmp .. "/a.db\0.evil", true)
+  local handle, trouble = Sqlite.open(tmp .. "/a.db\0.evil", { writable = true })
   failed(handle, trouble)
   assert(trouble:find("NUL", 1, true) ~= nil, trouble)
   local db = memory()
@@ -214,34 +238,9 @@ local function test_a_nul_byte_in_a_path_or_exec_sql_is_refused(tmp: string)
   db:close()
 end
 
---- The observed VFS wraps every file a connection opens and passes each
---- call on to the default VFS's file underneath. Reads and writes work
---- through it whatever the file needs: shared memory for a WAL database,
---- a memory map, a checkpoint, and a rollback journal truncated rather
---- than deleted, which the next reader checks for.
-local function test_the_observed_vfs_hands_every_call_on(tmp: string)
-  local wal = assert(Sqlite.open(tmp .. "/wal.db", true))
-  assert(wal:exec("PRAGMA journal_mode = WAL; PRAGMA mmap_size = 1048576; " ..
-    "CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('wal')"))
-  local rows = assert(Sqlite.text_rows(wal, "SELECT v FROM t"))
-  assert(rows[1][1] == "wal")
-  assert(wal:exec("PRAGMA wal_checkpoint(TRUNCATE)"))
-  assert(wal:close())
-  local truncated = assert(Sqlite.open(tmp .. "/truncated.db", true))
-  assert(truncated:exec("PRAGMA journal_mode = TRUNCATE; " ..
-    "CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept')"))
-  assert(truncated:close())
-  -- Read through a memory map, which only a page outside the WAL is.
-  local reader = assert(Sqlite.open(tmp .. "/truncated.db", false))
-  assert(reader:exec("PRAGMA mmap_size = 1048576"))
-  rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
-  assert(rows[1][1] == "kept")
-  assert(reader:close())
-end
-
 local function test_a_file_database_persists(tmp: string)
   local path = tmp .. "/a.db"
-  local handle, trouble = Sqlite.open(path, true)
+  local handle, trouble = Sqlite.open(path, { writable = true })
   assert(handle ~= nil, trouble)
   assert(handle:exec("CREATE TABLE t (a); INSERT INTO t VALUES ('kept')"))
   assert(handle:close())
@@ -312,9 +311,9 @@ end
 --- is locked rather than waiting on.
 local function test_a_locked_database_is_waited_on_then_refused(tmp: string)
   local path = tmp .. "/locked.db"
-  local holder = assert(Sqlite.open(path, true))
+  local holder = assert(Sqlite.open(path, { writable = true }))
   assert(holder:exec("CREATE TABLE t (v INTEGER); BEGIN EXCLUSIVE; INSERT INTO t VALUES (1)"))
-  local waiter = assert(Sqlite.open(path, true))
+  local waiter = assert(Sqlite.open(path, { writable = true }))
   assert(waiter:exec("PRAGMA busy_timeout = 20"))
   local ok, trouble = waiter:exec("INSERT INTO t VALUES (2)")
   assert(not ok and trouble:find("locked", 1, true) ~= nil, trouble)
@@ -330,13 +329,100 @@ end
 --- here in one process rather than left to a second build's timing.
 local function test_a_reader_beside_an_open_write_reads_the_last_commit(tmp: string)
   local path = tmp .. "/reserved.db"
-  local writer = assert(Sqlite.open(path, true))
+  local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("PRAGMA journal_mode = DELETE; CREATE TABLE t (v TEXT); " ..
     "INSERT INTO t VALUES ('committed'); BEGIN; INSERT INTO t VALUES ('pending')"))
-  local reader = assert(Sqlite.open(path, false))
+  local reader = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
   assert(#rows == 1 and rows[1][1] == "committed", "the reader must see only the last commit")
   assert(reader:close())
   assert(writer:exec("COMMIT"))
   assert(writer:close())
+end
+
+local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp: string)
+  local path = tmp .. "/immutable.db"
+  local writer = assert(Sqlite.open(path, { writable = true }))
+  assert(writer:exec("PRAGMA journal_mode = WAL; CREATE TABLE t (v); INSERT INTO t VALUES (1)"))
+  assert(writer:close())
+  assert(Fs.exists(path .. "-wal") == false)
+  local reader = assert(Sqlite.open(path, { immutable = true }))
+  local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
+  assert(#rows == 1 and rows[1][1] == "1")
+  assert(Fs.exists(path .. "-wal") == false, "an immutable open made a -wal")
+  assert(Fs.exists(path .. "-shm") == false, "an immutable open made a -shm")
+  failed(reader:exec("INSERT INTO t VALUES (2)"))
+  assert(reader:close())
+  -- A path with URI syntax in it is a filename still.
+  local odd = tmp .. "/we?ird#100%.db"
+  local made = assert(Sqlite.open(odd, { writable = true }))
+  assert(made:exec("CREATE TABLE t (v)"))
+  assert(made:close())
+  local again = assert(Sqlite.open(odd, { immutable = true }))
+  assert(#assert(Sqlite.text_rows(again, "SELECT v FROM t")) == 0)
+  assert(again:close())
+  failed(Sqlite.open(tmp .. "/absent.db", { immutable = true }))
+  assert(Fs.exists(tmp .. "/absent.db") == false)
+  raises(Sqlite.open, path, { writable = true, immutable = true })
+end
+
+--- The URI is built for every kind of name, relative or not, and a path
+--- is never read as URI syntax or as a Windows drive.
+local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
+  local names = { "rel.db", "a:b.db", "\\back.db", "file:x.db", "sp ace.db",
+    "caf\xc3\xa9.db", "q?vfs=memdb.db", "h#.db" }
+  for _, name in ipairs(names) do
+    local path = tmp .. "/" .. name
+    local made = assert(Sqlite.open(path, { writable = true }))
+    assert(made:exec("CREATE TABLE t (v); INSERT INTO t VALUES ('" .. name:gsub("'", "") .. "')"))
+    assert(made:close())
+    local read = assert(Sqlite.open(path, { immutable = true }), name)
+    local rows = assert(Sqlite.text_rows(read, "SELECT v FROM t"))
+    assert(rows[1][1] == name, name)
+    assert(read:close())
+  end
+  -- The same names as relative paths, from the working directory, and one
+  -- through "..".
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(tmp))
+  local trouble: string | nil
+  for _, name in ipairs(names) do
+    local read, why = Sqlite.open(name, { immutable = true })
+    if read == nil then
+      trouble = name .. ": " .. why
+      break
+    end
+    local rows = Sqlite.text_rows(read, "SELECT v FROM t")
+    if rows == nil or rows[1][1] ~= name then
+      trouble = name .. " read another file"
+    end
+    read:close()
+  end
+  local dotted = Sqlite.open("../" .. (tmp:match("[^/]*$")) .. "/rel.db", { immutable = true })
+  assert(sys.chdir(here))
+  assert(trouble == nil, trouble)
+  assert(dotted ~= nil and #assert(Sqlite.text_rows(dotted, "SELECT v FROM t")) == 1)
+  assert(dotted:close())
+  local embedded, why = Sqlite.open("a\0b.db", { immutable = true })
+  failed(embedded, why)
+end
+
+local function test_limit_sets_a_named_limit_and_answers_the_old_one()
+  local handle = memory()
+  local before = handle:limit("attached", -1)
+  assert(before > 0)
+  assert(handle:limit("attached", 0) == before)
+  assert(handle:limit("attached", -1) == 0)
+  local ok, why = handle:exec("ATTACH ':memory:' AS m")
+  failed(ok, why)
+  assert(why:find("too many attached", 1, true) ~= nil, why)
+  raises_saying("sqlite: no such limit: nonesuch", handle.limit, handle, "nonesuch", 0)
+  raises(handle.limit, handle, "attached", 2 ^ 40)
+  for _, name in ipairs({ "length", "sql_length", "column", "expr_depth", "compound_select",
+    "vdbe_op", "function_arg", "like_pattern_length", "variable_number",
+    "trigger_depth", "worker_threads" }) do
+    assert(handle:limit(name, -1) >= 0, name)
+  end
+  handle:close()
+  raises(handle.limit, handle, "attached", 0)
 end

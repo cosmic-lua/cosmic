@@ -1,4 +1,4 @@
---- `build/vendor.tl` over archives built here -- tar and zip -- and
+--- [`build/vendor.tl`] over archives built here -- tar and zip -- and
 --- over a plain file for the single-file PIN: what the tree holds
 --- afterward, and what it refuses.
 local Fs = require("cosmic.fs")
@@ -160,9 +160,9 @@ local function test_a_single_file_pin_whose_keep_misses_its_file_is_refused(dir:
   assert(not Fs.exists(dir .. "/tree/cacert.pem"))
 end
 
---- The regression: an archive `cosmic.archive` cannot read, under a PIN
---- that names no `file`, used to be vendored as one blob, ignoring
---- every keep, and exit 0.
+--- An archive [`cosmic.archive`] cannot read, under a PIN that names no
+--- `file`, is an error: vendoring it as one blob would ignore every keep
+--- and exit 0.
 local function test_an_unreadable_archive_without_a_file_line_is_an_error(dir: string)
   write_all(dir .. "/tree", {
     ["PIN"] = "url https://example.com/pkg.tar.gz\nkeep src/*.c\n",

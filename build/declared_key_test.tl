@@ -4,18 +4,28 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local analyzer = require("build.analyzer")
 local artifact = require("build.artifact")
+local core_image = require("build.core_image")
 local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
+local fixture = require("build.core_image_fixture")
+local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
+local type positions = require("build.positions")
+local Time = require("cosmic.time")
 
---- What the host's identity reads (`declared_key.host_identity`), on
+--- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
---- link leads out of the tree to.
+--- link leads out of the tree to. The package databases are a copy of
+--- build/declared_key.tl's `package_databases`.
 Test.needs{
-  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc/",
-    "/usr/lib/os-release", "/usr/lib/sysimage/rpm/", "/var/lib/dpkg/status", "/var/lib/rpm/" },
+  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc",
+    "/usr/lib/os-release", "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/dpkg/status",
+    "/var/lib/rpm/Packages", "/var/lib/rpm/rpmdb.sqlite" },
   env = { "COSMIC_HOST_ID", "COSMIC_SYSTEM_ID" },
 }
 
@@ -36,11 +46,12 @@ local function spec(env?: {string:string}): declared_key.Spec
   local effective: test_inputs.Effective = {
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = {}, env = { DECLARED = true }, network = {},
-    processes = false, tool = false, store = false, caches = {}, cache_paths = {},
+    tool = false, store = false, caches = {}, cache_paths = {},
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
     runtime = "runtime sandboxed", compiler = "compiler", host = "host",
+    epoch = "1-00000000", timeout_ns = Time.seconds(30),
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
   }
@@ -84,6 +95,77 @@ local function test_an_undeclared_file_does_not_move_it(tmp: string)
   assert(key_of(tmp, s) == before)
 end
 
+--- A module that declares `lua` starts this program held to its closure
+--- (build.test_worker's `hold_children`), so its key holds the program as
+--- a module that declares neither `lua` nor `tool` does: by the closure's
+--- store and the runtime, not by what the program carries -- an edit to a
+--- module the program carries outside its closure, which moves `program`
+--- and o/bin, leaves it -- while the closure's store, which holds each of
+--- `lua_loads`, moves it.
+local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: string)
+  tree(tmp)
+  assert(Fs.mkdirs(tmp .. "/o/bin"))
+  assert(Fs.write(tmp .. "/o/bin/cosmic", "one program"))
+  local function lua_spec(program: string, store: string): declared_key.Spec
+    local s = spec()
+    s.effective.lua = true
+    s.declaration = s.declaration .. "\nlua true"
+    s.program = program
+    s.closure_store = store
+    return s
+  end
+  local before = key_of(tmp, lua_spec("one program", "one store"))
+  assert(Fs.write(tmp .. "/o/bin/cosmic", "another program"))
+  assert(key_of(tmp, lua_spec("another program", "one store")) == before)
+  assert(key_of(tmp, lua_spec("one program", "another store")) ~= before)
+  -- A module that declares `tool` is keyed by the program, as ever.
+  local s = lua_spec("one program", "one store")
+  s.effective.lua, s.effective.tool = false, true
+  local tool_before = key_of(tmp, s)
+  s.program = "another program"
+  assert(key_of(tmp, s) ~= tool_before)
+end
+
+--- A module that declares `lua` alone is keyed without what `cosmic
+--- --standalone` loads beyond `-e` (build.test_inputs' `standalone_loads`):
+--- an edit to the checker, build/teal.tl, leaves its key, while it moves
+--- the key of one that declares `standalone` beside it, and an edit to
+--- what `-e` loads moves both.
+local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: string)
+  tree(tmp)
+  local by_path: {string:positions.Module} = {}
+  for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
+    for _, name in ipairs(list) do
+      local file = name:gsub("%.", "/") .. ".tl"
+      assert(Fs.mkdirs(tmp .. "/" .. file:match("^(.*)/")))
+      assert(Fs.write(tmp .. "/" .. file, "return {} -- " .. name .. "\n"))
+      by_path[name] = { path = name, file = file, kind = "lib", requires = {}, tests = {} }
+    end
+  end
+  local function key_declaring(standalone: boolean): string
+    local declared: analyzer.Declared = { line = 1, reads = {}, host = {}, env = {},
+      network = {}, tool = false, lua = true, standalone = standalone, nests = false,
+      store = false, system = false, caches = {} }
+    local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
+      kind = "test", requires = { "suite.lib" }, tests = { "test_t" }, inputs = declared }
+    by_path[m.path] = m
+    by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
+      requires = {}, tests = {} }
+    local s = spec()
+    s.effective = test_inputs.effective(m, by_path, {})
+    s.declaration = test_inputs.canonical(declared)
+    return key_of(tmp, s)
+  end
+  local chunk, both = key_declaring(false), key_declaring(true)
+  assert(chunk ~= both)
+  assert(Fs.write(tmp .. "/build/teal.tl", "return {} -- the checker, edited\n"))
+  assert(key_declaring(false) == chunk, "a checker edit moved a chunk module's key")
+  local both_after = key_declaring(true)
+  assert(both_after ~= both, "a checker edit left a standalone module's key")
+  assert(Fs.write(tmp .. "/build/dispatch.tl", "return {} -- dispatch, edited\n"))
+  assert(key_declaring(false) ~= chunk and key_declaring(true) ~= both_after)
+end
+
 --- Each thing it is a digest of moves it: a declared file's contents,
 --- one added beneath a declared directory, a file's mode, a module of
 --- the closure, the declaration, a variable's value, the runtime (the
@@ -124,8 +206,16 @@ local function test_each_input_moves_it(tmp: string)
   s.host = "another host"
   differs("the host", s)
   s = spec()
-  s.harness = "another harness"
-  differs("the harness every worker runs", s)
+  s.epoch = "2-00000000"
+  differs("the harness's epoch", s)
+  -- Two bumps from one count, as two branches make: each draws its own
+  -- token, and the two keys differ (build/harness_epoch.tl).
+  s = spec()
+  s.epoch = "1-3f9c2a1b"
+  differs("another bump's token", s)
+  s = spec()
+  s.timeout_ns = Time.seconds(60)
+  differs("the timeout its worker runs under", s)
   -- A worker that may run the program undeclared keys it as declared.
   s = spec()
   s.runs_tool = true
@@ -135,11 +225,11 @@ local function test_each_input_moves_it(tmp: string)
   s.program = "another program"
   differs("the program that runs, for one that runs the tool", s)
   s = spec()
-  s.closure_store = "one address"
+  s.closure_store = "one store's digest"
   differs("the store of the closure, given", s)
   s = spec()
-  s.closure_store = "another address"
-  differs("the store of the closure's address", s)
+  s.closure_store = "another store's digest"
+  differs("the store of the closure's bytes", s)
   s = spec()
   s.module_key = "another module"
   differs("the module's key", s)
@@ -157,21 +247,322 @@ local function test_each_input_moves_it(tmp: string)
   differs("a module of the closure gone")
 end
 
---- A test that declares the network has no key; one that declares none
---- does, and so does one that declares only loopback hosts, which its
---- worker, offline, reaches on a loopback of its own.
-local function test_a_test_that_reaches_the_network_has_no_key()
-  local s = spec()
-  assert(declared_key.keyable(s.effective))
-  s.effective.network = { ["example.com"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["*"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["127.0.0.1"] = true, ["example.com"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["127.0.0.1"] = true, ["127.0.0.2"] = true, ["::1"] = true,
-    ["localhost"] = true }
-  assert(declared_key.keyable(s.effective))
+--- The fields of `record`, a record `module` declares (`Spec`,
+--- `Effective`), as the build's catalog of its docs lists them
+--- ([`build.analyzer`], which fills o/cosmic.db's `docs`), in the order
+--- the source declares them: read off the module's source, so a field
+--- added to the record is listed here with no edit to this test. A
+--- field whose type is a record (or a map of them) the walk does not
+--- enter gets one coarse change, not one per field of its own: walk
+--- such a record here as `Effective` is.
+local function fields_of(module: string, record: string): {string}
+  local built = assert(teal.load())
+  local source = assert(Store.source(module))
+  local analysis = assert(analyzer.analyze(built, source, module))
+  local out: {string} = {}
+  for _, entry in ipairs(analysis.docs) do
+    local name = entry.symbol:match("^" .. record:gsub("%.", "%%.") .. "%.([%w_]+)$")
+    if name ~= nil and entry.kind == "field" then out[#out + 1] = name end
+  end
+  assert(#out > 0, module .. " declares no fields of " .. record)
+  return out
+end
+
+--- A change to one field of a populated value, which must move the key.
+--- `from`, where given, first sets what the field is keyed only under
+--- (`closure_store` only where the module does not declare `store`).
+local record Change<T>
+  from: function(T)
+  change: function(T)
+end
+
+--- Whether `value` holds something: not nil, false, "" or empty.
+local function populated(value: any): boolean
+  if value == nil or value == false or value == "" then return false end
+  if value is table then return next(value) ~= nil end
+  return true
+end
+
+--- Every field `fields` lists, of the record `holder` finds in a value,
+--- is either in `changes` or in `unkeyed`. Each entry of `changes` must
+--- move `key` from the value `make` builds, which populates every field.
+--- Each entry of `unkeyed` gives the reason no key needs that field.
+--- Neither table may name a field the record does not declare. `what`
+--- names the record in what fails.
+local function each_field_moves<T>(what: string, fields: {string}, make: function(): T,
+                                   holder: function(T): any, key: function(T): string,
+                                   changes: {string:Change<T>}, unkeyed: {string:string})
+  local declared: {string:boolean} = {}
+  for _, name in ipairs(fields) do
+    declared[name] = true
+    local full = holder(make()) as {string:any}
+    assert(populated(full[name]), what .. "." .. name .. " is not populated: set it in " ..
+      "the populated value, to a value other than its default")
+    local change = changes[name]
+    if change == nil then
+      assert(unkeyed[name] ~= nil, what .. "." .. name .. " is neither changed nor named " ..
+        "unkeyed: add a change of it that must move the key, or, where a key need not " ..
+        "hold it, say why in `unkeyed`")
+    else
+      assert(unkeyed[name] == nil, what .. "." .. name .. " is both changed and unkeyed")
+      local value = make()
+      if change.from ~= nil then change.from(value) end
+      local before = key(value)
+      assert(key(value) == before, what .. "'s key is not the same twice")
+      change.change(value)
+      assert(key(value) ~= before, "a change to " .. what .. "." .. name ..
+        " left the key: a field of the record that the key leaves out")
+    end
+  end
+  for name in pairs(changes) do
+    assert(declared[name], what .. " declares no field " .. name .. " that a change names")
+  end
+  for name in pairs(unkeyed) do
+    assert(declared[name], what .. " declares no field " .. name .. " that unkeyed names")
+  end
+end
+
+--- A spec each field of which, and of its `effective`, holds something,
+--- of a test in a tree as `tree` writes it: its module runs the tool,
+--- declares `store` and the system, and names a host file in `hostdir`,
+--- outside the tree, by a variable (`$H/host.txt`).
+local function full_spec(hostdir: string): declared_key.Spec
+  assert(Fs.mkdirs(hostdir))
+  assert(Fs.write(hostdir .. "/host.txt", "h\n"))
+  local effective: test_inputs.Effective = {
+    files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
+    reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
+    env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
+    tool = true, lua = true, standalone = true, nests = true, store = true, system = true,
+    caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
+    variables = { "DECLARED", "H" }, named = { H = true },
+    spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
+    unresolved = "no reason",
+  }
+  return {
+    id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
+    runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ns = Time.seconds(30),
+    program = "program", host = "host", system = "system", launcher = "launcher",
+    declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
+    environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
+    runs_tool = true, closure_store = "address", tree = "/checkout",
+  }
+end
+
+--- Every field of a spec ([`declared_key.Spec`]), and of its effective
+--- inputs ([`test_inputs.Effective`]), moves the key, but those named
+--- with why no key needs them: the fields are the records' own, as the
+--- catalog lists them, so a field added to either and left out of the
+--- key fails here.
+local function test_every_field_of_a_spec_moves_it(tmp: string)
+  local root, hostdir = tmp .. "/tree", tmp .. "/hostdir"
+  tree(root)
+  local function key(s: declared_key.Spec): string return key_of(root, s) end
+  local function append(field: string): Change<declared_key.Spec>
+    return { change = function(s: declared_key.Spec)
+      local t = s as {string:any}
+      t[field] = (t[field] as string) .. "x"
+    end }
+  end
+  local spec_changes: {string:Change<declared_key.Spec>} = {
+    id = append("id"), module_key = append("module_key"), runtime = append("runtime"),
+    compiler = append("compiler"), host = append("host"),
+    epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch .. "0" end },
+    timeout_ns = { change = function(s: declared_key.Spec) s.timeout_ns = s.timeout_ns + Time.seconds(1) end },
+    launcher = append("launcher"), declaration = append("declaration"),
+    -- Keyed only for an unsandboxed worker, which sees the tree there.
+    tree = append("tree"),
+    -- Keyed only for a module given the system's paths.
+    system = append("system"),
+    -- Keyed only for a test that runs the tool.
+    program = append("program"),
+    -- Keyed only where the module does not declare `store`.
+    closure_store = { from = function(s: declared_key.Spec) s.effective.store = false end,
+      change = function(s: declared_key.Spec) s.closure_store = "another" end },
+    -- Either it or the module's `tool` keys the tool.
+    runs_tool = { from = function(s: declared_key.Spec) s.effective.tool = false end,
+      change = function(s: declared_key.Spec) s.runs_tool = false end },
+    environment = { change = function(s: declared_key.Spec) s.environment.DECLARED = "e" end },
+    -- Each of its own fields is held below.
+    effective = { change = function(s: declared_key.Spec) s.effective.files["suite/data/a.txt"] = true end },
+  }
+  each_field_moves("Spec", fields_of("build.declared_key", "Spec"),
+    function(): declared_key.Spec return full_spec(hostdir) end,
+    function(s: declared_key.Spec): any return s end, key, spec_changes, {
+      group = "names the tests whose specs are the same but for `id`, which `compute` " ..
+        "digests the rest of once for: no input",
+    })
+  local effective_changes: {string:Change<declared_key.Spec>} = {
+    files = { change = function(s: declared_key.Spec) s.effective.files["suite/data/a.txt"] = true end },
+    reads = { change = function(s: declared_key.Spec)
+      table.insert(s.effective.reads, "suite/unrelated.txt")
+    end },
+    host = { change = function(s: declared_key.Spec)
+      table.insert(s.effective.host, hostdir .. "/elsewhere")
+    end },
+    tool = { from = function(s: declared_key.Spec) s.runs_tool = false end,
+      change = function(s: declared_key.Spec) s.effective.tool = false end },
+    store = { change = function(s: declared_key.Spec) s.effective.store = false end },
+    system = { change = function(s: declared_key.Spec) s.effective.system = false end },
+    named = { change = function(s: declared_key.Spec) s.effective.named = {} end },
+    spelled = { change = function(s: declared_key.Spec)
+      s.effective.spelled[hostdir .. "/host.txt"] = "$G/host.txt"
+    end },
+    located = { change = function(s: declared_key.Spec) s.effective.located.H = tmp end },
+  }
+  local declaration = "what the module declares, which `declaration` keys as " ..
+    "`test_inputs.canonical` spells it"
+  each_field_moves("Effective", fields_of("build.test_inputs", "Effective"),
+    function(): declared_key.Spec return full_spec(hostdir) end,
+    function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
+      env = declaration .. ", and `environment` by what the worker is given",
+      network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
+        "offline worker's own loopback answers",
+      variables = declaration,
+      lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
+        "and `closure_store`: every process it starts is held to that closure " ..
+        "(build.test_worker's `hold_children`)",
+      standalone = declaration .. ", and what it adds to the closure beside `lua` " ..
+        "(`standalone_loads`) by `files` and `closure_store`",
+      nests = declaration .. ", and, where the module does not declare `tool`, " ..
+        "`runs_tool` (build.test's `tool_use`)",
+      caches = "content-addressed, which never changes a result (build.caches)",
+      cache_paths = "where the host keeps its caches: content-addressed, which never " ..
+        "changes a result (build.caches)",
+      unresolved = "a module with a host path that cannot be given runs no test to key " ..
+        "(`build.test`'s `unresolved`)",
+    })
+end
+
+--- Every field of where the host's identity looks (`HostSources`)
+--- moves what a key holds of the host, `host_identity` and
+--- `system_identity`: the fields are the record's own, as the catalog
+--- lists them.
+local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
+  local function write(name: string, text: string): string
+    assert(Fs.write(tmp .. "/" .. name, text))
+    return tmp .. "/" .. name
+  end
+  write("packages2", "p2")
+  write("os2", "o2")
+  write("status2", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
+  local function make(): declared_key.HostSources
+    return {
+      packages = { write("packages", "p1") },
+      system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
+      sysname = "Linux", system_id = "s1",
+      cpu_features = { "aes", "pclmulqdq", "asimd" }, machine = "x86_64",
+      status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\nGid: 1 1 1 1\n"),
+      own_proc = true, host_id = "h1", uid = 1, gid = 1, groups = { 1, 20 },
+      walked = { write("walked", "w1") }, worker_uid = 65532, worker_gid = 65532,
+    }
+  end
+  -- The runner's own user and status, which a worker run as a user of
+  -- its own is not keyed by, but for what it keeps of the runner's.
+  local function as_runner(s: declared_key.HostSources)
+    s.worker_uid, s.worker_gid = nil, nil
+  end
+  -- A host with no /proc/self/status, as macOS is, whose groups the
+  -- bindings answer.
+  local function without_status(s: declared_key.HostSources)
+    as_runner(s)
+    s.status = tmp .. "/no-status"
+  end
+  local function key(sources: declared_key.HostSources): string
+    local digests = declared_key.digests(tmp)
+    return declared_key.host_identity(digests, sources) .. " " ..
+      declared_key.system_identity(digests, sources, true)
+  end
+  local function set(field: string, value: any): Change<declared_key.HostSources>
+    return { change = function(s: declared_key.HostSources)
+      (s as {string:any})[field] = value
+    end }
+  end
+  local changes: {string:Change<declared_key.HostSources>} = {
+    packages = set("packages", { tmp .. "/packages2" }),
+    system = { change = function(s: declared_key.HostSources) s.system[1] = tmp .. "/os2" end },
+    -- Read only where `system` names none, to choose where to look.
+    sysname = { from = function(s: declared_key.HostSources) s.system = nil end,
+      change = function(s: declared_key.HostSources) s.sysname = "Darwin" end },
+    system_id = set("system_id", "s2"), cpu_features = set("cpu_features", { "aes" }),
+    machine = set("machine", "aarch64"),
+    status = { from = as_runner, change = set("status", tmp .. "/status2").change },
+    own_proc = set("own_proc", false), host_id = set("host_id", "h2"),
+    uid = { from = as_runner, change = set("uid", 2).change },
+    gid = { from = without_status, change = set("gid", 2).change },
+    groups = { from = without_status, change = set("groups", { 1 }).change },
+    worker_uid = set("worker_uid", 65533), worker_gid = set("worker_gid", 65533),
+    walked = set("walked", { write("walked2", "w22") }),
+  }
+  each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
+    function(s: declared_key.HostSources): any return s end, key, changes, {})
+end
+
+--- A worker a root runner runs as a user of its own is keyed as that
+--- user, with no group and no capability but the bounding set it keeps,
+--- whatever groups and capabilities root had. It keys apart from a
+--- worker run as root or as another user, and from the worker of a
+--- runner that is that user: a root runner's sandbox can give its
+--- worker what only root may read.
+local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp: string)
+  local function status(name: string, text: string): string
+    assert(Fs.write(tmp .. "/" .. name, text))
+    return tmp .. "/" .. name
+  end
+  local tail = "CapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\n" ..
+    "NoNewPrivs:\t0\nSeccomp:\t0\n"
+  local root = status("root", "Name:\tx\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n" ..
+    "Groups:\t0 \nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\n" ..
+    "CapEff:\t000001ffffffffff\n" .. tail)
+  local user = status("user", "Name:\tx\nUid:\t65532\t65532\t65532\t65532\n" ..
+    "Gid:\t65532\t65532\t65532\t65532\nGroups:\t \nCapInh:\t0000000000000000\n" ..
+    "CapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n" .. tail)
+  local function host(sources: declared_key.HostSources): string
+    sources.system = { "", "", "" }
+    sources.cpu_features, sources.machine, sources.own_proc, sources.host_id =
+      { "aes" }, "x86_64", true, "h"
+    return declared_key.host_identity(declared_key.digests(tmp), sources)
+  end
+  local dropped = host({ status = root, uid = 0, worker_uid = 65532, worker_gid = 65532 })
+  assert(dropped ~= host({ status = user, uid = 65532 }),
+    "keyed as that user's own runner's worker, which reads what root's could not give it")
+  assert(dropped ~= host({ status = root, uid = 0 }), "keyed as root")
+  assert(dropped ~= host({ status = root, uid = 0, worker_uid = 65533, worker_gid = 65533 }))
+  local other_root = status("other-root", "Name:\tx\nUid:\t0\t0\t0\t0\n" ..
+    "Gid:\t0\t0\t0\t0\nGroups:\t0 10 \nCapInh:\t0000000000000000\n" ..
+    "CapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\n" .. tail)
+  assert(dropped == host({ status = other_root, uid = 0, worker_uid = 65532,
+    worker_gid = 65532 }), "keyed by the groups and capabilities of the root it left")
+end
+
+--- Where there is no /proc/self/status (macOS), the key holds the group
+--- and the supplementary groups the bindings answer, each group once,
+--- in any order the system lists them; a worker run as a user of its
+--- own is keyed by its group alone. Where there is one, its lines are
+--- the key's and these move nothing, so a Linux key holds its status
+--- file's lines alone.
+local function test_the_groups_key_a_host_with_no_status(tmp: string)
+  assert(Fs.write(tmp .. "/status", "Name:\tx\nUid:\t1\t1\t1\t1\nGid:\t1\t1\t1\t1\n" ..
+    "Groups:\t1 20 \n"))
+  local function host(status: string, gid: integer, groups: {integer},
+                      worker?: integer): string
+    return declared_key.host_identity(declared_key.digests(tmp), {
+      system = { "", "", "" }, cpu_features = { "aes" }, machine = "arm64",
+      own_proc = false, host_id = "h", uid = 501, status = tmp .. "/" .. status,
+      gid = gid, groups = groups, worker_uid = worker, worker_gid = worker,
+    })
+  end
+  local base = host("none", 20, { 20, 12, 61 })
+  assert(base == host("none", 20, { 61, 12, 20, 12 }), "the order or a repeat moved it")
+  assert(base ~= host("none", 20, { 12, 61 }), "a group left out")
+  assert(base ~= host("none", 12, { 20, 12, 61 }), "another group")
+  assert(host("none", 20, {}, 65532) == host("none", 20, { 20, 12, 61 }, 65532),
+    "a worker of its own is keyed by groups it does not have")
+  assert(host("none", 20, {}, 65532) ~= host("none", 20, {}, 65533), "the worker's group")
+  assert(host("status", 20, { 20 }) == host("status", 12, { 61 }),
+    "a host with a status read the bindings")
+  -- This host's own, read where none are given.
+  assert(#host("none", nil, nil) == 64)
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,
@@ -179,8 +570,9 @@ end
 --- reads nothing; one rewritten is read again.
 local function test_a_file_hashed_once_is_not_read_again(tmp: string)
   tree(tmp)
-  -- Settled, as a file a run remembers must be: older than a rewrite
-  -- within its timestamp's tick could go unseen.
+  -- Settled, as a file must be for a run to remember its digest: a
+  -- rewrite of a newer one could fall within its timestamp's tick and
+  -- go unseen.
   for _, file in ipairs({ "suite/t_test.tl", "suite/lib.tl", "suite/data/a.txt",
                           "suite/data/deeper/b.txt" }) do
     assert(sys.utimensat(tmp .. "/" .. file, 1000000000, 0, 1000000000, 0))
@@ -240,12 +632,13 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(key_of(root) ~= nil)
 end
 
---- A `host` path a variable names is keyed by what it holds and by the
+--- A `host` file a variable names is keyed by what it holds and by the
 --- name it is declared by, not by where the variable says it is: the
 --- same contents at another place key the same, and the variable's
 --- value in the worker's environment is held by that name too; a
---- change to what it holds moves the key, a file beneath a directory
---- as a file; and a link beneath it that leads out of it has no key.
+--- change to what it holds moves the key, as does one to what a link
+--- declared leads to. A directory there is refused before any key is
+--- made: no key walks what a host directory holds.
 local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: string)
   local root = tmp .. "/root"
   tree(root)
@@ -256,7 +649,7 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     assert(Fs.write(dir .. "/o/bin/cosmic", contents))
     return dir
   end
-  local function key_at(where: string, declared: string): string
+  local function resolved(where: string, declared: string): declared_key.Spec
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = where })
     s.effective.host = { declared }
     s.effective.env.PRODUCT = true
@@ -264,20 +657,18 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     s.effective.variables = { "DECLARED", "PRODUCT" }
     s.declaration = s.declaration .. "\nhost " .. string.format("%q", declared)
     test_inputs.resolve(s.effective, s.environment, { root })
+    return s
+  end
+  local function key_at(where: string, declared: string): string
+    local s = resolved(where, declared)
     assert(s.effective.unresolved == "", s.effective.unresolved)
     return key_of(root, s)
   end
   local one, two = product("one", "cosmic\n"), product("two", "cosmic\n")
   local file = "$PRODUCT/o/bin/cosmic"
   assert(key_at(one, file) == key_at(two, file), "the same contents elsewhere")
-  assert(key_at(one, "$PRODUCT") == key_at(two, "$PRODUCT"), "the same directory elsewhere")
-  assert(key_at(one, file) ~= key_at(one, "$PRODUCT"), "another declaration")
   assert(Fs.write(two .. "/o/bin/cosmic", "another cosmic\n"))
   assert(key_at(one, file) ~= key_at(two, file), "another file's contents")
-  assert(key_at(one, "$PRODUCT") ~= key_at(two, "$PRODUCT"), "another directory's contents")
-  local before = key_at(one, "$PRODUCT")
-  assert(Fs.write(one .. "/o/new", ""))
-  assert(key_at(one, "$PRODUCT") ~= before, "a file added beneath it")
   -- Two variables' places swapped, what each holds the same: the same key.
   local function key_of_two(a: string, b: string): string
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp", A = a, B = b })
@@ -293,17 +684,23 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     "the variables' places in another order")
   assert(key_of_two(early, late) ~= key_of_two(swapped_early, swapped_late),
     "what each holds, swapped")
-  -- A link within it is held by where it leads; one out of it has no key.
-  assert(Fs.symlink("bin/cosmic", one .. "/o/within"))
-  assert(key_at(one, "$PRODUCT") ~= nil)
-  assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/out"))
-  local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = one })
-  s.effective.host = { "$PRODUCT" }
-  s.effective.named = { PRODUCT = true }
-  s.effective.variables = { "PRODUCT" }
-  test_inputs.resolve(s.effective, s.environment, { root })
-  local key, why = declared_key.compute(declared_key.digests(root), s)
-  assert(key == nil and why:find("leads out of " .. one, 1, true), why)
+  -- A link declared is held by what it leads to, wherever that is.
+  assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/linked"))
+  local before = key_at(one, "$PRODUCT/o/linked")
+  assert(Fs.write(two .. "/o/bin/cosmic", "a third cosmic\n"))
+  assert(key_at(one, "$PRODUCT/o/linked") ~= before, "what the link leads to")
+  -- A directory, the variable's whole path or beneath it, is refused;
+  -- /proc, which no key could hold by what it holds, and what is beneath
+  -- it, are given.
+  for _, declared in ipairs({ "$PRODUCT", "$PRODUCT/o" }) do
+    local refused = resolved(one, declared).effective.unresolved
+    assert(refused:find(string.format("Test.needs host %q: ", declared), 1, true) and
+      refused:find(" is a directory; host names files, or /proc", 1, true), refused)
+  end
+  local proc = spec()
+  proc.effective.host = { "/proc", "/proc/self" }
+  test_inputs.resolve(proc.effective, proc.environment, { root })
+  assert(proc.effective.unresolved == "", proc.effective.unresolved)
 end
 
 --- The host's identity is the same from one look to the next, and says
@@ -328,11 +725,12 @@ local function test_a_frozen_run_looks_once_and_a_thawed_one_again(tmp: string)
   assert(declared_key.compute(digests, spec()) ~= before)
 end
 
---- The harness's digest holds each module it names by what it is --
---- its source's hash and its bytecode's -- and nothing else: a change
---- to either moves it, as a change to the worker would, and a module
---- it does not name does not, whatever requires it.
-local function test_a_harness_module_moves_the_harness(tmp: string)
+--- A digest of named modules ([`declared_key.harness`]: the harness's,
+--- over each module's source, and the closure store's salt, over its
+--- source and bytecode) holds each module it names by what `sources`
+--- says it is, and nothing else: a change to either word moves it, and
+--- a module it does not name does not, whatever requires it.
+local function test_a_named_module_moves_the_digest()
   local sources: {string:string} = {
     ["build.test_worker"] = "w wb", ["build.test_sandbox"] = "s sb", ["build.caches"] = "c cb",
     ["cosmic.fs"] = "f fb", ["build.docs"] = "d db",
@@ -346,8 +744,6 @@ local function test_a_harness_module_moves_the_harness(tmp: string)
     local source, bytecode = was:match("^(%S+) (%S+)$")
     sources[name] = source .. "2 " .. bytecode
     assert(declared_key.harness(names, sources) ~= before, name .. "'s source")
-    -- What the compiler made of the same source: an `is` against a
-    -- record's `where` an imported type brings is compiled into it.
     sources[name] = source .. " " .. bytecode .. "2"
     assert(declared_key.harness(names, sources) ~= before, name .. "'s bytecode")
     sources[name] = was
@@ -355,15 +751,6 @@ local function test_a_harness_module_moves_the_harness(tmp: string)
   -- Its order is no part of it.
   assert(declared_key.harness({ "cosmic.fs", "build.caches", "build.test_sandbox",
     "build.test_worker" }, sources) == before)
-  -- An unrelated test's key moves with it.
-  tree(tmp)
-  local s = spec()
-  s.harness = before
-  local key = key_of(tmp, s)
-  sources["build.test_sandbox"] = "s2 sb"
-  s = spec()
-  s.harness = declared_key.harness(names, sources)
-  assert(key_of(tmp, s) ~= key)
 end
 
 --- A key holds the compiler's identity only where the test's closure
@@ -402,7 +789,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   local sources: declared_key.HostSources = {
     packages = { write("packages", "p1") },
     system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
-    cpuinfo = write("cpuinfo", "flags : aes fma\nflags : fma aes\n"), machine = "x86_64",
+    cpu_features = { "aes", "fma", "fma", "aes" }, machine = "x86_64",
     status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
     own_proc = true, host_id = "h1", uid = 1,
   }
@@ -417,7 +804,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   end
   differs("the start")
   assert(identity() == identity(), "the same host")
-  write("cpuinfo", "flags : fma aes avx512f\n")
+  sources.cpu_features = { "fma", "aes", "avx512f" }
   assert(seen[identity()] == "the start", "each feature is counted once, if a core reads it")
   local installed = declared_key.system_identity(declared_key.digests(tmp), sources)
   write("packages", "p2")
@@ -431,9 +818,9 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   differs("the kernel's release")
   write("version", "v2")
   differs("the kernel's version")
-  write("cpuinfo", "flags : aes\n")
+  sources.cpu_features = { "aes" }
   assert(seen[identity()] == "the kernel's version", "a feature no core reads")
-  write("cpuinfo", "flags : aes fma pclmulqdq\n")
+  sources.cpu_features = { "aes", "fma", "pclmulqdq" }
   differs("a feature of the processor")
   write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
   differs("the capabilities")
@@ -449,7 +836,7 @@ end
 
 --- On macOS, which has no /proc, no /etc/os-release and no package
 --- database, the system volume's SystemVersion.plist names both the
---- kernel and the system (`declared_key.system_sources`): an update of
+--- kernel and the system ([`declared_key.system_sources`]): an update of
 --- it moves the host's identity and what it has installed alike. What
 --- the host names of what it has installed beyond that volume
 --- (COSMIC_SYSTEM_ID: Xcode, Homebrew) moves only what it has
@@ -464,7 +851,7 @@ local function test_a_macos_host_is_keyed_by_its_system_version(tmp: string)
   for i, path in ipairs(darwin) do system[i] = path == plist and fake or path end
   local sources: declared_key.HostSources = {
     packages = { tmp .. "/no-packages" }, system = system, status = tmp .. "/no-status",
-    cpuinfo = tmp .. "/no-cpuinfo", machine = "arm64", own_proc = false,
+    cpu_features = {}, machine = "arm64", own_proc = false,
     host_id = "macos-15", system_id = "macos15 20250901.1", uid = 501,
   }
   local function both(): string, string
@@ -487,11 +874,10 @@ end
 --- package databases and the systems they say they are -- key a test
 --- alike where its module is given none of the system's paths, and
 --- where it names a file of the host's, keyed by its contents; apart
---- where it declares `system`, or a directory of the host's, which is
---- keyed by its name alone and stands on what is installed.
+--- where it declares `system`, whose paths stand on what is installed.
 local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed(tmp: string)
   tree(tmp .. "/tree")
-  assert(Fs.mkdirs(tmp .. "/host/dir"))
+  assert(Fs.mkdirs(tmp .. "/host"))
   assert(Fs.write(tmp .. "/host/file", "f\n"))
   local function installed(packages: string, release: string): string
     assert(Fs.write(tmp .. "/packages", packages))
@@ -516,9 +902,131 @@ local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed
   assert(key_on(one, false, { "/proc/" }) == key_on(other, false, { "/proc/" }),
     "a module given /proc, which no package installs")
   assert(key_on(one, true, {}) ~= key_on(other, true, {}), "a module given the system")
-  assert(key_on(one, false, { tmp .. "/host/dir" }) ~= key_on(other, false, { tmp .. "/host/dir" }),
-    "a module given a directory of the host's")
   assert(key_on(one, true, {}) ~= key_on(one, false, {}), "declaring the system")
+end
+
+--- What the system's paths hold beneath them moves what is installed
+--- where a run walks them, as one holding a module given them does:
+--- a file changed by hand, one added, a link that leads elsewhere --
+--- none of which a package database says -- but not a walk of the same
+--- entries again. A run that holds no such module walks nothing, and
+--- nothing beneath them moves it.
+local function test_a_change_outside_a_package_moves_what_is_installed(tmp: string)
+  local usr = tmp .. "/usr"
+  assert(Fs.mkdirs(usr .. "/bin"))
+  assert(Fs.mkdirs(usr .. "/local"))
+  assert(Fs.write(usr .. "/bin/tool", "one\n"))
+  assert(sys.symlink("usr/bin", tmp .. "/bin"))
+  local sources: declared_key.HostSources = {
+    packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+    walked = { usr, tmp .. "/bin", tmp .. "/no-lib" },
+  }
+  local function installed(walk: boolean): string
+    return declared_key.system_identity(declared_key.digests(tmp), sources, walk)
+  end
+  local seen: {string:string} = {}
+  local function differs(what: string)
+    local id = installed(true)
+    assert(seen[id] == nil, what .. " is installed as " .. tostring(seen[id]) .. " was")
+    seen[id] = what
+  end
+  local unwalked = installed(false)
+  differs("the start")
+  assert(installed(true) == installed(true), "the same entries")
+  assert(Fs.write(usr .. "/bin/tool", "two, longer\n"))
+  differs("a file changed by hand")
+  assert(Fs.write(usr .. "/local/installed", "from source\n"))
+  differs("a file added beside every package")
+  assert(Fs.remove(tmp .. "/bin"))
+  assert(sys.symlink("usr/local", tmp .. "/bin"))
+  differs("a link that leads elsewhere")
+  assert(installed(false) == unwalked, "a run that walks nothing moved")
+  -- A directory's own modification time is no part of it: a cache
+  -- written beneath one and removed again moves only that.
+  local before = installed(true)
+  assert(Fs.write(usr .. "/bin/__pycache__", "x"))
+  assert(Fs.remove(usr .. "/bin/__pycache__"))
+  assert(installed(true) == before, "a directory's modification time moved it")
+end
+
+--- The walk of what is installed leaves out /etc, the host's
+--- configuration, which adding a user or saving the clock's drift
+--- rewrites: a /etc/passwd whose modification time alone moved, or
+--- whose contents did, moves nothing.
+local function test_the_walk_of_what_is_installed_leaves_out_etc(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/usr"))
+  assert(Fs.mkdirs(tmp .. "/etc"))
+  assert(Fs.write(tmp .. "/etc/passwd", "root:x:0:0\n"))
+  local function installed(): string
+    return declared_key.system_identity(declared_key.digests(tmp), {
+      packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+      walked = { tmp .. "/usr", tmp .. "/etc" },
+    }, true)
+  end
+  local before = installed()
+  assert(Fs.set_mtime(tmp .. "/etc/passwd", 1000000000))
+  assert(installed() == before, "/etc/passwd's modification time moved it")
+  assert(Fs.write(tmp .. "/etc/passwd", "root:x:0:0\nrunner:x:1001:1001\n"))
+  assert(installed() == before, "a user added moved it")
+end
+
+--- A walk is remembered, in this run and, through `kept`, the next, by
+--- what `lstat` says of each directory it walked: while none moved it is
+--- not walked again, even where a file was written in place, which moves
+--- no directory; a file added moves its directory, and it is.
+local function test_a_walk_is_remembered_while_no_directory_moves(tmp: string)
+  local usr = tmp .. "/usr"
+  assert(Fs.mkdirs(usr .. "/bin"))
+  assert(Fs.write(usr .. "/bin/tool", "one\n"))
+  local long_ago = 1000000000
+  for _, dir in ipairs({ usr, usr .. "/bin" }) do assert(Fs.set_mtime(dir, long_ago)) end
+  local sources: declared_key.HostSources = {
+    packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" }, walked = { usr },
+  }
+  local digests = declared_key.digests(tmp)
+  local first = declared_key.system_identity(digests, sources, true)
+  assert(digests.read == 1, "the first walk read " .. digests.read)
+  assert(declared_key.system_identity(digests, sources, true) == first)
+  assert(digests.read == 1, "a walk no directory moved since was walked again")
+  local next_run = declared_key.digests(tmp, declared_key.kept(digests))
+  local fd = assert(Fs.open_write(usr .. "/bin/tool"))
+  assert(Fs.put(fd, "two, written in place\n"))
+  assert(Fs.close(fd))
+  assert(declared_key.system_identity(next_run, sources, true) == first,
+    "a remembered walk was not remembered in the next run")
+  assert(next_run.read == 0, "the next run walked again")
+  assert(Fs.write(usr .. "/bin/added", "new\n"))
+  assert(declared_key.system_identity(next_run, sources, true) ~= first,
+    "a file added, which moved its directory, moved nothing")
+  assert(next_run.read == 1)
+end
+
+--- The host programs a test's processes run from the system's paths --
+--- the `sh`, `sed`, `wc` and `tr` bin/zig's scripts run for the C check
+--- (build/c/init.tl) -- are what the key of a module given those paths
+--- holds: a `wc` replaced on the PATH they are found on moves it, where
+--- the module declares `system`, and a module not given them, whose
+--- processes cannot run them, does not move.
+local function test_a_changed_tool_moves_a_system_modules_key(tmp: string)
+  tree(tmp .. "/tree")
+  local bin = tmp .. "/host/usr/bin"
+  assert(Fs.mkdirs(bin))
+  for _, tool in ipairs({ "sh", "sed", "wc", "tr" }) do
+    assert(Fs.write(bin .. "/" .. tool, tool .. "\n"))
+  end
+  local function key_on(declares_system: boolean): string
+    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PATH = bin })
+    s.system = declared_key.system_identity(declared_key.digests(tmp), {
+      packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+      walked = { tmp .. "/host/usr" },
+    }, declares_system)
+    s.effective.system = declares_system
+    return key_of(tmp .. "/tree", s)
+  end
+  local given, not_given = key_on(true), key_on(false)
+  assert(Fs.write(bin .. "/wc", "another wc\n"))
+  assert(key_on(true) ~= given, "a changed wc moved no key of a module given the system")
+  assert(key_on(false) == not_given, "a module not given the system moved")
 end
 
 --- The program's identity is its files' contents, but for the stamp
@@ -535,13 +1043,13 @@ local function test_the_program_is_keyed_by_its_contents(tmp: string)
     now, "the stamp moved it")
 end
 
---- A program as an artifact lays it out (`artifact.host_program`),
+--- A program as an artifact lays it out ([`artifact.host_program`]),
 --- written to `path`: `core` ahead of a database carrying `meta` and
 --- one module, `cosmic.thing`, whose bytecode is `bytecode`.
 local function program_at(path: string, core: string, meta: {string:string}, bytecode: string)
   local db_path = path .. ".db"
   local _, _ = Fs.remove(db_path)
-  local db = assert(Sqlite.open(db_path, true))
+  local db = assert(Sqlite.open(db_path, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
     "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
   local keys: {string} = {}
@@ -564,12 +1072,12 @@ local function program_at(path: string, core: string, meta: {string:string}, byt
 end
 
 --- A program is keyed by what it runs as: its image and the rows it
---- carries, but not the rows of its `meta` every edit of the tree
---- moves -- `boot_hash`, over every file of the tool's trees but their
---- tests, and `projected`, over the whole projection -- so a tool
---- written again for an edit that moved nothing it carries (a boot
---- after a comment in a test) keys as it did, in the program that runs
---- and in o/bin alike, while a carried module and the core move both.
+--- carries. The `meta` rows that every edit of the tree moves are left
+--- out: `boot_hash`, over every file of the tool's trees but their
+--- tests, and `projected`, over the whole projection. So a tool written
+--- again for an edit that changes nothing it carries (a boot after a
+--- comment in a test) keeps its key, both as the running program and in
+--- o/bin, while a carried module or the core moves it.
 local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   tree(tmp)
   assert(Fs.mkdirs(tmp .. "/o/bin"))
@@ -610,7 +1118,7 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   assert(image_program ~= program and image_program ~= module_program,
     "the image left the program")
   assert(image_key ~= key and image_key ~= module_key, "the image left the key")
-  -- A text's bytes after a NUL, which quote() would end it at.
+  -- A text's bytes after a NUL, where SQLite's quote() would end it.
   meta.note = "a\0one"
   program_at(tool, "core one", meta, "bytecode one")
   local one_program = keys()
@@ -660,6 +1168,52 @@ local function test_an_artifacts_launcher_moves_every_key(tmp: string)
     "missing")
 end
 
+--- A core that carries DWARF, as the checked core does, is keyed by its
+--- image wherever a key holds it -- the launcher an artifact runs, the
+--- program a test runs, the core that program extracts -- so a rebuild
+--- whose DWARF names another checkout's directory, as musl's does,
+--- moves none of them, and one whose code moved moves each.
+local function test_a_core_carrying_dwarf_is_keyed_by_its_image(tmp: string)
+  tree(tmp)
+  local root = assert(Fs.absolute(tmp))
+  local path = root .. "/cosmic-checked"
+  local core_path = root .. "/core-checked"
+  local meta: {string:string} = { writer = "w", compiler = "c" }
+  local function identities(core: string): {string}
+    program_at(path, core, meta, "bytecode")
+    assert(Fs.write(core_path, core))
+    local digests = declared_key.digests(root)
+    return { declared_key.launcher_identity(digests, path),
+      declared_key.program_identity(digests, { path }),
+      declared_key.program_identity(digests, { core_path }) }
+  end
+  local one = identities(fixture.elf("code", "DW_AT_comp_dir /home/runner/work/cosmic"))
+  local other = identities(fixture.elf("code", "DW_AT_comp_dir /__w/elsewhere/cosmic/cosmic"))
+  local moved = identities(fixture.elf("edoc", "DW_AT_comp_dir /home/runner/work/cosmic"))
+  for i, what in ipairs({ "launcher", "program", "extracted core" }) do
+    assert(one[i] == other[i], "the DWARF moved the " .. what)
+    assert(one[i] ~= moved[i], "the code left the " .. what)
+  end
+end
+
+--- The running core's runtime identity is remembered by the digest of
+--- its bytes: a run on a core an earlier one keyed by its image keys it
+--- so again without reading it, one keyed whole keys as the binary
+--- names it, and one the running core is not keys as named too.
+local function test_the_runtime_identity_is_remembered_by_the_core(tmp: string)
+  local digests = declared_key.digests(tmp)
+  local image = ("ab"):rep(32)
+  local core = ("cd"):rep(32)
+  digests.hashed["runtime-image\0" .. core] = "image 1 2\0" .. image
+  assert(declared_key.runtime_identity(digests, "raw", core, "basis") ==
+    core_image.runtime(image, 1, 2, "basis"))
+  assert(digests.used["runtime-image\0" .. core])
+  digests.hashed["runtime-image\0" .. core] = "whole\0" .. core
+  assert(declared_key.runtime_identity(digests, "raw", core, "basis") == "raw")
+  -- Not the running core, whose bytes this cannot read: as named.
+  assert(declared_key.runtime_identity(digests, "raw", ("ef"):rep(32), "basis") == "raw")
+end
+
 --- The store a worker is given at o/cosmic.db: the whole projection by
 --- its contents where the module declares `store`, and the store of its
 --- closure by its address where it does not -- so a projection moved by
@@ -677,4 +1231,47 @@ local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
   assert(Fs.write(tmp .. "/o/cosmic.db", "two"))
   assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")
   assert(key_of(tmp, whole) ~= whole_before, "the projection left a declared store's key")
+end
+
+--- `key_part` hex-encodes both the path and the answer; these literals
+--- pin the encoding for the bytes most likely to break a lookup-table
+--- rewrite of it: NUL, newline, DEL, and 0xff, plus a multibyte UTF-8
+--- path, none of which are ASCII letters or digits.
+local function test_key_part_matches_known_hex_for_edge_bytes()
+  local edges = string.char(0x00, 0x0a, 0x7f, 0xff)
+  assert(key_parts.key_part("s", edges, "") == "s 000a7fff ")
+  assert(key_parts.key_part("o", "", edges) == "o  000a7fff")
+  assert(key_parts.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
+end
+
+--- A closure store is keyed by its bytes ([`declared_key.store_digest`]):
+--- the same bytes at another path -- another address -- digest alike,
+--- other bytes do not, and a store rewritten in place is read again.
+local function test_a_store_is_digested_by_its_bytes(tmp: string)
+  local digests = declared_key.digests(tmp)
+  assert(Fs.write(tmp .. "/one.db", "rows"))
+  assert(Fs.write(tmp .. "/two.db", "rows"))
+  assert(Fs.write(tmp .. "/three.db", "other rows"))
+  local one = declared_key.store_digest(digests, tmp .. "/one.db")
+  assert(one == Hash.hex_sha256("rows"), one)
+  assert(declared_key.store_digest(digests, tmp .. "/two.db") == one)
+  assert(declared_key.store_digest(digests, tmp .. "/three.db") ~= one)
+  assert(declared_key.store_digest(digests, tmp .. "/none.db") == "missing")
+  assert(Fs.write(tmp .. "/one.db", "rewritten rows"))
+  assert(declared_key.store_digest(digests, tmp .. "/one.db") == Hash.hex_sha256("rewritten rows"))
+end
+
+--- A file an earlier run kept a hash of, rewritten since, is read once
+--- in a run however many keys hold it: the hash this run took stands
+--- ahead of the earlier run's, which no longer matches what `lstat`
+--- says. Only the reads move; each answer is the file's hash either way.
+local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: string)
+  local path = tmp .. "/store.db"
+  assert(Fs.write(path, "rows"))
+  local digests = declared_key.digests(tmp, { { "store\0" .. path, "an earlier lstat",
+    Hash.hex_sha256("earlier rows") } })
+  for _ = 1, 3 do
+    assert(declared_key.store_digest(digests, path) == Hash.hex_sha256("rows"))
+  end
+  assert(digests.read == 1, "read " .. tostring(digests.read) .. " times")
 end

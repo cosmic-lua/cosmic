@@ -97,6 +97,29 @@ local function test_deterministic_mode_zeroes_mtime_uid_and_gid()
   assert(entry.mtime == 0 and entry.uid == 0 and entry.gid == 0)
 end
 
+local function test_a_size_below_zero_or_no_integer_raises()
+  local w = Tar.writer(Stream.collect())
+  for _, size in ipairs({ -1, 1.5 } as {number}) do
+    local ok, why: boolean, any = pcall(function()
+      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer })
+    end)
+    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true),
+      tostring(why))
+    assert(tostring(why):find("tar_test", 1, true), "blames the caller: " .. tostring(why))
+  end
+  -- Whatever the body, and before any other refusal of the call.
+  for _, call in ipairs({
+    function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
+    function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
+  } as {function()}) do
+    local ok, why: boolean, any = pcall(call)
+    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true),
+      tostring(why))
+  end
+  assert(w:add_file("g", "x"))
+  assert(w:close())
+end
+
 local function test_add_file_from_a_reader_needs_an_explicit_size()
   local c = Stream.collect()
   local w = Tar.writer(c)
@@ -288,7 +311,7 @@ local function octal(n: integer, width: integer): string
   return string.format("%0" .. tostring(width - 1) .. "o", n) .. "\0"
 end
 
---- A bare ustar header block, for the entries `Tar.writer` would never
+--- A bare ustar header block, for the entries [`Tar.writer`] would never
 --- produce.
 local function header(name: string, typeflag: string, size: integer): string
   local block = field(name, 100) .. octal(420, 8) .. octal(0, 8) .. octal(0, 8) ..
@@ -334,8 +357,8 @@ local function pax_rec(key: string, value: string): string
 end
 
 local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
-  -- Forty global headers, each naming a distinct 256 KiB key, used to
-  -- stay in memory for the reader's lifetime.
+  -- Forty global headers, each naming a distinct 256 KiB key, would
+  -- stay in memory for the reader's lifetime if every key were kept.
   local parts: {string} = {}
   local big = string.rep("v", 256 * 1024)
   for i = 1, 40 do
@@ -534,4 +557,52 @@ local function test_a_stale_entry_cannot_be_opened()
   local body, trouble = a:open()
   assert(body == nil and trouble:find("no longer current", 1, true) ~= nil, trouble)
   assert(Stream.read_all((assert(b:open()))) == "two")
+end
+
+local function test_a_reader_body_is_read_to_its_stated_size_and_no_further()
+  local source = Stream.from_string("abcdefghij")
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file("f", source, { size = 4 }))
+  assert(w:close())
+  assert(Stream.read_all(source) == "efghij", "the writer read past its stated size")
+  local r = Tar.reader(Stream.from_string(c:result()))
+  local entry = assert(r:next())
+  assert(entry.size == 4 and Stream.read_all((assert(entry:open()))) == "abcd")
+end
+
+local function test_a_failing_body_names_what_the_writer_was_doing()
+  local bad: Stream.Reader = {}
+  bad.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    return nil, "disk on fire"
+  end
+  bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local w = Tar.writer(Stream.collect())
+  local ok, trouble = w:add_file("f", bad, { size = 3 })
+  assert(not ok and trouble == "tar: add_file: disk on fire", trouble)
+  assert(not w:add_file("g", "x"))
+end
+
+local function test_a_link_target_holding_a_nul_byte_is_refused()
+  local w = Tar.writer(Stream.collect())
+  local ok, trouble = w:add_symlink("l", "a\0b")
+  assert(not ok and trouble == "tar: NUL byte in a link target", trouble)
+  -- A refused argument is not a failed write.
+  assert(w:add_symlink("l", "ok"))
+end
+
+--- A failing Writer's own words are what the writer answers, as they
+--- are; a failing body Reader's are told what the writer was doing.
+local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
+  local full: Stream.Writer = {}
+  full.write = function(_self: Stream.Writer, _data: string): boolean, string
+    return false, "disk full"
+  end
+  full.close = function(_self: Stream.Writer): boolean, string return true, "" end
+  full.abort = full.close
+  local w = Tar.writer(full)
+  local ok, trouble = w:add_file("f", Stream.from_string(string.rep("x", 100000)), { size = 100000 })
+  assert(not ok and trouble == "disk full", trouble)
+  ok, trouble = w:close()
+  assert(not ok and trouble == "disk full", trouble)
 end

@@ -2,9 +2,9 @@
 --- checked the way `cosmic fix` checks the core: through clang's dump.
 
 local Fs = require("cosmic.fs")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 local c = require("build.c")
-local observations = require("build.filesystem_observations")
 local rules = require("build.c.rules")
 
 --- The core's C and the headers it includes, which zig parses to a syntax
@@ -74,8 +74,8 @@ int f(lua_State *L) {
 ]]))
 end
 
---- The bug core/surface.c's print once had: luaL_tolstring pushes its
---- string above the buffer, and luaL_addstring then writes over it.
+--- luaL_tolstring pushes its string above the open buffer, and
+--- luaL_addstring then writes over it.
 local function test_a_buffer_call_above_a_pushed_value_is_found(tmp: string)
   one(findings(tmp, header .. [[
 int f(lua_State *L) {
@@ -366,6 +366,71 @@ COSMIC_SYSCALL(entropy, 1) {
 ]]))
 end
 
+--- A binding declared to take a descriptor takes it through core/check.h's
+--- refusal of the artifact's retained descriptor: read takes one bare,
+--- dup2 checks its first and not its second, and a local named for a
+--- descriptor is found wherever it is taken bare.
+local function test_a_descriptor_taken_bare_is_found(tmp: string)
+  local found = only(findings(tmp, header .. [[
+#include "syscalls.h"
+#include "check.h"
+#include "fail.h"
+COSMIC_SYSCALL(read, 2) {
+  int fd = cosmic_checkint(L, 1);
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(dup2, 2) {
+  int from = cosmic_checkfd(L, 1);
+  int to = cosmic_checkint(L, 2);
+  return from == to ? cosmic_ok(L) : cosmic_fail_effect(L, EBADF);
+}
+
+static int helper (lua_State *L) {
+  int dir_fd = cosmic_optint(L, 1, -1);
+  int dirfd;
+  dirfd = cosmic_checkint(L, 2);
+  lua_pushinteger(L, dir_fd + dirfd);
+  return 1;
+}
+]]), "descriptor-argument")
+  local said: {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
+  assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read"
+    and found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2"
+    and found[4].line == 22 and found[4].within == "helper"
+    and found[5].line == 24 and found[5].within == "helper",
+    "found: " .. table.concat(said, ", "))
+end
+
+--- A descriptor taken through a check, directly or through a helper of
+--- the file handed its position, or out of a table through
+--- `cosmic_argfd`, is not found.
+local function test_a_descriptor_taken_through_a_check_is_not(tmp: string)
+  none(only(findings(tmp, header .. [[
+#include "syscalls.h"
+#include "check.h"
+#include "fail.h"
+static int stream (lua_State *L, int arg) {
+  lua_Integer value = luaL_checkinteger(L, arg);
+  cosmic_argfd(L, arg, value);
+  return value > INT_MAX ? -1 : (int)value;
+}
+
+COSMIC_SYSCALL(dup2, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  int to = stream(L, 2);
+  return fd == to ? cosmic_ok(L) : cosmic_fail_effect(L, EBADF);
+}
+
+COSMIC_SYSCALL(fstat, 1) {
+  lua_pushinteger(L, cosmic_checkfd(L, 1));
+  return 1;
+}
+]]), "descriptor-argument"))
+end
+
 --- `case.c`'s functions, declared in `case.h`.
 local function declared_in_header(tmp: string, declarations: string, source: string):
     {rules.Finding}
@@ -569,61 +634,27 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
   none(only(outcomes[1].findings, "single-file"))
 end
 
---- Checking C starts its compilers as declared processes: what names the
---- pinned zig is read, and every header a compiler read but the pinned
---- zig's own -- one beside the file included -- so a test of it stands on
---- them, and a header's change runs it again.
-local function test_checking_reads_what_the_compiler_read(tmp: string)
-  assert(Fs.write(tmp .. "/extra.h", "int extra(void);\n"))
-  local zig_cache = assert(Fs.cache_path("zig"))
-  local run = observations.call(function()
-    local _ = findings(tmp, header .. '#include "extra.h"\nint f(void) { return 0; }\n')
-  end, nil)
-  assert(run.passed, run.message)
-  local read: {string: boolean} = {}
-  local listed: {string: boolean} = {}
-  local whole_environment = false
-  local started: {string} = {}
-  for _, observation in ipairs(run.reads) do
-    if observation.kind == "o" then read[observation.path] = true end
-    if observation.kind == "d" then listed[observation.path] = true end
-    if observation.kind == "e" and observation.path == "\0environ" then
-      whole_environment = true
-    end
-    if observation.kind == "h" or observation.kind == "p" or observation.kind == "x" then
-      started[#started + 1] = observation.kind
-    end
-    assert(not Fs.within(observation.path, zig_cache), observation.path)
+--- A compiler reads nothing it was not given: a header named by a path
+--- of the tree that neither this module declares nor the check gives
+--- its compilers -- AGENTS.md, in every checkout -- is not found, held
+--- by the worker's sandbox or, in a worker that runs in none, by the
+--- root of its own the check confines it to.
+local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
+  assert(Fs.write(tmp .. "/case.c", '#include "' .. root .. '/AGENTS.md"\n'))
+  -- A sandboxed worker, which has the tree at /tree
+  -- (build.test_sandbox's `tree`) and not AGENTS.md there, holds its
+  -- compiler to that; an unsandboxed one's is confined in a root of its
+  -- own, where the kernel gives one.
+  local sandboxed = root == "/tree"
+  local outcome = c.check(root, { "case.c" }, tmp)[1]
+  local not_found = outcome.findings == nil and outcome.trouble ~= nil and
+    outcome.trouble:find("AGENTS.md' file not found", 1, true) ~= nil
+  if not sandboxed and not not_found then
+    -- The kernel could confine none: the compiler read what it found,
+    -- which, not being C, it answers with errors rather than findings.
+    sandbox_skip.refused("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
+    return
   end
-  assert(#started > 0, "no compiler was started")
-  for _, kind in ipairs(started) do assert(kind == "h", table.concat(started, " ")) end
-  for _, path in ipairs({ root .. "/bin/zig.pin", root .. "/build/zig.tl",
-                          root .. "/core/guard.h", tmp .. "/extra.h" }) do
-    assert(read[path], path .. " was not read")
-  end
-  -- Where a header was looked for and not found is listed, so one added
-  -- there, which the compiler would find first, runs the test again.
-  for _, dir in ipairs({ root .. "/core", root .. "/vendor/lua/src", root .. "/vendor/sqlite",
-                         root .. "/vendor/mbedtls/include/mbedtls", tmp }) do
-    assert(listed[dir], dir .. " was not listed")
-  end
-  -- Only the variables the compiler is given are read: a key over the
-  -- whole environment would change with every `cd`.
-  assert(not whole_environment, "the whole environment was read")
-end
-
---- A header whose path holds what a dependency file escapes -- a space, a
---- `#`, a `$` -- is read under its own name.
-local function test_an_escaped_header_path_is_read_as_itself(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/d $x#y"))
-  assert(Fs.write(tmp .. "/d $x#y/h h.h", "int odd(void);\n"))
-  local run = observations.call(function()
-    local _ = findings(tmp, '#include "d $x#y/h h.h"\nint f(void) { return 0; }\n')
-  end, nil)
-  assert(run.passed, run.message)
-  local read = false
-  for _, observation in ipairs(run.reads) do
-    if observation.kind == "o" and observation.path == tmp .. "/d $x#y/h h.h" then read = true end
-  end
-  assert(read, "the header was not read under its own name")
+  assert(outcome.findings == nil, "the header was read")
+  assert(outcome.trouble:find("AGENTS.md' file not found", 1, true), outcome.trouble)
 end

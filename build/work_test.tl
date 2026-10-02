@@ -1,14 +1,30 @@
--- The tests of `build.work` that start the program, a build or a
+-- The tests of [`build.work`] that start the program, a build or a
 -- `cosmic test` beside this process, are build/work_tool_test.tl's.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
+local identity = require("build.identity")
 local work = require("build.work")
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
   return math.tointeger(tonumber(rows[1][1])) as integer
+end
+
+--- A run waits for another run of the tree to end its transaction on
+--- o/build.db as long as that run may hold it: through a stale tool's
+--- whole rebuild of itself, which takes more than a minute on a loaded
+--- host. Waiting only SQLite's 60 s, a run started beside a rebuilding
+--- one fails with "database is locked" (ci/fixtures/self_rebuild_test.tl's
+--- concurrent runs).
+local function test_a_run_waits_for_another_past_a_rebuild(tmp: string)
+  local handle = assert(work.open(tmp))
+  local rows = assert(Sqlite.text_rows(handle.db, "PRAGMA busy_timeout"))
+  local waits = math.tointeger(tonumber(rows[1][1])) or 0
+  assert(waits >= 10 * 60 * 1000, "o/build.db waits only " ..
+    tostring(waits) .. " ms for another run")
+  assert(work.close(handle))
 end
 
 local function test_recording_error_rolls_back_every_table(tmp: string)
@@ -17,13 +33,13 @@ local function test_recording_error_rolls_back_every_table(tmp: string)
   assert(handle.db:exec([[CREATE TEMP TRIGGER reject_coverage
     BEFORE INSERT ON coverage BEGIN SELECT RAISE(ABORT, 'injected'); END]]))
   assert(work.begin(handle))
-  assert(handle.db:exec("INSERT INTO runs VALUES ('p', 't', 1, '', 1, '', 'k', 1, 1)"))
+  assert(handle.db:exec("INSERT INTO runs VALUES ('p', 't', 1, '', 1, 'k', 1, 1)"))
   assert(handle.db:exec("INSERT INTO verdicts VALUES ('k', 1, 1, 1, 1)"))
   assert(handle.db:exec("INSERT INTO test_runs VALUES (1)"))
   local inserted, trouble = handle.db:exec("INSERT INTO coverage VALUES (1, 'p', 1, 1)")
   assert(not inserted and trouble:find("injected", 1, true) ~= nil)
   assert(work.abort(handle))
-  local reopened = assert(Sqlite.open(tmp .. "/o/build.db", false))
+  local reopened = assert(Sqlite.open(tmp .. "/o/build.db"))
   for _, table_name in ipairs({
     "runs", "verdicts", "test_runs", "coverage", "coverage_by_test",
   }) do
@@ -36,13 +52,13 @@ local function test_assertion_failure_records_atomically(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))
   assert(work.begin(handle))
-  assert(handle.db:exec("INSERT INTO runs VALUES ('p', 't', 0, 'asserted', 1, '', 'k', 1, 1)"))
+  assert(handle.db:exec("INSERT INTO runs VALUES ('p', 't', 0, 'asserted', 1, 'k', 1, 1)"))
   assert(handle.db:exec("INSERT INTO verdicts VALUES ('k', 0, 1, 1, 1)"))
   assert(handle.db:exec("INSERT INTO test_runs VALUES (1)"))
   assert(handle.db:exec("INSERT INTO coverage VALUES (1, 'p', 1, 1)"))
   assert(work.close(handle))
 
-  local reopened = assert(Sqlite.open(tmp .. "/o/build.db", false))
+  local reopened = assert(Sqlite.open(tmp .. "/o/build.db"))
   assert(count(reopened, "runs") == 1)
   assert(count(reopened, "verdicts") == 1)
   assert(count(reopened, "test_runs") == 1)
@@ -50,8 +66,8 @@ local function test_assertion_failure_records_atomically(tmp: string)
   assert(reopened:close())
 end
 
---- A warm database from the previous symbol schema is recreated before any
---- cached parse or reference row can be trusted under the new semantics.
+--- A warm database of an older symbol schema is recreated before any
+--- cached parse or reference row is trusted under the current one.
 local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   local old = assert(work.open(tmp))
   assert(work.commit(old))
@@ -197,8 +213,7 @@ end
 
 --- The zones a boot reads from a tree replace whatever the working
 --- database held, stay blobs, and read back out of any database that
---- has them -- and out of one built before there was a table for them,
---- as none.
+--- has them -- and out of one with no table for them, as none.
 local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   assert(Fs.mkdirs(tmp .. "/zoneinfo/Europe"))
   assert(Fs.write(tmp .. "/zoneinfo/UTC", "TZif utc"))
@@ -225,20 +240,43 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   assert(older:close())
 end
 
---- The compiler is one row, whatever file an older build named it by:
---- putting one replaces a row a build before this one left under
---- `o/vendor/tl/tl.lua`, so no working database holds two.
-local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/root"))
-  local handle = assert(work.open(tmp .. "/root"))
-  assert(Sqlite.run(handle.db,
-    "INSERT INTO derived (file, path, kind, origin, from_hash, source, " ..
-    "source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', 'vendor', " ..
-    "'vendor', 'old', 'return {}', 'old')", {}))
-  assert(work.put_compiler(handle, "return { new = true }"))
-  local rows = assert(Sqlite.text_rows(handle.db,
-    "SELECT file, source FROM derived WHERE origin = 'vendor'"))
-  assert(#rows == 1 and rows[1][2] == "return { new = true }",
-    "the compiler is one row: " .. tostring(#rows))
+--- Stages a tree laid out as cosmic's own and answers its `boot`
+--- fingerprint.
+local function boot_of(root: string): string
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local fingerprint = assert(identity.record_fingerprint(handle.db))
   assert(work.close(handle))
+  return fingerprint.boot
+end
+
+--- `boot_hash` follows every module the tool carries, wherever it
+--- sits: an edit to one under eval/ or test/portable, trees none of
+--- the tool's C is in, moves it, and an edit to a test or testdata
+--- beside them, which the tool never carries, does not.
+local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp: string)
+  local root = tmp .. "/root"
+  local files: {string:string} = {
+    ["build/x.tl"] = "return {}\n",
+    ["eval/summarize.tl"] = "return {}\n",
+    ["test/portable/init.tl"] = "return {}\n",
+    ["test/portable/tool_test.tl"] = "local function test_x() end\n",
+    ["eval/testdata/case.tl"] = "return {}\n",
+  }
+  for path, data in pairs(files) do
+    assert(Fs.mkdirs(root .. "/" .. path:match("^(.*)/")))
+    assert(Fs.write(root .. "/" .. path, data))
+  end
+  local before = boot_of(root)
+  assert(boot_of(root) == before, "an unchanged tree keeps its boot_hash")
+  for _, path in ipairs({ "test/portable/tool_test.tl", "eval/testdata/case.tl" }) do
+    assert(Fs.write(root .. "/" .. path, "return { edited = true }\n"))
+    assert(boot_of(root) == before, path .. " is not carried, and moves nothing")
+  end
+  for _, path in ipairs({ "eval/summarize.tl", "test/portable/init.tl" }) do
+    assert(Fs.write(root .. "/" .. path, "return { edited = true }\n"))
+    local after = boot_of(root)
+    assert(after ~= before, path .. " is carried, and moves boot_hash")
+    before = after
+  end
 end

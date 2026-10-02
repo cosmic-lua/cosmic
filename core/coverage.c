@@ -22,10 +22,6 @@
 #include "lgc.h"
 #include "lstate.h"
 
-/* Lua is pinned with the core. Reading the current Lua closure's source
- * directly avoids lua_getinfo("S") formatting a display name on every line.
- * Never cache CallInfo: Lua reuses frames. Each cached TString is kept alive
- * in the collector's uservalue table, including long strings. */
 #define SOURCE_BUCKETS 256
 #define PAGE_BITS 4096
 
@@ -50,7 +46,7 @@ typedef struct Collector {
   int from_startup;
   /* VM instructions `budget` allows before it raises, or 0 when unarmed.
    * It shares the one hook slot with collection, so both are always
-   * installed together (`install_hook`). */
+   * installed together ([`install_hook`]). */
   int budget;
 } Collector;
 
@@ -99,7 +95,7 @@ static int collector_gc (lua_State *L) {
   return 0;
 }
 
-/* Which blocks' lines `native_collect` adds: every one, those hit since the
+/* Which blocks' lines [`native_collect`] adds: every one, those hit since the
  * window opened, or those that begin a function. */
 enum native_want { NATIVE_ALL, NATIVE_HIT, NATIVE_ENTRY };
 
@@ -205,15 +201,16 @@ static void native_collect (lua_State *L, int hits, enum native_want want) {
 /* A process a test starts reports the C it ran to a directory that test's
  * worker names, so it counts for the test (build/test_worker.tl). The
  * directory travels as COSMIC_COVERAGE_CHILDREN in every environment the
- * core starts a process with, whatever environment the program gave it,
- * and is taken out of this process's own before any Lua runs: a program
- * never sees it, and a verdict's key never holds it. It travels behind
- * the signature of the core that named it (`signature`), and a process
- * reports only where that is its own: another core -- the pinned
- * release bin/zig runs, a test starts, passing the variable on as it
- * does -- would report lines of another build's C under the same
- * paths, which would credit this build's functions with lines they do
- * not have. */
+ * core starts a process with, whatever environment the program gave it.
+ * It is taken out of this process's own environment before any Lua runs,
+ * so a program never sees it and a verdict's key never holds it.
+ *
+ * The value carries the signature of the core that named the directory
+ * (`signature`), and a process reports only where that is its own. Another
+ * core -- the pinned release bin/zig runs, which a test starts and which
+ * passes the variable on -- would report lines of another build's C under
+ * the same paths, crediting this build's functions with lines they do not
+ * have. */
 #define CHILDREN_NAME "COSMIC_COVERAGE_CHILDREN"
 #define SIGNATURE_SIZE 16
 static char *children_entry; /* CHILDREN_NAME "=" signature ":" directory, or NULL */
@@ -340,6 +337,12 @@ static void budget_hook (lua_State *L, Collector *collector) {
   lua_error(L);
 }
 
+/* The line hook, and the count hook of a budget. Lua is pinned with the
+ * core, so the hook reads the running closure's source straight from its
+ * internals: lua_getinfo("S") would format a display name on every line.
+ * It never caches a CallInfo, since Lua reuses frames. Each cached
+ * TString, long strings included, is kept alive in the collector's
+ * uservalue table. */
 static void native_line_hook (lua_State *L, lua_Debug *ar) {
   Collector *collector = current_collector(L);
   if (ar->event == LUA_HOOKCOUNT) {

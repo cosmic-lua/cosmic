@@ -1,17 +1,13 @@
 --- The core's own C in coverage. A core built with native coverage --
 --- every release core and the sanitized one -- answers every C line a
 --- block begins on and puts hits on those lines; any other core answers
---- none, and its hits never name a C file.
+--- none, and its hits never name a C file. The case about a fresh
+--- process's first window, which starts this program, is in
+--- test/coverage_native_tool_test.tl.
 
-local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
-local Fs = require("cosmic.fs")
+local Hits = require("build.coverage_hits")
 local Hash = require("cosmic.hash")
-local observations = require("build.filesystem_observations")
-local Test = require("cosmic.test")
-
---- The program itself, which its tests start.
-Test.needs{ tool = true }
 
 local function is_core_c(path: string): boolean
   return path:match("^core/[%w_]+%.[ch]$") ~= nil
@@ -30,7 +26,7 @@ local function test_c_hits_land_on_native_lines()
   -- Hashing runs core/crypto.c inside this test's own window.
   assert(#Hash.sha256("coverage") == 32)
   local observable = Coverage.native_lines()
-  local hits = Coverage.snapshot()
+  local hits = Hits.snapshot()
   local crypto_hit = false
   for path, lines in pairs(hits) do
     if is_core_c(path) then
@@ -47,43 +43,11 @@ local function test_c_hits_land_on_native_lines()
   end
 end
 
---- A process's first window keeps the C that ran before it opened --
---- startup -- and every later one starts empty. Run in a fresh process,
---- since this test's own worker opened its first window long ago.
-local function test_first_window_keeps_startup(tmp: string)
-  if next(Coverage.native_lines()) == nil then return end
-  local script = tmp .. "/windows.tl"
-  assert(Fs.write(script, [[
-local Coverage = require("cosmic.coverage")
-local function main_hits(): integer
-  local session = assert(Coverage.start())
-  local hits = assert(Coverage.stop(session))
-  local count = 0
-  for _ in pairs(hits["core/main.c"] or {}) do count = count + 1 end
-  return count
-end
-return function(): integer
-  print(main_hits(), main_hits())
-  return 0
-end
-]]))
-  local started = observations.program({ script },
-    { env = observations.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
-      timeout_ms = 30000 })
-  local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, tostring(r.stderr))
-  local out = assert(r.stdout)
-  local first, second = out:match("^(%d+)\t(%d+)\n$")
-  assert(first ~= nil and second ~= nil, "unexpected output: " .. out)
-  assert(first ~= "0", "the first window saw no startup in core/main.c")
-  assert(second == "0", "a later window kept startup: " .. second)
-end
-
 --- Each C function's entry is one of its lines, and hashing enters one
 --- of core/crypto.c's functions within this test's own window.
 local function test_function_entries_are_observable_lines()
   local lines = Coverage.native_lines()
-  local entries = Coverage.native_entries()
+  local entries = Hits.native_entries()
   for path, here in pairs(entries) do
     for line in pairs(here) do
       assert((lines[path] or {})[line], path .. ":" .. line .. " is not observable")
@@ -94,7 +58,7 @@ local function test_function_entries_are_observable_lines()
     return
   end
   assert(#Hash.sha256("entries") == 32)
-  local hit = Coverage.snapshot()["core/crypto.c"] or {}
+  local hit = Hits.snapshot()["core/crypto.c"] or {}
   local entered = false
   for line in pairs(entries["core/crypto.c"] or {}) do
     entered = entered or hit[line] == true

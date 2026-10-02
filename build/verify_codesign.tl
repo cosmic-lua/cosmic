@@ -6,7 +6,7 @@
 --- Only macOS itself can judge that -- codesign is not something a
 --- Linux host can run -- so every other host takes this as a no-op: the
 --- same CI step runs unchanged on every target's own worker, and only
---- the macOS one does real work. `bin/verify-codesign` runs this on the
+--- the macOS one does real work. [`bin/verify-codesign`] runs this on the
 --- bootstrap cosmic, as bin/zig runs build/zig.tl: it requires
 --- `cosmic.*` modules only.
 local Child = require("cosmic.child")
@@ -29,10 +29,12 @@ local spec: {string:boolean | Flags.Option} = {
   ["-h"] = { about = "show this help" },
 }
 
---- Verifies `binary` on a host whose uname(2) sysname is `sysname`,
---- with codesign, found on `path` (PATH when nil) as the shell script
---- found it, and its own output passing straight through; the exit
---- status the shell script gave.
+--- Verifies `binary` with codesign when `sysname` (uname(2)'s) is
+--- "Darwin", and skips on any other host. codesign is found on `path`
+--- (PATH when nil), and its output passes straight through. Returns 0
+--- when the signature passes or the check is skipped, codesign's own
+--- exit status when it fails, and 127 when codesign cannot be found or
+--- started.
 function VerifyCodesign.verify(sysname: string, binary: string, path?: string): integer
   if sysname ~= "Darwin" then
     log:say("verify-codesign: skipped (" .. binary .. " only verifies on macOS)")
@@ -56,8 +58,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
     end
     argv[#argv + 1] = binary
     local result, trouble = Child.run(argv)
-    -- A codesign that cannot be started is 127 whatever the reason, as
-    -- for a missing command; the message says which.
+    -- 127 whatever the reason it did not start; the message says which.
     if result == nil then
       log:complain(tool .. ": " .. trouble)
       return 127
@@ -77,7 +78,7 @@ function VerifyCodesign.main(argv: {integer: string}): integer
     return 2
   end
   if parsed.set["--help"] or parsed.set["-h"] then
-    log:say(Flags.help(usage, spec, about))
+    log:say(Flags.help({ spec = spec, about = about, usage = "<path-to-macos-binary>" }, "bin/verify-codesign"))
     return 0
   end
   if #parsed.words ~= 1 then

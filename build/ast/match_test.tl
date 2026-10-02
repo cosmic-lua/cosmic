@@ -1,4 +1,4 @@
---- Correctness probes for `build.ast.match`.
+--- Correctness probes for [`build.ast.match`].
 local teal = require("build.teal")
 local match = require("build.ast.match")
 local node_mod = require("build.ast.node")
@@ -78,12 +78,9 @@ local function test_record_typeid_field_still_compares_its_declared_type()
   end
 end
 
---- Every node in `root`'s tree that `pattern` matches, own to this
---- test file: `match()` tests one node at a time by design (a
---- whole-file walk is `build.ast.rewrite`'s `find_all` job, out of
---- this item's scope), so counting real matches across a fixture needs
---- a throwaway recursive descent here, the same "AST as `{any: any}`"
---- shape a generic walk over tl's own output already needs.
+--- Every node in `root`'s tree that `pattern` matches. `match()` tests
+--- one node at a time; [`build.ast.rewrite`]'s `find_all` searches a whole
+--- tree, but is not a dependency of this test, so it descends itself.
 --- @param root Node The tree to search
 --- @param pattern Node A compiled pattern
 --- @return {Node} Every matching node, in traversal order
@@ -118,7 +115,7 @@ local function collect_matches(root: Node, pattern: Node): {Node}
 end
 
 --- A bare `$X` in a value position (`f($X)`) parses as a "variable"
---- node -- the plain capture shape, no member-name involved.
+--- node, the plain capture shape.
 local function test_value_position_capture_binds_variable_kind()
   local pattern = pattern_ok("print($X)")
   local candidate = parse_ok("print(y)", "value.tl")[1]
@@ -129,11 +126,9 @@ local function test_value_position_capture_binds_variable_kind()
     "captured node: " .. tostring(cap and cap.kind) .. " " .. tostring(cap and cap.tk))
 end
 
---- The regression this item exists to hold: the SAME `$F` used as a
---- member name (`mod.$F(...)`) parses as an "identifier" node, not
---- "variable" -- a capture check gated on `kind == "variable"` alone
---- silently matches nothing here, until it is widened to accept
---- either kind.
+--- A `$F` used as a member name (`mod.$F(...)`) parses as an
+--- "identifier" node, not "variable"; a capture check on
+--- `kind == "variable"` alone would match nothing here.
 local function test_member_position_capture_binds_identifier_kind()
   local pattern = pattern_ok("mod.$F(1)")
   local candidate = parse_ok("mod.load(1)", "member.tl")[1]
@@ -144,9 +139,8 @@ local function test_member_position_capture_binds_identifier_kind()
     "captured node: " .. tostring(cap and cap.kind) .. " " .. tostring(cap and cap.tk))
 end
 
---- A linear pattern: a capture name repeated in the pattern must bind
---- the SAME subtree every time it recurs, not merely two subtrees of
---- the same shape.
+--- A capture name repeated in a pattern must bind the same subtree
+--- each time, not merely two subtrees of the same shape.
 local function test_repeated_capture_name_is_linear()
   local pattern = pattern_ok("f($X, $X)")
   local same = parse_ok("f(y, y)", "same.tl")[1]
@@ -173,10 +167,9 @@ local function test_rest_capture_matches_variable_arity_call_args()
     "expected 0 captured args, got " .. tostring(#caps0["___ARGS"]))
 end
 
---- A rest-capture in a STATEMENT-list position must be spelled
---- `$$$NAME()` (a zero-arg call) in the pattern, never bare `$$$NAME`
---- -- Lua/Teal has no bare-expression-as-statement syntax, so the
---- bare spelling fails to even PARSE as a pattern.
+--- A rest-capture in a statement-list position must be spelled
+--- `$$$NAME()` (a zero-argument call). Teal has no bare-expression
+--- statements, so the bare spelling does not parse as a pattern.
 local function test_bare_rest_capture_is_not_a_legal_statement()
   local pattern, err = match.compile_pattern(built, "if $C then $$$BODY end")
   assert(pattern == nil, "a bare $$$BODY in a block position must fail to compile")
@@ -184,12 +177,10 @@ local function test_bare_rest_capture_is_not_a_legal_statement()
 end
 
 --- The call-spelled rest-capture in a statement-list position matches
---- a real multi-statement body, including the tk exclusion this
---- pattern shape depends on: the body's "statements" node opens on
---- whichever token starts the FIRST statement, which differs, by
---- construction, between the pattern (`___BODY`) and any real target
---- -- comparing it generically would fail every match this pattern
---- could ever make.
+--- a multi-statement body. This depends on `tk` being ignored on the
+--- body's "statements" node: it is the token that opens the first
+--- statement, which differs between the pattern (`___BODY`) and any
+--- real target.
 local function test_rest_capture_in_block_matches_and_ignores_tk()
   local pattern = pattern_ok("if $C then $$$BODY() end")
   local candidate = parse_ok("if a then print(1)\nprint(2) end", "block.tl")[1]
@@ -200,10 +191,9 @@ local function test_rest_capture_in_block_matches_and_ignores_tk()
     .. tostring(#caps["___BODY"]))
 end
 
---- `tk` is excluded from the generic field walk only for a COMPOUND
---- node; a "variable"/"identifier"/"string" LEAF still compares `tk`
---- explicitly, so a literal, non-capture name in the pattern must
---- still match exactly.
+--- `tk` is ignored only on a compound node; a "variable",
+--- "identifier" or "string" leaf still compares it, so a literal name
+--- in the pattern must match exactly.
 local function test_tk_still_compared_on_leaf_kinds()
   local pattern = pattern_ok("print(1)")
   local same_name = parse_ok("print(1)", "same_name.tl")[1]
@@ -228,10 +218,8 @@ local function test_capture_predicate_matches_only_names_the_pattern_allows()
     "run() must NOT match $F:^test_(): its name fails the ^test_ predicate")
 end
 
---- `desugar` rewrites both metavariable spellings before lexing, and
---- leaves everything else byte-for-byte -- confirmed directly rather
---- than only through a compiled pattern's behavior, since a pattern
---- with no metavariables at all would never exercise this at all.
+--- `desugar` rewrites both metavariable spellings before lexing and
+--- leaves everything else byte for byte.
 local function test_desugar_rewrites_both_spellings()
   assert(match.desugar("f($X, $$$REST)") == "f(_X, ___REST)",
     "desugar: " .. match.desugar("f($X, $$$REST)"))
@@ -272,10 +260,9 @@ end
 
 --- `if $C then $$$BODY() end` over three `if` statements: a plain one
 --- (one if_block, matches), one with an `elseif` (two if_blocks), and
---- one with an `else` (also two if_blocks, since tl's own parser
---- appends the else branch as an extra if_block with no `exp`) --
---- `match_list`'s own exact-length branch rules out both of the
---- latter, the same way it does over a whole real file.
+--- one with an `else` (also two, since tl's parser appends the else
+--- branch as an if_block with no `exp`). `match_list` requires equal
+--- length, which rules out the latter two.
 local function test_acceptance_if_then_body_over_multiple_branches()
   local pattern = pattern_ok("if $C then $$$BODY() end")
   local source = [[
@@ -300,8 +287,7 @@ end
 end
 
 --- `mod.$F($$$ARGS)` over two calls on `mod` and one on a different
---- namespace -- the identifier-position-capture regression case, at
---- more than one call site.
+--- namespace: identifier-position captures at more than one call site.
 local function test_acceptance_member_call_over_multiple_statements()
   local pattern = pattern_ok("mod.$F($$$ARGS)")
   local source = [[
@@ -314,8 +300,8 @@ other.foo(1)
   assert(#hits == 2, "expected 2 matches, got " .. tostring(#hits))
 end
 
---- Two probe casts, side by side: one to a primitive, one to a map --
---- the fixture the `$X as ...` tests below all share.
+--- Two casts, one to a primitive and one to a map: the fixture the
+--- `$X as ...` tests below share.
 --- @return Node Parsed root: `local v ... / a = v as integer / b = v as {string: any}`
 local function cast_probe_root(): Node
   return parse_ok([[
@@ -325,18 +311,16 @@ local b = v as {string: any}
 ]], "cast_probe.tl")
 end
 
---- A cast is matchable by LITERAL type text: `$X as integer` binds
---- only the site whose own rendered type is exactly `integer`, not
---- the map cast sitting right beside it.
+--- A cast matches by literal type text: `$X as integer` binds only the
+--- site whose rendered type is exactly `integer`, not the map cast.
 local function test_cast_literal_type_matches_only_that_rendered_type()
   local pattern = pattern_ok("$X as integer")
   local hits = collect_matches(cast_probe_root(), pattern)
   assert(#hits == 1, "expected 1 match, got " .. tostring(#hits))
 end
 
---- `$X as $T` is a capture in TYPE position: it binds BOTH probe
---- casts, one per site, and `$T` itself binds the candidate's own
---- `cast` node (not a copy of its type, not the surrounding `as`).
+--- `$X as $T` is a capture in type position: it binds both casts, and
+--- `$T` binds the candidate's `cast` node.
 local function test_cast_capture_binds_every_cast_and_the_cast_node()
   local pattern = pattern_ok("$X as $T")
   local root = cast_probe_root()
@@ -351,10 +335,9 @@ local function test_cast_capture_binds_every_cast_and_the_cast_node()
   assert(cap.kind == "cast", "captured $T must be the `cast` node, got " .. cap.kind)
 end
 
---- `$X as $T:^{` -- the same `:PATTERN` predicate mechanism as any
---- other capture, applied here to the cast's RENDERED type text
---- instead of a node's own `tk`: selects the map cast (its rendered
---- text starts with `{`) and excludes the integer cast beside it.
+--- `$X as $T:^{` applies the `:PATTERN` predicate to the cast's
+--- rendered type text instead of a node's `tk`: it selects the map
+--- cast, whose text starts with `{`, and not the integer cast.
 local function test_cast_capture_predicate_filters_by_rendered_type()
   local pattern = pattern_ok("$X as $T:^{")
   local hits = collect_matches(cast_probe_root(), pattern)

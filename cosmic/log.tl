@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local record Log
   --- Where one program's lines go, and the name its complaints carry.
   record Logger
+    --- The name `complain` prefixes to a line, as `name: line`.
     name: string
 
     --- `line` on stdout, as it is. False and why when the write fails,
@@ -52,7 +53,7 @@ end
 --- @return Logger The logger
 function Log.new(name: string): Log.Logger
   if name == "" then
-    error("log: a logger needs a name", 2)
+    error("log: the logger's name is empty", 2)
   end
   return { name = name, say = say, complain = complain, verdict = verdict }
 end

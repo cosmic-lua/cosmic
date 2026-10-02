@@ -42,19 +42,18 @@ local function pieces(text: string, size: integer): function(): string
   end
 end
 
---- What the shell pipelines the fuzz commands replaced made of the `n`th
---- of `outputs()`, kind "failure" or "tail": kept in testdata/fuzz/ as
---- GNU grep, cut, head and tail wrote them (coreutils 9.4, under
---- LC_ALL=C), since fuzz.yml ran them on ubuntu, and a host's own tools
---- may differ (BSD cut, on macOS, leaves a last line unended). They
---- were written by
+--- What GNU grep, cut, head and tail (coreutils 9.4, under LC_ALL=C)
+--- make of the `n`th of [`outputs()`], for kind "failure" or "tail", kept
+--- in testdata/fuzz/. It is the reference the driver's Teal must match;
+--- a host's own tools may differ (BSD cut, on macOS, leaves a last line
+--- unended). It was written by
 ---
 ---     failure: grep '^test: FAIL' "$OUT" | cut -c1-300 | head -30 || true
 ---              echo
 ---              grep -v -e '^build:' -e '^test: ' "$OUT" | cut -c1-300 | head -60 || true
 ---     tail:    tail -n 40 "$OUT" 2>/dev/null | cut -c1-300 || true
 ---
---- with `$OUT` each output in turn; change `outputs()` and they must be
+--- with `$OUT` each output in turn; change [`outputs()`] and they must be
 --- written again.
 local function expected(kind: string, n: integer): string
   return (assert(Fs.read("testdata/fuzz/" .. kind .. "-" .. tostring(n) .. ".txt")))
@@ -307,7 +306,7 @@ local function test_fuzz_passes_a_signal_on_and_keeps_the_status(tmp: string)
   assert(until_found(temp .. "/fuzz.out", "ready\n", 120),
     "the core did not start")
   assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(30000))
+  local result = assert(handle:wait(Time.seconds(30)))
   assert(result.signal == sys.SIGTERM,
     "the driver ended with " .. tostring(result.code) .. "/" .. tostring(result.signal))
   assert(read(temp .. "/fuzz.status") == "143\n", read(temp .. "/fuzz.status"))
@@ -335,7 +334,7 @@ local function test_fuzz_streams_the_log_as_the_core_runs(tmp: string)
   local seen = started and until_found(log, "first\n", 5)
   -- Let the core go on either way, so nothing is left running.
   write(go, "")
-  local result = assert(handle:wait(30000))
+  local result = assert(handle:wait(Time.seconds(30)))
   assert(seen, "the log did not get the core's first line while it ran")
   assert(result.code == 0, tostring(result.code) .. "/" .. tostring(result.signal))
   assert(read(temp .. "/fuzz.status") == "0\n")

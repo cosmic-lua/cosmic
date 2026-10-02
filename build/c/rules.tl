@@ -1,12 +1,13 @@
 --- The review checklist's mechanical items, checked over a C file's
---- syntax tree (`build.c.tree`) rather than by a reader.
+--- syntax tree ([`build.c.tree`]) rather than by a reader.
 ---
 --- Each rule is a promise AGENTS.md's C checklist makes, narrowed to what
 --- can be decided from one function's tree in source order:
 ---
---- - "narrowed-integer": an integer taken from Lua is cast straight to a
----   narrower type. A `lua_Integer` that does not fit wraps silently;
----   `cosmic_checkint` and `cosmic_optint` (core/check.h) refuse it.
+--- - "narrowed-integer": an integer taken from Lua is cast to a narrower
+---   type without first being compared against a bound. A `lua_Integer`
+---   that does not fit wraps silently; `cosmic_checkint` and
+---   `cosmic_optint` (core/check.h) refuse it.
 --- - "above-buffer": a value sits above an open `luaL_Buffer` when a
 ---   buffer call other than `luaL_addvalue` is made. Every other buffer
 ---   call needs the buffer's own slot on top.
@@ -18,8 +19,9 @@
 ---   counted from the top, is read after the string has left the stack.
 ---   Nothing keeps a popped string alive; copy it first.
 --- - "returned-shape": a binding of the syscall table returns a count of
----   values its declaration in core/syscalls.h (or core/process.h) does not, or a fallible
----   one returns two -- a failure without its errno (core/fail.h).
+---   values its declaration in core/syscalls.h (or core/process.h) does
+---   not, or a fallible one returns two -- a failure without its errno
+---   (core/fail.h).
 --- - "failure-shape": a fallible binding fails in the other shape than
 ---   its declaration's: one declared `boolean`, an effect, fails through
 ---   `cosmic_fail_effect` (false, error, errno); one declared a value
@@ -40,17 +42,27 @@
 --- - "true-alone": a `lua_CFunction` returns `true` and nothing else on
 ---   every path (`lua_pushboolean(L, 1); return 1;` or `cosmic_ok`), so
 ---   it returns no values.
+--- - "descriptor-argument": either a binding of the syscall table whose
+---   declaration takes a descriptor (build.gen_syscalls's `descriptor`)
+---   does not take it through `cosmic_checkfd` or `cosmic_argfd`
+---   (core/check.h), directly or through a helper of the file it hands
+---   the argument's position to; or any function takes a descriptor --
+---   a local named `fd`, `dirfd`, `sock`, `*_fd` or `fd_*`, declared
+---   with or assigned -- straight from `cosmic_checkint` or the like.
+---   Either would pass the descriptor a portable start retains on the
+---   artifact, through which every module the program carries could be
+---   read.
 --- - "single-file": a function a header declares is referred to by no
 ---   translation unit but the one defining it, so it belongs to that file,
 ---   static, out of the header. It is decided over a whole tree at once
----   (`rules.unit`, `rules.single_file`), so `build.c` finds it only when
+---   ([`rules.unit`], [`rules.single_file`]), so `build.c` finds it only when
 ---   every C file is checked together.
 ---
 --- "pass-fail-int", "constant-return" and "true-alone" read the code
---- one platform's preprocessor leaves (build.c compiles for the host): a
---- function whose returns differ under an `#ifdef` is judged by the
---- branch compiled, and one the other branch makes a real answer is
---- exempted in `exempt`, with the reason.
+--- one platform's preprocessor leaves (build.c compiles for
+--- x86_64-linux-musl): a function whose returns differ under an `#ifdef`
+--- is judged by the branch compiled, and one the other branch makes a
+--- real answer is exempted in `exempt`, with the reason.
 ---
 --- The walk is source order, not a flow analysis. A branch that ends --
 --- in a `return`, a `goto`, or a call that never returns -- leaves what
@@ -63,6 +75,7 @@
 
 local String = require("cosmic.string")
 local tree = require("build.c.tree")
+local plural = require("build.plural")
 
 local type Node = tree.Node
 
@@ -74,7 +87,7 @@ local record rules
     --- Which rule: "narrowed-integer", "above-buffer",
     --- "held-across-raise", "string-after-pop", "returned-shape",
     --- "failure-shape", "pass-fail-int", "constant-return", "true-alone",
-    --- "single-file".
+    --- "descriptor-argument", "single-file".
     rule: string
     --- The function it is in.
     within: string
@@ -93,15 +106,18 @@ local record rules
     refers: {string: boolean}
   end
 
-  --- What core/syscalls.h or core/process.h declares a binding returns: how many values,
-  --- and whether the last is an errno or a code, so that a failure is
-  --- three of them.
+  --- What core/syscalls.h or core/process.h declares a binding returns:
+  --- how many values, and whether the last is an errno or a code, so
+  --- that a failure is three of them.
   record Declared
     count: integer
     fallible: boolean
     --- Whether what it returns on success is `boolean`: an effect, whose
     --- failure is `false`, rather than a value, whose failure is `nil`.
     effect: boolean
+    --- The positions of the arguments that are descriptors of this
+    --- process (build.gen_syscalls's `descriptor`), or nil for none.
+    descriptors: {integer}
   end
 end
 
@@ -113,6 +129,9 @@ local checked_only <const> = "every file refers to it through a macro of its hea
 --- The findings a rule cannot see past, and why each is not one, by
 --- `"<file> <function> <rule>"`.
 local exempt: {string: string} = {
+  ["core/syscalls.c cosmic_sys_relaunch descriptor-argument"] =
+    "its artifact_fd and core_fd are the numbers the child is to see its " ..
+    "descriptors as, 3 to 255, not descriptors of this process",
   ["core/boot.c slurp held-across-raise"] =
     "boot runs outside any protected call: a raise there ends the process, " ..
     "which releases everything",
@@ -120,7 +139,7 @@ local exempt: {string: string} = {
     "every argv and environment value it reads once argv is taken was checked " ..
     "to be a string before the calloc, so lua_tolstring converts nothing and " ..
     "cannot raise",
-  ["core/syscalls.c cosmic_spawn_unobserved held-across-raise"] =
+  ["core/syscalls.c cosmic_sys_spawn held-across-raise"] =
     "every value it reads once argv is taken was checked to be a string first, " ..
     "so lua_tolstring converts nothing and cannot raise",
   ["core/syscalls_fs.c cosmic_sys_open_temporary held-across-raise"] =
@@ -131,6 +150,9 @@ local exempt: {string: string} = {
   ["core/memory.h cosmic_realloc single-file"] = checked_only,
   ["core/memory.h cosmic_free single-file"] = checked_only,
   ["core/fault.h cosmic_fault single-file"] = checked_only,
+  ["core/syscalls.h cosmic_sys_sandbox_platform true-alone"] =
+    "its other branch, compiled off Linux, answers false with ENOSYS, which " ..
+    "the check's Linux compile does not see",
   ["core/startup_hook.c cosmic_startup_test_pause constant-return"] =
     "a link-time seam: the product hook always lets startup go on, and " ..
     "test/portable/startup_hook.c, linked in its place, answers whether it may",
@@ -999,10 +1021,9 @@ local function truthful(fns: {Function}): {string: boolean}
   return known.functions
 end
 
---- A function of external linkage whose every `return` returns one
---- constant is a function that returns nothing; one declared in a header
---- to return `int` that returns only truths is a pass or a fail, which
---- is a `bool`.
+--- Reports a function of external linkage whose every `return` is one
+--- constant ("constant-return"), and one declared in a header to return
+--- `int` that returns only truths ("pass-fail-int").
 local function returned_constant(ctx: Context, fn: Function)
   if fn.static or fn.name == "main" or state_first(fn) then return end
   local returns = returns_in(fn.body)
@@ -1134,7 +1155,7 @@ local function returned_shape(ctx: Context, name: string, body: Node,
     local count = constant(n.children[1])
     if count == nil then return end
     if count > d.count then
-      report(ctx, n, "returned-shape", "returns " .. count .. " values where binding " ..
+      report(ctx, n, "returned-shape", "returns " .. plural.count(count, "value") .. " where binding " ..
         call .. " is declared to return " .. d.count .. " (core/syscalls.h or core/process.h)")
     elseif d.fallible and count == 2 then
       report(ctx, n, "returned-shape", "returns 2 values where a failure of binding " ..
@@ -1142,6 +1163,114 @@ local function returned_shape(ctx: Context, name: string, body: Node,
         "cosmic_fail_effect (core/fail.h)")
     end
   end)
+end
+
+-- descriptor-argument ---------------------------------------------------
+
+--- The calls that take a descriptor argument, refusing the artifact's.
+local descriptor_checks: {string: boolean} = {
+  cosmic_checkfd = true, cosmic_argfd = true,
+}
+
+--- The calls that take an integer argument as it is. One read out of a
+--- table (`lua_tointeger`) is not an argument's position, and is left
+--- to the binding's own check below.
+local integer_takers: {string: boolean} = {
+  cosmic_checkint = true, cosmic_optint = true, luaL_checkinteger = true,
+  luaL_optinteger = true,
+}
+
+--- Into `out`, the argument positions `fn` takes through a descriptor
+--- check, where `bound` says which of its parameters hold which constant
+--- position: directly, or through a function of the file it hands the
+--- state and a position to (`byname`), followed once per binding.
+local function checked_positions(fn: Function, bound: {integer: integer},
+                                 byname: {string: Function}, out: {integer: boolean},
+                                 seen: {string: boolean})
+  local index: {string: integer} = {}
+  for i, param in ipairs(fn.params) do index[param.id] = i end
+  local function value(node: Node): integer
+    local c = constant(node)
+    if c ~= nil then return c end
+    local id = referenced(node)
+    local at = id ~= nil and index[id] or nil
+    return at ~= nil and bound[at] or nil
+  end
+  after(fn.body, function(n: Node)
+    if n.kind ~= "CallExpr" then return end
+    local name = tree.callee(n)
+    if name == nil then return end
+    local args = arguments(n)
+    if descriptor_checks[name] then
+      local at = args[2] ~= nil and value(args[2]) or nil
+      if at ~= nil then out[at] = true end
+      return
+    end
+    local callee = byname[name]
+    if callee == nil or not takes_state(n) then return end
+    local passed: {integer: integer} = {}
+    local key: {string} = { name }
+    for i, argument in ipairs(args) do
+      local v = value(argument)
+      if v ~= nil then
+        passed[i] = v
+        key[#key + 1] = i .. "=" .. v
+      end
+    end
+    local visit = table.concat(key, " ")
+    if seen[visit] then return end
+    seen[visit] = true
+    checked_positions(callee, passed, byname, out, seen)
+  end)
+end
+
+local function descriptor_arguments(ctx: Context, fn: Function, byname: {string: Function},
+                                    declared: {string: rules.Declared})
+  -- Any function but the checks themselves: a descriptor taken as a
+  -- bare integer, declared with it or assigned it.
+  local function descriptor_name(name: string): boolean
+    return name == "fd" or name == "dirfd" or name == "sock" or name:match("_fd$") ~= nil
+      or name:match("^fd_") ~= nil
+  end
+  local function bare_taker(node: Node): string
+    local bare = node ~= nil and tree.bare(node) or nil
+    local taker = bare ~= nil and bare.kind == "CallExpr" and tree.callee(bare) or nil
+    if taker ~= nil and integer_takers[taker] then return taker end
+    return nil
+  end
+  local function flag(at: Node, name: string, taker: string)
+    report(ctx, at, "descriptor-argument", "takes descriptor " .. name .. " through " ..
+      taker .. ", which passes the artifact's retained descriptor: take it through " ..
+      "cosmic_checkfd (core/check.h)")
+  end
+  after(fn.body, function(n: Node)
+    if descriptor_checks[fn.name] then return end
+    if n.kind == "VarDecl" then
+      local name = name_of(n) or ""
+      local taker = bare_taker(n.children[#n.children])
+      if descriptor_name(name) and taker ~= nil then flag(n, name, taker) end
+    elseif n.kind == "BinaryOperator" and n.text:match("'='$") and #n.children == 2 then
+      local target = tree.bare(n.children[1])
+      local r = target ~= nil and tree.referent(target) or nil
+      local taker = bare_taker(n.children[2])
+      if r ~= nil and r.name ~= nil and descriptor_name(r.name) and taker ~= nil then
+        flag(n, r.name, taker)
+      end
+    end
+  end)
+  local call = fn.name:match("^cosmic_sys_(.+)$")
+  local d = call ~= nil and declared[call] or nil
+  if d == nil or d.descriptors == nil or #d.descriptors == 0 then return end
+  local out: {integer: boolean} = {}
+  checked_positions(fn, {}, byname, out, {})
+  for _, at in ipairs(d.descriptors) do
+    if not out[at] then
+      report(ctx, fn.body, "descriptor-argument", "cosmic.sys." .. call .. "'s argument " ..
+        at .. " is a descriptor (core/syscalls.h or core/process.h) it takes through " ..
+        "neither cosmic_checkfd nor cosmic_argfd (core/check.h), which " ..
+        "refuse the artifact's retained descriptor")
+    end
+  end
 end
 
 -- single-file ----------------------------------------------------------
@@ -1152,8 +1281,9 @@ function rules.unit(decls: {Node}, file: string,
                     declared?: {string: rules.Declared}): rules.Unit
   local u: rules.Unit = { file = file, defines = {}, refers = {} }
   for _, fn in ipairs(functions(decls)) do
-    -- A binding's declaration in core/syscalls.h or core/process.h carries the annotation
-    -- the Teal declaration is made from, whoever refers to it.
+    -- A binding's declaration in core/syscalls.h or core/process.h
+    -- carries the annotation the Teal declaration is made from, whoever
+    -- refers to it.
     local call = fn.name:match("^cosmic_sys_(.+)$")
     local binding = call ~= nil and declared ~= nil and declared[call] ~= nil
     if fn.prototype ~= nil and not fn.static and not fn.inline and not binding then
@@ -1205,7 +1335,8 @@ end
 
 --- Every finding in `decls`, a translation unit's own declarations, that
 --- `exempt` does not excuse, sorted by place. `declared` is what
---- core/syscalls.h and core/process.h declare each binding returns, by the binding's name.
+--- core/syscalls.h and core/process.h declare each binding returns, by
+--- the binding's name.
 function rules.check(decls: {Node}, file: string,
                      declared: {string: rules.Declared}): {rules.Finding}
   local fns = functions(decls)
@@ -1213,9 +1344,12 @@ function rules.check(decls: {Node}, file: string,
   local ctx: Context = { file = file, within = "", findings = findings,
                          releasing = releasing(fns), truthful = truthful(fns),
                          shapes = failure_shapes(fns) }
+  local byname: {string: Function} = {}
+  for _, fn in ipairs(fns) do byname[fn.name] = fn end
   for _, fn in ipairs(fns) do
     ctx.within = fn.name
     narrowed(ctx, fn.body)
+    descriptor_arguments(ctx, fn, byname, declared)
     above_buffer(ctx, fn.body, fn.params)
     returned_shape(ctx, fn.name, fn.body, declared)
     returned_constant(ctx, fn)

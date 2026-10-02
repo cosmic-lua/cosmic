@@ -1,5 +1,5 @@
 --- One entry point over whatever archive format a file turns out to
---- be: detected from its first bytes, walked through a single Entry
+--- be: detected from its first bytes, walked through a single entry
 --- shape shared by tar (plain or compressed) and zip, and extracted to
 --- a destination directory with the usual path-escape refusals a
 --- caller expects from something unpacking bytes it did not write.
@@ -10,44 +10,32 @@ local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
+local String = require("cosmic.string")
+
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "archive: " .. why
+end
 
 local record Archive
-  --- Shared with `cosmic.tar`'s own Entry.kind; zip only ever produces
-  --- "file", "dir" or "symlink".
-  type Kind = Tar.Kind
+  --- One entry of an archive, whichever format it came from: the
+  --- [`Stream.ArchiveEntry`] that tar's and zip's entries are. Teal's
+  --- interface conformance is nominal, so the interface is declared in
+  --- [`cosmic.stream`], which [`cosmic.tar`] and [`cosmic.zip`] can
+  --- require, and not here, where both are required.
+  type Entry = Stream.ArchiveEntry
 
-  record Entry
-    path: string
-    kind: Kind
-    mode: integer
-    size: integer
-    mtime: integer
-    --- A symlink's or hardlink's target; "" otherwise.
-    linkpath: string
-    open: function(Entry): Stream.Reader | nil, string
-  end
-
-  record Reader
-    --- The next entry, nil and "" at the end, or nil and an error. For
-    --- a compressed tar, the end also runs the decompressor to the end
-    --- of its stream, so a truncated or corrupt one fails here rather
-    --- than passing as a complete archive.
-    next: function(Reader): Entry | nil, string
-    close: function(Reader): boolean, string
-  end
+  --- What walks an archive's entries: the [`Stream.ArchiveReader`] that
+  --- tar's and zip's readers are, declared in [`cosmic.stream`] for the
+  --- reason [`Entry`] is.
+  type Reader = Stream.ArchiveReader
 
   --- What `extract` does with a symlink entry: "skip" leaves it out,
   --- "create" makes it (see ExtractOptions.links).
   enum Links
     "skip"
     "create"
-  end
-
-  --- What `extract` does with an entry it cannot extract: "error" fails
-  --- naming it, "skip" leaves it out.
-  enum Unsupported
-    "error"
-    "skip"
   end
 
   record ExtractOptions
@@ -69,19 +57,14 @@ local record Archive
     --- may pass only through directories already extracted, never
     --- through another link or a name that does not exist yet.
     links: Links
-    --- What to do with an entry that cannot be extracted: a hard
-    --- link, a device, a FIFO, a sparse file. "error" (the default)
-    --- fails naming it; "skip" leaves it out.
-    unsupported: Unsupported
-    --- Whether to give each file, directory and symlink its archived
-    --- modification time. On by default.
-    mtimes: boolean
-    --- Fails once the files written would total more than this many
-    --- bytes. Unlimited by default; a negative limit raises.
-    max_bytes: integer
     --- Fails once more than this many entries would be written.
     --- Unlimited by default; a negative limit raises.
     max_entries: integer
+    --- A directory whose real directories a symlink's target may also
+    --- pass through, for entries unpacked apart from where they will
+    --- be put: a staging directory that is later moved into this one.
+    --- Only read for links, and only to look; nothing is written there.
+    resolve_in: string
   end
 end
 
@@ -105,40 +88,31 @@ local function detect(head: string): string
 end
 
 ------------------------------------------------------------------
--- a uniform Reader over a Tar.Reader or a Zip.Reader
+-- readers
 ------------------------------------------------------------------
 
---- `source`, when given, is the decompressed stream `tr` reads: once
---- the tar end is reached, whatever follows it is read through to the
---- decompressor's own end, so its errors (a truncated stream, a bad
---- checksum) surface instead of vanishing with the unread tail.
--- TODO: declare the entry once, as an interface Tar.Entry and Zip.Entry
--- are (`record Entry is ...`), with one Kind enum, so wrap_tar and
--- wrap_zip hand an entry on uncast; it waits on a module both
--- cosmic.tar and cosmic.zip require that can hold it, since
--- cosmic.archive requires them both.
-local function wrap_tar(tr: Tar.Reader, source: Stream.Reader | nil): Archive.Reader
+--- `tr`, which reads the decompressed stream `source`: once the tar end
+--- is reached, whatever follows it is read through to the decompressor's
+--- own end, so its errors (a truncated stream, a bad checksum) surface
+--- instead of vanishing with the unread tail.
+local function draining(tr: Tar.Reader, source: Stream.Reader): Archive.Reader
   local finished = false
   local ar: Archive.Reader = {}
   ar.next = function(_self: Archive.Reader): Archive.Entry | nil, string
     local e, trouble = tr:next()
-    if e == nil then
-      if trouble == "" and source ~= nil and not finished then
-        finished = true
-        while true do
-          local chunk, dtrouble = source:read()
-          if chunk == nil then
-            if dtrouble ~= "" then return nil, dtrouble end
-            break
-          end
+    if e ~= nil then return e, "" end
+    if trouble ~= "" then return nil, trouble end
+    if not finished then
+      finished = true
+      while true do
+        local chunk, dtrouble = source:read()
+        if chunk == nil then
+          if dtrouble ~= "" then return nil, dtrouble end
+          break
         end
       end
-      return nil, trouble
     end
-    -- A Tar.Entry already has every field an Archive.Entry does, and
-    -- an `open` that reads its own body: it is handed on as it is,
-    -- rather than copied into a new table and closure per entry.
-    return e as Archive.Entry, ""
+    return nil, ""
   end
   ar.close = function(_self: Archive.Reader): boolean, string
     return tr:close()
@@ -146,20 +120,27 @@ local function wrap_tar(tr: Tar.Reader, source: Stream.Reader | nil): Archive.Re
   return ar
 end
 
---- Zip entries are walked straight off the central directory, one at
---- a time, rather than materialized all at once; like a tar entry, a
---- Zip.Entry is handed on as it is (its kinds are a subset of tar's).
-local function wrap_zip(zr: Zip.Reader): Archive.Reader
-  local ar: Archive.Reader = {}
-  ar.next = function(_self: Archive.Reader): Archive.Entry | nil, string
-    local e, trouble = zr:next()
-    if e == nil then return nil, trouble end
-    return e as Archive.Entry, ""
+--- The tar `source` holds, of format `kind` ("tar", "gzip", "xz" or
+--- "bzip2"): the reader [`Archive.open`] and [`Archive.open_stream`] share.
+--- `label` names the input in a complaint.
+local function open_tar(kind: string, source: Stream.Reader, label: string):
+    Archive.Reader | nil, string
+  if kind == "tar" then return Tar.reader(source), "" end
+  local codec: Compress.Stream
+  local ctrouble: string
+  if kind == "gzip" then
+    codec, ctrouble = Compress.inflater("gzip")
+  elseif kind == "xz" then
+    codec, ctrouble = Compress.xz_decoder()
+  else
+    codec, ctrouble = Compress.bz2_decoder()
   end
-  ar.close = function(_self: Archive.Reader): boolean, string
-    return zr:close()
+  if codec == nil then
+    local _, _ = source:close()
+    return refuse(label .. ": " .. ctrouble)
   end
-  return ar
+  local transformed = Stream.transform(source, codec)
+  return draining(Tar.reader(transformed), transformed), ""
 end
 
 --- Detects `path`'s format from its first bytes and returns a reader
@@ -172,45 +153,49 @@ function Archive.open(path: string): Archive.Reader | nil, string
   local _, _ = Fs.close(fd)
   if head == nil then return nil, htrouble end
   local kind = detect(head)
+  if kind == "zip" then return Zip.open(path) end
+  if kind == "unknown" then
+    return refuse(path .. ": not a recognized archive format")
+  end
+  local raw, otrouble = Stream.open(path)
+  if raw == nil then return nil, otrouble end
+  return open_tar(kind, raw, path)
+end
+
+--- Like `open`, for an archive that arrives as a stream (a pipe, a
+--- socket) rather than as a file: a plain, gzip, xz or bzip2 tar, read
+--- as `source` yields it, so memory stays bounded however long it is.
+--- The format is detected from the first bytes, which are not lost.
+--- A zip is refused, since reading one means seeking in it: write the
+--- stream to a file and `open` that. Closing the reader closes `source`,
+--- which is closed here as well when this fails.
+function Archive.open_stream(source: Stream.Reader): Archive.Reader | nil, string
+  local head, trouble = Stream.read_up_to(source, 262)
+  if head == nil then
+    local _, _ = source:close()
+    return refuse(trouble)
+  end
+  local kind = detect(head)
   if kind == "zip" then
-    local zr, ztrouble = Zip.open(path)
-    if zr == nil then return nil, ztrouble end
-    return wrap_zip(zr), ""
+    local _, _ = source:close()
+    return refuse("a zip cannot be read from a stream; write it to a file and open that")
   end
-  if kind == "tar" then
-    local raw, otrouble = Stream.open(path)
-    if raw == nil then return nil, otrouble end
-    return wrap_tar(Tar.reader(raw), nil), ""
+  if kind == "unknown" then
+    local _, _ = source:close()
+    return refuse("not a recognized archive format")
   end
-  if kind == "gzip" or kind == "xz" or kind == "bzip2" then
-    local codec: Compress.Stream
-    local ctrouble: string
-    if kind == "gzip" then
-      codec, ctrouble = Compress.inflater("gzip")
-    elseif kind == "xz" then
-      codec, ctrouble = Compress.xz_decoder()
-    else
-      codec, ctrouble = Compress.bz2_decoder()
-    end
-    if codec == nil then return nil, "archive: " .. path .. ": " .. ctrouble end
-    local raw, otrouble = Stream.open(path)
-    if raw == nil then return nil, otrouble end
-    local transformed = Stream.transform(raw, codec)
-    return wrap_tar(Tar.reader(transformed), transformed), ""
-  end
-  return nil, "archive: " .. path .. ": not a recognized archive format"
+  return open_tar(kind, Stream.prepend(head, source), "stream")
 end
 
 local function listed_open(_e: Archive.Entry): Stream.Reader | nil, string
-  return nil, "archive: an entry from Archive.list cannot be opened; walk Archive.open instead"
+  return refuse("an entry from Archive.list cannot be opened; walk Archive.open instead")
 end
 
---- Every entry of the archive at `path`. The reader is closed before
---- this returns, so the entries' `open` fails; walk `Archive.open` to
---- read bodies.
-function Archive.list(path: string): {Archive.Entry} | nil, string
-  local reader, trouble = Archive.open(path)
-  if reader == nil then return nil, trouble end
+--- Every entry `reader` yields, read to the end and then closed (on
+--- every path), as [`Archive.extract_reader`] reads a reader. The
+--- entries' `open` fails, since the reader is closed before this
+--- returns; walk the reader to read bodies.
+function Archive.list_reader(reader: Archive.Reader): {Archive.Entry} | nil, string
   local out: {Archive.Entry} = {}
   while true do
     local entry, etrouble = reader:next()
@@ -225,9 +210,23 @@ function Archive.list(path: string): {Archive.Entry} | nil, string
   end
 end
 
+--- Every entry of the archive at `path`, as [`Archive.list_reader`]
+--- lists them. Walk [`Archive.open`] to read bodies.
+function Archive.list(path: string): {Archive.Entry} | nil, string
+  local reader, trouble = Archive.open(path)
+  if reader == nil then return nil, trouble end
+  return Archive.list_reader(reader)
+end
+
 ------------------------------------------------------------------
 -- extraction
 ------------------------------------------------------------------
+
+--- Whether `path` holds a NUL byte or a backslash anywhere, or starts
+--- with a drive letter: a path no archive entry or link may name.
+local function foreign_syntax(path: string): boolean
+  return path:find("[%z\\]") ~= nil or path:find("^%a:") ~= nil
+end
 
 --- False for an absolute path, a `\`-separated or drive/UNC path, one
 --- holding a NUL byte (which every system call would silently cut the
@@ -237,8 +236,7 @@ end
 --- safe.
 local function safe_relative(path: string): boolean
   if path == "" or path:byte(1) == 47 then return false end -- '/'
-  -- A NUL or a backslash anywhere, or a drive letter up front.
-  if path:find("[%z\\]") ~= nil or path:find("^%a:") ~= nil then return false end
+  if foreign_syntax(path) then return false end
   -- Only a path holding ".." at all can have it as a component.
   if path:find("..", 1, true) ~= nil then
     for segment in (path .. "/"):gmatch("([^/]*)/") do
@@ -268,8 +266,8 @@ local function apply_strip(path: string, prefix: string | nil, count: integer | 
       rest = rest:gsub("^/+", "")
     end
   end
-  -- A float that is a whole number (2.0) counts as one; extract has
-  -- refused any other.
+  -- A float that is a whole number (2.0) counts as one; [`extract_from`]
+  -- has already refused any other.
   for _ = 1, math.tointeger(count) or 0 do
     local slash = rest:find("/", 1, true)
     if slash == nil then return nil end
@@ -285,8 +283,7 @@ end
 --- symlink, which would make this lexical walk meaningless.
 local function stays_inside(rel_dir: string, target: string): boolean
   if target == "" or target:sub(1, 1) == "/" then return false end
-  -- A NUL or a backslash anywhere, or a drive letter up front.
-  if target:find("[%z\\]") ~= nil or target:find("^%a:") ~= nil then return false end
+  if foreign_syntax(target) then return false end
   local depth = #components(rel_dir)
   for seg in (target .. "/"):gmatch("([^/]*)/") do
     if seg == "" or seg == "." then
@@ -319,19 +316,11 @@ local record PendingLink
   mtime: integer
 end
 
---- Unpacks `path` into `dest`, as `tar -x` or `unzip` would. Refuses an
---- absolute entry path, one with a `..` component or a NUL byte, any
---- entry whose path runs through a symlink, and -- when `links` is
---- "create" -- a symlink whose target would land outside `dest`. Returns
---- the destination-relative paths actually written. A failure partway
---- leaves whatever was already written; a file that fails its own checks
---- (a CRC32, a size) is never put in place.
-function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
-    {string} | nil, string
-  opts = opts or {}
-  if opts.max_bytes ~= nil and opts.max_bytes < 0 then
-    error("archive: max_bytes is negative", 2)
-  end
+--- The extraction [`Archive.extract`] and [`Archive.extract_reader`] share:
+--- `from` is a path to open or a Reader to walk to its end.
+local function extract_from(from: string | Archive.Reader, dest: string,
+    given: Archive.ExtractOptions | nil): {string} | nil, string
+  local opts: Archive.ExtractOptions = given or {}
   if opts.max_entries ~= nil and opts.max_entries < 0 then
     error("archive: max_entries is negative", 2)
   end
@@ -342,13 +331,15 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     error("archive: strip_components is negative", 2)
   end
   local links_mode = opts.links or "skip"
-  local skip_unsupported = opts.unsupported == "skip"
-  local restore_mtimes = opts.mtimes ~= false
-  local bytes_left = opts.max_bytes
   local entries_left = opts.max_entries
-  local opened, trouble = Archive.open(path)
-  if opened == nil then return nil, trouble end
-  local reader: Archive.Reader = opened
+  local reader: Archive.Reader
+  if from is string then
+    local opened, trouble = Archive.open(from)
+    if opened == nil then return nil, trouble end
+    reader = opened
+  else
+    reader = from
+  end
   local dest_made, dest_trouble = Fs.mkdirs(dest)
   if not dest_made then
     local _, _ = reader:close()
@@ -411,25 +402,14 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
     if w == nil then return false, ctrouble end
-    -- One byte past what is left is enough to know the limit is
-    -- crossed, and is all a limited body gives: the count tells, not
-    -- the copy's reason.
-    local limited = bytes_left ~= nil and bytes_left < math.maxinteger
-    local source = limited and Stream.limit(body, bytes_left + 1) or body
-    local copied, rtrouble = Stream.copy(source, w)
+    local copied, rtrouble = Stream.copy(body, w)
     if copied == nil then
       local _, _ = w:abort()
       return false, rtrouble
     end
-    if bytes_left ~= nil and copied > bytes_left then
-      local _, _ = w:abort()
-      return false, "archive: more than " .. tostring(opts.max_bytes) ..
-        " bytes to extract, at " .. entry.path
-    end
-    if bytes_left ~= nil then bytes_left = bytes_left - copied end
     local ok, wtrouble = w:close()
     if not ok then return false, wtrouble end
-    if restore_mtimes then local _, _ = Fs.set_mtime(dest_path, entry.mtime) end
+    local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true, ""
   end
 
@@ -437,7 +417,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   --- through anything but a real directory already in `dest` before
   --- its last component: a symlink this archive makes or `dest`
   --- already holds, or a name that is missing. The lexical
-  --- `stays_inside` check is only sound when it does not. A missing
+  --- [`stays_inside`] check is only sound when it does not. A missing
   --- name counts because it may be another link's name under a
   --- different spelling: on a case-insensitive filesystem `x -> b/..`
   --- then `B -> .` makes `x` dest's parent, though no `b` exists.
@@ -454,6 +434,12 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
         local rel = table.concat(at, "/")
         if pending[rel] ~= nil then return true end
         local st, _ = sys.lstat(dest .. "/" .. rel)
+        if (st == nil or st.kind ~= "dir") and opts.resolve_in ~= nil and not pending[rel] then
+          -- Staged apart: a directory the real destination holds counts,
+          -- unless something staged took its place.
+          local there, _ = sys.lstat(opts.resolve_in .. "/" .. rel)
+          if st == nil and there ~= nil and there.kind == "dir" then st = there end
+        end
         if st == nil or st.kind ~= "dir" then return true end
       end
     end
@@ -479,7 +465,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     end
     ok, why = Fs.symlink(link.target, full)
     if not ok then return false, why end
-    if restore_mtimes then local _, _ = Fs.set_mtime(full, link.mtime) end
+    local _, _ = Fs.set_mtime(full, link.mtime)
     return true, ""
   end
 
@@ -511,15 +497,15 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
       local kind = entry.kind
       local wanted = kind == "dir" or kind == "file" or
         (kind == "symlink" and links_mode == "create")
-      if not wanted and kind ~= "symlink" and not skip_unsupported then
+      if not wanted and kind ~= "symlink" then
         return bail("archive: cannot extract " .. entry.path .. ": unsupported entry kind '" ..
           kind .. "'")
       end
       if wanted then
         if entries_left ~= nil then
           if entries_left <= 0 then
-            return bail("archive: more than " .. tostring(opts.max_entries) ..
-              " entries to extract")
+            return bail("archive: more than " .. String.counted(opts.max_entries, "entry", "entries") ..
+              " to extract")
           end
           entries_left = entries_left - 1
         end
@@ -573,16 +559,43 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
       written[#written + 1] = link.rel
     end
   end
-  if restore_mtimes then
-    -- Deepest last-listed first, so setting a directory's time is not
-    -- undone by then touching something inside it.
-    for i = #dir_times, 1, -1 do
-      local d = dir_times[i]
-      local _, _ = Fs.set_mtime(d[1], d[2])
-    end
+  -- Deepest last-listed first, so setting a directory's time is not
+  -- undone by then touching something inside it.
+  for i = #dir_times, 1, -1 do
+    local d = dir_times[i]
+    local _, _ = Fs.set_mtime(d[1], d[2])
   end
   local _, _ = reader:close()
   return written, ""
+end
+
+--- Unpacks `path` into `dest`, as `tar -x` or `unzip` would. Refuses an
+--- absolute entry path, one with a `..` component or a NUL byte, any
+--- entry whose path runs through a symlink, an entry it cannot extract
+--- (a hard link, a device, a FIFO, a sparse file) and -- when `links` is
+--- "create" -- a symlink whose target would land outside `dest`. Each
+--- file, directory and symlink gets its archived modification time.
+--- Returns the destination-relative paths actually written. A failure
+--- partway leaves whatever was already written; a file that fails its
+--- own checks (a CRC32, a size) is never put in place.
+function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
+    {string} | nil, string
+  -- A tail call: [`extract_from`]'s argument errors, raised at level 2,
+  -- blame this function's caller.
+  return extract_from(path, dest, opts)
+end
+
+--- Like `extract`, for the entries `reader` yields (from [`open_stream`],
+--- say) rather than a path: read once, to the end, as they arrive, so a
+--- stream is unpacked in one pass and bounded memory. Closes `reader`,
+--- on every path but a raised argument error, which leaves it open. The
+--- same refusals apply, and a failure partway likewise leaves what was
+--- already written: unpack into a scratch directory and move it into
+--- place to have all or nothing.
+function Archive.extract_reader(reader: Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
+    {string} | nil, string
+  -- A tail call, as in `extract`.
+  return extract_from(reader, dest, opts)
 end
 
 return Archive

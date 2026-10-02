@@ -40,7 +40,7 @@ end
 
 --- A removed library's field says what replaced that very field, at the
 --- line that reached for it, in the words a refused compile uses too
---- (`cosmic.removed`'s `message`).
+--- ([`cosmic.removed`]'s `message`).
 local function test_a_removed_field_says_what_replaced_it()
   local trouble = raised('return os.getenv("HOME")')
   assert(trouble == "plain.lua:1: " .. Removed.message("os", "getenv"), trouble)
@@ -107,4 +107,21 @@ local function test_big_strings_keep_their_bytes_through_reused_blocks()
       assert(made[index] == string.rep(byte, size - 1) .. "!", "size " .. size)
     end
   end
+end
+
+--- A coroutine that raised keeps its stack until it is closed: the
+--- trace of it names the function that raised, under the message.
+local function test_trace_of_a_coroutine_that_raised_names_where()
+  local function deepest()
+    error("raised in the coroutine", 0)
+  end
+  local co = coroutine.create(function() deepest() end)
+  local resumed, err = coroutine.resume(co)
+  assert(not resumed and err == "raised in the coroutine", tostring(err))
+  local trace = errors.trace_of(co, "it raised")
+  assert(trace:find("it raised\nstack traceback:", 1, true) == 1, trace)
+  assert(trace:find("deepest", 1, true) ~= nil, trace)
+  assert(errors.trace_of(co):find("stack traceback:", 1, true) == 1)
+  local own = errors.trace_of((coroutine.running()))
+  assert(own:find("stack traceback:\n\t[C]", 1, true) == nil, own)
 end

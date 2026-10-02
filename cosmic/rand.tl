@@ -3,7 +3,19 @@
 --- chance can be replayed by naming its seed. The generator is
 --- xoshiro256**, its state filled from the seed by splitmix64. It is not
 --- cryptographic: never derive a key, token or nonce from it; draw those
---- from `Rand.entropy`.
+--- from [`Rand.entropy`].
+---
+--- - [`Rand.new`] makes a seeded [`Rand.Source`], whose `int`, `float` and
+---   `bytes` draw from it: use one for shuffles, simulations and tests
+---   that must replay.
+--- - [`Rand.uniform`] picks an unbiased integer in a range from any
+---   function that draws 64 random bits.
+--- - [`Rand.entropy`] draws unguessable bytes from the operating system:
+---   use it for keys, tokens and nonces.
+---
+---     local dice = Rand.new(2026)
+---     local roll = dice:int(1, 6)
+---     local token = assert(Rand.entropy(16))
 
 local sys = require("cosmic.sys")
 
@@ -68,6 +80,33 @@ local function mask_for(n: integer): integer
   return m
 end
 
+--- An integer drawn uniformly from `min` through `max`, both included,
+--- from `draw`, a function returning 64 random bits as a Lua integer
+--- (any bit pattern). By rejection: a draw is masked to the width of the
+--- range and kept only when within it, so no value is likelier than
+--- another, as modulo would make it. `draw` is called once per attempt,
+--- at least once even when `min` equals `max`. Raises when `min` is
+--- greater than `max`. It is the sampler of `Source:int`, exported so a
+--- caller with another bit source (the operating system's entropy) shares it.
+--- @param draw function The source of 64 random bits
+--- @param min integer The least value
+--- @param max integer The greatest value
+--- @return integer The value
+function Rand.uniform(draw: function(): integer, min: integer, max: integer): integer
+  if min > max then
+    error(("rand: int(%d, %d): min is greater than max"):format(min, max), 2)
+  end
+  -- The width minus one, as unsigned; max - min wraps into it exactly.
+  local span = max - min
+  local mask = mask_for(span)
+  while true do
+    local candidate = draw() & mask
+    if not math.ult(span, candidate) then
+      return min + candidate
+    end
+  end
+end
+
 --- A source drawing the sequence `seed` names. Every integer is a
 --- distinct seed, zero and negative ones included.
 --- @param seed integer The seed
@@ -84,18 +123,7 @@ function Rand.new(seed: integer): Rand.Source
   local source: Rand.Source = {}
 
   source.int = function(_self: Rand.Source, min: integer, max: integer): integer
-    if min > max then
-      error(("rand: int(%d, %d): min is greater than max"):format(min, max), 2)
-    end
-    -- The width minus one, as unsigned; max - min wraps into it exactly.
-    local span = max - min
-    local mask = mask_for(span)
-    while true do
-      local draw = next64(st) & mask
-      if not math.ult(span, draw) then
-        return min + draw
-      end
-    end
+    return Rand.uniform(function(): integer return next64(st) end, min, max)
   end
 
   source.float = function(_self: Rand.Source): number
@@ -119,7 +147,7 @@ end
 
 --- `count` bytes from the operating system's entropy source
 --- (`getentropy`, as `/dev/urandom` serves), fit for a key, token or
---- nonce: unlike a `Source`, never the same twice and never replayable.
+--- nonce: unlike a [`Source`], never the same twice and never replayable.
 --- Raises when `count` is negative or past 1 MiB.
 --- @param count integer How many bytes
 --- @return string | nil The bytes

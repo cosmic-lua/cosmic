@@ -1,16 +1,23 @@
---- What the compile and verdict trims share: a cache the tree's tool
---- keeps in SQLite, rows stamped with the wall clock of the last run
---- that used or made them (`used_ns`), cut to what one run reached
---- before ci.yml saves it (cosmic_ci/compiles.tl, cosmic_ci/verdicts.tl).
+--- What the compile and verdict trims share. Each cache is a SQLite
+--- file the tree's tool keeps, whose rows carry the wall clock of the
+--- last run that used or made them (`used_ns`). Before ci.yml saves a
+--- cache, a trim cuts it to the rows one run reached
+--- (cosmic_ci/compiles.tl, cosmic_ci/verdicts.tl). The key ci.yml saves
+--- it under ends in a `digest` of the rows kept, so a run that kept the
+--- rows of an earlier save names that save's key and saves nothing new.
 ---
 --- Like the builds and the suites, which never fail over these caches,
---- a trim that cannot read one never fails the leg: it says why and
---- leaves the file, or removes one that is no database, and the next
---- run compiles or runs what it must.
+--- a trim that cannot read one never fails the leg. It says why, then
+--- leaves the file or, where the file is no database, removes it; the
+--- next run compiles or runs what it must.
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
+local Plural = require("cosmic_ci.plural")
+local String = require("cosmic.string")
 
 local record CacheTrim
   --- What a trim left, and what it found.
@@ -37,8 +44,7 @@ local record CacheTrim
 end
 
 --- How long a trim waits on another connection's lock, as the builds
---- and the suites wait (the `busy_ms` of build/shared_compiles.tl and
---- build/shared_verdicts.tl).
+--- and the suites wait (the `busy_ms` of build/shared_sqlite.tl).
 local busy_ms <const> = 10000
 
 local function size(path: string): integer
@@ -53,8 +59,7 @@ local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): i
 end
 
 --- Whether `trouble`, from SQLite, says the file is no database, or a
---- broken one, as build/shared_compiles.tl's and
---- build/shared_verdicts.tl's `corrupt` read it.
+--- broken one, as build/shared_sqlite.tl's `corrupt` reads it.
 function CacheTrim.corrupt(trouble: string): boolean
   return trouble:find("malformed", 1, true) ~= nil or
     trouble:find("not a database", 1, true) ~= nil
@@ -73,8 +78,8 @@ function CacheTrim.remove_database(path: string): {string}
 end
 
 --- Removes the caches the tool set aside beside `path` as broken
---- (`<name>.corrupt-<ns>`, with their logs: the `set_aside` of
---- build/shared_compiles.tl and build/shared_verdicts.tl), which no run
+--- (`<name>.corrupt-<ns>`, with their logs: build/shared_sqlite.tl's
+--- `set_aside`), which no run
 --- reads again and a save would otherwise carry from run to run.
 --- Answers what it removed.
 function CacheTrim.remove_set_aside(path: string): {string}
@@ -83,7 +88,7 @@ function CacheTrim.remove_set_aside(path: string): {string}
   local removed: {string} = {}
   local listed, _ = Fs.list(dir)
   for _, entry in ipairs(listed or {}) do
-    if entry:sub(1, #prefix) == prefix and (Fs.remove(dir .. "/" .. entry)) then
+    if String.starts_with(entry, prefix) and (Fs.remove(dir .. "/" .. entry)) then
       removed[#removed + 1] = dir .. "/" .. entry
     end
   end
@@ -95,21 +100,24 @@ end
 --- as a cache's `used_ns` is), then rewrites the file without the space
 --- they took, and without the pages the tool's own bounds freed, which
 --- SQLite keeps. Where `tables.whole_unless_reached`, a file none of
---- whose rows was used since -- one whose run never started -- keeps
---- them all. A table without a `used_ns` column is left whole, and
---- named in the answer's `unstamped`. Nil and
---- "" for a file that is not there, and nil and why where the file
---- could not be trimmed.
--- TODO: ask the tool to trim its caches to what one run used, once
--- build/shared_compiles.tl and build/shared_verdicts.tl can (a verb, or
--- a bound the environment sets), rather than reach into their tables
--- here: this reads every table of their formats by its `used_ns`
+--- whose rows was used since (one whose run never started) keeps them
+--- all. A table without a `used_ns` column is left whole and named in
+--- the answer's `unstamped`. Answers nil and "" for a file that is not
+--- there, and nil and why where the file could not be trimmed.
+-- TODO: ask the tool to trim its caches to what one run used, rather
+-- than reach into their tables here, once ci/cosmic-driver.pin names a
+-- release with a verb that does (through build/shared_sqlite.tl, beside
+-- build/shared_compiles.tl's and build/shared_verdicts.tl's formats),
+-- which the tree has yet to add: the trims run where the tree's
+-- o/bin/cosmic may never have been built (ci.yml's steps need only the
+-- driver), and this module, on the pinned release, cannot require the
+-- tree's. This reads every table of their formats by its `used_ns`
 -- column, and leaves a table without one whole.
 function CacheTrim.trim(path: string, since_ns: integer,
                         tables: CacheTrim.Tables): CacheTrim.Trimmed | nil, string
   if not Predicate.exists(path) then return nil, "" end
   local before_bytes = size(path)
-  local opened, open_trouble = Sqlite.open(path, true)
+  local opened, open_trouble = Sqlite.open(path, { writable = true })
   if opened == nil then return nil, open_trouble end
   local db: Sqlite.Handle = opened
   local function fail(why: string): CacheTrim.Trimmed | nil, string
@@ -177,12 +185,11 @@ end
 
 --- Trims the cache at `path` (`trim`) to what was used since `since`,
 --- in Unix seconds, after removing what was set aside beside it
---- (`remove_set_aside`), for the driver command `verb`: what it says on
---- standard output and on standard error. A cache it cannot trim is
---- said so, on standard error, and left, or removed where it is no
---- database; so is a table it keeps whole for want of a `used_ns`
---- column to trim it by, which would otherwise be saved from run to
---- run unseen.
+--- ([`remove_set_aside`]), for the driver command `verb`. Answers what to
+--- say on standard output and on standard error. A cache it cannot trim
+--- is reported on standard error and left, or removed where it is no
+--- database. A table kept whole for want of a `used_ns` column is
+--- reported too, since a save would carry it from run to run unseen.
 function CacheTrim.file(verb: string, path: string, since: integer,
                         tables: CacheTrim.Tables): string, string
   local out = ""
@@ -215,7 +222,110 @@ function CacheTrim.file(verb: string, path: string, since: integer,
       table.concat(trimmed.unstamped, ", ") .. "\n"
   end
   return out .. verb .. ": " .. what .. "; " .. path .. " " .. trimmed.before_bytes ..
-    " -> " .. trimmed.after_bytes .. " bytes\n", err
+    " -> " .. Plural.count(trimmed.after_bytes, "byte") .. "\n", err
+end
+
+--- Feeds `hasher` the rows of the cache at `path`: every table of it
+--- but SQLite's own, by name, each row in order, every column but
+--- `used_ns`. Each run that stands on a row stamps `used_ns` again, and
+--- it decides only what a trim keeps, so two files that hold the same
+--- rows feed the same bytes whatever SQLite made of their pages or when
+--- a run last used them. Answers why where it could not read the file.
+local function feed_rows(hasher: Hash.Hasher, path: string): boolean, string
+  -- Writable, as the trim opens it: a reader of a file in write-ahead
+  -- mode leaves its log and index behind, which the save would carry.
+  local opened, open_trouble = Sqlite.open(path, { writable = true })
+  if opened == nil then return false, open_trouble end
+  local db: Sqlite.Handle = opened
+  local function fail(why: string): boolean, string
+    local _, _ = db:close()
+    return false, why
+  end
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
+  if not timed then return fail(time_trouble) end
+  local names, trouble = Sqlite.text_rows(db, "SELECT name FROM sqlite_schema " ..
+    "WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")
+  if names == nil then return fail(trouble) end
+  for _, row in ipairs(names) do
+    local name = row[1]
+    local columns, column_trouble = Sqlite.text_rows(db,
+      "SELECT name FROM pragma_table_info(?1) WHERE name <> 'used_ns' ORDER BY cid",
+      { { text = name } })
+    if columns == nil then return fail(column_trouble) end
+    local quoted: {string} = {}
+    local order: {string} = {}
+    for i, column in ipairs(columns) do
+      quoted[i] = '"' .. column[1]:gsub('"', '""') .. '"'
+      order[i] = tostring(i)
+      hasher:update("column\0" .. #column[1] .. ":" .. column[1])
+    end
+    hasher:update("table\0" .. #name .. ":" .. name .. "\0" .. #columns .. "\0")
+    if #quoted > 0 then
+      local query, query_trouble = Sqlite.query(db, "SELECT " .. table.concat(quoted, ", ") ..
+        ' FROM "' .. name:gsub('"', '""') .. '" ORDER BY ' .. table.concat(order, ", "))
+      if query == nil then return fail(query_trouble) end
+      do
+        local q <close> = query
+        for cells in q:each() do
+          for _, cell in ipairs(cells) do
+            local value = cell.text or cell.blob or
+              (cell.integer ~= nil and tostring(cell.integer)) or
+              (cell.number ~= nil and string.format("%.17g", cell.number)) or ""
+            hasher:update(cell.kind .. "\0" .. #value .. ":" .. value)
+          end
+          hasher:update("\n")
+        end
+        if q:failure() ~= "" then return fail(q:failure()) end
+      end
+    end
+  end
+  local closed, close_trouble = db:close()
+  if not closed then return false, close_trouble end
+  return true, ""
+end
+
+--- The digest of what `paths` hold, as ci.yml's save of them names it,
+--- in hexadecimal: each file by its name and its rows ([`feed_rows`]), so
+--- a run whose trimmed cache holds the rows of one saved already names
+--- that save's key again, and saves nothing new. A file not there is
+--- fed as absent; one whose rows cannot be read, by its bytes, which
+--- differ from run to run, so its cache is saved again rather than
+--- mistaken for another; and the second answer says why, for the log.
+function CacheTrim.digest(paths: {string}): string, string
+  local hasher = assert(Hash.hasher("sha256"))
+  local troubles: {string} = {}
+  for _, path in ipairs(paths) do
+    local name = Fs.basename(path)
+    hasher:update("file\0" .. #name .. ":" .. name .. "\0")
+    if not Predicate.exists(path) then
+      hasher:update("absent\0")
+    else
+      local fed, trouble = feed_rows(hasher, path)
+      if not fed then
+        troubles[#troubles + 1] = path .. ": " .. trouble .. "; digested by its bytes"
+        hasher:update("bytes\0" .. (Fs.read(path) or ""))
+      end
+    end
+  end
+  return Codec.hex((assert(hasher:digest()))), table.concat(troubles, "\n")
+end
+
+--- Appends `name=value` to the file `env.GITHUB_OUTPUT` names, a
+--- workflow step's outputs, where it names one, as
+--- cosmic_ci/context.tl's `summarize` appends to the step's summary;
+--- answers why where it could not.
+function CacheTrim.output(env: {string:string}, name: string, value: string): string
+  local file = env.GITHUB_OUTPUT or ""
+  if file == "" then return "" end
+  local existing = ""
+  if Predicate.exists(file) then
+    local read, read_trouble = Fs.read(file)
+    if read == nil then return file .. ": " .. read_trouble end
+    existing = read
+  end
+  local wrote, trouble = Fs.write(file, existing .. name .. "=" .. value .. "\n")
+  if not wrote then return file .. ": " .. trouble end
+  return ""
 end
 
 --- SINCE, the first of `argv`, in Unix seconds, or nil where it is none.

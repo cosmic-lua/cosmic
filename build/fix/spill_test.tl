@@ -1,13 +1,13 @@
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+--- [`build.fix.spill`] in this process: the sites it reads off the
+--- checker's message, the one assert it wraps, and the checker naming
+--- it. build/fix/spill_tool_test.tl holds `cosmic fix` wrapping it.
+
 local Test = require("cosmic.test")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
 
 --- Where the checker looks for modules, which a test runs it without.
---- And the program itself, which its tests start.
-Test.needs{ env = { "TL_PATH" }, tool = true }
+Test.needs{ env = { "TL_PATH" } }
 
 --- Only the call the checker names is wrapped, whatever its arguments,
 --- and nothing else on the line moves.
@@ -53,33 +53,4 @@ local function test_the_checker_names_the_spilling_assert()
   table.sort(found)
   assert(#found == 2 and found[1] == "2:26" and found[2] == "5:33",
     table.concat(found, " "))
-end
-
-local function fix(root: string, check: boolean): Child.Result
-  local args: {string} = { "fix" }
-  if check then args[#args + 1] = "--check" end
-  local started = observations.program(args, { cwd = root,
-    stdout = "capture", stderr = "stdout", timeout_ms = 60000 })
-  return (assert(Child.run(started.argv, started.options)))
-end
-
---- `cosmic fix` builds the project, wraps the assert the checker names,
---- builds again, and stops once the checker names none; `--check` says
---- so without writing.
-local function test_fix_wraps_what_the_checker_names(tmp: string)
-  local root = tmp .. "/project"
-  assert(Fs.mkdirs(root))
-  local source = 'local function read(): string | nil, string return "7", "" end\n' ..
-    'return tonumber(assert(read()))\n'
-  assert(Fs.write(root .. "/spill.tl", source))
-  local checked = fix(root, true)
-  assert(not checked.ok and assert(checked.stdout):find("would fix  spill.tl", 1, true),
-    checked.stdout)
-  assert(Fs.read(root .. "/spill.tl") == source, "--check wrote")
-  local fixed = fix(root, false)
-  assert(fixed.ok and assert(fixed.stdout):find("fixed  spill.tl", 1, true), fixed.stdout)
-  assert(Fs.read(root .. "/spill.tl") == 'local function read(): string | nil, string ' ..
-    'return "7", "" end\nreturn tonumber((assert(read())))\n')
-  local again = fix(root, false)
-  assert(again.ok and assert(again.stdout):find("0 fixed", 1, true), again.stdout)
 end

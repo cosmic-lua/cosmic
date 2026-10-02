@@ -14,11 +14,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #if defined(__linux__)
 #include <linux/audit.h>
+#include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/landlock.h>
 #include <linux/seccomp.h>
@@ -29,13 +32,24 @@
 #include <sys/mount.h>
 #include <sys/socket.h>
 #include <stddef.h>
+#include <sys/auxv.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
+#include <sys/vfs.h>
 /* _XOPEN_SOURCE intentionally hides these libc escape hatches: syscall,
  * for the calls musl has no wrapper for, and clone, which starts a child
- * on this process's memory (`start_child`). */
+ * on this process's memory ([`start_child`]). */
 extern long syscall (long, ...);
 extern int clone (int (*)(void *), void *, int, void *, ...);
+#endif
+#if defined(__APPLE__)
+#include <spawn.h>
+#include <sys/event.h>
+#include <sys/sysctl.h>
+#endif
+#if defined(__x86_64__)
+#include <cpuid.h>
 #endif
 #include <string.h>
 #include <time.h>
@@ -45,12 +59,10 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "check.h"
 #include "coverage.h"
 #include "fail.h"
-#include "fault.h"
 #include "guard.h"
-#include "memory.h"
-#include "observed.h"
 #include "lauxlib.h"
 #include "executable.h"
+#include "memory.h"
 #include "crypto.h"
 #include "environment.h"
 #include "syscalls.h"
@@ -67,14 +79,6 @@ const char *cosmic_path (lua_State *L, int index) {
 }
 
 COSMIC_SYSCALL(executable, 0) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_EXECUTABLE,
-                                cosmic_query_executable);
-  }
-  return cosmic_query_executable(L);
-}
-
-int cosmic_query_executable (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
   if (lua_isstring(L, -1)) return 1;
   lua_pop(L, 1);
@@ -91,13 +95,6 @@ int cosmic_query_executable (lua_State *L) {
 }
 
 COSMIC_SYSCALL(getenv, 1) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_GETENV, cosmic_query_getenv);
-  }
-  return cosmic_query_getenv(L);
-}
-
-int cosmic_query_getenv (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   const char *value = getenv(name);
   if (value == NULL) {
@@ -109,13 +106,6 @@ int cosmic_query_getenv (lua_State *L) {
 }
 
 COSMIC_SYSCALL(environ, 0) {
-  if (cosmic_observing) {
-    return cosmic_observed_call(L, COSMIC_OBSERVED_ENVIRON, cosmic_query_environ);
-  }
-  return cosmic_query_environ(L);
-}
-
-int cosmic_query_environ (lua_State *L) {
   lua_newtable(L);
   char **at = COSMIC_ENVIRON;
   for (; at != NULL && *at != NULL; at++) {
@@ -145,9 +135,56 @@ COSMIC_SYSCALL(getpid, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(getpgid, 1) {
+  int pid = cosmic_checkint(L, 1);
+  if (pid < 0) return luaL_argerror(L, 1, "pid is out of range");
+  pid_t group = getpgid((pid_t)pid);
+  if (group < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, (lua_Integer)group);
+  return 1;
+}
+
 COSMIC_SYSCALL(getuid, 0) {
   lua_pushinteger(L, (lua_Integer)getuid());
   return 1;
+}
+
+COSMIC_SYSCALL(getgid, 0) {
+  lua_pushinteger(L, (lua_Integer)getgid());
+  return 1;
+}
+
+COSMIC_SYSCALL(getgroups, 0) {
+  int count = getgroups(0, NULL);
+  if (count < 0) return cosmic_fail(L, errno);
+  /* A block Lua owns, so a refused allocation after it leaks nothing.
+   * A size of 0 would ask the count again, not list none. */
+  gid_t *groups = lua_newuserdatauv(L, (size_t)count * sizeof *groups, 0);
+  int listed = count > 0 ? getgroups(count, groups) : 0;
+  if (listed < 0) return cosmic_fail(L, errno);
+  lua_createtable(L, listed, 0);
+  for (int i = 0; i < listed; i++) {
+    lua_pushinteger(L, (lua_Integer)groups[i]);
+    lua_rawseti(L, -2, i + 1);
+  }
+  return 1;
+}
+
+COSMIC_SYSCALL(dumpable, 1) {
+#if defined(__linux__)
+  if (!lua_isnoneornil(L, 1)) {
+    int set = cosmic_checkint(L, 1);
+    if (set != 0 && set != 1) return luaL_argerror(L, 1, "dumpable is set to 0 or 1");
+    if (prctl(PR_SET_DUMPABLE, set, 0, 0, 0) != 0) return cosmic_fail(L, errno);
+  }
+  int now = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
+  if (now < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, (lua_Integer)now);
+  return 1;
+#else
+  if (!lua_isnoneornil(L, 1)) (void)cosmic_checkint(L, 1);
+  return cosmic_fail(L, ENOSYS);
+#endif
 }
 
 COSMIC_SYSCALL(clock_gettime, 1) {
@@ -197,7 +234,7 @@ COSMIC_SYSCALL(errno_message, 1) {
 }
 
 COSMIC_SYSCALL(isatty, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_pushboolean(L, isatty(fd) == 1);
   return 1;
 }
@@ -225,6 +262,97 @@ COSMIC_SYSCALL(umask, 1) {
   return 1;
 }
 
+/* A limit as Lua holds it: none (RLIM_INFINITY, all ones on Linux, which
+ * no integer holds) as math.maxinteger, the largest integer Lua holds and
+ * RLIM_INFINITY itself on macOS. A finite limit at or past it, which only
+ * Linux can hold, reads as none too, since no integer tells it apart. */
+static lua_Integer limit_value (rlim_t limit) {
+  if (limit == RLIM_INFINITY || limit >= (rlim_t)LUA_MAXINTEGER) return LUA_MAXINTEGER;
+  return (lua_Integer)limit;
+}
+
+/* The limit argument `index` gives, math.maxinteger for none. */
+static rlim_t check_limit (lua_State *L, int index) {
+  lua_Integer value = luaL_checkinteger(L, index);
+  luaL_argcheck(L, value >= 0, index, "a limit is not negative");
+  return value == LUA_MAXINTEGER ? RLIM_INFINITY : (rlim_t)value;
+}
+
+COSMIC_SYSCALL(getrlimit, 1) {
+  int resource = cosmic_checkint(L, 1);
+  struct rlimit limits;
+  if (getrlimit(resource, &limits) != 0) return cosmic_fail(L, errno);
+  lua_createtable(L, 0, 2);
+  lua_pushinteger(L, limit_value(limits.rlim_cur));
+  lua_setfield(L, -2, "soft");
+  lua_pushinteger(L, limit_value(limits.rlim_max));
+  lua_setfield(L, -2, "hard");
+  return 1;
+}
+
+/* The most a start raises RLIMIT_NOFILE's soft limit to: macOS's
+ * OPEN_MAX, past which an older macOS refuses a soft limit. It holds on
+ * every system, where the hard limit can be a million or none, because
+ * a child on a Linux that closes no range (before 5.9, or where a filter
+ * refuses close_range) closes each descriptor up to the soft limit one
+ * by one ([`close_child_descriptors`]): a millisecond or two at this
+ * bound, against most of a second at a million. */
+#define DESCRIPTOR_LIMIT_RAISED 10240
+
+/* RLIMIT_NOFILE's soft limit as this process started with it, while
+ * `descriptor_limit_raised` says the start raised it and nothing has set
+ * it since: what a program it execs is given back
+ * ([`restore_descriptor_limit`]). A Linux child reads them on the
+ * parent's memory before exec. */
+static rlim_t started_descriptor_limit;
+static bool descriptor_limit_raised;
+
+void cosmic_raise_descriptor_limit (void) {
+  struct rlimit limits;
+  if (getrlimit(RLIMIT_NOFILE, &limits) != 0) return;
+  rlim_t target = DESCRIPTOR_LIMIT_RAISED;
+  if (limits.rlim_max < target) target = limits.rlim_max;
+#if defined(__APPLE__)
+  /* macOS refuses a soft limit past kern.maxfilesperproc, or holds the
+   * process to it, and that can be set below OPEN_MAX. */
+  int most = 0;
+  size_t size = sizeof most;
+  if (sysctlbyname("kern.maxfilesperproc", &most, &size, NULL, 0) == 0 && most > 0 &&
+      (rlim_t)most < target)
+    target = (rlim_t)most;
+#endif
+  if (limits.rlim_cur >= target) return;
+  struct rlimit raised = { .rlim_cur = target, .rlim_max = limits.rlim_max };
+  if (setrlimit(RLIMIT_NOFILE, &raised) != 0) return;
+  started_descriptor_limit = limits.rlim_cur;
+  descriptor_limit_raised = true;
+}
+
+/* Gives a program about to be exec'd the soft RLIMIT_NOFILE this
+ * process started with, where the start raised it, so a host program --
+ * a shell's `ulimit -n` -- sees what the user set; a relaunch of this
+ * program raises it again. The hard limit stays as it is now, and bounds
+ * the soft one where something lowered it since; `least` bounds it
+ * from below, where a descriptor numbered under it is yet to be placed
+ * ([`spawn_program`]). True where it lowered the limit. A refusal leaves
+ * the raised one, which harms no program. */
+static bool restore_descriptor_limit (rlim_t least) {
+  struct rlimit limits;
+  if (!descriptor_limit_raised || getrlimit(RLIMIT_NOFILE, &limits) != 0) return false;
+  rlim_t soft = started_descriptor_limit < least ? least : started_descriptor_limit;
+  limits.rlim_cur = soft < limits.rlim_max ? soft : limits.rlim_max;
+  return setrlimit(RLIMIT_NOFILE, &limits) == 0;
+}
+
+COSMIC_SYSCALL(setrlimit, 3) {
+  int resource = cosmic_checkint(L, 1);
+  struct rlimit limits = { .rlim_cur = check_limit(L, 2), .rlim_max = check_limit(L, 3) };
+  if (setrlimit(resource, &limits) != 0) return cosmic_fail_effect(L, errno);
+  /* A limit the program set is the one its children get. */
+  if (resource == RLIMIT_NOFILE) descriptor_limit_raised = false;
+  return cosmic_ok(L);
+}
+
 static const char *plain_string (lua_State *L, int index, const char *what) {
   if (lua_type(L, index) != LUA_TSTRING)
     luaL_error(L, "%s must be a string", what);
@@ -233,6 +361,32 @@ static const char *plain_string (lua_State *L, int index, const char *what) {
   if (memchr(value, '\0', length) != NULL)
     luaL_error(L, "%s contains a NUL byte", what);
   return value;
+}
+
+/* The length of the argv table at `index`, raising unless every entry
+ * is a plain string and an array of that many pointers, and its NULL,
+ * fits: what `execve` and `spawn` check before allocating anything. */
+static size_t checked_argv (lua_State *L, int index) {
+  size_t count = lua_rawlen(L, index);
+  if (count > (size_t)LUA_MAXINTEGER ||
+      count > SIZE_MAX / sizeof(char *) - 1)
+    luaL_argerror(L, index, "argv is too large");
+  for (size_t i = 1; i <= count; i++) {
+    lua_rawgeti(L, index, (lua_Integer)i);
+    plain_string(L, -1, "argv entry");
+    lua_pop(L, 1);
+  }
+  return count;
+}
+
+/* Raises unless the pair `lua_next` left on top of the stack, from the
+ * environment table at `index`, is a plain string name, nonempty and
+ * without '=', and a plain string value. */
+static void checked_variable (lua_State *L, int index) {
+  const char *name = plain_string(L, -2, "environment name");
+  plain_string(L, -1, "environment value");
+  if (*name == '\0' || strchr(name, '=') != NULL)
+    luaL_argerror(L, index, "environment name is empty or contains '='");
 }
 
 /* Whether cosmic itself set SIGPIPE to be ignored, so that a program it
@@ -252,15 +406,7 @@ COSMIC_SYSCALL(execve, 3) {
   luaL_checktype(L, 2, LUA_TTABLE);
   luaL_checktype(L, 3, LUA_TTABLE);
 
-  size_t count = lua_rawlen(L, 2);
-  if (count > (size_t)LUA_MAXINTEGER ||
-      count > SIZE_MAX / sizeof(char *) - 1)
-    return luaL_argerror(L, 2, "argv is too large");
-  for (size_t i = 1; i <= count; i++) {
-    lua_rawgeti(L, 2, (lua_Integer)i);
-    plain_string(L, -1, "argv entry");
-    lua_pop(L, 1);
-  }
+  size_t count = checked_argv(L, 2);
 
   /* Each "NAME=value" entry is built by concatenation and kept in a
    * table on the stack, which is what keeps its bytes alive; the key
@@ -270,10 +416,7 @@ COSMIC_SYSCALL(execve, 3) {
   lua_Integer variables = 0;
   lua_pushnil(L);
   while (lua_next(L, 3) != 0) {
-    const char *name = plain_string(L, -2, "environment name");
-    plain_string(L, -1, "environment value");
-    if (*name == '\0' || strchr(name, '=') != NULL)
-      return luaL_argerror(L, 3, "environment name is empty or contains '='");
+    checked_variable(L, 3);
     lua_pushvalue(L, -2);
     lua_pushliteral(L, "=");
     lua_pushvalue(L, -3);
@@ -304,13 +447,21 @@ COSMIC_SYSCALL(execve, 3) {
 
   /* The program this process becomes starts with SIGPIPE at its
    * default, as a spawned child does; ignored again if the exec fails. */
-  char **given = cosmic_coverage_environment(envp);
+  char **carried = cosmic_store_environment(envp);
+  if (carried == NULL) return cosmic_fail_effect(L, ENOMEM);
+  char **given = cosmic_coverage_environment(carried);
+  /* Lowered before the report, which credits what lowers it; a report
+   * whose file finds no room under the lowered limit is left unwritten. */
+  struct rlimit raised;
+  bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 && restore_descriptor_limit(0);
   cosmic_coverage_report(); /* nothing of this image remains to report later */
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
   execve(path, argv, given);
   int number = errno;
+  if (lowered) setrlimit(RLIMIT_NOFILE, &raised);
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_IGN);
-  if (given != envp) free(given);
+  if (given != carried) free(given);
+  if (carried != envp) free(carried);
   return cosmic_fail_effect(L, number);
 }
 
@@ -320,6 +471,10 @@ static void free_environment (char **envp, lua_Integer count) {
   free(envp);
 }
 
+/* The highest descriptor number a child may be handed besides stdio. */
+#define CHILD_FD_MAX 255
+
+#if defined(__linux__)
 static int report_child_error (int fd, int number) {
   const char *at = (const char *)&number;
   size_t left = sizeof number;
@@ -333,17 +488,18 @@ static int report_child_error (int fd, int number) {
   return 0;
 }
 
-/* The highest descriptor number a child may be handed besides stdio. */
-#define CHILD_FD_MAX 255
-
-/* Close every descriptor from `from` up. Cosmic-opened descriptors are
- * CLOEXEC already; this also closes foreign descriptors that are not. */
+/* Close every descriptor from `from` up to `limit`. Cosmic-opened
+ * descriptors are CLOEXEC already; this also closes foreign descriptors
+ * that are not. Where the kernel closes no range, the loop walks up to
+ * the soft limit, which the start's raise bounds
+ * ([`DESCRIPTOR_LIMIT_RAISED`]). */
 static void close_child_descriptors (int from, long limit) {
-#if defined(__linux__) && defined(SYS_close_range)
+#if defined(SYS_close_range)
   if (syscall(SYS_close_range, (unsigned)from, ~0u, 0u) == 0) return;
 #endif
   for (int fd = from; fd < limit; fd++) close(fd);
 }
+#endif
 
 #if defined(__linux__)
 /* Fixed by the kernel's ABI; a libc or a header older than them may not
@@ -369,17 +525,21 @@ static void close_child_descriptors (int from, long limit) {
  * checks opening a file or listing a directory, never stat, access,
  * readlink, statfs or chdir, so a confined child still learns whether a
  * path outside the ruleset is there, and its size and times -- nor its
- * reach beyond: a unix socket named by a path, and UDP. A sandbox's
+ * reach beyond: a unix socket named by a path, TCP and UDP. A sandbox's
  * `unveil` closes the first and the socket paths, and `offline` the rest.
+ * TCP is left unhandled though Landlock can hold it from ABI 4: held
+ * there and not below, a child's connection over loopback would pass
+ * on one kernel and fail on another, and `offline` holds it on every
+ * one.
  * TODO: a strict form, for a sandbox that must hold whole, refusing
  * with EOPNOTSUPP where the kernel's ABI or this build's headers leave
  * out a right the ruleset otherwise handles -- truncate below ABI 3,
- * TCP below 4, device ioctls below 5, abstract unix sockets and signals
+ * device ioctls below 5, abstract unix sockets and signals
  * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
- * child to a ruleset under build.filesystem_observations'
- * `must_confine`: today it handles what the kernel knows and says
- * nothing of the rest, so a child on an older kernel may truncate a
- * file it was given only to read. */
+ * child to a ruleset under build.confine's `must_confine`: today it
+ * handles what the kernel knows and says nothing of the rest, so a
+ * child on an older kernel may truncate a file it was given only to
+ * read. */
 COSMIC_SYSCALL(landlock_ruleset, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -403,11 +563,6 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
   attr.handled_access_fs = handled;
   /* A kernel older than a field takes the struct only up to it. */
   size_t size = sizeof attr.handled_access_fs;
-  if (abi >= 4) {
-    attr.handled_access_net = LANDLOCK_ACCESS_NET_BIND_TCP | LANDLOCK_ACCESS_NET_CONNECT_TCP;
-    size = offsetof(struct landlock_ruleset_attr, handled_access_net) +
-           sizeof attr.handled_access_net;
-  }
 #ifdef LANDLOCK_SCOPE_SIGNAL
   if (abi >= 6) {
     /* Nor may it reach a process outside it through an abstract unix
@@ -458,11 +613,80 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
 #endif
 }
 
+/* Whether this process can no longer run its own core -- held by
+ * `landlock_restrict_execute` to files none of which is beneath it --
+ * and so hands its artifact's descriptor on to no child ([`handed_on`]):
+ * none could be a relaunch of it. A worker of `cosmic test` whose
+ * module does not declare `tool` is held so (build/confine.tl's
+ * `forbid_running`) before its test loads.
+ *
+ * Such a process is made undumpable too ([`keep_artifact`]), so what it
+ * starts cannot take the descriptor as /proc/<its pid>/fd/<it> -- a
+ * host program's `cat /proc/$PPID/fd/254`, which `open`'s refusal, in
+ * this core's Lua alone, never sees. Following a link of another
+ * process's /proc/<pid> (fd, map_files, cwd, root, exe) asks
+ * PTRACE_MODE_READ of it, which an undumpable process grants only to
+ * one holding CAP_SYS_PTRACE in the user namespace its memory was made
+ * in. None the worker starts holds it: in a sandbox every capability is
+ * given up for good before the worker runs ([`drop_capabilities`]), root
+ * as any user, and what it starts has none to gain; unsandboxed it has
+ * the program by name anyway. The process itself is its own tracer
+ * still, so its /proc/self stays its own to read. What moves is the
+ * owner of its /proc/<pid>, which the kernel gives root of that user
+ * namespace, or the host's where that has none: a child of it on its
+ * memory before exec ([`spawn_child`]), a process it confines or takes
+ * offline, is refused writing its /proc/self/uid_map there, where the
+ * process is not root (EACCES). A process held so is refused every
+ * mount already (Landlock), so what this takes from it is a network
+ * namespace of its own without a root of its own, which no test of the
+ * tree that does not declare `tool` asks for. A file of its own
+ * /proc/self that only its owner may read (environ, auxv) it may no
+ * longer read either, where it is not root; no test of the tree does.
+ * Nor, undumpable, does it write a core dump when it crashes. */
+static bool artifact_kept;
+
+#if defined(__linux__)
+/* Marks this process as held from running its core (`artifact_kept`)
+ * and undumpable, so nothing it starts reaches its artifact descriptor
+ * through /proc. 0, or an errno. */
+static int keep_artifact (void) {
+  if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0) return errno;
+  artifact_kept = true;
+  return 0;
+}
+#endif
+
+#if defined(__linux__)
+/* Whether `path` is one of the `count` paths of the list at `index`, or
+ * beneath one. */
+static bool listed_beneath (lua_State *L, int index, lua_Integer count, const char *path) {
+  size_t length = strlen(path);
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_rawgeti(L, index, i);
+    size_t size = 0;
+    const char *listed = lua_tolstring(L, -1, &size);
+    bool within = listed != NULL && size <= length &&
+                  strncmp(path, listed, size) == 0 &&
+                  (path[size] == '\0' || path[size] == '/' ||
+                   (size > 0 && listed[size - 1] == '/'));
+    lua_pop(L, 1);
+    if (within) return true;
+  }
+  return false;
+}
+#endif
+
 /* A ruleset that handles running a file, one rule per path, and this
  * process held to it. It handles moving a file to another directory
- * too, granted beneath the same paths: a ruleset that leaves that
- * unhandled refuses every such rename or link (EXDEV), as the first
- * ABI did, so a kernel without the second is refused. Every entry is
+ * too, granted beneath / in a rule of its own: a ruleset that leaves
+ * that unhandled refuses every such rename or link (EXDEV), as the first
+ * ABI did, so a kernel without the second is refused; and granted only
+ * beneath the paths, a directory made after the hold outside them --
+ * one in /tmp, where a program run from beneath /tmp has the walk
+ * grant /tmp's entries one by one (build/confine.tl's
+ * `forbid_running`) -- would refuse a rename inside it. The kernel
+ * still refuses a move that would let a file be run where it could not
+ * before. Every entry is
  * checked to be a plain string before the ruleset is made, so nothing
  * after it can raise. */
 COSMIC_SYSCALL(landlock_restrict_execute, 1) {
@@ -508,9 +732,25 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1) {
       close(fd);
     }
   }
+  if (number == 0) {
+    int fd = open("/", O_PATH | O_CLOEXEC);
+    struct landlock_path_beneath_attr beneath = {
+      .allowed_access = LANDLOCK_ACCESS_FS_REFER,
+      .parent_fd = fd,
+    };
+    if (fd < 0 ||
+        syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0)
+      number = errno;
+    if (fd >= 0) close(fd);
+  }
+  /* Whether the process will be held from running its own core, asked
+   * before it is held: the answer names no path the ruleset changes. */
+  char self[PATH_MAX];
+  bool keeps = !cosmic_executable_path(self, sizeof self) || !listed_beneath(L, 1, count, self);
   if (number == 0 && prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) number = errno;
   if (number == 0 && syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) number = errno;
   close(ruleset);
+  if (number == 0 && keeps) number = keep_artifact();
   if (number != 0) return cosmic_fail_effect(L, number);
   return cosmic_ok(L);
 #else
@@ -563,7 +803,7 @@ static const int pledge_refused[] = {
 #endif
 };
 
-/* Every instruction `pledge_program` writes: the architecture check and
+/* Every instruction [`pledge_program`] writes: the architecture check and
  * the call's number (4), the x32 check (2), two for each refused call,
  * and the socket block at its largest (1 + 1 + 2 * 3 + 1 + 1). */
 _Static_assert(4 + 2 + 2 * (sizeof pledge_refused / sizeof pledge_refused[0]) + 10 <= PLEDGE_MAX,
@@ -630,9 +870,10 @@ static int plain_name (const char *name) {
 }
 
 #if defined(__linux__)
-/* Writes `text` to the file at `path` whole: 0, or an errno. */
-static int write_whole (const char *path, const char *text) {
-  int fd = open(path, O_WRONLY | O_CLOEXEC);
+/* Writes `text` whole to the file at `path`, relative to the directory
+ * `dir` holds (AT_FDCWD for this process's own): 0, or an errno. */
+static int write_whole_at (int dir, const char *path, const char *text) {
+  int fd = openat(dir, path, O_WRONLY | O_CLOEXEC);
   if (fd < 0) return errno;
   size_t left = strlen(text);
   int number = 0;
@@ -645,6 +886,11 @@ static int write_whole (const char *path, const char *text) {
   }
   close(fd);
   return number;
+}
+
+/* Writes `text` to the file at `path` whole: 0, or an errno. */
+static int write_whole (const char *path, const char *text) {
+  return write_whole_at(AT_FDCWD, path, text);
 }
 
 /* The mode a directory made at `path` in the root being built takes:
@@ -680,11 +926,12 @@ static int open_unlinked_directory (int dir, const char *name) {
   return openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 }
 
-/* Makes the place a path is bound at, `target`, `skip` bytes into it the
- * root being built: each directory on the way made where it is missing,
- * with the mode of the one it stands for (`mirrored_mode`), and its last
- * name a directory, with `directory`, or else an empty file, where it is
- * not there -- going through no link. A link on the way or at its end
+/* Makes the place a path is bound at: `target`, a path in the root being
+ * built, of which the first `skip` bytes name the root. Each directory
+ * on the way is made where it is missing, with the mode of the one it
+ * stands for ([`mirrored_mode`]), and its last name a directory, with
+ * `directory`, or else an empty file, where it is not there -- going
+ * through no link. A link on the way or at its end
  * is refused with ELOOP: a name placed beneath a path bound from the
  * host (`at`) could otherwise lead out through a link there, and make
  * a file where the host has the link's target. `target` is written
@@ -742,7 +989,7 @@ static int make_target (char *target, size_t skip, int directory) {
 }
 
 /* Makes a link at `path`, under the root being built, to `to`, making its
- * parents as `make_target` does, going through no link and making
+ * parents as [`make_target`] does, going through no link and making
  * nothing where something already is: 0, or an errno. */
 static int make_link (char *path, size_t skip, const char *to) {
   struct stat st;
@@ -772,6 +1019,7 @@ static int make_link (char *path, size_t skip, const char *to) {
 #define AT_RECURSIVE 0x8000
 #endif
 #define COSMIC_MOUNT_ATTR_RDONLY 0x1
+#define COSMIC_MOUNT_ATTR_NOSUID 0x2
 struct cosmic_mount_attr {
   uint64_t attr_set, attr_clr, propagation, userns_fd;
 };
@@ -826,12 +1074,12 @@ static int map_ids (int unmap_root, const char *uid_map, const char *gid_map, in
    * says it is such a root): its user stays unmapped, the kernel's
    * overflow id inside, owning what root owns but with no capability to
    * override a file's permissions, as it had none mapped either. Any
-   * other refusal is the sandbox's failure.
-   * TODO: let a child left unmapped confine one of its own in turn, as a
-   * mapped one can at any depth: the kernel refuses a user namespace to
-   * a user its own does not map, so root confines only two deep. The
-   * fix would run root's sandboxed tests as a user of their own, mapped
-   * from outside by a parent holding CAP_SETUID. */
+   * other refusal is the sandbox's failure. Left unmapped, it confines
+   * none of its own in turn: the kernel refuses a user namespace to a
+   * user its own does not map. So `spawn`'s `user` runs a root caller's
+   * child as a user of its own instead, mapped from outside
+   * ([`map_from_outside`]), which confines at any depth, as any mapped
+   * child does; `cosmic test` runs root's sandboxed workers so. */
   *mapped = 1;
   if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) {
     if (number != EPERM || !unmap_root) return number;
@@ -860,7 +1108,7 @@ static int drop_capabilities (void) {
  * writable, so a process in it can map its ids in a user namespace of
  * its own, and confine one of its own in turn. What it may write there
  * is its own processes', and its session's autogroup, which is the
- * sandbox's own (`run_program` starts one, as `cosmic_sandbox_init`
+ * sandbox's own ([`run_program`] starts one, as [`cosmic_sandbox_init`]
  * does). Where the kernel refuses one -- a container's runtime masks
  * parts of its /proc, and a user namespace may mount a procfs only
  * where one is wholly visible (mount_too_revealing, which subset=pid
@@ -879,8 +1127,8 @@ static int drop_capabilities (void) {
  * path -- or on setting it from here to the parent's own, which the
  * kernel only lets a process holding CAP_AUDIT_CONTROL do.
  * TODO: refuse the sandbox where the kernel refuses a procfs of its
- * own (EPERM, which build.filesystem_observations' `unconfinable` falls
- * back on and `must_confine` fails), rather than bind the host's, once
+ * own (EPERM, which build.confine's `unconfinable` falls back on and
+ * `must_confine` fails), rather than bind the host's, once
  * no container the tree is tested in masks /proc: CI's Linux legs run
  * with systempaths=unconfined (.github/scripts/leg-container.sh), but a
  * developer's docker may not. Meanwhile a child with the host's /proc
@@ -898,13 +1146,13 @@ static int place_proc (const char *target, int *own) {
   return 0;
 }
 
-/* In an unveiled child's program's process (`start_program`), in its
+/* In an unveiled child's program's process ([`start_program`]), in its
  * namespaces -- user, pid, mount, System V IPC, and the network with
  * `offline` -- before anything else of it:
  * a root of the child's own, with a /tmp of its own unless /tmp or /
  * is among the paths, holding the `count` paths at their own names --
  * read-only, and every mount beneath them too, but where `writable`
- * says; /proc a procfs of its own pid namespace (`place_proc`) -- and
+ * says; /proc a procfs of its own pid namespace ([`place_proc`]) -- and
  * nothing else, so a path outside them is not there at all, to stat as
  * to open. The paths are resolved, with no link or `..` left in them;
  * `at` holds, for each bound at a name of the caller's choosing rather
@@ -914,9 +1162,10 @@ static int place_proc (const char *target, int *own) {
  * has no `at`, and NULL elsewhere, and each such name is a link in the
  * root to its path, where no path placed holds it already. `root` is an
  * empty directory the parent made to build on; `mapped` says whether
- * the child's user is mapped (`map_ids`). The root is this process's
- * own and its working directory's, and every process's in the namespace
- * whose root was the old one. 0, or an errno.
+ * the child's user is mapped ([`map_ids`]); `own` says, once it is built,
+ * whether its /proc is a procfs of its own ([`place_proc`]). The root is
+ * this process's own and its working directory's, and every process's
+ * in the namespace whose root was the old one. 0, or an errno.
  * TODO: remove the directory an unmapped child's root is built on once
  * the child ends: its root and its /tmp are that directory, in its
  * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
@@ -927,8 +1176,10 @@ static int place_proc (const char *target, int *own) {
  * A UTS namespace would change nothing a child sees: its host's name
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
-                       const char *const *at, const int *writable, int count, int mapped) {
+                       const char *const *at, const int *writable, int count, int mapped,
+                       int *own) {
   int number = 0;
+  *own = 0;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
    * map: an unmapped one builds on `root` itself, which its parent's
@@ -1024,6 +1275,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   /* Nothing is made at the root itself once it is built. */
   if (mount(NULL, "/", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY | MS_NOSUID | MS_NODEV, NULL) != 0)
     return errno;
+  *own = own_proc;
   return 0;
 }
 
@@ -1045,12 +1297,12 @@ static int go_offline (int unmap_root, const char *uid_map, const char *gid_map)
 
 /* Everything a spawned child reads between starting and exec, made ready
  * by the parent: the child shares the parent's memory on Linux
- * (`spawn_child`), so it allocates nothing and writes nothing of the
+ * ([`spawn_child`]), so it allocates nothing and writes nothing of the
  * parent's but the one thing it means to -- the coverage flags of the
  * functions it enters, and on the checked core UBSan's own state -- and
  * reads only this, which the parent holds, unchanged, until the child
- * has exec'd or ended. On Darwin the child is a copy (`start_child`),
- * which holds it to the same rules all the same. */
+ * has exec'd or ended. On Darwin the parent hands it to posix_spawn
+ * ([`spawn_program`]). */
 struct spawn_plan {
   const char *path;
   char **argv;
@@ -1083,13 +1335,26 @@ struct spawn_plan {
   /* Whether the child is root in a user namespace not the host's, which
    * may not map root into one of its own. */
   int unmap_root;
+  /* With `user`: whether an unveiled child gives root up for `drop_uid`
+   * and `drop_gid` ([`start_program`]), and the maps a process of this
+   * one's writes of its namespace from outside ([`map_from_outside`]),
+   * root's and theirs; `uid_map` and `gid_map` then map theirs alone,
+   * for the namespace it makes as that user. */
+  int dropping;
+  uid_t drop_uid;
+  gid_t drop_gid;
+  const char *outer_uid_map;
+  const char *outer_gid_map;
 #if defined(__linux__)
   /* For an unveiled child: the tops of the stacks its init and its
-   * program start on (`start_unveiled`), and where it writes their
+   * program start on ([`start_unveiled`]), and where it writes their
    * pids, the one thing of the parent's it writes besides its coverage
    * flags. */
   char *init_stack;
   char *program_stack;
+  /* And, for one that gives root up, the top of the stack the process
+   * that maps it from outside runs on ([`map_from_outside`]). */
+  char *helper_stack;
   pid_t *init;
   pid_t *program;
 #endif
@@ -1098,13 +1363,10 @@ struct spawn_plan {
   sigset_t mask;
 };
 
-/* One past the highest signal number: Linux's real-time signals end at
- * 64, and Darwin's run to 31. */
 #if defined(__linux__)
+/* One past the highest signal number: Linux's real-time signals end at
+ * 64. */
 #define SIGNAL_LIMIT 65
-#else
-#define SIGNAL_LIMIT 32
-#endif
 
 /* In the child, with every signal blocked: every signal this process
  * catches is set back to its default, so none can run a handler of the
@@ -1127,7 +1389,7 @@ static void default_signals (void) {
 }
 
 /* The rest of a child's start once its sandbox's namespaces are made
- * (`spawn_child`): its process group -- for an unveiled child, a
+ * ([`spawn_child`]): its process group -- for an unveiled child, a
  * session of its own, and so a group of its own whatever
  * `process_group` says, so the autogroup its writable /proc lets it set
  * (/proc/self/autogroup) is the sandbox's, not its parent's session's --
@@ -1164,18 +1426,14 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * it starts may reach is the ruleset's, and nothing lets it off.
    * TODO: let a ruleset that names /proc reach an unveiled child's own
    * /proc, as it reaches the host's where the child has that
-   * (`place_proc`), once `landlock_ruleset` records which paths a
+   * ([`place_proc`]), once `landlock_ruleset` records which paths a
    * ruleset holds: adding the rule here, in the child, would widen the
    * caller's ruleset for every later child besides, and a ruleset that
    * left /proc out would gain it. Until then a child held to one reads
    * nothing of its own /proc. */
   if (!failure && confined >= 0) {
-#if defined(__linux__)
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
     else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
-#else
-    failure = ENOSYS;
-#endif
   }
   /* A pledge last of all: the filter would refuse nothing above, but
    * it is the one a later step could trip over. */
@@ -1191,13 +1449,15 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   /* The program starts with the parent's own mask; a signal pending
    * since the start is delivered now, at its default. */
   if (!failure && sigprocmask(SIG_SETMASK, &plan->mask, NULL) != 0) failure = errno;
+  /* Lowered last, once every descriptor is moved above `top`, which a
+   * lower limit can refuse; what is open above it stays open. */
+  if (!failure) restore_descriptor_limit(0);
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
   _exit(127);
 }
 
-#if defined(__linux__)
 #ifndef SYS_pidfd_open
 #define SYS_pidfd_open 434
 #endif
@@ -1205,9 +1465,9 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
 #define AT_EMPTY_PATH 0x1000
 #endif
 
-/* What an unveiled child (`start_unveiled`) shares with the init and
+/* What an unveiled child ([`start_unveiled`]) shares with the init and
  * the program it starts, each on its memory and each while it waits:
- * the plan, and the descriptors `spawn_child` placed; whether its user
+ * the plan, and the descriptors [`spawn_child`] placed; whether its user
  * is mapped; this program, the pipe ends the init takes, and the
  * errno the init failed with before its exec, which the init writes. */
 struct sandbox_start {
@@ -1238,12 +1498,12 @@ static int raise_descriptor (int fd, int top, int *placed) {
 /* The sandbox's init, on the unveiled child's memory from its start to
  * its exec: the first process in the child's pid namespace, it gives up
  * its capabilities and executes this very program as
- * `cosmic_sandbox_init`, holding the started pipe's read end as 0, the
+ * [`cosmic_sandbox_init`], holding the started pipe's read end as 0, the
  * ready pipe's write end as 1 and the parent's status pipe's write end
  * as 2, and nothing else -- from / as the host has it still, where a
  * core linked dynamically (the checked one) finds its loader and
  * libraries, whatever the child is given. Its root and directory move
- * to the child's own when the program pivots (`start_program`). A
+ * to the child's own when the program pivots ([`start_program`]). A
  * failure before that exec is its errno in the shared `init_error`. */
 static _Noreturn int start_init (void *argument) {
   struct sandbox_start *start = argument;
@@ -1251,7 +1511,7 @@ static _Noreturn int start_init (void *argument) {
   int failure = drop_capabilities();
   if (!failure && chdir("/") != 0) failure = errno;
   /* Each source but the status pipe's is above the child's descriptors
-   * (`raise_descriptor`), and that one, just above them, is moved
+   * ([`raise_descriptor`]), and that one, just above them, is moved
    * before 3 is written: so none is overwritten by the moves. */
   const int from[4] = { start->started, start->ready, start->status_fd, start->exe };
   for (int t = 0; !failure && t < 4; t++) {
@@ -1273,15 +1533,64 @@ static _Noreturn int start_init (void *argument) {
  * to its exec: the second in the pid namespace, and, started with
  * CLONE_PARENT, the parent's own child, as a child unconfined is. It
  * builds the root, in the pid namespace as a procfs's mounter must be
- * to hold it (`build_root`), gives up its capabilities, and runs the
- * program (`run_program`). */
+ * to hold it ([`build_root`]), gives up its capabilities, and runs the
+ * program ([`run_program`]). */
 static _Noreturn int start_program (void *argument) {
   const struct sandbox_start *start = argument;
   const struct spawn_plan *plan = start->plan;
-  int failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
-                           plan->bound_at, plan->unveiled_writable, plan->unveil_count,
-                           start->mapped);
+  int failure = 0;
+  /* One that gives root up (`spawn`'s `user`) builds its root as root,
+   * which reaches what only root may -- root's own files, mapped in its
+   * namespace ([`map_from_outside`]) -- but makes it as that user, as an
+   * unprivileged caller's child's is made: its filesystem ids are that
+   * user's and group's, and the capabilities over files that change
+   * takes out of effect are put back. The kernel makes its memory
+   * undumpable as its ids or capabilities change, which is made
+   * dumpable again each time, so the child's own /proc files are its
+   * own to write its maps in; that memory is the parent's too, which
+   * puts back what it had once the child has exec'd. */
+  if (plan->dropping) {
+    syscall(SYS_setfsgid, plan->drop_gid);
+    syscall(SYS_setfsuid, plan->drop_uid);
+    if ((uid_t)syscall(SYS_setfsuid, (uid_t)-1) != plan->drop_uid ||
+        (gid_t)syscall(SYS_setfsgid, (gid_t)-1) != plan->drop_gid)
+      failure = EPERM;
+    struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
+    struct __user_cap_data_struct data[2];
+    if (!failure && syscall(SYS_capget, &header, data) != 0) failure = errno;
+    for (int i = 0; !failure && i < 2; i++) data[i].effective = data[i].permitted;
+    if (!failure && syscall(SYS_capset, &header, data) != 0) failure = errno;
+    if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0 && !failure) failure = errno;
+  }
+  int own_proc = 0;
+  if (!failure)
+    failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
+                         plan->bound_at, plan->unveiled_writable, plan->unveil_count,
+                         start->mapped, &own_proc);
   if (!failure) failure = drop_capabilities();
+  /* Then it gives root up for good, its groups first, while it may.
+   * Where its /proc is its own, it makes a user namespace as that user,
+   * mapping it alone, as an unprivileged caller's child is: root's files
+   * are the overflow id's there, and no setuid program of root's runs
+   * as root. Where it has the host's, read-only, it could write no map,
+   * and stays where root is mapped beside it: so every mount of its
+   * root is made nosuid first, which no setuid program runs past. */
+  if (!failure && plan->dropping) {
+    struct cosmic_mount_attr nosuid = { COSMIC_MOUNT_ATTR_NOSUID, 0, 0, 0 };
+    if (syscall(SYS_mount_setattr, AT_FDCWD, "/", AT_RECURSIVE, &nosuid, sizeof nosuid) != 0)
+      failure = errno;
+  }
+  if (!failure && plan->dropping) {
+    if (syscall(SYS_setgroups, 0, NULL) != 0 ||
+        syscall(SYS_setresgid, plan->drop_gid, plan->drop_gid, plan->drop_gid) != 0 ||
+        syscall(SYS_setresuid, plan->drop_uid, plan->drop_uid, plan->drop_uid) != 0)
+      failure = errno;
+    if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0 && !failure) failure = errno;
+    int mapped = 1;
+    if (!failure && own_proc && syscall(SYS_unshare, CLONE_NEWUSER) != 0) failure = errno;
+    if (!failure && own_proc) failure = map_ids(0, plan->uid_map, plan->gid_map, &mapped);
+    if (!failure && own_proc) failure = drop_capabilities();
+  }
   if (failure) {
     report_child_error(start->status_fd, failure);
     _exit(127);
@@ -1289,13 +1598,58 @@ static _Noreturn int start_program (void *argument) {
   run_program(plan, start->pinned, start->confined, start->status_fd);
 }
 
-/* An unveiled child, from where `spawn_child` placed its descriptors:
- * it makes a user namespace of its own, which it maps (`map_ids`), a pid
+/* What an unveiled child that gives root up (`spawn`'s `user`) shares
+ * with the process that maps its user namespace from outside
+ * ([`map_from_outside`]): the plan, the child's pid, its /proc directory,
+ * which the child opened itself -- so a map is written to it alone,
+ * whatever pid another process may come to have -- the pipe the child
+ * says over that it has made the namespace, and the errno the mapping
+ * failed with, ECHILD until it is done. */
+struct outside_map {
+  const struct spawn_plan *plan;
+  pid_t child;
+  int proc;
+  int told;
+  int tell;
+  int error;
+};
+
+/* On the unveiled child's memory, started before the child makes its
+ * user namespace ([`start_unveiled`]), and so in this one's, as this
+ * process's root: once the child says it has made it -- a byte of 1 --
+ * writes its uid_map and gid_map, which map root and the user and group
+ * it gives root up for (`outer_uid_map`, `outer_gid_map`). The child
+ * could map its own ids alone; a map of more is written by a process
+ * holding CAP_SETUID and CAP_SETGID where they are mapped -- and, to
+ * map root, CAP_SETFCAP -- which the kernel asks of the opener and the
+ * writer both. setgroups stays allowed there, for the child to give up
+ * root's groups. The child calls nothing that sets errno, which they
+ * share, until this has ended. */
+static _Noreturn int map_from_outside (void *argument) {
+  struct outside_map *map = argument;
+  /* Its own copy of the end the child writes, closed, so a child gone
+   * before it said anything ends the read. */
+  close(map->tell);
+  char byte = 0;
+  ssize_t got;
+  while ((got = read(map->told, &byte, 1)) < 0 && errno == EINTR) {}
+  int failure = got == 1 && byte == 1 ? 0 : ECHILD;
+  /* The child is its parent, and waits for it. */
+  if (!failure && (pid_t)syscall(SYS_getppid) != map->child) failure = ECHILD;
+  const char *const files[2] = { "uid_map", "gid_map" };
+  const char *const maps[2] = { map->plan->outer_uid_map, map->plan->outer_gid_map };
+  for (int i = 0; !failure && i < 2; i++) failure = write_whole_at(map->proc, files[i], maps[i]);
+  map->error = failure;
+  _exit(failure ? 127 : 0);
+}
+
+/* An unveiled child, from where [`spawn_child`] placed its descriptors:
+ * it makes a user namespace of its own, which it maps ([`map_ids`]), a pid
  * namespace for what it starts, a mount namespace, System V IPC, and
  * with `offline` a network namespace with its loopback up
- * (`loopback_up`). The init it starts first is pid 1 of that namespace
- * (`start_init`); the program it starts next is pid 2, the parent's
- * child (`start_program`): signalled, stopped and reaped as any child
+ * ([`loopback_up`]). The init it starts first is pid 1 of that namespace
+ * ([`start_init`]); the program it starts next is pid 2, the parent's
+ * child ([`start_program`]): signalled, stopped and reaped as any child
  * is, with the exit status its own, rather than a pid 1's, from which a
  * signal the program does not catch -- a SIGTERM, its own abort() --
  * would be dropped. Its pid is the one `spawn` answers. So the
@@ -1303,7 +1657,7 @@ static _Noreturn int start_program (void *argument) {
  * that init, which ignores them. The init is the parent's child too
  * (CLONE_PARENT), so no subreaper adopts it when this process ends, as
  * one would a stray (`waitpid` ends and reaps it with its program:
- * `end_sandbox_init`), and it ends if the parent does. This
+ * [`end_sandbox_init`]), and it ends if the parent does. This
  * process waits for the init to be past its exec -- until then it
  * shares this memory -- and to have made itself undumpable, so no
  * program of the same user in the sandbox can ptrace it; then it starts
@@ -1314,6 +1668,8 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
                                       int confined, int status_fd) {
   struct sandbox_start start = { plan, pinned, confined, status_fd, 1, -1, -1, -1, 0 };
   int top = plan->top;
+  /* Each descriptor raised above `top` here is counted in
+   * SPAWN_PLACED_ABOVE (core/process.h). */
   /* Through unshare, not clone's flags, which a container's seccomp
    * profile refuses where it lets unshare through (Docker's default,
    * narrowed as CI's is). Each namespace but the user's is the new
@@ -1321,8 +1677,43 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
   int flags = CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWIPC |
               (plan->offline ? CLONE_NEWNET : 0);
   int failure = 0;
-  if (syscall(SYS_unshare, flags) != 0) failure = errno;
-  if (!failure) failure = map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped);
+  /* One that gives root up is mapped from outside ([`map_from_outside`]),
+   * by a process started before its namespace is made, and waited for. */
+  struct outside_map outside = { plan, (pid_t)syscall(SYS_getpid), -1, -1, -1, ECHILD };
+  pid_t helper = -1;
+  if (plan->dropping) {
+    int made[2];
+    failure = raise_descriptor(open("/proc/self", O_RDONLY | O_DIRECTORY | O_CLOEXEC), top,
+                               &outside.proc);
+    if (!failure && pipe(made) != 0) failure = errno;
+    if (!failure) {
+      failure = raise_descriptor(made[0], top, &outside.told);
+      int other = raise_descriptor(made[1], top, &outside.tell);
+      if (!failure) failure = other;
+    }
+    if (!failure) {
+      helper = clone(map_from_outside, plan->helper_stack, CLONE_VM | SIGCHLD, &outside);
+      if (helper < 0) failure = errno;
+    }
+  }
+  if (!failure && syscall(SYS_unshare, flags) != 0) failure = errno;
+  if (helper > 0) {
+    char byte = failure ? 0 : 1;
+    ssize_t put = write(outside.tell, &byte, 1);
+    if (put != 1 && !failure) failure = put < 0 ? errno : EIO;
+    close(outside.tell);
+    outside.tell = -1;
+    int ignored;
+    pid_t reaped;
+    while ((reaped = waitpid(helper, &ignored, 0)) < 0 && errno == EINTR) {}
+    if (reaped < 0 && !failure) failure = errno;
+    if (!failure) failure = outside.error;
+  }
+  if (outside.proc >= 0) close(outside.proc);
+  if (outside.told >= 0) close(outside.told);
+  if (outside.tell >= 0) close(outside.tell);
+  if (!failure && !plan->dropping)
+    failure = map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped);
   if (!failure && plan->offline) failure = loopback_up();
   if (!failure)
     failure = raise_descriptor(open("/proc/self/exe", O_RDONLY | O_CLOEXEC), top, &start.exe);
@@ -1376,24 +1767,21 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
   if (failure) report_child_error(status_fd, failure);
   _exit(failure ? 127 : 0);
 }
-#endif
 
-/* The child `cosmic_spawn_unobserved` starts, from its start to exec:
- * on Linux on the parent's memory, through clone(CLONE_VM | CLONE_VFORK)
- * on a stack of its own, the parent stopped until this execs or ends;
- * on Darwin through fork, so on a copy. So it neither allocates nor touches the Lua state, writes only
- * its own stack and descriptors, the kernel's side of the process, and
- * errno (which is the parent's too on Linux; the parent reads none after
- * a start that succeeded) -- and, deliberately, the parent's memory in
- * one place on Linux: the coverage flag of each function it enters
- * (core/coverage.h), so a test is credited with what its child ran, and
- * on the checked core the sanitizer runtime's state (UBSan's report
- * dedup), which a report from here would write; an unveiled one writes
- * its program's pid too (`start_unveiled`). On Darwin those flags
- * land in the copy and are lost with it, so build/c_functions.tl
- * exempts this function there. It leaves by exec or _exit, never by
- * returning, so no atexit handler or stdio flush runs. A failure goes to
- * the parent over the status pipe as an errno. */
+/* The child `spawn` starts on Linux, from its start to exec: on the
+ * parent's memory, through clone(CLONE_VM | CLONE_VFORK) on a stack of
+ * its own, the parent stopped until this execs or ends. So it neither
+ * allocates nor touches the Lua state, writes only its own stack and
+ * descriptors, the kernel's side of the process, and errno (which is
+ * the parent's too; the parent reads none after a start that succeeded)
+ * -- and, deliberately, the parent's memory in one place: the coverage
+ * flag of each function it enters (core/coverage.h), so a test is
+ * credited with what its child ran, and on the checked core the
+ * sanitizer runtime's state (UBSan's report dedup), which a report from
+ * here would write; an unveiled one writes its program's pid too
+ * ([`start_unveiled`]). It leaves by exec or _exit, never by returning,
+ * so no atexit handler or stdio flush runs. A failure goes to the
+ * parent over the status pipe as an errno. */
 static _Noreturn int spawn_child (void *argument) {
   const struct spawn_plan *plan = argument;
   int top = plan->top;
@@ -1404,7 +1792,8 @@ static _Noreturn int spawn_child (void *argument) {
    * source is first pinned above everything the child is handed. A
    * source that is its own target is pinned too: the copy is what makes
    * the final dup2 clear CLOEXEC on it. Inherited stdio is left alone,
-   * so a closed one stays closed. */
+   * so a closed one stays closed. What is placed above `top` besides the
+   * copies is counted in SPAWN_PLACED_ABOVE (core/process.h). */
   int pinned[CHILD_FD_MAX + 1];
   for (int t = 0; t <= top; t++) {
     pinned[t] = -1;
@@ -1438,17 +1827,14 @@ static _Noreturn int spawn_child (void *argument) {
   }
   /* The sandbox's own namespaces first: the root the rest resolves in,
    * and mounting, which Landlock and a pledge would refuse. */
-#if defined(__linux__)
   if (plan->unveiling) start_unveiled(plan, pinned, confined, status_fd);
   if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map)) != 0) {
     report_child_error(status_fd, failure);
     _exit(127);
   }
-#endif
   run_program(plan, pinned, confined, status_fd);
 }
 
-#if defined(__linux__)
 /* The kind of descriptor `fd` is (S_IFIFO and the like), or 0 where it
  * is none. */
 static mode_t descriptor_kind (int fd) {
@@ -1464,7 +1850,7 @@ bool cosmic_sandbox_init_asked (int argc, char **argv) {
          descriptor_kind(2) == S_IFIFO;
 }
 
-/* The sandbox's init, as `start_init` executes this program: pid 1 of
+/* The sandbox's init, as [`start_init`] executes this program: pid 1 of
  * an unveiled child's pid namespace, which ends, and every process left
  * in it with it, when it does. It starts a session of its own, so the
  * autogroup a process in the sandbox could set through /proc/1 is not
@@ -1530,8 +1916,131 @@ _Noreturn void cosmic_sandbox_init (void) {
 }
 #endif
 
-/* The stack a Linux child runs `spawn_child` on, above a guard page:
- * the most it needs is `build_root`'s paths and a libc's formatting, well
+#if !defined(__linux__)
+/* Darwin's start ([`start_child`]): posix_spawn, given as its attributes
+ * and file actions what Linux's child does itself before exec
+ * ([`spawn_child`]), less the sandbox Darwin has none of -- its process
+ * group, its directory, its descriptors, the parent's mask, and SIGPIPE
+ * at its default where cosmic ignored it; a signal the parent catches
+ * the exec itself sets back to its default. Every descriptor not handed
+ * on is closed at exec (POSIX_SPAWN_CLOEXEC_DEFAULT): an inherited
+ * stdio one is handed on as it is, a closed one staying closed. Each
+ * source is copied above `top` first, as Linux's child pins it, so no
+ * dup2 overwrites a source a later one reads, and a source that is its
+ * own target is moved from a copy, as a dup2 onto itself may leave
+ * CLOEXEC set. The kernel takes these steps in the child, which shares nothing
+ * of this process's memory, and answers an exec's failure as
+ * posix_spawn's own, so the status pipe is never written. The child's
+ * pid, or -1 and the errno in `error`. */
+static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
+  /* Darwin has neither Landlock nor seccomp. */
+  if (plan->confine >= 0 || plan->pledged) {
+    *error = ENOSYS;
+    return -1;
+  }
+  /* Given a directory to change to, macOS's posix_spawn can start a
+   * program a relative path names and still answer ENOENT, so the path
+   * is made absolute first, from where the child resolves it. One longer
+   * than PATH_MAX that way is refused, ENAMETOOLONG, though its parts
+   * fit; and with a relative directory too, one whose start getcwd
+   * cannot name (a directory removed, or one past PATH_MAX) is refused
+   * with getcwd's errno, where a child that changed directory first
+   * could have run it. */
+  const char *path = plan->path;
+  char absolute[PATH_MAX];
+  if (plan->cwd != NULL && path[0] != '/') {
+    char here[PATH_MAX];
+    int length = -1;
+    if (plan->cwd[0] == '/') {
+      length = snprintf(absolute, sizeof absolute, "%s/%s", plan->cwd, path);
+    } else if (getcwd(here, sizeof here) == NULL) {
+      *error = errno;
+      return -1;
+    } else {
+      length = snprintf(absolute, sizeof absolute, "%s/%s/%s", here, plan->cwd, path);
+    }
+    if (length < 0 || (size_t)length >= sizeof absolute) {
+      *error = ENAMETOOLONG;
+      return -1;
+    }
+    path = absolute;
+  }
+  int top = plan->top;
+  int pinned[CHILD_FD_MAX + 1];
+  int failure = 0;
+  for (int t = 0; t <= top; t++) {
+    pinned[t] = -1;
+    if (!failure && plan->source[t] >= 0) {
+      pinned[t] = fcntl(plan->source[t], F_DUPFD_CLOEXEC, top + 2);
+      if (pinned[t] < 0) failure = errno;
+    }
+  }
+  pid_t pid = -1;
+  posix_spawn_file_actions_t actions;
+  posix_spawnattr_t attributes;
+  if (!failure) failure = posix_spawn_file_actions_init(&actions);
+  if (!failure) {
+    failure = posix_spawnattr_init(&attributes);
+    if (!failure) {
+      int flags = POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK;
+      if (plan->process_group) flags |= POSIX_SPAWN_SETPGROUP;
+      if (sigpipe_ignored_here) flags |= POSIX_SPAWN_SETSIGDEF;
+      sigset_t defaults;
+      sigemptyset(&defaults);
+      sigaddset(&defaults, SIGPIPE);
+      failure = posix_spawnattr_setflags(&attributes, (short)flags);
+      if (!failure) failure = posix_spawnattr_setsigmask(&attributes, &plan->mask);
+      if (!failure) failure = posix_spawnattr_setsigdefault(&attributes, &defaults);
+      /* TODO: posix_spawn_file_actions_addchdir, which macOS 26 adds and
+       * deprecates this for, once the build's macOS deployment target
+       * is 26 or later. */
+      if (!failure && plan->cwd != NULL)
+        failure = posix_spawn_file_actions_addchdir_np(&actions, plan->cwd);
+      for (int t = 0; !failure && t <= top; t++) {
+        if (pinned[t] >= 0) {
+          /* Apple's libc refuses a copy at OPEN_MAX (10240) or past it,
+           * EBADF: one lands there only where every number from `top` + 2
+           * to it is open, under a soft limit set past 10240. */
+          failure = posix_spawn_file_actions_adddup2(&actions, pinned[t], t);
+        } else if (t < 3) {
+          if (fcntl(t, F_GETFD) >= 0) failure = posix_spawn_file_actions_addinherit_np(&actions, t);
+          else if (errno != EBADF) failure = errno;
+        }
+      }
+      /* posix_spawn has no step for a limit: the child inherits this
+       * process's, lowered for the call alone, across which this one
+       * thread opens nothing. The kernel's dup2 refuses a target at or
+       * past the child's limit, so where the user's is no higher than
+       * `top` the child's is `top` + 1, the least that holds what it is
+       * handed -- and a child that is this program records that as the
+       * limit it started with, which its own host programs get, not the
+       * user's: the user's would refuse it the descriptor it is handed.
+       * A raise back that is refused leaves this process at the lowered
+       * limit, which its children then get as it is. */
+      if (!failure) {
+        struct rlimit raised;
+        bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 &&
+                       restore_descriptor_limit((rlim_t)top + 1);
+        failure = posix_spawn(&pid, path, &actions, &attributes, plan->argv, plan->envp);
+        if (lowered && setrlimit(RLIMIT_NOFILE, &raised) != 0) descriptor_limit_raised = false;
+      }
+      posix_spawnattr_destroy(&attributes);
+    }
+    posix_spawn_file_actions_destroy(&actions);
+  }
+  for (int t = 0; t <= top; t++) {
+    if (pinned[t] >= 0) close(pinned[t]);
+  }
+  if (failure) {
+    *error = failure;
+    return -1;
+  }
+  return pid;
+}
+#endif
+
+/* The stack a Linux child runs [`spawn_child`] on, above a guard page:
+ * the most it needs is [`build_root`]'s paths and a libc's formatting, well
  * under this, and only the pages it touches are ever made. */
 #define SPAWN_STACK_SIZE (256 * 1024)
 
@@ -1541,18 +2050,13 @@ _Noreturn void cosmic_sandbox_init (void) {
  * `error`.
  * Not fork, whose copy of a large parent's page tables costs more than
  * the rest of a start together (4.4 ms of the test runner's 8.2 ms per
- * test at 150 MB), and not posix_spawn, which has no step for a
- * namespace, a pivoted root, Landlock or a seccomp filter. On Linux,
- * clone(CLONE_VM | CLONE_VFORK) rather than vfork: the child runs on a
+ * test at 150 MB). On Linux, clone(CLONE_VM | CLONE_VFORK): not
+ * posix_spawn, which has no step for a namespace, a pivoted root,
+ * Landlock or a seccomp filter, and not vfork: the child runs on a
  * stack of its own, so nothing it calls can overwrite a frame the
  * parent returns to, and the static analyzer has no vfork to refuse.
- * posix_spawn is refused on Linux alone: Darwin's covers every step its
- * child takes (descriptors, cwd through posix_spawn_file_actions_addchdir_np,
- * a process group, the mask and defaults), having no sandbox to set up.
- * Darwin forks: macOS's libc makes vfork a fork anyway (Libc's
- * sys/fork.c: "vfork() is now just fork()"), and a plain fork gives the
- * child all it calls before exec without vfork's undefined behavior, at
- * fork's cost.
+ * On Darwin, which has no sandbox to set up, posix_spawn
+ * ([`spawn_program`]), which covers every step a child takes there.
  * Every signal is blocked across the whole start, not only its first
  * steps, so a child hung in setup -- a chdir or an unveiled path on a
  * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
@@ -1569,9 +2073,11 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) page = 4096;
   /* One stack, or, for an unveiled child, three: its own, its init's and
-   * its program's (`start_unveiled`), each above a guard page of its own. */
+   * its program's ([`start_unveiled`]) -- and a fourth for the process
+   * that maps one that gives root up ([`map_from_outside`]) -- each above a
+   * guard page of its own. */
   size_t each = SPAWN_STACK_SIZE + (size_t)page;
-  int stacks = plan->unveiling ? 3 : 1;
+  int stacks = plan->unveiling ? (plan->dropping ? 4 : 3) : 1;
   size_t size = each * (size_t)stacks;
   char *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   int guarded = stack != MAP_FAILED;
@@ -1587,6 +2093,7 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
     if (plan->unveiling) {
       plan->init_stack = stack + each * 2;
       plan->program_stack = stack + each * 3;
+      if (plan->dropping) plan->helper_stack = stack + each * 4;
     }
     pid = clone(spawn_child, stack + each, CLONE_VM | CLONE_VFORK | SIGCHLD, plan);
     if (pid < 0) *error = errno;
@@ -1595,39 +2102,15 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
     munmap(stack, size);
   }
 #else
-  /* TODO: start the child through posix_spawn on Darwin, which covers
-   * every step `spawn_child` takes there and spares a large parent
-   * fork's copy, as clone spares it on Linux, once a macOS host can run
-   * core/syscalls_test.tl and CI's macOS job against it: this path is
-   * compiled and started only there. */
-  pid = fork();
-  if (pid == 0) spawn_child(plan);
-  if (pid < 0) *error = errno;
+  pid = spawn_program(plan, error);
 #endif
   sigprocmask(SIG_SETMASK, &plan->mask, NULL);
   return pid;
 }
 
-/* Noted before it starts anything: the process table's own `spawn`,
- * called past build.filesystem_observations' stand-in for it -- through
- * a reference taken before a capture began -- starts a process the
- * observer never judged. */
-COSMIC_SYSCALL(spawn, 10) {
-  if (cosmic_observing) {
-    size_t length = 0;
-    const char *path = lua_type(L, 1) == LUA_TSTRING
-                           ? lua_tolstring(L, 1, &length)
-                           : NULL;
-    if (!cosmic_observed_note(COSMIC_OBSERVED_SPAWN, path, length)) {
-      return cosmic_fail(L, ENOMEM);
-    }
-  }
-  return cosmic_spawn_unobserved(L);
-}
-
 #if defined(__linux__)
 /* An unveiled child's init and program, each this process's own child
- * (`start_unveiled`), until the init is reaped: `program` is -1 once the
+ * ([`start_unveiled`]), until the init is reaped: `program` is -1 once the
  * program has been, and `init` once the init has. */
 struct sandbox_pair {
   pid_t init;
@@ -1636,7 +2119,7 @@ struct sandbox_pair {
 
 /* Every such pair this process has not seen the end of, in `pairs`,
  * `pair_count` of them in room for `pair_room`. Room is made before a
- * child starts (`sandbox_room`), so recording one never fails. */
+ * child starts ([`sandbox_room`]), so recording one never fails. */
 static struct sandbox_pair *pairs;
 static size_t pair_count, pair_room;
 
@@ -1660,7 +2143,7 @@ static bool sandbox_room (void) {
  * init itself ends, so once it is reaped nothing of the sandbox runs. A
  * pair whose init is reaped is forgotten; one whose init outlasts the
  * second -- a process in the namespace the kernel cannot end, stuck in
- * an uninterruptible wait -- is kept, for `end_sandbox_inits` to reap
+ * an uninterruptible wait -- is kept, for [`end_sandbox_inits`] to reap
  * later. */
 static void end_sandbox_init (size_t at) {
   pid_t init = pairs[at].init;
@@ -1696,7 +2179,7 @@ static void end_sandbox_init (size_t at) {
 }
 
 /* Reaps, without waiting, every init whose program is gone and that a
- * second was not enough for (`end_sandbox_init`). */
+ * second was not enough for ([`end_sandbox_init`]). */
 static void end_sandbox_inits (void) {
   for (size_t at = 0; at < pair_count;) {
     int ignored;
@@ -1709,7 +2192,7 @@ static void end_sandbox_inits (void) {
 }
 
 /* What a wait that reaped `pid` means for the pairs: a program's reaping
- * ends its init (`end_sandbox_init`), and an init's forgets its pair. */
+ * ends its init ([`end_sandbox_init`]), and an init's forgets its pair. */
 static void sandbox_reaped (pid_t pid) {
   for (size_t at = 0; at < pair_count; at++) {
     if (pairs[at].program == pid) {
@@ -1738,7 +2221,44 @@ COSMIC_SYSCALL(sandbox_inits, 0) {
   return 1;
 }
 
-int cosmic_spawn_unobserved (lua_State *L) {
+/* `spawn`'s standard stream argument `arg`: the descriptor the child
+ * has in that stream's place, or -1 to inherit it. */
+static int stream_source (lua_State *L, int arg) {
+  if (lua_isnoneornil(L, arg)) return -1;
+  if (!lua_isinteger(L, arg))
+    return luaL_argerror(L, arg, "descriptor must be an integer");
+  lua_Integer value = lua_tointeger(L, arg);
+  if (value < 0 || value > INT_MAX)
+    return luaL_argerror(L, arg, "descriptor is out of range");
+  cosmic_argfd(L, arg, value);
+  return (int)value;
+}
+
+/* Whether `spawn`'s descriptor map hands the artifact descriptor on as
+ * [`Proc.relaunch`] does: the retained descriptor, as the descriptor the
+ * child's environment (argument 3) names its artifact's, from a process
+ * that can still run its own core. A child that is this core -- started
+ * directly, through a `#!` line naming it, or through a program that
+ * runs it (`setsid`) -- adopts it as its own artifact and refuses it to
+ * its Lua in turn (core/check.h's `cosmic_checkfd`). Any other program
+ * could read the database through it; the hand-on cannot tell which
+ * runs, so it holds only where running this program is allowed at all,
+ * and so what it carries is a declared input (a `tool`'s): a process
+ * held from running its core (`artifact_kept`) is refused it, and so is
+ * a map that hands it on as anything but the child's artifact. */
+static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact_kept || artifact == NULL || fd != (lua_Integer)artifact->fd ||
+      artifact->host || !lua_istable(L, 3))
+    return false;
+  lua_getfield(L, 3, COSMIC_PORTABLE_ENV_ARTIFACT_FD);
+  int exact = 0;
+  lua_Integer named = lua_type(L, -1) == LUA_TSTRING ? lua_tointegerx(L, -1, &exact) : 0;
+  lua_pop(L, 1);
+  return exact && named == target;
+}
+
+COSMIC_SYSCALL(spawn, 10) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
@@ -1747,15 +2267,9 @@ int cosmic_spawn_unobserved (lua_State *L) {
    * 0..2 that means inherit, above that it means closed. */
   int source[CHILD_FD_MAX + 1];
   for (int i = 0; i <= CHILD_FD_MAX; i++) source[i] = -1;
-  for (int i = 0; i < 3; i++) {
-    if (lua_isnoneornil(L, 5 + i)) continue;
-    if (!lua_isinteger(L, 5 + i))
-      return luaL_argerror(L, 5 + i, "descriptor must be an integer");
-    lua_Integer value = lua_tointeger(L, 5 + i);
-    if (value < 0 || value > INT_MAX)
-      return luaL_argerror(L, 5 + i, "descriptor is out of range");
-    source[i] = (int)value;
-  }
+  source[0] = stream_source(L, 5);
+  source[1] = stream_source(L, 6);
+  source[2] = stream_source(L, 7);
   int process_group = lua_toboolean(L, 8);
   int top = 2;
   if (!lua_isnoneornil(L, 9)) {
@@ -1770,6 +2284,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
         return luaL_argerror(L, 9, "a child descriptor must be 3 to 255");
       if (value < 0 || value > INT_MAX)
         return luaL_argerror(L, 9, "descriptor is out of range");
+      if (!handed_on(L, target, value)) cosmic_argfd(L, 9, value);
       source[target] = (int)value;
       if (target > top) top = (int)target;
       lua_pop(L, 1);
@@ -1785,6 +2300,9 @@ int cosmic_spawn_unobserved (lua_State *L) {
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0;
+  int dropping = 0;
+  uid_t drop_uid = 0;
+  gid_t drop_gid = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
     lua_pushliteral(L, "ruleset");
@@ -1795,6 +2313,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
       lua_Integer value = lua_tointeger(L, -1);
       if (value < 0 || value > INT_MAX)
         return luaL_argerror(L, 10, "the ruleset's descriptor is out of range");
+      cosmic_argfd(L, 10, value);
       confine = (int)value;
     }
     lua_pop(L, 1);
@@ -1879,17 +2398,42 @@ int cosmic_spawn_unobserved (lua_State *L) {
     lua_rawget(L, 10);
     offline = lua_toboolean(L, -1);
     lua_pop(L, 1);
+    lua_pushliteral(L, "user");
+    lua_rawget(L, 10);
+    lua_pushliteral(L, "group");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -2) || !lua_isnil(L, -1)) {
+      if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+        return luaL_argerror(L, 10, "a user and its group are integers, each with the other");
+      lua_Integer user = lua_tointeger(L, -2), group = lua_tointeger(L, -1);
+      if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
+          group >= (lua_Integer)UINT32_MAX)
+        return luaL_argerror(L, 10, "a user and its group are 1 to 4294967294");
+      if (!unveiling) return luaL_argerror(L, 10, "a user is given with unveil");
+      dropping = 1;
+      drop_uid = (uid_t)user;
+      drop_gid = (gid_t)group;
+    }
+    lua_pop(L, 2);
   }
 #if !defined(__linux__)
   if (unveiling || offline) return cosmic_fail(L, ENOSYS);
 #else
   if (unveiling && !sandbox_room()) return cosmic_fail(L, errno);
 #endif
-  char uid_map[64], gid_map[64];
-  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
-           (unsigned long)geteuid());
-  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", (unsigned long)getegid(),
-           (unsigned long)getegid());
+  /* The child maps its own ids, or, giving root up, the user and group
+   * it runs as; its namespace is mapped from outside then, with root's
+   * beside them ([`map_from_outside`]). */
+  unsigned long own_uid = (unsigned long)geteuid(), own_gid = (unsigned long)getegid();
+  unsigned long child_uid = dropping ? (unsigned long)drop_uid : own_uid;
+  unsigned long child_gid = dropping ? (unsigned long)drop_gid : own_gid;
+  char uid_map[64], gid_map[64], outer_uid_map[96], outer_gid_map[96];
+  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", child_uid, child_uid);
+  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", child_gid, child_gid);
+  snprintf(outer_uid_map, sizeof outer_uid_map, "%lu %lu 1\n%lu %lu 1\n", own_uid, own_uid,
+           child_uid, child_uid);
+  snprintf(outer_gid_map, sizeof outer_gid_map, "%lu %lu 1\n%lu %lu 1\n", own_gid, own_gid,
+           child_gid, child_gid);
 #if defined(PLEDGE_ARCH)
   struct sock_filter pledge_filter[PLEDGE_MAX];
   struct sock_fprog pledge = { 0, pledge_filter };
@@ -1901,28 +2445,17 @@ int cosmic_spawn_unobserved (lua_State *L) {
   long descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < 0) descriptor_limit = 1024;
 
-  size_t argc = lua_rawlen(L, 2);
-  if (argc == 0) {
+  if (lua_rawlen(L, 2) == 0) {
     return luaL_argerror(L, 2, "argv is empty");
   }
-  if (argc > (size_t)LUA_MAXINTEGER ||
-      argc > SIZE_MAX / sizeof(char *) - 1)
-    return luaL_argerror(L, 2, "argv is too large");
   /* Validate everything that can raise before allocating native memory. */
-  for (size_t i = 1; i <= argc; i++) {
-    lua_rawgeti(L, 2, (lua_Integer)i);
-    plain_string(L, -1, "argv entry");
-    lua_pop(L, 1);
-  }
+  size_t argc = checked_argv(L, 2);
 
   lua_Integer envc = 0;
   if (!lua_isnoneornil(L, 3)) {
     lua_pushnil(L);
     while (lua_next(L, 3) != 0) {
-      const char *name = plain_string(L, -2, "environment name");
-      plain_string(L, -1, "environment value");
-      if (*name == '\0' || strchr(name, '=') != NULL)
-        return luaL_argerror(L, 3, "environment name is empty or contains '='");
+      checked_variable(L, 3);
       envc++;
       lua_pop(L, 1);
     }
@@ -1968,7 +2501,19 @@ int cosmic_spawn_unobserved (lua_State *L) {
   }
   /* Move both ends clear of every descriptor the child is handed, so
    * closed parent stdio cannot make a pipe end collide with the
-   * remapping below. */
+   * remapping below. These ends, and the descriptors the child moves
+   * above its own (the pinned and confining ones -- on Darwin this
+   * process copies the pinned ones -- and [`raise_descriptor`]'s), go
+   * to `top` + 2 and up -- 257 and up for a relaunch, which hands the
+   * child 255 (cosmic/proc.tl's CORE_FD) -- which F_DUPFD refuses past
+   * RLIMIT_NOFILE's soft limit: EINVAL at it, EMFILE just under it;
+   * SPAWN_PLACED_ABOVE (core/process.h) counts them. A start raises
+   * that limit past macOS's default of 256
+   * ([`cosmic_raise_descriptor_limit`]); a hard limit that low still
+   * refuses a relaunch, which cosmic.child's `start` says. Darwin's
+   * start never writes the pipe ([`spawn_program`]), whose read ends at
+   * once there; it is made all the same, so a start meets the limit
+   * where it does on Linux and the count holds on both. */
   int promote_error = 0;
   int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
   if (status_read < 0) promote_error = errno;
@@ -2075,7 +2620,17 @@ int cosmic_spawn_unobserved (lua_State *L) {
 #if defined(__linux__)
   unmap_root = (unveiling || offline) && inner_user_namespace() && geteuid() == 0;
 #endif
-  char **given = cosmic_coverage_environment(envp);
+  char **carried = cosmic_store_environment(envp);
+  if (carried == NULL) {
+    close(status_read);
+    close(status_write);
+    if (root_dir[0] != '\0') rmdir(root_dir);
+    if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+    free(argv);
+    free(resolved);
+    return cosmic_fail(L, ENOMEM);
+  }
+  char **given = cosmic_coverage_environment(carried);
   struct spawn_plan plan = {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
     .status_read = status_read, .status_write = status_write,
@@ -2088,6 +2643,8 @@ int cosmic_spawn_unobserved (lua_State *L) {
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
+    .dropping = dropping, .drop_uid = drop_uid, .drop_gid = drop_gid,
+    .outer_uid_map = outer_uid_map, .outer_gid_map = outer_gid_map,
   };
   pid_t program = -1;
 #if defined(__linux__)
@@ -2097,9 +2654,21 @@ int cosmic_spawn_unobserved (lua_State *L) {
   end_sandbox_inits();
 #endif
   int fork_error = 0;
+  /* A child that gives root up shares this process's memory while its
+   * ids change, which makes that memory dumpable or not as the kernel
+   * and the child set it ([`start_program`]): whatever it was here, it is
+   * put back once the child has exec'd. */
+#if defined(__linux__)
+  int dumpable = dropping ? prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) : -1;
+#endif
   pid_t pid = start_child(&plan, &fork_error);
+#if defined(__linux__)
+  if ((dumpable == 0 || dumpable == 1) && prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != dumpable)
+    prctl(PR_SET_DUMPABLE, dumpable, 0, 0, 0);
+#endif
   close(status_write);
-  if (given != envp) free(given);
+  if (given != carried) free(given);
+  if (carried != envp) free(carried);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
   free(argv);
   free(resolved);
@@ -2109,7 +2678,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
     return cosmic_fail(L, fork_error);
   }
   /* An unveiled child has ended once it started its program, which is
-   * this process's child in its place (`start_unveiled`), or failed to. */
+   * this process's child in its place ([`start_unveiled`]), or failed to. */
   if (unveiling) {
     int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
     pid = program;
@@ -2117,8 +2686,8 @@ int cosmic_spawn_unobserved (lua_State *L) {
     /* Room was made before the child started, but a finalizer the Lua
      * calls since then ran could have spawned into it: where there is
      * none left and no more to be had, the init is ended at once, and
-     * its program with it, rather than left for `end_strays` to take
-     * for a stray. */
+     * its program with it, rather than left unrecorded, where nothing
+     * would ever reap it. */
     if (init > 0 && (pair_count < pair_room || sandbox_room())) {
       pairs[pair_count++] = (struct sandbox_pair){ init, program };
       if (program < 0) end_sandbox_init(pair_count - 1);
@@ -2185,6 +2754,43 @@ COSMIC_SYSCALL(waitpid, 2) {
   return 1;
 }
 
+COSMIC_SYSCALL(exit_watch, 1) {
+  lua_Integer value = luaL_checkinteger(L, 1);
+  if (value <= 0 || value > INT_MAX) return luaL_argerror(L, 1, "pid is out of range");
+#if defined(__linux__)
+  /* pidfd_open sets close-on-exec itself. */
+  int watch = (int)syscall(SYS_pidfd_open, (pid_t)value, 0);
+  if (watch < 0) return cosmic_fail(L, errno);
+#elif defined(__APPLE__)
+  int watch = kqueue();
+  if (watch < 0) return cosmic_fail(L, errno);
+  /* A kqueue is not inherited across fork, but may be across a spawn's
+   * exec: it is closed there. One thread and no fork before the flag is
+   * set, so no child can take it meanwhile. The exit, once it comes,
+   * stays queued, as nothing reads the queue, and so the queue stays
+   * readable.
+   * TODO: confirm on a Darwin host whether XNU's proc_exit posts
+   * NOTE_EXIT before it marks the process a zombie, as its source reads;
+   * if so, the queue is readable a moment before waitpid can reap the
+   * child, and a wait in cosmic.child that finds no status looks again
+   * at once, spinning through its run until it can. The fix would be a
+   * blocking waitpid there, the exit being underway. */
+  struct kevent change;
+  EV_SET(&change, (uintptr_t)value, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, NULL);
+  if (fcntl(watch, F_SETFD, FD_CLOEXEC) != 0 || kevent(watch, &change, 1, NULL, 0, NULL) != 0) {
+    int number = errno;
+    close(watch);
+    return cosmic_fail(L, number);
+  }
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
+  /* Nothing between the open and its push can raise: pushing an integer
+   * allocates nothing. */
+  lua_pushinteger(L, watch);
+  return 1;
+}
+
 COSMIC_SYSCALL(kill, 2) {
   lua_Integer pid_value = luaL_checkinteger(L, 1);
   lua_Integer signal_value = luaL_checkinteger(L, 2);
@@ -2196,6 +2802,22 @@ COSMIC_SYSCALL(kill, 2) {
   int signal = (int)signal_value;
   if (kill(pid, signal) != 0) return cosmic_fail_effect(L, errno);
   return cosmic_ok(L);
+}
+
+/* What [`cosmic_process_entered`] recorded: the working directory, ""
+ * where it could not be read. */
+static char entered_directory[PATH_MAX];
+
+void cosmic_process_entered (void) {
+  if (getcwd(entered_directory, sizeof entered_directory) == NULL) entered_directory[0] = '\0';
+}
+
+/* Sets field `cwd` of the table on top to the directory this process
+ * started in, where it was read. */
+static void set_cwd (lua_State *L) {
+  if (entered_directory[0] == '\0') return;
+  lua_pushstring(L, entered_directory);
+  lua_setfield(L, -2, "cwd");
 }
 
 static void set_decimal (lua_State *L, const char *name, uint64_t value) {
@@ -2221,17 +2843,19 @@ COSMIC_SYSCALL(relaunch, 2) {
   }
   if (artifact->host) {
     /* A host program is its own launcher: executing it again is enough. */
-    lua_createtable(L, 0, 2);
+    lua_createtable(L, 0, 3);
     lua_pushstring(L, physical);
     lua_setfield(L, -2, "path");
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "host");
+    set_cwd(L);
     return 1;
   }
   const struct cosmic_portable_entry *selected = &artifact->portable.selected;
-  lua_createtable(L, 0, 5);
+  lua_createtable(L, 0, 6);
   lua_pushstring(L, physical);
   lua_setfield(L, -2, "path");
+  set_cwd(L);
   lua_pushstring(L, artifact->logical_path);
   lua_setfield(L, -2, "artifact");
   lua_pushinteger(L, artifact->fd);
@@ -2285,7 +2909,7 @@ COSMIC_SYSCALL(pipe, 0) {
 }
 
 COSMIC_SYSCALL(dup, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   int copy = fcntl(fd, F_DUPFD_CLOEXEC, 0);
   if (copy < 0) return cosmic_fail(L, errno);
   /* Nothing between the copy and its push can raise: pushing an integer
@@ -2295,7 +2919,7 @@ COSMIC_SYSCALL(dup, 1) {
 }
 
 COSMIC_SYSCALL(fd_flags, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   int flags = fcntl(fd, F_GETFD);
   if (flags < 0) return cosmic_fail(L, errno);
   lua_pushinteger(L, flags);
@@ -2303,8 +2927,8 @@ COSMIC_SYSCALL(fd_flags, 1) {
 }
 
 COSMIC_SYSCALL(dup2, 2) {
-  int fd = cosmic_checkint(L, 1);
-  int to = cosmic_checkint(L, 2);
+  int fd = cosmic_checkfd(L, 1);
+  int to = cosmic_checkfd(L, 2);
   int made;
   do { made = dup2(fd, to); } while (made < 0 && errno == EINTR);
   if (made < 0) return cosmic_fail_effect(L, errno);
@@ -2312,7 +2936,7 @@ COSMIC_SYSCALL(dup2, 2) {
 }
 
 COSMIC_SYSCALL(set_nonblocking, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   int on = lua_toboolean(L, 2);
   int flags = fcntl(fd, F_GETFL);
   if (flags < 0) return cosmic_fail_effect(L, errno);
@@ -2321,8 +2945,27 @@ COSMIC_SYSCALL(set_nonblocking, 2) {
   return cosmic_ok(L);
 }
 
-#define POLL_MAX 1024
+/* One entry of `poll`'s argument: its descriptor, and where it is in
+ * the argument, so the entries sorted by descriptor can be answered in
+ * place. */
+struct poll_entry {
+  int fd;
+  int at;
+};
 
+/* Orders entries by descriptor; the order among one descriptor's
+ * entries does not matter. */
+static int poll_entry_order (const void *a, const void *b) {
+  const struct poll_entry *left = a, *right = b;
+  return (left->fd > right->fd) - (left->fd < right->fd);
+}
+
+/* The kernel is given each descriptor once, asked for every event any
+ * of its entries wants, and each entry answers what happened masked to
+ * its own events, as Linux answers a descriptor given twice: macOS
+ * answers only one entry of such a descriptor and leaves the other 0,
+ * so no caller could give one twice there. -1 is left out, and
+ * answers 0. */
 COSMIC_SYSCALL(poll, 3) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -2330,10 +2973,19 @@ COSMIC_SYSCALL(poll, 3) {
   if (timeout < -1 || timeout > INT_MAX)
     return luaL_argerror(L, 3, "timeout is out of range");
   lua_Integer count = (lua_Integer)lua_rawlen(L, 1);
-  if (count > POLL_MAX) return luaL_argerror(L, 1, "too many descriptors");
+  if (count > INT_MAX) return luaL_argerror(L, 1, "too many descriptors");
   if ((lua_Integer)lua_rawlen(L, 2) != count)
     return luaL_argerror(L, 2, "one event mask per descriptor");
-  struct pollfd fds[POLL_MAX];
+  size_t each = sizeof(struct pollfd) + sizeof(struct poll_entry) + sizeof(int) + sizeof(short);
+  /* A block Lua owns, not a C allocation: a refused descriptor below
+   * raises part-way through filling it, and the collector takes it. Its
+   * parts are laid out from the widest alignment down. */
+  char *block = lua_newuserdatauv(L, (size_t)count * each, 0);
+  struct pollfd *fds = (struct pollfd *)block;
+  struct poll_entry *entries = (struct poll_entry *)(fds + count);
+  int *slot = (int *)(entries + count);
+  short *wanted = (short *)(slot + count);
+  int watched = 0;
   for (lua_Integer i = 0; i < count; i++) {
     lua_rawgeti(L, 1, i + 1);
     lua_rawgeti(L, 2, i + 1);
@@ -2343,20 +2995,40 @@ COSMIC_SYSCALL(poll, 3) {
     lua_Integer events = lua_tointeger(L, -1);
     if (fd < -1 || fd > INT_MAX || events < 0 || events > SHRT_MAX)
       return luaL_argerror(L, 1, "descriptor or mask is out of range");
-    fds[i].fd = (int)fd;
-    fds[i].events = (short)events;
-    fds[i].revents = 0;
+    cosmic_argfd(L, 1, fd);
+    wanted[i] = (short)events;
+    slot[i] = -1;
+    if (fd >= 0) {
+      entries[watched].fd = (int)fd;
+      entries[watched].at = (int)i;
+      watched++;
+    }
     lua_pop(L, 2);
+  }
+  qsort(entries, (size_t)watched, sizeof *entries, poll_entry_order);
+  nfds_t given = 0;
+  for (int k = 0; k < watched; k++) {
+    if (given == 0 || fds[given - 1].fd != entries[k].fd) {
+      fds[given].fd = entries[k].fd;
+      fds[given].events = 0;
+      fds[given].revents = 0;
+      given++;
+    }
+    fds[given - 1].events = (short)(fds[given - 1].events | wanted[entries[k].at]);
+    slot[entries[k].at] = (int)(given - 1);
   }
   /* An interrupted wait answers as a wait that found nothing, so the
    * caller's loop gets to look at whatever the signal meant. */
-  if (poll(fds, (nfds_t)count, (int)timeout) < 0) {
+  if (poll(fds, given, (int)timeout) < 0) {
     if (errno != EINTR) return cosmic_fail(L, errno);
-    for (lua_Integer i = 0; i < count; i++) fds[i].revents = 0;
+    for (nfds_t k = 0; k < given; k++) fds[k].revents = 0;
   }
   lua_createtable(L, (int)count, 0);
   for (lua_Integer i = 0; i < count; i++) {
-    lua_pushinteger(L, fds[i].revents);
+    short answer = 0;
+    if (slot[i] >= 0)
+      answer = (short)(fds[slot[i]].revents & (wanted[i] | POLLERR | POLLHUP | POLLNVAL));
+    lua_pushinteger(L, answer);
     lua_rawseti(L, -2, i + 1);
   }
   return 1;
@@ -2366,6 +3038,245 @@ COSMIC_SYSCALL(subreaper, 0) {
 #if defined(__linux__) && defined(PR_SET_CHILD_SUBREAPER)
   if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0)
     return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+#if defined(__linux__)
+/* Reads the file at `path` whole into a block of the core's C heap,
+ * which the caller frees, and its length into `used`: 0, or the errno
+ * that refused it, ENOMEM for a block refused. It calls nothing of
+ * Lua's, so its descriptor is closed before a caller's Lua call can
+ * raise. */
+static int read_whole (const char *path, char **text, size_t *used) {
+  *text = NULL;
+  *used = 0;
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return errno;
+  size_t room = 4096, have = 0;
+  char *block = cosmic_malloc(room);
+  int failure = block == NULL ? ENOMEM : 0;
+  while (failure == 0) {
+    if (have == room) {
+      char *grown = room > SIZE_MAX / 2 ? NULL : cosmic_realloc(block, room * 2);
+      if (grown == NULL) {
+        failure = ENOMEM;
+        break;
+      }
+      block = grown;
+      room *= 2;
+    }
+    ssize_t got = read(fd, block + have, room - have);
+    if (got < 0 && errno == EINTR) continue;
+    if (got < 0) failure = errno;
+    if (got <= 0) break;
+    have += (size_t)got;
+  }
+  close(fd);
+  if (failure != 0) {
+    cosmic_free(block);
+    return failure;
+  }
+  *text = block;
+  *used = have;
+  return 0;
+}
+
+/* Whether the list of ranges `text` holds, as /proc/<pid>/uid_map and
+ * gid_map write them -- a line each of the first id inside, the first
+ * outside and how many -- maps `id` inside. */
+static bool id_mapped (const char *text, size_t used, uint64_t id) {
+  for (size_t at = 0; at < used;) {
+    uint64_t field[3] = { 0, 0, 0 };
+    int fields = 0;
+    while (at < used && text[at] != '\n') {
+      if (text[at] < '0' || text[at] > '9') {
+        at++;
+        continue;
+      }
+      /* Held below 2^40, past every id and count, so it cannot wrap. */
+      uint64_t value = 0;
+      while (at < used && text[at] >= '0' && text[at] <= '9') {
+        if (value < ((uint64_t)1 << 40)) value = value * 10 + (uint64_t)(text[at] - '0');
+        at++;
+      }
+      if (fields < 3) field[fields] = value;
+      fields++;
+    }
+    at++;
+    if (fields == 3 && id >= field[0] && id - field[0] < field[2]) return true;
+  }
+  return false;
+}
+#endif
+
+COSMIC_SYSCALL(children, 0) {
+#if defined(__linux__)
+  /* The list is read whole into a C block before anything is pushed;
+   * the block is the guard's from then on. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
+  char *text;
+  size_t used;
+  int failure = read_whole("/proc/thread-self/children", &text, &used);
+  if (failure != 0) return cosmic_fail(L, failure);
+  guard->resource = text;
+  lua_newtable(L);
+  lua_Integer count = 0;
+  for (size_t at = 0; at < used;) {
+    if (text[at] < '0' || text[at] > '9') {
+      at++;
+      continue;
+    }
+    /* A number past any pid names no process, and is skipped. */
+    lua_Integer pid = 0;
+    bool fits = true;
+    while (at < used && text[at] >= '0' && text[at] <= '9') {
+      if (fits) pid = pid * 10 + (text[at] - '0');
+      if (pid > INT_MAX) fits = false;
+      at++;
+    }
+    if (!fits) continue;
+    lua_pushinteger(L, pid);
+    lua_rawseti(L, -2, ++count);
+  }
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(maps_id, 1) {
+  lua_Integer id = luaL_checkinteger(L, 1);
+  luaL_argcheck(L, id >= 0 && id < (lua_Integer)UINT32_MAX, 1, "not an id");
+#if defined(__linux__)
+  static const char *const maps[] = { "/proc/self/uid_map", "/proc/self/gid_map" };
+  for (int m = 0; m < 2; m++) {
+    char *text;
+    size_t used;
+    int failure = read_whole(maps[m], &text, &used);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
+    bool mapped = id_mapped(text, used, (uint64_t)id);
+    cosmic_free(text);
+    /* setuid's answer for an id this namespace does not map. */
+    if (!mapped) return cosmic_fail_effect(L, EINVAL);
+  }
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(may_map_ids, 0) {
+#if defined(__linux__)
+  if (geteuid() != 0) return cosmic_fail_effect(L, EPERM);
+  struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
+  struct __user_cap_data_struct data[2];
+  if (syscall(SYS_capget, &header, data) != 0) return cosmic_fail_effect(L, errno);
+  uint32_t needed = (1u << CAP_SETGID) | (1u << CAP_SETUID) | (1u << CAP_SETFCAP);
+  if ((data[0].effective & needed) != needed) return cosmic_fail_effect(L, EPERM);
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+#if defined(__linux__)
+/* The stack each of `own_proc`'s two children runs on, above a guard
+ * page of its own. */
+#define OWN_PROC_STACK_SIZE (64 * 1024)
+
+/* What `own_proc`'s first child is handed: the ids it maps, whether it
+ * may be left unmapped, as `spawn` decides for an unveiled child, and
+ * the stack its own child runs on. */
+struct own_proc_probe {
+  const char *uid_map;
+  const char *gid_map;
+  int unmap_root;
+  char *mounter_stack;
+};
+
+/* `own_proc`'s second child, pid 1 of the first's pid namespace: mounts
+ * a procfs of it as [`place_proc`] does, on the /proc of a mount
+ * namespace made private first, so neither mount reaches the parent's.
+ * It exits 0, or with the errno that refused it. */
+static _Noreturn int mount_own_proc (void *unused) {
+  (void)unused;
+  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) _exit(errno & 0xff);
+  if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") != 0)
+    _exit(errno & 0xff);
+  _exit(0);
+}
+
+/* `own_proc`'s first child, on the parent's memory with every signal
+ * blocked, as [`start_child`]'s is: makes its namespaces as
+ * [`start_unveiled`] does -- through unshare, which a container's
+ * seccomp profile lets through where it refuses clone's namespace
+ * flags -- maps its ids as [`map_ids`] does for such a child, and starts
+ * [`mount_own_proc`] in them. It exits with what that one exited with,
+ * or the errno that refused a step before it. */
+static _Noreturn int try_own_proc (void *argument) {
+  const struct own_proc_probe *probe = argument;
+  if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS) != 0) _exit(errno & 0xff);
+  int mapped;
+  int failure = map_ids(probe->unmap_root, probe->uid_map, probe->gid_map, &mapped);
+  if (failure) _exit(failure & 0xff);
+  pid_t mounter = clone(mount_own_proc, probe->mounter_stack, CLONE_VM | CLONE_VFORK | SIGCHLD,
+                        NULL);
+  if (mounter < 0) _exit(errno & 0xff);
+  int status = 0;
+  pid_t reaped;
+  while ((reaped = waitpid(mounter, &status, 0)) < 0 && errno == EINTR) {}
+  if (reaped < 0) _exit(errno & 0xff);
+  _exit(WIFEXITED(status) ? WEXITSTATUS(status) : ECHILD);
+}
+#endif
+
+COSMIC_SYSCALL(own_proc, 0) {
+#if defined(__linux__)
+  char uid_map[64], gid_map[64];
+  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
+           (unsigned long)geteuid());
+  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", (unsigned long)getegid(),
+           (unsigned long)getegid());
+  long page = sysconf(_SC_PAGESIZE);
+  if (page <= 0) page = 4096;
+  size_t each = OWN_PROC_STACK_SIZE + (size_t)page, size = 2 * each;
+  char *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (stack == MAP_FAILED) return cosmic_fail_effect(L, errno);
+  int failure = 0;
+  for (int s = 0; !failure && s < 2; s++) {
+    if (mprotect(stack + each * (size_t)s, (size_t)page, PROT_NONE) != 0) failure = errno;
+  }
+  struct own_proc_probe probe = {
+    uid_map, gid_map, inner_user_namespace() && geteuid() == 0, stack + 2 * each,
+  };
+  sigset_t every, before;
+  sigfillset(&every);
+  if (!failure && sigprocmask(SIG_SETMASK, &every, &before) != 0) failure = errno;
+  pid_t child = -1;
+  if (!failure) {
+    child = clone(try_own_proc, stack + each, CLONE_VM | CLONE_VFORK | SIGCHLD, &probe);
+    if (child < 0) failure = errno;
+    sigprocmask(SIG_SETMASK, &before, NULL);
+  }
+  munmap(stack, size);
+  if (failure) return cosmic_fail_effect(L, failure);
+  int status = 0;
+  pid_t reaped;
+  while ((reaped = waitpid(child, &status, 0)) < 0 && errno == EINTR) {}
+  if (reaped < 0) return cosmic_fail_effect(L, errno);
+  if (!WIFEXITED(status)) return cosmic_fail_effect(L, ECHILD);
+  if (WEXITSTATUS(status) != 0) return cosmic_fail_effect(L, WEXITSTATUS(status));
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(sandbox_platform, 0) {
+#if defined(__linux__)
   return cosmic_ok(L);
 #else
   return cosmic_fail_effect(L, ENOSYS);
@@ -2393,6 +3304,153 @@ COSMIC_SYSCALL(cpu_count, 0) {
   return 1;
 }
 
+/* The features `cpu_features` answers, by /proc/cpuinfo's names, in
+ * byte order, each with where this processor says it has it: a bit of
+ * cpuid leaf 1's ECX on x86_64, and of the auxiliary vector's AT_HWCAP
+ * on Linux's aarch64; a name sysctlbyname answers 1 for on Darwin's. */
+#if defined(__aarch64__) && defined(__APPLE__)
+struct cpu_feature {
+  const char *name;
+  const char *sysctl;
+};
+
+static const struct cpu_feature cpu_features[] = {
+  { "aes", "hw.optional.arm.FEAT_AES" }, { "asimd", "hw.optional.AdvSIMD" },
+  { "crc32", "hw.optional.armv8_crc32" }, { "pmull", "hw.optional.arm.FEAT_PMULL" },
+};
+#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
+struct cpu_feature {
+  const char *name;
+  unsigned bit;
+};
+
+#if defined(__x86_64__)
+static const struct cpu_feature cpu_features[] = {
+  { "aes", 25 }, { "pclmulqdq", 1 }, { "sse4_1", 19 }, { "ssse3", 9 },
+};
+#else
+static const struct cpu_feature cpu_features[] = {
+  { "aes", 3 }, { "asimd", 1 }, { "crc32", 7 }, { "pmull", 4 },
+};
+#endif
+#endif
+
+COSMIC_SYSCALL(cpu_features, 0) {
+  lua_newtable(L);
+#if defined(__aarch64__) && defined(__APPLE__)
+  lua_Integer count = 0;
+  for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
+    int value = 0;
+    size_t size = sizeof value;
+    if (sysctlbyname(cpu_features[f].sysctl, &value, &size, NULL, 0) != 0 || value != 1)
+      continue;
+    lua_pushstring(L, cpu_features[f].name);
+    lua_rawseti(L, -2, ++count);
+  }
+#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
+  unsigned long bits = 0;
+#if defined(__x86_64__)
+  unsigned int eax, ebx, ecx, edx;
+  if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) bits = ecx;
+#else
+  bits = getauxval(AT_HWCAP);
+#endif
+  lua_Integer count = 0;
+  for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
+    if (((bits >> cpu_features[f].bit) & 1) == 0) continue;
+    lua_pushstring(L, cpu_features[f].name);
+    lua_rawseti(L, -2, ++count);
+  }
+#endif
+  return 1;
+}
+
+bool cosmic_mountinfo_local_flock (const char *text, size_t used, const char *device) {
+  size_t device_length = strlen(device);
+  for (size_t at = 0; at < used;) {
+    size_t end = at;
+    while (end < used && text[end] != '\n') end++;
+    /* Its fields, space-separated: the third the device, and after a
+     * lone "-" at the seventh or later, the type, the source and the
+     * filesystem's own options. */
+    size_t start[64], length[64];
+    int fields = 0;
+    for (size_t f = at; f < end && fields < 64;) {
+      size_t stop = f;
+      while (stop < end && text[stop] != ' ') stop++;
+      start[fields] = f;
+      length[fields] = stop - f;
+      fields++;
+      f = stop + 1;
+    }
+    at = end + 1;
+    if (fields <= 2 || length[2] != device_length ||
+        memcmp(text + start[2], device, device_length) != 0)
+      continue;
+    for (int sep = 6; sep + 3 < fields; sep++) {
+      if (length[sep] != 1 || text[start[sep]] != '-') continue;
+      const char *options = text + start[sep + 3];
+      size_t size = length[sep + 3];
+      for (size_t o = 0; o < size;) {
+        size_t stop = o;
+        while (stop < size && options[stop] != ',') stop++;
+        size_t word = stop - o;
+        if ((word == 16 && memcmp(options + o, "local_lock=flock", 16) == 0) ||
+            (word == 14 && memcmp(options + o, "local_lock=all", 14) == 0))
+          return true;
+        o = stop + 1;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
+COSMIC_SYSCALL(flock_kind, 1) {
+  int fd = cosmic_checkfd(L, 1);
+#if defined(__linux__)
+  struct statfs filesystem;
+  if (fstatfs(fd, &filesystem) != 0) return cosmic_fail(L, errno);
+  uint32_t magic = (uint32_t)filesystem.f_type;
+  /* SMB's client, CIFS_SUPER_MAGIC and SMB2_SUPER_MAGIC, makes every
+   * flock a whole-file fcntl lock. */
+  if (magic == 0xFF534D42u || magic == 0xFE534D42u) {
+    lua_pushliteral(L, "shared");
+    return 1;
+  }
+  /* NFS_SUPER_MAGIC's does too, unless mounted with local_lock "flock"
+   * or "all", which only the mount's options in /proc/self/mountinfo
+   * say: the lines of this file's filesystem are those whose third
+   * field is its device. Where none says, it is taken for NFS's default,
+   * local_lock=none. */
+  if (magic != 0x6969u) {
+    lua_pushliteral(L, "apart");
+    return 1;
+  }
+  struct stat status;
+  if (fstat(fd, &status) != 0) return cosmic_fail(L, errno);
+  char device[32];
+  int wrote = snprintf(device, sizeof device, "%u:%u", major(status.st_dev), minor(status.st_dev));
+  if (wrote < 0 || (size_t)wrote >= sizeof device) return cosmic_fail(L, EOVERFLOW);
+  char *text;
+  size_t used;
+  int failure = read_whole("/proc/self/mountinfo", &text, &used);
+  if (failure == ENOMEM) return cosmic_fail(L, failure);
+  bool local = failure == 0 && cosmic_mountinfo_local_flock(text, used, device);
+  cosmic_free(text);
+  lua_pushstring(L, local ? "apart" : "shared");
+  return 1;
+#else
+  /* Asked of the descriptor only so one not open fails as it does on
+   * Linux: Darwin and the BSDs keep a flock and fcntl locks in one
+   * list, whatever the file. */
+  struct stat status;
+  if (fstat(fd, &status) != 0) return cosmic_fail(L, errno);
+  lua_pushliteral(L, "shared");
+  return 1;
+#endif
+}
+
 COSMIC_SYSCALL(uname, 0) {
   struct utsname info;
   if (uname(&info) != 0) {
@@ -2406,8 +3464,28 @@ COSMIC_SYSCALL(uname, 0) {
   return 1;
 }
 
-static volatile sig_atomic_t child_cancelled;
-static int child_signals_guarded;
+/* The signals the guards have caught, as one stamp: how many, times
+ * SIGNAL_STAMP_UNIT, plus the number of the last. One word, so a reader
+ * sees a count with the signal that goes with it, and the handler moves
+ * it without a lock. It is never reset: a guard asks whether it moved
+ * since the stamp that guard last read. It wraps only past 2^57
+ * signals. */
+static _Atomic long long child_signal_stamp;
+_Static_assert(ATOMIC_LLONG_LOCK_FREE == 2,
+               "a signal handler may move only a lock-free atomic");
+_Static_assert(SIGINT < SIGNAL_STAMP_UNIT && SIGTERM < SIGNAL_STAMP_UNIT,
+               "a stamp holds the last signal's number below its unit");
+/* The wake pipe's write end while a guard is open, and -1 otherwise:
+ * the handler writes a byte there for a task of cosmic.poll that
+ * waits on the read end. */
+static volatile sig_atomic_t child_signal_wake = -1;
+static int child_signal_read_end = -1;
+/* How many guards are open: the first installs the handler, and the
+ * last restores what the first found. */
+static int child_guard_depth;
+/* The stamp the innermost guard last read, which [`cosmic_signal_caught`]
+ * asks after. */
+static long long child_signal_read_to;
 static struct sigaction previous_int;
 static struct sigaction previous_term;
 /* Whether the guard caught each signal: one this process ignored stays
@@ -2415,11 +3493,52 @@ static struct sigaction previous_term;
 static int int_caught;
 static int term_caught;
 
-/* The last signal delivered since the last read wins: a SIGTERM after a
-   Ctrl-C a supervised child handled must not be lost to the earlier one.
-   Two pending together arrive in the kernel's order, not the sender's. */
+/* The last signal delivered wins: a SIGTERM after a Ctrl-C a supervised
+   child handled must not be lost to the earlier one. Two pending
+   together arrive in the kernel's order, not the sender's. A full pipe
+   is readable already, so the byte it refuses is not missed. */
 static void catch_child_cancel (int number) {
-  child_cancelled = number;
+  int saved = errno;
+  long long seen = atomic_load(&child_signal_stamp);
+  long long next;
+  do {
+    next = (seen / SIGNAL_STAMP_UNIT + 1) * SIGNAL_STAMP_UNIT + number;
+  } while (!atomic_compare_exchange_weak(&child_signal_stamp, &seen, next));
+  int wake = child_signal_wake;
+  if (wake >= 0) {
+    ssize_t wrote = write(wake, "", 1);
+    (void)wrote;
+  }
+  errno = saved;
+}
+
+bool cosmic_signal_caught (void) {
+  return child_guard_depth > 0 &&
+         atomic_load(&child_signal_stamp) != child_signal_read_to;
+}
+
+int64_t cosmic_now_ms (void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+int cosmic_wait_slice (int64_t deadline) {
+  if (deadline < 0) return COSMIC_WAIT_SLICE_MS;
+  int64_t remaining = deadline - cosmic_now_ms();
+  if (remaining <= 0) return 0;
+  return remaining < COSMIC_WAIT_SLICE_MS ? (int)remaining : COSMIC_WAIT_SLICE_MS;
+}
+
+int cosmic_paused (int64_t deadline, int64_t *pause) {
+  if (cosmic_signal_caught()) return EINTR;
+  int most = cosmic_wait_slice(deadline);
+  if (most == 0) return ETIMEDOUT;
+  int64_t ms = *pause < most ? *pause : most;
+  *pause = *pause * 2 < COSMIC_WAIT_SLICE_MS ? *pause * 2 : COSMIC_WAIT_SLICE_MS;
+  struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000L };
+  nanosleep(&ts, NULL);
+  return cosmic_signal_caught() ? EINTR : 0;
 }
 
 static void child_signal_set (sigset_t *set) {
@@ -2428,84 +3547,128 @@ static void child_signal_set (sigset_t *set) {
   sigaddset(set, SIGTERM);
 }
 
-COSMIC_SYSCALL(guard_child_signals, 0) {
-  sigset_t blocked, previous_mask;
-  child_signal_set(&blocked);
-  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
-    return cosmic_fail_effect(L, errno);
-  if (child_signals_guarded) {
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, EBUSY);
+/* The wake pipe, both ends close-on-exec and non-blocking, so the
+ * handler never blocks on a full one: 0, or the errno that refused it.
+ * One thread and no fork between these calls, so setting CLOEXEC after
+ * the fact cannot leak an end into a child. */
+static int open_wake_pipe (int ends[2]) {
+  if (pipe(ends) != 0) return errno;
+  for (int i = 0; i < 2; i++) {
+    int flags = fcntl(ends[i], F_GETFL);
+    if (flags < 0 || fcntl(ends[i], F_SETFD, FD_CLOEXEC) != 0 ||
+        fcntl(ends[i], F_SETFL, flags | O_NONBLOCK) != 0) {
+      int number = errno;
+      close(ends[0]);
+      close(ends[1]);
+      return number;
+    }
   }
-  struct sigaction action;
-  action.sa_handler = catch_child_cancel;
-  child_signal_set(&action.sa_mask);
-  action.sa_flags = 0;
-  child_cancelled = 0;
-  if (sigaction(SIGINT, NULL, &previous_int) != 0 ||
-      sigaction(SIGTERM, NULL, &previous_term) != 0) {
-    int number = errno;
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, number);
-  }
-  int_caught = previous_int.sa_handler != SIG_IGN;
-  term_caught = previous_term.sa_handler != SIG_IGN;
-  if (int_caught && sigaction(SIGINT, &action, NULL) != 0) {
-    int number = errno;
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, number);
-  }
-  if (term_caught && sigaction(SIGTERM, &action, NULL) != 0) {
-    int number = errno;
-    if (int_caught) sigaction(SIGINT, &previous_int, NULL);
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    return cosmic_fail_effect(L, number);
-  }
-  child_signals_guarded = 1;
-  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0) {
-    int number = errno;
-    if (int_caught) sigaction(SIGINT, &previous_int, NULL);
-    if (term_caught) sigaction(SIGTERM, &previous_term, NULL);
-    child_signals_guarded = 0;
-    return cosmic_fail_effect(L, number);
-  }
-  return cosmic_ok(L);
+  return 0;
 }
 
-COSMIC_SYSCALL(unguard_child_signals, 0) {
-  sigset_t blocked, previous_mask;
-  child_signal_set(&blocked);
-  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
-    return cosmic_fail(L, errno);
-  if (!child_signals_guarded) {
-    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
-    lua_pushinteger(L, 0);
-    return 1;
+/* The first guard's opening, with both signals blocked: the wake pipe,
+ * then the handler for each signal this process does not ignore. 0, or
+ * the errno that refused it, with nothing left changed. */
+static int install_child_guard (void) {
+  int ends[2];
+  int failure = open_wake_pipe(ends);
+  if (failure != 0) return failure;
+  struct sigaction action;
+  memset(&action, 0, sizeof action);
+  action.sa_handler = catch_child_cancel;
+  child_signal_set(&action.sa_mask);
+  if (sigaction(SIGINT, NULL, &previous_int) != 0 ||
+      sigaction(SIGTERM, NULL, &previous_term) != 0)
+    failure = errno;
+  if (failure == 0) {
+    int_caught = previous_int.sa_handler != SIG_IGN;
+    term_caught = previous_term.sa_handler != SIG_IGN;
+    child_signal_wake = ends[1];
+    if (int_caught && sigaction(SIGINT, &action, NULL) != 0) {
+      failure = errno;
+    } else if (term_caught && sigaction(SIGTERM, &action, NULL) != 0) {
+      failure = errno;
+      if (int_caught) sigaction(SIGINT, &previous_int, NULL);
+    }
   }
+  if (failure != 0) {
+    child_signal_wake = -1;
+    close(ends[0]);
+    close(ends[1]);
+    return failure;
+  }
+  child_signal_read_end = ends[0];
+  return 0;
+}
+
+/* The last guard's closing, with both signals blocked: the dispositions
+ * the first found, and the wake pipe closed. 0, or the errno of the
+ * first disposition that could not be restored. */
+static int uninstall_child_guard (void) {
   int first = 0;
   if (int_caught && sigaction(SIGINT, &previous_int, NULL) != 0) first = errno;
   if (term_caught && sigaction(SIGTERM, &previous_term, NULL) != 0 && first == 0)
     first = errno;
-  int cancelled = child_cancelled;
-  child_signals_guarded = 0;
-  child_cancelled = 0;
-  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0 && first == 0)
-    first = errno;
-  if (first != 0) return cosmic_fail(L, first);
-  lua_pushinteger(L, cancelled);
-  return 1;
+  int wake = child_signal_wake;
+  child_signal_wake = -1;
+  close(wake);
+  close(child_signal_read_end);
+  child_signal_read_end = -1;
+  return first;
 }
 
-COSMIC_SYSCALL(cancelled_child_signal, 0) {
+COSMIC_SYSCALL(guard_child_signals, 0) {
   sigset_t blocked, previous_mask;
   child_signal_set(&blocked);
   if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
     return cosmic_fail(L, errno);
-  int number = child_cancelled;
-  child_cancelled = 0;
-  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0)
+  int failure = child_guard_depth == 0 ? install_child_guard() : 0;
+  long long outer_read_to = child_signal_read_to;
+  if (failure == 0) {
+    child_guard_depth++;
+    child_signal_read_to = atomic_load(&child_signal_stamp);
+  }
+  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0 && failure == 0) {
+    failure = errno;
+    child_guard_depth--;
+    child_signal_read_to = outer_read_to;
+    if (child_guard_depth == 0) uninstall_child_guard();
+  }
+  if (failure != 0) return cosmic_fail(L, failure);
+  lua_pushinteger(L, child_signal_read_to);
+  return 1;
+}
+
+COSMIC_SYSCALL(unguard_child_signals, 1) {
+  lua_Integer read_to = luaL_checkinteger(L, 1);
+  sigset_t blocked, previous_mask;
+  child_signal_set(&blocked);
+  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
     return cosmic_fail(L, errno);
-  lua_pushinteger(L, number);
+  long long stamp = atomic_load(&child_signal_stamp);
+  int first = 0;
+  if (child_guard_depth > 0) {
+    child_guard_depth--;
+    if (child_guard_depth == 0) first = uninstall_child_guard();
+    else child_signal_read_to = read_to;
+  }
+  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0 && first == 0)
+    first = errno;
+  if (first != 0) return cosmic_fail(L, first);
+  lua_pushinteger(L, stamp);
+  return 1;
+}
+
+COSMIC_SYSCALL(child_signal_read, 1) {
+  luaL_checktype(L, 1, LUA_TBOOLEAN);
+  long long stamp = atomic_load(&child_signal_stamp);
+  if (lua_toboolean(L, 1)) child_signal_read_to = stamp;
+  lua_pushinteger(L, stamp);
+  return 1;
+}
+
+COSMIC_SYSCALL(child_signal_fd, 0) {
+  lua_pushinteger(L, child_signal_read_end);
   return 1;
 }
 
@@ -2522,7 +3685,7 @@ COSMIC_SYSCALL(cancelled_child_signal, 0) {
   lua_setfield(L, -2, #name);
 
 /* core/process.h's calls and the numbers `poll` takes and gives back,
- * which only the raw `cosmic.internal.process` module holds. */
+ * which only the raw [`cosmic.internal.process`] module holds. */
 int cosmic_open_process (lua_State *L) {
   lua_newtable(L);
 #include "process.h"

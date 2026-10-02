@@ -1,4 +1,4 @@
---- `build.importer`'s tests that read the projection beyond their own
+--- [`build.importer`]'s tests that read the projection beyond their own
 --- closure, apart from build/importer_test.tl's so those stand while the
 --- tree moves: a compile's hint names what the binary's docs, or the
 --- tree's own last projection, document, and a project's uses of the
@@ -14,6 +14,10 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local schema = require("build.schema")
+-- What a refusal says to write instead is [`cosmic.removed`]'s, which
+-- build.teal loads by no `require` a parse records: required here, it
+-- is in this test's closure, which the worker lets it load.
+local _ = require("cosmic.removed")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
 Test.needs{ reads = { "core" }, store = true }
@@ -24,8 +28,7 @@ if built == nil then
 end
 
 --- Writes every entry of `files` (filename -> source) into a fresh
---- one-off project directory under `/tmp`, named after `case` and a random
---- suffix so a quickly reused process ID cannot pick up a prior run's cache.
+--- project directory of its own, named after `case`.
 local function write_fixture(case: string, files: {string:string}): string | nil, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
@@ -86,7 +89,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "importer-test"))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
-  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
@@ -114,12 +117,12 @@ local function test_project_keeps_uses_of_bundled_symbols()
   work.close(handle)
 end
 
---- `build.teal` strips `os` (and `io`, `debug`, `dofile`, `loadfile`)
+--- [`build.teal`] strips `os` (and `io`, `debug`, `dofile`, `loadfile`)
 --- from the checker's own globals, so a bare reference is tl's own
 --- "unknown variable" -- not left to fail only once a built program
---- actually runs and reaches `core/surface.c`'s replacement text. The
+--- actually runs and reaches [`core/surface.c`]'s replacement text. The
 --- message earns the same hint an unused variable does: a pointer at
---- `cosmic.removed`'s own field for the name, found by `symbols.named`
+--- [`cosmic.removed`]'s own field for the name, found by [`symbols.named`]
 --- the same way `cosmic docs os` would find it.
 local function test_unresolved_removed_global_names_its_own_replacement()
   local root = assert(write_fixture("removed-global-hint", {
@@ -133,7 +136,7 @@ local function test_unresolved_removed_global_names_its_own_replacement()
 end
 
 --- A removed name's refusal says what to write instead of the very
---- field used, not only where the docs are: `os.getenv` is `Env.get`,
+--- field used, not only where the docs are: `os.getenv` is [`Env.get`],
 --- and the `require` that brings it in, ahead of the docs pointer.
 local function test_a_removed_field_names_its_replacement_at_compile_time()
   local root = assert(write_fixture("removed-field-replacement", {
@@ -147,7 +150,7 @@ local function test_a_removed_field_names_its_replacement_at_compile_time()
 end
 
 --- The same hint, for a literal `require` of a removed name: tl
---- resolves `require("io")` against `env.modules`, which `build.teal`
+--- resolves `require("io")` against `env.modules`, which [`build.teal`]
 --- strips `io` from too, so this fails as an ordinary unresolvable
 --- module rather than a bare global.
 local function test_unresolved_removed_require_names_its_own_replacement()
@@ -170,7 +173,7 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
     ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
   }))
   assert(Fs.mkdirs(root .. "/o"))
-  local projection = assert(Sqlite.open(root .. "/o/cosmic.db", true))
+  local projection = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
     "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
@@ -183,7 +186,7 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
 end
 
 --- An ordinary undeclared-name typo, unrelated to anything the
---- database documents, earns no hint: `symbols.named` is an exact
+--- database documents, earns no hint: [`symbols.named`] is an exact
 --- match, never the free-text search `cosmic docs` falls back to, so
 --- a name that happens to share words with unrelated prose is never
 --- printed as though it explained this failure.
@@ -200,7 +203,8 @@ end
 
 --- Concrete checker families point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
---- the output and every advertised query is present in the binary's docs.
+--- the output beside the hint. That every query advertised is answered by
+--- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
 local function test_language_errors_name_relevant_checked_docs()
   local cases: {string:{string}} = {
     wrong_arguments = {
@@ -229,26 +233,18 @@ local function test_language_errors_name_relevant_checked_docs()
     assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
     assert(trouble:find(case[2], 1, true) ~= nil, trouble)
     assert(trouble:find("cosmic docs " .. case[3], 1, true) ~= nil, trouble)
-    local sources = docs.databases()
-    local found = assert(docs.lookup(assert(docs.view(sources.handles, sources.public)), case[3]))
-    assert(#found > 0, "hint query has no docs: " .. case[3])
   end
 end
 
---- Syntax rejected while constructing the checker environment still keeps its
---- original diagnostic. Its corresponding language guide is independently
---- available rather than being promised by a code path compilation never reaches.
-local function test_malformed_type_keeps_error_and_has_searchable_guide()
+--- A malformed type, which the parser refuses before the checker runs,
+--- keeps its own diagnostic.
+local function test_malformed_type_keeps_its_error()
   local root = assert(write_fixture("language-guide-malformed-type", {
     ["thing.tl"] = "local x: {string = integer} = {}\nreturn x\n",
   }))
   local result, trouble = compile_fixture(root)
   assert(result == nil)
   assert(trouble:find("expected a type list", 1, true) ~= nil, trouble)
-  local sources = docs.databases()
-  local found = assert(docs.lookup(assert(docs.view(sources.handles, sources.public)),
-    "enums_arrays_maps_tuples"))
-  assert(#found > 0, "the type-shape guide must remain searchable")
 end
 
 --- An incidental API name elsewhere on the line cannot make an argument

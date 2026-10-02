@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.zip`: the reader is total -- whatever
+--- Fuzz properties for [`cosmic.zip`]: the reader is total -- whatever
 --- bytes it is handed, it returns entries or a failure and never raises
 --- or runs away -- and what the writer writes, the reader reads back.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -16,7 +16,7 @@ local function gen_path(src: Fuzz.Source): string
   return table.concat(parts, "/")
 end
 
---- Entries as `Fuzz.pack` fields: a kind ("file" or "dir"), a path, a
+--- Entries as [`Fuzz.pack`] fields: a kind ("file" or "dir"), a path, a
 --- method, and a body, repeated.
 local function gen_entries(src: Fuzz.Source): {string}
   local fields: {string} = {}
@@ -47,7 +47,13 @@ local function write(fields: {string}): string | nil
     local method: Zip.Method = name == "store" and "store" or "deflate"
     local ok: boolean
     if kind == "file" then
-      ok = zw:add_file(path, body, { method = method })
+      -- Half the bodies go in streamed, with a data descriptor: the
+      -- reader, which goes by the central directory, must read both alike.
+      if #body % 2 == 0 then
+        ok = zw:add_file(path, Stream.from_string(body), { method = method })
+      else
+        ok = zw:add_file(path, body, { method = method })
+      end
     else
       ok = zw:add_dir(path)
     end
@@ -95,7 +101,7 @@ local function walk(input: string): boolean, string
     end
   end
   if not ended then return false, "more than 10000 entries from one input" end
-  zr:entries()
+  local _, _ = zr:entries()
   zr:close()
   return true, ""
 end

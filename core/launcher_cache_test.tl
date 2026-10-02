@@ -7,7 +7,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start through its launcher, and
@@ -25,7 +25,7 @@ local Test = require("cosmic.test")
 Test.needs{ tool = true, system = true }
 
 local function environment(): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
   return env
@@ -36,7 +36,7 @@ local function launch(program: string, cache: string, dir: string)
   local env = environment()
   env.COSMIC_PORTABLE_CACHE = cache
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = dir,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok and r.stdout == "ok\n", tostring(r.stderr))
 end
 

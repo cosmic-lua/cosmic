@@ -1,5 +1,5 @@
 -- The part of the vendored Teal compiler this tree uses. Nothing else
--- in the tree reaches into it. `build.teal` is what loads it.
+-- in the tree reaches into it. [`build.teal`] is what loads it.
 
 local record compiler
   record Error
@@ -9,8 +9,8 @@ local record compiler
     msg: string
   end
 
-  -- TODO: declare `ast`, `type`, `Env.modules`, the reporter's
-  -- collector and `parse_program`'s answer as the records build.ast
+  -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's
+  -- collector and [`parse_program`]'s answer as the records build.ast
   -- (Node) and build.receivers (Type) declare, moved here, so the casts
   -- build/contracts.tl's casts table lets build.ast.node,
   -- build.receivers and build.contracts (the module's own answer, for
@@ -39,7 +39,7 @@ local record compiler
     globals: {string:any}
     modules: {string:any}
     -- When set, the checker hands every node's type to `reporter`'s
-    -- collector as it checks; see `build.receivers`.
+    -- collector as it checks; see [`build.receivers`].
     report_types: boolean | nil
     reporter: any
   end
@@ -51,10 +51,12 @@ local record compiler
     text: string
   end
 
-  -- One lexed token. Only the fields `build.ast` actually reads: a
-  -- leaf's own text and position, and the comments it carries.
+  -- One lexed token. Only the fields the tree reads: a leaf's own text,
+  -- its kind ("identifier", "keyword", "string", ...), its position, and
+  -- the comments it carries.
   record Token
     tk: string
+    kind: string
     y: integer
     x: integer
     comments: {Comment} | nil
@@ -84,7 +86,7 @@ local record compiler
   -- return.
   lex: function(source: string, name: string): {Token}, {Error}
   -- Parses an already-lexed token stream. The AST comes back erased to
-  -- `any` -- `build.ast.node` is what casts it to a real shape, once,
+  -- `any` -- [`build.ast.node`] is what casts it to a real shape, once,
   -- for every later consumer -- and parse errors are appended to
   -- `errs`, the same table `lex` populated with its own lex errors.
   parse_program: function(tokens: {Token}, errs: {Error}, name: string,

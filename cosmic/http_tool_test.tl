@@ -1,67 +1,25 @@
 --- cosmic.http's tests that need the program itself, apart from
---- cosmic/http_test.tl's so those stand while the tree moves: the CA
---- roots the binary's own database carries, read through
---- `Store.databases()`, and $SSL_CERT_FILE, which only a fresh process
---- started from the program reads.
+--- cosmic/http_test.tl's so those stand while the tree moves:
+--- $SSL_CERT_FILE, which only a fresh process started from the program
+--- reads. The CA roots the binary's own database carries are read in
+--- cosmic/http_store_test.tl.
 
 local Child = require("cosmic.child")
-local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Http = require("cosmic.http")
-local observations = require("build.filesystem_observations")
-local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
+local Net = require("cosmic.net")
+local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+--- What the scripts its tests run standalone require, which a child
+--- is typed and run against only where the closure holds it (`lua`).
+local type _ = require("cosmic.http")
+local Time = require("cosmic.time")
 
---- Requests to a closed local port, which a loopback alone answers:
---- the worker runs offline, and is keyed. And the program itself, which
---- its tests start, and whose own database holds the roots they read.
-Test.needs{ network = { "127.0.0.1" }, tool = true }
-
---- A TLS 1.2 server's first flight, as a script can send it: a
---- ServerHello choosing ECDHE-RSA with AES-128-GCM, then its
---- Certificate message holding `der` alone. The client verifies the
---- certificate the moment it reads the message, so nothing more of the
---- handshake is needed to see what it made of it.
-local function first_flight(der: string): string
-  local function message(kind: integer, body: string): string
-    return string.char(kind) .. string.pack(">I3", #body) .. body
-  end
-  local hello = message(2, "\3\3" .. string.rep("B", 32) .. "\0" .. "\192\47" .. "\0")
-  local certificate = message(11, string.pack(">I3", #der + 3) .. string.pack(">I3", #der) .. der)
-  local records = hello .. certificate
-  return "\22\3\3" .. string.pack(">I2", #records) .. records
-end
-
---- A root the binary's own database carries (`ca_roots`), as DER.
-local function carried_root(label: string): string
-  local databases = Store.databases()
-  local rows = assert(Sqlite.text_rows(databases[#databases],
-    "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
-  assert(#rows == 1, label .. " is not among the binary's CA roots")
-  return (assert(Codec.unhex(rows[1][1])))
-end
-
---- An https connection is verified against the CA roots the binary's
---- own database carries (core/http.c's `use_roots`): a server
---- presenting one of them is trusted -- and refused only because the
---- root names another host -- while the same certificate with its
---- signature broken is not.
-local function test_an_https_peer_is_verified_against_the_carried_roots()
-  local root = carried_root("ISRG Root X1")
-  local _, trusted = Http.open("https://cosmic.test/", { script = { first_flight(root) } })
-  assert(trusted:find("Common Name", 1, true), trusted)
-  assert(not trusted:find("not correctly signed", 1, true),
-    "a carried root is not trusted: " .. trusted)
-  local broken = root:sub(1, -2) .. string.char(root:byte(-1) ~ 1)
-  local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) } })
-  assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
-  -- The carried roots may be what is stale: the failure says how to get
-  -- newer ones.
-  assert(refused:find("`cosmic refresh cacert --binary <this program> -o <copy>`", 1, true), refused)
-  assert(not trusted:find("cosmic refresh", 1, true), trusted)
-end
+--- Requests to a local port, closed or one a test serves, which a
+--- loopback alone answers: the worker runs offline, and is keyed. And
+--- the program itself, which its tests start only to run a script
+--- standalone (`lua`, `standalone`).
+Test.needs{ network = { "127.0.0.1" }, lua = true, standalone = true }
 
 --- What a fresh process, $SSL_CERT_FILE naming `cert_file`, is told
 --- when it opens a closed local port: the roots, that file's included,
@@ -71,12 +29,13 @@ local function refused_with_cert_file(tmp: string, cert_file: string): string
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ms = 2000 })
+local Time = require("cosmic.time")
+local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Time.seconds(2) })
 Fs.put(Fs.stdout, trouble or "")
 ]]))
-  local started = observations.program({ "--standalone", script },
+  local started = this_program.program({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, tostring(result.stderr))
   return result.stdout or ""
@@ -84,10 +43,10 @@ end
 
 --- $SSL_CERT_FILE naming what holds no certificates -- a directory, a
 --- named pipe, or a file of anything else -- adds none and refuses
---- nothing: a request fails as it would without it. A directory's size,
---- as seeking to its end tells it, once asked for more memory than there
---- was, refusing every request; a pipe, opened without O_NONBLOCK, waited
---- for a writer forever.
+--- nothing: a request fails as it would without it. Reading a directory
+--- by the size that seeking to its end gives would ask for more memory
+--- than there is, and opening a pipe without O_NONBLOCK would wait for a
+--- writer forever.
 local function test_a_cert_file_holding_no_certificates_is_passed_over(tmp: string)
   local junk = tmp .. "/junk.pem"
   assert(Fs.write(junk, "no certificate here\n"))
@@ -100,19 +59,88 @@ local function test_a_cert_file_holding_no_certificates_is_passed_over(tmp: stri
   end
 end
 
---- Every root this binary carries reads as a certificate; a DER
---- sequence that is none, and bytes that are no DER at all, do not,
---- and say why.
-local function test_check_certificate_reads_what_the_binary_trusts()
-  local databases = Store.databases()
-  local roots = assert(Sqlite.rows(databases[#databases], "SELECT der, label FROM ca_roots"))
-  assert(#roots > 0)
-  for _, row in ipairs(roots) do
-    local ok, why = Http.check_certificate(row[1].blob)
-    assert(ok and why == "", row[2].text .. ": " .. why)
+--- A caught signal ending a wait on a stalled connection is tested here,
+--- not in cosmic/http_test.tl: the scripted transport closes after its
+--- reply, and a server that stalls runs beside a blocking client only in
+--- a process of its own.
+---
+--- A client of this program running `body`, a standalone script's
+--- function of its arguments, against a local server that stalls: once
+--- the client has written `marker`, which it does just before the call
+--- that is to wait, it is sent SIGINT, and what it printed is answered.
+--- `serve` is the server's side: it gets the accepted connection and
+--- the request's head, and answers as it will, then stalls.
+local function interrupted(tmp: string, body: string,
+                           serve: function(Net.Conn, string)): string
+  local script = tmp .. "/client.tl"
+  assert(Fs.write(script, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+return function(argv: {string}): integer
+  local url, marker = argv[1], argv[2]
+  local guard = assert(Child.guard())
+]] .. body .. [[
+  local caught = assert(guard:release())
+  Fs.put(Fs.stdout, " " .. tostring(caught))
+  return 0
+end
+]]))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Time.seconds(20) }))
+  local url = "http://127.0.0.1:" .. server.address.port .. "/"
+  local marker = tmp .. "/marker"
+  local started = this_program.program({ "--standalone", script, url, marker },
+    { stdout = "capture", stderr = "capture" })
+  local child <close> = assert(Child.start(started.argv, started.options))
+  local conn <close> = assert(server:accept())
+  local head = ""
+  while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
+  serve(conn, head)
+  for _ = 1, 2000 do
+    if Fs.stat(marker) ~= nil then break end
+    assert(sys.nanosleep(Time.ms(10)))
   end
-  for _, der in ipairs({ "", "\x30\x03abc", "not der" }) do
-    local ok, why = Http.check_certificate(der)
-    assert(not ok and why ~= "", Codec.hex(der))
+  assert(Fs.stat(marker) ~= nil, "the client never reached its wait")
+  assert(child:stop(sys.SIGINT))
+  local result = assert(child:wait(Time.seconds(20)))
+  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  return result.stdout or ""
+end
+
+--- A body `read` that waits on a server that sent part of the body and
+--- stalls ends when a guard catches a signal.
+local function test_a_caught_signal_ends_a_read_that_waits(tmp: string)
+  local said = interrupted(tmp, [[
+  local response = assert(Http.open(url))
+  assert(assert(response:read()) == "part")
+  assert(Fs.write(marker, ""))
+  local data, why = response:read()
+  Fs.put(Fs.stdout, tostring(data) .. " " .. why)
+]], function(conn: Net.Conn, _head: string)
+  assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
+end)
+  assert(said == "nil interrupted " .. sys.SIGINT, said)
+end
+
+--- A download that waits on a server that sent part of the body and
+--- stalls fails "interrupted" when a guard catches a signal, though the
+--- caller's `cancelled` answers true by then too, as the verbs' own do,
+--- and leaves nothing at its path or beside it.
+local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
+  local said = interrupted(tmp, [[
+  local target = marker .. ".target"
+  local ok, why = Http.download(url, target, {
+    cancelled = function(): boolean
+      if not Fs.stat(marker) then assert(Fs.write(marker, "")) end
+      return guard:cancelled() ~= 0
+    end,
+  })
+  Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+]], function(conn: Net.Conn, _head: string)
+  assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
+end)
+  assert(said == "false interrupted " .. sys.SIGINT, said)
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(not name:find(".target", 1, true), "left behind: " .. name)
   end
 end

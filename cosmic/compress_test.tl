@@ -5,6 +5,7 @@
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
+local testing = require("cosmic.internal.testing")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -130,6 +131,122 @@ local function test_corrupt_deflate_data_is_refused()
   local dec = assert(Compress.inflater("zlib"))
   local out, trouble = dec:update("not a zlib stream at all, just garbage")
   assert(out == nil and trouble ~= "")
+end
+
+-- A gzip member whose deflate body is a dynamic block with no codes at
+-- all: every code-length code's length is zero, so every literal's is
+-- too. tinfl decoded that as literal 0 of zero bits, forever, from
+-- these bytes (the head of the input a fuzz run of cosmic.archive
+-- found). The zeros after the block's first bytes are input to spare,
+-- so the decoder takes its fast path rather than waiting for more.
+local NO_CODES_GZIP <const> = "\31\139\8\0\0\0\0\0\0\255\237\211" .. string.rep("\0", 12)
+
+-- A raw deflate dynamic block whose literal/length table holds one
+-- code, end-of-block's, one bit long: `0` ends the block, `1` is no
+-- code at all. This is the block's header and tables; the byte after
+-- it holds the data: "\31" a well-formed empty block, "\95" the `1`.
+local EOB_ONLY <const> = "\5\224\129\8\0\0\0\0\32\248\91"
+
+local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever()
+  for _, format in ipairs({ "gzip", "raw" } as {Compress.Format}) do
+    local bytes = format == "gzip" and NO_CODES_GZIP or NO_CODES_GZIP:sub(11)
+    local dec = assert(Compress.inflater(format))
+    -- One update is enough: before, it answered a full megabyte of
+    -- zeros, and every update after it another.
+    local out, trouble = dec:update(bytes)
+    assert(out == nil and trouble == "compress: corrupt compressed data", format .. ": " .. tostring(out and #out))
+    local one_shot, why = Compress.inflate(format, bytes)
+    assert(one_shot == nil and why ~= "", format)
+  end
+end
+
+local function test_bits_that_name_no_code_are_refused()
+  -- The one code the table holds decodes.
+  local dec = assert(Compress.inflater("raw"))
+  local out, trouble = drive(dec, EOB_ONLY .. "\31")
+  assert(out == "" and trouble == "", trouble)
+  -- The bits no code has, followed by 8 bytes (read on the fast
+  -- path), 2 or 3 (the slow path, which has enough to decode with), or
+  -- none: then the decoder waits for more, and `finish` finds the stream
+  -- cut short. One update each, so a decoder answering zeros for them
+  -- fails here rather than looping.
+  local cases: {{string, string}} = {
+    { string.rep("\0", 8), "compress: corrupt compressed data" },
+    { string.rep("\0", 2), "compress: corrupt compressed data" },
+    { string.rep("\0", 3), "compress: corrupt compressed data" },
+    { "", "truncated" },
+  }
+  for _, case in ipairs(cases) do
+    local tail, want = case[1], case[2]
+    dec = assert(Compress.inflater("raw"))
+    out, trouble = dec:update(EOB_ONLY .. "\95" .. tail)
+    if out ~= nil then
+      assert(out == "" and not dec:pending(), #tail .. ": " .. #out .. " bytes out")
+      out, trouble = dec:finish()
+    end
+    -- The patch's own words, not the ratio check's, which would also
+    -- stop a decoder answering zeros, but only after a window of them.
+    assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil),
+      #tail .. ": " .. trouble)
+  end
+end
+
+--- Every piece of `packed` fed through `dec`, `size` bytes at a time,
+--- counting what comes out rather than keeping it: the bytes out, or
+--- nil and why not.
+local function count_out(dec: Compress.Stream, packed: string, size: integer): integer | nil, string
+  local total = 0
+  for pos = 1, #packed, size do
+    local piece = packed:sub(pos, pos + size - 1)
+    repeat
+      local out, trouble = dec:update(piece)
+      if out == nil then return nil, trouble end
+      total = total + #out
+      piece = ""
+    until not dec:pending()
+  end
+  local last, trouble = dec:finish()
+  if last == nil then return nil, trouble end
+  return total + #last, ""
+end
+
+local function test_the_ratio_check_passes_deflates_most_compressible_stream()
+  -- Zeros at level 9 come near deflate's largest ratio (1032 to 1),
+  -- which inflate_step refuses to pass; whole and a byte at a time, so
+  -- tinfl's read-ahead meets the check at every split.
+  local size = 100 << 20
+  for _, format in ipairs({ "raw", "gzip" } as {Compress.Format}) do
+    local enc = assert(Compress.deflater(format, 9))
+    local parts: {string} = {}
+    local zeros = string.rep("\0", 1 << 20)
+    for _ = 1, size >> 20 do parts[#parts + 1] = assert(enc:update(zeros)) end
+    parts[#parts + 1] = assert(enc:finish())
+    local packed = table.concat(parts)
+    assert(#packed * 1000 < size, format .. " packed to " .. #packed)
+    for _, piece in ipairs({ #packed, 1 }) do
+      local total, trouble = count_out(assert(Compress.inflater(format)), packed, piece)
+      assert(total == size, format .. " in pieces of " .. piece .. ": " .. tostring(total) .. " " .. trouble)
+    end
+  end
+end
+
+--- The ratio check, reached through the checked core's fault point: a
+--- tinfl that stops consuming, as upstream's did on a block with no
+--- codes, gives out a full window per call for nothing, and the stream
+--- fails once that passes deflate's largest ratio rather than spinning.
+local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
+  if testing.configuration ~= "sanitized" then return end
+  local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
+  testing.fail_at("tinfl_decompress")
+  local dec = assert(Compress.inflater("raw"))
+  local out, trouble: string, string
+  for _ = 1, 64 do
+    out, trouble = dec:update(packed)
+    if out == nil or not dec:pending() then break end
+    packed = ""
+  end
+  assert(not testing.fail_at(), "the fault fired")
+  assert(out == nil and trouble:find("more output than deflate codes", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_crc32_matches_the_known_value_and_continues()
@@ -406,15 +523,15 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     } as metatable<Holder>)
     holder.s = case[1]
     -- The stream is collected in the same cycle as the table whose
-    -- finalizer hands it back; before it was left "closed", this
-    -- update read freed codec state.
+    -- finalizer hands it back: an update on it must not read freed
+    -- codec state.
     case[1] = nil
     holder = nil
     collectgarbage()
     collectgarbage()
     assert(saved ~= nil, "the finalizer ran")
     local ok, why = pcall(saved.update, saved, case[2])
-    assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
     assert(not pcall(saved.finish, saved))
     assert(not saved:pending())
     assert(saved:rest() == "")
@@ -447,7 +564,6 @@ end
 local function test_a_raise_inside_update_leaves_the_stream_finished()
   -- Only the checked core can refuse an allocation, which is what makes
   -- a luaL_Buffer raise in the middle of a decode.
-  local testing = require("cosmic.internal.testing")
   if testing.configuration ~= "sanitized" then return end
   local input = string.rep("the quick brown fox ", 5000)
   local enc = assert(Compress.deflater("gzip"))
@@ -550,7 +666,7 @@ end
 
 local function test_xz_memory_limit_is_enforced()
   local out, trouble = assert(Compress.xz_decoder(1024)):update(hello_xz)
-  assert(out == nil and trouble == "xz memory limit exceeded", trouble)
+  assert(out == nil and trouble == "compress: xz memory limit exceeded", trouble)
   -- hello_xz asks for a 64 MiB dictionary (`xz -9`), which fits in 80 MiB.
   assert(drain(assert(Compress.xz_decoder(80 << 20)), hello_xz, 100) == "hello, cosmic!")
 end
@@ -564,19 +680,19 @@ local function test_raw_and_zlib_truncation_is_reported_as_truncation()
       local dec = assert(Compress.inflater(format))
       assert(dec:update(packed:sub(1, #packed - cut)))
       local last, trouble = dec:finish()
-      assert(last == nil and trouble == "truncated compressed stream",
+      assert(last == nil and trouble == "compress: truncated compressed stream",
         format .. ": " .. tostring(trouble))
     end
     local _, trouble = assert(Compress.inflater(format)):finish()
-    assert(trouble == "truncated compressed stream", trouble)
+    assert(trouble == "compress: truncated compressed stream", trouble)
   end
 end
 
 local function test_the_first_member_must_carry_the_magic()
   local cases: {{Maker, string}} = {
-    { gzip_decoder, "not a gzip stream" },
-    { bz2_decoder, "not a bzip2 stream" },
-    { xz_decoder, "not an xz stream" },
+    { gzip_decoder, "compress: not a gzip stream" },
+    { bz2_decoder, "compress: not a bzip2 stream" },
+    { xz_decoder, "compress: not an xz stream" },
   }
   for _, case in ipairs(cases) do
     local out, trouble = case[1]():update("TRAILER")
@@ -586,7 +702,7 @@ local function test_the_first_member_must_carry_the_magic()
   local dec = gzip_decoder()
   assert(dec:update("\31"))
   local _, trouble = dec:finish()
-  assert(trouble == "truncated gzip stream", trouble)
+  assert(trouble == "compress: truncated gzip stream", trouble)
 end
 
 local function test_argument_shape_errors_raise()
@@ -621,8 +737,21 @@ local function test_one_shot_deflate_and_inflate_round_trip()
   out, trouble = Compress.inflate("zlib", packed .. "x")
   assert(out == nil and trouble:find("trailing", 1, true), trouble)
   out, trouble = Compress.inflate("zlib", packed:sub(1, -2))
-  assert(out == nil and trouble == "truncated compressed stream", trouble)
+  assert(out == nil and trouble == "compress: truncated compressed stream", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", "")))) == "")
+end
+
+local function test_inflate_validates_max_bytes()
+  local packed = assert(Compress.deflate("zlib", "abc"))
+  assert(Compress.inflate("zlib", packed, 3) == "abc")
+  local out, trouble = Compress.inflate("zlib", packed, 2)
+  assert(out == nil and trouble == "stream: output is larger than 2 bytes", trouble)
+  assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0) == "")
+  for _, bad in ipairs({ -1, 1.5 } as {any}) do
+    local ok, why = pcall(Compress.inflate, "zlib", packed, bad as integer)
+    assert(not ok and tostring(why):find("compress: max_bytes", 1, true) ~= nil,
+      tostring(why))
+  end
 end
 
 --- Each one-shot call frames its bytes as `format` says, the same
@@ -686,7 +815,7 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   assert(nulls[1][1] == "1" and nulls[1][2] == "1")
   local stream = assert(Compress.deflate("raw", text))
   for _, case in ipairs({
-    { stream:sub(1, #stream - 4), "the deflate stream is truncated" },
+    { stream:sub(1, #stream - 4), "truncated deflate stream" },
     { stream .. "\0", "the deflate stream is followed by more bytes" },
     { "\xff\xff\xff\xff", "the deflate stream is damaged" },
   }) do

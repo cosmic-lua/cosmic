@@ -1,34 +1,39 @@
 --- `cosmic todos`: every `TODO:` comment in the tree, each with the
---- commit that last touched its line and when -- what `git blame` says
---- about it.
+--- commit that last touched its line and when, as `git blame` says.
 ---
---- The index is built by the build itself: `build.work.stage` scans
---- each file it stages (`build.todo_scan`) in the moment it reads it,
---- into `todos` in `o/build.db`, so the one walk covers every file in
---- the tree: what the build consumes -- Teal, and in cosmic's own tree
---- the C core, build.zig and bin/zig -- and, fingerprinted in `scanned`
---- and read only when it moves, everything else it walks past: scripts,
---- and in cosmic's own tree `bin/`, `eval/`, `ci/` and `.github/`: its
---- workflows, actions and scripts. Blame is kept beside it, in
---- `blames`, and only this verb runs git. With no git, or outside a
---- repository, TODOs are still listed, with no commit.
+--- The index is built by the build itself: [`build.work.stage`] scans each
+--- file it stages ([`build.todo_scan`]) as it reads it, into `todos` in
+--- `o/build.db`. That covers what the build consumes (Teal and, in
+--- cosmic's own tree, the C core, build.zig and bin/zig) and, through
+--- `scanned`, everything else the walk passes: scripts and, in cosmic's
+--- own tree, `bin/`, `eval/`, `ci/` and `.github/` (workflows, actions
+--- and scripts). `scanned` fingerprints those files, which are read only
+--- when the fingerprint moves. Blame is kept in `blames`, and only this
+--- verb runs git. With no git, or outside a repository, TODOs are still
+--- listed, with no commit.
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local link_text = require("build.link_text")
 local narrow = require("build.narrow")
+local plural = require("build.plural")
 local reboot = require("build.reboot")
 local tree = require("build.tree")
 local work = require("build.work")
 
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
 
 local record todos
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- What blame says about one line.
   record Blame
     --- The commit's full hash; all zeros for a line not committed yet.
@@ -67,7 +72,7 @@ local record todos
 
   --- A command line split by `arguments`.
   record Arguments
-    --- As `build.narrow.paths` answers them; none for the whole tree.
+    --- As [`build.narrow.paths`] answers them; none for the whole tree.
     paths: {string}
     --- What to search the TODOs' text for.
     words: {string}
@@ -105,7 +110,7 @@ end
 
 --- How long one git call may take before it is ended and its answer
 --- taken as none: a TODO is listed unblamed rather than not at all.
-local git_timeout_ms = 30 * 1000
+local git_timeout_ns = Time.seconds(30)
 
 --- Runs git in `root`, its output when it succeeds.
 local function git(root: string, args: {string}): string | nil
@@ -118,7 +123,7 @@ local function git(root: string, args: {string}): string | nil
     argv[#argv + 1] = each
   end
   local result, _ = Child.run(argv, {
-    stdin = "null", stdout = "capture", stderr = "null", timeout_ms = git_timeout_ms,
+    stdin = "null", stdout = "capture", stderr = "null", timeout_ns = git_timeout_ns,
   })
   if result == nil or not result.ok or result.stdout == nil then
     return nil
@@ -164,10 +169,16 @@ local function blame_jobs(): integer
   return math.max(1, math.min(8, Proc.cpu_count()))
 end
 
+--- The commits blame passes over, one hash a line, when the tree's root
+--- holds the file: a commit that only rewrote lines (a sweep of the
+--- tree's comments) leaves each line on the commit that wrote it.
+local IGNORED_REVS <const> = ".git-blame-ignore-revs"
+
 --- Blame for the first line of each TODO in several files, by file,
---- running the calls `blame_jobs` at a time; a file git has nothing to
---- say about maps to an empty table. Stops once `guard` has caught a
---- signal, every git ended.
+--- running the calls [`blame_jobs`] at a time, past the commits
+--- `IGNORED_REVS` lists; a file git has nothing to
+--- say about maps to an empty table. Once `guard` has caught a signal,
+--- it ends every git and stops.
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
                          guard: Child.Guard | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
@@ -177,6 +188,9 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
     for _, file in ipairs(order) do out[file] = {} end
     return out
   end
+  local ignored: string | nil = nil
+  local listed, _ = Fs.exists(root .. "/" .. IGNORED_REVS)
+  if listed then ignored = root .. "/" .. IGNORED_REVS end
   local limit = blame_jobs()
   local running: {Child.Handle} = {}
   local file_of: {Child.Handle:string} = {}
@@ -188,6 +202,10 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
       next_file = next_file + 1
       out[file] = {}
       local argv: {string} = { program, "-C", root, "blame", "--line-porcelain" }
+      if ignored ~= nil then
+        argv[#argv + 1] = "--ignore-revs-file"
+        argv[#argv + 1] = ignored
+      end
       for _, line in ipairs(lines[file]) do
         argv[#argv + 1] = "-L"
         argv[#argv + 1] = line .. "," .. line
@@ -198,7 +216,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
       if handle ~= nil then
         running[#running + 1] = handle
         file_of[handle] = file
-        deadline_of[handle] = Time.monotonic_ns() + git_timeout_ms * 1000000
+        deadline_of[handle] = Time.monotonic_ns() + git_timeout_ns
       end
     end
     if #running == 0 then
@@ -207,7 +225,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
     if guard ~= nil and guard:cancelled() ~= 0 then
       break
     end
-    local done, trouble = Child.wait_any(running, 100)
+    local done, trouble = Child.wait_any(running, Time.ms(100))
     local now = Time.monotonic_ns()
     local still: {Child.Handle} = {}
     for _, handle in ipairs(running) do
@@ -216,7 +234,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
         if result ~= nil and result.ok and result.stdout ~= nil then
           out[file_of[handle]] = todos.parse_blame(result.stdout)
         end
-      elseif (done == nil and trouble ~= "") or now >= deadline_of[handle] then
+      elseif (done == nil and trouble ~= Poll.TIMEOUT) or now >= deadline_of[handle] then
         -- Supervision failed, or git ran past its time: the file's
         -- TODOs are listed unblamed.
         local _, _ = handle:close()
@@ -232,11 +250,12 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
   return out
 end
 
---- `blame_all` under a `Child.guard`: SIGINT or SIGTERM ends every git
+--- [`blame_all`] under a [`Child.guard`]: SIGINT or SIGTERM ends every git
 --- still running, then this process when the guard closes, as
---- `build.test` does for its workers. Unguarded when this process
---- already holds a guard (`todos.run` called in-process under one),
---- where a signal acts as it would.
+--- [`build.test`] does for its workers. Under a guard of its caller's
+--- (todos's `run` called in-process under one), the signal is left to
+--- that one. Unguarded where no guard can be had, where a signal acts
+--- as it would.
 local function blame_files(root: string,
                            lines: {string:{integer}},
                            order: {string}): {string:{integer:todos.Blame}}
@@ -251,15 +270,17 @@ local function uncommitted(commit: string): boolean
   return commit:match("^0+$") ~= nil
 end
 
---- Every TODO in the staged tree with what is known of its blame, in
---- file and line order: a row with no blame for `head` has `commit` ""
---- and `blamed` false.
+--- One TODO with the digest of the file text it was found in, and whether
+--- `blames` holds its blame for the current `HEAD`.
 local record Row
   todo: todos.Todo
   sha256: string
   blamed: boolean
 end
 
+--- Every TODO in the staged tree with what is known of its blame, in
+--- file and line order: a row with no blame for `head` has `commit` ""
+--- and `blamed` false.
 local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
@@ -325,13 +346,18 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string): boo
       for path in changed:gmatch("([^\n]+)") do
         touched[path] = true
       end
+      -- A commit blame now passes over, or no longer does, may be the
+      -- one any line is blamed on.
+      if touched[IGNORED_REVS] then
+        touched = nil
+      end
       local kept, rows_trouble = Sqlite.text_rows(db,
         "SELECT DISTINCT path FROM blames WHERE head = ?1", { { text = old } })
       if kept == nil then
         return false, rows_trouble
       end
       for _, each in ipairs(kept) do
-        if not touched[each[1]] then
+        if touched ~= nil and not touched[each[1]] then
           local ok, move_trouble = Sqlite.run(db,
             "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
             { { text = head }, { text = old }, { text = each[1] } })
@@ -434,13 +460,14 @@ end
 --- `??????????` for one outside what Time's nanoseconds hold (a forged
 --- commit date), rather than a date the product wrapped to.
 function todos.date(seconds: integer): string
-  if seconds < math.mininteger // 1000000000 + 1 or seconds > math.maxinteger // 1000000000 then
+  if seconds < math.mininteger // Time.seconds(1) + 1 or seconds > math.maxinteger // Time.seconds(1) then
     return "??????????"
   end
-  return Time.format_date(seconds * 1000000000)
+  return Time.format_date(Time.seconds(seconds))
 end
 
---- One TODO as `todos` lists it: where, when, which commit, and what.
+--- One TODO as `todos` lists it: where, when, which commit, and what,
+--- a link shown as its code span ([`link_text.unlinked`]).
 function todos.render(todo: todos.Todo): string
   local when = "----------"
   local commit = "-------"
@@ -449,7 +476,7 @@ function todos.render(todo: todos.Todo): string
     commit = (todo.boundary and "^" or "") .. todo.commit:sub(1, 7)
   end
   return todo.file .. ":" .. todo.line .. ": " .. when .. " " .. commit ..
-    " " .. todo.text
+    " " .. link_text.unlinked(todo.text)
 end
 
 --- `query`'s words as an FTS5 query every one of them must match, each
@@ -466,7 +493,7 @@ end
 --- The TODOs whose text matches `query`, as the rank of each by `id`,
 --- best first from 1. The query is FTS5's own syntax -- a "phrase",
 --- OR, a prefix* -- when it parses as that, and its words, each quoted
---- and every one required, when it does not (`cosmic.sys`).
+--- and every one required, when it does not (as [`cosmic.sys`] does not).
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
   local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
@@ -492,11 +519,11 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
   return out
 end
 
---- The command line's words split into paths, which narrow the listing
---- as `build.narrow` reads them for every verb, and the words to search
---- the TODOs for: a word is a path when it names one that can be looked
---- at, relative to `root` (the working directory `run` resolves), or
---- absolutely. `.` names the whole tree, so it narrows nothing.
+--- The command line's words split into paths and words to search the
+--- TODOs for. A word is a path when it names one that can be looked at,
+--- absolutely or relative to `root` (the working directory `run`
+--- resolves). Paths narrow the listing as [`build.narrow`] reads them for
+--- every verb; `.` names the whole tree, so it narrows nothing.
 function todos.arguments(root: string, argv: {string}): todos.Arguments
   local named: {string} = {}
   local words: {string} = {}
@@ -519,8 +546,8 @@ end
 --- lists them one per line, in file order or, with `--oldest`, oldest
 --- commit first, then a verdict line.
 --- @param argv the command line, re-entered if this binary embeds a
----   stale copy of `build.todos` itself -- see `build.reboot.stale_exit`
-function todos.run(argv: {integer:string}): integer
+---   stale copy of [`build.todos`] itself -- see [`build.reboot.stale_exit`]
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
@@ -528,15 +555,15 @@ function todos.run(argv: {integer:string}): integer
     return 1
   end
   -- TODO: list TODOs when only the core is stale, since nothing here
-  -- runs it: after a C edit build.reboot's guard boots before any verb goes on
-  -- (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb could go
-  -- on once the Teal side is fresh, which build.reboot's state_of would have to
-  -- tell apart from both.
+  -- runs it: after a C edit build.reboot's guard boots before any verb
+  -- goes on (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb
+  -- could go on once the Teal side is fresh, which build.reboot's
+  -- state_of would have to tell apart from both.
   local code = reboot.stale_exit(argv)
   if code ~= nil then
     return code
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.todos)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.todos.spec)
   if parsed == nil then
     log:complain("todos: " .. parse_trouble)
     return 2
@@ -631,9 +658,19 @@ function todos.run(argv: {integer:string}): integer
       file_count = file_count + 1
     end
   end
-  log:verdict("todos", true, #listed .. " todos in " .. file_count .. " files, " ..
-    tostring(blamed) .. " files blamed, " .. clock.took(started))
+  log:verdict("todos", true, plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
+    ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
   return 0
 end
+
+--- The `todos` verb as [`build/verb_list.tl`] lists it.
+todos.spec = {
+  name = "todos",
+  guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
+  tests = { "build.todos_test", "build.todos_git_test" },
+  run = function(argv: {integer:string}): integer return run(argv) end,
+  bare = false,
+  takes = "the files or directories to act on",
+}
 
 return todos

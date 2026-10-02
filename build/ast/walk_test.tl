@@ -1,4 +1,4 @@
---- Regression probes for `build.ast.walk`.
+--- Regression probes for [`build.ast.walk`].
 local teal = require("build.teal")
 local node_mod = require("build.ast.node")
 local walk_mod = require("build.ast.walk")
@@ -19,11 +19,10 @@ local function parse_ok(source: string, name: string): node_mod.Parsed
 end
 
 --- `walk` reaches every node depth-first, `node` itself first, and the
---- identity cycle guard stops it descending forever through an
---- "if_block"'s `if_parent` back-reference -- a REAL cycle (the same
---- table, not a copy), so an unguarded walk started at the root would
---- reach the "if" statement, its "if_block", back to the "if"
---- statement, forever.
+--- identity cycle guard stops it at an "if_block"'s `if_parent`
+--- back-reference, which is the same table as the "if" statement, not
+--- a copy. Unguarded, the walk would loop from the "if" to its
+--- "if_block" and back.
 local function test_walk_visits_every_node_once_through_a_real_cycle()
   local parsed = parse_ok("if x then return 1 end", "cycle.tl")
   local kinds: {string} = {}
@@ -45,14 +44,11 @@ local function test_walk_visits_every_node_once_through_a_real_cycle()
     "expected if/if_block/return among: " .. table.concat(kinds, ","))
 end
 
---- `walk` must actually descend into a BARE-ARRAY named field
---- (`if_blocks`), not just the array part every node's own `{Node}`
---- shape already covers. The first version of this walk never did:
---- Teal's `is` on a generic map type matches any table at runtime, so
---- an `elseif v is {any} then ...` fallback placed after an
---- `is {any: any}` branch was unreachable dead code, and `if_blocks`
---- was silently skipped. Confirmed by instrumenting the actual spike,
---- not assumed from reading tl's grammar.
+--- `walk` must descend into a bare-array named field (`if_blocks`),
+--- not just a node's array part. Teal's `is` on a generic map type
+--- matches any table at runtime, so an `is {any}` fallback after an
+--- `is {any: any}` branch would never run and `if_blocks` would be
+--- skipped.
 local function test_walk_descends_into_if_blocks()
   local parsed = parse_ok("if x then return 1 elseif y then return 2 end",
     "if_blocks.tl")
@@ -66,14 +62,12 @@ local function test_walk_descends_into_if_blocks()
     "expected both if_blocks reached, got " .. if_block_count)
 end
 
---- `return a --[[ keep this ]] + b`, three source lines above the
---- enclosing block's `end`: `span_end` on the "return" statement must
---- land on `b`'s own last character, not on that `end`. The "return"
---- node itself carries no `yend`/`xend` at all; its `exps` (an
---- "expression_list") does, but stamped from the ENCLOSING block's
---- terminator three lines down, not a delimiter of its own -- trusting
---- it unconditionally (as the untouched `yend`/`xend` would) lands on
---- `end` instead of `b`.
+--- `return a --[[ keep this ]] + b`, three lines above the enclosing
+--- block's `end`: `span_end` on the "return" statement must land on
+--- the last character of `b`, not on that `end`. The "return" node has
+--- no `yend`/`xend`; its `exps` (an "expression_list") has them, but
+--- stamped from the enclosing block's terminator, so trusting them
+--- would land on `end`.
 local function test_span_end_return_lands_on_last_operand_not_the_block_end()
   local source = table.concat({
       "local function f(a: integer, b: integer): integer",
@@ -96,12 +90,11 @@ local function test_span_end_return_lands_on_last_operand_not_the_block_end()
       ey, ex))
 end
 
---- `os.execute(cmd)`: `span_end` on the OUTER call ("op"/"@funcall")
---- must land on its own closing `)`, not on `cmd`'s last character.
---- The call's argument list (`expression_list`, kind shared with a
---- bare `return` list above) IS closed by a real delimiter of its own
---- here, so its `yend`/`xend` must be trusted -- the opposite call from
---- the return case, on the identical `kind`.
+--- `os.execute(cmd)`: `span_end` on the outer call ("op"/"@funcall")
+--- must land on its closing `)`, not on the last character of `cmd`.
+--- The argument list is an `expression_list`, like the `return` list
+--- above, but a real `)` closes it, so here its `yend`/`xend` must be
+--- trusted.
 local function test_span_end_call_lands_on_its_own_close_paren()
   local source = "os.execute(cmd)\n"
   local parsed = parse_ok(source, "call_span.tl")
@@ -119,12 +112,10 @@ local function test_span_end_call_lands_on_its_own_close_paren()
 end
 
 --- `if v == nil then return 1 end`: `span_end` on the "if" statement
---- must land on its own closing `end`, recovered via the `if_block`'s
---- `body` (a "statements" node, trusted directly by kind) rather than
---- the "if" node's own `yend`/`xend` -- also stamped at that same
---- `end`, but by a NON-bracket token, so the bracket gate alone would
---- reject it if the "statements" recovery path were not there to
---- supply the same answer from underneath.
+--- must land on its closing `end`. It comes from the `if_block`'s
+--- `body`, a "statements" node trusted by kind. The "if" node's own
+--- `yend`/`xend` name the same `end`, but the bracket check rejects
+--- them, since `end` is not a bracket.
 local function test_span_end_if_recovers_end_through_its_block_body()
   local source = "if v == nil then return 1 end\n"
   local parsed = parse_ok(source, "if_span.tl")
@@ -142,15 +133,10 @@ local function test_span_end_if_recovers_end_through_its_block_body()
 end
 
 --- `walk` must never call `visit` on an "op" node's `OpInfo` payload
---- table (`node.op`) as though it were a real `Node`. The live parser
---- stamps `y`/`x` on that payload too (`build/ast/node.tl`'s `.op`
---- field), so a classifier that discriminates on "does this table
---- have a `y` field" reads the payload as a node and walks into it --
---- `os.execute(cmd)`'s outer "op" node carries exactly such a payload.
---- Every value `walk` reaches a real `Node`'s way is a real `Node`,
---- and a real `Node` always carries a string `kind`; `OpInfo` never
---- does. This must FAIL against the classifier that checks `y` instead
---- of `kind` (confirmed by reverting to it locally) and pass here.
+--- (`node.op`) as though it were a `Node`. The parser stamps `y`/`x` on
+--- that payload too ([`build/ast/node.tl`]), so a classifier that
+--- tests for a `y` field would walk into it. A real `Node` always has
+--- a string `kind` and `OpInfo` never does.
 local function test_walk_never_visits_an_op_payload_as_a_node()
   local parsed = parse_ok("os.execute(cmd)\n", "op_payload.tl")
   local visits = 0
@@ -164,9 +150,9 @@ local function test_walk_never_visits_an_op_payload_as_a_node()
   assert(visits > 0, "walk visited nothing")
 end
 
---- `span_start` finds the leftmost position over the WHOLE subtree,
---- not just the compound node's own `y`/`x` -- an "op"/"@funcall" node
---- records its position right after `(`, not at `os`'s own column.
+--- `span_start` finds the leftmost position over the whole subtree,
+--- not the compound node's own `y`/`x`: an "op"/"@funcall" node
+--- records the position after `(`, not the column of `os`.
 local function test_span_start_call_lands_on_its_leftmost_leaf()
   local parsed = parse_ok("os.execute(cmd)\n", "start_span.tl")
   local call = parsed.node[1]

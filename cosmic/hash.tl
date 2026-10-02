@@ -1,11 +1,24 @@
---- Content hashes and message authentication, over the vendored
---- mbedtls.
+--- Content hashes and message authentication codes (HMAC), returned as
+--- raw bytes; [`Codec.hex`] spells one for a person.
+---
+--- - [`Hash.digest`] and [`Hash.hmac`] take the whole message at once, for
+---   any [`Hash.Algorithm`].
+--- - [`Hash.hasher`] and [`Hash.hmac_hasher`] take it in chunks, for a file
+---   or a stream; [`cosmic.stream`]'s `hashing` feeds one as data passes.
+--- - [`Hash.sha256`] and [`Hash.hex_sha256`] are the common case in one
+---   call.
+---
+---     local hex = Hash.hex_sha256("cosmic")
+---     local code = Hash.hmac("sha256", "key", "message")
+---
+--- MD5 and SHA-1 are here for checksums and formats that name them, not
+--- for anything an attacker can choose the input of.
 
 local Codec = require("cosmic.codec")
 
---- The raw module behind every function here lives under the reserved
---- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
---- indirection exists.
+-- The raw module behind every function here lives under the reserved
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
+-- indirection exists.
 local type raw_hash = require("cosmic.internal.hash")
 
 local extra: any = select(2, ...)
@@ -17,8 +30,11 @@ else
 end
 
 local record Hash
-  --- The digest algorithms the core knows, by the names its C
-  --- table takes.
+  --- The digest algorithms, by exactly these lower-case names: `md5`,
+  --- `sha1`, the SHA-2 family (`sha224`, `sha256`, `sha384`, `sha512`)
+  --- and the SHA-3 family with a hyphen (`sha3-224` through `sha3-512`).
+  --- Another spelling (`SHA256`, `sha-256`) is not a name: the functions
+  --- taking an algorithm raise on it.
   enum Algorithm
     "md5"
     "sha1"
@@ -32,11 +48,12 @@ local record Hash
     "sha3-512"
   end
 
-  --- An incremental digest: feed it chunks with `update`, then read the
-  --- raw digest with `digest`, which answers `digest, ""` (or
-  --- `nil, error`) and finishes it. Calling either method again
-  --- afterward throws. A hasher is closeable: `local h <close> = ...`
-  --- abandons an unfinished digest at the end of the scope.
+  --- An incremental digest, or HMAC from [`Hash.hmac_hasher`]: feed it
+  --- chunks with `update`, then read the raw digest (or code) with
+  --- `digest`, which answers `digest, ""` (or `nil, error`) and finishes
+  --- it. Calling either method again afterward throws. A hasher is
+  --- closeable: `local h <close> = ...` abandons an unfinished one at the
+  --- end of the scope.
   type Hasher = raw_hash.Hasher
 end
 
@@ -72,16 +89,29 @@ function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher | nil, string
   return raw.hasher(algorithm)
 end
 
+--- An incremental HMAC (RFC 2104) under `key` over an algorithm, for a
+--- message that arrives in chunks; its raw code equals
+--- `Hash.hmac(algorithm, key, ...)` over the whole of what was fed to
+--- it, for a key of any length. It is a [`Hash.Hasher`]: `update` and
+--- `digest` as a digest's, `digest` answering the code and finishing it,
+--- a `<close>` abandoning an unfinished one. Answers `mac, ""`, or
+--- `nil, error` when the digest cannot start. Raises on an unknown
+--- algorithm.
+function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher | nil, string
+  return raw.hmac_hasher(algorithm, key)
+end
+
 --- The sum of the unsigned bytes of `data` from `first` through `last`
 --- (1-based and inclusive; the whole string by default), as a tar
---- header checksum adds them up. Raises when `first` is below 1, `last`
---- is past the end, or `first` is more than one past `last`; an empty
---- range sums to 0.
--- TODO: a tar header checksum is no hash, and `cosmic.tar` is this
--- function's one caller: move it there once a module can be handed
--- another module's `cosmic.internal.` table, as this one is handed its
--- own (the C sum is what keeps a header's 512 bytes off the Lua loop).
+--- header checksum adds them up. It is a tar helper, no hash: nothing
+--- else needs it. Raises when `first` is below 1, `last` is past the
+--- end, or `first` is more than one past `last`; an empty range sums
+--- to 0.
 function Hash.byte_sum(data: string, first?: integer, last?: integer): integer
+  -- TODO: a tar header checksum is no hash, and [`cosmic.tar`] is this
+  -- function's one caller: move it there once a module can be handed
+  -- another module's `cosmic.internal.` table, as this one is handed its
+  -- own (the C sum is what keeps a header's 512 bytes off the Lua loop).
   return raw.byte_sum(data, first, last)
 end
 

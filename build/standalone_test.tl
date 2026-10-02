@@ -1,17 +1,25 @@
 --- `cosmic --standalone`: one file checked, compiled and run against
---- the binary's own standard library, with no tree around it.
+--- the binary's own standard library, with no tree around it. Every
+--- compile here is in-process; the runs of this program itself are in
+--- `standalone_tool_test.tl`.
 
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
 local standalone = require("build.standalone")
-local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
+-- A fixture below requires [`cosmic.zip`], [`cosmic.tar`] or
+-- [`cosmic.archive`], which a standalone compile types from the store:
+-- required here, each is in this test's closure, so the store the
+-- worker is held to answers it.
+local type _ = require("cosmic.zip")
+local type _tar = require("cosmic.tar")
+local type _archive = require("cosmic.archive")
+local type _json = require("cosmic.json")
+local _cli <const> = require("cosmic.cli")
+-- What a refusal says to write instead is [`cosmic.removed`]'s, which
+-- build.teal loads by no `require` a parse records: required here, it
+-- is in this test's closure, which the worker lets it load and its key
+-- holds.
+local _ = require("cosmic.removed")
 
---- The program itself, which its tests start.
-Test.needs{ tool = true }
-
---- `standalone.compile` with its cache in the test's own directory, not
+--- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
 local function compile(tmp: string, file: string, source: string): standalone.Main | nil, string
   return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" })
@@ -51,6 +59,17 @@ local function test_a_removed_field_names_its_replacement(tmp: string)
     "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
 end
 
+--- A float assigned to a variable inferred an integer from `= 0` is
+--- told to write `0.0` or annotate `number`.
+local function test_an_integer_accumulator_names_the_fix(tmp: string)
+  local chunk, trouble = compile(tmp, "acc.tl",
+    "local peak = 0\npeak = peak + 1.5\nreturn peak\n")
+  assert(chunk == nil)
+  assert(trouble:find("acc.tl:2:", 1, true) ~= nil, trouble)
+  assert(trouble:find("peak is an integer, inferred from 'local peak = 0' at line 1; " ..
+    "write 'local peak = 0.0' or 'local peak: number = 0' to hold a number", 1, true) ~= nil, trouble)
+end
+
 --- A member a `cosmic.*` module no longer has is told, under the alias
 --- the file gave the module, what to write instead.
 local function test_a_removed_member_names_its_replacement(tmp: string)
@@ -59,6 +78,55 @@ local function test_a_removed_member_names_its_replacement(tmp: string)
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:15: invalid key 'hex' in record 'Digest' of type Digest " ..
     "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
+end
+
+--- A program that read one of [`cosmic.cli`]'s per-verb maps is told which
+--- field of the verb's record replaced it, though the module's record is
+--- a local the checker describes as `record Module`.
+local function test_a_removed_cli_map_names_the_verb_record_field(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
+    'local Cli = require("cosmic.cli")\nreturn Cli.options.test\n')
+  assert(chunk == nil)
+  assert(trouble:find("Cli.options was removed: use Cli.verbs[verb].spec", 1, true) ~= nil, trouble)
+end
+
+--- A boolean passed where a parameter now takes a record is told what to
+--- write, under the alias the file gave the module; one passed where the
+--- record is not the module's own is told nothing more.
+local function test_a_boolean_for_a_record_argument_names_the_record(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
+    'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.open("x.db", true)\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:28: argument 2: got boolean, expected Sqlite.OpenOptions " ..
+    "-- Sqlite.OpenOptions replaced a boolean argument: Sqlite.open(path, opts) takes a table: " ..
+    "{ writable = true } for the old `true`", 1, true) ~= nil, trouble)
+  chunk, trouble = compile(tmp, "other.tl",
+    'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.run(true, "x")\n')
+  assert(chunk == nil)
+  assert(trouble:find("replaced a boolean argument", 1, true) == nil, trouble)
+end
+
+--- What `cosmic.json` handed to the tool, or dropped, is told where it
+--- went or what to write instead: a function, a type, and a function
+--- with a replacement in the library.
+local function test_a_moved_json_member_names_its_new_home(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
+    'local Json = require("cosmic.json")\nreturn Json.describe({})\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:13: invalid key 'describe' in record 'Json' of type Json " ..
+    "-- Json.describe was removed: moved to build.json_query, which only `cosmic json` calls; " ..
+    "`cosmic json --shape file` prints a document's shape", 1, true) ~= nil, trouble)
+  chunk, trouble = compile(tmp, "step.tl",
+    'local Json = require("cosmic.json")\n' ..
+    'local function f(step: Json.Step): integer\n  return step and 1 or 0\nend\nreturn f\n')
+  assert(chunk == nil)
+  assert(trouble:find("step.tl:2:24: unknown type Json.Step -- Json.Step was removed: " ..
+    "moved to build.json_query", 1, true) ~= nil, trouble)
+  chunk, trouble = compile(tmp, "lines.tl",
+    'local Json = require("cosmic.json")\nreturn Json.encode_lines({})\n')
+  assert(chunk == nil)
+  assert(trouble:find("Json.encode_lines was removed: use Json.encode(value) for each value", 1, true) ~= nil,
+    trouble)
 end
 
 --- A `<const>` binding, and a second alias of it, are the module still.
@@ -80,6 +148,7 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
     'local function f(r: Z.ZipReader): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("old.tl:2:21: unknown type Z.ZipReader " ..
     "-- Z.ZipReader was removed: use Zip.Reader", 1, true) ~= nil, trouble)
   chunk, trouble = compile(tmp, "new.tl",
@@ -87,6 +156,7 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
     'local function f(r: Zip.Nothing): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("unknown type Zip.Nothing", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
   -- `list` is a removed function, never a type: nothing is offered.
@@ -95,8 +165,37 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
     'local function f(r: Zip.list): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("unknown type Zip.list", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
+end
+
+--- A type an archive module no longer declares is told where its
+--- replacement is: [`cosmic.stream`] holds the entry kind, the entry
+--- options and the interfaces the three modules share.
+local function test_a_removed_archive_type_names_its_replacement(tmp: string)
+  -- One file, so the archive closure is type-checked once: the checker
+  -- reports every unknown type, not only the first.
+  local cases = {
+    { "Tar", "Kind", "use Stream.EntryKind" },
+    { "Zip", "Kind", "use Stream.EntryKind" },
+    { "Archive", "Kind", "use Stream.EntryKind" },
+    { "Tar", "EntryOptions", "use Stream.EntryOptions" },
+    { "Archive", "Unsupported", "an entry Archive.extract cannot extract" },
+  }
+  local source = 'local Tar = require("cosmic.tar")\n' ..
+    'local Zip = require("cosmic.zip")\n' ..
+    'local Archive = require("cosmic.archive")\n'
+  for index, case in ipairs(cases) do
+    source = source .. 'local function f' .. index .. '(x: ' .. case[1] .. '.' .. case[2] ..
+      '): integer\n  return x and 1 or 0\nend\n'
+  end
+  local chunk, trouble = compile(tmp, "old.tl", source .. "return { f1, f2, f3, f4, f5 }\n")
+  assert(chunk == nil)
+  for _, case in ipairs(cases) do
+    assert(trouble:find(case[1] .. "." .. case[2] .. " was removed: " .. case[3], 1, true) ~= nil,
+      case[1] .. "." .. case[2] .. ": " .. trouble)
+  end
 end
 
 --- A record of the file's own named like a module's alias is not that
@@ -107,6 +206,7 @@ local function test_a_shadowing_record_is_not_told_a_replacement(tmp: string)
     'local function f(Zip: R): integer\n  return Zip.list\nend\n' ..
     'return { f = f, zip = Zip }\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("invalid key 'list' in record 'Zip' of type R", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
 end
@@ -119,97 +219,4 @@ local function test_a_record_with_main_is_an_entry_point()
   assert(standalone.entry(main) == main)
   assert(standalone.entry({ other = main }) == nil)
   assert(standalone.entry(42) == nil)
-end
-
---- End to end, from a directory holding no tree: the file gets its own
---- path at argv[0] and what follows it, its exit code is the process's,
---- and nothing is written beside it -- no `o/`.
-local function test_a_run_writes_nothing_and_passes_its_arguments(tmp: string)
-  local script = tmp .. "/script.tl"
-  assert(Fs.write(script, [[
-local Fs = require("cosmic.fs")
-local record Script
-  main: function({string}): integer
-end
-Script.main = function(argv: {string}): integer
-  Fs.put(Fs.stdout, argv[0] .. "|" .. table.concat(argv, ",") .. "\n")
-  return 5
-end
-return Script
-]]))
-  local started = observations.program({ "--standalone", script, "one", "two" }, {
-    cwd = tmp, stdout = "capture", stderr = "capture",
-    timeout_ms = 30000,
-  })
-  local result = assert(Child.run(started.argv, started.options))
-  assert(result.code == 5, tostring(result.stderr))
-  assert(result.stdout == script .. "|one,two\n", tostring(result.stdout))
-  local names = assert(Fs.list(tmp))
-  assert(#names == 1 and names[1] == "script.tl", "a standalone run wrote beside the file")
-end
-
---- The compile cache is trusted when read back, so it is kept only in
---- a directory no one else can write: never a `/tmp` fallback when no
---- cache home is set, and not in one others could have planted Lua in.
-local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp: string)
-  local script = tmp .. "/script.tl"
-  assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
-  local function run(env: {string:string}): integer
-    local started = observations.program({ "--standalone", script }, {
-      env = env, stdout = "capture", stderr = "capture", timeout_ms = 30000,
-    })
-    local result = assert(Child.run(started.argv, started.options))
-    return result.code
-  end
-  local cache = tmp .. "/cache"
-  assert(run({ XDG_CACHE_HOME = cache }) == 3)
-  local kept = assert(Fs.list(cache .. "/cosmic/standalone"))
-  assert(#kept == 1, tostring(#kept))
-  local st = assert(Fs.stat(cache .. "/cosmic/standalone/" .. kept[1]))
-  assert(st.mode & 0x1ff == 0x180, tostring(st.mode))
-  -- a planted file in a directory others can write is never run
-  assert(Fs.write(cache .. "/cosmic/standalone/" .. kept[1], "return function() return 9 end"))
-  assert(sys.chmod(cache .. "/cosmic/standalone", 0x1ff))
-  assert(run({ XDG_CACHE_HOME = cache }) == 3)
-  -- with no cache home at all, it still runs, compiling afresh
-  assert(run({}) == 3)
-end
-
---- What main returns is judged as a file run's is: a whole number
---- outside 0-255, text naming none or a float that is not whole exits 2, the
---- complaint naming the file rather than cmd.cosmic.main; one that has
---- a whole value is that value.
-local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
-  local function run(returned: string): Child.Result
-    local script = tmp .. "/script.tl"
-    assert(Fs.write(script, "return function(_argv: {string}): any\n  return " ..
-      returned .. "\nend\n"))
-    local started = observations.program({ "--standalone", script }, {
-      env = { XDG_CACHE_HOME = tmp .. "/cache" },
-      stdout = "capture", stderr = "capture", timeout_ms = 30000,
-    })
-    return (assert(Child.run(started.argv, started.options)))
-  end
-  for returned, shown in pairs({ ["300"] = "300", ["\"three\""] = "\"three\"",
-      ["1.5"] = "1.5" } as {string:string}) do
-    local result = run(returned)
-    assert(result.code == 2, returned .. " exited " .. tostring(result.code) .. ": " ..
-      tostring(result.stderr))
-    local complaint = "cosmic: " .. tmp .. "/script.tl returned " .. shown ..
-      ", not an exit status 0-255"
-    assert(tostring(result.stderr):find(complaint, 1, true) ~= nil, tostring(result.stderr))
-  end
-  local whole = run("4.0")
-  assert(whole.code == 4, tostring(whole.stderr))
-  local text = run("\"4\"")
-  assert(text.code == 4, tostring(text.stderr))
-end
-
-local function test_a_run_without_a_file_is_a_usage_error()
-  local started = observations.program({ "--standalone" }, {
-    stdout = "capture", stderr = "capture", timeout_ms = 30000,
-  })
-  local result = assert(Child.run(started.argv, started.options))
-  assert(result.code == 2)
-  assert(tostring(result.stderr):find("usage", 1, true) ~= nil)
 end

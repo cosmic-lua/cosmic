@@ -5,7 +5,7 @@
  * with malloc written out. The checked core (COSMIC_CHECKED, see
  * core/testing_checked.c) counts the bytes and blocks live on it, and
  * draws every growth from the same countdown as the failing Lua
- * allocator, so `testing.fail_allocations` refuses a C allocation where
+ * allocator, so [`testing.fail_allocations`] refuses a C allocation where
  * it would refuse a Lua one: the call returns NULL, and the refusal is
  * counted.
  *
@@ -14,10 +14,12 @@
  * stays libc's: the two heaps are not interchangeable in the checked
  * core, whose blocks carry a header libc knows nothing of.
  *
- * One block this C allocates and frees is libc's all the same: the
- * syscall table's log (core/observed.c), the observer's rather than
- * the test's, which a test holding the core to `testing.c_heap` is not
- * held to; its growth fails only at its own fault point.
+ * TODO: route the rest of what this C allocates and frees through here
+ * too: core/syscalls.c's `execve` and `spawn` argument and environment
+ * arrays and its sandbox pairs, core/syscalls_fs.c's tree walk, and
+ * core/store.c's `push_portable_runtime` still call libc by name, so the
+ * checked core neither counts them nor fails them. `spawn`'s must stay
+ * allocated before the child is cloned.
  */
 
 #ifndef COSMIC_MEMORY_H

@@ -1,76 +1,33 @@
---- Every module of the tree that reads the compiler's identity through
---- `Store.meta` is one `build.declared_key`'s `compiler_readers` names:
---- a closure store carries no such row (`build.closure_store`), so a worker's
---- read of it is answered by the running tool, and only a test whose
---- closure holds a named reader is keyed by the tool's identity. A
---- reader the list misses would leave a verdict standing that turned on
---- a compiler no key held.
+--- [`build.tree_checks`]' `compiler_readers` on a fixture tree: which
+--- lines read the compiler's identity through [`Store.meta`], and which
+--- modules the list misses or names in vain. The tree's own readers are
+--- held to [`build.key_parts`]' `compiler_readers` by `cosmic fix
+--- --check .`, not here.
 
-local Sqlite = require("cosmic.sqlite")
-local Test = require("cosmic.test")
-local declared_key = require("build.declared_key")
+local fixture = require("build.docs_fixture")
+local tree_checks = require("build.tree_checks")
 
---- A whole-tree question, asked of the projection itself.
-Test.needs{ store = true }
-
---- Whether `line` reads the compiler's identity, or a `meta` row by a
---- name no reader can see: `Store.meta` called with anything but a
---- string.
-local function reads(line: string): boolean
-  for _, name in ipairs({ "compiler", "compiled_by" }) do
-    for _, quote in ipairs({ '"', "'" }) do
-      if line:find("meta%(%s*" .. quote .. name .. quote .. "%s*%)") ~= nil then return true end
-    end
-  end
-  return line:find("Store%.meta%(%s*[^\"'%s]") ~= nil and line:find("^%s*function ") == nil
+--- A module of one line, `line`, after its require.
+local function module_of(line: string): string
+  return "local Store = require(\"cosmic.store\")\n" .. line .. "\nreturn {}\n"
 end
 
---- Each module of the projection `db` a line of whose source `reads`.
-local function readers(db: Sqlite.Handle): {string:boolean}
-  local rows = assert(Sqlite.text_rows(db,
-    "SELECT path, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path"))
-  local found: {string:boolean} = {}
-  for _, row in ipairs(rows) do
-    for line in (row[2] .. "\n"):gmatch("([^\n]*)\n") do
-      if reads(line) then
-        found[row[1]] = true
-        break
-      end
-    end
-  end
-  return found
-end
-
---- Spelled apart, so this module's own source reads nothing.
-local function test_a_read_of_the_compiler_is_seen()
+--- A read by a quoted name of either identity (`compiler`,
+--- `compiled_by`), or by a name that is no string literal, is seen. A
+--- function's declaration, and a read of another row, are not.
+local function test_a_read_of_the_compiler_is_seen(dir: string)
+  -- Spelled apart, so this module's own source reads nothing.
   local call = "Store.meta"
-  assert(reads("  local tool = " .. call .. '("compiler") or ""'))
-  assert(reads("local by = " .. call .. "( 'compiled_by' )"))
-  assert(reads("local value = " .. call .. "(key)"))
-  assert(not reads("function " .. call .. "(key: string): string | nil"))
-  assert(not reads("local runtime = " .. call .. '("runtime")'))
-end
-
---- The tree's own readers, read from the projection the build wrote
---- before any test ran: every one is named, and every name still reads.
-local function test_every_reader_of_the_compiler_is_named()
-  local db = assert(Sqlite.open("o/cosmic.db", false))
-  local found = readers(db)
-  assert(db:close())
-  local named: {string:boolean} = {}
-  for _, name in ipairs(declared_key.compiler_readers) do named[name] = true end
-  local missing, stale: {string}, {string} = {}, {}
-  for name in pairs(found) do
-    if not named[name] then missing[#missing + 1] = name end
-  end
-  for name in pairs(named) do
-    if not found[name] then stale[#stale + 1] = name end
-  end
-  table.sort(missing)
-  table.sort(stale)
-  assert(#missing == 0, "read the compiler's identity, but build/declared_key.tl's " ..
-    "`compiler_readers` does not name them, so no key of a test that runs them holds it: " ..
-    table.concat(missing, ", "))
-  assert(#stale == 0, "named in build/declared_key.tl's `compiler_readers`, but no " ..
-    "longer read the compiler's identity -- remove them: " .. table.concat(stale, ", "))
+  local db = fixture.database(dir, {
+    ["build/tool.tl"] = module_of("local tool = " .. call .. '("compiler") or ""'),
+    ["build/by.tl"] = module_of("local by = " .. call .. "( 'compiled_by' )"),
+    ["build/keyed.tl"] = module_of("local key = 'x'\nlocal value = " .. call .. "(key)"),
+    ["build/declares.tl"] = module_of("function " .. call .. "(key: string): string | nil end"),
+    ["build/runtime.tl"] = module_of("local runtime = " .. call .. '("runtime")'),
+  })
+  local found = tree_checks.compiler_readers(db, { "build.tool", "build.by", "build.gone" })
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(found[1]:find("^build%.keyed reads the compiler's identity, but") ~= nil, found[1])
+  assert(found[2]:find("^build%.gone is named in") ~= nil, found[2])
+  assert(#tree_checks.compiler_readers(db, { "build.tool", "build.by", "build.keyed" }) == 0)
 end

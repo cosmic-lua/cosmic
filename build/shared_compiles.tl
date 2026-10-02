@@ -1,50 +1,50 @@
 --- The compiles and parses every checkout shares: a SQLite database
---- under the cosmic cache directory -- `build/cache.db` in
---- `Fs.cache_dir`'s `$XDG_CACHE_HOME/cosmic` (`~/.cache/cosmic`) by
---- default, or the absolute path `COSMIC_BUILD_CACHE` names, and none at
---- all when it is `0` -- beside the `compiled` table and the parse
---- tables each checkout keeps in `o/build.db`. A module's key
---- (`build.importer`'s) names no path: the module's import graph by
---- name and content, and the compiler's identity. So a compile one
---- checkout made stands in another of the same content, and a fresh
+--- under the cosmic cache directory, beside the `compiled` table and the
+--- parse tables each checkout keeps in `o/build.db`. The file is
+--- `build/cache.db` in [`Fs.cache_dir`]'s `$XDG_CACHE_HOME/cosmic`
+--- (`~/.cache/cosmic`) by default, or the absolute path
+--- `COSMIC_BUILD_CACHE` names; `0` turns the cache off. A module's key
+--- ([`build.importer`]'s) names no path: it covers the module's import
+--- graph by name and content, and the compiler's identity. So a compile
+--- one checkout made stands in another of the same content, and a fresh
 --- worktree compiles only what no sibling has compiled already.
 ---
---- A row is keyed by more than the local key (`key`): what else decides
---- whether a compile is accepted, which a checkout's own cache leaves
---- out -- whether the tree is cosmic's own (`build.contracts` runs only
---- there), whether the module was extracted from a doc, the file the
---- module is read from -- so a row never stands where a compile of the
---- module here would refuse it. A compile refused and kept only for
---- the run that made it (an unjudged run's, `seen = -1`) is never
---- shared.
+--- A row is keyed by more than the local key (`key`): also by what else
+--- decides whether a compile is accepted, which a checkout's own cache
+--- leaves out. That is whether the tree is cosmic's own
+--- ([`build.contracts`] runs only there) and whether the module was
+--- extracted from a doc, so a row never stands where a compile of the
+--- module here would refuse it. The file the module is read from is in
+--- the local key already. A compile refused and kept only for the run
+--- that made it (an unjudged run's, `seen = -1`) is never shared.
 ---
 --- A row holds what a local compile writes: the Lua, the bytecode and
 --- the record-field uses its checker found (`typed_refs`), so a
 --- projection built from shared rows is the one a compile would have
---- made, and a digest of the three: a row that does not decode to what
---- its digest says is a miss, and is deleted.
+--- made. It also holds a digest of the three. A row that does not decode
+--- to what its digest says is a miss, and is deleted.
 ---
 --- A parse is shared the same way, a row per source: what one parse of
---- it wrote in every table `build.importer` fills from a parse, keyed
---- by the analyzer that parsed it (`importer.analyzer_identity`), the
+--- it wrote in every table [`build.derivation`] fills from a parse, keyed
+--- by the analyzer that parsed it ([`importer.analyzer_identity`]), the
 --- source's hash, and whether its docs' lines are mapped to a file it
---- was generated from (`importer`'s `origin_lines`), with a digest of
---- the lot. `build.importer`'s `derive` says when a row stands in for a
+--- was generated from ([`build.derivation`]'s `origin_lines`), with a digest of
+--- the lot. [`build.importer`]'s `derive` says when a row stands in for a
 --- parse.
 ---
---- A row's bytecode runs -- a build of cosmic's own tree carries the
---- `build.*` modules' in `o/bin/cosmic` -- so whoever can write the
---- file can run code as every user of it. The file and its directory
---- are held to what `Fs.cache_dir` holds its directories to, wherever
---- the file is: owned by this user, and writable by no one else.
+--- A row's bytecode runs (a build of cosmic's own tree carries the
+--- `build.*` modules' in `o/bin/cosmic`), so whoever can write the file
+--- can run code as every user of it. The file and its directory are held
+--- to what [`Fs.cache_dir`] holds its directories to, wherever the file
+--- is: owned by this user, and writable by no one else.
 ---
---- Many builds share the file at once: it is in WAL mode, so a reader
---- never waits on a writer; a build reads a row at a time and writes
+--- Many builds share the file at once. It is in WAL mode, so a reader
+--- never waits on a writer. A build reads a row at a time and writes
 --- what it compiled and parsed in one short transaction as its compile
---- ends, and two writers of one key write the same bytes. It is
+--- ends; two writers of one key write the same bytes. The file is
 --- bounded: a row no build has used for `kept_ns` goes, and past
 --- `kept_bytes`, the least lately used of either table go first. A
---- cache that cannot be opened, read or written is said so once and
+--- cache that cannot be opened, read or written is reported once and
 --- done without: it never fails a build.
 
 local Env = require("cosmic.env")
@@ -57,6 +57,7 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local type importer = require("build.importer")
 local type receivers = require("build.receivers")
+local shared_sqlite = require("build.shared_sqlite")
 
 local record shared_compiles
   --- An open cache.
@@ -107,10 +108,7 @@ local variable <const> = "COSMIC_BUILD_CACHE"
 local kept_bytes <const> = 256 * 1024 * 1024
 
 --- How long a row no build uses is kept: thirty days.
-local kept_ns <const> = 30 * 24 * 3600 * 1000000000
-
---- How long a write waits on another build's: its transactions are short.
-local busy_ms <const> = 10000
+local kept_ns <const> = Time.hours(30 * 24)
 
 --- The table rows are in, named by the format's version, which any
 --- change to the table's shape or to what a row holds bumps. A later
@@ -157,7 +155,7 @@ local function location(environment?: {string:string}): string | nil, string
     end
     return value, ""
   end
-  local dir, trouble = Fs.cache_dir("build", environment)
+  local dir, trouble = Fs.cache_dir("build", { environment = environment })
   if dir == nil then return nil, trouble end
   return dir .. "/cache.db", ""
 end
@@ -169,16 +167,17 @@ function shared_compiles.turn_off(environment: {string:string})
 end
 
 --- The key a compile is shared under: the module's own key
---- (`importer.Module.key`) and what else decides whether it is
---- accepted, and the format it is kept in: `format` the format's
---- table, by default this one's.
--- The file is a salt only because the local key lacks it: see the TODO
--- in build.importer's `dependency_keys`.
+--- (`importer.Module.key`), what else decides whether the compile is
+--- accepted (`own_tree`, `generated`), and the format's table (`format`,
+--- this one's by default).
+--- The file the module is read from is no salt here: the module's own
+--- key holds it already (build.compilation's `dependency_keys`), so a
+--- compile is never taken across a moved file.
 function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
-                             file: string, format?: string): string
+                             format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
     (own_tree and "own" or "project") .. "\n" ..
-    (generated and "doctest" or "tree") .. "\n" .. file)
+    (generated and "doctest" or "tree"))
 end
 
 local schema <const> = {
@@ -190,7 +189,7 @@ local schema <const> = {
                                                   size INTEGER NOT NULL,
                                                   used_ns INTEGER NOT NULL)]],
   "CREATE INDEX IF NOT EXISTS " .. compiled .. "_by_use ON " .. compiled .. " (used_ns)",
-  -- `requires` apart from `rows`, and not deflated: `build.importer`'s
+  -- `requires` apart from `rows`, and not deflated: [`build.importer`]'s
   -- fixed point reads it of every source, where it takes `rows` only
   -- of the analyzer it settles on.
   "CREATE TABLE IF NOT EXISTS " .. parsed .. [[ (analyzer TEXT NOT NULL,
@@ -242,7 +241,7 @@ local function packed_requires(names: {string}): string
   return table.concat(out)
 end
 
---- `packed_requires` undone: nil for what it never writes.
+--- [`packed_requires`] undone: nil for what it never writes.
 local function unpacked_requires(requires: string): {string} | nil
   local out: {string} = {}
   local rest = requires:gsub("([^\n]+)\n", function(name: string): string
@@ -262,7 +261,7 @@ local function parse_digest(key: shared_compiles.ParseKey, requires: string,
 end
 
 --- Whether `path` is `kind` (a "dir" or a "file"), this user's and
---- writable by no one else, as `Fs.cache_dir` holds its directories.
+--- writable by no one else, as [`Fs.cache_dir`] holds its directories.
 --- A file is taken as it is, never through a link: SQLite writes its
 --- log beside where a link leads, which the directory checked is not.
 local function private(path: string, kind: string): boolean, string
@@ -276,9 +275,9 @@ local function private(path: string, kind: string): boolean, string
   return true, ""
 end
 
---- Makes each format's table when the file has none yet, dropping any
---- earlier format's of either, in one transaction; a file that has them
---- is only read.
+--- Makes each format's table when the file has none yet, and drops any
+--- earlier format's table of either kind, in one transaction. A file
+--- that has them all is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
@@ -313,37 +312,11 @@ local function prepare(db: Sqlite.Handle): boolean, string
   return db:exec("COMMIT")
 end
 
---- Whether `trouble`, from a statement on the cache, says another
---- connection holds a lock the statement needs, rather than anything
---- of the file. Read as `corrupt` below reads its own: SQLite answers
---- its reason only as text.
-local function busy(trouble: string): boolean
-  return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
-end
-
---- Puts `db` in write-ahead mode, so a build's reads never wait on
---- another's write. The switch is one statement that reads the file's
---- header, then writes it, and SQLite answers "database is locked" at
---- once, calling no busy handler, when another connection holds the
---- write lock between those two -- as two builds meeting a fresh cache
---- do -- so a locked answer is tried again, up to the busy timeout;
---- once the other's switch is written, this one reads the header and
---- has nothing to write.
-local function to_wal(db: Sqlite.Handle): boolean, string
-  local waited_ms = 0
-  while true do
-    local rows, trouble = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
-    if rows ~= nil then return true, "" end
-    if not busy(trouble) or waited_ms >= busy_ms then return false, trouble end
-    local _, _ = Time.sleep_ns(10 * 1000000)
-    waited_ms = waited_ms + 10
-  end
-end
-
 --- Opens the cache at `path`, making it and its directory when missing.
---- Its directory is made 0700 when missing, and the file 0600 before
---- SQLite opens it, so no build ever meets it wider; it and the file must be
---- private (`private`): a file made here is made 0600.
+--- The directory is made 0700 and the file 0600, the file before SQLite
+--- opens it, so no build ever meets either wider. Both must be private
+--- (`private`), one that already exists included. It is opened in
+--- write-ahead mode ([`shared_sqlite.open`]).
 function shared_compiles.open(path: string): shared_compiles.Cache | nil, string
   local dir = Fs.dirname(path)
   local made, made_trouble = Fs.mkdirs(Fs.dirname(dir))
@@ -361,58 +334,13 @@ function shared_compiles.open(path: string): shared_compiles.Cache | nil, string
   end
   local file_held, file_trouble = private(path, "file")
   if not file_held then return nil, file_trouble end
-  local opened, trouble = Sqlite.open(path, true)
-  if opened == nil then return nil, path .. ": " .. trouble end
-  local db: Sqlite.Handle = opened
-  local function fail(why: string): shared_compiles.Cache | nil, string
-    local _, _ = db:close()
-    return nil, path .. ": " .. why
-  end
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
-  if not timed then return fail(time_trouble) end
-  local journal, journal_trouble = to_wal(db)
-  if not journal then return fail(journal_trouble) end
-  local prepared, prepare_trouble = prepare(db)
-  if not prepared then return fail(prepare_trouble) end
+  local db, trouble = shared_sqlite.open(path, prepare)
+  if db == nil then return nil, trouble end
   return { db = db, path = path }
 end
 
 function shared_compiles.close(cache: shared_compiles.Cache)
   local _, _ = cache.db:close()
-end
-
---- Whether `trouble`, from a query of the cache, says the file itself
---- is broken, rather than, say, busy.
--- The same test, and the same `set_aside`, as build.shared_verdicts',
--- kept apart so neither cache's code enters the other's identity: this
--- module is in no compile key, that one is in every test's.
-local function corrupt(trouble: string): boolean
-  return trouble:find("malformed", 1, true) ~= nil or
-    trouble:find("not a database", 1, true) ~= nil
-end
-
---- Moves a broken cache aside, write-ahead log and all -- the log and
---- its index first -- to `<path>.corrupt-<now_ns>`, removing any earlier
---- one set aside there, so the next build starts a fresh cache rather
---- than meeting it again. Answers where it went, or nil and why.
-local function set_aside(path: string, now_ns: integer): string | nil, string
-  local dir, name = Fs.dirname(path), Fs.basename(path)
-  local listed, _ = Fs.list(dir)
-  for _, entry in ipairs(listed or {}) do
-    if entry:sub(1, #name + 9) == name .. ".corrupt-" then
-      local _, _ = Fs.remove(dir .. "/" .. entry)
-    end
-  end
-  local aside = path .. ".corrupt-" .. tostring(now_ns)
-  for _, suffix in ipairs({ "-wal", "-shm" }) do
-    local there, _ = Fs.stat(path .. suffix)
-    if there ~= nil then
-      local _, _ = Fs.rename(path .. suffix, aside .. suffix)
-    end
-  end
-  local moved_file, trouble = Fs.rename(path, aside)
-  if not moved_file then return nil, trouble end
-  return aside, ""
 end
 
 --- The compile kept under the shared `key`, or nil, and why when the
@@ -474,8 +402,8 @@ end
 
 --- What `analyzer` found each of `hashes` requires, by hash, of those
 --- the cache holds a parse of. Unchecked against a digest -- only a
---- whole row read by `look_parse` is -- so it is a guess, for
---- `build.importer`'s fixed point, and nothing it guesses is kept: a
+--- whole row read by [`look_parse`] is -- so it is a guess, for
+--- [`build.importer`]'s fixed point, and nothing it guesses is kept: a
 --- source's requires are the same whether its lines are mapped or not.
 function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string,
                                   hashes: {string}): {string:{string}} | nil, string
@@ -561,7 +489,7 @@ end
 --- anything was written, what is no longer kept dropped (`evict`),
 --- bounded by `bound_bytes` (by default 256 MB). A parse replaces its
 --- key's row because it is right by construction, where that row may
---- not be: a `requires` guess `build.importer`'s fixed point reads
+--- not be: a `requires` guess [`build.importer`]'s fixed point reads
 --- without a digest could have led it to parse here what the row
 --- holds, and would lead every later build there again.
 function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compiles.Owed,
@@ -627,24 +555,24 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   return db:exec("COMMIT")
 end
 
---- The shared cache for one build, as `importer.derive` and
---- `importer.compile` take it, or
---- nil where there is none: turned off, or not to be opened, which is
---- said once, as is any later failure to read or write it, and the
---- build goes on without it. A corrupt file is moved aside
---- (`set_aside`), so the next build starts a fresh one.
+--- The shared cache for one build, as [`importer.derive`] and
+--- [`importer.compile`] take it, or nil where there is none: turned off,
+--- or not to be opened. That is reported once, as is any later failure
+--- to read or write it, and the build goes on without the cache. A
+--- corrupt file is moved aside ([`shared_sqlite.set_aside`]), so the next build starts a
+--- fresh one.
 function shared_compiles.for_build(environment?: {string:string}): importer.Shared | nil
   local path, trouble = location(environment)
   local cache: shared_compiles.Cache | nil = nil
   if path ~= nil then cache, trouble = shared_compiles.open(path) end
   local function drop(why: string)
     local aside = ""
-    if path ~= nil and corrupt(why) then
+    if path ~= nil and shared_sqlite.corrupt(why) then
       if cache ~= nil then
         shared_compiles.close(cache)
         cache = nil
       end
-      local moved, _ = set_aside(path, Time.now_ns())
+      local moved, _ = shared_sqlite.set_aside(path, Time.now_ns())
       if moved ~= nil then aside = "; moved aside to " .. moved end
     end
     if cache ~= nil then
@@ -662,7 +590,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
   return {
     look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile | nil
       if cache == nil then return nil end
-      local key = shared_compiles.key(m.key, own_tree, m.generated, m.file)
+      local key = shared_compiles.key(m.key, own_tree, m.generated)
       local found, look_trouble = shared_compiles.look(cache, key)
       if found == nil then
         if look_trouble ~= "" then drop(look_trouble) end
@@ -674,7 +602,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     keep = function(m: importer.Module, own_tree: boolean, made: importer.Shared.Compile)
       if cache == nil then return end
       owed.kept[#owed.kept + 1] = {
-        key = shared_compiles.key(m.key, own_tree, m.generated, m.file),
+        key = shared_compiles.key(m.key, own_tree, m.generated),
         lua = made.lua, bytecode = made.bytecode, references = made.references,
       }
     end,

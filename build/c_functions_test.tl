@@ -1,4 +1,4 @@
---- `build.c_functions.tally` against made-up functions and hits, so the
+--- [`build.c_functions.tally`] against made-up functions and hits, so the
 --- rules hold whatever C the core has today.
 
 local type Coverage = require("cosmic.coverage")
@@ -35,19 +35,19 @@ local function test_an_exempt_function_entered_is_stale()
   assert(#tally.stale == 1 and tally.stale[1] == exempt)
 end
 
---- A host's own exemption holds on that host alone: spawn_child's hits
---- never reach the parent on macOS, but a run on Linux still has to
---- enter it.
+--- A host's own exemption holds on that host alone: libSystem's printf
+--- never calls the core's strnlen on macOS, but a run on Linux still has
+--- to enter it.
 local function test_a_host_s_own_exemption_holds_on_that_host_alone()
-  local only = fn("core/syscalls.c", 1, "spawn_child")
+  local only = fn("core/strnlen.c", 1, "strnlen")
   local darwin = c_functions.tally({ only }, {}, nil, "Darwin")
   assert(darwin.exempted == 1 and #darwin.unentered == 0)
   local linux = c_functions.tally({ only }, {}, nil, "Linux")
   assert(linux.exempted == 0 and #linux.unentered == 1 and
-    linux.unentered[1] == "core/syscalls.c:spawn_child")
+    linux.unentered[1] == "core/strnlen.c:strnlen")
   local unknown = c_functions.tally({ only }, {})
   assert(unknown.exempted == 0 and #unknown.unentered == 1)
-  local entered = c_functions.tally({ only }, { ["core/syscalls.c"] = { [1] = true } }, nil, "Darwin")
+  local entered = c_functions.tally({ only }, { ["core/strnlen.c"] = { [1] = true } }, nil, "Darwin")
   assert(entered.entered == 1 and #entered.stale == 1)
 end
 
@@ -89,7 +89,7 @@ local function test_the_source_ends_a_body_at_its_brace()
   })
   local tally = c_functions.tally(functions, hits, { ["core/a.c"] = lines })
   assert(tally.entered == 1 and tally.unentered[1] == "core/a.c:dies")
-  -- Without it, the body runs to the next function, over the helper.
+  -- Without the source, the body runs to the next function, over the helper.
   assert(c_functions.tally(functions, hits).entered == 2)
 end
 

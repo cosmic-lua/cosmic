@@ -3,19 +3,13 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
 local Notes = require("eval.check.notes")
 local stand_in = require("build.stand_in")
-
---- The program's core, which building the stand-ins for bin/cosmic and
---- o/bin/notes reads (`build.stand_in`); the grader starts them with no
---- environment.
-Test.needs{ tool = true }
 
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.
 local function database(path: string, inputs: {{string}}, runs: {{string}})
-  local db = assert(Sqlite.open(path, true))
+  local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec([[
     create table inputs (path text primary key, kind text, origin text);
     create table runs (path text, passed integer);
@@ -115,8 +109,8 @@ local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
 end
 
---- A build that passes but no longer writes notes (cmd/notes renamed
---- away) vouches for nothing: the earlier o/bin/notes is not run, and
+--- A build that passes without writing notes (cmd/notes renamed away)
+--- vouches for nothing: the earlier o/bin/notes is not run, and
 --- the grade fails for want of one.
 local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one(dir: string)
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))

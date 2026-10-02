@@ -1,6 +1,7 @@
 #!/bin/sh
-# Moves the checkout to a path of this commit's and this leg's own, for a
-# job that builds or tests the tree, as the user the job's steps run as:
+# Moves the checkout to a path of this commit's and this leg's own (or
+# the leg's alone, for the gating run below), for a job that builds or
+# tests the tree, as the user the job's steps run as:
 #
 #     sh .github/scripts/place-tree.sh           move the checkout there
 #     sh .github/scripts/place-tree.sh --name    only say where, under
@@ -9,13 +10,37 @@
 #
 # A test must not depend on where the tree is (AGENTS.md): a verdict is
 # shared between checkouts, which key an in-tree path by its name under
-# the tree. So the tree moves beside $GITHUB_WORKSPACE, one to three
-# directories deep, each name of its own length, all chosen by a sha256
-# of the commit ($GITHUB_SHA) and the leg ($COSMIC_WORKER). A re-run of
-# a commit meets the same path, so a failure it finds is found again; a
+# the tree. So the tree moves beside $GITHUB_WORKSPACE, to a directory
+# whose name, its length and its digits, a sha256 of the commit
+# ($GITHUB_SHA) and the leg ($COSMIC_WORKER) chooses. A re-run of a
+# commit meets the same path, so a failure it finds is found again; a
 # new commit meets a new one, so a test that turns on the tree's
-# absolute path fails some run rather than none. The log names both
-# inputs and the path, and `--name` with the same two gives it again.
+# absolute path fails some run rather than none. The log names the
+# inputs and the path, and `--name` with the same ones gives it again.
+#
+# But for a gating run ($GITHUB_EVENT_NAME push or merge_group) of a
+# leg whose workers run unsandboxed, keyed by what their tests declare
+# ($COSMIC_CI_DECLARED_KEYS=1, the macOS leg): there the leg alone
+# chooses the name. Such a worker sees the tree where it is, so its key
+# holds the tree's path (build/declared_key.tl's `Spec.tree`): a path
+# that moved with every commit would run every test there on every
+# commit, and a path that stays cannot let a verdict stand where the
+# test would fail, since a test is keyed by where it ran. What a moving
+# path still catches there, a test that turns on the path at all, the
+# scheduled run's path, chosen by the commit, catches.
+#
+# Only the name varies, never the depth: the tree is always one
+# directory below $GITHUB_WORKSPACE's parent, as deep as the workspace
+# itself. actions/cache names a path outside the workspace, such as
+# $RUNNER_TEMP (<work>/_temp beside <work>/<repo>/<repo>), relative to
+# $GITHUB_WORKSPACE (`../../_temp/...`, by `path.relative`) and archives
+# it with `tar -C $GITHUB_WORKSPACE`, which enters the link: from a tree
+# any deeper, `../..` names a directory under <work>/<repo> instead, and
+# the save finds nothing. At depth one it names <work> as it would
+# unmoved, so the saves run with the tree moved. That costs nothing a
+# varied depth would catch: the absolute path still moves by commit and
+# leg, which is what fails a test that depends on it, and a sandboxed
+# worker sees the tree at /tree wherever it is.
 #
 # $GITHUB_WORKSPACE becomes a link to it, relative so it resolves both
 # in a job container and on its host: what a job reads from there (a
@@ -30,10 +55,10 @@
 # checkout's resolves the path too, and a git that finds a repository
 # at a path other than the one it was told is safe refuses it (git
 # 2.43's "dubious ownership"), which leaves the checkout's credentials
-# in its config. It removes the link and the directories the move made,
-# and changes nothing when the tree never moved, or is back already, so
-# it can run twice, or after a move that stopped halfway.
-set -e
+# in its config. It removes the link, and changes nothing when the tree
+# never moved, or is back already, so it can run twice, or after a move
+# that stopped halfway.
+set -eu
 
 case "${1-}" in
   "" | --name | --restore) ;;
@@ -58,16 +83,16 @@ byte() {
 # TODO: put a space in a name too, to catch a path left unquoted, once
 # ci/run-local runs the driver from a path with one (its drop_env is
 # split on spaces) and shows its phases take it: the suite itself does.
-seed=$(printf 'commit %s\nleg %s\n' "$GITHUB_SHA" "$COSMIC_WORKER" | digest)
-relative=""
-depth=$(( $(byte "$seed" 0) % 3 + 1 ))
-at=1
-while [ "$at" -le "$depth" ]; do
-  length=$(( $(byte "$seed" "$at") % 24 + 1 ))
-  name=$(printf '%s %s\n' "$seed" "$at" | digest | cut -c1-"$length")
-  relative="$relative${relative:+/}$name"
-  at=$(( at + 1 ))
-done
+case "${COSMIC_CI_DECLARED_KEYS-}:${GITHUB_EVENT_NAME-}" in
+  1:push | 1:merge_group)
+    seed=$(printf 'leg %s\n' "$COSMIC_WORKER" | digest)
+    chosen="leg $COSMIC_WORKER, a gating run keyed by the path" ;;
+  *)
+    seed=$(printf 'commit %s\nleg %s\n' "$GITHUB_SHA" "$COSMIC_WORKER" | digest)
+    chosen="commit $GITHUB_SHA, leg $COSMIC_WORKER" ;;
+esac
+length=$(( $(byte "$seed" 0) % 24 + 1 ))
+relative=$(printf '%s 1\n' "$seed" | digest | cut -c1-"$length")
 
 if [ "${1-}" = --name ]; then
   echo "$relative"
@@ -91,23 +116,14 @@ if [ "${1-}" = --restore ]; then
     mv "$tree" "$GITHUB_WORKSPACE"
     echo "the tree is back at $GITHUB_WORKSPACE from $tree"
   fi
-  # The directories the move made above the tree, left empty by now, or
-  # by a restore that stopped before it removed them.
-  above=$(dirname "$relative")
-  while [ "$above" != . ]; do
-    [ ! -d "$parent/$above" ] || rmdir "$parent/$above"
-    above=$(dirname "$above")
-  done
   exit 0
 fi
 
-# Placed already: nothing to move. (ci.yml puts the tree back around its
-# zig cache save and moves it here again after.)
+# Placed already, as by a step that runs twice: nothing to move.
 if [ -L "$GITHUB_WORKSPACE" ] && [ "$(readlink "$GITHUB_WORKSPACE")" = "$relative" ]; then
   echo "the tree is at $tree already"
   exit 0
 fi
-mkdir -p "$(dirname "$tree")"
 mv "$GITHUB_WORKSPACE" "$tree"
 ln -s "$relative" "$GITHUB_WORKSPACE"
-echo "the tree is at $tree (commit $GITHUB_SHA, leg $COSMIC_WORKER)"
+echo "the tree is at $tree ($chosen)"

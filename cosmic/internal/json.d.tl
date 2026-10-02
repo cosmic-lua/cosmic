@@ -21,12 +21,10 @@ local record json
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean): any | nil, string
   -- `value` as JSON text. nil and a message when it holds something
-  -- JSON cannot say, naming where: `... at $.users[3].name`. Raises
-  -- when `indent` is not spaces and tabs, or `max_depth` is outside 1
-  -- to `depth_limit`.
-  encode: function(value: any, pretty?: boolean, indent?: string, sorted?: boolean,
-                   max_depth?: integer, nan_as_null?: boolean,
-                   sparse_as_null?: boolean, ascii?: boolean): string | nil, string
+  -- JSON cannot say, naming where: `... at $.users[3].name`. Keys are
+  -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
+  -- when `max_depth` is outside 1 to `depth_limit`.
+  encode: function(value: any, pretty?: boolean, max_depth?: integer): string | nil, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}

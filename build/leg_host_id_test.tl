@@ -10,6 +10,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The script, and the system's `sh` and tools, which run it.
 Test.needs{ reads = { ".github/scripts/leg-host-id.sh" }, system = true }
@@ -20,10 +21,11 @@ local SCRIPT <const> = assert(Fs.absolute(".github/scripts/leg-host-id.sh"))
 --- The host's features, as host-features.sh prints them.
 local FEATURES <const> = "0123456789abcdef"
 
---- What the script appends to $GITHUB_ENV and to $GITHUB_OUTPUT, run
---- with `args` and `extra` added to a bare environment, and a `docker`
---- on PATH that names engine 28.0.4; or its status and what it said.
 local runs = 0
+
+--- What the script appends to $GITHUB_ENV and to $GITHUB_OUTPUT, its
+--- status and what it said, run with `args` and `extra` added to a bare
+--- environment, and a `docker` on PATH that names engine 28.0.4.
 local function named(tmp: string, args: {string}, extra: {string:string}):
     string, string, integer, string
   runs = runs + 1
@@ -39,7 +41,7 @@ local function named(tmp: string, args: {string}, extra: {string:string}):
   local argv = { "/bin/sh", SCRIPT }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result = assert(Child.run(argv, { env = env, cwd = dir, stdout = "capture",
-    stderr = "capture", timeout_ms = 30000 }))
+    stderr = "capture", timeout_ns = Time.seconds(30) }))
   return Fs.read(dir .. "/env") or "", Fs.read(dir .. "/output") or "",
     result.code, (result.stdout or "") .. (result.stderr or "")
 end
@@ -51,7 +53,7 @@ local function outputs(leg: string, id: string): string
 end
 
 --- A Linux leg is named by its container: the image, the hash of how it
---- is started, and the engine's version, as ci.yml named it inline.
+--- is started, and the engine's version.
 local function test_a_linux_leg_is_named_by_its_container(tmp: string)
   local env, output, code, said = named(tmp, { "linux-x86_64", "ghcr.io/c/i@sha256:ab",
     "ubuntu-24.04", "cafe", FEATURES }, { ImageOS = "ubuntu24", ImageVersion = "1" })
@@ -81,8 +83,8 @@ local function test_the_macos_leg_is_named_by_its_runner(tmp: string)
   assert(again == output, again)
 end
 
---- A leg with no image and no runner, or none whose runner names its
---- image (ImageOS, ImageVersion), features that are no digest
+--- A leg with no image and no runner, or with no image and a runner that
+--- names no image (ImageOS, ImageVersion), features that are no digest
 --- (host-features.sh failed, which the step's command substitution
 --- does not stop for), or the wrong count of words, is refused before
 --- anything is written.

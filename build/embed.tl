@@ -8,10 +8,10 @@
 --- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
 --- each one the tree holds, after building the tree as `cosmic test`
 --- does; a tree with no `cmd/` builds and writes nothing. The project's
---- own projection, `o/cosmic.db`,
---- carries the project and nothing of cosmic's; what the standard
---- library needs at run time is read out of the running binary's own
---- database, by handle, so no format of the executable is parsed here.
+--- own projection, `o/cosmic.db`, carries the project and nothing of
+--- cosmic's; what the standard library needs at run time is read out of
+--- the running binary's own database, by handle, so no format of the
+--- executable is parsed here.
 ---
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
 --- builds the tool.
@@ -36,8 +36,11 @@ local writer = require("build.writer")
 
 local log = require("build.verdict").log
 local bind = require("build.bind")
+local verb_spec = require("build.verb_spec")
 
 local record embed
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
 end
 
 local text = bind.text
@@ -106,7 +109,7 @@ local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
                           "file", "line" }
 
---- A catalog row's guidance, as an uncaught error prints it (`Errors.guidance`):
+--- A catalog row's guidance, as an uncaught error prints it ([`Errors.guidance`]):
 --- its own text, or else its symbol's doc comment.
 local guidance_text <const> = "coalesce(catalog.text, (SELECT d.text FROM docs d " ..
   "WHERE d.module = catalog.module AND d.source_symbol = catalog.symbol))"
@@ -137,7 +140,7 @@ function embed.database(project: string, main: string): string | nil, string
   local building = project .. ".embed"
   local _, _ = Fs.remove(building)
   local _, _ = Fs.remove(building .. ".vacuumed")
-  local out, open_trouble = Sqlite.open(building, true)
+  local out, open_trouble = Sqlite.open(building, { writable = true })
   if out == nil then
     return nil, building .. ": " .. open_trouble
   end
@@ -178,7 +181,7 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
-    -- The time zones `cosmic.time` falls back on where the host has
+    -- The time zones [`cosmic.time`] falls back on where the host has
     -- none of its own.
     copied, copy_trouble = copy_rows(binary, out, "zoneinfo",
       { "name", "data" }, "SELECT name, data FROM zoneinfo ORDER BY name")
@@ -196,15 +199,15 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
-    -- The bill of materials (`build.bom`): the program runs on the same
+    -- The bill of materials ([`build.bom`]): the program runs on the same
     -- cores, so it carries the same components and the notices their
     -- licenses ask to travel with a copy.
     -- TODO: name the project itself in it, as `cosmic bom` names cosmic,
     -- once a project declares a name and version a build can read.
     -- TODO: let `cosmic bom <executable>` print these rows: nothing a
     -- program carries prints them, so its notices travel only inside the
-    -- database bytes. `artifact.split` now finds a file's database from
-    -- its trailer, as `cosmic refresh --binary` reads one: open that.
+    -- database bytes. [`artifact.split`] finds a file's database from its
+    -- trailer, as `cosmic refresh --binary` does: open that.
     copied, copy_trouble = copy_rows(binary, out, "components",
       { "name", "kind", "version", "license", "url", "sha256", "patches" },
       "SELECT name, kind, version, license, url, sha256, patches " ..
@@ -219,7 +222,7 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
-    -- The CA roots (`build.roots`): core/http.c reads them out of the
+    -- The CA roots ([`build.roots`]): core/http.c reads them out of the
     -- program's own database, so without them it trusts no server.
     copied, copy_trouble = copy_rows(binary, out, "ca_roots",
       { "sha256", "label", "der" }, "SELECT sha256, label, der FROM ca_roots ORDER BY sha256")
@@ -238,7 +241,7 @@ function embed.database(project: string, main: string): string | nil, string
     -- only its file name. An import edge and a catalog row go with the
     -- module they are about.
     -- TODO: an edge exists only for a `require` of a literal name
-    -- (`build.ast.requires`), so a test or example file loaded by a
+    -- ([`build.ast.requires`]), so a test or example file loaded by a
     -- computed name or through `pcall(require, "<name>")` is left out
     -- and the program fails to load it at run time; teach
     -- `all_requires` the `pcall(require, ...)` form, and refuse a
@@ -419,9 +422,9 @@ end
 --- and its executables under `o/bin/` -- only those whose `main.tl` is
 --- under one of the paths, when there are any. Ends in a verdict line
 --- that names what was written, or says why nothing was.
-function embed.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.build)
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.verbs.build.spec)
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2
@@ -446,5 +449,15 @@ function embed.run(argv: {integer:string}): integer
   log:verdict("build", true, wrote .. ", " .. clock.took(started))
   return 0
 end
+
+--- The `build` verb as [`build/verb_list.tl`] lists it.
+embed.spec = {
+  name = "build",
+  guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
+  tests = { "build.embed_test", "build.embed_tool_test" },
+  run = function(argv: {integer:string}): integer return run(argv) end,
+  bare = false,
+  takes = "the files or directories to act on",
+}
 
 return embed

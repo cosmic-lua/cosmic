@@ -4,35 +4,34 @@
 ---     cosmic --standalone build/vendor.tl [name...]
 ---     cosmic --standalone build/vendor.tl vendor/<name> <archive>
 ---
---- Like `build/zig.tl`, this runs standalone -- against the running
+--- Like [`build/zig.tl`], this runs standalone -- against the running
 --- binary's own standard library, never the tree it sits in -- so it
 --- requires `cosmic.*` modules only and holds everything it needs.
 ---
---- With no archive argument it fetches for itself: every `name` (every
+--- With no archive argument it fetches for itself. Every `name` (every
 --- `vendor/*/PIN` by default) is downloaded from its PIN's `url` into
 --- `$XDG_CACHE_HOME/cosmic/vendor` (default `$HOME/.cache/cosmic/vendor`;
---- see `Fs.cache_dir`) -- reusing a cached file only when its sha256
---- still matches the PIN's -- verified with `Http.download`'s own `sha256` check, and
---- then rewritten exactly as the two-argument form does. This is what
---- `bin/vendor` runs; the repository is found from this script's own
---- path, so it works from any working directory.
+--- see [`Fs.cache_dir`]), checked against the PIN's sha256 by
+--- [`Http.download`], and then rewritten exactly as the two-argument form
+--- does. A cached file is reused only when its sha256 still matches the
+--- PIN's. This is what [`bin/vendor`] runs; the repository is found from
+--- this script's own path, so it works from any working directory.
 ---
 --- The two-argument form rewrites one tree directly from an archive
 --- already on disk, without fetching or verifying it. The archive is
---- read with `cosmic.archive`, whatever format it turns out to be, and
---- unpacked with `Archive.extract` -- which refuses absolute and `..`
---- entry paths and keeps permission bits -- into a scratch directory
---- beside the tree, so a refused or broken archive never leaves the
---- tree half rewritten. Paths lose a leading `./` and then PIN's
---- `strip` prefix, and a file is kept when a `keep` glob matches it and
---- no `drop` glob does: `*` matches within one path segment, `**`
---- across them. Every `keep` must match something, so an upstream
---- rename fails here rather than in the build.
+--- read with [`cosmic.archive`], whatever its format, and unpacked with
+--- [`Archive.extract`] (which refuses absolute and `..` entry paths and
+--- keeps permission bits) into a scratch directory beside the tree, so a
+--- refused or broken archive never leaves the tree half rewritten. Paths
+--- lose a leading `./` and then PIN's `strip` prefix. A file is kept
+--- when a `keep` glob matches it and no `drop` glob does: `*` matches
+--- within one path segment, `**` across them. Every `keep` must match
+--- something, so an upstream rename fails here rather than in the build.
 ---
 --- A PIN with a `file <name>` line vendors a single file that is not an
 --- archive at all (a `.pem`, say): its bytes become `<name>`, and every
 --- `keep` must match that name. Without a `file` line, an archive
---- `cosmic.archive` cannot read is an error, never a single file.
+--- [`cosmic.archive`] cannot read is an error, never a single file.
 ---
 --- Everything else in the tree but PIN is removed.
 local Archive = require("cosmic.archive")
@@ -42,6 +41,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
+local String = require("cosmic.string")
 
 local record Vendor
   record Pin
@@ -190,7 +190,7 @@ function Vendor.kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string}
   local strip = plain(pin.strip)
   for _, entry in ipairs(entries) do
     local path = plain(entry.path)
-    if entry.kind == "file" and path:sub(1, #strip) == strip then
+    if entry.kind == "file" and String.starts_with(path, strip) then
       local under = path:sub(#strip + 1)
       if under ~= "" and matches(pin.keep, under, used) and not matches(pin.drop, under) then
         out[entry.path] = under
@@ -236,8 +236,8 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
   return true, ""
 end
 
---- Moves each `scratch/<archive path>` to `tree/<under>`, once `tree`
---- holds nothing else but PIN.
+--- Empties `tree` of all but PIN, then moves each `scratch/<archive
+--- path>` to `tree/<under>`. Returns how many files it moved.
 local function install(tree: string, scratch: string, files: {string:string}): integer | nil, string
   local names: {string:boolean} = {}
   for _, under in pairs(files) do
@@ -393,7 +393,7 @@ local spec: {string:boolean | Flags.Option} = {
   ["-h"] = { about = "show this help" },
 }
 
---- Runs `bin/vendor`'s command line: `argv[0]` is this script's own
+--- Runs [`bin/vendor`]'s command line: `argv[0]` is this script's own
 --- path, and the words after it are names, or a tree and an archive. It
 --- takes no options but `--help`, so a word that begins with "-" is
 --- refused (exit 2) rather than read as a name; one that must begin
@@ -405,7 +405,7 @@ function Vendor.main(argv: {integer:string}): integer
     return 2
   end
   if parsed.set["--help"] or parsed.set["-h"] then
-    log:say(Flags.help(usage, spec, about))
+    log:say(Flags.help({ spec = spec, about = about, usage = "[name... | vendor/<name> <archive>]" }, "bin/vendor"))
     return 0
   end
   local words = parsed.words

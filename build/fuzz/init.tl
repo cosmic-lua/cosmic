@@ -1,6 +1,6 @@
 --- Seeded, shrinking property fuzzing for the parsers that face untrusted
 --- bytes. A property names a generator, which builds one input from a
---- `Source`'s draws, and a check that must hold for every input. `run`
+--- [`Source`]'s draws, and a check that must hold for every input. `run`
 --- draws `FUZZ_ITERS` inputs (64 by default) from `FUZZ_SEED` (1 by
 --- default), so the same seed reaches the same input at the same
 --- iteration on every host. A check that returns false or raises fails
@@ -42,8 +42,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
+local plural = require("build.plural")
 local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
+local String = require("cosmic.string")
 
 --- The instruction budget, handed to this module only when it loads from
 --- the binary's own tree (core/store.c's `raw_modules`). It shares the
@@ -172,8 +174,8 @@ local function recording(rng: Rand.Source, draws: {Draw}): Fuzz.Source
 end
 
 --- An integer from the environment, or `otherwise` when it is unset.
---- Raises when it is set to anything but a positive integer, so a typo
---- is never a silent default.
+--- Raises when it is set to anything but a non-negative integer, so a
+--- typo is never a silent default.
 local function nonnegative_env(name: string, otherwise: integer): integer
   local raw = Env.get(name)
   if raw == nil or raw == "" then return otherwise end
@@ -208,7 +210,7 @@ local function attempt(check: function(string): boolean, string, input: string,
   if arm then arm() end
   if not ok then
     local raised = tostring(held)
-    if raised:sub(-#BUDGET_MESSAGE) == BUDGET_MESSAGE then
+    if String.ends_with(raised, BUDGET_MESSAGE) then
       return false, ("spent its budget of %d VM instructions"):format(budget)
     end
     return false, "raised: " .. raised
@@ -267,8 +269,8 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): in
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     if not held then
-      error(("fuzz %s: corpus input %s: %s\n  input (hex, %d bytes): %s"):
-        format(p.name, path, why, #input, shown(input)), 0)
+      error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
+        format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
     end
     checked = checked + 1
     ::continue::
@@ -291,7 +293,7 @@ local function label_counts(counts: {string: integer}, required: {string},
   for i, name in ipairs(names) do
     parts[i] = ("%s %d"):format(name, counts[name] or 0)
   end
-  return ("%s (of %d inputs)"):format(table.concat(parts, ", "), iters)
+  return ("%s (of %s)"):format(table.concat(parts, ", "), plural.count(iters, "input"))
 end
 
 --- Builds the input `values` replay to, with the draws that built it.
@@ -374,8 +376,8 @@ local function run(p: Fuzz.Property): integer
       if again then
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
-          "  input (%d bytes, hex): %s\n  %s\n  reproduce: %s"):
-           format(p.name, where, why, #input, shown(input),
+          "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
+           format(p.name, where, why, plural.count(#input, "byte"), shown(input),
             kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
             reproduce), 0)
       end
@@ -400,10 +402,11 @@ local function run(p: Fuzz.Property): integer
       if kept ~= nil then local _, _ = Fs.write(kept, small) end
       local keep = corpus_of(p) .. "/" .. corpus_name(small)
       error(("fuzz %s: %s: %s\n" ..
-        "  shrunk in %d tries from %d draws and %d bytes to %d draws and %d bytes; input (hex): %s%s\n" ..
+        "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-         format(p.name, where, why, tries, #draws, #input, #smallest, #small, shown(small), flaky,
+         format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
+          plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
           reproduce,
           kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
@@ -424,7 +427,7 @@ local function run(p: Fuzz.Property): integer
   if whole and iters > 0 then
     for _, name in ipairs(p.requires or {}) do
       if counts[name] == nil then
-        -- What is kept held; it is no failing input to keep.
+        -- The kept input held, so it is no failing input to keep.
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: no input of %d reached %q, which the property requires: " ..
           "its inputs do not exercise what it is meant to"):format(p.name, seed, iters, name), 0)
@@ -434,8 +437,8 @@ local function run(p: Fuzz.Property): integer
       local reached_by = counts[name] or 0
       if reached_by < p.shares[name] * iters then
         if kept ~= nil then local _, _ = Fs.remove(kept) end
-        error(("fuzz %s: seed=%d: %d inputs of %d reached %q, under the share of %g the property " ..
-          "requires: its inputs exercise it too rarely"):format(p.name, seed, reached_by, iters, name,
+        error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
+          "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
           p.shares[name]), 0)
       end
     end
@@ -445,7 +448,7 @@ end
 
 --- Checks every `.input` file in the property's corpus, then draws
 --- `p.iters` (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks each,
---- raising a report on the first that fails, after shrinking it, when
+--- raising a report on the first that fails (after shrinking it), when
 --- no drawn input reached a label the property requires, or when fewer
 --- than a label's share in `p.shares` did. Raises at once on a share
 --- outside (0, 1]. Returns how many drawn inputs were checked.
@@ -484,7 +487,8 @@ end
 --- each, cutting an element is cutting two adjacent draws, and lowering
 --- one to its low end cuts every element after it -- both of which
 --- shrinking tries. The count is geometric: before the cap its mean is
---- `max` / 2 (at least 1), and the cap takes it lower (17 of 40).
+--- `max` / 2 (at least 1), and the cap takes it lower (17 for a `max` of
+--- 40).
 --- @param src Source The source
 --- @param have integer How many elements the collection holds so far
 --- @param max integer The most it may hold

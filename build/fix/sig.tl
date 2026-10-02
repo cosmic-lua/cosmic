@@ -1,22 +1,21 @@
 --- A function's signature: its type parameters, its argument list, and
 --- its return types.
 ---
---- Shared, because the three places a function is written -- a `local
---- function`, a `function M.f`, and a function literal inside an
---- expression -- differ only in what comes before the `(`.
+--- It is shared because the places a function is written (a `local
+--- function`, a `global function`, a `function M.f`, a function literal
+--- inside an expression, and a `local macroexp`) differ only in what
+--- comes before the `(`.
 ---
 --- An argument is written from its own node: the name, a `?` when the
---- parser marked it optional, and then its type as original bytes. The
---- implicit `self` of a method is skipped rather than written, because
---- tl's parser puts one in the argument list at the `(`'s own position
---- and the source never spelled it.
+--- parser marked it optional, and its type as original bytes. The
+--- implicit `self` of a method is skipped: tl's parser puts one in the
+--- argument list at the `(`'s position and the source never spelled it.
 ---
---- Every type region here is anchored on PUNCTUATION -- the `:` after
---- an argument's name, the `:` after the argument list's `)` -- rather
---- than on the type object's own recorded position. A type object's
---- position is not always its own: tl stamps a generic type at the end
---- of the file it came from, so anchoring on it runs a region off the
---- end of the source and swallows whatever follows.
+--- Every type region is anchored on punctuation, the `:` after an
+--- argument's name or after the argument list's `)`, not on the type
+--- object's recorded position. tl stamps a generic type at the end of
+--- the file it came from, so anchoring on that position would run a
+--- region off the end of the source and swallow what follows.
 
 local ast = require("build.ast")
 local ctx_mod = require("build.fix.ctx")
@@ -78,9 +77,8 @@ local function arg_type(c: Ctx, list: Node, args: {Node}, i: integer)
 end
 
 --- Write the type parameters of a generic function, when it has any.
---- They sit between `anchor` and the `(`, and the AST records them as
---- types rather than as text, so they are written as original bytes
---- like every other piece of type syntax.
+--- They sit between `anchor` and the `(`. The AST records them as
+--- types, so they are written as original bytes like other type syntax.
 --- @param c Ctx
 --- @param anchor integer|nil The token a `<` would follow: a name, or `function`
 local function typeargs(c: Ctx, anchor: integer | nil)
@@ -90,9 +88,8 @@ local function typeargs(c: Ctx, anchor: integer | nil)
   ctx_mod.region(c, anchor + 1, typescan.closing_angle(c.scan, anchor + 1))
 end
 
---- Write a whole argument list, parentheses and all. Nothing in this
---- tree writes `f( x )`, so the parentheses are closed up rather than
---- carrying a gap over.
+--- Write a whole argument list, parentheses and all. The parentheses
+--- are closed up (`f(x)`), never given a gap (`f( x )`).
 --- @param c Ctx
 --- @param list Node An "argument_list" node
 local function arguments(c: Ctx, list: Node)
@@ -117,14 +114,17 @@ end
 
 --- Write a function's return types, when it declares any. The region
 --- starts after the `:` that follows the argument list's own `)` and
---- runs to the last token before the body, so a parenthesized list
+--- runs to the last token before (`by`, `bx`) -- a function's body, or
+--- a macroexp's `return` -- so a parenthesized list
 --- (`: (string, integer)`) carries its parentheses over with everything
 --- else.
 --- @param c Ctx
 --- @param rets TypeNode The return tuple the parser built
 --- @param list Node The argument list, whose `)` anchors the region
---- @param body Node The function's body, whose first token bounds it
-local function returns(c: Ctx, rets: TypeNode, list: Node, body: Node)
+--- @param by integer The line of the first token after the types
+--- @param bx integer That token's column
+local function returns(c: Ctx, rets: TypeNode, list: Node, by: integer,
+                       bx: integer)
   local declared = rets.tuple
   if declared == nil or #declared == 0 then
     return
@@ -135,7 +135,7 @@ local function returns(c: Ctx, rets: TypeNode, list: Node, body: Node)
     return
   end
   if not ctx_mod.annotation(c, close + 2,
-                            typescan.bounded_end(c.scan, body.y, body.x)) then
+                            typescan.bounded_end(c.scan, by, bx)) then
     refuse(c, "a return type with no tokens of its own")
   end
 end
@@ -143,7 +143,7 @@ end
 local record SigModule
   typeargs: function(c: Ctx, anchor: integer | nil)
   arguments: function(c: Ctx, list: Node)
-  returns: function(c: Ctx, rets: TypeNode, list: Node, body: Node)
+  returns: function(c: Ctx, rets: TypeNode, list: Node, by: integer, bx: integer)
 end
 
 local M: SigModule = {

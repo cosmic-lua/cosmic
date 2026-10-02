@@ -1,26 +1,27 @@
 --- Uses of a record's own fields, found through the type the checker
 --- gave the value they are read from: `w:add_file(...)` or `w.add_file`
---- where `w` is a `Zip.Writer` is a use of `Writer.add_file` in
---- `cosmic.zip`, whatever `w` is called and however it was made.
+--- where `w` is a [`Zip.Writer`] is a use of `Writer.add_file` in
+--- [`cosmic.zip`], whatever `w` is called and however it was made.
 ---
---- `build.analyzer.analyze`'s references answer the other half from syntax
---- alone -- `Fs.read` through a `require` alias -- and need no
+--- [`build.analyzer.analyze`]'s references answer the other half from syntax
+--- alone -- [`Fs.read`] through a `require` alias -- and need no
 --- checker; this needs one, so it runs where a module is compiled
---- (`build.importer`'s `generate`) and its rows are kept with the
+--- ([`build.compilation.generate`]) and its rows are kept with the
 --- compile, under the same key, since what a value's type is depends
 --- on every module the source imports and not only on its own bytes.
 ---
 --- The checker's own type reporter is the hook: with `report_types` on,
 --- tl calls `store_type(y, x, type)` for every node it checks. The
---- reporter installed here keeps, by position, the types that resolve
---- to a record or interface for this module's own questions, and every
---- type as tl gave it for `build.contracts`, rather than serializing
---- them the way tl's own reporter does. A
---- receiver resolves to a symbol only when its record is one some
+--- reporter installed here does not serialize the types the way tl's own
+--- reporter does. It keeps, by position, the types that resolve to a
+--- record or interface for this module's own questions, and every type
+--- as tl gave it for [`build.contracts`].
+---
+--- A receiver resolves to a symbol only when its record is one some
 --- module's type declares, nested under the module's own record
---- (`Zip.Writer`, `Stream.Reader`): a record a file keeps to
---- itself has no row in `docs` to be a use of, and the module's own
---- record is the syntactic half's to answer.
+--- ([`Zip.Writer`], [`Stream.Reader`]). A record a file keeps to itself has
+--- no row in `docs` to be a use of, and the module's own record is the
+--- syntactic half's to answer.
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
@@ -28,7 +29,7 @@ local type compiler = require("build.compiler")
 local record receivers
   --- One use of a record's field: `member` is the field's canonical
   --- path within `module` (`"Writer.add_file"`), the same shape
-  --- `build.analyzer.Reference` gives a module member.
+  --- [`build.analyzer.Reference`] gives a module member.
   record Reference
     module: string
     member: string
@@ -41,12 +42,12 @@ local record receivers
   record State
     types: {integer: Type}
     --- Every type the checker stored for the module it is checking
-    --- now, by position: `build.contracts` reads values' types from it.
+    --- now, by position: [`build.contracts`] reads values' types from it.
     every: {integer: Type}
     --- The function types among them, kept apart: a node that starts
     --- where a callee does and is checked after it (the block a call
     --- opens, a table item) stores a type of its own there, which must
-    --- not hide the callee's. `build.contracts` reads callees from it.
+    --- not hide the callee's. [`build.contracts`] reads callees from it.
     callees: {integer: Type}
     owners: {integer: Owner}
     walked: {string: boolean}
@@ -95,7 +96,7 @@ local record receivers
   end
 end
 
---- A position as one integer key, the one every table in `State` is
+--- A position as one integer key, the one every table in [`State`] is
 --- keyed by: columns never reach 2^20.
 function receivers.position(y: integer, x: integer): integer
   return (y << 20) | x
@@ -188,9 +189,10 @@ local function reporter_for(state: receivers.State): any
       -- A position holds one callee, the last function type stored
       -- there. A chained call (`make()()`) does not collide: the outer
       -- callee is the inner call, at its own `(`, and `make` is at its
-      -- name. Two callees could share a position only if tl stamped two
-      -- call targets on one token, which its parser never does; only a
-      -- position reaches `store_type`, so a node key is not available.
+      -- name. Two callees would share a position only if tl stamped two
+      -- call targets on one token, which its parser never does. A node
+      -- cannot key this instead, since `store_type` receives only a
+      -- position.
       local name = t.typename
       if name == "function" or name == "generic" or name == "poly" then
         state.callees[at] = t
@@ -331,7 +333,7 @@ function receivers.references(state: receivers.State, env: compiler.Env,
       return
     end
     -- A field the record inherits is a use of the interface that
-    -- declares it (`Writer.write`, not `Collector.write`), when some
+    -- declares it ([`Writer.write`], not `Collector.write`), when some
     -- module's type declares that interface.
     local from = declaring(typed, e2.tk, {})
     local inherited = from ~= nil and owners[from.typeid] or nil
@@ -347,8 +349,9 @@ function receivers.references(state: receivers.State, env: compiler.Env,
   end
 
   -- Depth first, a node before what it holds, so an assignment has
-  -- marked its targets before they are reached. `if_parent` and
-  -- `fn_owner` point back up the tree and are not followed.
+  -- marked its targets before they are reached. `back_up` names the
+  -- fields not followed: `if_parent` and `fn_owner` point back up the
+  -- tree, and `expected` and `known` hold types, not syntax.
   visit = function(n: ast.Node)
     if visited[n] then
       return

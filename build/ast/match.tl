@@ -1,35 +1,32 @@
 --- Structural pattern matching over real Teal ASTs, ast-grep-style:
 --- `$NAME`/`$$$NAME` metavariables in pattern source, matched against
---- `build.ast.node.Node` trees produced by real parses.
+--- [`build.ast.node.Node`] trees produced by real parses.
 ---
---- The pattern is parsed with the SAME parser as the target, so it is
---- a real (partial) Teal AST rather than a regex. Matching is a fully
---- generic recursive structural walk: every named field the PATTERN
---- specifies must match (subset matching -- a partial pattern like
---- `if $C then ... end` need not spell out every elseif/else block),
---- so a statement/block pattern falls out of the same recursion that
---- handles a call's arguments, with no per-kind special-casing.
+--- The pattern is parsed with the same parser as the target, so it is
+--- a real (partial) Teal AST rather than a regex. Matching is a generic
+--- recursive walk: every named field the pattern sets must match, and
+--- a field it leaves unset is not consulted. A partial pattern like
+--- `if $C then ... end` need not spell out every elseif or else block,
+--- and a statement pattern needs no case of its own beyond the
+--- recursion that handles a call's arguments.
 ---
---- A capture may also carry a Lua pattern predicate on its own name:
+--- A capture may carry a Lua pattern predicate on its own name:
 --- `$F:^test_` binds like `$F` but only against a candidate whose own
---- `tk` matches `^test_`. The predicate cannot survive inside the
---- identifier tl actually parses (`_F:^test_` would lex as a method
---- call), so `desugar` strips it before parsing and records it in
---- `last_predicates`, keyed by the desugared name; `compile_pattern`
---- reads that table right after parsing and re-attaches each predicate
---- to the SPECIFIC capture node it belongs to, in `capture_predicates`
---- (keyed by node identity, since two occurrences of the same name
---- could each carry a different predicate, or none). Both tables are
---- module-level rather than fields on `Node` -- `Node` is a closed
---- record `compile_pattern`'s two-slot fallible return cannot widen to
---- carry a third value, per the naming charter's fallible-returns rule.
+--- `tk` matches `^test_`. The predicate cannot stay inside the
+--- identifier tl parses (`_F:^test_` would lex as a method call), so
+--- `desugar` strips it before parsing and records it in
+--- `last_predicates`, keyed by the desugared name. [`compile_pattern`]
+--- reads that table right after parsing and attaches each predicate to
+--- the capture node it belongs to, in `capture_predicates`, keyed by
+--- node identity because two occurrences of one name may carry
+--- different predicates, or none. Both tables live in this module
+--- because [`Node`] is a closed record and [`compile_pattern`]'s two-slot
+--- return (doc/design.md) has no room for a third value.
 ---
---- A capture may also appear in a cast's TYPE position (`$X as $T`,
---- `$X as $T:^{`) -- `build.ast.match_cast` holds that half (its own
---- casttype rendering and matching), since this file had no line
---- budget left for it; `capture_predicates` is keyed by `any` rather
---- than by `Node` alone so the SAME table also serves a `cast` node's
---- identity, with no separate store or cast to widen it.
+--- A capture may also stand in a cast's type position (`$X as $T`,
+--- `$X as $T:^{`); [`build.ast.match_cast`] holds that half.
+--- `capture_predicates` is keyed by `any` so the same table serves a
+--- `cast` node's identity.
 local type compiler = require("build.compiler")
 local node_mod = require("build.ast.node")
 local ast_walk = require("build.ast.walk")
@@ -37,12 +34,10 @@ local match_cast = require("build.ast.match_cast")
 
 local type Node = node_mod.Node
 
---- Array view of a generic AST-map value -- reused everywhere this
---- module needs a node's own array part (call args, `if_blocks`, a
---- block's statement list) as a plain Lua array, the same "AST as
---- `{any: any}`" shape a generic walk over tl's own output needs, for
---- the same reason: a node's real shape depends on its `kind`, which
---- no declared record can express without one arm per kind.
+--- Array view of a generic AST-map value: a node's own array part (call
+--- args, `if_blocks`, a block's statement list) as a plain Lua array.
+--- A node's real shape depends on its `kind`, which no declared record
+--- can express without one arm per kind.
 --- @param t {any: any} A generic node/map view
 --- @return {any} The same table, viewed as an array
 local function arr(t: {any: any}): {any}
@@ -52,13 +47,11 @@ end
 --- Positional/bookkeeping fields no pattern should ever compare
 --- generically: source position (differs between pattern and target
 --- by construction), a node's attached comments (not part of
---- structural identity), and `tk` -- which IS semantic on a
---- "variable"/"identifier"/"string" leaf (compared explicitly for
---- those kinds below) but is otherwise just whichever token happened
---- to open a compound node ("statements", "if_block") and differs
---- incidentally between pattern and target even on a genuine match:
---- an `if $C then $$$BODY() end` pattern matched nothing until `tk`
---- was added here.
+--- structural identity), and `tk`. `tk` is semantic on a
+--- "variable"/"identifier"/"string" leaf, which `match_value` compares
+--- explicitly. On a compound node ("statements", "if_block") it is only
+--- the token that opened the node, and differs between pattern and
+--- target even on a genuine match.
 local IGNORE_KEYS: {string: boolean} = {
   y = true, x = true, yend = true, xend = true, f = true, comments = true,
   tk = true,
@@ -82,39 +75,31 @@ local function is_rest_capture(tk: any): boolean
   return tk is string and tk:match("^___[A-Z][A-Z0-9_]*$") ~= nil
 end
 
---- Name -> Lua pattern predicate, populated as a side effect of the
---- MOST RECENT `desugar` call whose surface syntax carried a
---- `$NAME:PATTERN` predicate metavariable, keyed by the desugared name
---- (`_F`). `compile_pattern` reads it immediately after calling
---- `desugar` (the two always run back-to-back there) and consumes it
---- into `capture_predicates` before returning -- a LATER `desugar` call
---- on unrelated text (e.g. `rewrite.tl` desugaring a replacement
---- template) overwrites it harmlessly, since compile_pattern has
---- already read what it needed by then.
+--- Lua pattern predicates from the most recent `desugar` call, by
+--- desugared capture name (`_F`). [`compile_pattern`] consumes it into
+--- `capture_predicates` right after `desugar` returns, so a later
+--- `desugar` of unrelated text (`rewrite.tl` desugaring a replacement
+--- template) overwrites it harmlessly.
 local last_predicates: {string: string} = {}
 
---- Predicate lookup for one capture node inside a compiled pattern's
---- OWN tree, keyed by the specific node's identity rather than by name
---- -- two occurrences of the same capture name in one pattern could
---- each carry a different predicate (or none). Populated once, by
---- `compile_pattern`; consulted by `match_value` for every capture it
---- binds. Keyed by `any`, not `Node`, because a cast-position capture
---- (see `build.ast.match_cast`) is keyed by its `cast` node while
---- still narrowed to `{any: any}`, not `Node`, at the point it is
---- looked up.
+--- The predicate of each capture node in a compiled pattern, keyed by
+--- node identity rather than name, since two occurrences of one name
+--- may carry different predicates. [`compile_pattern`] fills it;
+--- `match_value` reads it for every capture it binds. Keyed by `any`
+--- because a cast-position capture ([`build.ast.match_cast`]) is keyed
+--- by its `cast` node, which `match_value` holds as `{any: any}`.
 local capture_predicates: {any: string} = {}
 
 --- Rewrite ast-grep-style `$NAME`/`$$$NAME` metavariables into valid
 --- Teal identifiers so the pattern lexes as real source (`$` is not a
---- legal Teal identifier character). Safe because pattern text is
---- only ever MATCHED, never spliced back into anything -- the byte
---- positions this substitution shifts have no effect on output.
+--- legal Teal identifier character). The substitution shifts byte
+--- positions, which is harmless because pattern text is only matched,
+--- never spliced into output.
 ---
---- A plain capture may carry a `:PATTERN` predicate suffix (`$F:^test_`)
---- -- stripped here (it cannot survive lexing) and recorded in
---- `last_predicates` under the desugared name, terminated at the next
---- whitespace, `(`, `)`, or `,` so a predicate like `^test_` in
---- `$F:^test_()` does not swallow the call's own parentheses.
+--- A plain capture may carry a `:PATTERN` predicate suffix (`$F:^test_`).
+--- It ends at the next whitespace, `(`, `)`, or `,`, so `$F:^test_()`
+--- does not swallow the call's parentheses. `desugar` strips it and
+--- records it in `last_predicates` under the desugared name.
 --- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
 --- @return string The same pattern with metavariables rewritten to identifiers
 local function desugar(pattern_src: string): string
@@ -161,15 +146,13 @@ local function attach_predicates(root: Node, names: {string: string}): Node
   return root
 end
 
---- The rest-capture NAME if `node` is a rest-capture marker, else nil.
---- Two surface shapes, because "a bare capture name" isn't always a
---- legal Teal statement: `$$$NAME` in an expression position (call
---- args, a table's items) desugars to the bare identifier `___NAME`,
---- which parses fine as an expression but NOT as a statement (Lua/Teal
---- has no bare-expression statements). In a statement-LIST position (a
---- block, an if-branch's body) the same `$$$NAME` marker instead needs
---- to look like `___NAME()` -- a zero-arg call, which IS a valid
---- statement -- so a block pattern like `if $C then $$$BODY() end` parses.
+--- The rest-capture name if `node` is a rest-capture marker, else nil.
+--- A marker has two shapes, because a bare name is not a Teal statement.
+--- In an expression position (call args, a table's items) `$$$NAME`
+--- desugars to the identifier `___NAME`. In a statement-list position (a
+--- block, an if-branch's body) it is written `$$$NAME()` and parses as
+--- the zero-argument call `___NAME()`, so `if $C then $$$BODY() end` is
+--- valid source.
 --- @param node any A pattern node, possibly a rest-capture marker
 --- @return string|nil The capture name, or nil when `node` is not one
 local function rest_capture_name(node: any): string | nil
@@ -194,14 +177,12 @@ local function rest_capture_name(node: any): string | nil
   return nil
 end
 
---- The synthetic `Node` bound to a rest-capture: a bare list, in the
---- same "elements only, `kind` tags the shape" style tl's own
---- "expression_list"/"statements" nodes already use, so a captured
---- rest is a real `Node` even though nothing here computes a real
---- span for it -- that is `build.ast.walk`'s job, kept out of this
---- matcher on purpose. Its position is its first element's, so the span
---- walk starts it where the matched source does; an empty rest keeps
---- the pattern marker's, and has no span to take (see `build.ast.rewrite`).
+--- The synthetic [`Node`] bound to a rest-capture: a bare list of the
+--- matched elements, shaped like tl's "expression_list" and
+--- "statements" nodes. It has no span; [`build.ast.walk`] computes spans.
+--- Its position is its first element's, so the span walk starts where
+--- the matched source does. An empty rest keeps the pattern marker's
+--- position and has no span to take (see [`build.ast.rewrite`]).
 --- @param marker any The pattern's rest-capture marker node
 --- @param elements {any} The matched trailing elements, in order
 --- @return Node A bare-list node wrapping `elements`
@@ -223,13 +204,11 @@ end
 local match_value: function(pv: any, nv: any, caps: {string: Node},
   seen: {any: boolean}): boolean
 
---- Match two arrays positionally. If the pattern's LAST element is a
---- rest-capture marker (see `rest_capture_name`), it swallows every
---- remaining candidate element (zero or more) instead of requiring
---- equal length -- reused both for a node's own array part (call
---- args, table items) and for any named array-shaped field
---- (`if_blocks`, a block's statement list), since both are plain Lua
---- arrays once extracted.
+--- Match two arrays positionally. A rest-capture marker as the
+--- pattern's last element takes all remaining candidate elements (zero
+--- or more) instead of requiring equal length. Serves a node's own
+--- array part (call args, table items) and any array-shaped field
+--- (`if_blocks`, a block's statement list).
 --- @param pa {any} The pattern's array
 --- @param na {any} The candidate's array
 --- @param caps {string: Node} Capture bindings accumulated so far
@@ -269,11 +248,10 @@ local function match_list(pa: {any}, na: {any}, caps: {string: Node},
   return true
 end
 
---- Match one pattern VALUE against one candidate value -- a node, a
---- named field's value (which might itself be a node, a list of
---- nodes, or a scalar like `op.op`), or an array element. This one
---- function replaces per-kind special-casing: a node is "kind + array
---- part + every other named field the pattern sets", recursively.
+--- Match one pattern value against one candidate value: a node, a
+--- named field's value (a node, a list of nodes, or a scalar like
+--- `op.op`), or an array element. A node matches on its kind, its array
+--- part and every other named field the pattern sets, recursively.
 --- @param pv any A value from the pattern
 --- @param nv any The corresponding value from the candidate
 --- @param caps {string: Node} Capture bindings accumulated so far
@@ -287,12 +265,9 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
   if not (pv is {any: any}) then
     return pv == nv -- scalar: string/number/boolean
   end
-  -- a capture can appear as either kind: `$X` used as a value
-  -- reference (`f($X)`) parses as "variable", but the SAME `$X` used
-  -- as a member name (`cosmo.$X(...)`) parses as "identifier" -- tl's
-  -- own grammar distinction between "a name that resolves" and "a
-  -- name that just labels a field": `cosmo.$F($$$ARGS)` silently
-  -- matched nothing until this check was widened to accept either kind.
+  -- A capture parses as "variable" where it references a value
+  -- (`f($X)`) and as "identifier" where it names a field
+  -- (`cosmo.$X(...)`).
   if (pv["kind"] == "variable" or pv["kind"] == "identifier")
   and is_capture(pv["tk"]) then
     if not (nv is {any: any}) then
@@ -318,11 +293,9 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
   if not (nv is {any: any}) then
     return false
   end
-  -- cycle guard: an if_block's `if_parent` points back at its own
-  -- "if" statement, a real cycle tl's AST really carries, so
-  -- unguarded field recursion loops forever. Treat a revisit as
-  -- trivially matching -- own to this matcher, never shared with
-  -- `build.ast.walk`'s own cycle guard.
+  -- An if_block's `if_parent` points back at its "if" statement, so
+  -- unguarded field recursion would loop. A revisit matches trivially.
+  -- This guard is separate from [`build.ast.walk`]'s.
   if seen[nv] then
     return true
   end
@@ -355,24 +328,16 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
   return true
 end
 
---- Desugar, parse, and unwrap a pattern's source into its own top
---- node. A bare expression parses as a one-statement program whose
---- statement IS the expression -- an expression-statement -- so
---- unwrapping is needed for `program[1]`'s kind to be the pattern's
---- own ("op", "variable", ...) rather than "statements". A statement
---- pattern (`if ... end`) needs no unwrap either way: `program[1]` is
---- already the right node in both cases.
+--- Desugar, parse, and unwrap a pattern's source into its top node,
+--- the first statement of the parsed program: a statement pattern
+--- (`if ... end`) or a call.
 ---
---- A cast (`$X as $T`) or any other non-call expression is neither: it
---- is not a valid Teal STATEMENT on its own, exactly as in real Teal
---- (`x as integer` alone is a syntax error; only `return x as integer`
---- parses, same as only a function call may stand alone as a
---- statement). On a direct parse failure this retries wrapped in a
---- `return`, then unwraps to the RETURNED expression instead of the
---- wrapping `return` statement -- so a call/statement pattern's own
---- top node is unaffected, and this path only ever runs once the
---- direct parse already failed.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- A cast (`$X as $T`) or any other non-call expression is not a Teal
+--- statement (`x as integer` alone is a syntax error; only
+--- `return x as integer` parses). When the direct parse fails, the
+--- source is parsed again as `return <source>` and the returned
+--- expression is the top node.
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
 --- @return Node|nil The pattern's own top node, or nil on a parse failure
 --- @return string Error message on failure, "" on success
@@ -382,8 +347,7 @@ local function compile_pattern(built: compiler, pattern_src: string): Node | nil
   if parsed then
     return attach_predicates(parsed.node[1], last_predicates), ""
   end
-  -- The direct parse's own error is the one reported: the wrapped
-  -- retry is only a second reading of the same source.
+  -- Report the direct parse's error, not the retry's.
   local wrapped, _ = node_mod.parse(built, "return " .. desugared, "<pattern>")
   if not wrapped then
     return nil, err
@@ -401,7 +365,7 @@ end
 --- partial pattern matches without spelling out every field of the
 --- kind it names. Capture keys carry the desugared `_` prefix (`$CMD`
 --- binds as `_CMD`).
---- @param pattern Node A compiled pattern (see `compile_pattern`)
+--- @param pattern Node A compiled pattern (see [`compile_pattern`])
 --- @param node Node A candidate node to test
 --- @return {string: Node}|nil Capture bindings by name, or nil when it does not match
 local function match(pattern: Node, node: Node): {string: Node} | nil

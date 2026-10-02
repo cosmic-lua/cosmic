@@ -11,7 +11,6 @@
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
-local Stream = require("cosmic.stream")
 
 --- Well-formed and nearly well-formed texts to mutate: every shape the
 --- walk builds, the number and string corners, and JSON5's forms.
@@ -72,7 +71,7 @@ local function leaf(src: Fuzz.Source, lists: {{string}}, json5: boolean): string
 end
 
 --- A value drawn from the grammar, nested at most `depth` deep, each
---- container's elements drawn with `Fuzz.more` so shrinking can cut
+--- container's elements drawn with [`Fuzz.more`] so shrinking can cut
 --- any of them. Strict JSON unless `json5`, which adds its forms and
 --- trailing commas.
 local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): string
@@ -134,17 +133,31 @@ local function gen_text(src: Fuzz.Source): string
   return Fuzz.mutate(src, base, shape == 1 and 8 or 1)
 end
 
---- The options every check re-encodes with: whatever decoded, JSON can
---- say, since a stand-in holds every null and NaN becomes `null`.
-local CANONICAL <const>: Json.EncodeOptions = { nan_as_null = true, sparse_as_null = true, max_depth = 1000 }
+--- The options every check re-encodes with.
+local CANONICAL <const>: Json.EncodeOptions = { max_depth = 1000 }
+
+--- `value` as it re-encodes: a decoded value holds NaN and the
+--- infinities where JSON5 wrote them, which `encode` refuses, so each
+--- becomes [`Json.null`]. Every null is a stand-in, never a hole, in what
+--- the checks decode.
+local function finite(value: any): any
+  if value is number then
+    if value ~= value or value == math.huge or value == -math.huge then return Json.null end
+    return value
+  end
+  if not (value is {any: any}) then return value end
+  local out: {any: any} = Json.is_array(value) and Json.array() as {any: any} or {}
+  for k, v in pairs(value) do out[k] = finite(v) end
+  return out
+end
 
 --- `value`'s canonical text, which must re-read as itself.
 local function canonical(value: any, where: string): string | nil, string
-  local text, err = Json.encode(value, CANONICAL)
+  local text, err = Json.encode(finite(value), CANONICAL)
   if text == nil then return nil, where .. ": decoded, but did not encode: " .. err end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
   if berr ~= "" then return nil, where .. ": encode wrote what decode refuses: " .. berr end
-  local again, aerr = Json.encode(back, CANONICAL)
+  local again, aerr = Json.encode(finite(back), CANONICAL)
   if again ~= text then
     return nil, where .. ": not a fixed point: " .. text .. " -> " .. tostring(again or aerr)
   end
@@ -275,8 +288,8 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
--- Most drawn texts parse -- 44% strictly and 51% as JSON5, where a
--- generator of edits and token soup reached 13% and 15% -- so the walk
+-- Most drawn texts parse -- 44% strictly and 51% as JSON5, far above
+-- the 13% and 15% that edits and token soup alone reach -- so the walk
 -- into Lua values and the re-encoding checks run on most; a share under
 -- a fifth fails the run.
 local function test_decode_is_total_on_mutated_json(tmp: string)
@@ -318,10 +331,10 @@ local CHARS <const> = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\r", "\
   "\xc3\xa9", "\xe2\x82\xac", "\xf0\x9f\x98\x80" }
 
 -- TODO: a recipe's strings and tables read their count from one byte
--- first, as the generators here no longer do, so cutting a recipe's bytes
--- drops a middle element only by reshaping everything after it; a byte
--- before each element whose low values stop, as `Fuzz.more` draws, would
--- let shrinking drop any (measure "encoded" and "refused" again).
+-- first, unlike the generators here, so cutting a recipe's bytes drops
+-- a middle element only by reshaping everything after it; a byte before
+-- each element whose low values stop, as [`Fuzz.more`] draws, would let
+-- shrinking drop any (measure "encoded" and "refused" again).
 local function recipe_value(r: Recipe, depth: integer, parent: {any: any}): any
   local op = next_byte(r) % 13
   if depth > 6 and op >= 7 then op = op % 7 end
@@ -366,15 +379,8 @@ end
 
 local function recipe_options(r: Recipe): Json.EncodeOptions
   local bits = next_byte(r)
-  local opts: Json.EncodeOptions = {
-    pretty = bits & 1 ~= 0,
-    sorted = bits & 2 == 0,
-    nan_as_null = bits & 4 ~= 0,
-    sparse_as_null = bits & 8 ~= 0,
-    ascii = bits & 64 ~= 0,
-  }
-  if bits & 16 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
-  if opts.pretty and bits & 32 ~= 0 then opts.indent = "\t" end
+  local opts: Json.EncodeOptions = { pretty = bits & 1 ~= 0 }
+  if bits & 2 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
   return opts
 end
 
@@ -393,14 +399,9 @@ local function encode_holds(input: string): boolean, string
     return true, ""
   end
   if err ~= "" then return false, "a success with a message: " .. err end
-  if opts.ascii and text:find("[\128-\255]") then
-    return false, "ascii wrote a byte past ASCII: " .. text
-  end
-  local same: Json.EncodeOptions = { nan_as_null = opts.nan_as_null,
-    sparse_as_null = opts.sparse_as_null, max_depth = opts.max_depth }
-  local expected, eerr = Json.encode(value, same)
+  local expected, eerr = Json.encode(value, { max_depth = opts.max_depth })
   if expected == nil then
-    return false, "encoded laid out or unsorted, but not canonically: " .. eerr
+    return false, "encoded laid out, but not compactly: " .. eerr
   end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
   if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end
@@ -439,7 +440,7 @@ local function test_the_depth_limits_are_exact(tmp: string)
       local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
       if n <= limit then
         if err ~= "" then return false, ("%d levels under a limit of %d: %s"):format(n, limit, err) end
-      elseif value ~= nil or err ~= ("JSON nests deeper than %d levels at line 1, column %d"):
+      elseif value ~= nil or err ~= ("json: JSON nests deeper than %d levels at line 1, column %d"):
            format(limit, deepest(opens, limit + 1)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
@@ -474,60 +475,17 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
         if err == "" then return false, "a failure without a message" end
         return true, ""
       end
-      local text, eerr = Json.encode_lines(values, { nan_as_null = true })
-      if text == nil then return false, "decoded lines did not encode: " .. eerr end
-      local back, berr = Json.decode_lines(text, { null_value = Json.null })
-      if back == nil then return false, "encode_lines wrote what decode_lines refuses: " .. berr end
-      local a, b = Json.encode(values, CANONICAL), Json.encode(back, CANONICAL)
-      if a ~= b then return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b) end
-      return true, ""
-    end,
-  })
-end
-
---- A Reader handing out `text` in chunks of 1, 2, 3, 5, 8 and 13 bytes
---- in turn, so a line is cut at every kind of place.
-local function chunked(text: string): Stream.Reader
-  local at, turn = 1, 0
-  local sizes <const> = { 1, 2, 3, 5, 8, 13 }
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
-    if at > #text then return nil, "" end
-    turn = turn % #sizes + 1
-    local piece = text:sub(at, at + sizes[turn] - 1)
-    at = at + #piece
-    return piece, ""
-  end
-  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
-  return r
-end
-
---- JSON Lines read from a Reader, cut anywhere, read what `decode_lines`
---- reads from the whole text: the same values, and the same failure,
---- after the values before it.
-local function test_json_lines_read_from_a_stream_as_from_text(tmp: string)
-  Fuzz.run({
-    name = "json lines streamed",
-    dir = tmp,
-    gen = gen_lines,
-    requires = { "read", "refused" },
-    check = function(input: string): boolean, string
-      local opts: Json.DecodeOptions = { null_value = Json.null, json5 = true }
-      local whole, err = Json.decode_lines(input, opts)
-      local lines = Json.lines(chunked(input), opts)
-      local streamed: {any} = Json.array()
-      for value in lines:each() do streamed[#streamed + 1] = value end
-      local failure = lines:failure()
-      if whole == nil then
-        Fuzz.label("refused")
-        if failure ~= err then return false, "streamed failure " .. string.format("%q", failure) ..
-", not " .. string.format("%q", err) end
-        return true, ""
+      local written: {string} = {}
+      for i = 1, #values do
+        local line, eerr = Json.encode(finite(values[i]))
+        if line == nil then return false, "decoded line " .. i .. " did not encode: " .. eerr end
+        written[i] = line .. "\n"
       end
-      Fuzz.label("read")
-      if failure ~= "" then return false, "streamed failed where text did not: " .. failure end
-      local a, b = Json.encode(whole, CANONICAL), Json.encode(streamed, CANONICAL)
-      if a ~= b then return false, "streamed " .. tostring(b) .. ", text " .. tostring(a) end
+      local text = table.concat(written)
+      local back, berr = Json.decode_lines(text, { null_value = Json.null })
+      if back == nil then return false, "encoded lines are what decode_lines refuses: " .. berr end
+      local a, b = Json.encode(finite(values), CANONICAL), Json.encode(finite(back), CANONICAL)
+      if a ~= b then return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b) end
       return true, ""
     end,
   })

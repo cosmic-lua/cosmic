@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 
 --- The verb reads the program's own database through a handle
---- (`Store.databases()`), which reads every module's rows too.
+--- ([`Store.databases()`]), which reads every module's rows too.
 Test.needs{ store = true }
 
 --- `cosmic bom` answers from the running binary's own rows: each

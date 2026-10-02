@@ -18,6 +18,8 @@
 #include "compress.h"
 #include "executable.h"
 #include "memory.h"
+#include "process.h"
+#include "socket.h"
 #include "sqlite3.h"
 #include "store.h"
 #include "startup.h"
@@ -53,7 +55,7 @@ static sqlite3 *open_artifact (const char *path, int retained_fd,
   return db;
 }
 
-/* Answers what `cosmic.errors`'s `guidance` says beneath the uncaught
+/* Answers what [`cosmic.errors`]'s `guidance` says beneath the uncaught
  * error at 1: the catalog's guidance for it, as lines to print, or
  * nothing. */
 static int ask_guidance (lua_State *L) {
@@ -66,7 +68,7 @@ static int ask_guidance (lua_State *L) {
   return 1;
 }
 
-/* Prints the guidance `Errors.guidance` finds for the uncaught error on
+/* Prints the guidance [`Errors.guidance`] finds for the uncaught error on
  * top of the stack, the one policy of a report that is more than its
  * message and line, and leaves the stack as it was. The state is sound
  * after the failed call that raised it; anything that goes wrong asking
@@ -119,6 +121,12 @@ static bool source_position (lua_State *L, const char *message) {
   }
   memcpy(name, message, name_len);
   name[name_len] = '\0';
+  /* A module a hold holds prints nothing, as if no database held it: a
+   * process a `lua` test started reads no row its key does not hold, a
+   * message that names one (`error("cosmic.zip:1: ...")`) included. */
+  if (!cosmic_store_lets(L, name)) {
+    return false;
+  }
 
   int count = cosmic_store_count(L);
   for (int index = 1; index <= count; index++) {
@@ -138,7 +146,7 @@ static bool source_position (lua_State *L, const char *message) {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
       owned = true;
       const char *file = (const char *)sqlite3_column_text(stmt, 0);
-      /* The build stores source deflated (`build.writer`). A row that
+      /* The build stores source deflated ([`build.writer`]). A row that
        * will not inflate prints no line rather than a wrong one. */
       const void *stream = sqlite3_column_blob(stmt, 1);
       size_t stream_len = (size_t)sqlite3_column_bytes(stmt, 1);
@@ -249,6 +257,8 @@ static int run_main (lua_State *L, int argc, char **argv) {
 int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
                           char **argv) {
   cosmic_coverage_prepare();
+  cosmic_store_prepare();
+  cosmic_process_entered();
   const char *startup_trouble = cosmic_startup_validate(startup);
   if (startup_trouble != NULL) {
     return complain(startup_trouble, NULL);
@@ -331,6 +341,14 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
     return complain("no database attached, and no tree to boot from", self);
   }
 
+  /* A process a `lua` test started is held before any of its Lua runs,
+   * or runs none (core/store.c's `cosmic_store_hold_inherited`). */
+  if (!cosmic_store_hold_inherited(L)) {
+    cosmic_surface_close(L);
+    sqlite3_close_v2(db);
+    cosmic_artifact_close(&artifact);
+    return 2;
+  }
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_ENTERING);
   int status = run_main(L, argc, argv);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_RETURNED);

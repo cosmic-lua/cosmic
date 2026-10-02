@@ -1,12 +1,9 @@
 local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
+local Store = require("cosmic.store")
 local reboot = require("build.reboot")
+local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
-
---- The program's core, which building the stand-in bin/zig reads
---- (`build.stand_in`): a program of its own, which the boot starts with
---- only the environment it is given, and no shell.
-Test.needs{ tool = true }
+local work = require("build.work")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 local function test_auto_boot_unless_told_not_to()
@@ -32,6 +29,25 @@ local function test_boot_into_reports_a_failed_boot(tmp: string)
   local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
   assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
   assert(Fs.read(root .. "/bin/ran") == "build boot\n")
+end
+
+--- The boot a run holding the rebuild lock starts is handed that lock
+--- (build/zig.tl takes it otherwise, and would wait on its parent for
+--- good); one started by a run that holds none is handed nothing.
+local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/o"))
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, root .. "/bin/zig",
+    "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
+  local _ = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  assert(Fs.read(root .. "/bin/handed") == "[]\n", Fs.read(root .. "/bin/handed"))
+  assert(rebuild_lock.take(root, 0, "test") == "held")
+  local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  rebuild_lock.release()
+  assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
+  assert(Fs.read(root .. "/bin/handed") == "[" .. root .. "/o/rebuild.lock]\n",
+    Fs.read(root .. "/bin/handed"))
 end
 
 --- After a boot, the tool it wrote is what runs the command again; one
@@ -85,4 +101,32 @@ local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
   end
   local none, missing = reboot.own_tool(tmp .. "/elsewhere", tmp .. "/elsewhere/cosmic")
   assert(none == nil and missing:find("/elsewhere/o", 1, true), missing)
+end
+
+--- A tool carries a tree's code when every module and main of the tree
+--- is one it carries with the same source ([`reboot.carries_tree_code`]),
+--- whatever its fingerprint says: a tree of this binary's own
+--- build.bind does, and not once that source is edited, nor once the
+--- tree holds a module the binary does not carry. A tree with no module
+--- proves nothing.
+local function test_carries_tree_code_compares_every_module(tmp: string)
+  local function carries(): boolean
+    local handle = assert(work.open(tmp))
+    assert(work.stage(handle, true))
+    local answer = reboot.carries_tree_code(handle)
+    assert(work.close(handle))
+    return answer
+  end
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(not carries(), "a tree with no module carried the tree's code")
+  local source = assert(Store.source("build.bind"))
+  assert(Fs.write(tmp .. "/build/bind.tl", source))
+  assert(carries(), "the binary's own build.bind did not carry the tree's code")
+  assert(Fs.write(tmp .. "/build/bind_test.tl", "local function test_nothing() end\n"))
+  assert(carries(), "a test module, which no tool carries, was held against it")
+  assert(Fs.write(tmp .. "/build/bind.tl", source .. "-- edited\n"))
+  assert(not carries(), "an edited module carried the tree's code")
+  assert(Fs.write(tmp .. "/build/bind.tl", source))
+  assert(Fs.write(tmp .. "/build/nowhere.tl", "return {}\n"))
+  assert(not carries(), "a module the binary does not carry carried the tree's code")
 end

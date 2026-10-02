@@ -2,15 +2,14 @@
 ---
 --- Every operator, separator and bracket here comes from the node's
 --- kind: a call is a `(` because the node says `@funcall`, an index is
---- a `[` because it says `@index`. Nothing is decided by looking at
---- which two tokens ended up next to each other, which is the class of
---- bug this whole module exists to be incapable of.
+--- a `[` because it says `@index`. Nothing is decided by which two
+--- tokens ended up next to each other.
 ---
---- One thing IS read off the source: where a line break goes, and where
---- one does not (`ctx.lead`). The renderer never adds a break and never
---- removes one, because doing either means deciding where to wrap, and
---- a wrap is a judgement about the whole line that no rule here is in a
---- position to make. Everything a line HOLDS is the renderer's.
+--- One thing is read off the source: where a line break goes, and where
+--- one does not (`ctx.lead`). The renderer never adds or removes a
+--- break, because that means deciding where to wrap, a judgement about
+--- the whole line that no rule here can make. Everything a line holds
+--- is the renderer's.
 ---
 --- Type syntax is written as original bytes: `x as {string: any}` keeps
 --- its own spelling, since tl's parser keeps a type's meaning and not
@@ -29,18 +28,60 @@ local expression: function(Ctx, Node)
 
 local refuse = ctx_mod.refuse
 
---- What follows an `as` or an `is`, as original bytes. `anchor` is the
---- operator's own token when there is one: the type begins right after
---- it, which is a surer place to start than the type object's recorded
---- position, since tl stamps a generic type at the end of its file.
-local function cast_type(c: Ctx, n: Node, anchor: integer | nil)
+--- The text of the token `n` starts on, or "" when no token starts there.
+local function first_token(c: Ctx, n: Node): string
+  local at = ctx_mod.start_of(c, n)
+  local i = typescan.index_at(c.scan, at.y, at.x)
+  return i ~= nil and typescan.tk(c.scan, i) or ""
+end
+
+--- What stands between a `[` and the key or index inside it: a space
+--- when the key opens with a long string, since `[[` would open one.
+local function inside_brackets(c: Ctx, key: Node): string
+  return first_token(c, key):sub(1, 1) == "[" and " " or ""
+end
+
+--- A key or index between brackets, the `]` where the source put it: a
+--- line break before it is kept, so a comment ending the line before
+--- does not take the `]` into it.
+local function in_brackets(c: Ctx, key: Node)
+  local inside = inside_brackets(c, key)
+  local at = ctx_mod.start_of(c, key)
+  local first = typescan.index_at(c.scan, at.y, at.x)
+  emit.put(c.em, "[")
+  ctx_mod.lead(c, key, inside)
+  expression(c, key)
+  if first ~= nil and typescan.tk(c.scan, first - 1) == "[" then
+    local t = c.scan.tokens[typescan.closing(c.scan, first - 1)]
+    if t ~= nil then
+      ctx_mod.lead_at(c, t.y, t.x, inside)
+      inside = ""
+    end
+  end
+  emit.put(c.em, inside .. "]")
+end
+
+--- The index of the first token of a cast's type, or nil when it has
+--- none of its own. `anchor` is the operator's own token when there is
+--- one: the type begins right after it, which is a surer place to start
+--- than the type object's recorded position, since tl stamps a generic
+--- type at the end of its file.
+local function cast_start(c: Ctx, n: Node, anchor: integer | nil): integer | nil
   local declared = n.casttype
   if declared == nil then
+    return nil
+  end
+  return anchor ~= nil and anchor + 1
+    or typescan.index_at(c.scan, declared.y, declared.x)
+end
+
+--- What follows an `as` or an `is`, as original bytes.
+local function cast_type(c: Ctx, n: Node, anchor: integer | nil)
+  if n.casttype == nil then
     refuse(c, "a cast with no type")
     return
   end
-  local first = anchor ~= nil and anchor + 1
-    or typescan.index_at(c.scan, declared.y, declared.x)
+  local first = cast_start(c, n, anchor)
   if first == nil then
     refuse(c, "a cast whose type has no token of its own")
     return
@@ -48,13 +89,38 @@ local function cast_type(c: Ctx, n: Node, anchor: integer | nil)
   ctx_mod.region(c, first, typescan.type_end(c.scan, first))
 end
 
+--- Whether `n` ends in a cast whose type's return types a `,` after it
+--- would continue ([`typescan.open_returns`]).
+local function ends_in_open_returns(c: Ctx, n: Node): boolean
+  if n.kind == "literal_table_item" then
+    local value = n.value
+    return value ~= nil and ends_in_open_returns(c, value)
+  end
+  local o, e1, e2 = n.op, n.e1, n.e2
+  if n.kind ~= "op" or o == nil then
+    return false
+  end
+  if e2 == nil then
+    return e1 ~= nil and ends_in_open_returns(c, e1)
+  end
+  if o.op == "as" or o.op == "is" then
+    local first = cast_start(c, e2, typescan.index_at(c.scan, o.y, o.x))
+    return first ~= nil and typescan.open_returns(c.scan, first)
+  end
+  if o.op == "@funcall" or o.op == "@method" or o.op == "@index" or o.op == "." or o.op == ":" then
+    return false
+  end
+  return ends_in_open_returns(c, e2)
+end
+
 --- A comma-separated run of expressions, each moved to its own line
---- wherever the source put it there.
-local function items(c: Ctx, list: Node, first_inline: string)
+--- wherever the source put it there. A table's entries (`table_like`)
+--- are separated by a `;` after one that [`ends_in_open_returns`].
+local function items(c: Ctx, list: Node, first_inline: string, table_like?: boolean)
   for i, item in ipairs(list) do
     local inline = first_inline
     if i > 1 then
-      emit.put(c.em, ",")
+      emit.put(c.em, table_like and ends_in_open_returns(c, list[i - 1]) and ";" or ",")
       inline = " "
     end
     ctx_mod.lead(c, item, inline)
@@ -83,9 +149,9 @@ local function bracketed(c: Ctx, list: Node, open: string, close: string,
     emit.put(c.em, close)
     return
   end
-  items(c, list, gap)
+  items(c, list, gap, table_like)
   if table_like and close_y > c.em.line then
-    emit.put(c.em, ",")
+    emit.put(c.em, ends_in_open_returns(c, list[#list]) and ";" or ",")
   end
   ctx_mod.lead_at(c, close_y, close_x, gap)
   emit.put(c.em, close)
@@ -109,20 +175,19 @@ end
 
 --- A function literal, signature and body.
 ---
---- This is the one construct that opens a block from inside an
---- expression, and so the one whose block does not necessarily open on
---- the grid its enclosing statement sits on. Its body is indented from
---- the column the `function` keyword is actually being WRITTEN at --
---- the indentation of the output line in progress, whether that line
---- was opened by the statement itself or is a continuation of it -- and
---- its `end` lines up with that same column.
+--- This is the one construct that opens a block inside an expression,
+--- so its block need not open on the grid its enclosing statement sits
+--- on. Its body is indented from the column the `function` keyword is
+--- written at, the indentation of the output line in progress, whether
+--- the statement or a continuation of it opened that line. Its `end`
+--- lines up with that column.
 ---
---- Taking the enclosing statement's own indentation instead is wrong
---- exactly where a literal opens a line of its own: an argument on its
---- own line, a table value, a callback nested inside another. The body
---- would then be written level with its own `function` keyword and the
---- `end` two columns further left again, which for a top-level call
---- means an `end` in column zero in the middle of an argument list.
+--- The enclosing statement's indentation is wrong where a literal opens
+--- a line of its own: an argument on its own line, a table value, a
+--- callback nested in another. The body would be level with its own
+--- `function` keyword and the `end` two columns further left, which for
+--- a top-level call is an `end` in column zero in the middle of an
+--- argument list.
 local function literal_function(c: Ctx, n: Node)
   local args, body, rets = n.args, n.body, n.rets
   if args == nil or body == nil or rets == nil then
@@ -134,7 +199,7 @@ local function literal_function(c: Ctx, n: Node)
   emit.text(c.em, "function")
   sig.typeargs(c, typescan.index_at(c.scan, n.y, n.x))
   sig.arguments(c, args)
-  sig.returns(c, rets, args, body)
+  sig.returns(c, rets, args, body.y, body.x)
   c.margin = base
   c.block(c, body)
   ctx_mod.lead_to(c, n.yend or body.y, n.xend or 1, base, " ")
@@ -160,10 +225,8 @@ local function table_item(c: Ctx, n: Node)
       refuse(c, "a bracketed table key with no key")
       return
     end
-    emit.put(c.em, "[")
-    ctx_mod.lead(c, key, "")
-    expression(c, key)
-    emit.put(c.em, "] =")
+    in_brackets(c, key)
+    emit.put(c.em, " =")
   else
     expression(c, value)
     return
@@ -180,8 +243,11 @@ local function operator(c: Ctx, n: Node)
     return
   end
   if e2 == nil then
+    -- A worded operator needs its space to stay a word, and a `-` in
+    -- front of another to stay out of a comment.
+    local apart = o.op:match("^%a") ~= nil or (o.op == "-" and first_token(c, e1):sub(1, 1) == "-")
     emit.text(c.em, o.op)
-    ctx_mod.lead(c, e1, o.op:match("^%a") ~= nil and " " or "")
+    ctx_mod.lead(c, e1, apart and " " or "")
     expression(c, e1)
     return
   end
@@ -191,10 +257,7 @@ local function operator(c: Ctx, n: Node)
     return
   end
   if o.op == "@index" then
-    emit.put(c.em, "[")
-    ctx_mod.lead(c, e2, "")
-    expression(c, e2)
-    emit.put(c.em, "]")
+    in_brackets(c, e2)
     return
   end
   if o.op == "." or o.op == ":" then

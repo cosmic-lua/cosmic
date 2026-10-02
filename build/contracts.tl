@@ -10,14 +10,15 @@
 ---    returned whole as a `return`'s last value, or passed whole as the
 ---    last argument of `assert` or of a function whose last required
 ---    parameters take every result, a `string` where the reason lands
----    (`complain(v, why)`). Anywhere else -- `f() or x`, `not f()`, `if f() then`,
----    `(f())`, a non-final argument, `local v = f()`, `{f()}`,
----    `print(f())`, `table.insert(t, f())` -- the reason is dropped. A
----    call standing alone as a statement drops it too. A failure to be
----    ignored on purpose (a cleanup on a path that is already failing,
----    a diagnostic written to stderr) says so by binding both slots to
----    `_`: `local _, _ = Fs.remove(path)`. A method of a record
----    `quieted` names (`cosmic.log`'s Logger) may stand alone.
+---    (`complain(v, why)`). Anywhere else the reason is dropped:
+---    `f() or x`, `not f()`, `if f() then`, `(f())`, a non-final
+---    argument, `local v = f()`, `{f()}`, `print(f())`,
+---    `table.insert(t, f())`. A call standing alone as a statement
+---    drops it too. A failure to be ignored on purpose (a cleanup on a
+---    path that is already failing, a diagnostic written to stderr) says
+---    so by binding both slots to `_`: `local _, _ = Fs.remove(path)`. A
+---    method of a record `quieted` names ([`cosmic.log`]'s Logger) may
+---    stand alone.
 --- 2. A failure carries no value: in a fallible function, a `return a,
 ---    b` whose `b` is not the literal `""` has a literal `nil` (`false`,
 ---    for an effect) as `a`. So `local v, err = f(); return v, err` is
@@ -32,10 +33,11 @@
 ---    string` whose every return is a value that cannot be nil and `""`
 ---    returns the value alone.
 --- 5. Two slots, and nothing in a third: a fallible function declares
----    exactly two results, and no variadic tail. What else a failure means goes in its
----    reason, or in a structured error record standing as the value.
----    The one exception is `cosmic.sys` (and the raw process table,
----    `cosmic.internal.process`), whose C bindings answer
+---    exactly two results, and no variadic tail. What else a failure
+---    means goes in its reason, or in a structured error record standing
+---    as the value.
+---    The one exception is [`cosmic.sys`] (and the raw process table,
+---    [`cosmic.internal.process`]), whose C bindings answer
 ---    `nil | false, error, errno`: a function a module stores into one
 ---    of its fields (`sys.stat = function(...) ... end`, a stand-in for
 ---    a binding) keeps the binding's shape: this rule does not read it,
@@ -54,6 +56,8 @@
 ---    deadline passed), a count or a field the caller reads, or a
 ---    structured record standing where the value would. A reason
 ---    reached any other way (`select(2, f())`) drops the slot, rule 1.
+---    A reason may also be compared with [`Poll.TIMEOUT`] and
+---    [`Poll.CANCELLED`], the words every wait answers.
 --- 7. No escape hatch in the type layer, doc/design.md's fourth
 ---    principle: a cast (`e as T`) tells the checker what it could not
 ---    prove, so none is written but in a function `casts`
@@ -64,14 +68,14 @@
 ---    which Teal can give no type.
 --- 8. A type does not repeat its module's name: a record, interface,
 ---    enum or alias the module's returned record declares, at any
----    depth, is read through that record (`Zip.Reader`), so
+---    depth, is read through that record ([`Zip.Reader`]), so
 ---    `Zip.ZipReader` says `Zip` twice. The module's name is the one
 ---    the chunk returns (`return Zip`), whose record is the `local
 ---    record` of that name or the type a `local` of it is declared as
 ---    (`local layout: Layout`). A type named after it outright
 ---    (`Zip.Zip`), or starting with it in any case and then a capital
 ---    (`ZipReader`, `SQLiteHandle` in `Sqlite`), is refused.
----    `Log.Logger` is not: `Log` is followed by a lower-case letter
+---    [`Log.Logger`] is not: `Log` is followed by a lower-case letter
 ---    there, a word of its own.
 --- 9. A mode is an enum, not a string (doc/design.md's fourth
 ---    principle: the checker proves what a comparison could only
@@ -87,7 +91,7 @@
 ---    gave the receiver) into a `local` bound to it or assigned it, a
 ---    default after `or` (whose literal counts), and the parameter of a
 ---    local function it is passed to, each kept by the function that
----    binds the name (see `check_modes`). A string that
+---    binds the name (see [`check_modes`]). A string that
 ---    is genuinely open-ended is named in `modes` with the reason.
 --- 10. A function a module exports answers one result, or a value or an
 ---     effect and its reason: `string, string`, `integer, integer` or
@@ -112,19 +116,20 @@
 --- finds no use for is refused as stale.
 ---
 --- The callee's type is the one the checker stored at the callee's own
---- position (`build.receivers` installs the reporter that keeps it). A
+--- position ([`build.receivers`] installs the reporter that keeps it). A
 --- callee the checker gave no function type is not judged. Rules 2 to
 --- 5 read a function's declared results.
 ---
 --- `exempt` names the functions rules 2 to 5, 10 and 11 cannot yet hold,
---- `parsing` the functions rule 6 cannot, and `casts`
---- the functions rule 7 lets cast, each with its reason; the TODO for
---- each is where its fix goes. `modes` names, as `"file:Record.field"`,
---- the string fields rule 9 lets be compared with literals.
+--- `parsing` the functions rule 6 cannot, and `casts` the functions
+--- rule 7 lets cast, each with its reason. `modes` names, as
+--- `"file:Record.field"`, the string fields rule 9 lets be compared with
+--- literals.
 
 local ast = require("build.ast")
 local receivers = require("build.receivers")
 local type compiler = require("build.compiler")
+local String = require("cosmic.string")
 
 local type Node = ast.Node
 local type Type = receivers.Type
@@ -158,7 +163,7 @@ local exempt: {string: string} = {
 }
 
 local parsing: {string: string} = {
-  ["build/zig.tl:Zig.fetch.attempt"] =
+  ["build/zig_fetch.tl:ZigFetch.fetch.attempt"] =
     "bin/zig runs on the release ci/cosmic-driver.pin names, whose " ..
     "Http.download names the URL in one failure's reason and no other",
 }
@@ -168,11 +173,8 @@ local casts: {string: string} = {
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
     "cosmic.internal.process declares that table, core/process.h defines it",
-  ["build/filesystem_observations.tl:plain_sandbox"] =
+  ["build/confine.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
-  ["build/filesystem_observations.tl:drain_syscalls"] =
-    "a logged call's answers, which the syscall table's log keeps untyped, " ..
-    "as the call it records declares them",
   ["build/ast/match.tl:arr"] =
     "tl's AST reached by reflection: a node's own array part, " ..
     "whose elements' shape depends on their kind",
@@ -206,6 +208,10 @@ local casts: {string: string} = {
   ["build/receivers.tl:reporter_for"] =
     "vendored tl hands its checked AST and type objects as any " ..
     "(build/compiler.d.tl)",
+  ["build/shape_specs.tl:view_of_node"] =
+    "vendored tl hands its type objects as TypeNode and any (build/compiler.d.tl)",
+  ["build/shape_specs.tl:view_of_type"] =
+    "vendored tl hands its type objects as Type and any (build/compiler.d.tl)",
   ["build/teal.tl:teal.lazy.real"] =
     "the loaded compiler, indexed by whatever key the capsule is asked for",
   ["build/teal.tl:teal.lazy"] =
@@ -213,47 +219,54 @@ local casts: {string: string} = {
   ["build/teal.tl:teal.load"] =
     "the one boundary where the vendored compiler's untyped chunk " ..
     "becomes its declared surface (build/compiler.d.tl)",
-  ["cosmic/archive.tl:wrap_tar"] =
-    "Tar.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
-  ["cosmic/archive.tl:wrap_zip"] =
-    "Zip.Entry has every field Archive.Entry has, but the two are " ..
-    "unrelated records",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
     "walk has just built to the spec",
-  ["cosmic/sqlite.tl:bind"] =
+  ["cosmic/sqlite.tl:checked"] =
     "a caller's parameter table is checked for keys its " ..
     "declaration does not name, which only a map view of it lists",
 }
 
---- This module's own exemptions, which `check` holds a module to.
 --- The string fields rule 9 lets be compared with literals, each
 --- with the reason its values are not a closed set.
 local modes: {string: string} = {}
 
+--- This module's own exemptions, which `check` holds a module to.
 local own_exemptions: contracts.Exemptions = {
   exempt = exempt, parsing = parsing, casts = casts, modes = modes,
 }
 
 --- The methods whose failures a statement may ignore without saying
 --- so, by record, with the reason: a diagnostic written to a stream has
---- nowhere else to report that the write failed, as `cosmic.log` says.
+--- nowhere else to report that the write failed, as [`cosmic.log`] says.
 --- Each method is named, so one a record gains later is held to rule 1
 --- until it is listed here. Only a call standing alone as a statement
 --- is let through; a result used any other way is held to rule 1 too.
--- TODO: refuse a stale entry here too, as `stale` does the other
--- tables': one whose record no module declares, or whose method the
--- record lacks. quiet_records resolves them against whatever
--- environment compiles the module at hand, which need not have loaded
--- the record's module, so a miss there is no proof; it waits on a check
--- run once the whole tree is compiled.
+--- A stale entry, one whose record no module declares or whose method
+--- the record lacks, is refused by [`build.tree_checks`] over the whole
+--- tree's projection, not here: [`quiet_records`] resolves them against
+--- whatever environment compiles the module at hand, which need not
+--- have loaded the record's module, so a miss here is no proof.
 local quieted: {string: contracts.Quiet} = {
   ["cosmic.log Logger"] = {
     reason = "a line written for a person; its failure has nowhere to go",
     methods = { say = true, complain = true, verdict = true },
   },
 }
+
+--- What `quieted` names, each as `<module> <symbol>`, sorted: every
+--- record, and every method as `<record>.<method>`.
+function contracts.quieted_names(): {string}
+  local out: {string} = {}
+  for key, entry in pairs(quieted) do
+    out[#out + 1] = key
+    for method in pairs(entry.methods) do
+      out[#out + 1] = key .. "." .. method
+    end
+  end
+  table.sort(out)
+  return out
+end
 
 --- `quieted`'s methods by the type id of their record, as the
 --- checker in `env` holds it: what `check` takes as `quiet`.
@@ -305,8 +318,9 @@ local function resolved(t: Type | nil): Type | nil
 end
 
 --- The tables of C bindings, which answer `nil | false, error, errno`:
---- the public syscall table and the raw process table.
-local binding_modules <const>: {string} = { "cosmic.sys", "cosmic.internal.process" }
+--- the public syscall table and the raw process and socket tables.
+local binding_modules <const>: {string} = { "cosmic.sys", "cosmic.internal.process",
+  "cosmic.internal.socket" }
 
 --- Each table of C bindings the checker in `env` has loaded, by the
 --- type id of its record, to its module's name: what `check` takes as
@@ -384,7 +398,7 @@ local function list_of(n: Node | nil): {Node}
   return n
 end
 
---- How a callee or a function's owner reads in a message: `Fs.read`,
+--- How a callee or a function's owner reads in a message: [`Fs.read`],
 --- `h:digest`, `helper`.
 local function spelled(e: Node | nil): string
   if e == nil then return "a call" end
@@ -422,17 +436,17 @@ local record Used
 end
 
 --- One walk of a checked module's tree, kept for every rule to read
---- rather than each walking it again. `order` is every node reached
---- from the root through its children (`ast.children` passing by the
---- fields `skipped` names), each once, at its first reach, depth
---- first; `parent` is the node it was first reached from. `reached` is
---- every node `ast.walk` reaches, the fields `skipped` names followed
---- too, in no promised order.
+--- rather than each walking it again. `order` holds each node reached
+--- from the root through its children ([`ast.children`], which passes by
+--- the fields `skipped` names), depth first, at its first reach.
+--- `parent` is the node it was first reached from. `reached` holds
+--- every node [`ast.walk`] reaches, which follows the fields `skipped`
+--- names too, in no promised order.
 local record Index
   order: {Node}
   parent: {Node: Node}
   kids: {Node: {Node}}
-  --- What `ast.walk` reaches from a node beyond `kids`: the nodes of
+  --- What [`ast.walk`] reaches from a node beyond `kids`: the nodes of
   --- the fields `skipped` names, and of a bare array in its array part.
   passed: {Node: {Node}}
   reached: {Node}
@@ -524,7 +538,7 @@ local function scope_of(n: Node, within: string, bound: {Node: string}): string
 end
 
 --- The name the exemption tables key the code of every node reached
---- through `index.order` under (`scope_of`), by node.
+--- through `index.order` under ([`scope_of`]), by node.
 local function scope_names(index: Index, bound: {Node: string}): {Node: string}
   local out: {Node: string} = {}
   local parent = index.parent
@@ -591,7 +605,7 @@ local function returns_of(fn: Node, index: Index): {Node}
 end
 
 --- Rules 2 to 5, over one function's declared results and returns. A
---- stand-in for a `cosmic.sys` binding keeps the binding's third slot,
+--- stand-in for a [`cosmic.sys`] binding keeps the binding's third slot,
 --- so rule 5 does not read it, nor does rule 2 read a return that
 --- hands the binding's whole answer on, errno and all.
 local function check_function(file: string, fn: Node, scope: string, exemptions: contracts.Exemptions,
@@ -608,7 +622,7 @@ local function check_function(file: string, fn: Node, scope: string, exemptions:
   if not effect and not value then return end
   local name = function_name(fn)
   -- TODO: mark an exemption used only where a rule 2 to 5 would have
-  -- refused the function, so one whose function now keeps the
+  -- refused the function, so an entry for a function that keeps the
   -- discipline is reported stale too; that wants the rules run whole
   -- and their problems dropped, rather than skipped at this lookup.
   if exemptions.exempt[file .. ":" .. scope] ~= nil then
@@ -726,7 +740,7 @@ local function standing(index: Index): {Node: boolean}
 end
 
 --- Every function literal a module stores into a field of a table of
---- C bindings (`binding_tables`): a stand-in for a binding, which
+--- C bindings ([`binding_tables`]): a stand-in for a binding, which
 --- answers in the binding's own shape. The table is known by the type
 --- the checker gave the field's owner, the record its module declares,
 --- whatever the owner is called.
@@ -839,9 +853,15 @@ local function unwrapped(n: Node | nil): Node | nil
   return nil
 end
 
---- Whether `n` is what a reason may be compared with: `""` or `nil`.
+--- Whether `n` is what a reason may be compared with: `""` or `nil`, or
+--- one of the two words every wait answers, [`Poll.TIMEOUT`] and
+--- [`Poll.CANCELLED`], which a caller tells a deadline or a cancel from
+--- a failure by.
 local function neutral(n: Node): boolean
-  return n.kind == "nil" or (n.kind == "string" and n.conststr == "")
+  if n.kind == "nil" or (n.kind == "string" and n.conststr == "") then return true end
+  local how, member = n.op, n.e2
+  return n.kind == "op" and how ~= nil and how.op == "." and is_name(n.e1, "Poll")
+    and member ~= nil and (member.tk == "TIMEOUT" or member.tk == "CANCELLED")
 end
 
 local comparing: {string: boolean} = {
@@ -970,23 +990,21 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
       end
     end
     local reading = inspected(n)
-    if #reading == 0 then
-      -- nothing read here
-    elseif exemptions.parsing[file .. ":" .. within] == nil then
-      for _, read in ipairs(reading) do reads[#reads + 1] = { read, n } end
-    else
-      used.parsing[file .. ":" .. within] = true
+    if #reading > 0 then
+      if exemptions.parsing[file .. ":" .. within] == nil then
+        for _, read in ipairs(reading) do reads[#reads + 1] = { read, n } end
+      else
+        used.parsing[file .. ":" .. within] = true
+      end
     end
   end
   for _, list in pairs(bindings) do
     table.sort(list, function(a: Binding, b: Binding): boolean return a.at < b.at end)
   end
-  --- Whether `name`, read at `at`, holds a reason. An alias is always
-  --- bound after the name it copies is read, so this only looks back.
-  --- Whether the assignment `list[i]`, in a block closed before `at`,
-  --- stored into a local declared in a block that has closed too: one
-  --- declared before it whose scope holds the assignment's block and
-  --- ends before `at`. Such a store is not what `at` reads.
+  --- Whether the assignment `list[i]` stored into a local whose scope
+  --- has closed before `at`: a declaration before it whose scope holds
+  --- the assignment's block and ends before `at`. Such a store is not
+  --- what `at` reads.
   local function into_closed(list: {Binding}, i: integer, at: integer): boolean
     local b = list[i]
     for j = i - 1, 1, -1 do
@@ -995,6 +1013,8 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
     end
     return false
   end
+  --- Whether `name`, read at `at`, holds a reason. An alias is always
+  --- bound after the name it copies is read, so this only looks back.
   local function holds_reason(name: string, at: integer): boolean
     local list = bindings[name] or {}
     for i = #list, 1, -1 do
@@ -1123,7 +1143,7 @@ end
 -- build.receivers keeping the declaring module of each record type.
 -- TODO: leave out a function-typed field of a nested record that a
 -- caller fills in (an options record's callback) rather than the
--- module: cosmic/archive.tl's `ExtractOptions.filter` is taken for one
+-- module: cosmic/archive.tl's [`ExtractOptions.filter`] is taken for one
 -- the module exports, passing rule 10 only because it answers one
 -- result. Telling it from a method the module defines wants the same
 -- declaring-site knowledge.
@@ -1436,8 +1456,8 @@ end
 --- A value read any other way is not followed: `o.x:match(...)` or
 --- `o.x:find(...)` telling modes apart, a lookup table keyed by it
 --- (`handlers[o.x]`), a field of another record it is copied into, or a
---- function that is not a local one (`R.f(o.x)`). No mode in the tree is
---- read so; one that is goes unchecked rather than refused.
+--- function that is not a local one (`R.f(o.x)`). Such a mode goes
+--- unchecked rather than refused.
 local function check_modes(file: string, root: Node, index: Index, records: {integer: Type},
                            exemptions: contracts.Exemptions, used: Used, problems: {string})
   local declared = string_fields(root)
@@ -1578,12 +1598,12 @@ local function stale(file: string, name: string, exemptions: {string: string},
   local prefix = file .. ":"
   local stubbed = "build/importer.tl:"
   for key in pairs(exemptions) do
-    if key:sub(1, #stubbed) == stubbed then
+    if String.starts_with(key, stubbed) then
       problems[#problems + 1] = string.format(
         "%s: contracts.%s names %s; no table may name a function of " ..
           "build/importer.tl, which a test's tree stubs",
         file, name, key)
-    elseif key:sub(1, #prefix) == prefix and not used[key] then
+    elseif String.starts_with(key, prefix) and not used[key] then
       problems[#problems + 1] = string.format(
         "%s: contracts.%s names %s, which no longer needs it; drop the entry",
         file, name, key)
@@ -1599,8 +1619,8 @@ end
 --- has just checked, `file:line: ...` each, in line order.
 --- @param file the module's path in the tree, for messages
 --- @param root the checked AST
---- @param typed the checker's types, as `build.receivers` kept them
---- @param quiet `quiet_records`' answer, when the caller has an environment
+--- @param typed the checker's types, as [`build.receivers`] kept them
+--- @param quiet [`quiet_records`]' answer, when the caller has an environment
 --- @param bindings the tables of C bindings the checker has loaded
 --- (`binding_tables(env)`), when the caller has an environment
 --- @param given the exemptions to hold the module to, in place of this

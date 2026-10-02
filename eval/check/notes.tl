@@ -5,7 +5,7 @@
 ---
 ---     cosmic --standalone eval/check/notes.tl <dir>
 ---
---- `eval/check/notes` runs this on the bootstrap cosmic, as bin/vendor
+--- [`eval/check/notes`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only. The
 --- arena's own `bin/cosmic` does the testing and building.
 ---
@@ -15,6 +15,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 
 local record Notes
   --- How many tests and examples passed.
@@ -51,7 +52,7 @@ function Notes.built_notes(output: string): boolean
     local wrote = line:match("^build: PASS %((.*)%)$")
     if wrote ~= nil then
       for name in wrote:gmatch("[^,]+") do
-        if name:match("^%s*(.-)%s*$") == "o/bin/notes" then
+        if String.trim(name) == "o/bin/notes" then
           return true
         end
       end
@@ -80,7 +81,7 @@ function Notes.reset_evidence(path: string): boolean, string
   elseif not present then
     return true, ""
   end
-  local db, otrouble = Sqlite.open(path, true)
+  local db, otrouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return false, otrouble
   end
@@ -179,7 +180,7 @@ local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   end)
 end
 
---- Runs `./notes` in `dir` with nothing in its environment but `env`,
+--- Runs [`./notes`] in `dir` with nothing in its environment but `env`,
 --- and checks that it exits 0 printing exactly `want` on stdout and
 --- stderr together.
 local function expect(g: Grade, dir: string, want: string, args: {string}, env?: {string: string})

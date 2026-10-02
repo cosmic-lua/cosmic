@@ -1,16 +1,16 @@
 --- Fenced code blocks out of a markdown doc, in document order. This
---- is the whole of what `build.doctest` reads from the markdown itself;
+--- is the whole of what [`build.doctest`] reads from the markdown itself;
 --- everything the grammar in doc/meta.md means by a block's tag
 --- (`teal`, `lua`, `output`, `text`, and the `continue`/`file=`/
 --- `skip=` modifiers on `teal`/`lua`) is decided here, once, so
---- `build.doctest.generate` never re-parses a tag string.
+--- [`build.doctest.generate`] never re-parses a tag string.
 ---
 --- Prose outside a fence is not read at all: a line only matters here
 --- once it opens or closes a fence, or is a whole line
 --- `<!-- needs: <fields> -->`, what the doc's examples read beyond
---- their default inputs (`cosmic.test`'s `needs`), which renders as
+--- their default inputs ([`cosmic.test`]'s `needs`), which renders as
 --- nothing and comes back as a block of its own, `needs`, holding
---- `<fields>`. The `<!-- inputs: ... -->` it replaced is refused.
+--- `<fields>`. A `<!-- inputs: ... -->` line is refused.
 ---
 --- A fence opens with a backtick or tilde run of at least three. It
 --- closes with the same marker in a run at least as long as the opener.
@@ -127,12 +127,9 @@ end
 --- Whether `line`, already ruled out as a column-0 fence opener, still
 --- looks like one that was meant to be: an indented run of three or
 --- more backticks or tildes. CommonMark allows a fence indented up to
---- three spaces (stripping that indentation from its content); this
---- grammar does not, and silently treating such a line as prose would
---- reproduce the exact silent-gap shape `~~~` support just closed for
---- unindented fences -- a doc author's example quietly never compiled
---- or ran, with nothing to say so. Loud refusal here stands in for that
---- support until indentation is worth handling for real.
+--- three spaces; this grammar does not. Treating such a line as prose
+--- would leave the author's example silently never compiled or run, so
+--- it is refused loudly instead.
 local function looks_like_an_indented_fence(line: string): boolean
   local indented = line:match("^%s+(.*)$")
   if indented == nil then
@@ -191,7 +188,7 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
       if not closed then
         return nil, "line " .. open_line .. ": a fenced code block never closes"
       end
-      local trimmed = fence.info:match("^%s*(.-)%s*$") or ""
+      local trimmed = String.trim(fence.info)
       local tag, tag_trouble = parse_tag(trimmed)
       if tag == nil then
         return nil, "line " .. open_line .. ": " .. tag_trouble

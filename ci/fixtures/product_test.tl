@@ -1,5 +1,34 @@
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
+local Test = require("cosmic.test")
+
+-- The product (COSMIC_FIXTURE_PRODUCT), each file of it the test reads,
+-- so every byte it checks is in the verdict's key and no verdict stands
+-- for a product it was not reached on (cosmic_ci/orchestration.tl's
+-- `sandboxed_fixtures`); and the target's format decoder
+-- (COSMIC_FIXTURE_FORMAT). A file of another target's is not there, and
+-- is keyed as missing. `system`: the applications launch through /bin/sh,
+-- and macOS's leg runs /usr/bin/codesign (COSMIC_FIXTURE_CODESIGN).
+Test.needs{
+  host = {
+    "$COSMIC_FIXTURE_PRODUCT/cosmic",
+    "$COSMIC_FIXTURE_PRODUCT/hashes.sha256",
+    "$COSMIC_FIXTURE_PRODUCT/prefix",
+    "$COSMIC_FIXTURE_PRODUCT/manifest",
+    "$COSMIC_FIXTURE_PRODUCT/apps/hello",
+    "$COSMIC_FIXTURE_PRODUCT/apps/second",
+    "$COSMIC_FIXTURE_PRODUCT/cosmic.db",
+    "$COSMIC_FIXTURE_PRODUCT/targets.tsv",
+    "$COSMIC_FIXTURE_PRODUCT/cores/x86_64-linux-musl/cosmic-core",
+    "$COSMIC_FIXTURE_PRODUCT/cores/aarch64-linux-musl/cosmic-core",
+    "$COSMIC_FIXTURE_PRODUCT/cores/aarch64-macos/cosmic-core",
+    "$COSMIC_FIXTURE_FORMAT/format-test-x86_64-linux-musl",
+    "$COSMIC_FIXTURE_FORMAT/format-test-aarch64-linux-musl",
+    "$COSMIC_FIXTURE_FORMAT/format-test-aarch64-macos",
+  },
+  env = { "COSMIC_FIXTURE_TARGET", "COSMIC_FIXTURE_CODESIGN" },
+  system = true,
+}
 
 local function expected_hashes(product: string): {string:string}
   local hashes: {string:string} = {}
@@ -34,7 +63,8 @@ end
 local function test_transported_product(tmp: string)
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT")
   local target_name = Fixture.required("COSMIC_FIXTURE_TARGET")
-  local decoder = Fixture.required("COSMIC_FIXTURE_DECODER")
+  local decoder = Fixture.required("COSMIC_FIXTURE_FORMAT") .. "/format-test-" ..
+    target_name
   local codesign = Fixture.required("COSMIC_FIXTURE_CODESIGN") == "true"
   for _, executable in ipairs({ product .. "/cosmic",
       product .. "/apps/hello", product .. "/apps/second", decoder }) do

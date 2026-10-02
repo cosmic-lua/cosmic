@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local State = require("cosmic_ci.state")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
+local String = require("cosmic.string")
 
 local record Fuzz
   --- One fuzz run: the checkout it runs in, the runner's scratch, the
@@ -48,7 +49,7 @@ function Fuzz.discover(root: string): {string}
   local tests: {string} = {}
   for _, entry in ipairs(found) do
     local name = Fs.basename(entry)
-    if #name >= #suffix and name:sub(-#suffix) == suffix then
+    if String.ends_with(name, suffix) then
       tests[#tests + 1] = "./" .. entry
     end
   end
@@ -63,10 +64,10 @@ local function joined(from: {string}, limit: integer): string
   return table.concat(out)
 end
 
---- Calls `each` with every line `next_chunk` answers, as grep reads
---- them -- a last line without a newline is a line too -- each cut to
---- `cut` bytes, so a line of any length takes no more than that; until
---- `next_chunk` answers "" or `each` answers true.
+--- Calls `each` with every line `next_chunk` answers, as grep reads them
+--- (a last line without a newline is a line too), each cut to `cut`
+--- bytes so that a line of any length takes no more than that. Stops
+--- when `next_chunk` answers "" or `each` answers true.
 local function each_line(next_chunk: function(): string,
     each: function(string): boolean)
   local line: {string} = {}
@@ -127,7 +128,7 @@ function Fuzz.failure(next_chunk: function(): string, seed: string): string
     joined(reports, report_lines) .. "~~~~\n"
 end
 
---- The chunks of the file `path` holds, as `Fuzz.failure` reads them,
+--- The chunks of the file `path` holds, as [`Fuzz.failure`] reads them,
 --- until the end, and a function that closes it.
 local type Next = function(): string
 local type Close = function()
@@ -190,7 +191,7 @@ function Fuzz.tail(path: string): {string} | nil
 end
 
 --- What a cancelled run's summary says: the end of the output the run
---- kept, as `Fuzz.tail` answers it, or none when it kept none.
+--- kept, as [`Fuzz.tail`] answers it, or none when it kept none.
 function Fuzz.cancelled_summary(tail: {string} | nil): string
   return "\nCancelled, at the time limit or by hand, before fuzzing finished:" ..
     " a property\nthat hangs is the likeliest cause. The end of its output:\n\n" ..
@@ -199,13 +200,13 @@ end
 
 --- Runs `argv` with both its streams written to `out`, copying what it
 --- writes there to `log` as it goes, and answers its status as a shell
---- would: its exit code, 128 and the signal that ended it, or, when it
+--- would: its exit code, 128 plus the signal that ended it, or, when it
 --- could not start, 127 for an executable that is not there and 126 for
 --- one that is. A SIGINT or SIGTERM this process gets meanwhile is
 --- passed on to the child, and caught until `guard` closes. Each round
 --- copies at most `round_chunks` chunks before it looks for a signal
 --- and the child's exit again, so a child that writes faster than the
---- copy keeps up cannot hold a signal back; it sleeps only once the
+--- copy keeps up cannot hold a signal back. It sleeps only once the
 --- copy has caught up, and copies the rest once the child has exited.
 -- TODO: copy the child's output from a pipe as it arrives, rather than
 -- polling the file it writes every `poll_ns`, once ci/cosmic-driver.pin

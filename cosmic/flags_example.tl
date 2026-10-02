@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.flags`, shown by `cosmic docs` under the
+--- Worked examples for [`cosmic.flags`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -36,17 +36,22 @@ function Example.dispatch()
   assert(ran == nil and why == "no such command: biuld")
 end
 
---- Help written from the spec: each option described by a
---- `Flags.Option`, and the program's usage line and what it does.
+--- Help written from a command: each option described by a
+--- [`Flags.Option`], and the command's usage line and what it does.
 function Example.help()
   local spec: {string:boolean | Flags.Option} = {
     ["--jobs"] = { value = "n", about = "run n at once" },
     ["-v"] = { about = "say more" },
   }
-  local help = Flags.help("count [options] <file>...", spec, "Counts the lines of each file.")
+  local count: Flags.Command = {
+    spec = spec,
+    usage = "[options] <file>...",
+    about = "Counts the lines of each file.",
+  }
+  local help = Flags.help(count, "prog count")
   print(help)
   assert(help == table.concat({
-    "usage: count [options] <file>...",
+    "usage: prog count [options] <file>...",
     "",
     "Counts the lines of each file.",
     "",

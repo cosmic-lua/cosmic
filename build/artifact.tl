@@ -3,16 +3,24 @@
 --- `prefix` consumes build.zig's generated target records and the exact raw
 --- cores. It generates both the shell case arms and binary manifest from that
 --- one sequence. `program` appends one SQLite database and the fixed trailer.
---- `host_program` lays out the other format: the running core alone, at the
+--- [`host_program`] lays out the other format: the running core alone, at the
 --- start of the file, then its manifest, database and trailer, so the kernel
 --- executes it directly with no launcher.
 --- None of them writes a path; callers publish the returned bytes through
 --- the repository's existing atomic file writer.
 
-local Codec = require("cosmic.codec")
-local Hash = require("cosmic.hash")
+local core_image = require("build.core_image")
+local hashing = require("build.digest")
+local key_parts = require("build.key_parts")
 local launcher_template = require("build.launcher")
 local type raw_store = require("cosmic.internal.store")
+local String = require("cosmic.string")
+
+-- Hashed and spelled through build.digest and build.key_parts, not
+-- cosmic.hash or cosmic.codec: a verdict key that holds a program's
+-- identity (build.declared_key) turns on no library module outside the
+-- harness (build.test's `harness`).
+local sha256, hex = hashing.sha256, key_parts.hex
 
 local extra: any = select(2, ...)
 local trusted_store: raw_store | nil = nil
@@ -28,7 +36,7 @@ local record artifact
     head: string
     --- The SQLite database the artifact carries.
     database: string
-    --- Whether it is a host program (`host_program`) rather than a
+    --- Whether it is a host program ([`host_program`]) rather than a
     --- portable one (`program`).
     host: boolean
   end
@@ -123,7 +131,7 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
       uname_arch = uname_arch,
       offset = 0,
       length = #image,
-      digest = Hash.sha256(image),
+      digest = sha256(image),
     }
   end
   if #targets == 0 or #targets > max_entries then
@@ -151,7 +159,7 @@ local function launcher(targets: {Target}, test_hooks: boolean,
         target.uname_os, target.uname_arch, target.uname_os, target.target_id,
         target.configuration_id, target.offset, target.offset // core_alignment,
         target.length,
-        Codec.hex(target.digest))
+        hex(target.digest))
     end
   end
   if #arms == 0 then
@@ -238,7 +246,7 @@ end
 
 --- Appends a database and the v1 trailer to prefix bytes made by `prefix`.
 function artifact.program(prefix: string, database: string): string | nil, string
-  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
+  if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
     return nil, "portable program database has no SQLite header"
   end
   if #prefix < shell_length + manifest_length then
@@ -266,7 +274,7 @@ end
 --- a manifest naming it as the one entry, then `database` and a trailer
 --- whose magic says host. It runs only where that core does.
 function artifact.host_program(core: raw_store.Core, database: string): string | nil, string
-  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
+  if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
     return nil, "host program database has no SQLite header"
   end
   if #core.bytes == 0 or #core.digest ~= 32 then
@@ -325,7 +333,7 @@ function artifact.split(bytes: string): artifact.Split | nil, string
     return nil, "the artifact's manifest and trailer disagree on where its database starts"
   end
   local database = bytes:sub(database_offset + 1, database_offset + database_length)
-  if database:sub(1, #sqlite_header) ~= sqlite_header then
+  if not String.starts_with(database, sqlite_header) then
     return nil, "the artifact's database has no SQLite header"
   end
   return {
@@ -335,11 +343,89 @@ function artifact.split(bytes: string): artifact.Split | nil, string
   }, ""
 end
 
+--- What of `head`, an artifact's bytes ahead of its database (`split`),
+--- a verdict's key holds. It is `head` itself, unless a core its
+--- manifest names carries debug information (build.core_image), which is
+--- keyed by its image instead. Then it is `head` with each core stood
+--- for by its image's digest ([`core_image.digest`]).
+---
+--- The fields that say where the cores lie and what their bytes hash to
+--- are left out where they name exactly what is there: the manifest's
+--- offsets, lengths, digests and prefix length, and a launcher arm's
+--- `cosmic_offset`, `cosmic_block`, `cosmic_length` and `cosmic_sha256`.
+--- Which bytes a launcher extracts, and whether they are the ones its
+--- manifest names, is then the image it runs, whatever its debug
+--- information weighs. The padding between the cores is held to zeros,
+--- and the comment that pads the launcher is left out. A head that is
+--- not so, in any part, is keyed whole.
+function artifact.keyed_head(head: string): string
+  if #head < manifest_length then return head end
+  local manifest_offset = #head - manifest_length
+  local manifest_at = manifest_offset + 1
+  if head:sub(manifest_at, manifest_at + 7) ~= manifest_magic then return head end
+  local manifest_version, encoded_length, prefix_length, count, size, at =
+    string.unpack(">I4I4I8I4I4", head, manifest_at + 8)
+  if manifest_version ~= version or encoded_length ~= manifest_length or
+     prefix_length ~= #head or count < 1 or count > max_entries or size ~= entry_length then
+    return head
+  end
+  local shell_end = -1
+  local was_end = 0
+  local imaged = false
+  local entries: {string} = {}
+  local gaps: {string} = {}
+  local arms: {{string}} = {}
+  local cores: {{string}} = {}
+  for _ = 1, count do
+    local target, configuration, offset, length: integer, integer, integer, integer
+    target, configuration, offset, length, at = string.unpack(">I4I4I8I8", head, at)
+    local digest = head:sub(at, at + 31)
+    at = at + 32
+    -- An unsigned 64-bit field past math.maxinteger reads as negative.
+    if offset < was_end or length <= 0 or offset > manifest_offset - length then
+      return head
+    end
+    if shell_end < 0 then shell_end = offset else gaps[#gaps + 1] = head:sub(was_end + 1, offset) end
+    local core = head:sub(offset + 1, offset + length)
+    local image = core_image.digest(core)
+    if image ~= nil then imaged = true end
+    cores[#cores + 1] = { core, digest }
+    local keyed = image ~= nil and ("i" .. image) or ("b" .. digest)
+    entries[#entries + 1] = string.pack(">I4I4", target, configuration) .. keyed
+    arms[#arms + 1] = { string.format("cosmic_offset=%d; cosmic_block=%d; cosmic_length=%d; " ..
+      "cosmic_sha256=%s ", offset, offset // core_alignment, length, hex(digest)),
+      "cosmic_core=" .. hex(keyed) .. " " }
+    was_end = offset + length
+  end
+  if not imaged then return head end
+  for _, core in ipairs(cores) do
+    if sha256(core[1]) ~= core[2] then return head end
+  end
+  gaps[#gaps + 1] = head:sub(was_end + 1, manifest_offset)
+  for _, gap in ipairs(gaps) do
+    if gap:find("[^\0]") ~= nil then return head end
+  end
+  local shell = head:sub(1, shell_end)
+  for _, arm in ipairs(arms) do
+    local found = shell:find(arm[1], 1, true)
+    if found ~= nil then
+      if shell:find(arm[1], found + 1, true) ~= nil then return head end
+      shell = shell:sub(1, found - 1) .. arm[2] .. shell:sub(found + #arm[1])
+    end
+  end
+  -- The comment that pads the launcher to its fixed length (`launcher`)
+  -- is as long as those fields' digits leave it.
+  shell = shell:gsub("\n# *\n$", "\n#\n")
+  return table.concat({ "cosmic-head-image-v1\0", shell, "\0",
+    head:sub(manifest_at, manifest_at + 15), string.pack(">I4I4", count, size),
+    table.concat(entries), head:sub(at, #head) })
+end
+
 --- The artifact `split` read `parts` from, with `database` in place of
 --- its own: the same head, and a trailer of the same kind whose last
 --- field is the new database's length.
 function artifact.rejoin(parts: artifact.Split, database: string): string | nil, string
-  if database:sub(1, #sqlite_header) ~= sqlite_header then
+  if not String.starts_with(database, sqlite_header) then
     return nil, "the new database has no SQLite header"
   end
   local manifest_offset = #parts.head - manifest_length

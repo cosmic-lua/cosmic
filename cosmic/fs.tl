@@ -11,7 +11,7 @@
 --- answers a plain value; `relative` answers nil and why when the path
 --- is not within the directory.
 ---
---- The syscall table itself is `cosmic.sys`. A call this module does not
+--- The syscall table itself is [`cosmic.sys`]. A call this module does not
 --- wrap -- `lstat`, `chdir`, `pread` and others -- is there, and
 --- `cosmic docs cosmic.sys` lists every one.
 
@@ -22,15 +22,58 @@ local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
 
+  --- A file at a path being written through a temporary neighbor and a
+  --- rename, as [`Fs.create`] returns it: a [`cosmic.stream`] Writer
+  --- (`write`, `close` and `abort`) that can also `sync`. Every failure
+  --- names the path, never the temporary file, and is sticky.
+  interface Staged
+    --- Appends `data`: false and why when it cannot all be written.
+    write: function(Staged, string): boolean, string
+    --- Flushes what was written to storage, so that the rename `close`
+    --- makes cannot reach it before the data does.
+    sync: function(Staged): boolean, string
+    --- Renames the file onto its path: false and why when a write
+    --- failed, or the rename or the closing of the file does. Safe to
+    --- call more than once; after `abort` it renames nothing and
+    --- answers true.
+    close: function(Staged): boolean, string
+    --- Removes the temporary file and leaves the path as it was. Safe
+    --- to call more than once.
+    abort: function(Staged): boolean, string
+  end
+
+  --- What [`Fs.cache_dir`] reads.
+  record CacheOptions
+    --- The variables to read (`XDG_CACHE_HOME`, `HOME`), by name; the
+    --- process's own when nil.
+    environment: {string:string}
+    --- Whether to make and check the directory; true when nil. False
+    --- answers the name alone.
+    make: boolean
+  end
+
+  --- The descriptor of standard input, 0: what [`Fs.take`] reads from.
   stdin: integer
+  --- The descriptor of standard output, 1: what [`Fs.put`] writes to.
   stdout: integer
+  --- The descriptor of standard error, 2: what [`Fs.put`] writes to.
   stderr: integer
 end
 
 local chunk_size = 1 << 16
 
---- The whole of a file as bytes. Use this for the common io.open/io.read or
---- io.lines case when streaming and Lua file handles are unnecessary.
+-- TODO: read through Stream.read_all, and copy_bytes through Stream.copy,
+-- so that read-to-end is one loop and the write loop below is
+-- Stream.to_fd's, once cosmic.fs may require cosmic.stream: cosmic.fs
+-- is a harness module (build/harness_epoch.tl's `library` lists it for
+-- the worker's reads, binds and report), the harness reaches no other
+-- cosmic.* module than `library` names, and cosmic.stream, with the
+-- cosmic.hash, cosmic.poll and cosmic.time it requires, is none of
+-- them; cosmic.stream also requires cosmic.fs today, a cycle its
+-- reads and writes through sys would end.
+--- Reads the whole of a file as bytes, loading it in one call. Use this for
+--- the common io.open/io.read or io.lines case when streaming and Lua file
+--- handles are unnecessary.
 function Fs.read(path: string): string | nil, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
@@ -64,7 +107,10 @@ function Fs.read(path: string): string | nil, string
   return table.concat(parts), ""
 end
 
-local function write_all(fd: integer, data: string): boolean, string
+--- Writes all of `data` to `fd`; a write that moves nothing fails
+--- "`blame`write made no progress", `blame` being "fs: " where no caller
+--- names the file.
+local function write_all(fd: integer, data: string, blame: string): boolean, string
   local at = 1
   while at <= #data do
     -- The whole string the first time, rather than a copy of it.
@@ -74,39 +120,121 @@ local function write_all(fd: integer, data: string): boolean, string
       return false, trouble
     end
     if put == 0 then
-      return false, "write made no progress"
+      return false, blame .. "write made no progress"
     end
     at = at + put
   end
   return true, ""
 end
 
---- Writes all bytes, replacing the path. This is the whole-file alternative
---- to io.open/io.write. Replaces a file atomically for readers, and leaves the old contents in
---- place if anything before the rename fails. This provides atomic visibility,
---- not crash durability: neither the file nor its directory is synchronized.
-function Fs.write(path: string, data: string, mode?: integer): boolean, string
-  local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
-  if temporary == nil then
-    return false, path .. ": " .. trouble
+--- What [`Fs.create`] returns: its methods live on one shared
+--- metatable, so creating a file costs a table, not four closures.
+local record StagedFile is Fs.Staged
+  path: string
+  temporary: sys.TemporaryFile
+  failed: string
+  closed: boolean
+end
+
+local StagedFile_methods: {string:any} = {}
+local staged_mt: metatable<StagedFile> = { __index = StagedFile_methods }
+
+--- Remembers `why` as the file's failure, naming the caller's path: a
+--- failure is sticky, and never names the temporary file, which the
+--- caller never chose and which is gone when it reads the message.
+local function failing(self: StagedFile, why: string): string
+  self.failed = self.path .. ": " .. why
+  return self.failed
+end
+
+StagedFile_methods.write = function(self: StagedFile, data: string): boolean, string
+  if self.closed then return false, self.path .. ": the file is closed" end
+  if self.failed then return false, self.failed end
+  local ok, why = write_all(self.temporary.fd, data, "")
+  if not ok then return false, failing(self, why) end
+  return true, ""
+end
+
+StagedFile_methods.sync = function(self: StagedFile): boolean, string
+  if self.closed then return false, self.path .. ": the file is closed" end
+  if self.failed then return false, self.failed end
+  local ok, why = sys.fsync(self.temporary.fd)
+  if not ok then return false, failing(self, why) end
+  return true, ""
+end
+
+StagedFile_methods.abort = function(self: StagedFile): boolean, string
+  if self.closed then return true, "" end
+  self.closed = true
+  local _, _ = sys.close(self.temporary.fd)
+  local _, _ = sys.unlink(self.temporary.path)
+  return true, ""
+end
+
+StagedFile_methods.close = function(self: StagedFile): boolean, string
+  local temporary = self.temporary
+  if self.closed then
+    if self.failed then return false, self.failed end
+    return true, ""
   end
-  local ok, failure = write_all(temporary.fd, data)
-  if not ok then
+  self.closed = true
+  if self.failed then
     local _, _ = sys.close(temporary.fd)
     local _, _ = sys.unlink(temporary.path)
-    return false, temporary.path .. ": " .. failure
+    return false, self.failed
   end
-  local closed, close_failure = sys.close(temporary.fd)
+  local closed, close_trouble = sys.close(temporary.fd)
   if not closed then
     local _, _ = sys.unlink(temporary.path)
-    return false, temporary.path .. ": " .. close_failure
+    return false, failing(self, close_trouble)
   end
-  local moved, why = sys.rename(temporary.path, path)
+  local moved, why = sys.rename(temporary.path, self.path)
   if not moved then
     local _, _ = sys.unlink(temporary.path)
-    return false, path .. ": " .. why
+    return false, failing(self, why)
   end
   return true, ""
+end
+
+--- Starts writing a file at `path`: bytes go to a new temporary neighbor,
+--- created exclusively (so two writers never share one and a planted
+--- symlink is never followed), which `close` renames onto `path`, so a
+--- reader of `path` sees the old contents or the new, never a mix. A
+--- failure, or `abort`, leaves `path` as it was and removes the
+--- temporary file. The file is always a new one, so it gets `mode`
+--- (default 0644, less the umask) and never keeps an existing file's
+--- mode. Nothing is synced unless `sync` is called, so a crash can
+--- still lose the write. [`Stream.create`] is this, as a
+--- [`cosmic.stream`] Writer.
+function Fs.create(path: string, mode?: integer): Fs.Staged | nil, string
+  local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
+  if temporary == nil then
+    return nil, path .. ": " .. trouble
+  end
+  local staged: StagedFile = setmetatable({
+    path = path, temporary = temporary, closed = false,
+  }, staged_mt)
+  return staged, ""
+end
+
+--- Writes `data` to `path` through a temporary file and a rename, in
+--- place of io.open/io.write: [`Fs.create`], one write and the close. A
+--- reader sees the old contents or the new, never a mix, and a
+--- failure before the rename leaves the old file. The file is always a
+--- new one, so it gets `mode` (default 0644, less the umask) and never
+--- keeps an existing file's mode. Nothing is synced, so a crash can
+--- still lose the write.
+function Fs.write(path: string, data: string, mode?: integer): boolean, string
+  local file, trouble = Fs.create(path, mode)
+  if file == nil then
+    return false, trouble
+  end
+  local ok, why = file:write(data)
+  if not ok then
+    local _, _ = file:abort()
+    return false, why
+  end
+  return file:close()
 end
 
 --- Metadata for a path, or nil and an error if it cannot be inspected.
@@ -189,9 +317,9 @@ function Fs.mkdirs(path: string): boolean, string
   return false, path .. ": " .. why
 end
 
---- A fresh, empty directory under the system temp directory, named with
---- `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the temp
---- directory when it is set, and `/tmp` otherwise.
+--- A fresh, empty temporary directory under the system temp directory,
+--- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
+--- temp directory when it is set, and `/tmp` otherwise.
 function Fs.mkdtemp(prefix: string): string | nil, string
   local base = Env.get_or("TMPDIR", "/tmp")
   local template = base .. "/" .. prefix .. "XXXXXX"
@@ -227,7 +355,7 @@ local function private_dir(path: string): boolean, string
   return true, ""
 end
 
---- The base `Fs.cache_path` and `Fs.cache_dir` put `cosmic` under.
+--- The base [`Fs.cache_dir`] puts `cosmic` under.
 local function cache_base(environment?: {string:string}): string | nil, string
   local function get(name: string): string
     if environment ~= nil then
@@ -239,21 +367,11 @@ local function cache_base(environment?: {string:string}): string | nil, string
   if base:sub(1, 1) ~= "/" then
     local home = get("HOME")
     if home:sub(1, 1) ~= "/" then
-      return nil, "no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
+      return nil, "fs: no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
     end
     base = home .. "/.cache"
   end
   return base, ""
-end
-
---- Where `Fs.cache_dir` keeps `tool`'s cache, read from the environment
---- alone: nothing is made, looked at or checked, so it may not be there.
-function Fs.cache_path(tool: string, environment?: {string:string}): string | nil, string
-  local base, trouble = cache_base(environment)
-  if base == nil then
-    return nil, trouble
-  end
-  return base .. "/cosmic/" .. tool, ""
 end
 
 --- `$XDG_CACHE_HOME/cosmic/<tool>`, or `$HOME/.cache/cosmic/<tool>`
@@ -263,12 +381,20 @@ end
 --- path this is nil and an error, as it is when the base directory is
 --- owned by another user (root aside), or `cosmic` or `cosmic/<tool>`
 --- under it is owned by another user or writable by its group or by
---- others. The two are made 0700 when missing. `environment` is the
---- variables to read, by default the process's own.
-function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil, string
+--- others. The two are made 0700 when missing. `opts.environment` is
+--- the variables to read, by default the process's own. With
+--- `opts.make` false only the name is answered, from the environment
+--- alone: nothing is made, looked at or checked, so the directory may
+--- not be there.
+function Fs.cache_dir(tool: string, opts?: Fs.CacheOptions): string | nil, string
+  local environment = opts ~= nil and opts.environment or nil
   local base, base_trouble = cache_base(environment)
   if base == nil then
     return nil, base_trouble
+  end
+  local dir = base .. "/cosmic"
+  if opts ~= nil and opts.make == false then
+    return dir .. "/" .. tool, ""
   end
   local made, trouble = Fs.mkdirs(base)
   if not made then
@@ -281,7 +407,6 @@ function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil
   if st.uid ~= sys.getuid() and st.uid ~= 0 then
     return nil, base .. ": owned by another user"
   end
-  local dir = base .. "/cosmic"
   for _, path in ipairs({ dir, dir .. "/" .. tool }) do
     local ok, ptrouble = private_dir(path)
     if not ok then
@@ -367,7 +492,7 @@ local record Pending
   above: Above
 end
 
---- Both walks: `Fs.walk`, and with `follow`, `Fs.walk_following`.
+--- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
 local function walk(root: string, skip: function(string, string, string): boolean,
                     follow: boolean): {string} | nil, string
   local found: {string} = {}
@@ -423,15 +548,16 @@ end
 --- `find root -type f` lists them: a link is neither listed nor
 --- walked into, whatever it leads to.
 --- `skip` is asked about each entry's relative path, its bare name
---- second, and what the listing says it is third (`"file"`, `"dir"`,
---- `"link"` or `"other"`), and may refuse a whole directory. The
+--- second, and what the listing says it is third, as [`Fs.stat`]'s
+--- `kind` names it (`"file"`, `"dir"`, `"link"`, `"socket"` and so
+--- on), and may refuse a whole directory. The
 --- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
                  skip?: function(string, string, string): boolean): {string} | nil, string
   return walk(root, skip, false)
 end
 
---- Every file under a root as `Fs.walk` lists them, but with each link
+--- Every file under a root as [`Fs.walk`] lists them, but with each link
 --- taken for what it leads to, as `find -L root -type f` lists them: a
 --- link to a file is listed as a file, under the link's own path, and a
 --- link to a directory is walked into. A link that leads nowhere (or to
@@ -441,7 +567,7 @@ end
 --- than failing it. As with `find -L`, a file reached along several
 --- paths (a diamond of links) is listed once per path, and a link to a
 --- directory above the root is walked in full, but for the directories
---- the walk is already inside. `skip` is asked as `Fs.walk` asks it,
+--- the walk is already inside. `skip` is asked as [`Fs.walk`] asks it,
 --- before a link is followed, so it is told `"link"` and may refuse
 --- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
@@ -477,7 +603,7 @@ function Fs.chmod(path: string, mode: integer): boolean, string
   if mode < 0 or mode > 0xfff then
     local shown = (mode > 0 and math.tointeger(mode) ~= nil) and string.format("0x%x", mode) or
       tostring(mode)
-    error("chmod: mode " .. shown .. " is outside 0 to 0xfff", 2)
+    error("fs: mode " .. shown .. " is outside 0 to 0xfff", 2)
   end
   local changed, trouble = sys.chmod(path, mode)
   if not changed then
@@ -488,7 +614,7 @@ end
 
 --- The Lua io module and io.open handles are unavailable. This opens a file
 --- for reading and returns an integer descriptor instead. Most callers want
---- `Fs.read`; use Fs.take and Fs.close when a file must be read in pieces.
+--- [`Fs.read`]; use Fs.take and Fs.close when a file must be read in pieces.
 function Fs.open_read(path: string): integer | nil, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
@@ -500,6 +626,9 @@ end
 --- Opens a file for writing, creating it and emptying it, and returns an
 --- integer descriptor rather than an io.open file handle. Use Fs.put and
 --- Fs.close; Fs.write is safer when the whole replacement is available.
+--- `mode` is the permission bits of a file this call creates, as an
+--- integer (0x1a4 for 0644, the default), less the process's umask; an
+--- existing file keeps its own.
 function Fs.open_write(path: string, mode?: integer): integer | nil, string
   local flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
   local fd, trouble = sys.open(path, flags, mode or 0x1a4)
@@ -532,7 +661,7 @@ end
 --- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
 --- are the standard-stream descriptors used instead of io.write/io.output.
 function Fs.put(fd: integer, data: string): boolean, string
-  return write_all(fd, data)
+  return write_all(fd, data, "fs: ")
 end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is
@@ -561,22 +690,11 @@ end
 --- target. `ns` outside [0, 1e9) raises.
 function Fs.set_mtime(path: string, seconds: integer, ns?: integer): boolean, string
   if ns ~= nil and (ns < 0 or ns >= 1000000000) then
-    error("bad argument #3 to 'set_mtime' (nanoseconds outside [0, 1e9))", 2)
+    error("fs: nanoseconds are outside [0, 1e9)", 2)
   end
   local set, trouble = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then
     return false, path .. ": " .. trouble
-  end
-  return true, ""
-end
-
---- Sets a descriptor's file to exactly `length` bytes, cutting it short
---- or extending it with zero bytes. The descriptor must be open for
---- writing; a negative length raises.
-function Fs.truncate(fd: integer, length: integer): boolean, string
-  local ok, trouble = sys.ftruncate(fd, length)
-  if not ok then
-    return false, trouble
   end
   return true, ""
 end
@@ -634,6 +752,11 @@ local function copy_bytes(from: string, to: string): boolean, string
   return true, ""
 end
 
+-- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
+-- ino, dev and nlink; it needs a map from (dev, ino) to the first copy
+-- and a binding for link(2)), and the owner when run as root (once
+-- cosmic.sys carries lchown).
+
 --- Copies the tree at `from` to a new `to`, as `cp -Rp` does: each
 --- regular file's bytes, each directory, and each symbolic link as a link to the
 --- same target, never followed. Every permission bit is kept, the umask
@@ -645,10 +768,6 @@ end
 --- else in the tree (a device, a socket, a named pipe) stops the copy
 --- with its path, and a copy that stops leaves what it made so far in
 --- place.
--- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
--- ino, dev and nlink; it needs a map from (dev, ino) to the first copy
--- and a binding for link(2)), and the owner when run as root (once
--- cosmic.sys carries lchown).
 function Fs.copy_tree(from: string, to: string): boolean, string
   local present, present_trouble, number = sys.lstat(to)
   if present ~= nil then

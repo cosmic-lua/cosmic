@@ -1,0 +1,60 @@
+# The test modules whose code under test takes a path only macOS takes,
+# one a line from the checkout's root. On the macOS leg's gating runs,
+# which stand on verdicts keyed by what each test declares, these run
+# every time all the same (cosmic_ci/orchestration.tl's `darwin_words`):
+# a Linux leg's verdict stands for the same key on macOS, but it never
+# ran their macOS branch. The scheduled run's `--all` is the backstop
+# for every other test. cosmic_ci/orchestration_test.tl holds each line
+# to a test module of the tree.
+#
+# The core's platform-conditional C: darwin and aarch64 C is neither
+# sanitized (orchestration.tl's `checked_suite` runs the checked core on
+# linux-x86_64 alone) nor checked by `fix` (build/c/init.tl compiles
+# each file for the host's target alone). Nor are build/c_functions.tl's
+# Darwin exemptions tallied here: only a whole run, the scheduled one's,
+# tallies which C functions a test entered.
+#
+# spawn by posix_spawn where Linux clones: its descriptors, directory,
+# process group, mask and SIGPIPE given as file actions and attributes,
+# the rest closed by POSIX_SPAWN_CLOEXEC_DEFAULT, exec's errno as
+# posix_spawn's own, and the soft descriptor limit lowered around the
+# call; confine, pledge, unveil, offline and subreaper refused ENOSYS
+# (core/syscalls.c's `spawn_program`).
+core/syscalls_test.tl
+core/syscalls_sigpipe_test.tl
+core/syscalls_tool_test.tl
+core/descriptor_limit_system_test.tl
+cosmic/child_test.tl
+cosmic/child_lua_test.tl
+cosmic/child_tool_test.tl
+# Signals a child starts with: a caught one at its default through
+# exec, an ignored one ignored but SIGPIPE (core/syscalls.c's
+# `spawn_program`).
+cosmic/child_signal_test.tl
+# The artifact's descriptor refused without openat2, and the executable
+# found by _NSGetExecutablePath rather than /proc/self/exe
+# (core/syscalls_fs.c, core/executable.c).
+core/artifact_fd_test.tl
+core/artifact_fd_tool_test.tl
+cosmic/proc_tool_test.tl
+# A portable launch adopted through cosmic_executable_fd
+# (_NSGetExecutablePath) and cosmic_environment_clear_reserved
+# (_NSGetEnviron) (core/startup.c).
+core/startup_test.tl
+# Times from st_mtimespec and st_atimespec, and mkdtemp under
+# _DARWIN_C_SOURCE (core/syscalls_fs.c).
+cosmic/fs_test.tl
+#
+# Teal that branches on the host's system name ("Darwin"): the host's
+# identity and system sources (build/declared_key.tl), a run keyed by
+# declarations with no sandbox, and codesign's real check
+# (build/verify_codesign.tl).
+build/declared_key_test.tl
+build/declared_unenforced_test.tl
+build/verify_codesign_test.tl
+# .github/scripts/host-features.sh's Darwin branch runs everywhere
+# (the test passes SYSNAME); listed for its default, `uname`'s answer.
+build/host_features_test.tl
+# The launcher's Darwin shell: `stat -f` (portable_lstat), `ln -h`
+# (portable_link) and the $HOME/Library/Caches leaf (build/launcher.tl).
+core/launcher_cache_test.tl

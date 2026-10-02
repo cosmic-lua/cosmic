@@ -1,24 +1,19 @@
 --- The modules a file `require`s, matched structurally rather than with
 --- a regex over source text.
 ---
---- `all_requires` is the view a build's own dependency graph
---- needs: every module named by a `require(...)` call ANYWHERE in a
---- file's tree, of any prefix, regardless of whether it is bound to a
---- top-level local at all. This project's own source includes
---- `local type compiler =
---- require("build.compiler")` is a type-only import (a "local_type"
---- node, not "local_declaration" -- erased from the compiled output,
---- but still a real dependency for import order and the
---- recompilation-key hash) that appears throughout `build/*.tl`, and
---- `cosmic/store.tl` / `cosmic/sqlite.tl` each require their own raw
---- module through a plain re-assignment inside an `if`/`else`
---- (`store = require("cosmic.internal.store")`), never a `local` at
---- all. `all_requires` matches `require(...)` structurally wherever it
---- sits, which handles both without special-casing either -- the same
---- structural approach also naturally excludes a `require(...)` that is
---- only text inside a string literal or a comment, since neither is
---- ever parsed into a call node for it to match against.
+--- [`all_requires`] is the view a build's dependency graph needs: every
+--- module named by a `require(...)` call anywhere in a file's tree, of
+--- any prefix, whether or not the call feeds a top-level local. Two
+--- shapes in this tree are not top-level locals:
+--- - `local type compiler = require("build.compiler")`, a type-only
+---   import (a "local_type" node) that is erased from the compiled
+---   output but still a dependency for import order and the
+---   recompilation key;
+--- - `store = require("cosmic.internal.store")` in [`cosmic/store.tl`]
+---   and [`cosmic/sqlite.tl`], a plain assignment inside an `if`/`else`.
 ---
+--- Matching `require(...)` structurally covers both, and skips text in
+--- a string literal or comment, which never parses into a call node.
 local ast_node = require("build.ast.node")
 local ast_match = require("build.ast.match")
 local ast_rewrite = require("build.ast.rewrite")
@@ -27,18 +22,18 @@ local type compiler = require("build.compiler")
 local type Node = ast_node.Node
 local type Parsed = ast_node.Parsed
 
---- The one pattern `all_requires` is built on: any call to `require`
---- with exactly one argument, captured whole regardless of what that
---- argument is -- a string literal, a variable, a concatenation.
---- Compiled lazily and memoized in module-scope locals.
+--- The pattern [`all_requires`] is built on: a call to `require` with
+--- exactly one argument, captured whole whatever it is (a string
+--- literal, a variable, a concatenation). Compiled on first use and
+--- memoized in the locals below.
 local ALL_PATTERN_SRC = "require($M)"
 local all_pattern_cache: Node = nil
 local all_pattern_err: string = nil
 local all_pattern_compiled = false
 
---- Compile `ALL_PATTERN_SRC` on first use and memoize the result
---- (success or failure) for every call after.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- Compile `ALL_PATTERN_SRC` on first use and memoize the result,
+--- success or failure.
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @return Node | nil, string
 local function get_all_pattern(built: compiler): Node | nil, string
   if not all_pattern_compiled then
@@ -50,19 +45,16 @@ local function get_all_pattern(built: compiler): Node | nil, string
 end
 
 --- Every module a `require(...)` call names anywhere in `parsed`'s
---- tree, in source order, each name at most once -- no prefix
---- restriction, no top-level-only restriction, no requirement that the
---- call feed a `local`. A call whose argument is not a string literal
---- (`require(name)`, computed at runtime) contributes nothing, exactly
---- because its target is not known until the program runs.
+--- tree, in source order, each name once. A call whose argument is not
+--- a string literal (`require(name)`) contributes nothing, since its
+--- target is unknown until the program runs.
 ---
---- This is what `build.importer` needs for its own dependency graph
---- (import order, the recompilation-key hash): every real `require` a
---- module's compiled or type-checked form depends on.
+--- [`build.importer`] builds its dependency graph (import order, the
+--- recompilation key) from this.
 ---
---- Fails only if `ALL_PATTERN_SRC` itself has stopped compiling.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
---- @param parsed Parsed A file's own parse (`build.ast.node.parse`)
+--- Fails only if `ALL_PATTERN_SRC` does not compile.
+--- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
+--- @param parsed Parsed A file's own parse ([`build.ast.node.parse`])
 --- @return {string} | nil Every required module name, in source order
 --- @return string error When the module's own pattern failed to compile
 local function all_requires(built: compiler, parsed: Parsed): {string} | nil, string

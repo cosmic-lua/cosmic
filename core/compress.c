@@ -8,6 +8,7 @@
 
 #include "bzlib.h"
 #include "fail.h"
+#include "fault.h"
 #include "lauxlib.h"
 #include "lzma.h"
 #include "memory.h"
@@ -108,6 +109,13 @@ struct inflate_state {
   size_t extra_remaining;
   uint32_t crc;   /* the current gzip member's output CRC-32 */
   uint32_t isize; /* ... and its length, mod 2^32 */
+  /* What the current deflate body has taken in and given out, whole,
+   * for [`inflate_step`]'s ratio check. */
+  uint64_t in_total;
+  uint64_t out_total;
+  /* The checked core's "tinfl_decompress" fault fired: every call after
+   * it acts as a tinfl that stopped consuming input (see inflate_step). */
+  int stuck;
 };
 
 struct stream {
@@ -181,7 +189,7 @@ static uint32_t le32 (const unsigned char *p) {
 static struct stream *checked_stream (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   if (s->finished) {
-    luaL_error(L, "the stream is finished"); /* throws: a use after the
+    luaL_error(L, "compress: the stream is finished"); /* throws: a use after the
                                                 end is a bug, not a
                                                 runtime failure */
   }
@@ -213,7 +221,7 @@ static void release (struct stream *s) {
 }
 
 /* Drops the partial output in `out`, finishes the stream, and returns
- * nil, `msg` -- the shape of every decoder failure. Never inlined, so
+ * nil, "compress: " and `msg` -- the shape of every decoder failure. Never inlined, so
  * the tests that reach a failure enter this one copy. */
 __attribute__((noinline)) static int fail (lua_State *L, struct stream *s, luaL_Buffer *out,
                  const char *msg) {
@@ -223,11 +231,33 @@ __attribute__((noinline)) static int fail (lua_State *L, struct stream *s, luaL_
   s->more = 0;
   release(s);
   lua_pushnil(L);
-  lua_pushstring(L, msg);
+  lua_pushfstring(L, "compress: %s", msg);
   return 2;
 }
 
 /* ---- tinfl: raw deflate, zlib, and the gzip body ---- */
+
+/* tinfl refuses bits that land on an empty slot of a Huffman table's
+ * lookup, as zlib does, only through cosmic's patch
+ * (patch/miniz/01-invalid-code-decode.txt): upstream it read them as
+ * literal 0 of no bits, without end. Only that much of zlib's strictness
+ * is patched in; the TODOs below name what tinfl still takes.
+ * TODO: tinfl takes an incomplete table of one code of any length, which
+ * zlib refuses unless that code is one bit long (and always for the
+ * code-length table), and reads the branches a long one leaves empty as
+ * symbol 0 -- bounded, but corrupt data decoded rather than refused. The
+ * fix is another patch/miniz record refusing such a table where tinfl
+ * builds it.
+ * TODO: tinfl also takes what zlib refuses as corrupt: literal/length
+ * symbols 286 and 287 and distance symbols 30 and 31 (mostly in fixed
+ * blocks), a distance too far back while streaming (it reads the zeroed
+ * window instead), and a dynamic block's HLIT above 286 or HDIST above
+ * 30. Each is bounded; the fix is a patch/miniz record per check, where
+ * tinfl decodes the symbol or reads the header, failing as zlib does. */
+
+/* Deflate's largest ratio: a 258-byte match coded in two bits, one for
+ * its length and one for its distance, is 1032 bytes out per byte in. */
+#define DEFLATE_MAX_RATIO 1032u
 
 static int inflate_step (struct stream *s, const unsigned char *p, size_t n,
                          size_t *used, struct sink *out, const char **err) {
@@ -258,10 +288,33 @@ static int inflate_step (struct stream *s, const unsigned char *p, size_t n,
     }
     size_t in_size = n - i;
     size_t out_avail = TINFL_LZ_DICT_SIZE - f->dict_ofs;
-    tinfl_status status =
-        tinfl_decompress(&f->tinfl, p + i, &in_size, f->dict,
-                         f->dict + f->dict_ofs, &out_avail, flags);
+    tinfl_status status;
+    if (f->stuck || COSMIC_FAULT("tinfl_decompress")) {
+      /* The checked core's stand-in for a tinfl that stopped consuming,
+       * as upstream's did on a table with no codes: a full window out,
+       * nothing in, on every call from here on. */
+      f->stuck = 1;
+      in_size = 0;
+      memset(f->dict + f->dict_ofs, 0, out_avail);
+      status = TINFL_STATUS_HAS_MORE_OUTPUT;
+    } else {
+      status = tinfl_decompress(&f->tinfl, p + i, &in_size, f->dict,
+                                f->dict + f->dict_ofs, &out_avail, flags);
+    }
     i += in_size;
+    /* No deflate stream gives out more than DEFLATE_MAX_RATIO times what
+     * it took in: the bits tinfl holds (at most 8 bytes' worth, counted
+     * as taken already) and a window's slack cover what it gives out
+     * ahead of the bytes that coded it. Past that, tinfl is decoding
+     * without consuming -- a decoder bug the patch above closed once --
+     * and it fails here rather than spinning. */
+    f->in_total += in_size;
+    f->out_total += out_avail;
+    if (f->out_total >
+        DEFLATE_MAX_RATIO * (f->in_total + 8) + TINFL_LZ_DICT_SIZE) {
+      *err = "corrupt compressed data (more output than deflate codes in its input)";
+      return STEP_ERROR;
+    }
     if (out_avail > 0) {
       if (s->format == FMT_GZIP) {
         f->crc = lzma_crc32(f->dict + f->dict_ofs, out_avail, f->crc);
@@ -287,6 +340,8 @@ static void inflate_start_body (struct inflate_state *f) {
   f->body_done = 0;
   f->crc = 0;
   f->isize = 0;
+  f->in_total = 0;
+  f->out_total = 0;
 }
 
 /* Copies bytes toward a fixed-size header field; true once it holds
@@ -558,9 +613,9 @@ static const char *truncated (const struct stream *s) {
   return "truncated compressed stream";
 }
 
-/* Past the last member: the NUL bytes of an xz stream padding that is
- * not a whole number of four-byte words are not padding, so they are
- * the first bytes of `rest`. */
+/* Ends the last member. xz stream padding is a whole number of
+ * four-byte words; NUL bytes that fall short of that are not padding,
+ * so they become the first bytes of `rest`. */
 static int enter_trailing (struct stream *s) {
   static const unsigned char zeros[4] = {0};
   if (s->padding % 4 != 0) {
@@ -665,7 +720,7 @@ static int inflater (lua_State *L) {
   s->inf = cosmic_malloc(sizeof *s->inf);
   if (s->inf == NULL) {
     lua_pushnil(L);
-    lua_pushstring(L, "out of memory");
+    lua_pushstring(L, "compress: out of memory");
     return 2;
   }
   memset(s->inf, 0, sizeof *s->inf);
@@ -688,7 +743,7 @@ static int deflater (lua_State *L) {
   s->tdefl = cosmic_malloc(sizeof(tdefl_compressor));
   if (s->tdefl == NULL) {
     lua_pushnil(L);
-    lua_pushstring(L, "out of memory");
+    lua_pushstring(L, "compress: out of memory");
     return 2;
   }
   /* Raw deflate for gzip too: its header and trailer are written by
@@ -809,14 +864,13 @@ static int stream_update (lua_State *L) {
   return 2;
 }
 
-/* A decoder holding output back refuses to finish rather than hand all
- * of it over at once: past the drain, what is left is at most a partial
- * magic, which goes to `rest`, so `finish` never returns a decoder's
- * bulk. */
+/* Refuses to finish while a decoder holds output back, so `finish`
+ * never returns a decoder's bulk. Once that is drained, all that can be
+ * left is a partial magic, which goes to `rest`. */
 static int stream_finish (lua_State *L) {
   struct stream *s = checked_stream(L);
   if (s->more) {
-    return luaL_error(L, "the stream has pending output: drain it with "
+    return luaL_error(L, "compress: the stream has pending output: drain it with "
                          "update(\"\") while pending() before finish");
   }
   begin(s);
@@ -979,7 +1033,7 @@ const char *cosmic_inflate_raw (const void *data, size_t len, size_t max,
        * where the stream stops short. */
       why = status == TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS ||
                     status == TINFL_STATUS_NEEDS_MORE_INPUT
-                ? "the deflate stream is truncated"
+                ? "truncated deflate stream"
                 : "the deflate stream is damaged";
       break;
     }

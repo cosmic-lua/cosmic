@@ -4,8 +4,27 @@
 --- alphabet, a bad length, misplaced padding, or nonzero trailing bits
 --- -- answers `nil` and a reason rather than a guess, so every string a
 --- decoder accepts encodes back to exactly itself.
+---
+--- - [`Codec.hex`] and [`Codec.unhex`]: lower-case hex, the way to show a
+---   digest or a key. The decoder reads either case.
+--- - [`Codec.base64`] and [`Codec.unbase64`]: the standard alphabet, padded,
+---   for data in text formats and headers.
+--- - [`Codec.base64url`] and [`Codec.unbase64url`]: the URL- and
+---   filename-safe alphabet, unpadded, for tokens and file names.
+---
+--- Every function takes and answers a whole string. The `cosmic codec`
+--- verb streams the same encodings for input too large for one.
+---
+---     local text = Codec.base64("hello")      -- "aGVsbG8="
+---     local bytes = assert(Codec.unbase64(text))
 
 local record Codec
+end
+
+--- What a failure of this module answers, nil and `why` under the
+--- module's name.
+local function refuse(why: string): nil, string
+  return nil, "codec: " .. why
 end
 
 --- Every byte's two lowercase hex digits, by the byte: `gsub` takes the
@@ -43,11 +62,11 @@ end
 --- @return string Why the text was refused, or "" when it was not
 function Codec.unhex(s: string): string | nil, string
   if #s % 2 ~= 0 then
-    return nil, ("codec: hex text of odd length %d"):format(#s)
+    return refuse(("hex text of odd length %d"):format(#s))
   end
   local at = s:find("[^0-9a-fA-F]")
   if at ~= nil then
-    return nil, ("codec: byte 0x%02x at %d is not a hex digit"):format(s:byte(at), at)
+    return refuse(("byte 0x%02x at %d is not a hex digit"):format(s:byte(at), at))
   end
   return (s:gsub("..", byte_of_hex)), ""
 end
@@ -114,36 +133,13 @@ end
 --- four, and few enough bytes to pass as arguments.
 local BATCH <const> = 4096
 
---- The bytes `s` spells in `a`'s alphabet. `padded` says whether `s`
---- must carry `=` padding to a multiple of four characters or must
---- carry none.
-local function decode(a: Alphabet, s: string, padded: boolean, name: string): string | nil, string
-  local n = #s
-  if padded then
-    if n % 4 ~= 0 then
-      return nil, ("codec: %s text of length %d, not a multiple of 4"):format(name, n)
-    end
-    if s:sub(-2) == "==" then
-      n = n - 2
-    elseif s:sub(-1) == "=" then
-      n = n - 1
-    end
-  elseif n % 4 == 1 then
-    return nil, ("codec: %s text of length %d leaves one character over"):format(name, n)
-  end
-  local at = s:find(a.class)
-  if at ~= nil and at <= n then
-    if s:byte(at) == 61 then
-      return nil, ("codec: %s text has misplaced '=' padding at %d"):format(name, at)
-    end
-    return nil, ("codec: byte 0x%02x at %d is outside the %s alphabet"):format(s:byte(at), at, name)
-  end
-  local value = a.value
-  local out: {string} = {}
-  local k = 0
-  local whole = n - n % 4
-  -- Bytes gather in `buf` and leave a batch at a time through one
-  -- `string.char`: a string per group would intern millions of them.
+--- Appends to `out`, after its `k` pieces, the bytes the first `whole`
+--- characters of `s` spell (a multiple of four, all in the alphabet
+--- whose values are `value`), and returns the new count of pieces.
+--- Bytes gather in a buffer and leave a batch at a time through one
+--- `string.char`: a string per group would intern millions of them.
+local function expand(value: {integer:integer}, s: string, whole: integer,
+    out: {string}, k: integer): integer
   local buf: {integer} = {}
   for first = 1, whole, BATCH do
     local last = math.min(first + BATCH - 1, whole)
@@ -157,19 +153,50 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     k = k + 1
     out[k] = string.char(table.unpack(buf, 1, m))
   end
+  return k
+end
+
+--- The bytes `s` spells in `a`'s alphabet. `padded` says whether `s`
+--- must carry `=` padding to a multiple of four characters or must
+--- carry none.
+local function decode(a: Alphabet, s: string, padded: boolean, name: string): string | nil, string
+  local n = #s
+  if padded then
+    if n % 4 ~= 0 then
+      return refuse(("%s text of length %d, not a multiple of 4"):format(name, n))
+    end
+    if s:sub(-2) == "==" then
+      n = n - 2
+    elseif s:sub(-1) == "=" then
+      n = n - 1
+    end
+  elseif n % 4 == 1 then
+    return refuse(("%s text of length %d leaves one character over"):format(name, n))
+  end
+  local at = s:find(a.class)
+  if at ~= nil and at <= n then
+    if s:byte(at) == 61 then
+      return refuse(("%s text has misplaced '=' padding at %d"):format(name, at))
+    end
+    return refuse(("byte 0x%02x at %d is outside the %s alphabet"):format(s:byte(at), at, name))
+  end
+  local value = a.value
+  local out: {string} = {}
+  local whole = n - n % 4
+  local k = expand(value, s, whole, out, 0)
   local left = n - whole
   if left == 2 then
     local c1, c2 = s:byte(n - 1, n)
     local v = (value[c1] << 6) | value[c2]
     if v & 15 ~= 0 then
-      return nil, ("codec: %s text ends in nonzero padding bits"):format(name)
+      return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
     out[k + 1] = string.char(v >> 4)
   elseif left == 3 then
     local c1, c2, c3 = s:byte(n - 2, n)
     local v = (value[c1] << 12) | (value[c2] << 6) | value[c3]
     if v & 3 ~= 0 then
-      return nil, ("codec: %s text ends in nonzero padding bits"):format(name)
+      return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
     out[k + 1] = string.char(v >> 10, (v >> 2) & 255)
   end
@@ -204,7 +231,7 @@ function Codec.base64url(s: string): string
   return encode(URL, s, false)
 end
 
---- The bytes unpadded base64url spells. Strict like `Codec.unbase64`,
+--- The bytes unpadded base64url spells. Strict like [`Codec.unbase64`],
 --- and refuses `=` padding: answers `nil` and a reason for a length
 --- that leaves one character over, a character outside the alphabet,
 --- or a last character whose unused bits are not zero.

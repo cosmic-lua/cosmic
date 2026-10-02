@@ -1,4 +1,4 @@
---- Worked examples for `cosmic.compress`, shown by `cosmic docs` under
+--- Worked examples for [`cosmic.compress`], shown by `cosmic docs` under
 --- the symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
@@ -17,7 +17,7 @@ function Example.deflate()
 end
 
 --- A bound on what `inflate` may produce, for a body from outside: a
---- small input can expand past any memory, and past `max` it fails.
+--- small input can expand past any memory, and past `max_bytes` it fails.
 function Example.inflate()
   local packed = assert(Compress.deflate("zlib", string.rep("a", 10000)))
   local back, why = Compress.inflate("zlib", packed, 100)

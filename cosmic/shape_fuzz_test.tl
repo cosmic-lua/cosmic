@@ -1,4 +1,4 @@
---- Fuzz properties for `cosmic.shape`: `into` is total on any value a
+--- Fuzz properties for [`cosmic.shape`]: `into` is total on any value a
 --- decoder could hand it, and what it answers is already its own shape.
 --- A spec and a value are both built from one recipe of draws; the value
 --- mostly follows the spec and sometimes strays from it, so both the
@@ -30,7 +30,7 @@ end
 local gen_spec: function(r: Recipe, depth: integer): Shape.Spec
 
 gen_spec = function(r: Recipe, depth: integer): Shape.Spec
-  local pick = byte(r, depth > 0 and 11 or 6)
+  local pick = byte(r, depth > 0 and 9 or 6)
   local spec: Shape.Spec
   if pick == 0 then spec = Shape.string
   elseif pick == 1 then spec = Shape.number
@@ -40,12 +40,10 @@ gen_spec = function(r: Recipe, depth: integer): Shape.Spec
   elseif pick == 5 then spec = Shape.one_of("a", 1, true)
   elseif pick == 6 then spec = Shape.list(gen_spec(r, depth - 1))
   elseif pick == 7 then spec = Shape.map(gen_spec(r, depth - 1))
-  elseif pick == 8 then
+  else
     local fields: {string: Shape.Spec} = {}
     for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, depth - 1) end
     spec = byte(r, 2) == 0 and Shape.strict_record(fields) or Shape.record(fields)
-  else
-    spec = Shape.either(gen_spec(r, depth - 1), gen_spec(r, depth - 1))
   end
   if byte(r, 4) == 0 then spec = Shape.optional(spec) end
   return spec
@@ -80,8 +78,6 @@ gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolea
   elseif kind == "integer" then return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) * 1.0
   elseif kind == "boolean" then return byte(r, 2) == 0
   elseif kind == "one_of" then return spec.values[byte(r, #spec.values) + 1]
-  elseif kind == "either" then
-    return gen_value(r, spec.choices[byte(r, #spec.choices) + 1], depth, strict)
   elseif kind == "list" then
     local t: {any} = {}
     for i = 1, byte(r, 4) do t[i] = gen_value(r, spec.of, depth - 1, strict) end
@@ -137,7 +133,7 @@ end
 local fits: function(v: any, spec: Shape.Spec): boolean
 
 --- Whether an answer strictly is `spec`: the oracle, written apart from
---- the walk. An answer is never `Json.null` outside an `any`, holds
+--- the walk. An answer is never [`Json.null`] outside an `any`, holds
 --- integers where the spec says integer, a JSON array for a list, and no
 --- key a record does not name.
 fits = function(v: any, spec: Shape.Spec): boolean
@@ -152,11 +148,6 @@ fits = function(v: any, spec: Shape.Spec): boolean
   elseif kind == "one_of" then
     for _, want in ipairs(spec.values) do
       if v == want then return true end
-    end
-    return false
-  elseif kind == "either" then
-    for _, c in ipairs(spec.choices) do
-      if fits(v, c) then return true end
     end
     return false
   end
@@ -195,28 +186,10 @@ local function check_total(input: string): boolean, string
   local spec = gen_spec(r, 3)
   local value = gen_value(r, spec, 4, false)
   local out, err: any, string = Shape.into(value, spec)
-  -- `failures` is empty exactly when into succeeds, holds into's
-  -- reason when it fails, and is the same list every call.
-  local failures = Shape.failures(value, spec)
-  if (err == "") ~= (#failures == 0) then
-    return false, ("into answered %q, failures %d"):format(err, #failures)
-  end
-  local listed = {}
-  local held = false
-  for _, f in ipairs(failures) do
-    if f.message:sub(1, #f.path + 2) ~= f.path .. ": " then
-      return false, "a failure's message does not start with its path: " .. f.message
-    end
-    held = held or f.message == err
-    listed[#listed + 1] = f.path .. "\0" .. f.message
-  end
-  if err ~= "" and not held then return false, "into's reason is not among the failures: " .. err end
-  local again_listed = {}
-  for _, f in ipairs(Shape.failures(value, spec)) do
-    again_listed[#again_listed + 1] = f.path .. "\0" .. f.message
-  end
-  if table.concat(listed, "\n") ~= table.concat(again_listed, "\n") then
-    return false, "two calls answered two lists of failures"
+  -- The same value answers the same failure on every call.
+  local _, again_err: any, string = Shape.into(value, spec)
+  if again_err ~= err then
+    return false, ("two calls answered %q and %q"):format(err, again_err)
   end
   if err ~= "" then
     if out ~= nil then return false, "a failure answered a value" end
@@ -228,6 +201,28 @@ local function check_total(input: string): boolean, string
   if err2 ~= "" then return false, "the answer does not fit its own shape: " .. err2 end
   if not same(out, again) then return false, "the answer changed on a second walk" end
   return true, ""
+end
+
+--- `value` with each hole of a list, which a null read without a stand-in
+--- leaves, written as [`Json.null`], so that it encodes.
+local function filled(value: any): any
+  if not (value is {any: any}) then return value end
+  local top = 0
+  local listed = true
+  for k in pairs(value) do
+    if k is integer and k > top then top = k elseif not (k is integer) then listed = false end
+  end
+  local out: {any: any} = Json.is_array(value) and Json.array() as {any: any} or {}
+  if listed then
+    for i = 1, top do
+      local v = filled(value[i])
+      if v == nil then v = Json.null end
+      out[i] = v
+    end
+  else
+    for k, v in pairs(value) do out[k] = filled(v) end
+  end
+  return out
 end
 
 --- A value that fits, encoded and decoded, with nulls kept or not:
@@ -246,10 +241,10 @@ local function check_json(input: string): boolean, string
   local out, err: any, string = Shape.into(decoded, spec)
   if err ~= "" then return false, ("%s no longer fits: %s"):format(text, err) end
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
-  local again_text, aerr = Json.encode(out, { sparse_as_null = true })
+  local again_text, aerr = Json.encode(filled(out))
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
   -- Read back as it was first read: under `any` the answer keeps
-  -- `Json.null`, which only the same `null_value` reads back as itself.
+  -- [`Json.null`], which only the same `null_value` reads back as itself.
   local again, err2: any, string = Shape.into(Json.decode(again_text, opts), spec)
   if err2 ~= "" then return false, again_text .. " does not fit: " .. err2 end
   if not same(out, again) then return false, again_text .. " read back as another answer" end
@@ -257,7 +252,7 @@ local function check_json(input: string): boolean, string
 end
 
 --- A strict record given a value that fits it but for one key it does
---- not name -- a string or an integer, whatever its value, `Json.null`
+--- not name -- a string or an integer, whatever its value, [`Json.null`]
 --- included -- refuses it, and names that key.
 local function check_strict(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }

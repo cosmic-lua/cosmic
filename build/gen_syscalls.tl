@@ -1,6 +1,6 @@
 --- The declaration of the syscall table, derived from its header.
 ---
---- `core/syscalls.h` carries one annotation block per call, in the
+--- [`core/syscalls.h`] carries one annotation block per call, in the
 --- LuaCATS grammar, followed by the macro that names it. This turns
 --- those blocks into the Teal record the rest of the tree checks
 --- against, with each block's prose as the doc comment `cosmic docs`
@@ -8,6 +8,7 @@
 --- binding cannot exist without its type.
 
 local String = require("cosmic.string")
+local plural = require("build.plural")
 
 local record Parameter
   name: string
@@ -42,6 +43,10 @@ end
 
 local record Class
   name: string
+  --- Whether it is a userdata (`@class Name: userdata`) rather than a
+  --- table: its `fun(...)` fields are methods, and those named `__*`
+  --- metamethods.
+  userdata: boolean
   summary: string
   prose: {string}
   fields: {Field}
@@ -49,9 +54,7 @@ local record Class
   line: integer
 end
 
---- Everything one read of the header found: two lists, together, so a
---- fallible read stays two slots -- the pair, and an error -- rather
---- than smuggling a third.
+--- Everything one read of the header found: its calls and its classes.
 local record Declarations
   calls: {Call}
   classes: {Class}
@@ -83,9 +86,32 @@ local record generator
   Declarations: Declarations
 end
 
+--- Whether a binding's parameter, by its name and its declaration's
+--- words, is a descriptor of this process: `fd`, `fds`, `dirfd`,
+--- `sock`, `*_fd`, `*_fds`, a standard stream (`stdin`, `stdout`,
+--- `stderr`), or one described as "the descriptor", "the descriptors"
+--- or "the open descriptor". build/c/rules.tl holds each such argument
+--- to core/check.h's refusal of the artifact's retained descriptor.
+function generator.descriptor(parameter: Parameter): boolean
+  local name = parameter.name
+  local said = parameter.description:lower()
+  return name == "fd" or name == "fds" or name == "dirfd" or name == "sock"
+    or name:match("_fds?$") ~= nil
+    or name == "stdin" or name == "stdout" or name == "stderr"
+    or said:match("^the descriptors?[%s,;:]") ~= nil or said:match("^the descriptors?$") ~= nil
+    or said:match("^the open descriptor") ~= nil
+end
+
 --- Turns a LuaCATS type into a Teal one. The two agree on everything
---- this header uses except the spelling of a union.
+--- this header uses except the spelling of a union and of a function:
+--- a field's type is one word, so `fun(self:Socket):boolean,string`
+--- is written without spaces, and becomes
+--- `function(self: Socket): boolean, string`.
 local function teal_type(text: string): string
+  if text:sub(1, 4) == "fun(" then
+    local spaced = text:sub(5):gsub(":", ": "):gsub(",", ", ")
+    return "function(" .. spaced
+  end
   local parts: {string} = {}
   for piece in text:gmatch("[^|]+") do
     parts[#parts + 1] = piece
@@ -206,11 +232,18 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
 end
 
 local function parse_class(lines: {string}, at: {integer}): Class | nil, string
-  local class: Class = { name = "", summary = "", prose = {}, fields = {}, line = 0 }
+  local class: Class = { name = "", userdata = false, summary = "", prose = {}, fields = {},
+    line = 0 }
   for index, line in ipairs(lines) do
     local tag, rest = line:match("^@(%a+)%s+(.*)$")
     if tag == "class" then
-      class.name = rest:match("^(%S+)") or ""
+      local name, parent = rest:match("^([%w_]+)(.-)%s*$")
+      local is_userdata = parent ~= nil and parent:match("^%s*:%s*userdata$") ~= nil
+      if name == nil or (parent ~= "" and not is_userdata) then
+        return nil, "a class block names no class, or a parent other than userdata"
+      end
+      class.name = name
+      class.userdata = is_userdata
       class.line = at[index]
     elseif tag == "field" then
       local fname, kind, description = rest:match("^([%w_]+)%s+(%S+)%s*(.*)$")
@@ -343,7 +376,7 @@ function generator.read(header: string): Declarations | nil, string
   end
   -- core/syscalls.c registers every COSMIC_CONSTANT in the header, so
   -- one anywhere but after the `Constants` block, where
-  -- `constants_follow` holds it to a field, would be set undeclared.
+  -- [`constants_follow`] holds it to a field, would be set undeclared.
   local declared = 0
   for _, class in ipairs(classes) do
     if class.name == "Constants" then
@@ -352,9 +385,8 @@ function generator.read(header: string): Declarations | nil, string
   end
   local _, written = header:gsub("\n%s*COSMIC_CONSTANT%(", "")
   if written ~= declared then
-    return nil, "Constants: the header writes " .. tostring(written) ..
-      " COSMIC_CONSTANT lines for " .. tostring(declared) ..
-      " fields; one stands outside the block after `Constants`"
+    return nil, "Constants: the header writes " .. plural.count(written, "COSMIC_CONSTANT line") ..
+      " for " .. plural.count(declared, "field") .. "; one stands outside the block after `Constants`"
   end
   return { calls = calls, classes = classes }
 end
@@ -406,17 +438,17 @@ local function signature(call: Call): string
   return text
 end
 
---- The public syscall table, `cosmic.sys`.
+--- The public syscall table, [`cosmic.sys`].
 local syscalls_target: Target = {
   header = "core/syscalls.h",
-  record_name = "syscalls",
+  record_name = "sys",
   summary = {
     "The syscall table: one C function per call, the same on Linux",
-    "and on macOS. Derived from core/syscalls.h.",
+    "and on macOS.",
   },
 }
 
---- The raw process table, `cosmic.internal.process`, which only the
+--- The raw process table, [`cosmic.internal.process`], which only the
 --- wrappers core/store.c's `raw_modules` names are handed.
 local process_target: Target = {
   header = "core/process.h",
@@ -427,15 +459,27 @@ local process_target: Target = {
   },
 }
 
+--- The raw socket table, [`cosmic.internal.socket`], which only
+--- [`cosmic.net`] is handed.
+local socket_target: Target = {
+  header = "core/socket.h",
+  record_name = "socket",
+  summary = {
+    "The raw socket table, handed only to `cosmic.net`. Derived from",
+    "core/socket.h.",
+  },
+}
+
 --- Every header a declaration is derived from, and the import path each
 --- one's declaration answers to.
 generator.targets = {
   { path = "cosmic.sys", target = syscalls_target },
   { path = "cosmic.internal.process", target = process_target },
+  { path = "cosmic.internal.socket", target = socket_target },
 }
 
 --- The Teal declaration of the module the header describes: `target`'s
---- (by default the syscall table's, `cosmic.sys`).
+--- (by default the syscall table's, [`cosmic.sys`]).
 --- @param header the whole text of the target's header
 function generator.declaration(header: string, target?: Target): string | nil, string
   target = target or syscalls_target
@@ -458,9 +502,12 @@ function generator.declaration(header: string, target?: Target): string | nil, s
     if class.name ~= "Constants" then
       comment(out, "  ", class.prose)
       out[#out + 1] = "  record " .. class.name
+      if class.userdata then out[#out + 1] = "    userdata" end
       for _, field in ipairs(class.fields) do
         comment(out, "    ", { field.description })
-        out[#out + 1] = "    " .. field.name .. ": " .. field.kind
+        local metamethod = class.userdata and field.name:sub(1, 2) == "__"
+        out[#out + 1] = "    " .. (metamethod and "metamethod " or "") .. field.name .. ": " ..
+          field.kind
       end
       out[#out + 1] = "  end"
       out[#out + 1] = ""
@@ -491,7 +538,7 @@ function generator.declaration(header: string, target?: Target): string | nil, s
   out[#out + 1] = ""
   out[#out + 1] = "-- Where each declaration above sits in " .. target.header .. ", which"
   out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
-  out[#out + 1] = "-- `build.importer`'s `origin_lines`."
+  out[#out + 1] = "-- `build.derivation`'s `origin_lines`."
   for _, class in ipairs(classes) do
     local prefix = ""
     if class.name ~= "Constants" then
