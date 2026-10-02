@@ -947,11 +947,11 @@ static const luaL_Reg statement_methods[] = {
 };
 
 static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
-                       lua_CFunction collect) {
+                       lua_CFunction collect, int method_count) {
   luaL_newmetatable(L, name);
   lua_pushcfunction(L, collect);
   lua_setfield(L, -2, "__gc");
-  lua_newtable(L);
+  lua_createtable(L, 0, method_count);
   luaL_setfuncs(L, methods, 0);
   lua_setfield(L, -2, "__index");
   lua_pop(L, 1);
@@ -1000,8 +1000,10 @@ static const luaL_Reg module[] = {
 
 int cosmic_open_sqlite (lua_State *L) {
   sqlite3_initialize();
-  make_type(L, HANDLE_TYPE, handle_methods, handle_gc);
-  make_type(L, STATEMENT_TYPE, statement_methods, statement_finalize);
+  make_type(L, HANDLE_TYPE, handle_methods, handle_gc,
+            sizeof handle_methods / sizeof *handle_methods - 1);
+  make_type(L, STATEMENT_TYPE, statement_methods, statement_finalize,
+            sizeof statement_methods / sizeof *statement_methods - 1);
   luaL_newlib(L, module);
   lua_pushstring(L, sqlite3_libversion());
   lua_setfield(L, -2, "version");
