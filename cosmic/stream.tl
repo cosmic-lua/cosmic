@@ -114,6 +114,22 @@ local record Stream
     digest: function(Hashing): string | nil, string
   end
 
+  --- What [`Stream.transform_writer`] takes beyond its two arguments.
+  record TransformWriterOptions
+    --- How many writes' output to hold back; 0 or nil for none. With
+    --- `hold = n`, the output of a `write` reaches the underlying
+    --- Writer only once `n` later writes have been transformed without
+    --- failing, or at `close`, which commits all that is held with the
+    --- codec's last output and writes nothing of it when the codec
+    --- refuses. So a stream of at most `n` writes that the codec
+    --- refuses writes nothing at all, and a longer one may have
+    --- written the output of every write but its last `n`. A write's
+    --- output is held whole, whatever it expands to and whether or not
+    --- it is empty; a `write("")` is no write and moves nothing. A
+    --- negative or non-integer `hold` raises.
+    hold: integer
+  end
+
   --- The lines of a Reader, one at a time: see [`Stream.lines`].
   record Lines
     --- The next line, without its "\n", and ""; nil and "" after the
@@ -1069,27 +1085,58 @@ end
 --- (`update("")` while `pending()`) after each write and before
 --- `finish`, so each write to `writer` stays bounded however far the
 --- input expands.
-function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform): Stream.Writer
+---
+--- `opts.hold = n` holds back the output of the last `n` writes, so a
+--- refusal that comes before `n` more writes have gone through leaves
+--- `writer` untouched; see [`Stream.TransformWriterOptions`]. A codec
+--- that fails (an invalid character at one write, a truncated stream at
+--- `close`) then takes back what it would have let out:
+---
+---     local w = Stream.transform_writer(out, decoder, { hold = 1 })
+---     assert(w:write(first_chunk))   -- nothing reaches `out` yet
+---     assert(w:close())              -- the decoded bytes, or `out` aborted
+function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
+    opts?: Stream.TransformWriterOptions): Stream.Writer
+  local hold = opts ~= nil and opts.hold or 0
+  if math.type(hold) ~= "integer" or hold < 0 then
+    error("stream: hold must be an integer of at least 0", 2)
+  end
   local closed = false
   local failed: string
+  -- With `hold`, one entry per write: its output, in order.
+  local held: {string} = {}
   local w: Stream.Writer = {}
+  --- Writes `out` on, unless it is empty.
+  local function emit(out: string): boolean, string
+    if #out == 0 then return true, "" end
+    return writer:write(out)
+  end
   --- Feeds `data` to the codec and writes its output on, then keeps
   --- draining while the codec says it is still holding output.
   local function feed(data: string): boolean, string
+    local parts: {string} = {}
     while true do
       local out, trouble = codec:update(data)
       if out == nil then return false, trouble end
-      if #out > 0 then
-        local ok, why = writer:write(out)
+      if hold == 0 then
+        local ok, why = emit(out)
         if not ok then return false, why end
+      else
+        parts[#parts + 1] = out
       end
-      if not holds_output(codec) then return true, "" end
+      if not holds_output(codec) then break end
       data = ""
     end
+    if hold == 0 then return true, "" end
+    held[#held + 1] = table.concat(parts)
+    -- This write went through: the oldest held write is now safe to release.
+    if #held > hold then return emit(table.remove(held, 1)) end
+    return true, ""
   end
   w.write = function(_self: Stream.Writer, data: string): boolean, string
     if closed then return false, closed_writer end
     if failed then return false, failed end
+    if hold > 0 and #data == 0 then return true, "" end
     local ok, trouble = feed(data)
     if not ok then
       failed = trouble
@@ -1112,8 +1159,9 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform)
       local out, trouble = codec:finish()
       if out == nil then
         failed = trouble
-      elseif #out > 0 then
-        local ok, why = writer:write(out)
+      else
+        held[#held + 1] = out
+        local ok, why = emit(table.concat(held))
         if not ok then failed = why end
       end
     end
