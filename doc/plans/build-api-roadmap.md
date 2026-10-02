@@ -183,7 +183,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
 | C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | merged | actual0b111618/tree19b9b089; branch36988568683 and queue36989013309 all green; independently verified all eight privileged modes and database boundary on x86/ARM/Alpine |
 | C6 | [#2585](https://github.com/cosmic-lua/cosmic/pull/2585) | merged | c6e5966d/treeeec1975c; corrected branch37041482218 and full queue37041999545 green; all3380 native tests ran without skips on x86/ARM/Alpine and checked, including3 noexec cases; all8 credential proof modes passed on all3 Linux legs |
-| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | draft; reviewed consumers, awaiting actual release verification/pin | 6a43b2b5/treed63d40c1 includes20 freshly reviewed consumer files; integrated78 CI and60 root tests pass, whole663 root/63 CI checks clean; pinB unchanged, immutable C6 release double verification and native consumer proofs required |
+| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | reviewed and published; CI-gated auto-merge | 7a56246a/tree4e8b93a0; actual immutable C6 release doubly verified and pinned, 78 CI/60 root tests pass independently, whole663/63 checks clean; native consumer branch/queue proofs pending |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -661,3 +661,29 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   with no assertion before clean cancellation; local credential refusal is
   explicitly not native proof. The final actual-pin candidate still needs
   independent exact-tree approval and ordinary branch/queue native gates.
+
+- 2026-10-02 UTC: author and reviewer separately downloaded all three
+  assets of immutable release `402035640`, tag
+  `next-c6e5966d48ccafa7c5f509a8ecb8a87e6d61ec7d`. Binary asset `606163036`
+  is15228976 bytes, SHA256
+  `dfbe3401dd5c8a543e9d0f412f1ff3ac84e723da197768c2e2d0e0a18b9654c8`.
+  SHA256SUMS asset `606163082` and source.json `606163100` match metadata,
+  binary and source. Both checked tag/required ancestry, publisher
+  `37043593175` attempt1/job `110959411144`, actual source CI `37043438754`
+  and same-commit queue reuse `37041999545`. Four separately downloaded
+  native products and executed-byte attestations equal the released binary.
+  Both executed downloaded APIs; local ENOSYS/EPERM/noexec refusal are
+  recorded honestly and do not substitute for native consumer proofs.
+
+- 2026-10-02 UTC: final C7 published as `7a56246a`, exact independently
+  approved tree `4e8b93a0`, preserving checkpoint and actual C6 parents.
+  The only source delta from approved preparation is the verified three-line
+  pin. Author and independent reviewer each passed78 CI and60 root cases.
+  Fresh actual-pin boot reused518 parses/504 compiles; whole663 root/63 CI
+  checks and supported-path formatting pass. Full30 exits124 without an
+  assertion before cancellation. TODO queries completed:21 entries/6 files,
+  including two updated/relocated follow-ups and19 inherited; exactly one
+  literal pin dependency remains. Actual-pin parent/final cold/warm vendor
+  checks preserve12 keys/1354 files, with raw manifests retained. #2586 is
+  ready, auto-merge enabled only through required branch/queue CI. Native
+  root runner, credential, Linux noexec and Darwin flush proofs remain gates.
