@@ -182,8 +182,8 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C3 | [#2584](https://github.com/cosmic-lua/cosmic/pull/2584) | deferred; experiment closed unmerged | sole confirmation37040643348 stopped before measurements on unrecognized Runner.Worker installation path; verified artifact11242461886; zero timing observations; no retry under declared policy, no unused API or fast path shipped |
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
 | C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | merged | actual0b111618/tree19b9b089; branch36988568683 and queue36989013309 all green; independently verified all eight privileged modes and database boundary on x86/ARM/Alpine |
-| C6 | [#2585](https://github.com/cosmic-lua/cosmic/pull/2585) | reviewed correction; CI-gated auto-merge | 8a849f07/treeeec1975c includes actual0ec53d35; nested sandbox test explicitlycwd=/ fixes deterministicENOENT; current x86 complementary shards pass all3380 tests held to sandboxing, including3 native noexec cases; fullbranch/queue pending |
-| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | draft; recovered source checkpointed and reviewed | 6a43b2b5/treed63d40c1 includes20 freshly reviewed consumer files and C6cwd correction; all subset blobs independently verified; pinB unchanged, actual C6 merge/release/pin/native consumer proofs required |
+| C6 | [#2585](https://github.com/cosmic-lua/cosmic/pull/2585) | merged | c6e5966d/treeeec1975c; corrected branch37041482218 and full queue37041999545 green; all3380 native tests ran without skips on x86/ARM/Alpine and checked, including3 noexec cases; all8 credential proof modes passed on all3 Linux legs |
+| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | draft; reviewed consumers, awaiting actual release verification/pin | 6a43b2b5/treed63d40c1 includes20 freshly reviewed consumer files; integrated78 CI and60 root tests pass, whole663 root/63 CI checks clean; pinB unchanged, immutable C6 release double verification and native consumer proofs required |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -639,3 +639,25 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   APIs, epoch, incoming timing fixes and C6cwd correction. No old approval was
   carried over different source. Final integrated checks, actual immutable C
   release double verification, pin update and native platform proofs remain.
+
+- 2026-10-02 UTC: C6 merged at17:50:28UTC as `c6e5966d`, exact
+  reviewed tree `eec1975c`, parent `0ec53d35`. Corrected branch
+  `37041482218` and queue `37041999545` passed every required check.
+  Independent logs show all3380 native tests ran, zero stood/skipped on
+  x86, ARM, Alpine and checked; Alpine portable also ran all3380. All three
+  noexec mount cases actually executed, and all eight credential proof modes
+  passed on each Linux release leg. Fifteen API production PRs are merged.
+  C7 now waits on actual main CI/publication and two independent release
+  downloads, provenance checks and executions before atomically moving its pin.
+
+- 2026-10-02 UTC: integrated C7 preparation `a95f3d4e`/`d63d40c1`
+  passed78 CI and60 patch/workflow tests, with zero whole-tree findings across
+  63 CI and663 root files. All12 vendor keys and1354 output files match the
+  C6 parent by name, bytes and mode; warm manifests/mtimes stay unchanged.
+  These are equivalence diagnostics, not a speedup claim. Exact20path TODO
+  inventory has21 entries in6 files: rewritten syncfs dependency, relocated
+  state-pruning follow-up and19 inherited entries. Only syncfs remains in the
+  literal pin selector. Required full30 exits124 after3386 declarations,
+  with no assertion before clean cancellation; local credential refusal is
+  explicitly not native proof. The final actual-pin candidate still needs
+  independent exact-tree approval and ordinary branch/queue native gates.
