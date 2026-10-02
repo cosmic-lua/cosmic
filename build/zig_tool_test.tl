@@ -57,7 +57,11 @@ local function test_a_cache_miss_reports_the_fetch_scripts_trouble(tmp: string)
     "x86_64-linux")
   assert(zig == nil, "a pin with no sha256 installed a zig")
   assert(trouble:find("names no sha256 for x86_64-linux", 1, true) ~= nil, trouble)
-  assert(#assert(Fs.list(cache)) == 0, "a .work directory was left behind")
+  local left = assert(Fs.list(cache))
+  assert(#left == 1 and left[1] == ".scratch-gate",
+    "unexpected cache entries after failed fetch: " .. table.concat(left, ", "))
+  assert(assert(Fs.stat(cache .. "/.scratch-gate")).kind == "file",
+    "the persistent scratch gate is not a regular file")
 end
 
 --- build/zig_fetch.tl run without the words it needs exits 2, naming
