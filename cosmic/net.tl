@@ -899,7 +899,6 @@ local function serving(spec: Net.ServeSpec): boolean, string
     -- whose protocol called `stop`.
     s.stopper = Poll.spawn(function()
       local _, _ = s.waiter:join()
-      if not s.stopping then return end
       local ok, trouble: boolean, any = xpcall(on_stop, traced, server)
       if not ok then report(s, tostring(trouble)) end
     end)
@@ -930,9 +929,10 @@ end
 --- in a task of another. It returns true once [`Server.stop`] has been
 --- called, or a signal has stopped it, and every task of the run has
 --- ended -- each connection's, and any [`ServeSpec.on_ready`] or
---- [`ServeSpec.on_stop`] spawned -- and false and why, having called nothing, where a listener cannot
---- listen or its signal guard cannot be opened, or, having served,
---- where the guard cannot restore the dispositions it found. What
+--- [`ServeSpec.on_stop`] spawned -- and false and why, having called
+--- nothing, where a listener cannot listen or its signal guard cannot
+--- be opened, or, having served, where the guard cannot restore the
+--- dispositions it found. What
 --- [`ServeSpec.on_ready`] or [`ServeSpec.on_error`] raises, it raises,
 --- having closed every listener and connection.
 ---

@@ -741,10 +741,10 @@ local function test_the_grace_begins_once_on_stop_returns(tmp: string)
   local answer = ""
   assert(Net.serve{
     listeners = { Net.unix(tmp .. "/s.sock") },
-    grace_ns = Time.ms(200),
+    grace_ns = Time.ms(400),
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
-      assert(Poll.delay(Time.ms(400)))
+      assert(Poll.delay(Time.ms(500)))
       assert(conn:write(line .. "\n"))
     end,
     on_stop = function(_server: Net.Server) assert(Poll.delay(Time.ms(300))) end,
