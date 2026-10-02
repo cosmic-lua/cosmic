@@ -265,13 +265,22 @@ local function test_a_keyword_named_variable_is_no_old_type_declaration()
   } as {string:any}, { __index = _G as {string:any} })
   assert(load(assert(code), "repro", "t", env))()
   assert(printed[1] == "1 1" and #printed == 1, table.concat(printed, "; "))
-  -- A failed look for a type body leaves the tokens as they were: it
-  -- rewrote `>>` to `>`, and put a `>` at the line break.
-  for _, source in ipairs({ "local b = record < n >> 1\n", "local b = record < n\nprint(b)\n" }) do
-    local _, checked = built.gen("local n = 4\nlocal record = 1\n" .. source .. "assert(b == true)\n",
+  -- A look for a type body that fails leaves the tokens as they were
+  -- for the expression: it rewrites a type argument list's `>>` to `>`,
+  -- and inserts a `>` it misses at a line break.
+  for _, case in ipairs({
+    { "local record: A<A<integer>> | integer = 1\nlocal b = record is A<A<integer>>\n", "false" },
+    { "local record = 1\nlocal b = record < n >> 1\n", "true" },
+    { "local record = 1\nlocal b = record < n\nprint(b)\n", "true" },
+    { "local function record(t: {boolean}): integer return #t end\n" ..
+      "local b = record {\n  1 < n,\n  true\n}\n", "2" },
+  }) do
+    local case_code, checked = built.gen("local type A<T> = {T}\nlocal n = 4\n" .. case[1] .. "return tostring(b)\n",
       nil, nil, "tl")
     assert(#assert(checked).syntax_errors == 0 and #checked.type_errors == 0,
-      source .. tostring((checked.syntax_errors[1] or checked.type_errors[1] or {}).msg))
+      case[1] .. tostring((checked.syntax_errors[1] or checked.type_errors[1] or {}).msg))
+    local got = assert(load(assert(case_code), "case", "t", _G as {string:any}))()
+    assert(got == case[2], case[1] .. tostring(got))
   end
   for _, word in ipairs({ "record", "interface", "enum" }) do
     for _, source in ipairs({
@@ -308,38 +317,57 @@ local function test_a_keyword_named_variable_is_no_old_type_declaration()
     assert(found[1] ~= nil and found[1]:find(case[2], 1, true) ~= nil,
       case[1] .. table.concat(found, "; "))
   end
-  local found = syntax_errors("local f = functiontype\nprint(f)\n")
-  assert(#found == 0, table.concat(found, "; "))
+  for _, source in ipairs({
+    "local functiontype = 1\nlocal f = functiontype\nprint(f)\n",
+    "local functiontype = function(n: integer): integer return n end\nlocal f = functiontype(1)\nprint(f)\n",
+  }) do
+    local found = syntax_errors(source)
+    assert(#found == 0, source .. table.concat(found, "; "))
+  end
 end
 
 --- The look for an old type body costs what it reads, not the rest of
---- the file: a file of many lines naming `record` or `enum` compiles
---- in about the time of one with `1` in their place, where reading on
---- to the next `end`, copying the tokens, or inserting a `>` after
---- `record < n` made the time grow with the square of the lines.
+--- the file: a file naming `record` or `enum` on many lines, or in
+--- nested functions, compiles in about the time of one naming a plain
+--- variable, where reading on to the next `end`, copying every token,
+--- shifting them for an inserted one, or parsing a `where` clause's
+--- function bodies made the time grow with the square of the lines or
+--- double with each level.
 local function test_a_keyword_named_variable_costs_what_it_reads()
   local built = assert(teal.load())
-  local function took(head: string, line: string): integer
-    local parts: {string} = { head }
-    for n = 1, 3000 do
-      parts[#parts + 1] = (line:gsub("N", tostring(n)))
-    end
+  local head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
+    "local function where(_x: any) end\nlocal function b() end\n"
+  local function took(source: string): integer
     local started = Time.monotonic_ns()
-    local _, result = built.gen(table.concat(parts), nil, nil, "tl")
-    assert(#assert(result).syntax_errors == 0, head .. line .. tostring((result.syntax_errors[1] or {}).msg))
+    local _, result = built.gen(head .. source, nil, nil, "tl")
+    assert(#assert(result).syntax_errors == 0, source:sub(1, 200) ..
+      tostring((result.syntax_errors[1] or {}).msg))
     return Time.monotonic_ns() - started
   end
-  local head = "local record, enum, n = 1, 1, 2\n"
-  local base = took(head, "local xN = 1\n")
-  for _, line in ipairs({
-    "local xN = enum\n",
-    "local tN = { k = enum }\n",
-    "local xN = record < n\n",
-    "local xN = record\n",
-    "local function fN() local x = record return x end\n",
+  local function repeated(line: string): string
+    local parts: {string} = {}
+    for k = 1, 2000 do
+      parts[#parts + 1] = (line:gsub("N", tostring(k)))
+    end
+    return table.concat(parts)
+  end
+  local nested = "local x0 = 1\n"
+  for k = 1, 16 do
+    nested = "local xN = record\nwhere(function()\n" .. nested .. "end)\nprint(xN)\n"
+    nested = nested:gsub("xN", "x" .. k)
+  end
+  for _, source in ipairs({
+    repeated("local xN = enum\n"),
+    repeated("local tN = { k = enum }\n"),
+    repeated("local xN = record < n\n"),
+    repeated("local xN = record\n"),
+    repeated("local function fN() local x = record return x end\n"),
+    repeated("local xN = record\nwhere(a)\n(b)()\nprint(xN)\n"),
+    nested,
   }) do
-    local t = took(head, line)
-    assert(t < base * 20, line .. ": " .. t .. " ns against " .. base .. " ns for `1`")
+    local t = took(source)
+    local base = took((source:gsub("record", "recd"):gsub("enum", "enmd")))
+    assert(t < base * 20 + 50000000, source:sub(1, 80) .. ": " .. t .. " ns against " .. base .. " ns")
   end
 end
 
