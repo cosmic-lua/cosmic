@@ -1,0 +1,17 @@
+file: tl.tl
+note: match_record_key answers, beside its refusal of a key a record lacks, the record's value fields (33a); a nested type is no value, so it is left out
+--- find
+   function TypeChecker:match_record_key(t: Type, rec: Node, key: string): Type, string
+--- replace
+   local function value_fields(t: RecordLikeType): {string}
+      local names: {string} = {}
+      for name, ft in pairs(t.fields) do
+         if not ft is TypeDeclType then
+            table.insert(names, name)
+         end
+      end
+      return names
+   end
+
+   function TypeChecker:match_record_key(t: Type, rec: Node, key: string): Type, string, {string}
+--- end

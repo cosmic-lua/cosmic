@@ -800,3 +800,16 @@ local function test_an_exit_watch_is_readable_once_its_child_exits()
   local none, _, errno = process.exit_watch(pid)
   assert(none == nil and errno == sys.ESRCH, "a reaped child's pid was watched")
 end
+
+local function test_noexec_scratch_refuses_conflicting_mount_targets(tmp: string)
+  if assert(sys.uname()).sysname ~= "Linux" then return end
+  for _, target in ipairs({ "/noexec", "/noexec/inside" }) do
+    local pid, trouble, errno = process.spawn("/missing", { "/missing" }, nil, "/",
+      nil, nil, nil, false, nil, { noexec_scratch = true, offline = true,
+        unveil = { reads = { tmp }, at = { [tmp] = target } } })
+    assert(pid == nil and errno == sys.EINVAL, trouble)
+  end
+  local pid, trouble, errno = process.spawn("/missing", { "/missing" }, nil, "/",
+    nil, nil, nil, false, nil, { noexec_scratch = true, offline = true, unveil = { reads = { "/" } } })
+  assert(pid == nil and errno == sys.EINVAL, trouble)
+end

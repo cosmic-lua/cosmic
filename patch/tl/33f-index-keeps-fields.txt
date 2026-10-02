@@ -1,0 +1,12 @@
+file: tl.tl
+note: an index by a key a record lacks keeps the record's fields (33c) for the refusal type_check_index ends with (33g)
+--- find
+      local errm: string
+      local erra: Type
+      local errb: Type
+--- replace
+      local errm: string
+      local erra: Type
+      local errb: Type
+      local errfields: {string}
+--- end

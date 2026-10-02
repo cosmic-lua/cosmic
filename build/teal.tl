@@ -630,6 +630,134 @@ local function catalog(): Catalog | nil
   return nil
 end
 
+--- The edit distance between `a` and `b`, a swap of two neighbours
+--- counting one edit (`alpah` is one from `alpha`).
+local function distance(a: string, b: string): integer
+  local before: {integer} = {}
+  local previous: {integer} = {}
+  for j = 0, #b do
+    previous[j] = j
+  end
+  for i = 1, #a do
+    local current: {integer} = { [0] = i }
+    for j = 1, #b do
+      local cost = a:byte(i) == b:byte(j) and 0 or 1
+      local best = math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+      if i > 1 and j > 1 and a:byte(i) == b:byte(j - 1) and a:byte(i - 1) == b:byte(j) then
+        best = math.min(best, before[j - 2] + 1)
+      end
+      current[j] = best
+    end
+    before, previous = previous, current
+  end
+  return previous[#b]
+end
+
+--- The field a reader reaches for under another name, by the name. The
+--- standard library calls which sort of thing a value is `kind` in every
+--- record that says it (sys.Stat, an archive entry, an SQLite cell, an
+--- HTTP download's result, a child's drain) and none has a `type`, the
+--- word Lua's own `type()` puts in a reader's mind.
+local synonyms <const>: {string:string} = {
+  type = "kind",
+}
+
+--- How many fields [`field_hint`] lists before saying how many more.
+local listed <const> = 10
+
+--- `names` quoted, joined as a reader says a choice: 'a', 'b' or 'c'.
+local function either(names: {string}): string
+  local quoted: {string} = {}
+  for i, name in ipairs(names) do
+    quoted[i] = "'" .. name .. "'"
+  end
+  if #quoted == 1 then
+    return quoted[1]
+  end
+  return table.concat(quoted, ", ", 1, #quoted - 1) .. " or " .. quoted[#quoted]
+end
+
+--- The hint for `key` refused on the record `owner` names, whose value
+--- fields are `fields`: the fields nearest `key` by [`distance`], case
+--- ignored and then not, within a third of its length and at most 2, or
+--- the one [`synonyms`] names for it; then the fields themselves, the
+--- first [`listed`] alphabetically.
+local function field_hint(key: string, owner: string, fields: {string}): string | nil
+  if #fields == 0 then
+    return nil
+  end
+  local sorted: {string} = {}
+  local has: {string:boolean} = {}
+  for i, name in ipairs(fields) do
+    sorted[i] = name
+    has[name] = true
+  end
+  table.sort(sorted)
+  local near: {string} = {}
+  local synonym = synonyms[key]
+  if synonym ~= nil and has[synonym] then
+    near[1] = synonym
+  else
+    -- Nearest ignoring case, then nearest as spelled: `sta` is `stat`
+    -- before `Stat`, and `Kind` still finds `kind`.
+    local limit = math.min(2, (#key + 1) // 3)
+    local best, spelled = limit + 1, math.huge
+    local lower = key:lower()
+    for _, name in ipairs(sorted) do
+      local d = distance(lower, name:lower())
+      local e = d <= limit and distance(key, name) or math.huge
+      if d <= limit and (d < best or (d == best and e < spelled)) then
+        best, spelled, near = d, e, { name }
+      elseif d <= limit and d == best and e == spelled then
+        near[#near + 1] = name
+      end
+    end
+  end
+  local shown = table.concat(sorted, ", ", 1, math.min(#sorted, listed))
+  if #sorted > listed then
+    shown = shown .. " and " .. (#sorted - listed) .. " more"
+  end
+  local said = owner .. "'s fields: " .. shown
+  -- More than a few equally near is no suggestion.
+  if #near > 0 and #near <= 3 then
+    said = "did you mean " .. either(near) .. "? " .. said
+  end
+  return said
+end
+
+--- A key the checker refused a record, read or written, and the
+--- record's name.
+local record MissingKey
+  key: string
+  owner: string
+end
+
+--- What [`MissingKey`] the checker's refusal `msg` names: `invalid key
+--- 'type' in record 'st' of type sys.Stat`, the same `in 'st' of
+--- interface type ...`, or `in type ...` for an expression that is no
+--- variable. A record described rather than named (`of type record
+--- Module`, cosmic.cli's) is named by the variable, or, with none, as
+--- "the record".
+local function missing_key(msg: string): MissingKey | nil
+  local key, variable, owner = msg:match("^invalid key '(.-)' in record '([%a_][%w_]*)' of type (.+)$")
+  if key == nil then
+    key, variable, owner = msg:match("^invalid key '(.-)' in '([%a_][%w_]*)' of interface type (.+)$")
+  end
+  if key == nil then
+    key, owner = msg:match("^invalid key '(.-)' in type (.+)$")
+  end
+  if key == nil then
+    return nil
+  end
+  -- A type the checker inferred carries where (`string "x" (inferred
+  -- at :2:9)`); the type is the name.
+  owner = owner:gsub(" %(inferred at [^)]*%)$", "")
+  if owner:match("^record ") then
+    owner = variable or "the record"
+  end
+  return { key = key, owner = owner }
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- [`environment_for`] stripped or a member [`cosmic.removed`] lists; nil
 --- for any other message, and for those where the catalog cannot be
@@ -681,11 +809,17 @@ end
 --- named for a library but of another type (`table.insert` where `table`
 --- is a local of the program's) that the name is a local hiding it.
 ---
+--- A key a record lacks (`invalid key 'type' in record 'st' of type
+--- sys.Stat`), where the checker gave the record's value `fields` with
+--- the error, is told the nearest of them and the first few
+--- ([`field_hint`]), after any removed member's answer.
+---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
 --- `Kv` itself is the module's record type.
-function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
+function teal.replacement(msg: string, source: string, y: integer, x: integer,
+                          fields?: {string}): string | nil
   if msg:match("got number, expected integer$") or
       msg:match("got number, expected integer | nil$") or
       msg:match("got number %(inferred at [^)]*%), expected integer$") then
@@ -749,10 +883,24 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer): 
     local module = module_bound(source, typename)
     local removed = module ~= nil and catalog() or nil
     local instead = removed ~= nil and removed.members[module .. "." .. key] or nil
-    if instead == nil then
-      return nil
+    if instead ~= nil then
+      return alias .. "." .. key .. " was removed: " .. instead
     end
-    return alias .. "." .. key .. " was removed: " .. instead
+  end
+  -- TODO: hint a field a table literal names that its record lacks
+  -- (`in local declaration: r: unknown field alpah`) the same way: it
+  -- waits on a patch/tl record giving that error the record's fields too.
+  -- TODO: hint a key a union's records lack (`cannot index key 'type'
+  -- in type sys.Stat | nil`, an unchecked `Fs.stat(p).type`): the
+  -- checker gives fields only for a single record (patch/tl/33d); the
+  -- fix is fields for each record member, and for one holding nil a
+  -- hint to check for nil before naming any field.
+  local missing = missing_key(msg)
+  if missing ~= nil and fields ~= nil then
+    return field_hint(missing.key, missing.owner, fields)
+  end
+  if key ~= nil then
+    return nil
   end
   local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
   local field: string | nil = nil

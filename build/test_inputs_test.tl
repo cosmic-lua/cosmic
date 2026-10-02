@@ -21,7 +21,8 @@ local function declaring(fields: analyzer.Declared): analyzer.Declared
   return { line = 1, reads = fields.reads or {}, host = fields.host or {},
     env = fields.env or {}, network = fields.network or {},
     tool = fields.tool == true, lua = fields.lua == true,
-    standalone = fields.standalone == true, store = fields.store == true }
+    standalone = fields.standalone == true, noexec = fields.noexec == true,
+    store = fields.store == true }
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
@@ -305,4 +306,13 @@ local function test_what_lua_adds_reads_no_compiler()
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
   closure[#closure + 1] = "build.importer"
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
+end
+
+local function test_noexec_is_requested_but_not_granted_by_a_declaration()
+  local m, by_path = tree(declaring({ noexec = true }))
+  local effective = test_inputs.effective(m, by_path, staged)
+  assert(effective.noexec and not effective.noexec_ready)
+  assert(test_inputs.canonical(m.inputs) == "noexec true")
+  assert(test_inputs.canonical(test_inputs.as_declared({ noexec = true })) == "noexec true")
+  assert(test_inputs.canonical(test_inputs.as_declared({ noexec = false })) == "")
 end

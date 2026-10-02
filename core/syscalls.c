@@ -1226,9 +1226,12 @@ static int place_proc (const char *target, int *own) {
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
                        const char *const *at, const int *writable, int count, int mapped,
-                       int *own) {
+                       int noexec_scratch, int *own) {
   int number = 0;
   *own = 0;
+  /* A private writable tmpfs needs a mapped owner. Refuse before an
+   * unmapped child's root leaves directories on its host backing. */
+  if (noexec_scratch && !mapped) return EPERM;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
    * map: an unmapped one builds on `root` itself, which its parent's
@@ -1255,6 +1258,15 @@ static int build_root (const char *root, char *const *paths, char *const *names,
     if (mkdir(target, 01777) != 0) return errno;
     if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
                : chmod(target, 01777) != 0 || mount(target, target, NULL, MS_BIND, NULL) != 0)
+      return errno;
+  }
+  if (noexec_scratch) {
+    int made = snprintf(target, sizeof target, "%s/noexec", root);
+    if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
+    if (mkdir(target, 01777) != 0) return errno;
+    /* No host backing path remains reachable through an executable
+     * alias, unlike a bind of ordinary scratch. */
+    if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=1777") != 0)
       return errno;
   }
   int own_proc = 0;
@@ -1376,6 +1388,7 @@ struct spawn_plan {
 #endif
   int unveiling;
   int offline;
+  int noexec_scratch;
   const char *root_dir;
   char *const *resolved_paths;
   char *const *given_names;
@@ -1634,7 +1647,7 @@ static _Noreturn int start_program (void *argument) {
   if (!failure)
     failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
                          plan->bound_at, plan->unveiled_writable, plan->unveil_count,
-                         start->mapped, &own_proc);
+                         start->mapped, plan->noexec_scratch, &own_proc);
   if (!failure) failure = drop_capabilities();
   /* Then it gives root up for good, its groups first, while it may.
    * Where its /proc is its own, it makes a user namespace as that user,
@@ -2367,7 +2380,7 @@ COSMIC_SYSCALL(spawn, 11) {
   const char *unveiled[UNVEIL_MAX];
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
-  int unveiling = 0, unveil_count = 0, offline = 0;
+  int unveiling = 0, unveil_count = 0, offline = 0, noexec_scratch = 0;
   int dropping = 0;
   uid_t drop_uid = 0;
   gid_t drop_gid = 0;
@@ -2462,6 +2475,14 @@ COSMIC_SYSCALL(spawn, 11) {
       lua_pop(L, 1);
     }
     lua_pop(L, 1);
+    lua_pushliteral(L, "noexec_scratch");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
+      return luaL_argerror(L, 10, "noexec_scratch must be a boolean");
+    noexec_scratch = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    if (noexec_scratch && !unveiling)
+      return luaL_argerror(L, 10, "noexec_scratch requires unveil");
     lua_pushliteral(L, "offline");
     lua_rawget(L, 10);
     offline = lua_toboolean(L, -1);
@@ -2696,6 +2717,19 @@ COSMIC_SYSCALL(spawn, 11) {
         }
       }
     }
+    if (!prepare_error && noexec_scratch) {
+      for (int i = 0; i < unveil_count; i++) {
+        const char *placed = unveiled_at[i] != NULL ? unveiled_at[i] : resolved_paths[i];
+        const char *name = given_names[i];
+        if (strcmp(placed, "/") == 0 || strcmp(placed, "/noexec") == 0 ||
+            strncmp(placed, "/noexec/", 8) == 0 ||
+            (name != NULL && (strcmp(name, "/noexec") == 0 ||
+                             strncmp(name, "/noexec/", 8) == 0))) {
+          prepare_error = EINVAL;
+          break;
+        }
+      }
+    }
     if (!prepare_error && unveiling) {
       const char *base = getenv("TMPDIR");
       if (base == NULL || base[0] != '/') base = "/tmp";
@@ -2737,7 +2771,8 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(PLEDGE_ARCH)
     .pledge = &pledge,
 #endif
-    .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
+    .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
+    .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,

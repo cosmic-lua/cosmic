@@ -1,0 +1,7 @@
+file: tl.tl
+note: the fields match_record_key answers for a key a record lacks (33c) are kept for the refusal (33f)
+--- find
+         local t, e = self:match_record_key(a, anode, rb.literal)
+--- replace
+         local t, e, fields = self:match_record_key(a, anode, rb.literal)
+--- end

@@ -1,0 +1,16 @@
+file: tl.tl
+note: the error for a key a record lacks is added with the record's fields on it (33a)
+--- find
+function Errors:invalid_at(w: Where, msg: string, ...:Type): InvalidType
+--- replace
+function Errors:invalid_key_at(w: Where, fields: {string}, msg: string, ...:Type): InvalidType
+   local before = #self.errors
+   self:add(w, msg, ...)
+   if fields and #self.errors > before then
+      self.errors[#self.errors].fields = fields
+   end
+   return an_invalid(w)
+end
+
+function Errors:invalid_at(w: Where, msg: string, ...:Type): InvalidType
+--- end

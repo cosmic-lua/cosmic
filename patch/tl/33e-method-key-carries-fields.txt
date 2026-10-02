@@ -1,0 +1,11 @@
+file: tl.tl
+note: a method call on a key a record lacks is refused with the record's fields on the error (33b)
+--- find
+               local t, e = self:match_record_key(ra, node.e1, node.e2.conststr or node.e2.tk)
+               if not t then
+                  return self.errs:invalid_at(node.e2, e, ua)
+--- replace
+               local t, e, fields = self:match_record_key(ra, node.e1, node.e2.conststr or node.e2.tk)
+               if not t then
+                  return self.errs:invalid_key_at(node.e2, fields, e, ua)
+--- end

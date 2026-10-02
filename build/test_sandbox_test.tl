@@ -82,3 +82,29 @@ local function test_a_worker_that_writes_where_the_program_is_cannot_be_held(tmp
   assert(not test_sandbox.forbiddable({ tmp .. "/cache" }, { cores .. "/core" }))
   assert(not test_sandbox.forbiddable({ tmp .. "/cache" }, { tmp .. "/link" }))
 end
+
+local function test_only_a_granted_noexec_capability_supplies_its_environment()
+  local inputs = effective({})
+  inputs.env = { ["*"] = true }
+  local host = { COSMIC_TEST_NOEXEC = "/forged", TMPDIR = "/host" }
+  assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil)
+  inputs.noexec = true
+  assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil)
+  inputs.noexec_ready = true
+  local granted = test_sandbox.environment(host, inputs)
+  assert(granted.COSMIC_TEST_NOEXEC == "/noexec")
+  assert(granted.TMPDIR == test_sandbox.scratch)
+  assert(test_sandbox.unenforced_view(host, inputs).COSMIC_TEST_NOEXEC == nil)
+  assert(test_sandbox.unenforced_environment(host, inputs, "/scratch").COSMIC_TEST_NOEXEC == nil)
+end
+
+local function test_noexec_does_not_probe_an_ordinary_or_unsandboxed_worker()
+  local inputs = effective({})
+  local known: {string:string} = {}
+  test_sandbox.resolve_noexec(inputs, true, known)
+  assert(not inputs.noexec_ready and next(known) == nil)
+  inputs.noexec = true
+  test_sandbox.resolve_noexec(inputs, false, known)
+  assert(not inputs.noexec_ready and next(known) == nil)
+  assert(inputs.noexec_trouble:find("requires a Linux filesystem sandbox", 1, true))
+end

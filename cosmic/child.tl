@@ -122,6 +122,13 @@ local record Sandbox
   --- running there; and it leads a session, and so a process group, of
   --- its own whatever `process_group` says.
   unveil: Unveil
+  --- With `unveil`, fresh writable scratch at /noexec, mounted noexec:
+  --- files there cannot execute, including through aliases. Reading,
+  --- interpreting or copying their bytes elsewhere is still allowed.
+  --- No unveiled path or alias may occupy / or /noexec or beneath it.
+  --- This option does not change ordinary /tmp policy. Unsupported
+  --- creation fails.
+  noexec_scratch: boolean
   --- A network namespace of its own, with nothing but a loopback.
   offline: boolean
   --- With `unveil` and `group`, the user the child runs as in place of
@@ -1691,6 +1698,14 @@ local function validate(argv: {string}, opts: Options)
       error("child: credentials exclude sandbox unveil, offline, user and group", 3)
     end
   end
+  if opts.sandbox ~= nil and opts.sandbox.noexec_scratch ~= nil then
+    if type(opts.sandbox.noexec_scratch) ~= "boolean" then
+      error("child: noexec_scratch must be a boolean", 3)
+    end
+    if opts.sandbox.noexec_scratch and opts.sandbox.unveil == nil then
+      error("child: noexec_scratch requires unveil", 3)
+    end
+  end
   if opts.sandbox ~= nil and opts.sandbox.unveil ~= nil then
     local unveil = opts.sandbox.unveil
     for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do
@@ -1880,7 +1895,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local sandbox: raw_process.Sandbox = nil
   if opts.sandbox ~= nil then
     local given = opts.sandbox.unveil
-    sandbox = { offline = opts.sandbox.offline == true, user = opts.sandbox.user,
+    sandbox = { offline = opts.sandbox.offline == true,
+      noexec_scratch = opts.sandbox.noexec_scratch == true, user = opts.sandbox.user,
       group = opts.sandbox.group }
     if given ~= nil then
       sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at }
