@@ -156,7 +156,7 @@ A4, B5 and C7 each name the exact green release SHA and verified asset digest, i
 
 Run AGENTS formatting/type/whole-tree gates, appropriate focused tests and the required 30-second full-suite attempt. Core changes build native/checked/all release targets and run allocation tests. Fixture changes require run-local plus remote unprivileged/native/sandbox fixtures. Record local namespace/UID/socket limitations without weakening tests. Keep performance evidence on identical-source checkouts: warm zero compiles/reads, fresh shared-cache reuse, exact artifact equality across matching trees, unchanged cache-hit paths, and targeted syscall/throughput measurements for changed hot operations.
 
-D1 verifies all nine groups/eleven pin TODOs and both related waits/flush needs are either implemented and migrated or explicitly re-scoped with evidence. Check command help, API docs, contract exemptions, public export allowlist, pin, CI and comments together. Run integrated lock/cancellation/cache/durability/noexec scenarios and retain the plan as a living reference. Report remaining unrelated TODOs without treating them as unfinished work in this series.
+D1 verifies the original nine groups/eleven pin TODOs, both related waits/flush needs, and any additional consumer gaps recorded during execution are either implemented and migrated or explicitly re-scoped with evidence. Check command help, API docs, contract exemptions, public export allowlist, pin, CI and comments together. Run integrated lock/cancellation/cache/durability/noexec scenarios and retain the plan as a living reference. Report remaining unrelated TODOs without treating them as unfinished work in this series.
 
 ## Concurrent source changes
 
@@ -174,16 +174,16 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
-| B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | CI running | c8b310c0/tree08e1e7b2; independently approved on main58059883; native83 and independent checked51 pass; auto-merge enabled |
-| B4b | pending | locally approved; integrating current main | ca2cc26c/tree14b4feb8; ten non-harness files unchanged; native31 integration and independent checked14 pass |
-| B5 | pending | isolated source preparation | Fuzz/cache migrations pass focused checks; adversarial review continues; pin unchanged until verified B-wave release |
-| C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
+| B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | queue failure under investigation | c8b310c0/tree08e1e7b2; branch36972386841 green; queue36972776038 passed four platforms but checked parser timing test hit30s; not merged, auto-merge off |
+| B4b | pending | locally approved on prepared B4a | 1dfbcdc7/treec1c66559; native63 integration plus independent50 native/27 checked pass; matching artifacts; actual merged-parent alignment required |
+| B5 | pending | source preparation approved | a1439795/treeff2eba5b; independent46 CI and44 Zig tests pass; pin unchanged until verified B-wave release |
+| C1 | pending | locally approved | 938b3686/tree254eea31 prep preserves original668ef813 feature and incoming Fs changes; focused60 pass; final integration/publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
 | C4 | pending | locally approved | 73ae44e0/tree1a99265a; independent native/checked allocation, bounded growth and account-service failure review passed; publication after B5 |
 | C5 | pending | locally approved | 08a1d96c/treea28a267e; independent native61/checked15 and analyzer checks pass; actual privileged CI proof required |
 | C6 | pending | locally approved | 42823b63/tree7c4ad967; independent native150/checked14 and harness9 pass with three honest mount skips; native Linux proof and fresh combined epoch required |
-| C7 | pending | isolated source preparation | Approved consumer design; local reviewed-API driver only, pin unchanged; actual C-wave release required before publication |
+| C7 | pending | source preparation approved | dd193372/treebab85286; identical tested overlay6a62aa90; independent58 CI and55 patch/workflow tests pass; actual release, final append consumer and native proofs remain |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -423,3 +423,19 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   already planned API, not another API. C7 also adds a narrow real privileged
   runner proof to cover ownership, symlinks and unchanged source state; local
   UID-mocked plumbing tests do not establish credential-transition success.
+
+- 2026-10-02 UTC: B4a branch CI passed. Queue candidate `8cbd12d3` retained
+  all six approved feature blobs and added only #2571's four CSV files.
+  Four queue platforms passed; the checked core failed only
+  `build.teal_test:test_a_keyword_named_variable_costs_what_it_reads`, which hit
+  its 30-second deadline (3306 tests, no infrastructure errors). The queue
+  removed auto-merge; #2573 remains unmerged. Investigate unchanged-test
+  behavior on the exact parent and candidate before a correction or requeue.
+  Pending external #2568 changes timing retries but does not establish a fix
+  for this deadline failure; #2569 does not touch this test.
+- 2026-10-02 UTC: B5 and C7 source preparations now have independent exact-tree
+  approval. Pins remain unchanged. C7 review fixed bounded error-log streaming,
+  default-state-directory symlink handling and an inherited snapshot omission
+  of tracked or force-staged files matching ignore rules. Actual credentials,
+  noexec and Darwin flush success remain native CI gates. B5's concurrent-host
+  timing samples are diagnostics only, not performance conclusions.
