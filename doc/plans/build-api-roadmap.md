@@ -167,13 +167,13 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | Step | Implementation PR | State | Evidence |
 | --- | --- | --- | --- |
 | A1 | [#2545](https://github.com/cosmic-lua/cosmic/pull/2545) | merged | 338a8e25; reviewed tree ef80637e; branch 36955108004 and queue 36955383885 green |
-| A2 | [#2546](https://github.com/cosmic-lua/cosmic/pull/2546) | CI running | 147a4569; exact independently reviewed tree f1a68e18 on merged A1; auto-merge enabled |
-| A3 | pending | prepared and independently approved | 9a3f8d4b/tree37787864; source Fetch consumer included; integrated review passed; actual A2 merge alignment and remote checks required |
-| A4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| A2 | [#2546](https://github.com/cosmic-lua/cosmic/pull/2546) | merged | 143b9926; reviewed tree f1a68e18; branch 36956411363 and queue 36956779031 green |
+| A3 | [#2550](https://github.com/cosmic-lua/cosmic/pull/2550) | CI running | 476924d8/tree37787864; exact approved source on merged A2; auto-merge enabled |
+| A4 | pending | source preparation; release-gated | Four of eleven inventoried pin TODOs unblocked; actual published A3 release must be downloaded, hashed and executed before pin change |
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | pending | locally approved; release checkpoint pending | 3f10d7da/tree4a438ebc; 195 focused tests and independent 73 cases plus real closed-descriptor checks passed; epoch 13 |
 | B2b | pending | design approved; preparation waits for B2a | Entry freshness, captured-guard lifetime, exclusive consumption and error precedence reviewed; runnable child example earns export |
-| B3 | pending | local preparation | Paired design and implementation review; publication follows A4 |
+| B3 | pending | locally approved; release checkpoint pending | f13f2725/tree8efd806e; native/checked and independent lifetime/cancellation review passed; publication follows A4 |
 | B4a | pending | local preparation | Minimal existing-only open option; separately reviewed native lifetime and default-compatibility coverage |
 | B4b | pending | local preparation | Command follows B4a; conservative file retention, format ownership and independent dispatch |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -239,3 +239,15 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   dispatch deserve a focused command review separate from the C open flag.
   This makes seventeen implementation/migration PRs plus D1's final audit.
   C1/C2 local preparation may overlap CI, with their publication still after B5.
+
+- 2026-10-02 UTC: A2 merged as `143b9926` after green branch and queue CI.
+  A3 published as #2550 at `476924d8`, exact reviewed tree `37787864`, and
+  auto-merge is enabled. Actual-parent local alignment `eac856b2` has the same
+  tree. B3 is independently approved at `f13f2725`/`8efd806e`: native and checked
+  operation/lock/allocation cases passed; interleaved default-path timing ranges
+  overlap baseline, with no clock reads added to uncontended operations.
+- 2026-10-02 UTC: concurrent #2547 changes Stream object representation while
+  preserving its interfaces; #2548 changes analyzer/docs binding resolution and
+  HTTP option-refusal caller locations. Preserve their actual merged changes and
+  review integration, including both download entry points. These are not API
+  roadmap implementations; pending external heads are not copied into ours.
