@@ -1076,7 +1076,10 @@ local function make_handle(pid: integer, process_group: boolean): Handle
       -- signal may have landed after the deadline, so say so here.
       if why == "" then why = cancelled_by(cancelled) end
       local _, ended_trouble = end_child(self)
-      if ended_trouble ~= "" then return nil, why .. "; " .. ended_trouble end
+      if ended_trouble ~= "" then
+        -- `why` names the module already.
+        return nil, why .. "; " .. (ended_trouble:gsub("^child: ", ""))
+      end
       return nil, why
     end
     if why ~= "" then return nil, why end

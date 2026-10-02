@@ -406,7 +406,9 @@ end
 --- of range, a field, a calendar rule, a parser's, a duration's.
 local function test_a_returned_failure_names_the_module_once()
   local function named(why: string | nil, rest: string)
-    assert(why ~= nil and why:sub(1, 6) == "time: " and why:sub(7, 12) ~= "time: ", tostring(why))
+    assert(why ~= nil and why:sub(1, 6) == "time: ", tostring(why))
+    local _, count = why:gsub("time: ", "")
+    assert(count == 1, why)
     assert(why:find(rest, 1, true) ~= nil, why)
   end
   local ns, why = Time.from_civil(civil(2026, 13, 1))

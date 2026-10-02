@@ -214,7 +214,9 @@ end
 --- `time: ` once.
 local function test_a_zone_failure_names_the_module_once()
   local function named(why: string | nil, rest: string)
-    assert(why ~= nil and why:sub(1, 6) == "time: " and why:sub(7, 12) ~= "time: ", tostring(why))
+    assert(why ~= nil and why:sub(1, 6) == "time: ", tostring(why))
+    local _, count = why:gsub("time: ", "")
+    assert(count == 1, why)
     assert(why:find(rest, 1, true) ~= nil, why)
   end
   local z, why = Time.zone("a b")
@@ -223,6 +225,10 @@ local function test_a_zone_failure_names_the_module_once()
   z, why = Time.zone("Nowhere/Nothing")
   assert(z == nil)
   named(why, "no time zone Nowhere/Nothing")
+  -- The second answer comes from the cache of refused names.
+  local again, again_why = Time.zone("Nowhere/Nothing")
+  assert(again == nil and again_why == why)
+  named(again_why, "no time zone Nowhere/Nothing")
   z, why = Time.zone_from_tzif("not a zone", "x")
   assert(z == nil)
   named(why, "truncated: a TZif header at byte 1")
