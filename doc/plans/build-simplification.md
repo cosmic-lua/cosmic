@@ -70,14 +70,14 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | --- | --- | --- | --- |
 | 1. Compiler and analyzer boundary | [#2522](https://github.com/cosmic-lua/cosmic/pull/2522) | merged | a6d458c9; final and queue CI green; independent approval |
 | 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | merged | 09240c31; branch and integrated queue36941246664 green; independent approval |
-| 3. Build phase and cleanup ownership | [#2532](https://github.com/cosmic-lua/cosmic/pull/2532) | in merge queue | 6f5e6861; branch CI36942604690 green; independent approval |
-| 4. Reporting outside the acknowledged runner | pending | integrated approval | 0364d170; 83 focused and 11 parser tests pass; align after 3 |
-| 5a. Bootstrap lock ownership preparation | pending | integration review | 82d54b66; patch-identical rebase onto approved step 4 |
-| 5b. Pin, flock/scratch and obsolete adapters | pending | implementing | verified release executed; locking and API slices prepare one atomic PR |
+| 3. Build phase and cleanup ownership | [#2532](https://github.com/cosmic-lua/cosmic/pull/2532) | merged | e75cee04; branch and queue36942878305 green; independent approval |
+| 4. Reporting outside the acknowledged runner | [#2533](https://github.com/cosmic-lua/cosmic/pull/2533) | merged | 56637153; branch and queue36944097828 green; independent approval |
+| 5a. Bootstrap lock ownership preparation | [#2534](https://github.com/cosmic-lua/cosmic/pull/2534) | CI running | e534d545; exact reviewed tree5d4f9098 on merged step4 |
+| 5b. Pin, flock/scratch and obsolete adapters | pending | integration review | c5ae41c9 approved in both slices; integrate reporting/epoch acknowledgment |
 | 6a. CI cache-name policy | pending | locally approved | 20420196; independent output/identity/policy checks and 38 tests pass |
-| 6b. CI operation recording | pending | implementing | concrete phase recording; preserve exit codes, diagnostics and timing |
+| 6b. CI operation recording | pending | reviewing | 46be398a; 60 focused tests pass; preserve exit codes, diagnostics and timing |
 | 7. Zig graph construction | pending | locally approved | 32d63aa5; 19 artifact hashes and 590 dependency lines preserved |
-| 8. Documentation and integrated audit | pending | planned | depends on all earlier steps |
+| 8. Documentation and integrated audit | pending | preparing | confirmed stale architecture/comments; final audit after earlier merges |
 
 ## PR 1: isolate the compiler and analyzer's semantic inputs
 
@@ -513,3 +513,19 @@ changes the design, update this plan before proceeding and explain the decision.
   a new public API and pin cycle. Independent locking and API reviewers are active.
   Removing COSMIC_TEST_KEY changes possible worker inputs, so this transition
   conservatively retires the current harness epoch rather than reusing verdicts.
+
+- 2026-10-02: step3 #2532 merged as e75cee041324637dd131aed40f3146f1fa77e146
+  after queue36942878305 passed. Step4 #2533 then merged as
+  5663715344acbb69f2807f56ffde7d6db6a04b14 after queue36944097828 passed.
+  Both merged trees exactly match independently reviewed candidates.
+- 2026-10-02: step5a opened as #2534 at e534d545, reviewed tree5d4f9098.
+  Actual-base alignment changed only its parent. Independent old-pin boot and
+  39 lock tests passed; implementer61 tests and whole-tree638 files passed.
+  Final mandatory full-suite attempt hit the established socket EPERM limitation
+  and 30-second timeout. Auto-merge enabled subject to required checks.
+- 2026-10-02: both step5b review slices approved c5ae41c9. Bootstrap reviewer
+  required a deterministic pause after scratch creation, before owner acquisition;
+  regression now passes for both caches. API reviewer verified durations, error
+  handling and selected-release execution, and corrected stale switch comments.
+  Rebase onto integrated5a conflicts only in the expected runner acknowledgment;
+  recompute it for combined reporting extraction and worker-input change.
