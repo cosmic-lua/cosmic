@@ -572,6 +572,13 @@
         },
 
         {
+          name: "verify the delayed native database boundary",
+          run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
+        },
+
+        # Project dispatch writes the working database. Keep this proof
+        # after the native suite's delayed boundary, like the Darwin suite.
+        {
           name: "build the credential transition probe",
           if: "runner.os == 'Linux'",
           "working-directory": ".",
@@ -584,11 +591,6 @@
           "working-directory": ".",
           shell: "leg-shell --root {0}",
           run: "sh .github/scripts/credentials-proof.sh",
-        },
-
-        {
-          name: "verify the delayed native database boundary",
-          run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
 
         # The macOS leg's darwin-branch tests, which stand on no verdict
