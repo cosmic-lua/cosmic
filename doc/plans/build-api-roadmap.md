@@ -169,7 +169,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | A1 | [#2545](https://github.com/cosmic-lua/cosmic/pull/2545) | merged | 338a8e25; reviewed tree ef80637e; branch 36955108004 and queue 36955383885 green |
 | A2 | [#2546](https://github.com/cosmic-lua/cosmic/pull/2546) | merged | 143b9926; reviewed tree f1a68e18; branch 36956411363 and queue 36956779031 green |
 | A3 | [#2550](https://github.com/cosmic-lua/cosmic/pull/2550) | merged | b951ab95/tree02802767; incoming Stream retained; branch 36957749478 and queue 36957951958 green |
-| A4 | [#2552](https://github.com/cosmic-lua/cosmic/pull/2552) | CI running | 53816203/tree683dcc50; actual published b951ab95 release independently verified and executed; four TODOs retired; auto-merge enabled |
+| A4 | [#2552](https://github.com/cosmic-lua/cosmic/pull/2552) | merged | 3511e6cd/tree0c00b3b3; branch36959640308 and queue36959944853 green; verified release and four consumer migrations complete |
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | pending | locally approved; release checkpoint pending | 3f10d7da/tree4a438ebc; 195 focused tests and independent 73 cases plus real closed-descriptor checks passed; epoch 13 |
 | B2b | pending | locally approved after three review corrections | b48168c6/treed4522aad; exact sink selection, abandoned Reader state and fixed per-call bounds tested; epoch 14 |
@@ -302,3 +302,9 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   passed. The selected release stays `b951ab95`; #2551 adds no capability that
   unblocks another pin TODO. Its new Fs/SQLite acknowledgments must survive
   every later integration.
+
+- 2026-10-02 UTC: A4 merged as `3511e6cd`, tree `0c00b3b3`, after branch
+  `36959640308` and queue `36959944853` passed every required check. This
+  completes the first actual-release checkpoint. B2a and B2b have independently
+  approved integrations on the new pin and now align to this merged parent,
+  preserving #2551's acknowledgments before serial publication.
