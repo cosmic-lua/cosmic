@@ -1440,21 +1440,9 @@ local function provenance_impl(c: Context, products: string): integer
   end)
 end
 
-local function logical(c: Context, phase: string,
-    action: function(): integer): integer
-  local started = Time.monotonic_ns()
-  local database = State.external_path(c.db, c.root)
-  local id = State.start(database, c.worker, c.run, c.attempt, phase, started)
-  local called, answer = pcall(action)
-  local code = called and answer or 1
-  local status = code == 0 and "success" or (called and "exit" or "error")
-  local detail: string | nil = nil
-  if not called then detail = tostring(answer) end
-  local finished = Time.monotonic_ns()
-  State.complete(database, id, c.worker, c.run, c.attempt, phase, finished,
-    finished - started, status, code, nil, 0, detail)
-  if detail then Fs.put(Fs.stderr, detail .. "\n") end
-  return code
+local function run_phase(c: Context, name: string, action: function(): integer): integer
+  return Runner.phase({ database = c.db, worker = c.worker, run = c.run,
+    attempt = c.attempt, candidate = c.root }, name, action)
 end
 
 function Orchestration.platform(a: {string}): integer
@@ -1470,7 +1458,7 @@ function Orchestration.platform(a: {string}): integer
     local_diagnostics = ctx.work .. "/local-diagnostics",
     portable_diagnostics = ctx.work .. "/portable-diagnostics",
     fresh = ctx.work .. "/portable-source" }
-  return logical(c, "platform: " .. phase, function(): integer
+  return run_phase(c, "platform: " .. phase, function(): integer
     return platform_impl(phase, p)
   end)
 end
@@ -1479,7 +1467,7 @@ function Orchestration.provenance(a: {string}): integer
   local ctx = ContextEnv.read()
   local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
     attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(a[0]))) }
-  return logical(c, "provenance", function(): integer
+  return run_phase(c, "provenance", function(): integer
     return provenance_impl(c, ctx.products)
   end)
 end

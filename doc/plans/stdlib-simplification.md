@@ -93,8 +93,7 @@ keeps a private path speller for its failure messages. removed from
 `cosmic.json`, each with a hint: `lines`, `write_line`, `encode_lines` (no
 caller), and the `EncodeOptions` fields nothing sets (`ascii`,
 `nan_as_null`, `sparse_as_null`, `sorted`, `indent`), which the C encoder
-keeps supporting for `build/` callers through a `cosmic.internal.json` option
-record the verb fills. `decode`, `decode_object`, `decode_array`,
+dropped too once no caller reached them. `decode`, `decode_object`, `decode_array`,
 `decode_lines`, `encode`, `array`, `is_array`, `quote`, `null` and the depth
 constants stay. one classification of a Lua table as JSON: `layout`
 (json.tl:954) becomes the only one, replacing `table_kind` (:456) and

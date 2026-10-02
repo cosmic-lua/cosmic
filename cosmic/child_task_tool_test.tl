@@ -534,7 +534,7 @@ assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
     " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
-  assert(got == "nil cancelled by signal " .. term .. "|" .. term .. "|true|true", tostring(got))
+  assert(got == "nil child: cancelled by signal " .. term .. "|" .. term .. "|true|true", tostring(got))
 end
 
 --- A stdin stream's write waiting in a task for room fails once another
