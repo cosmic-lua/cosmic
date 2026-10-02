@@ -329,10 +329,10 @@ end
 
 --- Fills a closure store's fresh schema from the projection attached
 --- as `whole`, for the modules `temp.wanted` names: their rows, the
---- edges among them, their docs, uses and links (those they make),
---- catalog, and the examples of the example files among them; the
---- declarations `temp.declared` names (`declared`), their docs and
---- links; and the `meta` rows `closure_meta` keeps. The zones, CA
+--- edges among them, the names they bind, their docs, uses and links
+--- (those they make), catalog, and the examples of the example files
+--- among them; the declarations `temp.declared` names (`declared`), the
+--- names they bind, their docs and links; and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -351,6 +351,8 @@ local closed: {string} = {
     "WHERE path IN temp.wanted ORDER BY path",
   "INSERT INTO main.imports SELECT * FROM whole.imports " ..
     "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
+  "INSERT INTO main.bound SELECT * FROM whole.bound " ..
+    "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
     "ORDER BY path",
   "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..

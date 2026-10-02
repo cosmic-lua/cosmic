@@ -57,6 +57,16 @@ local record analyzer
     line: integer
   end
 
+  --- A name the chunk's own block binds to a module, once and to
+  --- nothing else: `Stream` of `local Stream = require("cosmic.stream")`
+  --- or of `local type Stream = require("cosmic.stream")` -- what a
+  --- type the chunk declares means by [`Stream.Reader`] -- see
+  --- [`bound_of`].
+  record Bound
+    name: string
+    module: string
+  end
+
   --- One worked example: a top-level `function Example.<name>()` --
   --- see [`examples_of`]. `name` is a free label, not a symbol. Which
   --- symbol an example demonstrates is decided when [`build.docs`] reads
@@ -114,6 +124,7 @@ local record analyzer
     docs: {DocEntry}
     examples: {ExampleEntry}
     references: {Reference}
+    bound: {Bound}
   end
 end
 
@@ -1244,10 +1255,10 @@ end
 --- is not shadowed ([`scopes.walk`]).
 --- This is deliberately bounded: indirect aliases and unknown receiver types
 --- produce no edge rather than one guessed from spelling.
-local function references_of(parsed: ast.Parsed): {analyzer.Reference}
+local function references_of(parsed: ast.Parsed): {analyzer.Reference}, {scopes.Binding}
   local seen: {string: boolean} = {}
   local out: {analyzer.Reference} = {}
-  scopes.walk(parsed, function(module: string, name: string, line: integer)
+  local bindings = scopes.walk(parsed, function(module: string, name: string, line: integer)
     local id = module .. "\n" .. name .. "\n" .. line
     if not seen[id] then
       seen[id] = true
@@ -1263,6 +1274,26 @@ local function references_of(parsed: ast.Parsed): {analyzer.Reference}
     end
     return p.member < q.member
   end)
+  return out, bindings
+end
+
+--- The names the chunk's own block binds to a module, in source order,
+--- from its [`scopes.walk`]: each bound once there, by `local name =
+--- require("m")` or `local type name = require("m")`. A name the block
+--- binds twice, or to anything else besides, is left out: which binding
+--- a type declared under it reads depends on where, and a reader of the
+--- rows knows only the type's module.
+local function bound_of(bindings: {scopes.Binding}): {analyzer.Bound}
+  local count: {string: integer} = {}
+  for _, each in ipairs(bindings) do
+    if each.top then count[each.name] = (count[each.name] or 0) + 1 end
+  end
+  local out: {analyzer.Bound} = {}
+  for _, each in ipairs(bindings) do
+    if each.top and each.module ~= "" and count[each.name] == 1 then
+      out[#out + 1] = { name = each.name, module = each.module }
+    end
+  end
   return out
 end
 
@@ -1609,7 +1640,7 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   if catalog_trouble ~= "" then
     return nil, catalog_trouble
   end
-  local references = references_of(parsed)
+  local references, bindings = references_of(parsed)
   local declared, inputs_trouble = inputs_of(parsed)
   if inputs_trouble ~= "" then
     return nil, inputs_trouble
@@ -1641,6 +1672,7 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
     has_top_level_return = has_return, export = export,
     catalog = catalog, docs = doc_entries,
     examples = examples_of(lines, parsed), references = references,
+    bound = bound_of(bindings),
   }, ""
 end
 

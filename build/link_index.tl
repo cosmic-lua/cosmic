@@ -361,7 +361,33 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
       file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
       shown = true, database = 1, id = math.tointeger(tonumber(row[8])) or 0 })
   end
+  local bound, bound_trouble = Sqlite.text_rows(db,
+    "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
+  if bound == nil then
+    return nil, bound_trouble
+  end
+  for _, row in ipairs(bound) do symbol_index.bind(out, row[1], row[2], row[3]) end
   return out, ""
+end
+
+--- Adds to `index` the names each module of `db` binds, where `db`
+--- holds `bound`: a database written before it existed binds none.
+local function add_bound(index: symbol_index.Index, db: Sqlite.Handle): boolean, string
+  local held, held_trouble = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'bound'")
+  if held == nil then
+    return false, held_trouble
+  end
+  if #held == 0 then
+    return true, ""
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, name, requires FROM bound ORDER BY path, name")
+  if rows == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(rows) do symbol_index.bind(index, row[1], row[2], row[3]) end
+  return true, ""
 end
 
 --- Adds to `index` the rows of `library`'s databases that `cosmic docs`
@@ -399,6 +425,10 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
         file = row[4], kind = row[5], signature = row[6], exported = row[7] == "1",
         shown = row[9] == "1" and owners[row[1]] == database, database = database,
         id = math.tointeger(tonumber(row[8])) or 0 })
+    end
+    local bound, bound_trouble = add_bound(index, db)
+    if not bound then
+      return false, bound_trouble
     end
   end
   return true, ""

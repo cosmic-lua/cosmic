@@ -1971,6 +1971,100 @@ local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
   assert(#depth == 1 and depth[1].signature == "depth: integer", tostring(#depth))
 end
 
+--- A type of one public module aliased or extended in another, under
+--- whatever name that module binds its module to (`B`, not `Base`), as
+--- `type Entry = B.Entry` and `record Item is B.Entry`: the page lists
+--- what it takes, each member answers to its own dotted name once, an
+--- alias of that alias in a third module follows on, and a cycle of
+--- aliases across modules names nothing.
+local function test_a_type_takes_members_through_a_required_module(dir: string)
+  local db = built(dir, {
+    ["cosmic/base.tl"] = source(
+      "--- Bases.",
+      "local record Base",
+      "  --- One entry.",
+      "  interface Entry",
+      "    --- Its path.",
+      "    path: string",
+      "    --- Its body.",
+      "    open: function(Entry): string",
+      "  end",
+      "end",
+      "",
+      "return Base"),
+    ["cosmic/user.tl"] = source(
+      "--- Users.",
+      "local B = require(\"cosmic.base\")",
+      "",
+      "local record User",
+      "  --- An entry, as the base has it.",
+      "  type Entry = B.Entry",
+      "  --- An entry of its own.",
+      "  record Item is B.Entry",
+      "    --- Its size.",
+      "    size: integer",
+      "  end",
+      "end",
+      "",
+      "return User"),
+    ["cosmic/third.tl"] = source(
+      "--- Thirds.",
+      "local type U = require(\"cosmic.user\")",
+      "",
+      "local record Third",
+      "  --- The user's entry.",
+      "  type Entry = U.Entry",
+      "end",
+      "",
+      "return Third"),
+    ["cosmic/loop_a.tl"] = source(
+      "--- One side.",
+      "local LB = require(\"cosmic.loop_b\")",
+      "",
+      "local record LoopA",
+      "  --- The other side's.",
+      "  type A = LB.B",
+      "end",
+      "",
+      "return LoopA"),
+    ["cosmic/loop_b.tl"] = source(
+      "--- The other side.",
+      "local LA = require(\"cosmic.loop_a\")",
+      "",
+      "local record LoopB",
+      "  --- The first side's.",
+      "  type B = LA.A",
+      "end",
+      "",
+      "return LoopB"),
+  })
+  local looked = assert(docs.view({ db }, { true }))
+  local function page(query: string): string
+    return table.concat(assert(docs.render(looked, assert(docs.lookup(looked, query))[1])), "\n")
+  end
+  local entry = page("User.Entry")
+  assert(entry:find("  fields:\n    path: string -- Its path.", 1, true), entry)
+  assert(entry:find("  methods:\n    open(): string -- Its body.", 1, true), entry)
+  local item = page("User.Item")
+  assert(item:find("    size: integer -- Its size.", 1, true), item)
+  assert(item:find("  inherited fields:\n    path: string -- Its path.", 1, true), item)
+  local function found(query: string): string
+    local rows = assert(docs.lookup(looked, query))
+    local out: {string} = {}
+    for _, row in ipairs(rows) do
+      out[#out + 1] = row.module .. " " .. row.source_symbol .. " " .. row.signature
+    end
+    return table.concat(out, " | ")
+  end
+  assert(found("User.Entry.path") == "cosmic.user User.Entry.path path: string",
+    found("User.Entry.path"))
+  assert(found("User.Item.path") == "cosmic.user User.Item.path path: string",
+    found("User.Item.path"))
+  assert(found("Third.Entry.open") == "cosmic.third Third.Entry.open open: function(Entry): string",
+    found("Third.Entry.open"))
+  assert(found("LoopA.A.path") == "", found("LoopA.A.path"))
+end
+
 --- A binary carries a user guide as its own doc row, with no module
 --- row beside it. A public source lists it with the guide's first
 --- sentence, finds it by its bare name, and shows the whole prose; a

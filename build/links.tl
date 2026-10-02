@@ -473,6 +473,15 @@ local function index_of(view: docs.View): symbol_index.Index | nil, string
           id = math.tointeger(tonumber(row[8])) or 0 })
       end
     end
+    local bound, bound_trouble = Sqlite.text_rows(db,
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'bound'")
+    if bound == nil then return nil, bound_trouble end
+    if #bound > 0 then
+      local names, trouble = Sqlite.text_rows(db,
+        "SELECT path, name, requires FROM bound ORDER BY path, name")
+      if names == nil then return nil, trouble end
+      for _, row in ipairs(names) do symbol_index.bind(out, row[1], row[2], row[3]) end
+    end
   end
   return out, ""
 end

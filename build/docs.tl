@@ -827,6 +827,15 @@ local function has_docs(db: Sqlite.Handle): boolean | nil, string
   return #rows > 0, ""
 end
 
+--- Whether `db` holds `bound`: a database built before it existed
+--- names no module a type's qualifier is bound to.
+local function has_bound(db: Sqlite.Handle): boolean | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'bound'")
+  if rows == nil then return nil, trouble end
+  return #rows > 0, ""
+end
+
 --- Whether `db` holds `links`: a database built before it existed has
 --- no links to answer with.
 local function has_links(db: Sqlite.Handle): boolean | nil, string
@@ -1964,7 +1973,7 @@ end
 --- The rows of `view` that [`build.alias_members`] follows a
 --- declaration through, each read from whichever database holds it.
 local function type_source(view: docs.View): alias_members.Source<docs.Entry>
-  local types = "d.kind IN ('record', 'interface', 'enum') "
+  local types = "(d.kind IN ('record', 'interface', 'enum') OR d.signature GLOB 'type * = *') "
   return {
     declared = function(module: string, name: string): docs.Entry | nil, string
       return first_declared(view,
@@ -1972,11 +1981,31 @@ local function type_source(view: docs.View): alias_members.Source<docs.Entry>
         "AND " .. types .. "ORDER BY d.id LIMIT 1",
         { text(module), text(name) })
     end,
-    alias = function(name: string): docs.Entry | nil, string
+    exported = function(module: string, name: string): docs.Entry | nil, string
       return first_declared(view,
-        "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol = ?1 " ..
-        "AND d.signature GLOB 'type * = *' AND d.exported = 1 ORDER BY d.id LIMIT 1",
-        { text(name) })
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.symbol = ?2 " ..
+        "AND d.exported = 1 AND " .. types .. "ORDER BY d.id LIMIT 1",
+        { text(module), text(name) })
+    end,
+    bound = function(module: string, name: string): string | nil, string
+      for _, db in ipairs(view.databases) do
+        local held, held_trouble = has_bound(db)
+        if held == nil then
+          return nil, held_trouble
+        end
+        if held then
+          local rows, trouble = Sqlite.text_rows(db,
+            "SELECT requires FROM bound WHERE path = ?1 AND name = ?2",
+            { text(module), text(name) })
+          if rows == nil then
+            return nil, trouble
+          end
+          if #rows > 0 then
+            return rows[1][1], ""
+          end
+        end
+      end
+      return nil
     end,
     under = function(target: docs.Entry): {docs.Entry} | nil, string
       return members_under(view, target)

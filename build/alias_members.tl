@@ -20,12 +20,15 @@ local record alias_members
   --- Where the rule finds the rows it follows a declaration through.
   --- Each answers nil and why only when its rows cannot be read.
   record Source<T>
-    --- The first record, interface or enum of `module` that its source
-    --- spells `name`, or nil for none.
+    --- The first record, interface, enum or `type X = Y` of `module`
+    --- that its source spells `name`, or nil for none.
     declared: function(module: string, name: string): T | nil, string
-    --- The first exported `type X = Y` spelled `name` in any module,
-    --- or nil for none.
-    alias: function(name: string): T | nil, string
+    --- The first record, interface, enum or `type X = Y` that `module`
+    --- exports as `name`, or nil for none.
+    exported: function(module: string, name: string): T | nil, string
+    --- The module that `module`'s own block binds `name` to
+    --- ([`build.analyzer.Bound`]), or nil for none.
+    bound: function(module: string, name: string): string | nil, string
     --- The fields and values declared directly under `target`, less any
     --- named `_...`: what it hands to a declaration that stands for it.
     under: function(target: T): {T} | nil, string
@@ -66,48 +69,60 @@ end
 --- How many aliases of aliases a reference is followed through.
 local DEPTH <const> = 4
 
+--- Whether `row` is a record, interface or enum: a type with members of
+--- its own, where following a reference ends.
+local function concrete(row: alias_members.Declared): boolean
+  return row.kind == "record" or row.kind == "interface" or row.kind == "enum"
+end
+
+--- The type `reference`, written in `module` as `name.Member`, names
+--- through the module `module` binds `name` to: the one that module
+--- exports as `Member`. Nil when it names none, or nil and why.
+local function bound_type<T is alias_members.Declared>(source: alias_members.Source<T>,
+                                                             module: string,
+                                                             reference: string): T | nil, string
+  local stem, rest = reference:match("^([%w_]+)%.([%w_%.]+)$")
+  if stem == nil then
+    return nil
+  end
+  local other, other_trouble = source.bound(module, stem)
+  if other == nil then
+    return nil, other_trouble
+  end
+  return source.exported(other, rest)
+end
+
 --- The record, interface or enum that `reference`, written in `module`,
---- names: one the module declares, one of `cosmic.internal.<module>`
---- (`raw_sqlite.Handle` is [`sqlite.Handle`] there), or one that another
---- module's own alias ([`Compress.Stream`]) points on to. Nil when it
---- names none, or nil and why when `source` cannot be read.
+--- names: one the module declares, or one another module exports under
+--- the name its qualifier is bound to there ([`Stream.ArchiveEntry`] of
+--- [`cosmic.archive`], where `local Stream = require("cosmic.stream")`;
+--- `raw_sqlite.Handle`, [`sqlite.Handle`] of [`cosmic.internal.sqlite`]),
+--- followed on through each alias it meets ([`Compress.Stream`]), in any
+--- module. Nil when it names none, or past `DEPTH` aliases, which a
+--- cycle of them reaches; nil and why when `source` cannot be read.
 function alias_members.resolved<T is alias_members.Declared>(source: alias_members.Source<T>,
                                                            module: string,
                                                            reference: string): T | nil, string
   local depth = 0
   while true do
-    local same, same_trouble = source.declared(module, reference)
-    if same ~= nil then
-      return same, ""
+    local found, found_trouble = source.declared(module, reference)
+    if found == nil and found_trouble ~= nil then
+      return nil, found_trouble
     end
-    if same_trouble ~= nil then
-      return nil, same_trouble
+    if found == nil then
+      found, found_trouble = bound_type(source, module, reference)
     end
-    local stem, rest = reference:match("^([%w_]+)%.([%w_%.]+)$")
-    if stem == nil then
+    if found == nil then
+      return nil, found_trouble
+    end
+    if concrete(found) then
+      return found, ""
+    end
+    local onward = alias_members.references(found)[1]
+    if onward == nil or depth >= DEPTH then
       return nil
     end
-    local record = stem:gsub("^raw_", ""):lower()
-    local internal, internal_trouble = source.declared("cosmic.internal." .. record,
-      record .. "." .. rest)
-    if internal ~= nil then
-      return internal, ""
-    end
-    if internal_trouble ~= nil then
-      return nil, internal_trouble
-    end
-    if depth >= DEPTH then
-      return nil
-    end
-    local alias, alias_trouble = source.alias(reference)
-    if alias == nil then
-      return nil, alias_trouble
-    end
-    local onward = alias_members.references(alias)[1]
-    if onward == nil then
-      return nil
-    end
-    module, reference, depth = alias.module, onward, depth + 1
+    module, reference, depth = found.module, onward, depth + 1
   end
 end
 
