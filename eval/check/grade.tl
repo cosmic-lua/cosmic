@@ -230,8 +230,15 @@ end
 local function fix_check(g: Grade, cosmic: string, project: string)
   local journal = project .. "/JOURNAL.md"
   local aside = g.dir .. "/JOURNAL.md.aside"
-  -- A grading killed during the step left the journal aside.
-  if exists(aside) and not exists(journal) then
+  -- A grading killed during the step left the journal aside: put it
+  -- back, or, beside a new journal, keep it and say so.
+  if exists(aside) then
+    if exists(journal) then
+      fail(g, aside .. " is an earlier grading's, beside a new JOURNAL.md; " ..
+        "keeping both, and checking the new one")
+      command_step(g, { cosmic, "fix", "--check" }, project)
+      return
+    end
     local _, _ = Fs.rename(aside, journal)
   end
   local moved, _ = Fs.rename(journal, aside)
@@ -531,7 +538,7 @@ end
 
 --- Runs [`./notes`] with nothing in its environment but `env`, and
 --- checks that it exits 0 printing exactly `want` on stdout and stderr
---- together.
+--- together, or anything when `want` is nil.
 local function notes_expect(g: Grade, want: string, args: {string}, env?: {string: string})
   local shown_args: {string} = { "env -i" }
   local names: {string} = {}
@@ -552,10 +559,12 @@ local function notes_expect(g: Grade, want: string, args: {string}, env?: {strin
     timeout_ns = g.timeout_ns })
   local code = result ~= nil and status(result) or 127
   local got = result ~= nil and trimmed(result.stdout or "") or trouble
-  if code == 0 and got == want then
+  if code == 0 and want == nil then
+    ok(what .. " -> exit 0")
+  elseif code == 0 and got == want then
     ok(what .. " -> " .. first_line(want))
   else
-    fail(g, what .. ": exit " .. code .. ", got '" .. got .. "', wanted '" .. want .. "'")
+    fail(g, what .. ": exit " .. code .. ", got '" .. got .. "', wanted '" .. (want or "exit 0") .. "'")
   end
 end
 
@@ -565,7 +574,7 @@ local function notes(g: Grade)
   notes_expect(g, "2", { "add", "second", "note" })
   notes_expect(g, "1\thello world\n2\tsecond note", { "list" })
   notes_expect(g, "2\tsecond note", { "search", "second" })
-  notes_expect(g, "", { "rm", "1" })
+  notes_expect(g, nil, { "rm", "1" })
 
   -- The message must be the tool's own: a launcher or runtime failure
   -- also exits non-zero with something on stderr.
@@ -876,7 +885,6 @@ end
 --- answers when, on the monotonic clock, the timed-out job's grandchild
 --- would have written w/late had it outlived its job.
 local function jobs_main(g: Grade, w: string): integer
-  local started = Time.monotonic_ns()
   jobfile(g, "w/main.json", {
     first = { cmd = sh("echo first-out; echo first-err >&2; : > " .. w .. "/first.done") },
     second = { cmd = sh("[ -e " .. w .. "/first.done ] && : > " .. w .. "/second.ok"),
@@ -896,6 +904,7 @@ local function jobs_main(g: Grade, w: string): integer
   })
   local _, _ = Fs.mkdirs(w .. "/sub")
   local args = { "run", "w/main.json", "--parallel", "3", "--logs", "w/logs" }
+  local started = Time.monotonic_ns()
   local result = run(g, args, { LEAK = "from jobs" })
   local took = since_ms(started)
   check(g, status(result) ~= 0, label(g, args) .. " exits non-zero when a job failed",
@@ -937,8 +946,10 @@ local function jobs_main(g: Grade, w: string): integer
   check(g, not (result.stdout or ""):find("first-out", 1, true),
     "a job's output stays out of jobs's stdout")
   -- slow waits its turn among ten jobs three at a time; without its
-  -- start, it may have started as late as the run ended.
-  return started + Time.ms(math.floor(slow_start or took) + 2600)
+  -- start, it may have started as late as the run ended, and a start
+  -- the report puts outside the run (epoch milliseconds) is not slept on.
+  local slow_at = math.floor(math.min(math.max(slow_start or took, 0), took))
+  return started + Time.ms(slow_at + 2600)
 end
 
 --- Runs term.json and sends it SIGTERM; answers when the interrupted
@@ -1056,7 +1067,8 @@ local function jobs(g: Grade)
   -- The timed-out job's grandchild writes w/late 2 s after the job
   -- started, and the interrupted one's w/term.late 1.5 s after it did,
   -- unless they were killed with their jobs: each is looked for once
-  -- its own time, with 600 ms to spare, has passed.
+  -- its own time has passed, timed from just before its run started,
+  -- with 600 ms to spare less what jobs takes to start its jobs.
   local main_late = jobs_main(g, w)
   local term_late = jobs_interrupt(g, w)
   jobs_refusals(g, w)

@@ -331,7 +331,13 @@ function Solve.main(argv: {integer: string}): integer
   -- place_proc), and through it the solver could read every host
   -- process's environment and reach the checkout by /proc/<pid>/root.
   -- This process is outside the sandbox's pid namespace, so its pid
-  -- shows under /proc there only when that /proc is the host's.
+  -- shows under /proc there only when that /proc is the host's -- or
+  -- when it is 1 or 2 (a container's entrypoint), the sandbox's own
+  -- init's and the probe's, which refuses a sound sandbox: safe, and
+  -- the manual launch remains.
+  -- TODO: ask cosmic.child whether the sandbox's /proc is its own
+  -- (core/syscalls.c's build_root knows, as own_proc) once it reports
+  -- that, in place of this probe.
   local probe, probe_trouble = Child.run(Solve.proc_probe(Proc.pid()), { env = {},
     cwd = arena .. "/project", stdin = "null", stdout = "null", stderr = "null",
     sandbox = { unveil = unveil } })
