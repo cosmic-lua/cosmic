@@ -174,9 +174,9 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
-| B4a | pending | locally approved; integrating current main | 5a8438de/tree353cfefd; native44 and independent allocation/harness integration checks pass; special SQLite paths preserved |
+| B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | CI running | c8b310c0/tree08e1e7b2; independently approved on main58059883; native83 and independent checked51 pass; auto-merge enabled |
 | B4b | pending | locally approved; integrating current main | ca2cc26c/tree14b4feb8; ten non-harness files unchanged; native31 integration and independent checked14 pass |
-| B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B5 | pending | isolated source preparation | Fuzz/cache migrations pass focused checks; adversarial review continues; pin unchanged until verified B-wave release |
 | C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
@@ -409,3 +409,17 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   separate worktrees. B5 and C7 consumer migrations remain in preparation;
   their local drivers are not published-release evidence. C3 remains held
   pending a useful real-filesystem performance result.
+
+- 2026-10-02 UTC: B4a published as #2573, remote `c8b310c0`, independently
+  approved tree `08e1e7b2` on actual main `58059883`. Native 83 and independent
+  checked 51 cases passed; whole-tree check found no fixes in 645 files.
+  Warm build performed zero compiles and staged reads. Required full-suite
+  attempt timed out at 30 seconds and is not a pass; platform CI gates merge.
+  Independent integration checks also passed 104 child/drain/guard/poll cases.
+- 2026-10-02 UTC: B5 review identified an inherited read/rewrite of
+  GITHUB_OUTPUT in CacheTrim.output. Record a precise Fs.append pin dependency
+  there and migrate it in C7 alongside Images and Context. The expected
+  post-B5 literal pin inventory becomes five sites; this adds a consumer of an
+  already planned API, not another API. C7 also adds a narrow real privileged
+  runner proof to cover ownership, symlinks and unchanged source state; local
+  UID-mocked plumbing tests do not establish credential-transition success.
