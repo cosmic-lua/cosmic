@@ -114,6 +114,17 @@ local record docs
     closest: boolean
   end
 
+  --- What `cosmic docs` prints for its words, short of the verdict
+  --- line: see [`docs.answer`].
+  record Answer
+    lines: {string}
+    --- Whether every word found something: the verdict's pass.
+    found: boolean
+    --- What the verdict counts ("2 named", "7 found"), or, when a word
+    --- found nothing, what it was.
+    said: string
+  end
+
   --- One module as the index lists it.
   record Summary
     module: string
@@ -1864,13 +1875,21 @@ local function parent_of(symbol: string): string
   return symbol:match("^(.*)%.[^.]*$") or ""
 end
 
+--- `note` cut to `limit` bytes at a word, marked as cut.
+local function clipped(note: string, limit: integer): string
+  if #note <= limit then
+    return note
+  end
+  local cut = note:sub(1, limit):match("^(.*%S)%s+%S*$") or note:sub(1, limit)
+  return (cut:gsub("[,;:%-]+$", "")) .. "…"
+end
+
 --- A record's field, or an enum's value, on one line: as declared, then
 --- the first sentence of what it says.
 local function member_line(member: docs.Entry, limit?: integer): string
   local note = first_sentence(member.text)
-  if limit ~= nil and #note > limit then
-    local cut = note:sub(1, limit):match("^(.*%S)%s+%S*$") or note:sub(1, limit)
-    note = cut:gsub("[,;:%-]+$", "") .. "…"
+  if limit ~= nil then
+    note = clipped(note, limit)
   end
   return member.signature .. (note ~= "" and " -- " .. note or "")
 end
@@ -2100,16 +2119,31 @@ through_alias = function(view: docs.View, query: string): {docs.Entry} | nil, st
   return aliased_members(view, owners, name)
 end
 
+--- An entry's first line as [`docs.render`] prints it: what it is and
+--- where.
+local function heading(entry: docs.Entry): string
+  if entry.kind == "example" then
+    local ex = entry.related[1]
+    return entry.module .. " example " .. ex.name .. " (" .. ex.file .. ":" .. ex.line .. ")"
+  end
+  if entry.kind == "removed" then
+    return entry.module .. " " .. entry.source_symbol .. " (removed)"
+  end
+  if entry.symbol == "" then
+    return entry.module .. " (" .. entry.file .. ")"
+  end
+  local at = entry.line > 0 and ":" .. entry.line or ""
+  return entry.module .. " " .. entry.source_symbol .. " (" .. entry.file .. at .. ")"
+end
+
 --- One entry, as `cosmic docs` prints it: where it is, its signature,
 --- its documentation indented under that, and how many places use it.
 --- A module's row lists the symbols it declares instead of a signature.
 --- Nil and why when a database cannot be read.
 function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
-  local lines: {string} = {}
+  local lines: {string} = { heading(entry) }
   if entry.kind == "example" then
     local ex = entry.related[1]
-    lines[#lines + 1] = entry.module .. " example " .. ex.name .. " (" ..
-      ex.file .. ":" .. ex.line .. ")"
     for line in String.lines(ex.text) do
       lines[#lines + 1] = #line > 0 and "  " .. line or ""
     end
@@ -2121,15 +2155,9 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   if entry.kind == "removed" then
     -- A name that is gone has no declaration to show, only what its
     -- module's catalog says to write instead.
-    return { entry.module .. " " .. entry.source_symbol .. " (removed)",
-      "  " .. entry.text }, ""
+    return { lines[1], "  " .. entry.text }, ""
   end
-  if entry.symbol == "" then
-    lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"
-  else
-    local at = entry.line > 0 and ":" .. entry.line or ""
-    lines[#lines + 1] = entry.module .. " " .. entry.source_symbol .. " (" ..
-      entry.file .. at .. ")"
+  if entry.symbol ~= "" then
     -- `local` says only how the module spelled a declaration it hands
     -- out; a caller reads it as a record like any other.
     lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "")
@@ -2320,9 +2348,167 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   return lines, ""
 end
 
---- `cosmic docs <query>`: prints what the query names and ends in a
---- verdict line; fails when nothing matches. With no query, lists
---- every module ([`docs.index`]).
+--- How many entries a search shows whole, when nothing is named
+--- exactly; the rest it lists a line each. A broad word ("cosmic",
+--- "file") touches dozens of entries, each a page with its examples.
+local SHOWN_WHOLE <const> = 5
+
+--- How long the note after a listed entry's heading runs.
+local LISTED_NOTE <const> = 80
+
+--- Whether `word` is written as a qualified name ([`Fs.read`],
+--- [`cosmic.fs`], `Lid:open`) rather than as a word of prose: several of
+--- them are looked up one by one, where bare words are searched for
+--- together, since a bare word often names something exactly too
+--- ("find", "path").
+local function qualified(word: string): boolean
+  return word:match("^[%a_][%w_]*[.:][%a_][%w_.:]*$") ~= nil and
+    word:find("[.:][.:]") == nil and word:match("[.:]$") == nil
+end
+
+--- The lines `found`, what `query` looked up, prints as: every entry
+--- whole when the query names it; else a line saying they only relate,
+--- the first [`SHOWN_WHOLE`] whole, and the rest a line each.
+local function page(view: docs.View, found: docs.Lookup,
+                    query: string): {string} | nil, string
+  local lines: {string} = {}
+  if found.closest then
+    lines[#lines + 1] = "No entry has every word of '" .. query .. "'; closest matches:"
+    lines[#lines + 1] = ""
+  elseif not found.exact then
+    lines[#lines + 1] = "No exact symbol match for '" .. query ..
+      "'; showing related documentation:"
+    lines[#lines + 1] = ""
+  end
+  local whole = found.exact and #found or math.min(#found, SHOWN_WHOLE)
+  for index = 1, whole do
+    if index > 1 then
+      lines[#lines + 1] = ""
+    end
+    local rendered, trouble = docs.render(view, found[index])
+    if rendered == nil then
+      return nil, trouble
+    end
+    for _, line in ipairs(rendered) do lines[#lines + 1] = line end
+  end
+  if #found > whole then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = (#found - whole) .. " more; narrow the search, or look one up by name:"
+    for index = whole + 1, #found do
+      local entry = found[index]
+      local said = entry.kind == "example" and entry.related[1].text or entry.text
+      local note = clipped(first_sentence(said), LISTED_NOTE)
+      lines[#lines + 1] = "  " .. heading(entry) .. (note ~= "" and " -- " .. note or "")
+    end
+  end
+  return lines, ""
+end
+
+--- The modules of `index` a line each, aligned, with the first sentence
+--- of each, cut to `limit` bytes when there is one.
+local function index_lines(index: {docs.Summary}, limit?: integer): {string}
+  local width = 0
+  for _, summary in ipairs(index) do
+    width = math.max(width, #summary.module)
+  end
+  local lines: {string} = {}
+  for _, summary in ipairs(index) do
+    local line = summary.module
+    if summary.text ~= "" then
+      line = line .. string.rep(" ", width - #line + 2) ..
+        (limit ~= nil and clipped(summary.text, limit) or summary.text)
+    end
+    lines[#lines + 1] = line
+  end
+  return lines
+end
+
+--- What `cosmic docs <words...>` prints, short of the verdict line:
+--- - no words: every module ([`docs.index`]);
+--- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
+---   guides, which no search for the word could list in a page;
+--- - several words, each a qualified name ([`Fs.read`] [`Fs.write`]):
+---   each looked up in turn, as it would be alone;
+--- - else the words together, as one query to [`docs.lookup`]: a
+---   symbol, a module or words to search for. A search names at most
+---   [`SHOWN_WHOLE`] entries whole.
+--- Nil and why when a database cannot be read.
+function docs.answer(view: docs.View, words: {string}): docs.Answer | nil, string
+  local query = table.concat(words, " ")
+  if query == "" or query == "cosmic" or query == "cosmic." then
+    local index, index_trouble = docs.index(view)
+    if index == nil then
+      return nil, index_trouble
+    end
+    local hint = "`cosmic docs <module>` shows one, with what it offers; " ..
+      "`cosmic docs <words>` searches them all."
+    if query ~= "" then
+      local library: {docs.Summary} = {}
+      for _, summary in ipairs(index) do
+        if symbols.is_public_module(summary.module) or
+            symbols.is_public_guide(summary.module) then
+          library[#library + 1] = summary
+        end
+      end
+      index = library
+      hint = "`cosmic docs <module>` shows one (cosmic.fs, or fs), with what it " ..
+        "offers; `cosmic docs Fs.read` a symbol; `cosmic docs <words>` searches."
+    end
+    local lines = index_lines(index, query ~= "" and NOTE_LIMIT or nil)
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = hint
+    return { lines = lines, found = true, said = plural.count(#index, "module") }, ""
+  end
+  local each = #words > 1
+  for _, word in ipairs(words) do
+    if not qualified(word) then each = false end
+  end
+  local asked: {string} = each and words or { query }
+  local lines: {string} = {}
+  local naming, standing, related = 0, 0, 0
+  local missed: {string} = {}
+  for at, asking in ipairs(asked) do
+    local found, trouble = docs.lookup(view, asking)
+    if found == nil then
+      return nil, trouble
+    end
+    if at > 1 then
+      lines[#lines + 1] = ""
+    end
+    if #found == 0 then
+      missed[#missed + 1] = "'" .. asking .. "'"
+      if each then
+        lines[#lines + 1] = "Nothing named or documented as '" .. asking .. "'."
+      end
+    else
+      local shown, page_trouble = page(view, found, asking)
+      if shown == nil then
+        return nil, page_trouble
+      end
+      for _, line in ipairs(shown) do lines[#lines + 1] = line end
+      if found.exact then
+        naming = naming + found.named
+        standing = standing + #found - found.named
+      else
+        related = related + #found
+      end
+    end
+  end
+  if #lines > 0 then
+    lines[#lines + 1] = ""
+  end
+  local said: {string} = {}
+  if #missed > 0 then
+    said[#said + 1] = "nothing named or documented as " .. table.concat(missed, ", ")
+  end
+  if naming > 0 then said[#said + 1] = naming .. " named" end
+  if standing > 0 then said[#said + 1] = standing .. " standing in" end
+  if related > 0 then said[#said + 1] = related .. " found" end
+  return { lines = lines, found = #missed == 0, said = table.concat(said, ", ") }, ""
+end
+
+--- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
+--- words and ends in a verdict line; fails when a word finds nothing.
 local function run(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -2338,74 +2524,26 @@ local function run(argv: {integer:string}): integer
     log:complain("docs: not rebuilt, answering from the last build: " .. build_trouble)
   end
   local started = Time.monotonic_ns()
-  local query = table.concat(parsed.words, " ")
   local sources = docs.databases()
   local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
     log:complain("docs: " .. view_trouble)
     return 1
   end
-  if query == "" then
-    local index, index_trouble = docs.index(view)
-    if index == nil then
-      log:complain("docs: " .. index_trouble)
-      return 1
-    end
-    local width = 0
-    for _, summary in ipairs(index) do
-      width = math.max(width, #summary.module)
-    end
-    for _, summary in ipairs(index) do
-      local line = summary.module
-      if summary.text ~= "" then
-        line = line .. string.rep(" ", width - #line + 2) .. summary.text
-      end
-      log:say(line)
-    end
-    log:say("")
-    log:say("`cosmic docs <module>` shows one, with what it offers; " ..
-      "`cosmic docs <words>` searches them all.")
-    log:verdict("docs", true, plural.count(#index, "module") .. ", " ..
-      plural.count(#view.databases, "database") .. ", " .. clock.took(started))
-    return 0
-  end
-  local found, trouble = docs.lookup(view, query)
-  if found == nil then
+  local answer, trouble = docs.answer(view, parsed.words)
+  if answer == nil then
     log:complain("docs: " .. trouble)
     return 1
   end
-  if #found == 0 then
-    log:verdict("docs", false, "nothing named or documented as '" .. query .. "', " ..
-      clock.took(started))
+  for _, line in ipairs(answer.lines) do
+    log:say(line)
+  end
+  if not answer.found then
+    log:verdict("docs", false, answer.said .. ", " .. clock.took(started))
     return 1
   end
-  if found.closest then
-    log:say("No entry has every word; closest matches:")
-    log:say("")
-  elseif not found.exact then
-    log:say("No exact symbol match; showing related documentation:")
-    log:say("")
-  end
-  for index, entry in ipairs(found) do
-    if index > 1 then
-      log:say("")
-    end
-    local lines, render_trouble = docs.render(view, entry)
-    if lines == nil then
-      log:complain("docs: " .. render_trouble)
-      return 1
-    end
-    for _, line in ipairs(lines) do
-      log:say(line)
-    end
-  end
-  log:say("")
-  local counted = found.exact and found.named .. " named" or #found .. " found"
-  if found.exact and #found > found.named then
-    counted = counted .. ", " .. (#found - found.named) .. " standing in"
-  end
-  log:verdict("docs", true, counted ..
-    ", " .. plural.count(#view.databases, "database") .. ", " .. clock.took(started))
+  log:verdict("docs", true, answer.said .. ", " ..
+    plural.count(#view.databases, "database") .. ", " .. clock.took(started))
   return 0
 end
 
