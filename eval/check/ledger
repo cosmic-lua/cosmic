@@ -1,0 +1,10 @@
+#!/bin/sh
+# Grades the ledger task in an arena: see eval/check/tasks.tl, which this
+# runs with `cosmic --standalone` on bin/cosmic-bootstrap's cosmic: the
+# pinned release, or $COSMIC_BOOTSTRAP when set.
+#
+#   eval/check/ledger <dir>
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/check/tasks.tl" ledger "$@"
