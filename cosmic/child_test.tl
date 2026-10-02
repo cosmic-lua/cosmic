@@ -211,3 +211,25 @@ local function test_guard_release_with_nothing_caught_answers_zero()
   local again = assert(Child.guard())
   assert(again:close())
 end
+
+--- Bad IDs and namespace combinations are rejected before opening any
+--- child pipes or attempting an executable.
+local function test_credentials_reject_invalid_ids_and_namespace_options()
+  local bad: {Child.Credentials} = {
+    {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
+    { user = 1, group = 0 }, { user = -1, group = 1 },
+    { user = 4294967295, group = 1 }, { user = 1, group = 4294967295 },
+    { user = 1.5, group = 1 } as Child.Credentials,
+  }
+  for _, credentials in ipairs(bad) do
+    local ok, why = pcall(Child.start, { "/never-started" }, { credentials = credentials })
+    assert(not ok and tostring(why):find("credentials need integer user and group", 1, true), tostring(why))
+  end
+  for _, sandbox in ipairs({
+    { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 },
+  } as {Child.Sandbox}) do
+    local ok, why = pcall(Child.start, { "/never-started" },
+      { credentials = { user = 1, group = 1 }, sandbox = sandbox })
+    assert(not ok and tostring(why):find("credentials exclude sandbox", 1, true), tostring(why))
+  end
+end

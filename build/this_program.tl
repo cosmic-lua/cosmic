@@ -111,6 +111,7 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
     env = env, fds = fds, cwd = given.cwd, stdin = given.stdin, input = given.input,
     stdout = given.stdout, stderr = given.stderr, capture_limit = given.capture_limit,
     process_group = given.process_group, timeout_ns = given.timeout_ns, sandbox = given.sandbox,
+    credentials = given.credentials,
   } }
 end
 

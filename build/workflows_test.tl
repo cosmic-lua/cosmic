@@ -2443,3 +2443,21 @@ local function test_cache_names_reach_both_jobs_before_their_restores()
     assert(named and marker, job .. " has no cache names or driver marker")
   end
 end
+
+--- A project-script proof may write build metadata. It must not run
+--- between the native suite's snapshot and its delayed comparison.
+local function test_the_credential_proof_follows_the_native_database_boundary()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local steps = jobs.platform.steps as {{string: any}}
+  local _, suite = step_running(steps, "driver.tl platform local-suite")
+  local _, boundary = step_running(steps, "driver.tl platform local-boundary")
+  local compile, compiled = step_running(steps, "credentials-probe.c")
+  local proof, proved = step_running(steps, "credentials-proof.sh")
+  assert(suite < boundary and boundary < compiled and compiled < proved,
+    "credential proof setup or dispatch writes across the native database boundary")
+  assert(compile["if"] == "runner.os == 'Linux'" and proof["if"] == "runner.os == 'Linux'",
+    "credential proof must remain required on every Linux leg")
+  assert(proof.shell == "leg-shell --root {0}" and proof["continue-on-error"] == nil,
+    "credential proof lost its privileged failure gate")
+end
