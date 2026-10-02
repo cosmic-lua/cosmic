@@ -20,11 +20,12 @@ No standalone bootstrap or CI consumer may call a new API until ci/cosmic-driver
 | A2 | Snapshot SQLite execution outcomes | Independent; native rebuild/work consumers migrate now | Ready after plan review |
 | A3 | Structured HTTP download outcomes with URL-neutral reasons | Preserve incoming stream surface; bootstrap consumer waits for A4 | Ready after plan review |
 | A4 | Verified release and structured-failure consumer migration | A1–A3 published; retires four pin TODOs | Release-gated |
-| B1 | Guard signal provenance | C signal-state review; standalone consumer waits for B5 | Design constraints below |
-| B2 | Explicit bounded draining after child cancellation | Preserve Reader contract; CI consumer waits for B5 | Design/API review required |
+| B1 | Correct the overstated SIGINT provenance requirement | Preserve runtime policy; comment correction included in B2a | Independently respecified; no public provenance API |
+| B2a | Preserve genuine streamed I/O failures and document signal policy | Existing behavior correction; harness epoch update | Independently reviewed prerequisite |
+| B2b | Explicit bounded draining after child cancellation | B2a; preserve Reader contract; CI consumer waits for B5 | Entry-signal and lifecycle details under design review |
 | B3 | Interruptible SQLite busy waits | A2 outcomes; use existing guard notification | Ready once A2 lands |
 | B4 | Tool-owned cache maintenance command | Existing cache schemas and policies preserved | Small command contract to finalize |
-| B5 | Verified release and cancellation/cache consumer migration | B1–B4 published; retires three pin TODOs plus SQL wait workaround | Release-gated |
+| B5 | Verified release and cancellation/cache consumer migration | B2a/B2b, B3 and B4 published; retires two pin TODOs plus SQL wait workaround; B1 corrected as policy | Release-gated |
 | C1 | Fs.append | Independent additive operation | Ready |
 | C2 | Explicit macOS full storage flush | Narrow platform binding + typed wrapper if needed | Ready with platform tests |
 | C3 | Filesystem-wide flush and measured patch publication | Preserve fallback durability; consumer waits for C7 | Benchmark decision required |
@@ -66,15 +67,39 @@ Tests cover status rejection, both digest algorithms, malformed digest options, 
 
 Select a green published release containing A1–A3, download/hash/execute it, then update the pin and all newly unblocked consumers atomically. Retire the four pin TODOs in Zig lookup, Zig's SQLite lock, ZigFetch digest classification and URL stripping. Run real standalone bin/zig, cold/missing-digest fetch paths, native help/notes and CI driver checks on the selected binary. Recheck the inventory before pinning: unrelated newly published APIs can enlarge this migration.
 
-## B1: signal provenance, without promising information POSIX does not supply
+## B1: document the actual signal-delivery limit
 
-Extend the guard with an additive event snapshot API, for example `guard:take_event() -> Child.SignalEvent | nil`, while retaining take/cancelled/release numeric behavior. The event records signal number and raw si_code, plus sender PID/UID only when valid for that delivery. Keep signal-handler writes async-signal-safe, pair number and origin from the same event, and preserve nested-guard, ignored-disposition and re-raise semantics, including fresh/last-signal behavior after close.
+Independent design review found that the original pin TODO promises a distinction
+that signal-origin metadata cannot supply. The same sender can call kill with a
+single PID or a negative process-group ID; si_code identifies kill-origin and
+si_pid/si_uid identify the sender, not the recipient set. Both deliveries can
+produce the same metadata and a clean child exit. See the primary
+[POSIX kill contract](https://pubs.opengroup.org/onlinepubs/009604499/functions/kill.html)
+and [signal metadata definition](https://pubs.opengroup.org/onlinepubs/009696699/basedefs/signal.h.html).
 
-Important limitation: si_code can distinguish an explicitly sent signal from kernel delivery on supported hosts; it cannot distinguish kill(pid, SIGINT) from kill(-pgid, SIGINT) solely by sender metadata. Do not claim a perfect 'only this process received it' bit. Specify a conservative policy for terminal/unknown origin and test it before changing Zig's late-signal behavior. Use actual targeted signal, process-group signal and PTY-generated Ctrl-C cases on Linux/macOS, plus signal-at-child-exit races and nested guards. B5 migrates the late unpassed SIGINT decision only once the proven event semantics support it.
+Do not add a public SignalEvent API without a concrete consumer. Replace the
+misleading Zig TODO with an explicit explanation of the conservative existing
+policy, preserving runtime behavior. Include this comment correction in B2a.
+No selected release can make the promised recipient inference sound. This is an
+evidence-backed scope correction, not an unimplemented API hidden by deleting a
+TODO. The current guard already has a repeat-sensitive private stamp; B2b may
+use it for event freshness without exposing origin metadata.
 
-## B2: drain final child output after cancellation
+## B2a: retain actual streamed I/O failures
 
-Keep ordinary Stream.Reader failures sticky, as documented. Do not make every read ignore a caught guard. Add a child-owned, explicitly bounded drain operation (provisional `handle:drain(options)`) that can consume already queued and subsequent shutdown output under a monotonic timeout and byte limit after cancellation. Its callback/sink and result must remain concrete and small; the result says EOF/limit/timeout and bytes copied, while genuine I/O failure remains distinguishable. Resolve the exact surface in a design review before editing.
+The drain design found that the current child pipe pump can treat genuine
+read/poll failures as EOF. Correct that first, keeping private typed provenance
+for genuine I/O failure versus guard interruption. Ordinary Reader failures
+remain sticky; do not make unrelated reads ignore cancellation. Preserve queued
+bytes and make error/EOF precedence explicit. Preserve the scheduler's existing
+global error semantics rather than converting unrelated task failures into a
+child result. This can change a pass/fail and requires a harness epoch update.
+Use deterministic regressions for real failure, queued data, guard interruption,
+and cleanup; independent review must check every affected capture/stream path.
+
+## B2b: drain final child output after cancellation
+
+Keep ordinary Stream.Reader failures sticky, as documented. Do not make every read ignore a caught guard. Add a child-owned, explicitly bounded drain operation (provisional `handle:drain(options)`) that can consume already queued and subsequent shutdown output under a monotonic timeout and byte limit after cancellation. Its callback/sink and result must remain concrete and small; the result says EOF/limit/timeout and bytes copied, while genuine I/O failure remains distinguishable. Resolve the exact surface in a design review before editing. The reviewed direction uses borrowed per-stream Writer sinks and explicit eof/limit/timeout/interrupted/failed outcomes. A newly pending signal at entry must be returned as interrupted, not adopted as an ignored baseline; preserve same-number freshness without consuming the guard. Specify zero-time behavior, concurrent consumption, guard closure and coroutine cleanup before implementation.
 
 The drain must service stdout and stderr fairly, avoid deadlock at capture_limit, preserve ordering within each stream, avoid replaying already delivered bytes, and stop when an escaped descendant merely holds a pipe open. It must not resurrect a closed handle or hide a real sticky read error. Only transient guard interruption may be bypassed, within the explicitly selected shutdown scope. Child.wait(timeout) kills/reaps on expiry; wait_any(timeout) does not—tests must use the right primitive.
 
@@ -92,9 +117,9 @@ Migrate source-tree rebuild waits with the API, and Zig's standalone wait in B5.
 
 Add a build-owned command, provisionally `cosmic cache trim compiles|verdicts PATH --since-ns N --json`. It runs from explicit paths without discovering/staging/rebuilding the candidate project. Its implementation belongs beside shared_compiles/shared_verdicts/shared_sqlite and uses their format definitions. It must be callable from the pinned driver even when the candidate build fails or has no executable.
 
-Return structured counts, bytes, reached/untouched state and unknown formats; keep CLI failure status truthful. CI's current best-effort policy (report failed maintenance without failing an otherwise good leg) remains in CI orchestration. Preserve exact trim semantics: since threshold, whole-unless-reached distinction, compiled/parsed versus verdict/store tables, unknown/unstamped tables kept, writer-versus-trim concurrency, WAL handling, set-aside cleanup and stable row digest independent of used_ns. Do not trim arbitrary SQLite databases merely because they contain a used_ns column. An older pinned tool encountering a newer unknown schema must retain it and explain that decision.
+Return structured counts, bytes, reached/untouched state and unknown formats; keep CLI failure status truthful. CI's current best-effort policy (report failed maintenance without failing an otherwise good leg) remains in CI orchestration. Preserve exact trim semantics: since threshold, whole-unless-reached distinction, compiled/parsed versus verdict/store tables, unknown/unstamped tables kept, writer-versus-trim concurrency, WAL handling, set-aside cleanup and stable row digest independent of used_ns. Do not trim arbitrary SQLite databases merely because they contain a used_ns column. An older pinned tool encountering a newer unknown schema must retain it and explain that decision. Open existing files without CREATE to avoid a pre-stat/open race. Reject schema shapes whose triggers or foreign keys could mutate unknown tables. Require stopped writers from the caller and inspect checkpoint results; successful close alone does not prove WAL readiness.
 
-Move only ownership of trim/format knowledge in this first command PR. Cache restore/save/merge-queue precedence, source attestation and candidate-local database rejection remain unchanged. If digest/fresh-count outputs depend on format details, expose the smallest companion inspect operation rather than leaving CI to reconstruct those schemas. Merging caches is not implicitly in scope.
+Move only ownership of trim/format knowledge in this first command PR. Cache restore/save/merge-queue precedence, source attestation and candidate-local database rejection remain unchanged. If digest/fresh-count outputs depend on format details, expose the smallest companion inspect operation rather than leaving CI to reconstruct those schemas. Merging caches is not implicitly in scope. For ambiguous unreadable files, retain the file, report incomplete/failure state and omit digest/fresh outputs so CI does not save it. This intentionally tightens the old text-classified corruption cleanup policy; it avoids guessing or adding broad query/open result APIs solely to delete a disposable cache. Preserve the query/open-code TODO for a later concrete need. Existing-only writable open is the small additional capability this command genuinely needs.
 
 Test missing files, empty and used caches, old/current/unknown schema, busy/read-only/corrupt files, interrupted trim, repeated identical results and exact current CI golden-policy outcomes. Measure both no-op command startup and substantial-cache trim. Prove execution from a directory with a deliberately unbuildable candidate and no candidate o/bin/cosmic. B5 advances the pin, replaces CI's direct trim schema access and removes the pin TODO.
 
@@ -140,8 +165,9 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | A2 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
 | A3 | pending | prepared and independently approved | 055c9b41/tree9e2d5056; source Fetch consumer included; actual A2 base alignment and remote checks required |
 | A4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| B1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| B2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
+| B2a | pending | preparing | Genuine streamed-I/O failure prerequisite plus B1 policy comment; epoch update required |
+| B2b | pending | design review | Bounded drain accepted in principle; entry-signal/lifecycle semantics must be settled before coding |
 | B3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -173,3 +199,14 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   nine legacy scenarios exactly and proved repeated callback exceptions leave
   no temporary files or descriptors. Required full-suite attempt timed out
   without a final summary; it is not counted as a pass. No new TODOs.
+
+- 2026-10-02 UTC: independent B1 review disproved the promised recipient-scope
+  inference, so no public provenance API will be added without a real caller.
+  B1's runtime behavior stays; its inaccurate TODO becomes policy documentation
+  in B2a. B2 is split into the real I/O-failure correctness prerequisite and the
+  later bounded drain. The private existing stamp supports freshness.
+- 2026-10-02 UTC: B4 review requires existing-only writable open, safe schema
+  recognition, explicit checkpoint results and stopped writers. Ambiguous
+  unreadable caches are retained with no save digest, an explicit conservative
+  policy adjustment. Broad typed query/open APIs are not prerequisites for this
+  useful safe command and will not be added solely to preserve deletion behavior.
