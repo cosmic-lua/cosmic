@@ -48,6 +48,12 @@
 ---   `_`, `__2`.
 ---
 --- `cosmic sql --from` names the columns of a data file by the same rule.
+---
+--- `table` also answers the line of the text each row's record began on,
+--- in `lines`, so a caller that refuses a row can say where it is. A line
+--- counts as the refusals above count it: a quoted line break starts a
+--- line, so a record that spans two pushes every later one down, and a
+--- skipped blank line is still a line.
 
 --- What `read` found: the records, and the line each began on.
 local record Scan
@@ -64,12 +70,15 @@ local record Csv
   end
 
   --- What `table` read: the column names in the header's order, and a
-  --- row per record after it.
+  --- row per record after it with the line it began on.
   record Table
     --- The names the header's fields became, in the header's order.
     columns: {string}
     --- One table per record after the header, from column name to field.
     rows: {{string:string}}
+    --- The line of the text each row's record began on, from 1: `lines[i]`
+    --- is where `rows[i]` starts.
+    lines: {integer}
   end
 end
 
@@ -207,7 +216,8 @@ end
 --- field, text after a closing quote, or a quote never closed. Raises
 --- when `opts.delimiter` is not one byte or is a quote or a line break.
 --- Records may differ in length here: only `table` holds them to a
---- header. Text with no records is `{}`.
+--- header, and only `table` answers the line each began on. Text with no
+--- records is `{}`.
 function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
   local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
@@ -252,13 +262,14 @@ function Csv.column_names(header: {string}, reserved?: {string}): {string}
   return names
 end
 
---- The header's names (see the module comment) and the rows of `text`:
---- its first record names the columns, and each record after it is a
---- table from column name to field. Nil and why for what `parse` refuses,
---- and for a record whose field count is not the header's, naming the
---- line it began on and both counts; raises for a delimiter `parse` does.
---- Blank lines are read as the module comment says. Text with no records
---- has no columns, and a header alone has columns and no rows.
+--- The header's names and the rows of `text`, with the line each row
+--- began on in `lines`; names, blank lines and lines are as the module
+--- comment says. Its first record names the columns, and each record
+--- after it is a table from column name to field. Nil and why for what
+--- `parse` refuses, and for a record whose field count is not the
+--- header's, naming the line it began on and both counts; raises for a
+--- delimiter `parse` does. Text with no records has no columns, and a
+--- header alone has columns and no rows.
 function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
   local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
@@ -271,8 +282,9 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
     first = first + 1
   end
   local rows: {{string:string}} = {}
+  local began: {integer} = {}
   if records[first] == nil then
-    return { columns = {}, rows = rows }, ""
+    return { columns = {}, rows = rows, lines = began }, ""
   end
   local names = Csv.column_names(records[first])
   local last = #records
@@ -298,9 +310,10 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
         row[name] = record[index]
       end
       rows[#rows + 1] = row
+      began[#rows] = lines[number]
     end
   end
-  return { columns = names, rows = rows }, ""
+  return { columns = names, rows = rows, lines = began }, ""
 end
 
 return Csv
