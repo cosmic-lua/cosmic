@@ -154,7 +154,7 @@ local sys <const> = 'local sys = require("cosmic.sys")'
 local cli <const> = 'local Cli = require("cosmic.cli")'
 local http <const> = 'local Http = require("cosmic.http")'
 local upload <const> = "no caller in the tree sent a streamed request body; send one whole with " ..
-  "Http.open(url, { method = \"PUT\", body = body }) (" .. http .. ")"
+  "Http.request(\"PUT\", url, { body = body }) (" .. http .. ")"
 local module: Module = {
   fields = {
     io = "io", os = "os", debug = "debug",
