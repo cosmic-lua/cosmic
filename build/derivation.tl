@@ -287,6 +287,14 @@ function derivation.parse_new(db: Sqlite.Handle, built: compiler, tally: derivat
         return false, file .. ": " .. why
       end
     end
+    for ordinal, entry in ipairs(found.bound) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO bound (source_hash, ordinal, name, module) VALUES (?1, ?2, ?3, ?4)",
+        { text(source_hash), { integer = ordinal }, text(entry.name), text(entry.module) })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
     -- A source from outside the tree (a doc guide's test module) is
     -- read at lines of its own, not its file's, so its links are not
     -- kept: they would name lines the file does not have. The guide's
