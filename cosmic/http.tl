@@ -3,7 +3,8 @@
 ---
 ---     local got = assert(Http.get("https://example.com/"))
 ---     print(got.status, got.body)
----     local put = assert(Http.request("PUT", "https://example.com/item", { body = "new" }))
+---     local put = assert(Http.request("PUT", "https://example.com/item",
+---       { headers = { ["Content-Type"] = "text/plain" }, body = "new" }))
 ---     local ok, trouble = Http.download(
 ---       "https://example.com/big.zip", "big.zip", { sha256 = "..." })
 ---
@@ -326,8 +327,8 @@ end
 --- and a body.
 function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   if opts ~= nil and opts.method ~= nil and opts.method ~= "GET" then
-    error(("http: Http.get sends a GET; send %s with Http.request(%q, url, opts)"):
-       format(opts.method, opts.method), 2)
+    error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
+       format(opts.method), 2)
   end
   if opts ~= nil and opts.body ~= nil then
     error("http: Http.get sends no body; send one with Http.request(method, url, { body = ... })", 2)
@@ -341,7 +342,9 @@ end
 --- [`Http.open`] is the same request with its body read a chunk at a
 --- time. Fails on a connection or protocol error the same way
 --- [`Http.open`] does; a non-2xx status is not itself a failure here --
---- check `result.status`.
+--- check `result.status`. A body goes with the `Content-Type` its
+--- headers name, or `application/x-www-form-urlencoded` without one,
+--- as curl sends it.
 ---
 ---     local put = assert(Http.request("PUT", "https://example.com/items/1",
 ---       { headers = { ["Content-Type"] = "application/json" }, body = '{"n":1}' }))
@@ -352,15 +355,17 @@ end
 --- `opts.body` with "GET" or "HEAD" raises: the request would not be
 --- the one asked for.
 function Http.request(method: string, url: string, opts?: Http.Options): Http.Body | nil, string
-  if method == "" then
+  if method == nil or method == "" then
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
   end
   if opts ~= nil and opts.method ~= nil and opts.method ~= method then
     error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
        format(method, opts.method), 2)
   end
-  -- TODO: send a GET with a body once core/http.c's set_method names GET
-  -- (its TODO), which until then sends a body with GET as a POST.
+  -- A HEAD answers no body, so one sent with it is a mistake.
+  -- TODO: send a GET with a body once a caller needs one; core/http.c's
+  -- set_method must then name GET, as its TODO says, or the body
+  -- goes as a POST.
   if opts ~= nil and opts.body ~= nil and (method == "GET" or method == "HEAD") then
     error(("http: Http.request sends no body with %s"):format(method), 2)
   end

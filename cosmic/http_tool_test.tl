@@ -1,7 +1,8 @@
 --- cosmic.http's tests that need the program itself, apart from
 --- cosmic/http_test.tl's so those stand while the tree moves:
 --- $SSL_CERT_FILE, which only a fresh process started from the program
---- reads. The CA roots the binary's own database carries are read in
+--- reads, and a client in a process of its own beside a local server
+--- that sees the request as sent. The CA roots the binary's own database carries are read in
 --- cosmic/http_store_test.tl.
 
 local Child = require("cosmic.child")
@@ -167,7 +168,12 @@ end
   if body ~= nil then args[#args + 1] = body end
   local started = this_program.program(args, { stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
-  local conn <close> = assert(server:accept())
+  local accepted, refused = server:accept()
+  if accepted == nil then
+    local died = child:wait(Time.seconds(5))
+    error(refused .. ": " .. tostring(died ~= nil and died.stderr))
+  end
+  local conn <close> = accepted
   local request = ""
   while not request:find("\r\n\r\n", 1, true) do request = request .. assert(conn:read()) end
   local head_end = request:find("\r\n\r\n", 1, true) + 3

@@ -134,6 +134,26 @@ local function test_a_307_after_post_repeats_the_post_and_its_body()
   assert(count(sent, "payload") == 2, sent)
 end
 
+--- A 301 or 302 after a method with a body other than POST repeats it,
+--- body and all: only a POST's becomes a GET. A 303 still does.
+local function test_a_301_or_302_after_put_repeats_the_put_and_its_body()
+  for _, status in ipairs({ "301 Moved Permanently", "302 Found" }) do
+    local response, _, sent = fetch({
+      reply(status, "Location: /again\r\n"),
+      reply("200 OK", "", "ok"),
+    }, { method = "PUT", body = "payload" })
+    assert(response.status == 200)
+    assert(sent:find("PUT /again HTTP/1.1\r\n", 1, true) ~= nil, sent)
+    assert(count(sent, "payload") == 2, sent)
+  end
+  local _, _, sent = fetch({
+    reply("303 See Other", "Location: /done\r\n"),
+    reply("200 OK", "", "got"),
+  }, { method = "PUT", body = "payload" })
+  assert(sent:find("GET /done HTTP/1.1\r\n", 1, true) ~= nil, sent)
+  assert(count(sent, "payload") == 1, sent)
+end
+
 local function test_a_custom_method_is_sent_as_is()
   local _, _, sent = fetch({ reply("204 No Content", "") }, { method = "PUT", body = "x" })
   assert(sent:find("PUT / HTTP/1.1\r\n", 1, true) == 1, sent)
