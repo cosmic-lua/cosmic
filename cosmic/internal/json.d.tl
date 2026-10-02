@@ -22,13 +22,8 @@ local record json
                    hash_comments?: boolean): any | nil, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at $.users[3].name`. Raises
-  -- when `indent` is not spaces and tabs, or `max_depth` is outside 1
-  -- to `depth_limit`. cosmic/json.tl passes `pretty` and `max_depth`
-  -- alone; the other options are the core's, which only a test sets
-  -- (build/json_raw.tl).
-  encode: function(value: any, pretty?: boolean, indent?: string, sorted?: boolean,
-                   max_depth?: integer, nan_as_null?: boolean,
-                   sparse_as_null?: boolean, ascii?: boolean): string | nil, string
+  -- when `max_depth` is outside 1 to `depth_limit`.
+  encode: function(value: any, pretty?: boolean, max_depth?: integer): string | nil, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}
