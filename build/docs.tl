@@ -12,6 +12,7 @@
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
@@ -1273,6 +1274,11 @@ local in_full: function(view: docs.View, query: string): {docs.Entry} | nil, str
 --- caller that requires it under that name reads it. Defined after
 --- [`member_of`].
 local by_last_name: function(view: docs.View, query: string): {docs.Entry} | nil, string
+--- What a name [`cosmic.removed`] lists as gone answers: one entry of kind
+--- `removed` saying what to write instead, or none, for a name it does
+--- not list and for a member the module still has. Defined after
+--- [`member_of`].
+local removed_by: function(view: docs.View, query: string): {docs.Entry} | nil, string
 
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
@@ -1281,6 +1287,9 @@ local by_last_name: function(view: docs.View, query: string): {docs.Entry} | nil
 --- - its exact matches, when it names a symbol or a module, a member of
 ---   a type an alias stands for, or a module's member written in full
 ---   ([`cosmic.fs.read`]) or from its last name ([`Cli.order`]);
+--- - a name [`cosmic.removed`] lists as gone, which no live row answers
+---   (`Codec.encoder`, `os.getenv`): what to write instead, as the
+---   compiler says it (see [`removed_by`]);
 --- - for a qualified name that names nothing, what its qualifier offers
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
@@ -1364,6 +1373,16 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
       return nil, count_trouble
     end
     return lookup(exact, true, named_count), ""
+  end
+  -- A name that was removed answers what replaces it, before a search
+  -- offers another module's member of the same name (`Codec.encoder`
+  -- would find the verb's, build.codec's).
+  local gone, gone_trouble = removed_by(view, query)
+  if gone == nil then
+    return nil, gone_trouble
+  end
+  if #gone > 0 then
+    return lookup(gone, true, #gone), ""
   end
   -- A module the index lists is always answered, though it has no row
   -- of its own to name it.
@@ -1671,6 +1690,69 @@ by_last_name = function(view: docs.View, query: string): {docs.Entry} | nil, str
     for _, entry in ipairs(members) do out[#out + 1] = entry end
   end
   return out, ""
+end
+
+--- The module a removed member left and what to write instead, as a pair,
+--- when [`cosmic.removed`] lists `query`: a member of a module written
+--- from its last name in either case (`Net.pair`, `net.pair`) or in
+--- full (`cosmic.net.pair`), by its `members`; else a field of a removed
+--- global (`os.getenv`), by what `message` answers, with module `""`.
+--- The sentence is the compiler's hint ([`build.teal`]'s `replacement`),
+--- or `message` for a global, which is the same words a refusal at run
+--- time raises with.
+---
+--- TODO: once cosmic.removed words a member's hint itself, as `message`
+--- does a global's, say it through that: build.teal's `replacement`
+--- spells the same sentence, and the two can drift.
+local function removed_as(query: string): {string} | nil
+  local instead = Removed.members[query]
+  local whole = query:match("^(.+)%.[%w_]+$")
+  if instead ~= nil and whole ~= nil then
+    return { whole, query .. " was removed: " .. instead }
+  end
+  local qualifier, name = query:match("^([%w_]+)%.([%w_]+)$")
+  if qualifier == nil then
+    return nil
+  end
+  if Removed.names[qualifier] ~= nil then
+    return { "", Removed.message(qualifier, name) }
+  end
+  local keys: {string} = {}
+  for key in pairs(Removed.members) do
+    local module, member = key:match("^(.+)%.([%w_]+)$")
+    if member == name and module:match("[^.]+$"):lower() == qualifier:lower() then
+      keys[#keys + 1] = key
+    end
+  end
+  table.sort(keys)
+  if #keys == 0 then
+    return nil
+  end
+  return { keys[1]:match("^(.+)%."), query .. " was removed: " .. Removed.members[keys[1]] }
+end
+
+removed_by = function(view: docs.View, query: string): {docs.Entry} | nil, string
+  local gone = removed_as(query)
+  if gone == nil then
+    return {}, ""
+  end
+  local module, sentence = gone[1], gone[2]
+  -- A member the module still has is the live page's.
+  if module ~= "" then
+    local live, trouble = member_of(view, module, query:match("[%w_]+$"))
+    if live == nil then
+      return nil, trouble
+    end
+    if #live > 0 then
+      return {}, ""
+    end
+  end
+  return { {
+    module = module ~= "" and module or "cosmic.removed", symbol = query,
+    source_symbol = query, exported = true, kind = "removed", signature = "",
+    text = sentence, file = "cosmic/removed.tl", line = 0,
+    uses = 0, links = 0, examples = 0, related = {},
+  } }, ""
 end
 
 --- The uses of `module`'s member recorded as `used`, and the links to
@@ -2015,6 +2097,12 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       lines[#lines + 1] = #line > 0 and "    " .. line or ""
     end
     return lines, ""
+  end
+  if entry.kind == "removed" then
+    -- A name that is gone has no declaration to show, only what its
+    -- module's catalog says to write instead.
+    return { entry.module .. " " .. entry.source_symbol .. " (removed)",
+      "  " .. entry.text }, ""
   end
   if entry.symbol == "" then
     lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"

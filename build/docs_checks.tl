@@ -427,11 +427,19 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
 
   local out: {string} = {}
   local answered: {string: boolean} = {}
+  -- What cosmic.removed says to write instead, for a query it lists as
+  -- gone: `cosmic docs` answers such a name, but a page that names it is
+  -- stale.
+  local gone: {string: string} = {}
   local function resolves(query: string): boolean
     local cached = answered[query]
     if cached == nil then
       local found, _ = docs.lookup(view, query)
       cached = found ~= nil and #found > 0 and (found.exact or query:find(" ", 1, true) ~= nil)
+      if found ~= nil and #found > 0 and found[1].kind == "removed" then
+        gone[query] = found[1].text
+        cached = false
+      end
       answered[query] = cached
     end
     return cached
@@ -444,7 +452,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
       if query ~= nil then
         query = query:gsub("^([\"'])(.*)%1$", "%2")
         if not placeholder(query) and not resolves(query) then
-          problem = "finds nothing"
+          problem = gone[query] ~= nil and "names a removed symbol: " .. gone[query] or
+            "finds nothing"
         end
       elseif verb ~= nil then
         if not placeholder(verb) and not known[verb] then
@@ -456,7 +465,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
             (#chain == #span or span:sub(#chain + 1, #chain + 1):match("[%s(]") ~= nil) then
           chain = chain:gsub(":", ".")
           if not resolves(chain) then
-            problem = "names no symbol"
+            problem = gone[chain] ~= nil and "names a removed symbol: " .. gone[chain] or
+              "names no symbol"
           end
         end
       end
