@@ -90,12 +90,11 @@ unsandboxed.
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- `shape` in use. [`cosmic.shape`] and `cosmic.json` both exist, and
-  `Shape.decode_into(text, spec, opts)` decodes and checks in one call;
-  only [`build/refresh.tl`]'s PyPI index read uses either so far. Convert the
-  sites that read fields off a decoded value through `as` casts, starting
-  with those under `build/` and `ci/`; their call shapes decide whether the
-  inference limit in shape.tl's module comment needs a helper.
+- convert the remaining sites that read fields off a decoded JSON value
+  through `as` casts to [`cosmic.shape`] checks, starting with those under
+  `build/` and `ci/`. `Shape.decode_into(text, spec, opts)` decodes and checks
+  in one call; the remaining call shapes decide whether the inference limit
+  in shape.tl's module comment needs a helper.
 - a hand-written spec that agrees with its record. [`Shape.record_of`] derives
   a spec from the record, so a field added to the record is checked from
   then on; nothing checks that a [`Shape.record`] or [`Shape.strict_record`]
@@ -290,7 +289,6 @@ four-producer provenance join.
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/patch.tl`]: ../build/patch.tl
 [`build/reboot.tl`]: ../build/reboot.tl
-[`build/refresh.tl`]: ../build/refresh.tl
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`core/coverage.c`]: ../core/coverage.c
