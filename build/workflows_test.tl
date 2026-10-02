@@ -1101,6 +1101,12 @@ local function step_running(steps: {{string: any}}, text: string): {string: any}
   error("no step runs " .. text)
 end
 
+local CACHE_NAMES <const> = "./.github/actions/cache-names"
+
+local function cache_names(): {string: any}
+  return (assert(Json.decode_object((assert(Fs.read(CACHE_NAMES .. "/action.yml"))), READ)))
+end
+
 --- What `names` hashes as the compiler a branch's compiles were made
 --- by: the build's own modules and the Teal compiler's
 --- and Lua's pins and patches, as the compiler's identity holds them
@@ -1130,9 +1136,9 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
     for _, step in ipairs(steps) do
       if step.id == "names" then names = step end
     end
-    assert(names ~= nil and (names.run as string):find("echo \"compiles=compiles-branch-" .. leg .. "-" ..
-      COMPILER_HASH .. "-\" >> \"$GITHUB_OUTPUT\"", 1, true) ~= nil,
-      job .. " names a branch's compiles by another leg or compiler: " .. tostring(names and names.run))
+    assert(names ~= nil and names.uses == CACHE_NAMES and
+      (names.with as {string: string}).leg == leg,
+      job .. " names a branch's compiles by another leg: " .. tostring(names and names.with))
     local restore: {string: string}
     for _, step in ipairs(steps) do
       if step.id == "compiles-restore" then restore = step.with as {string: string} end
@@ -1141,6 +1147,10 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
       restore["restore-keys"] == BRANCH_COMPILES .. "\ncompiles-" .. leg .. "-\n",
       job .. " restores other compiles than its branch's, then main's: " .. tostring(restore["restore-keys"]))
   end
+  local action = cache_names()
+  local names = ((action.runs as {string: any}).steps as {{string: any}})[1]
+  assert((names.env as {string: string}).COMPILER == COMPILER_HASH,
+    "the branch compiles hash different compiler inputs")
   assert(not ("compiles-branch-"):find("compiles-${{ matrix.name }}-", 1, true),
     "main's prefix takes a branch's entries")
 
@@ -2378,18 +2388,58 @@ end
 --- move the key and send main's next run to a cold cache (main
 --- restores no other vendor part's entry).
 local function test_the_vendor_part_hashes_the_trees_and_records_but_not_the_applier()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local platform = (ci.jobs as {string: {string: any}}).platform
-  local named: {string: any} = nil
-  for _, step in ipairs(platform.steps as {{string: any}}) do
-    if step.id == "names" then named = step end
-  end
-  assert(named ~= nil, "no step names the zig build cache")
-  local vendor = (named.run as string):match("vendor=zig%-build%-.-hashFiles%((.-)%) }}")
-  assert(vendor ~= nil, "no vendor part: " .. tostring(named.run))
+  local action = cache_names()
+  local named = ((action.runs as {string: any}).steps as {{string: any}})[1]
+  local vendor = (named.env as {string: string}).VENDOR
+  assert(vendor == "${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', " ..
+    "'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', " ..
+    "'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', " ..
+    "'core/darwin-compat/**') }}", "the vendor cache hashes different inputs: " .. vendor)
   for _, wanted in ipairs({ "'vendor/**'", "'patch/**'", "'build.zig'", "'build/zig.tl'" }) do
     assert(vendor:find(wanted, 1, true), "the vendor part hashes no " .. wanted .. ": " .. vendor)
   end
   assert(not vendor:find("build/patch.tl", 1, true),
     "the vendor part hashes the applier, whose edits write the same trees: " .. vendor)
+end
+
+--- Both jobs receive the same cache-name outputs before restoring or
+--- moving the checkout. A change to this policy invalidates either
+--- job's passing driver marker.
+local function test_cache_names_reach_both_jobs_before_their_restores()
+  local action = cache_names()
+  local steps = (action.runs as {string: any}).steps as {{string: any}}
+  assert(#steps == 1 and steps[1].id == "names" and steps[1].shell == "sh" and
+    steps[1]["working-directory"] == ".", "cache names run outside the host checkout")
+  local env = steps[1].env as {string: string}
+  assert(env.LEG == "${{ inputs.leg }}" and
+    env.CORE == "${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}",
+    "cache names use another leg or core inputs")
+  local outputs = action.outputs as {string: {string: string}}
+  for _, name in ipairs({ "vendor", "core", "compiles", "image", "since" }) do
+    assert(outputs[name].value == "${{ steps.names.outputs." .. name .. " }}",
+      "the action does not forward " .. name)
+  end
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  for _, job in ipairs({ "platform", "checked" }) do
+    local named = false
+    local marker = false
+    for _, step in ipairs(jobs[job].steps as {{string: any}}) do
+      if step.id == "names" then
+        assert(step.uses == CACHE_NAMES and step["if"] == nil, job .. " does not always name its caches")
+        named = true
+      end
+      if step.id == "zig-cache-restore" or step.id == "compiles-restore" or
+          step.name == "move the tree to a path of its own" then
+        assert(named, job .. " names its caches after restoring them or moving the tree")
+      end
+      if step.id == "driver-check-restore" then
+        local key = (step.with as {string: string}).key
+        assert(key:find("'.github/actions/cache-names/**'", 1, true),
+          job .. " stands on a driver check from before the cache names changed")
+        marker = true
+      end
+    end
+    assert(named and marker, job .. " has no cache names or driver marker")
+  end
 end
