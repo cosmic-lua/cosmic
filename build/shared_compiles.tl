@@ -58,6 +58,7 @@ local sys = require("cosmic.sys")
 local type importer = require("build.importer")
 local type receivers = require("build.receivers")
 local shared_sqlite = require("build.shared_sqlite")
+local cache_formats = require("build.cache_formats")
 
 local record shared_compiles
   --- An open cache.
@@ -116,20 +117,9 @@ local kept_ns <const> = Time.hours(30 * 24)
 --- never empties this one's; an earlier format's table is dropped
 --- (`prepare`): only an older binary reads it, and this one's rows stand
 --- in for it.
-local version <const> = 2
-local compiled <const> = "compiled_v" .. version
-
---- The parses' table, whose format is versioned as the compiles' is,
---- on its own. It has `used_ns` and `size` as `compiled`'s has, which
---- CI's trim of a leg's cache reads (ci/cosmic_ci/compiles.tl).
-local parsed_version <const> = 1
-local parsed <const> = "parsed_v" .. parsed_version
-
---- Each format's table, by its name's prefix and its version.
-local formats <const>: {{string, integer}} = {
-  { "compiled_v", version },
-  { "parsed_v", parsed_version },
-}
+local compiled <const> = cache_formats.compiled
+local parsed <const> = cache_formats.parsed
+local formats <const> = cache_formats.compile_versions
 
 local log = Log.new("cosmic")
 
@@ -180,30 +170,7 @@ function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
     (generated and "doctest" or "tree"))
 end
 
-local schema <const> = {
-  "CREATE TABLE IF NOT EXISTS " .. compiled .. [[ (key TEXT PRIMARY KEY,
-                                                  lua BLOB NOT NULL,
-                                                  bytecode BLOB NOT NULL,
-                                                  refs BLOB NOT NULL,
-                                                  digest TEXT NOT NULL,
-                                                  size INTEGER NOT NULL,
-                                                  used_ns INTEGER NOT NULL)]],
-  "CREATE INDEX IF NOT EXISTS " .. compiled .. "_by_use ON " .. compiled .. " (used_ns)",
-  -- `requires` apart from `rows`, and not deflated: [`build.importer`]'s
-  -- fixed point reads it of every source, where it takes `rows` only
-  -- of the analyzer it settles on.
-  "CREATE TABLE IF NOT EXISTS " .. parsed .. [[ (analyzer TEXT NOT NULL,
-                                                source_hash TEXT NOT NULL,
-                                                mapped INTEGER NOT NULL,
-                                                requires TEXT NOT NULL,
-                                                rows BLOB NOT NULL,
-                                                digest TEXT NOT NULL,
-                                                size INTEGER NOT NULL,
-                                                used_ns INTEGER NOT NULL,
-                                                PRIMARY KEY (analyzer, source_hash, mapped))]],
-  "CREATE INDEX IF NOT EXISTS " .. parsed .. "_by_use ON " .. parsed .. " (used_ns)",
-  "CREATE INDEX IF NOT EXISTS " .. parsed .. "_by_source ON " .. parsed .. " (source_hash)",
-}
+local schema <const> = cache_formats.compiles
 
 --- The record-field uses, a line each: module, member and line, by tabs.
 local function packed(references: {receivers.Reference}): string

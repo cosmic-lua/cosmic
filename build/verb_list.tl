@@ -31,6 +31,7 @@ verb_list.entries = {
   { name = "build", load = function(): verb_spec.Spec return require("build.embed").spec end },
   { name = "db", load = function(): verb_spec.Spec return require("build.databases").spec end },
   { name = "sql", load = function(): verb_spec.Spec return require("build.sql").spec end },
+  { name = "cache", load = function(): verb_spec.Spec return require("build.cache").spec end },
   { name = "json", load = function(): verb_spec.Spec return require("build.json").spec end },
   { name = "hash", load = function(): verb_spec.Spec return require("build.hash").spec end },
   { name = "codec", load = function(): verb_spec.Spec return require("build.codec").spec end },
