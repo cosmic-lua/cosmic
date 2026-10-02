@@ -549,6 +549,240 @@ local function test_a_transform_without_pending_runs_through_every_driver()
   assert(c:result() == "HI!")
 end
 
+--- A Writer that keeps what it is given and whether it was closed or
+--- aborted, for a test of what a held write lets through.
+local record Recorded is Stream.Writer
+  got: string
+  ended: string
+end
+
+local function recording(): Recorded
+  local r: Recorded = { got = "", ended = "" }
+  r.write = function(_self: Stream.Writer, data: string): boolean, string
+    r.got = r.got .. data
+    return true, ""
+  end
+  r.close = function(_self: Stream.Writer): boolean, string
+    r.ended = "closed"
+    return true, ""
+  end
+  r.abort = function(_self: Stream.Writer): boolean, string
+    r.ended = "aborted"
+    return true, ""
+  end
+  return r
+end
+
+--- A Transform that upper-cases, refuses a chunk holding "!" at
+--- `update`, and at `finish` either ends with "." or, when `cut`,
+--- refuses.
+local function strict(cut?: boolean): Stream.Transform
+  local t: Stream.Transform = {}
+  t.update = function(_self: Stream.Transform, chunk: string): string | nil, string
+    if chunk:find("!", 1, true) then return nil, "bang" end
+    return chunk:upper(), ""
+  end
+  t.finish = function(_self: Stream.Transform): string | nil, string
+    if cut then return nil, "cut short" end
+    return ".", ""
+  end
+  return t
+end
+
+local function test_transform_writer_hold_releases_a_write_when_the_next_goes_through()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  assert(out.got == "", "a write's output was released at once")
+  assert(w:write("cd"))
+  assert(out.got == "AB")
+  assert(w:write("ef"))
+  assert(out.got == "ABCD")
+  assert(out.ended == "")
+  assert(w:close())
+  -- Close commits the last write's output and the codec's own, whole.
+  assert(out.got == "ABCDEF." and out.ended == "closed")
+end
+
+local function test_transform_writer_hold_counts_writes_not_bytes()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 2 })
+  assert(w:write("a"))
+  assert(w:write("b"))
+  assert(out.got == "")
+  assert(w:write("c"))
+  assert(out.got == "A")
+  assert(w:write("d"))
+  assert(out.got == "AB")
+  assert(w:close())
+  assert(out.got == "ABCD.")
+end
+
+local function test_transform_writer_hold_writes_nothing_of_a_stream_the_codec_cuts_short()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(true), { hold = 1 })
+  assert(w:write("ab"))
+  local ok, trouble = w:close()
+  assert(not ok and trouble == "cut short", trouble)
+  assert(out.got == "" and out.ended == "aborted")
+  -- Without the hold the same run has let its text out before the cut.
+  out = recording()
+  w = Stream.transform_writer(out, strict(true))
+  assert(w:write("ab"))
+  assert(out.got == "AB")
+  assert(not w:close())
+  assert(out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_writes_nothing_when_a_write_is_refused()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  local ok, trouble = w:write("c!")
+  assert(not ok and trouble == "bang", trouble)
+  assert(out.got == "", "a refused write released the one before it")
+  -- The refusal is kept: later writes and `close` answer it, and `close`
+  -- aborts the writer without finishing the codec.
+  ok, trouble = w:write("de")
+  assert(not ok and trouble == "bang", trouble)
+  ok, trouble = w:close()
+  assert(not ok and trouble == "bang", trouble)
+  assert(out.got == "" and out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_keeps_what_an_earlier_write_released()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  assert(w:write("cd"))
+  assert(not w:write("!"))
+  assert(out.got == "AB", out.got)
+  assert(not w:close())
+  assert(out.got == "AB" and out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_is_dropped_by_abort()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  assert(w:abort())
+  assert(out.got == "" and out.ended == "aborted")
+  local ok = w:write("cd")
+  assert(not ok)
+end
+
+--- A Writer that refuses the write that brings its text to `limit`
+--- bytes or more: for a test of a sink that fails as held output is
+--- released.
+local function failing_after(limit: integer): Recorded
+  local r = recording()
+  local inner = r.write
+  r.write = function(self: Stream.Writer, data: string): boolean, string
+    if #r.got + #data >= limit then return false, "sink full" end
+    return inner(self, data)
+  end
+  return r
+end
+
+local function test_transform_writer_hold_reports_a_sink_that_fails_as_a_write_is_released()
+  local out = failing_after(1)
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("a"))
+  local ok, trouble = w:write("bc")
+  assert(not ok and trouble == "sink full", trouble)
+  ok, trouble = w:close()
+  assert(not ok and trouble == "sink full", trouble)
+  assert(out.got == "" and out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_reports_a_sink_that_fails_at_the_commit()
+  local out = failing_after(3)
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  local ok, trouble = w:close()
+  assert(not ok and trouble == "sink full", trouble)
+  assert(out.got == "" and out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_closes_once()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  assert(w:close())
+  assert(w:close())
+  assert(out.got == "AB.")
+  local ok = w:write("cd")
+  assert(not ok)
+  -- A close that failed answers its failure again.
+  w = Stream.transform_writer(recording(), strict(true), { hold = 1 })
+  assert(w:write("ab"))
+  local _, first = w:close()
+  local again, second = w:close()
+  assert(again == false and second == first and first == "cut short", second)
+end
+
+local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
+  -- The second call of one write, the drain, refuses.
+  local calls = 0
+  local t: Stream.Transform = {}
+  t.update = function(_self: Stream.Transform, _chunk: string): string | nil, string
+    calls = calls + 1
+    if calls == 2 then return nil, "drain failed" end
+    return "x", ""
+  end
+  t.pending = function(_self: Stream.Transform): boolean return true end
+  t.finish = function(_self: Stream.Transform): string | nil, string return "", "" end
+  local out = recording()
+  local w = Stream.transform_writer(out, t, { hold = 1 })
+  local ok, trouble = w:write("ab")
+  assert(not ok and trouble == "drain failed", trouble)
+  assert(out.got == "")
+  assert(not w:close() and out.ended == "aborted")
+end
+
+local function test_transform_writer_hold_does_not_count_an_empty_write()
+  local out = recording()
+  local w = Stream.transform_writer(out, strict(), { hold = 1 })
+  assert(w:write("ab"))
+  assert(w:write(""))
+  assert(out.got == "", "an empty write released a held one")
+  assert(w:close())
+  assert(out.got == "AB.")
+end
+
+local function test_transform_writer_hold_holds_a_writes_drained_output_as_one()
+  -- A decoder's output for one write can take several calls to drain:
+  -- all of it is that write's, and none is released before the next.
+  local plain = string.rep("\0", 3 << 20)
+  local packed = assert(Compress.deflate("zlib", plain))
+  local out = recording()
+  local w = Stream.transform_writer(out, assert(Compress.inflater("zlib")), { hold = 1 })
+  assert(w:write(packed))
+  assert(out.got == "")
+  assert(w:close())
+  assert(out.got == plain)
+end
+
+local function test_transform_writer_without_a_hold_releases_each_write_at_once()
+  for _, opts in ipairs({ {} as Stream.TransformWriterOptions, { hold = 0 } }) do
+    local out = recording()
+    local w = Stream.transform_writer(out, strict(), opts)
+    assert(w:write("ab"))
+    assert(out.got == "AB")
+    assert(w:close())
+    assert(out.got == "AB.")
+  end
+end
+
+local function test_transform_writer_raises_on_a_hold_that_is_not_a_whole_count()
+  for _, bad in ipairs({ -1, 1.5, "1", true } as {any}) do
+    local ok, trouble = pcall(Stream.transform_writer, recording(), strict(),
+      { hold = bad as integer })
+    assert(not ok and tostring(trouble):find("hold must be an integer of at least 0", 1, true),
+      tostring(trouble))
+  end
+end
+
 local function test_run_drains_a_decoder_that_holds_output_back()
   local plain = string.rep("\0", 3 << 20)
   local packed = assert(Compress.deflate("zlib", plain))

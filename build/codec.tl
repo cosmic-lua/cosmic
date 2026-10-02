@@ -32,10 +32,11 @@
 --- The input is streamed, 64 KiB at a time (a read that comes up short,
 --- as a pipe's does, is read on until the chunk is full or the input
 --- ends), through the incremental coders below, which are
---- [`Stream.Transform`]s. Encoding writes
---- each chunk's text as soon as it is made. Decoding holds one chunk's
---- bytes back until the next chunk has decoded, so an input of at most
---- 64 KiB writes nothing when it is refused. A padding, length or
+--- [`Stream.Transform`]s that [`Stream.transform_writer`] drives. Encoding
+--- writes each chunk's text as soon as it is made. Decoding holds one
+--- chunk's bytes back (the writer's `hold`) until the next chunk has
+--- decoded, so an input of at most 64 KiB writes nothing when it is
+--- refused. A padding, length or
 --- misplaced-`=` fault shows only at the end of the input, so a decoder
 --- reads all of a stream to find one -- in bounded memory, whatever its
 --- size -- and for an input of more than 64 KiB may have written most
@@ -602,63 +603,46 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local coder = decode and verb.decoding(request.name, request.lenient)
     or encoding(request.name, request.wrap)
   local source = request.file or "standard input"
-  -- The coders are driven by hand, not through Stream.transform_writer,
-  -- on purpose: a decoder's output is held back one chunk, so an input
-  -- of at most 64 KiB that is refused writes nothing, and a Writer
-  -- over `to.out` would have written each chunk's bytes already.
-  -- What one chunk decoded to, kept until the next chunk shows the
-  -- text is sound so far: see the head of this file. Not used to encode.
-  local held = ""
-  --- Writes `text`, or complains of the write and answers false.
-  local function put(text: string): boolean
-    if text == "" then return true end
-    return bare.delivered(complain, to.out(text))
-  end
-  --- Ends the run in failure, releasing the input.
-  local function stop(): integer
+  -- A Writer over `to.out`, local because no Stream helper adapts a
+  -- function to a Writer and no other verb needs one. `lost` is why a
+  -- write failed, which tells it from a coder's refusal.
+  local lost: string | nil
+  local standard_output: Stream.Writer = {
+    write = function(_self: Stream.Writer, text: string): boolean, string
+      local ok, why = to.out(text)
+      if ok then return true, "" end
+      lost = why
+      return false, why
+    end,
+    close = function(_self: Stream.Writer): boolean, string return true, "" end,
+    abort = function(_self: Stream.Writer): boolean, string return true, "" end,
+  }
+  -- A decoder's output is held one chunk back, so that an input of at
+  -- most one chunk that is refused writes nothing: see the head of this
+  -- file.
+  local sink = Stream.transform_writer(standard_output, coder, { hold = decode and 1 or 0 })
+  --- Complains of `line` and ends the run in failure, releasing the input.
+  local function stop(line: string): integer
+    complain(line)
+    local _, _ = sink:abort()
     local _, _ = reader:close()
     return bare.refused
+  end
+  --- The complaint for what `sink` refused: a lost write or a coder's refusal.
+  local function blame(why: string): string
+    return lost ~= nil and bare.lost(lost) or source .. ": " .. why
   end
   while true do
     -- A read may come up short; fill the chunk, so that what is held
     -- back is a whole chunk of input and not the last read.
-    local parts: {string} = {}
-    local have = 0
-    local ended = false
-    while have < chunk_size do
-      local piece, why = reader:read(chunk_size - have)
-      if piece == nil then
-        if why ~= "" then
-          complain(why)
-          return stop()
-        end
-        ended = true
-        break
-      end
-      parts[#parts + 1] = piece
-      have = have + #piece
-    end
-    if have > 0 then
-      local out, refusal = coder:update(table.concat(parts))
-      if out == nil then
-        complain(source .. ": " .. refusal)
-        return stop()
-      end
-      if decode then
-        if not put(held) then return stop() end
-        held = out
-      elseif not put(out) then
-        return stop()
-      end
-    end
-    if ended then break end
+    local chunk, why = Stream.read_up_to(reader, chunk_size)
+    if chunk == nil then return stop(why) end
+    local wrote, refusal = sink:write(chunk)
+    if not wrote then return stop(blame(refusal)) end
+    if #chunk < chunk_size then break end
   end
-  local last, refusal = coder:finish()
-  if last == nil then
-    complain(source .. ": " .. refusal)
-    return stop()
-  end
-  if not put(held .. last) then return stop() end
+  local committed, last_refusal = sink:close()
+  if not committed then return stop(blame(last_refusal)) end
   local closed, close_why = reader:close()
   if not closed then
     complain(close_why)
