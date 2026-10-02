@@ -127,10 +127,11 @@ static const sqlite3_io_methods cosmic_io_methods = {
   .xDeviceCharacteristics = file_characteristics,
 };
 
-/* The one artifact range this VFS ever opens, fixed at registration from the
+/* The one artifact range this VFS opens, fixed at registration from the
  * validated retained descriptor and never taken from a URI: `off=`/`len=`
  * parameter is refused rather than honored, and a path that is not this
- * one exact artifact is refused too. There is exactly one door. */
+ * one exact artifact is refused too. There is exactly one door, and the
+ * first open that succeeds closes it. */
 static char registered_path[4096];
 static sqlite3_int64 registered_offset;
 static sqlite3_int64 registered_length;
@@ -170,6 +171,15 @@ static int vfs_open (sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file
     *out_flags = SQLITE_OPEN_READONLY;
   }
   f->base.pMethods = &cosmic_io_methods;
+  /* The door opens once. Left registered, any connection the process
+   * opens later -- raw SQL's `ATTACH 'file:<path>?vfs=cosmic'` among
+   * them -- would read the program's whole database, past
+   * build/test_worker.tl's hold on the store. The descriptor itself
+   * stays the artifact's: `f` borrows it until the database closes. */
+  registered_path[0] = '\0';
+  registered_fd = -1;
+  registered_offset = 0;
+  registered_length = 0;
   return SQLITE_OK;
 }
 
