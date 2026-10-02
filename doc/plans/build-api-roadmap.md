@@ -174,8 +174,8 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | CI running | fd834a8e/tree668c3b95; reviewed on actual B2a with incoming #2548/#2553 intact; auto-merge enabled; epoch14 |
 | B3 | pending | locally approved on A4/B2b | 7aa69c15/tree2093cb5d; 90 native, 53 checked and 17 independent integration cases pass; only the combined SQLite acknowledgment changed |
-| B4a | pending | locally approved | 6d1d3232/tree9f54b268; native/checked lifetime and default compatibility reviewed; special SQLite paths retain their existing behavior |
-| B4b | pending | locally approved; integration review | 79d84149/tree35024802; independent native45/checked22, analyzer, bare-dispatch and conservative save-readiness review pass |
+| B4a | pending | locally approved on combined B3 | 7e24382e/treeea9d1654; native44 and independent allocation/harness integration checks pass; special SQLite paths preserved |
+| B4b | pending | locally approved on combined B4a | bbc82140/treed98c1d87; ten non-harness files unchanged; native31 integration and independent checked14 pass |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
@@ -183,7 +183,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C4 | pending | locally approved | 73ae44e0/tree1a99265a; independent native/checked allocation, bounded growth and account-service failure review passed; publication after B5 |
 | C5 | pending | locally approved | 08a1d96c/treea28a267e; independent native61/checked15 and analyzer checks pass; actual privileged CI proof required |
 | C6 | pending | locally approved | 42823b63/tree7c4ad967; independent native150/checked14 and harness9 pass with three honest mount skips; native Linux proof and fresh combined epoch required |
-| C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C7 | pending | isolated source preparation | Approved consumer design; local reviewed-API driver only, pin unchanged; actual C-wave release required before publication |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -367,3 +367,19 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   Schedule noexec fixtures explicitly on Linux because current CI phase
   records cannot represent a skipped fixture; retain ordinary native macOS
   coverage. This does not change the harness's honest unsupported-host skips.
+
+- 2026-10-02 UTC: extend the existing preparation overlap to C7's disjoint
+  consumer files. A separate local driver can combine reviewed C-wave APIs for
+  development, with no C3 fast path and no pin change. This avoids idle time
+  during serial CI. It is not release evidence: actual merged-base integration,
+  published-asset verification, native privileged/mount tests and independent
+  final review remain mandatory before the consumer PR is published.
+
+- 2026-10-02 UTC: B4a `7e24382e`/`ea9d1654` and B4b
+  `bbc82140`/`d98c1d87` are independently approved on the coherent A4/B2/B3
+  preparation base. B5 source preparation starts there, retaining the old pin.
+- 2026-10-02 UTC: B2b queue candidate `f4c30c3d`/`0a398186` is independently
+  approved subject to queue CI. All four B2b blobs and its combined patch are
+  unchanged; incoming #2557 argv documentation and #2558 old `_inputs` refusal
+  removal add five preserved files. The separate #2555 child-object refactor
+  is not present; its overlap has been inspected for later integration.
