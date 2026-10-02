@@ -252,8 +252,8 @@ local record Cli
   --- that refusal and a member not in the archive write nothing: an
   --- unsafe entry stops the extraction after the entries before it,
   --- which stay written. `create <out> <path>...` packs the paths and what is under
-  --- them, sorted by name, as a zip or a gzip tar, by the extension of
-  --- out (`.zip`, `.tar.gz`, `.tgz`); `--reproducible` fixes every
+  --- them, sorted by name, as a zip, a gzip tar or a plain tar, by the
+  --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
   --- modification time (tar 0, zip 1980) so the same tree packs to the
   --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
   --- encoder for either. Paths must be relative and stay under the
