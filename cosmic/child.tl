@@ -989,71 +989,142 @@ local function take_chunk(pipe: Pipe, want: integer): string
   return chunk:sub(1, want)
 end
 
---- The Reader of `self`'s streamed output at `index`: it takes what
---- `pump` queued, pumping every stream of the child while it waits.
+-- How an object of this module is made. A handle, a guard and the Reader
+-- and Writer of a streamed pipe are each one table, whose methods live
+-- once on a record's own table, reached through `__index`, with the state
+-- in fields: no closure each. A Reader or a Writer is a record of its own
+-- ([`PipeReader`], [`FeedWriter`]) implementing the interface it answers. A
+-- handle and a guard are public records themselves, whose fields the
+-- docs list, so their methods are assigned (`Handle.wait = function(self:
+-- Handle, ...)`) to the fields the record declares, with the docs on
+-- them: `function Handle:wait` would be listed as an undocumented
+-- function beside the documented field. The note on how an object is made
+-- in cosmic/stream.tl says why Teal limits how that is written.
+
+--- The Reader of a child's streamed output: it takes what `pump` queued,
+--- pumping every stream of the child while it waits.
+local record PipeReader is Stream.Reader
+  child: Handle
+  pipe: Pipe
+  closed: boolean
+  --- Why a wait the child could not go on with ended, "" until one has:
+  --- every later read answers it.
+  failed: string
+  --- Holds the pipe while a read waits; one per Reader, so a read costs no
+  --- allocation.
+  owner: Consumption
+  read: function(PipeReader, max_bytes?: integer): string | nil, string
+  close: function(PipeReader): boolean, string
+end
+
+local pipe_reader_mt: metatable<PipeReader> = { __index = PipeReader }
+
+local function waiting_read(self: PipeReader, max_bytes?: integer): string | nil, string
+  local child, pipe = self.child, self.pipe
+  local _ownership <close> = self.owner
+  pipe.consuming = true
+  while pipe.size == 0 do
+    if pipe.failure ~= nil then
+      self.failed = pipe.failure
+      return nil, self.failed
+    end
+    if pipe.fd == nil then return nil, "" end
+    local why = interrupted(child)
+    if why ~= "" then
+      self.failed = why
+      return nil, why
+    end
+    if child._status ~= nil then
+      -- The child is gone: what it wrote is in the pipe already, and
+      -- a round that finds nothing ready means only an escaped
+      -- descendant holds it open, which this read does not wait for.
+      local _, _ = pump(watching({ child }), 0)
+      if pipe.size == 0 and pipe.fd ~= nil then
+        pipe.reader_closed = true
+        end_stream(pipe)
+      end
+    else
+      local _, cancelled = pump(watching({ child }), slice(nil, { child }), true, true)
+      -- Not kept as `failed`: the task's end, not the stream's.
+      if cancelled ~= "" then return nil, cancelled end
+    end
+  end
+  return take_chunk(pipe, max_bytes or CHUNK), ""
+end
+
+function PipeReader:read(max_bytes?: integer): string | nil, string
+  if max_bytes ~= nil and max_bytes < 1 then error("child: read's max_bytes must be positive", 2) end
+  local pipe = self.pipe
+  if pipe.consuming then error("child: output is already being consumed", 2) end
+  if self.failed ~= "" then return nil, self.failed end
+  if self.closed then return nil, closed_reader end
+  if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
+  return waiting_read(self, max_bytes)
+end
+
+function PipeReader:close(): boolean, string
+  if self.closed then return true, "" end
+  self.closed = true
+  local pipe = self.pipe
+  pipe.reader_closed = true
+  -- The child's next write to it fails, as it would into `head`.
+  end_stream(pipe)
+  pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
+  return true, ""
+end
+
+--- The Reader of `self`'s streamed output at `index`.
 local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local pipe = self._streams[index]
-  local closed = false
-  local failed: string
-  local r: Stream.Reader = {}
-  local read_owner: Consumption = setmetatable({ pipes = { pipe }, discard = false }, consumption_mt)
-  local function waiting_read(max_bytes?: integer): string | nil, string
-    local _ownership <close> = read_owner
-    pipe.consuming = true
-    while pipe.size == 0 do
-      if pipe.failure ~= nil then
-        failed = pipe.failure
-        return nil, failed
-      end
-      if pipe.fd == nil then return nil, "" end
-      local why = interrupted(self)
-      if why ~= "" then
-        failed = why
-        return nil, failed
-      end
-      if self._status ~= nil then
-        -- The child is gone: what it wrote is in the pipe already, and
-        -- a round that finds nothing ready means only an escaped
-        -- descendant holds it open, which this read does not wait for.
-        local _, _ = pump(watching({ self }), 0)
-        if pipe.size == 0 and pipe.fd ~= nil then
-          pipe.reader_closed = true
-          end_stream(pipe)
-        end
-      else
-        local _, cancelled = pump(watching({ self }), slice(nil, { self }), true, true)
-        -- Not kept as `failed`: the task's end, not the stream's.
-        if cancelled ~= "" then return nil, cancelled end
-      end
-    end
-    return take_chunk(pipe, max_bytes or CHUNK), ""
-  end
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    if max_bytes ~= nil and max_bytes < 1 then error("child: read's max_bytes must be positive", 2) end
-    if pipe.consuming then error("child: output is already being consumed", 2) end
-    if failed then return nil, failed end
-    if closed then return nil, closed_reader end
-    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
-    return waiting_read(max_bytes)
-  end
-  r.close = function(_self: Stream.Reader): boolean, string
-    if closed then return true, "" end
-    closed = true
-    pipe.reader_closed = true
-    -- The child's next write to it fails, as it would into `head`.
-    end_stream(pipe)
-    pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
-    return true, ""
-  end
+  local owner: Consumption = setmetatable({ pipes = { pipe }, discard = false }, consumption_mt)
+  local r: PipeReader = setmetatable(
+    { child = self, pipe = pipe, closed = false, failed = "", owner = owner }, pipe_reader_mt)
   return r
 end
 
---- The Writer of `self`'s stdin stream: [`Stream.to_fd`] over the pipe,
+--- The Writer of a child's stdin stream: [`Stream.to_fd`] over the pipe,
 --- whose waits for room pump the child's outputs meanwhile, so a child
 --- that waits for its output to be read does not stall the write.
+local record FeedWriter is Stream.Writer
+  child: Handle
+  --- The pipe's descriptor as this Writer was made with, to tell it
+  --- from the one the handle holds once it has been closed.
+  fd: integer
+  closed: boolean
+  into: Stream.Writer
+  write: function(FeedWriter, data: string): boolean, string
+  close: function(FeedWriter): boolean, string
+  abort: function(FeedWriter): boolean, string
+end
+
+local feed_writer_mt: metatable<FeedWriter> = { __index = FeedWriter }
+
+function FeedWriter:write(data: string): boolean, string
+  if self.closed then return false, closed_writer end
+  -- Only a settled child's stdin is closed from under its writer.
+  if self.child._feed_fd ~= self.fd then return false, EXITED end
+  return self.into:write(data)
+end
+
+function FeedWriter:close(): boolean, string
+  self.closed = true
+  local child, fd = self.child, self.fd
+  if child._feed_fd == nil then return true, "" end
+  child._feed_fd = nil
+  Poll.closing(fd)
+  local ok, trouble = sys.close(fd)
+  if not ok then return false, trouble end
+  return true, ""
+end
+
+function FeedWriter:abort(): boolean, string
+  return self:close()
+end
+
 local function feed_writer(self: Handle): Stream.Writer
   local fd = self._feed_fd
-  local closed = false
+  local w: FeedWriter = setmetatable({ child = self, fd = fd, closed = false }, feed_writer_mt)
+  -- A closure, for [`Stream.FdOptions.wait`] is called with no Writer.
   local function room(_fd: integer, _events: integer, _left: integer | nil): boolean, string
     local why = interrupted(self)
     if why == "" and self._status ~= nil then why = EXITED end
@@ -1062,27 +1133,10 @@ local function feed_writer(self: Handle): Stream.Writer
     if cancelled ~= "" then return false, cancelled end
     -- Another task may have closed it meanwhile, by this writer's
     -- close or a settle, and its number be another file's by now.
-    if self._feed_fd ~= fd then return false, closed and closed_writer or EXITED end
+    if self._feed_fd ~= fd then return false, w.closed and closed_writer or EXITED end
     return true, ""
   end
-  local into = Stream.to_fd(fd, { nonblocking = true, wait = room })
-  local w: Stream.Writer = {}
-  w.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed then return false, closed_writer end
-    -- Only a settled child's stdin is closed from under its writer.
-    if self._feed_fd ~= fd then return false, EXITED end
-    return into:write(data)
-  end
-  w.close = function(_self: Stream.Writer): boolean, string
-    closed = true
-    if self._feed_fd == nil then return true, "" end
-    self._feed_fd = nil
-    Poll.closing(fd)
-    local ok, trouble = sys.close(fd)
-    if not ok then return false, trouble end
-    return true, ""
-  end
-  w.abort = w.close
+  w.into = Stream.to_fd(fd, { nonblocking = true, wait = room })
   return w
 end
 
@@ -1227,7 +1281,88 @@ local function closing_outputs(self: Handle)
   end
 end
 
+Handle.try_wait = function(self: Handle): TryWait | nil, string
+  if self._result then return { finished = true, result = self._result }, "" end
+  local _, _ = pump(watching({ self }), 0)
+  local status, trouble = exited(self)
+  if status == nil then
+    if trouble ~= "" then return nil, trouble end
+    return { finished = false }, ""
+  end
+  local r, settle_trouble = end_child(self)
+  if r == nil then return nil, settle_trouble end
+  return { finished = true, result = r }, ""
+end
+
+Handle.stop = function(self: Handle, signal?: integer): boolean, string
+  if self._closed then return false, "child: process already reaped" end
+  local ok, trouble = sys.kill(target(self), signal or sys.SIGTERM)
+  if not ok then return false, trouble end
+  return true, ""
+end
+
+Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
+  Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
+  if self._result then return self._result, "" end
+  if timeout_ns == nil and active == nil and not self._streams and
+      not self._input_fd and not through_run() then
+    local status, trouble = exited(self, true)
+    if not status then return nil, trouble end
+    return end_child(self)
+  end
+  local deadline: integer
+  if timeout_ns ~= nil then deadline = now() + timeout_ns end
+  -- Services the child's pipes until it exits, `deadline` passes ("")
+  -- or the wait cannot go on: a signal the innermost open guard
+  -- caught, a task cancelled, a child that cannot be asked about.
+  local why = ""
+  while true do
+    local status, trouble = exited(self)
+    if status ~= nil then return end_child(self) end
+    why = trouble
+    if why ~= "" then break end
+    if active ~= nil and active:cancelled() ~= 0 then
+      why = cancelled_by(active:cancelled())
+      break
+    end
+    local left = slice(deadline, { self })
+    if left == nil then break end
+    local _, stopped = pump(watching({ self }), left, true, true)
+    if stopped ~= "" then
+      why = stopped
+      break
+    end
+  end
+  local cancelled = active ~= nil and active:cancelled() or 0
+  if cancelled ~= 0 then
+    -- A wait the guard's signal ended leaves no child running. The
+    -- signal may have landed after the deadline, so say so here.
+    if why == "" then why = cancelled_by(cancelled) end
+    local _, ended_trouble = end_child(self)
+    if ended_trouble ~= "" then
+      -- `why` names the module already.
+      return nil, why .. "; " .. (ended_trouble:gsub("^child: ", ""))
+    end
+    return nil, why
+  end
+  if why ~= "" then return nil, why end
+  return end_child(self)
+end
+
+Handle.close = function(self: Handle): boolean, string
+  closing_outputs(self)
+  if not self._closed then
+    local r, trouble = end_child(self)
+    if not r then return false, trouble end
+  end
+  end_streamed(self)
+  return true, ""
+end
+
+Handle.drain = drain
+
 local handle_mt: metatable<Handle> = {
+  __index = Handle,
   __close = function(self: Handle)
     closing_outputs(self)
     if not self._closed then local _, _ = end_or_kill(self) end
@@ -1240,99 +1375,17 @@ local handle_mt: metatable<Handle> = {
   end,
 }
 
-local function make_handle(pid: integer, process_group: boolean): Handle
-  local h: Handle = { pid = pid, process_group = process_group, _exit_fd = -1,
-    _explicit_close = false, _drain_next = 1 }
-
-  h.drain = drain
-
-  function h:try_wait(): TryWait | nil, string
-    if self._result then return { finished = true, result = self._result }, "" end
-    local _, _ = pump(watching({ self }), 0)
-    local status, trouble = exited(self)
-    if status == nil then
-      if trouble ~= "" then return nil, trouble end
-      return { finished = false }, ""
-    end
-    local r, settle_trouble = end_child(self)
-    if r == nil then return nil, settle_trouble end
-    return { finished = true, result = r }, ""
-  end
-
-  function h:stop(signal?: integer): boolean, string
-    if self._closed then return false, "child: process already reaped" end
-    local ok, trouble = sys.kill(target(self), signal or sys.SIGTERM)
-    if not ok then return false, trouble end
-    return true, ""
-  end
-
-  function h:wait(timeout_ns?: integer): Result | nil, string
-    Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
-    if self._result then return self._result, "" end
-    if timeout_ns == nil and active == nil and not self._streams and
-        not self._input_fd and not through_run() then
-      local status, trouble = exited(self, true)
-      if not status then return nil, trouble end
-      return end_child(self)
-    end
-    local deadline: integer
-    if timeout_ns ~= nil then deadline = now() + timeout_ns end
-    -- Services the child's pipes until it exits, `deadline` passes ("")
-    -- or the wait cannot go on: a signal the innermost open guard
-    -- caught, a task cancelled, a child that cannot be asked about.
-    local why = ""
-    while true do
-      local status, trouble = exited(self)
-      if status ~= nil then return end_child(self) end
-      why = trouble
-      if why ~= "" then break end
-      if active ~= nil and active:cancelled() ~= 0 then
-        why = cancelled_by(active:cancelled())
-        break
-      end
-      local left = slice(deadline, { self })
-      if left == nil then break end
-      local _, stopped = pump(watching({ self }), left, true, true)
-      if stopped ~= "" then
-        why = stopped
-        break
-      end
-    end
-    local cancelled = active ~= nil and active:cancelled() or 0
-    if cancelled ~= 0 then
-      -- A wait the guard's signal ended leaves no child running. The
-      -- signal may have landed after the deadline, so say so here.
-      if why == "" then why = cancelled_by(cancelled) end
-      local _, ended_trouble = end_child(self)
-      if ended_trouble ~= "" then
-        -- `why` names the module already.
-        return nil, why .. "; " .. (ended_trouble:gsub("^child: ", ""))
-      end
-      return nil, why
-    end
-    if why ~= "" then return nil, why end
-    return end_child(self)
-  end
-
-  function h:close(): boolean, string
-    closing_outputs(self)
-    if not self._closed then
-      local r, trouble = end_child(self)
-      if not r then return false, trouble end
-    end
-    end_streamed(self)
-    return true, ""
-  end
-
+--- A handle for `pid`, owning it until it settles.
+local function make_handle(pid: integer, process_group: boolean, limit: integer): Handle
+  local h: Handle = setmetatable({
+    pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
+    _explicit_close = false, _drain_next = 1,
+  }, handle_mt)
+  -- Owned only once it has its metatable, so the finalizer covers the child from then; a
+  -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
   owned[pid] = true
-  return setmetatable(h, handle_mt)
+  return h
 end
-
-local guard_mt: metatable<Guard> = {
-  __close = function(self: Guard)
-    local _, _ = self:close()
-  end,
-}
 
 --- Takes `stamp`, a stamp the core answered, as what `g` has read: a
 --- stamp that moved since the last is a signal caught, for both what
@@ -1344,115 +1397,121 @@ local function noted(g: Guard, stamp: integer)
   end
 end
 
---- A guard not yet open: [`opened`] opens it.
-local function make_guard(): Guard
-  local g: Guard = {
-    _read = 0, _signal = 0, _fresh = 0, _closed = false, _trouble = "",
-  }
+local function read_guard(self: Guard)
+  if self._closed then return end
+  noted(self, raw.child_signal_read(self == active))
+end
 
-  local function read(self: Guard)
-    if self._closed then return end
-    noted(self, raw.child_signal_read(self == active))
+Guard.cancelled = function(self: Guard): integer
+  read_guard(self)
+  return self._signal
+end
+
+Guard.take = function(self: Guard): integer
+  read_guard(self)
+  local signal = self._fresh
+  self._fresh = 0
+  return signal
+end
+
+Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
+  if not Poll.in_task() then error("child: g:wait waits in a task of Poll.run", 2) end
+  Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
+  local deadline: integer
+  if timeout_ns ~= nil then deadline = now() + timeout_ns end
+  while true do
+    -- Asked before each wait and after each wake, never from the
+    -- pipe's bytes: another task waiting on it may have drained it.
+    local signal = self:take()
+    if signal ~= 0 then return signal, "" end
+    if self._closed then return 0, "child: the guard is closed" end
+    local left: integer
+    if deadline ~= nil then left = math.max(deadline - now(), 0) end
+    local woken, why = Poll.readable(raw.child_signal_fd(), left)
+    if not woken then return 0, why end
+    -- The last close wakes this wait having closed the pipe.
+    if not self._closed then drain_wake() end
   end
+end
 
-  function g:cancelled(): integer
-    read(self)
-    return self._signal
-  end
-
-  function g:take(): integer
-    read(self)
-    local signal = self._fresh
-    self._fresh = 0
-    return signal
-  end
-
-  function g:wait(timeout_ns?: integer): integer, string
-    if not Poll.in_task() then error("child: g:wait waits in a task of Poll.run", 2) end
-    Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
-    local deadline: integer
-    if timeout_ns ~= nil then deadline = now() + timeout_ns end
-    while true do
-      -- Asked before each wait and after each wake, never from the
-      -- pipe's bytes: another task waiting on it may have drained it.
-      local signal = self:take()
-      if signal ~= 0 then return signal, "" end
-      if self._closed then return 0, "child: the guard is closed" end
-      local left: integer
-      if deadline ~= nil then left = math.max(deadline - now(), 0) end
-      local woken, why = Poll.readable(raw.child_signal_fd(), left)
-      if not woken then return 0, why end
-      -- The last close wakes this wait having closed the pipe.
-      if not self._closed then drain_wake() end
+--- Closes the guard in the core, once: the last open restores the
+--- caller's dispositions. Answers "" or why they could not be
+--- restored, kept for every later close or release to answer again;
+--- whether this was the last; and, for the last, the signal owed it.
+local function restore_guard(self: Guard): string, boolean, integer
+  self._closed = true
+  for i = #open_guards, 1, -1 do
+    if open_guards[i] == self then
+      table.remove(open_guards, i)
+      break
     end
   end
-
-  --- Closes the guard in the core, once: the last open restores the
-  --- caller's dispositions. Answers "" or why they could not be
-  --- restored, kept for every later close or release to answer again;
-  --- whether this was the last; and, for the last, the signal owed it.
-  local function restore(self: Guard): string, boolean, integer
-    self._closed = true
-    for i = #open_guards, 1, -1 do
-      if open_guards[i] == self then
-        table.remove(open_guards, i)
-        break
-      end
-    end
-    active = open_guards[#open_guards]
-    local last = active == nil
-    local owing = 0
-    if last then owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0 end
-    local fd = raw.child_signal_fd()
-    local stamp, trouble = raw.unguard_child_signals(active ~= nil and active._read or 0)
-    -- Every task waiting on the pipe looks again: one waiting on this
-    -- guard finds it closed and returns, and one waiting on a guard
-    -- still open finds its stamp unmoved and waits again.
-    Poll.closing(fd)
-    if stamp == nil then
-      self._trouble = trouble
-      return trouble, last, owing
-    end
-    noted(self, stamp)
-    return "", last, owing
+  active = open_guards[#open_guards]
+  local last = active == nil
+  local owing = 0
+  if last then owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0 end
+  local fd = raw.child_signal_fd()
+  local stamp, trouble = raw.unguard_child_signals(active ~= nil and active._read or 0)
+  -- Every task waiting on the pipe looks again: one waiting on this
+  -- guard finds it closed and returns, and one waiting on a guard
+  -- still open finds its stamp unmoved and waits again.
+  Poll.closing(fd)
+  if stamp == nil then
+    self._trouble = trouble
+    return trouble, last, owing
   end
+  noted(self, stamp)
+  return "", last, owing
+end
 
-  function g:close(): boolean, string
-    if self._closed then
-      if self._trouble ~= "" then return false, self._trouble end
-      return true, ""
-    end
-    local trouble, last, owing = restore(self)
-    if trouble ~= "" then return false, trouble end
-    if not last then
-      -- The caller's dispositions are not back yet: the guards still
-      -- open have seen the signal, if they opened before it, and the
-      -- last to close delivers it.
-      if self._signal ~= 0 and self._read > owed then owed = self._read end
-      return true, ""
-    end
-    local signal = self._signal ~= 0 and self._signal or owing
-    if signal ~= 0 then
-      -- The caller's own dispositions are back: deliver it as it came.
-      local _, _ = sys.kill(sys.getpid(), signal)
-    end
+Guard.close = function(self: Guard): boolean, string
+  if self._closed then
+    if self._trouble ~= "" then return false, self._trouble end
     return true, ""
   end
+  local trouble, last, owing = restore_guard(self)
+  if trouble ~= "" then return false, trouble end
+  if not last then
+    -- The caller's dispositions are not back yet: the guards still
+    -- open have seen the signal, if they opened before it, and the
+    -- last to close delivers it.
+    if self._signal ~= 0 and self._read > owed then owed = self._read end
+    return true, ""
+  end
+  local signal = self._signal ~= 0 and self._signal or owing
+  if signal ~= 0 then
+    -- The caller's own dispositions are back: deliver it as it came.
+    local _, _ = sys.kill(sys.getpid(), signal)
+  end
+  return true, ""
+end
 
-  function g:release(): integer | nil, string
-    if self._closed then
-      if self._trouble ~= "" then return nil, self._trouble end
-      return self._signal, ""
-    end
-    local trouble, last, owing = restore(self)
-    if trouble ~= "" then return nil, trouble end
-    if last and self._signal == 0 and owing ~= 0 then
-      local _, _ = sys.kill(sys.getpid(), owing)
-    end
+Guard.release = function(self: Guard): integer | nil, string
+  if self._closed then
+    if self._trouble ~= "" then return nil, self._trouble end
     return self._signal, ""
   end
+  local trouble, last, owing = restore_guard(self)
+  if trouble ~= "" then return nil, trouble end
+  if last and self._signal == 0 and owing ~= 0 then
+    local _, _ = sys.kill(sys.getpid(), owing)
+  end
+  return self._signal, ""
+end
 
-  return setmetatable(g, guard_mt)
+local guard_mt: metatable<Guard> = {
+  __index = Guard,
+  __close = function(self: Guard)
+    local _, _ = self:close()
+  end,
+}
+
+--- A guard not yet open: [`opened`] opens it.
+local function make_guard(): Guard
+  local g: Guard = setmetatable({
+    _read = 0, _signal = 0, _fresh = 0, _closed = false, _trouble = "",
+  }, guard_mt)
+  return g
 end
 
 --- Opens a guard, the innermost of those open. The guard is made, and
@@ -1808,8 +1867,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     end
     return refuse("start: " .. trouble)
   end
-  local h = make_handle(pid, grouped)
-  h._limit = opts.capture_limit or DEFAULT_CAPTURE_LIMIT
+  local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT)
   if #wiring.streams > 0 then h._streams = wiring.streams end
   if wiring.input_fd ~= nil then
     h._input_fd, h._input, h._input_at = wiring.input_fd, opts.input, 0
@@ -1850,7 +1908,7 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
 end
 
 --- Waits for the first of several handles to finish, servicing every
---- one's streams meanwhile, and returns it settled: its `wait()` answers
+--- one's streams meanwhile, and returns it settled: its [`wait()`] answers
 --- at once. Nil and [`Poll.TIMEOUT`] when `timeout_ns` passes first --
 --- no handle finished, and nothing failed -- and the handles are left
 --- running: a timeout is `done == nil and trouble == Poll.TIMEOUT`, and

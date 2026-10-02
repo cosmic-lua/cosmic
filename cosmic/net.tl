@@ -86,7 +86,7 @@ local record Net
   end
 
   --- A socket listening at an address, answered by [`Net.listen`].
-  record Listener
+  interface Listener
     --- Where it listens.
     address: Address
     --- Sets how long `accept` waits by default, in nanoseconds, from 0;
@@ -108,7 +108,7 @@ local record Net
   --- A connection, answered by `accept` and [`Net.connect`]: a
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it.
-  record Conn is Stream.Reader, Stream.Writer
+  interface Conn is Stream.Reader, Stream.Writer
     --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
     --- nil for no limit. A connection starts with the `timeout_ns` it
     --- was made with: [`Net.connect`]'s, or its listener's or server's.
@@ -248,7 +248,7 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil)
   -- waits and sys.flock read it today), a fourth shared answer word for
   -- a wait a signal interrupted, and a loop in Poll.wait outside a task
   -- that polls in slices to look for one. A Conn's read and write are
-  -- then Stream.from_fd and Stream.to_fd (see the TODO at [`new_conn`]).
+  -- then Stream.from_fd and Stream.to_fd (see the TODO at [`SocketConn:read`]).
   if Poll.in_task() then
     return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
   end
@@ -257,104 +257,131 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer | nil)
   return false, said(trouble, errno)
 end
 
--- A connection or a listener dropped unclosed needs no __gc: its
--- socket, which only its closures hold, is closed by the collector.
-local conn_mt: metatable<Net.Conn> = {
-  __close = function(self: Net.Conn)
+-- How a connection or a listener is made. Each is a record of its own
+-- ([`SocketConn`], [`SocketListener`]) implementing the public interface it
+-- answers, so one costs one table and no closure: its methods are defined
+-- once, on the record, which an object reaches through `__index`, and its
+-- state is in fields. The note on how an object is made in
+-- cosmic/stream.tl says why Teal makes the public types interfaces. One
+-- dropped unclosed needs no __gc: its socket, which only the object
+-- holds, is closed by the collector.
+
+local record SocketConn is Net.Conn
+  socket: raw_socket.Socket
+  fd: integer
+  open: boolean
+  -- Set by [`set_timeout`], and read by each wait, so a change reaches a
+  -- wait the next read or write starts.
+  limit: integer
+  -- Each direction's sticky failure, "" until one: once a read or a
+  -- write fails for good, every later one of it says so.
+  read_failure: string
+  write_failure: string
+  set_timeout: function(SocketConn, wait_ns: integer | nil)
+  read: function(SocketConn, max_bytes?: integer): string | nil, string
+  write: function(SocketConn, data: string): boolean, string
+  shutdown: function(SocketConn, how: string): boolean, string
+  close: function(SocketConn): boolean, string
+  abort: function(SocketConn): boolean, string
+end
+
+local socket_conn_mt: metatable<SocketConn> = {
+  __index = SocketConn,
+  __close = function(self: SocketConn)
     local _, _ = self:close()
   end,
 }
 
+function SocketConn:set_timeout(wait_ns: integer | nil)
+  Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+  self.limit = wait_ns
+end
+
 -- TODO: make a Conn's `read` and `write` the Reader and Writer
 -- Stream.from_fd and Stream.to_fd answer over the socket
--- ({ nonblocking = true, timeout_ns }), collapsing this write loop into
+-- ({ nonblocking = true, timeout_ns }), collapsing the write loop here into
 -- theirs, once the TODO in `waited` is done: a wait outside a task here
 -- ends at a signal a Child.guard caught ("interrupted", which net_test's
 -- cases hold), which Poll.wait cannot see. Their `wait` option could
 -- carry `waited`, but `write` also sends through raw.send, which never
 -- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
 -- changes on every call, which an option fixes when the object is made.
+function SocketConn:read(max_bytes?: integer): string | nil, string
+  if max_bytes ~= nil and max_bytes <= 0 then error("net: read's max_bytes must be positive", 2) end
+  if not self.open then return nil, "net: the connection is closed" end
+  if self.read_failure ~= "" then return nil, self.read_failure end
+  local fd = self.fd
+  while true do
+    local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
+    if data == "" then return nil, "" end
+    if data ~= nil then return data, "" end
+    if errno ~= raw.EAGAIN then
+      self.read_failure = why
+      return nil, why
+    end
+    -- Nothing was taken: a deadline or a signal leaves the next
+    -- read to try again.
+    local ready, waiting = waited(fd, false, self.limit)
+    if not ready then return nil, waiting end
+    -- Another task may have closed the connection while this one
+    -- waited in a run, and its descriptor gone to another socket.
+    if not self.open then return nil, "net: the connection is closed" end
+  end
+end
+
+function SocketConn:write(data: string): boolean, string
+  if not self.open then return false, "net: the connection is closed" end
+  if self.write_failure ~= "" then return false, self.write_failure end
+  local fd = self.fd
+  local from = 1
+  while from <= #data do
+    local sent, why, errno = raw.send(fd, data, from)
+    if sent ~= nil then
+      from = from + sent
+    elseif errno ~= raw.EAGAIN then
+      self.write_failure = why
+      return false, why
+    else
+      local ready, waiting = waited(fd, true, self.limit)
+      if not ready then
+        self.write_failure = waiting
+        return false, waiting
+      end
+      if not self.open then return false, "net: the connection is closed" end
+    end
+  end
+  return true, ""
+end
+
+function SocketConn:shutdown(how: string): boolean, string
+  if how ~= "read" and how ~= "write" and how ~= "both" then
+    error("net: how must be \"read\", \"write\" or \"both\"", 2)
+  end
+  if not self.open then return false, "net: the connection is closed" end
+  local ok, why = raw.shutdown(self.fd, how)
+  if not ok then return false, why end
+  return true, ""
+end
+
+function SocketConn:close(): boolean, string
+  if not self.open then return true, "" end
+  self.open = false
+  Poll.closing(self.fd)
+  local ok, why = self.socket:close()
+  if not ok then return false, why end
+  return true, ""
+end
+
+function SocketConn:abort(): boolean, string
+  return self:close()
+end
+
 --- The connection over `socket`.
 local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): Net.Conn
-  local fd = socket:fd()
-  local open = true
-  -- Set by [`set_timeout`], and read by each wait, so a change reaches a
-  -- wait the next read or write starts.
-  local limit = timeout_ns
-  -- Each direction's sticky failure: once a read or a write fails for
-  -- good, every later one of it says so.
-  local read_failure, write_failure = "", ""
-  local conn: Net.Conn
-  conn = {
-    set_timeout = function(_self: Net.Conn, wait_ns: integer | nil)
-      Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
-      limit = wait_ns
-    end,
-    read = function(_self: Net.Conn, max_bytes?: integer): string | nil, string
-      if max_bytes ~= nil and max_bytes <= 0 then error("net: read's max_bytes must be positive", 2) end
-      if not open then return nil, "net: the connection is closed" end
-      if read_failure ~= "" then return nil, read_failure end
-      while true do
-        local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
-        if data == "" then return nil, "" end
-        if data ~= nil then return data, "" end
-        if errno ~= raw.EAGAIN then
-          read_failure = why
-          return nil, why
-        end
-        -- Nothing was taken: a deadline or a signal leaves the next
-        -- read to try again.
-        local ready, waiting = waited(fd, false, limit)
-        if not ready then return nil, waiting end
-        -- Another task may have closed the connection while this one
-        -- waited in a run, and its descriptor gone to another socket.
-        if not open then return nil, "net: the connection is closed" end
-      end
-    end,
-    write = function(_self: Net.Conn, data: string): boolean, string
-      if not open then return false, "net: the connection is closed" end
-      if write_failure ~= "" then return false, write_failure end
-      local from = 1
-      while from <= #data do
-        local sent, why, errno = raw.send(fd, data, from)
-        if sent ~= nil then
-          from = from + sent
-        elseif errno ~= raw.EAGAIN then
-          write_failure = why
-          return false, why
-        else
-          local ready, waiting = waited(fd, true, limit)
-          if not ready then
-            write_failure = waiting
-            return false, waiting
-          end
-          if not open then return false, "net: the connection is closed" end
-        end
-      end
-      return true, ""
-    end,
-    shutdown = function(_self: Net.Conn, how: string): boolean, string
-      if how ~= "read" and how ~= "write" and how ~= "both" then
-        error("net: how must be \"read\", \"write\" or \"both\"", 2)
-      end
-      if not open then return false, "net: the connection is closed" end
-      local ok, why = raw.shutdown(fd, how)
-      if not ok then return false, why end
-      return true, ""
-    end,
-    close = function(_self: Net.Conn): boolean, string
-      if not open then return true, "" end
-      open = false
-      Poll.closing(fd)
-      local ok, why = socket:close()
-      if not ok then return false, why end
-      return true, ""
-    end,
-    abort = function(self: Net.Conn): boolean, string
-      return self:close()
-    end,
-  }
-  return setmetatable(conn, conn_mt)
+  local conn: SocketConn = setmetatable({
+    socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
+    read_failure = "", write_failure = "" }, socket_conn_mt)
+  return conn
 end
 
 --- What `address` is called in a failure: its path, or its host and
@@ -373,49 +400,61 @@ local record Opened
   fd: integer
 end
 
-local listener_mt: metatable<Net.Listener> = {
-  __close = function(self: Net.Listener)
+local record SocketListener is Net.Listener
+  socket: raw_socket.Socket
+  fd: integer
+  open: boolean
+  -- Set by [`set_timeout`], and given to each connection accepted after.
+  limit: integer
+  set_timeout: function(SocketListener, wait_ns: integer | nil)
+  accept: function(SocketListener, wait_ns?: integer): Net.Conn | nil, string
+  close: function(SocketListener): boolean, string
+end
+
+local socket_listener_mt: metatable<SocketListener> = {
+  __index = SocketListener,
+  __close = function(self: SocketListener)
     local _, _ = self:close()
   end,
 }
+
+function SocketListener:set_timeout(wait_ns: integer | nil)
+  Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+  self.limit = wait_ns
+end
+
+function SocketListener:accept(wait_ns?: integer): Net.Conn | nil, string
+  Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+  if not self.open then return nil, "net: the listener is closed" end
+  wait_ns = wait_ns or self.limit
+  local fd = self.fd
+  while true do
+    local connection, why, errno = raw.accept(fd)
+    if connection ~= nil then return new_conn(connection, self.limit), "" end
+    if errno ~= raw.EAGAIN then return nil, why end
+    local ready, waiting = waited(fd, false, wait_ns)
+    if not ready then return nil, waiting end
+    if not self.open then return nil, "net: the listener is closed" end
+  end
+end
+
+function SocketListener:close(): boolean, string
+  if not self.open then return true, "" end
+  self.open = false
+  Poll.closing(self.fd)
+  local ok, why = self.socket:close()
+  if not ok then return false, named(self.address) .. ": " .. why end
+  return true, ""
+end
 
 --- The listener over `socket`, at `address`.
 local function new_listener(socket: raw_socket.Socket, address: Net.Address,
     timeout_ns: integer | nil): Opened
   local fd = socket:fd()
-  local open = true
-  -- Set by [`set_timeout`], and given to each connection accepted after.
-  local limit = timeout_ns
-  local listener: Net.Listener
-  listener = {
-    address = address,
-    set_timeout = function(_self: Net.Listener, wait_ns: integer | nil)
-      Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
-      limit = wait_ns
-    end,
-    accept = function(_self: Net.Listener, wait_ns?: integer): Net.Conn | nil, string
-      Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
-      if not open then return nil, "net: the listener is closed" end
-      wait_ns = wait_ns or limit
-      while true do
-        local connection, why, errno = raw.accept(fd)
-        if connection ~= nil then return new_conn(connection, limit), "" end
-        if errno ~= raw.EAGAIN then return nil, why end
-        local ready, waiting = waited(fd, false, wait_ns)
-        if not ready then return nil, waiting end
-        if not open then return nil, "net: the listener is closed" end
-      end
-    end,
-    close = function(_self: Net.Listener): boolean, string
-      if not open then return true, "" end
-      open = false
-      Poll.closing(fd)
-      local ok, why = socket:close()
-      if not ok then return false, named(address) .. ": " .. why end
-      return true, ""
-    end,
-  }
-  return { listener = setmetatable(listener, listener_mt), fd = fd }
+  local listener: SocketListener = setmetatable({
+    address = address, socket = socket, fd = fd, open = true, limit = timeout_ns },
+    socket_listener_mt)
+  return { listener = listener, fd = fd }
 end
 
 --- What [`connection`] made: the socket, or, where there is none, what
