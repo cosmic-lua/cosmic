@@ -443,7 +443,7 @@ local function replacement_for(source: string, msg: string): string | nil
   for _, group in ipairs(found and { result.type_errors, result.warnings } or {}) do
     for _, e in ipairs(group) do
       if e.msg == msg then
-        return teal.replacement(e.msg, source, e.y, e.x)
+        return teal.replacement(e.msg, source, e.y, e.x, e.fields)
       end
     end
   end
@@ -499,7 +499,7 @@ local function test_a_standard_global_shadowed_is_named_where_declared()
   assert(replacement_for(record_named_table, "invalid key 'insert' in record 'table' of type Rows")
     == "'table' here is a local that hides the standard library's table: rename it")
   assert(replacement_for("table.nope({})\n", "invalid key 'nope' in record 'table' of type table")
-    == nil)
+    == "table's fields: concat, insert, move, pack, remove, sort, unpack")
   -- cosmic withholds `io` from the checker ([`teal.withheld`]): a local
   -- of that name hides nothing.
   assert(teal.replacement("invalid key 'write' in record 'io' of type R", "", 3, 9) == nil)
@@ -559,4 +559,78 @@ local function test_a_module_type_named_twice_is_told_its_name()
     "Kv is itself the type of the record its module returns: write Kv, not Kv.Kv")
   assert(teal.replacement("unknown type Kv.Kv", "local Kv = {}\nlocal k: Kv.Kv\n", 2, 10) == nil)
   assert(teal.replacement("unknown type Kv.Store", source, 2, 10) == nil)
+end
+
+local rec = "local record R\n  alpha: integer\n  beta: string\n  record Inner\n    n: integer\n  end\nend\n" ..
+  "local r: R = {alpha = 1}\n"
+
+--- A key a record lacks, read, written or called, is told the nearest
+--- of the record's value fields and what they are (a nested type is no
+--- value); a key near none is told the fields alone.
+local function test_a_missing_field_names_the_nearest()
+  local fields = "R's fields: alpha, beta"
+  assert(replacement_for(rec .. "print(r.alpah)\n", "invalid key 'alpah' in record 'r' of type R")
+    == "did you mean 'alpha'? " .. fields)
+  assert(replacement_for(rec .. "r.betta = 'x'\n", "invalid key 'betta' in record 'r' of type R")
+    == "did you mean 'beta'? " .. fields)
+  assert(replacement_for(rec .. "r:alpah()\n", "invalid key 'alpah' in record 'r' of type R")
+    == "did you mean 'alpha'? " .. fields)
+  assert(replacement_for(rec .. "r.gamma = 2\n", "invalid key 'gamma' in record 'r' of type R")
+    == fields)
+  local made = rec .. "local function make(): R\n  return r\nend\nprint(make().ALPHA)\n"
+  assert(replacement_for(made, "invalid key 'ALPHA' in type R") == "did you mean 'alpha'? " .. fields)
+  assert(replacement_for("local interface Named\n  name: string\nend\n" ..
+    "local n: Named = {name = 'x'}\nprint(n.nmae)\n",
+    "invalid key 'nmae' in 'n' of interface type Named") == "did you mean 'name'? Named's fields: name")
+  assert(replacement_for("local s = 'x'\nprint(s.lenn)\n", "invalid key 'lenn' in record 's' of type string")
+    == "did you mean 'len'? string's fields: byte, char, dump, find, format, gmatch, gsub, len, " ..
+      "lower, match and 7 more")
+  -- A field one edit past the limit is not offered: none for a key of
+  -- one letter, one for four.
+  assert(replacement_for("local t = {x = 1, y = 2}\nprint(t.z)\n",
+    "invalid key 'z' in record 't' of type record (x: integer; y: integer)")
+    == "t's fields: x, y")
+  assert(teal.replacement("invalid key 'nope' in record 'r' of type R", "", 1, 1, { "move" })
+    == "R's fields: move")
+  -- An inferred type is named without where it was inferred, and a
+  -- record no variable names as "the record".
+  assert(teal.replacement("invalid key 'lenn' in record 's' of type string \"x\" (inferred at :2:9)",
+    "", 1, 1, { "len" }) == "did you mean 'len'? string \"x\"'s fields: len")
+  assert(replacement_for("print(({a = 1}).b)\n", "invalid key 'b' in type record (a: integer)")
+    == "the record's fields: a")
+  -- Without the fields the checker gives, nothing is guessed.
+  assert(teal.replacement("invalid key 'alpah' in record 'r' of type R", "", 1, 1) == nil)
+end
+
+--- `type`, which nothing in the standard library names a field, is told
+--- `kind`, which a record holding one names what it is with; a record
+--- with no `kind` is told only its fields. Several fields equally near
+--- are each named, up to three.
+local function test_a_missing_type_is_told_kind()
+  local stat = "local record Stat\n  kind: string\n  size: integer\nend\n" ..
+    "local st: Stat = {kind = 'file', size = 0}\n"
+  assert(replacement_for(stat .. "print(st.type)\n", "invalid key 'type' in record 'st' of type Stat")
+    == "did you mean 'kind'? Stat's fields: kind, size")
+  assert(replacement_for(rec .. "print(r.type)\n", "invalid key 'type' in record 'r' of type R")
+    == "R's fields: alpha, beta")
+  assert(teal.replacement("invalid key 'ab' in record 'r' of type R", "", 1, 1, { "ac", "ad", "aa" })
+    == "did you mean 'aa', 'ac' or 'ad'? R's fields: aa, ac, ad")
+  assert(teal.replacement("invalid key 'ab' in record 'r' of type R", "", 1, 1,
+    { "ac", "ad", "aa", "ae" }) == "R's fields: aa, ac, ad, ae")
+  assert(teal.replacement("invalid key 'stats' in record 'fs' of type fs", "", 1, 1,
+    { "Stat", "stat" }) == "did you mean 'stat'? fs's fields: Stat, stat")
+end
+
+--- A record of many fields lists the first ten alphabetically and says
+--- how many more it has; a module record described rather than named
+--- (`record Module`) is named by its variable.
+local function test_a_missing_field_lists_a_bounded_few()
+  local names: {string} = {}
+  for i = 12, 1, -1 do
+    names[#names + 1] = string.format("f%02d", i)
+  end
+  assert(teal.replacement("invalid key 'zzzzzz' in record 'big' of type Big", "", 1, 1, names) ==
+    "Big's fields: f01, f02, f03, f04, f05, f06, f07, f08, f09, f10 and 2 more")
+  assert(teal.replacement("invalid key 'parsee' in record 'Cli' of type record Module", "", 1, 1,
+    { "parse" }) == "did you mean 'parse'? Cli's fields: parse")
 end
