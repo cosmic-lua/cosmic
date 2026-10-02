@@ -220,3 +220,111 @@ local function test_links_are_left_out_and_empty_directories_kept(dir: string)
   assert(assert(Fs.stat(dir .. "/out/empty")).kind == "dir")
   assert(Fs.read(dir .. "/out/a.h") == "x\n")
 end
+
+--- Fault injection checks the publication boundary on every platform;
+--- the native cases below separately exercise Darwin's actual syscall.
+local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
+  local root, cache = tmp .. "/source", tmp .. "/cache"
+  if empty then
+    assert(Fs.mkdirs(root .. "/vendor/lib/empty"))
+  else
+    checkout(root, { ["src/a.h"] = "payload\n" })
+  end
+  local real_uname, real_flush = sys.uname, sys.full_fsync
+  local real_sync, real_rename = Fs.fsync, Fs.rename
+  local raw, fs = sys as {string:any}, Fs as {string:any}
+  local syncs, flushes, owner = 0, 0, -1
+  local renamed = false
+  raw.uname = function(): sys.Uname
+    local names = assert(real_uname())
+    names.sysname = "Darwin"
+    return names
+  end
+  fs.fsync = function(fd: integer): boolean, string
+    assert(flushes == 0 or renamed, "payload fsync followed the device flush")
+    syncs = syncs + 1
+    return real_sync(fd)
+  end
+  raw.full_fsync = function(fd: integer): boolean, string, integer
+    flushes, owner = flushes + 1, fd
+    assert(syncs > 0 and not renamed, "full flush preceded payload sync or followed rename")
+    local st = assert(sys.fstat(fd))
+    assert(st.kind == "file", "full flush used a directory descriptor")
+    local found = false
+    for _, name in ipairs((assert(Fs.list(cache)))) do
+      if name:match("^%.scratch%.") then
+        local held = assert(Fs.stat(cache .. "/" .. name .. "/owner"))
+        local payload = assert(Fs.stat(cache .. "/" .. name .. "/payload"))
+        assert(st.dev == payload.dev, "owner is not on the payload filesystem")
+        if st.ino == held.ino and st.dev == held.dev then found = true end
+      end
+    end
+    assert(found, "full flush did not use the held scratch owner")
+    if fail then return false, "injected full flush failure", sys.EBADF end
+    return true, "", 0
+  end
+  fs.rename = function(from: string, to: string): boolean, string
+    assert(flushes == 1 and not fail, "payload published without a successful full flush")
+    renamed = true
+    return real_rename(from, to)
+  end
+  local ok, problem = pcall(function(): boolean
+    local path, trouble = Patch.prepare(root, "lib", cache)
+    assert(flushes == 1, "device flush missing or repeated")
+    assert(sys.fstat(owner) == nil, "scratch owner descriptor leaked")
+    if fail then
+      assert(path == nil and trouble:find("injected full flush failure", 1, true), trouble)
+      assert(not renamed, "failed device flush published a tree")
+      assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate",
+        "failed device flush left a payload or scratch owner")
+    else
+      assert(path ~= nil and renamed, trouble)
+      local before = syncs
+      assert(Patch.prepare(root, "lib", cache) == path)
+      assert(flushes == 1 and syncs == before, "warm hit flushed again")
+    end
+    return true
+  end)
+  raw.uname, raw.full_fsync = real_uname, real_flush
+  fs.fsync, fs.rename = real_sync, real_rename
+  assert(ok, problem)
+end
+
+local function test_darwin_flushes_after_payload_sync_before_publication(tmp: string)
+  darwin_flush_case(tmp, false, false)
+end
+
+local function test_darwin_flushes_an_empty_payload_through_its_owner(tmp: string)
+  darwin_flush_case(tmp, true, false)
+end
+
+local function test_darwin_flush_failure_prevents_publication_and_cleans_scratch(tmp: string)
+  darwin_flush_case(tmp, false, true)
+end
+
+local function test_darwin_empty_payload_flush_failure_prevents_publication(tmp: string)
+  darwin_flush_case(tmp, true, true)
+end
+
+--- These use the real full_fsync on Darwin, including a payload with
+--- no regular file from which a flush descriptor could otherwise come.
+local function test_native_preparation_flushes_empty_and_nonempty_payloads(tmp: string)
+  checkout(tmp .. "/source", { ["src/a.h"] = "native\n" })
+  local tree = assert(Patch.prepare(tmp .. "/source", "lib", tmp .. "/cache"))
+  assert(Fs.read(tree .. "/src/a.h") == "native\n")
+  assert(Fs.mkdirs(tmp .. "/empty/vendor/lib"))
+  local empty = assert(Patch.prepare(tmp .. "/empty", "lib", tmp .. "/empty-cache"))
+  assert(#assert(Fs.list(empty)) == 0)
+end
+
+local function test_direct_tree_does_not_request_a_device_flush(tmp: string)
+  checkout(tmp .. "/source", { ["src/a.h"] = "direct\n" })
+  local real = sys.full_fsync
+  local raw = sys as {string:any}
+  raw.full_fsync = function(): boolean
+    error("direct tree requested a device flush")
+  end
+  local ok, result, trouble = pcall(Patch.tree, tmp .. "/source", "lib", tmp .. "/direct")
+  raw.full_fsync = real
+  assert(ok and result, trouble or tostring(result))
+end

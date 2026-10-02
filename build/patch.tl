@@ -269,11 +269,10 @@ end
 
 --- Writes `data` to a new file at `path` with exactly `mode`, and syncs
 --- it, its mode included, before closing it.
--- TODO: one fsync per file, in turn, makes a whole cache miss over
--- vendor/ take up to several times as long, as the storage answers each;
--- write every file unsynced and sync the filesystem once before the
--- rename once cosmic.sys carries syncfs (or sync), which the pinned
--- release (ci/cosmic-driver.pin) must carry too.
+-- TODO: measure filesystem-wide sync on disk-backed cold misses before
+-- replacing per-file fsync. Activate only once ci/cosmic-driver.pin names
+-- a release carrying sys.syncfs, and measurements justify the change;
+-- preserve this path without both proofs.
 local function write_synced(path: string, data: string,
                             mode: integer): boolean, string
   local fd, trouble = Fs.open_write(path, mode)
@@ -493,11 +492,9 @@ end
 
 --- The directory under `cache` holding `name`'s patched tree, written
 --- there first when it is not yet. Every file and directory of the tree
---- is fsynced before it takes its name, so a crash of the machine does
---- not leave empty or missing files at that name where fsync reaches
---- the storage itself (not on macOS; see below).
--- TODO: on macOS fsync leaves the data in the drive's own cache; sync
--- with fcntl(F_FULLFSYNC) there once cosmic.sys carries fcntl.
+--- is fsynced before it takes its name. On Darwin, a full device-cache
+--- flush is requested too; the device still decides what reaches stable
+--- storage.
 -- TODO: nothing removes a tree no build names any more, and each edit
 -- that changes a tree's bytes leaves the one before behind (tens of MB
 -- when every tree changes at once); remove the ones older than the newest of each
@@ -531,6 +528,14 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   local written, write_trouble = write_tree(tree, payload)
   if not written then
     return nil, write_trouble
+  end
+  local host, host_trouble = sys.uname()
+  if host == nil then return nil, host_trouble end
+  if host.sysname == "Darwin" then
+    -- F_FULLFSYNC needs a regular file. The held owner is on the
+    -- payload's filesystem, even when the payload has no files.
+    local flushed, flush_trouble = sys.full_fsync(holding.owner)
+    if not flushed then return nil, holding.path .. "/owner: " .. flush_trouble end
   end
   local moved, move_trouble = Fs.rename(payload, dir)
   if not moved then

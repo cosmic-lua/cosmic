@@ -140,10 +140,22 @@ cosmic docs tally                   what your own module offers
 after editing. `cosmic test` builds the tree, then runs each test, and
 skips one whose code and inputs have not changed since it last passed.
 `cosmic cmd/tally/main.tl words.txt` runs the program from source. `cosmic
-build` writes `o/bin/tally`, one file that runs on its own with nothing
-beside it, and `cosmic build cmd/tally` writes only that one. `cosmic
-docs` lists your own modules with the standard library's, and `cosmic
-docs Tally.words` shows a function with the examples that call it.
+build` writes `o/bin/tally`, and `cosmic build cmd/tally` writes only that
+one. `cosmic docs` lists your own modules with the standard library's, and
+`cosmic docs Tally.words` shows a function with the examples that call it.
+
+`o/bin/tally` is the whole program: copy that one file to a Linux (x86-64
+or arm64) or arm64 macOS host with no cosmic on it and it runs, even with
+an empty environment (`env -i ./tally`). `file` calls it a shell script
+because it starts as one: a /bin/sh launcher with a core for each
+supported system and the program appended. On a host's first run the
+launcher copies that host's core into a private cache
+(`~/.cache/cosmic/cores`, `~/Library/Caches/cosmic/cores` on macOS, or
+`/tmp/cosmic-cores-<uid>` with no `HOME`; `cosmic help build` lists the
+rest) and runs it from there. `cosmic build --host` writes instead a
+native executable for this system alone, which needs no shell and writes
+no cache: the choice for a container with no /bin/sh, or a host with
+nowhere to write.
 
 ## trying it
 

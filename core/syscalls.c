@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
+#include <pwd.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -59,6 +60,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "check.h"
 #include "coverage.h"
 #include "fail.h"
+#include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
 #include "executable.h"
@@ -91,6 +93,53 @@ COSMIC_SYSCALL(executable, 0) {
     return cosmic_fail(L, number == 0 ? ENAMETOOLONG : number);
   }
   lua_pushstring(L, resolved);
+  return 1;
+}
+
+/* Directory-service lookup is confined to the calling process. The
+ * buffer bound limits this wrapper, not libc's own work or its latency. */
+COSMIC_SYSCALL(user, 1) {
+  luaL_checktype(L, 1, LUA_TSTRING);
+  size_t length;
+  const char *name = luaL_checklstring(L, 1, &length);
+  if (length == 0 || memchr(name, '\0', length) != NULL) {
+    return luaL_argerror(L, 1, "user name is empty or contains a NUL byte");
+  }
+  bool oversized = COSMIC_FAULT("getpwnam_r(oversize)");
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
+  enum { initial_size = 1024, maximum_size = 1024 * 1024 };
+  size_t size = initial_size;
+  struct passwd entry, *found = NULL;
+  for (;;) {
+    void *buffer = cosmic_realloc(guard->resource, size);
+    if (buffer == NULL) return cosmic_fail(L, ENOMEM);
+    guard->resource = buffer;
+    int failure;
+    if (oversized || COSMIC_FAULT("getpwnam_r(ERANGE)")) failure = ERANGE;
+    else if (COSMIC_FAULT("getpwnam_r(missing)")) failure = 0;
+    else if (COSMIC_FAULT("getpwnam_r")) failure = EIO;
+    else failure = getpwnam_r(name, &entry, buffer, size, &found);
+    if (failure == ERANGE && size < maximum_size) {
+      size *= 2;
+      continue;
+    }
+    if (failure != 0) return cosmic_fail(L, failure);
+    break;
+  }
+  if (found == NULL) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "");
+    lua_pushinteger(L, 0);
+    return 3;
+  }
+  uid_t uid = found->pw_uid;
+  gid_t gid = found->pw_gid;
+  cosmic_guard_release(guard);
+  lua_createtable(L, 0, 2);
+  lua_pushinteger(L, (lua_Integer)uid);
+  lua_setfield(L, -2, "uid");
+  lua_pushinteger(L, (lua_Integer)gid);
+  lua_setfield(L, -2, "gid");
   return 1;
 }
 
@@ -1177,9 +1226,12 @@ static int place_proc (const char *target, int *own) {
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
                        const char *const *at, const int *writable, int count, int mapped,
-                       int *own) {
+                       int noexec_scratch, int *own) {
   int number = 0;
   *own = 0;
+  /* A private writable tmpfs needs a mapped owner. Refuse before an
+   * unmapped child's root leaves directories on its host backing. */
+  if (noexec_scratch && !mapped) return EPERM;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
    * map: an unmapped one builds on `root` itself, which its parent's
@@ -1206,6 +1258,15 @@ static int build_root (const char *root, char *const *paths, char *const *names,
     if (mkdir(target, 01777) != 0) return errno;
     if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
                : chmod(target, 01777) != 0 || mount(target, target, NULL, MS_BIND, NULL) != 0)
+      return errno;
+  }
+  if (noexec_scratch) {
+    int made = snprintf(target, sizeof target, "%s/noexec", root);
+    if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
+    if (mkdir(target, 01777) != 0) return errno;
+    /* No host backing path remains reachable through an executable
+     * alias, unlike a bind of ordinary scratch. */
+    if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=1777") != 0)
       return errno;
   }
   int own_proc = 0;
@@ -1316,6 +1377,9 @@ struct spawn_plan {
   int status_write;
   long descriptor_limit;
   int process_group;
+  int credentials;
+  uid_t user;
+  gid_t group;
   /* The Landlock ruleset to restrict the child to, or -1. */
   int confine;
   int pledged;
@@ -1324,6 +1388,7 @@ struct spawn_plan {
 #endif
   int unveiling;
   int offline;
+  int noexec_scratch;
   const char *root_dir;
   char *const *resolved_paths;
   char *const *given_names;
@@ -1388,6 +1453,21 @@ static void default_signals (void) {
   }
 }
 
+/* Raw calls only: this child shares the parent's memory, but must not
+ * ask libc to coordinate its credential change with parent threads.
+ * Clearing all three capability sets also clears ambient capabilities;
+ * the bounding set stays unchanged. */
+static int set_credentials (const struct spawn_plan *plan) {
+  struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
+  struct __user_cap_data_struct caps[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+  if (syscall(SYS_prctl, PR_SET_NO_NEW_PRIVS, 1L, 0L, 0L, 0L) != 0 ||
+      syscall(SYS_setgroups, 0, NULL) != 0 ||
+      syscall(SYS_setresgid, plan->group, plan->group, plan->group) != 0 ||
+      syscall(SYS_setresuid, plan->user, plan->user, plan->user) != 0 ||
+      syscall(SYS_capset, &header, caps) != 0) return errno;
+  return 0;
+}
+
 /* The rest of a child's start once its sandbox's namespaces are made
  * ([`spawn_child`]): its process group -- for an unveiled child, a
  * session of its own, and so a group of its own whatever
@@ -1405,6 +1485,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   } else if (plan->process_group && setpgid(0, 0) != 0) {
     failure = errno;
   }
+  if (!failure && plan->credentials) failure = set_credentials(plan);
   if (!failure && plan->cwd != NULL && chdir(plan->cwd) != 0) failure = errno;
   for (int t = 0; !failure && t <= top; t++) {
     if (pinned[t] >= 0) {
@@ -1566,7 +1647,7 @@ static _Noreturn int start_program (void *argument) {
   if (!failure)
     failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
                          plan->bound_at, plan->unveiled_writable, plan->unveil_count,
-                         start->mapped, &own_proc);
+                         start->mapped, plan->noexec_scratch, &own_proc);
   if (!failure) failure = drop_capabilities();
   /* Then it gives root up for good, its groups first, while it may.
    * Where its /proc is its own, it makes a user namespace as that user,
@@ -2258,7 +2339,7 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
   return exact && named == target;
 }
 
-COSMIC_SYSCALL(spawn, 10) {
+COSMIC_SYSCALL(spawn, 11) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
@@ -2299,7 +2380,7 @@ COSMIC_SYSCALL(spawn, 10) {
   const char *unveiled[UNVEIL_MAX];
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
-  int unveiling = 0, unveil_count = 0, offline = 0;
+  int unveiling = 0, unveil_count = 0, offline = 0, noexec_scratch = 0;
   int dropping = 0;
   uid_t drop_uid = 0;
   gid_t drop_gid = 0;
@@ -2394,6 +2475,14 @@ COSMIC_SYSCALL(spawn, 10) {
       lua_pop(L, 1);
     }
     lua_pop(L, 1);
+    lua_pushliteral(L, "noexec_scratch");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
+      return luaL_argerror(L, 10, "noexec_scratch must be a boolean");
+    noexec_scratch = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    if (noexec_scratch && !unveiling)
+      return luaL_argerror(L, 10, "noexec_scratch requires unveil");
     lua_pushliteral(L, "offline");
     lua_rawget(L, 10);
     offline = lua_toboolean(L, -1);
@@ -2416,8 +2505,37 @@ COSMIC_SYSCALL(spawn, 10) {
     }
     lua_pop(L, 2);
   }
+  int credentials = !lua_isnoneornil(L, 11);
+  uid_t credential_user = 0;
+  gid_t credential_group = 0;
+  if (credentials) {
+    luaL_checktype(L, 11, LUA_TTABLE);
+    lua_pushliteral(L, "user");
+    lua_rawget(L, 11);
+    lua_pushliteral(L, "group");
+    lua_rawget(L, 11);
+    if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+      return luaL_argerror(L, 11, "credentials need integer user and group");
+    lua_Integer user = lua_tointeger(L, -2), group = lua_tointeger(L, -1);
+    if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
+        group >= (lua_Integer)UINT32_MAX)
+      return luaL_argerror(L, 11, "credentials user and group are 1 to 4294967294");
+    if (unveiling || offline || dropping)
+      return luaL_argerror(L, 11, "credentials exclude sandbox unveil, offline, user and group");
+    credential_user = (uid_t)user;
+    credential_group = (gid_t)group;
+    lua_pop(L, 2);
+  }
+#if defined(__linux__)
+  int credential_dumpable = -1;
+  if (credentials) {
+    credential_dumpable = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
+    if (credential_dumpable < 0) return cosmic_fail(L, errno);
+    if (credential_dumpable != 0 && credential_dumpable != 1) return cosmic_fail(L, ENOTSUP);
+  }
+#endif
 #if !defined(__linux__)
-  if (unveiling || offline) return cosmic_fail(L, ENOSYS);
+  if (unveiling || offline || credentials) return cosmic_fail(L, ENOSYS);
 #else
   if (unveiling && !sandbox_room()) return cosmic_fail(L, errno);
 #endif
@@ -2599,6 +2717,19 @@ COSMIC_SYSCALL(spawn, 10) {
         }
       }
     }
+    if (!prepare_error && noexec_scratch) {
+      for (int i = 0; i < unveil_count; i++) {
+        const char *placed = unveiled_at[i] != NULL ? unveiled_at[i] : resolved_paths[i];
+        const char *name = given_names[i];
+        if (strcmp(placed, "/") == 0 || strcmp(placed, "/noexec") == 0 ||
+            strncmp(placed, "/noexec/", 8) == 0 ||
+            (name != NULL && (strcmp(name, "/noexec") == 0 ||
+                             strncmp(name, "/noexec/", 8) == 0))) {
+          prepare_error = EINVAL;
+          break;
+        }
+      }
+    }
     if (!prepare_error && unveiling) {
       const char *base = getenv("TMPDIR");
       if (base == NULL || base[0] != '/') base = "/tmp";
@@ -2635,11 +2766,13 @@ COSMIC_SYSCALL(spawn, 10) {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
     .status_read = status_read, .status_write = status_write,
     .descriptor_limit = descriptor_limit, .process_group = process_group,
+    .credentials = credentials, .user = credential_user, .group = credential_group,
     .confine = confine, .pledged = pledged,
 #if defined(PLEDGE_ARCH)
     .pledge = &pledge,
 #endif
-    .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
+    .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
+    .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
@@ -2663,6 +2796,15 @@ COSMIC_SYSCALL(spawn, 10) {
 #endif
   pid_t pid = start_child(&plan, &fork_error);
 #if defined(__linux__)
+  int restore_error = 0;
+  if (credentials) {
+    int current = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
+    if (current < 0) restore_error = errno;
+    else if (current != credential_dumpable &&
+             prctl(PR_SET_DUMPABLE, credential_dumpable, 0, 0, 0) != 0) restore_error = errno;
+  }
+  /* TODO: check namespace-drop restoration too, with cleanup retaining
+   * ownership of its intermediate child, init and program on failure. */
   if ((dumpable == 0 || dumpable == 1) && prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != dumpable)
     prctl(PR_SET_DUMPABLE, dumpable, 0, 0, 0);
 #endif
@@ -2672,6 +2814,19 @@ COSMIC_SYSCALL(spawn, 10) {
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
   free(argv);
   free(resolved);
+#if defined(__linux__)
+  if (restore_error != 0) {
+    /* Exec may already have succeeded. Keep ownership until the child
+     * and its owned group are ended, even though no pid is returned. */
+    if (pid > 0) {
+      if (process_group) kill(-pid, SIGKILL);
+      kill(pid, SIGKILL);
+      int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+    }
+    close(status_read);
+    return cosmic_fail(L, restore_error);
+  }
+#endif
   if (pid < 0) {
     close(status_read);
     if (root_dir[0] != '\0') rmdir(root_dir);

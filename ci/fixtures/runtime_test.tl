@@ -94,7 +94,7 @@ local function run_paused(tool: string, work: string, diagnostics: string,
     child = start("paused", { program, "probe.tl", expected_hash,
       expected_marker }, work .. "/run space", values, diagnostics)
   end
-  await_ready(work, diagnostics, "paused", ready)
+  await_ready(work, diagnostics, "paused", ready, child)
   return child, go
 end
 

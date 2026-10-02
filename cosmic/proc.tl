@@ -16,6 +16,9 @@ else
 end
 
 local record Proc
+  --- A named account's numeric user and primary group identifiers.
+  type User = raw_process.User
+
   --- The outcome of [`Proc.find_result`], without reading its diagnostic.
   record FindResult
     enum Kind
@@ -84,6 +87,19 @@ function Proc.executable(): string | nil, string
     return nil, trouble
   end
   return path, ""
+end
+
+--- Looks up an explicitly named account, answering its uid and primary
+--- gid. A missing account is nil and an empty reason; a lookup failure
+--- is nil and its reason. Empty names, NUL bytes and nonstrings raise.
+--- This consults the host's account service in the calling process, so
+--- resolve names before entering a sandbox or starting a child. The
+--- caller buffer grows up to 1 MiB; that limits neither libc's own
+--- allocation nor the time a directory service may take.
+function Proc.user(name: string): Proc.User | nil, string
+  local user, trouble = raw.user(name)
+  if user == nil then return nil, trouble end
+  return user, ""
 end
 
 --- How many processors are online, at least one: what `getconf

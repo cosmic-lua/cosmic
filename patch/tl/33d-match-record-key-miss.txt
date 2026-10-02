@@ -1,0 +1,23 @@
+file: tl.tl
+note: the refusal of a key a record lacks comes with the record's value fields (33c)
+--- find
+         if rec.kind == "variable" then
+            if t is InterfaceType then
+               return nil, "invalid key '" .. keyg .. "' in '" .. rec.tk .. "' of interface type %s"
+            else
+               return nil, "invalid key '" .. keyg .. "' in record '" .. rec.tk .. "' of type %s"
+            end
+         else
+            return nil, "invalid key '" .. keyg .. "' in type %s"
+         end
+--- replace
+         if rec.kind == "variable" then
+            if t is InterfaceType then
+               return nil, "invalid key '" .. keyg .. "' in '" .. rec.tk .. "' of interface type %s", value_fields(t)
+            else
+               return nil, "invalid key '" .. keyg .. "' in record '" .. rec.tk .. "' of type %s", value_fields(t)
+            end
+         else
+            return nil, "invalid key '" .. keyg .. "' in type %s", value_fields(t)
+         end
+--- end

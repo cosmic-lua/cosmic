@@ -655,3 +655,73 @@ local function test_prepared_statements_keep_the_busy_handlers_owner_under_alloc
   assert_c_heap(bytes, blocks, "a prepared statement's busy handler")
   assert(db:close(), "a refused operation left a prepared statement open")
 end
+
+--- Existing-only open shares the normal handle guard, on success and
+--- on refusal: an allocation failure must leave neither handle nor fd.
+local function test_sqlite_existing_only_open_releases_every_refused_allocation(tmp: string)
+  if not checked then return end
+  local path = tmp .. "/existing.db"
+  local made = assert(Sqlite.open(path, { writable = true }))
+  assert(made:exec("CREATE TABLE t (a)"))
+  assert(made:close())
+  collectgarbage("collect")
+  local before = next_descriptor(tmp)
+  local statements = testing.open_statements()
+  local bytes, blocks = testing.c_heap()
+  for _, present in ipairs({ true, false }) do
+    local target = present and path or tmp .. "/missing.db"
+    local ended = under_every_failure(function()
+      local db, why = Sqlite.open(target, { writable = true, create = false })
+      if present then
+        local held = assert(db, why)
+        assert(held:exec("SELECT 1"))
+        assert(held:close())
+      else
+        assert(db == nil and why ~= "", "a missing database must be refused")
+      end
+    end)
+    assert(ended > 0, "opening a database allocates")
+    assert(next_descriptor(tmp) == before, "an open left a descriptor behind")
+    assert(testing.open_statements() == statements, "an open left a statement behind")
+    assert_c_heap(bytes, blocks, "existing-only SQLite open")
+  end
+  assert(sys.lstat(tmp .. "/missing.db") == nil, "a refusal created the missing database")
+end
+
+--- Building a full-flush failure answer under allocation refusal must
+--- not consume the caller's descriptor or leak another one.
+local function test_full_fsync_preserves_its_descriptor_under_allocation_failure(tmp: string)
+  if not checked then return end
+  local fd = assert(sys.open(tmp .. "/full-flush", sys.O_CREAT | sys.O_RDWR, 420))
+  assert(sys.write(fd, "data"))
+  local darwin = assert(sys.uname()).sysname == "Darwin"
+  local before = next_descriptor(tmp)
+  under_every_failure(function()
+    local ok, why, errno = sys.full_fsync(fd)
+    if darwin then assert(ok, why) else assert(ok == false and errno == sys.ENOSYS) end
+  end, function() assert(sys.fstat(fd), "full_fsync consumed the caller's descriptor") end)
+  assert(next_descriptor(tmp) == before, "full_fsync leaked a descriptor")
+  assert(sys.close(fd))
+  under_every_failure(function()
+    local ok, why, errno = sys.full_fsync(fd)
+    assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS))
+  end)
+end
+
+--- Credential failure still releases spawn's native argument copies and
+--- status pipe when allocating the refusal itself fails.
+local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
+  if not checked then return end
+  local before = next_descriptor(tmp)
+  collectgarbage("collect")
+  local heap = testing.c_heap()
+  local credentials: raw_process.Credentials = { user = 65532, group = 65532 }
+  local path = tmp .. "/never-executed"
+  under_every_failure(function()
+    local pid, _, errno = process.spawn(path, { path }, { FIXTURE = "credentials" },
+      tmp, nil, nil, nil, false, nil, nil, credentials)
+    assert(pid == nil and errno ~= nil)
+  end)
+  assert(next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
+  assert(testing.c_heap() == heap, "credential refusal leaked native allocations")
+end

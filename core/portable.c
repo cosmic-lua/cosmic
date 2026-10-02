@@ -208,50 +208,30 @@ static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_cor
   return true;
 }
 
-bool cosmic_host_decode (int fd, uint32_t target_id, uint32_t configuration_id,
-                         struct cosmic_portable *out, const char **error) {
+static bool decode_host (int fd, struct cosmic_portable *out,
+                         const char **error) {
   struct cosmic_portable decoded;
-  if (out == NULL) return false;
-  memset(out, 0, sizeof *out);
-  if (error != NULL) *error = NULL;
   memset(&decoded, 0, sizeof decoded);
-  if (target_id == 0 || configuration_id == 0)
-    return reject(out, error, "compiled target or configuration is zero");
   if (!decode_blocks(fd, COSMIC_HOST_TRAILER_MAGIC, 0, &decoded, out, error))
     return false;
   if (decoded.entry_count != 1)
     return reject(out, error, "a host program carries exactly one core");
   const struct cosmic_portable_entry *entry = &decoded.entries[0];
-  if (entry->target_id != target_id ||
-      entry->configuration_id != configuration_id)
-    return reject(out, error, "host program core differs from the compiled identity");
   uint64_t expected;
   if (entry->offset != 0 || !align_core(entry->length, &expected) ||
       decoded.manifest_offset != expected)
     return reject(out, error, "host program core does not start the file");
   if (!zero_range(fd, entry->length, expected - entry->length))
     return reject(out, error, "host program core padding is not zero");
-  decoded.selected = *entry;
   *out = decoded;
   return true;
 }
 
-bool cosmic_portable_decode (int fd, uint32_t target_id,
-                             uint32_t configuration_id,
-                             struct cosmic_portable *out,
+static bool decode_portable (int fd, struct cosmic_portable *out,
                              const char **error) {
   struct cosmic_portable decoded;
   unsigned char shebang[] = "#!/bin/sh\n";
-  uint64_t required_seen = 0;
-  int selected = -1;
-
-  if (out == NULL) return false;
-  memset(out, 0, sizeof *out);
-  if (error != NULL) *error = NULL;
   memset(&decoded, 0, sizeof decoded);
-
-  if (target_id == 0 || configuration_id == 0)
-    return reject(out, error, "compiled target or configuration is zero");
   if (!decode_blocks(fd, COSMIC_PORTABLE_TRAILER_MAGIC,
                      COSMIC_PORTABLE_SHELL_LENGTH, &decoded, out, error))
     return false;
@@ -270,20 +250,7 @@ bool cosmic_portable_decode (int fd, uint32_t target_id,
           other->offset < entry->offset + entry->length)
         return reject(out, error, "manifest core ranges overlap");
     }
-    if (entry->configuration_id ==
-            COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID &&
-        entry->target_id < 64 &&
-        (COSMIC_PORTABLE_REQUIRED_TARGET_MASK &
-         (UINT64_C(1) << entry->target_id)) != 0)
-      required_seen |= UINT64_C(1) << entry->target_id;
-    if (entry->target_id == target_id &&
-        entry->configuration_id == configuration_id)
-      selected = (int)i;
   }
-  if (required_seen != COSMIC_PORTABLE_REQUIRED_TARGET_MASK)
-    return reject(out, error, "manifest is missing a required release core");
-  if (selected < 0)
-    return reject(out, error, "manifest has no core for the compiled identity");
 
   /* Validate every inter-core gap independent of manifest entry order. */
   uint64_t after = COSMIC_PORTABLE_SHELL_LENGTH;
@@ -313,7 +280,61 @@ bool cosmic_portable_decode (int fd, uint32_t target_id,
   if (!zero_range(fd, after, expected_manifest - after))
     return reject(out, error, "final core padding is not zero");
 
-  decoded.selected = decoded.entries[(uint32_t)selected];
   *out = decoded;
+  return true;
+}
+
+bool cosmic_artifact_decode (int fd, enum cosmic_artifact_format format,
+                             struct cosmic_portable *out, const char **error) {
+  if (out == NULL) return false;
+  memset(out, 0, sizeof *out);
+  if (error != NULL) *error = NULL;
+  if (format == COSMIC_ARTIFACT_HOST) return decode_host(fd, out, error);
+  if (format == COSMIC_ARTIFACT_PORTABLE) return decode_portable(fd, out, error);
+  return reject(out, error, "artifact format is unsupported");
+}
+
+bool cosmic_host_decode (int fd, uint32_t target_id, uint32_t configuration_id,
+                         struct cosmic_portable *out, const char **error) {
+  if (out == NULL) return false;
+  if (target_id == 0 || configuration_id == 0)
+    return reject(out, error, "compiled target or configuration is zero");
+  if (!cosmic_artifact_decode(fd, COSMIC_ARTIFACT_HOST, out, error)) return false;
+  const struct cosmic_portable_entry *entry = &out->entries[0];
+  if (entry->target_id != target_id ||
+      entry->configuration_id != configuration_id)
+    return reject(out, error, "host program core differs from the compiled identity");
+  out->selected = *entry;
+  return true;
+}
+
+bool cosmic_portable_decode (int fd, uint32_t target_id,
+                             uint32_t configuration_id,
+                             struct cosmic_portable *out,
+                             const char **error) {
+  if (out == NULL) return false;
+  if (target_id == 0 || configuration_id == 0)
+    return reject(out, error, "compiled target or configuration is zero");
+  if (!cosmic_artifact_decode(fd, COSMIC_ARTIFACT_PORTABLE, out, error))
+    return false;
+  uint64_t required_seen = 0;
+  int selected = -1;
+  for (uint32_t i = 0; i < out->entry_count; i++) {
+    const struct cosmic_portable_entry *entry = &out->entries[i];
+    if (entry->configuration_id ==
+            COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID &&
+        entry->target_id < 64 &&
+        (COSMIC_PORTABLE_REQUIRED_TARGET_MASK &
+         (UINT64_C(1) << entry->target_id)) != 0)
+      required_seen |= UINT64_C(1) << entry->target_id;
+    if (entry->target_id == target_id &&
+        entry->configuration_id == configuration_id)
+      selected = (int)i;
+  }
+  if (required_seen != COSMIC_PORTABLE_REQUIRED_TARGET_MASK)
+    return reject(out, error, "manifest is missing a required release core");
+  if (selected < 0)
+    return reject(out, error, "manifest has no core for the compiled identity");
+  out->selected = out->entries[(uint32_t)selected];
   return true;
 }

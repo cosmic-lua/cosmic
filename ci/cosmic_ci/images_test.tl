@@ -232,3 +232,59 @@ local function test_driver_runs_both_commands(tmp: string)
     "image-publish: docker login ghcr.io: exit 4\n", refused.stderr)
   assert(not (refused.stdout .. refused.stderr):find("s3cret", 1, true))
 end
+
+local function test_publish_appends_to_the_summary_link_in_place(tmp: string)
+  local env = publish_env(tmp)
+  local target = tmp .. "/target"
+  assert(Fs.write(target, "earlier\n", 0x180))
+  assert(Fs.symlink(target, env.GITHUB_STEP_SUMMARY))
+  local before = assert(Fs.stat(target))
+  local out = assert(Fs.open_write(tmp .. "/out"))
+  local code, trouble = Images.publish(env, out)
+  assert(Fs.close(out))
+  assert(code == 0, trouble)
+  local after = assert(Fs.stat(target))
+  assert(before.ino == after.ino and before.mode == after.mode)
+  assert(Fs.readlink(env.GITHUB_STEP_SUMMARY) == target)
+  assert(read(target) == "earlier\nUbuntu: `ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd`\n")
+end
+
+local function test_publish_reports_output_before_one_failed_summary_append(tmp: string)
+  local env = publish_env(tmp)
+  local path = env.GITHUB_STEP_SUMMARY
+  assert(Fs.write(path, "earlier\n"))
+  local output = tmp .. "/out"
+  local out = assert(Fs.open_write(output))
+  local append, calls = Fs.append, 0
+  Fs.append = function(name: string, text: string, mode?: integer): boolean, string
+    calls = calls + 1
+    assert(read(output) == "ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd\n")
+    assert(append(name, text:sub(1, 2), mode))
+    return false, name .. ": injected append failure"
+  end
+  local ok, code, trouble = pcall(Images.publish, env, out)
+  Fs.append = append
+  assert(Fs.close(out))
+  assert(ok and code == 1 and calls == 1, trouble)
+  assert(trouble == path .. ": injected append failure", trouble)
+  assert(read(path) == "earlier\nUb")
+end
+
+local function test_failed_image_output_does_not_append_the_summary(tmp: string)
+  local env = publish_env(tmp)
+  local output = assert(Fs.open_write(tmp .. "/out"))
+  local put, append, calls = Fs.put, Fs.append, 0
+  Fs.put = function(fd: integer, text: string): boolean, string
+    if fd == output then return false, "injected output failure" end
+    return put(fd, text)
+  end
+  Fs.append = function(_name: string, _text: string, _mode?: integer): boolean, string
+    calls = calls + 1
+    return true, ""
+  end
+  local ok, code, trouble = pcall(Images.publish, env, output)
+  Fs.put, Fs.append = put, append
+  assert(Fs.close(output))
+  assert(ok and code == 1 and trouble == "injected output failure", trouble)
+  assert(calls == 0 and Fs.exists(env.GITHUB_STEP_SUMMARY) == false)
+end

@@ -576,6 +576,30 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
 
+        # Project dispatch writes the working database. Keep this proof
+        # after the native suite's delayed boundary, like the Darwin suite.
+        {
+          name: "build the credential transition probe",
+          if: "runner.os == 'Linux'",
+          "working-directory": ".",
+          run: "bin/zig cc -std=c11 -Wall -Wextra -Werror -O2 .github/scripts/credentials-probe.c -o o/credentials-probe",
+        },
+
+        {
+          name: "prove the ordinary credential transition",
+          if: "runner.os == 'Linux'",
+          "working-directory": ".",
+          shell: "leg-shell --root {0}",
+          run: "sh .github/scripts/credentials-proof.sh",
+        },
+        {
+          name: "prove local runner privilege and ownership boundaries",
+          if: "runner.os == 'Linux'",
+          "working-directory": ".",
+          shell: "leg-shell --root {0}",
+          run: "sh .github/scripts/run-local-proof.sh",
+        },
+
         # The macOS leg's darwin-branch tests, which stand on no verdict
         # (ci/darwin-tests.txt): after the boundary, and after the upload
         # the run behind waits on. Elsewhere, on --all, and where the native

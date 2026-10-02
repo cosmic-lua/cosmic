@@ -99,9 +99,11 @@ local record Sqlite
 
   --- How [`Sqlite.open`] opens a database.
   record OpenOptions
-    --- Opens for reading and writing, creating the file when it is
-    --- missing. Without it the database is read-only.
+    --- Opens for reading and writing. Without it the database is read-only.
     writable: boolean
+    --- With `writable`, creates a missing file unless explicitly false.
+    --- False refuses a missing named file; read-only opens never create.
+    create: boolean
     --- Opens read-only a database that nothing will change while it is
     --- open: see [`Sqlite.open`]. Giving it with `writable` raises.
     immutable: boolean
@@ -151,8 +153,11 @@ local record Sqlite
 end
 
 --- Opens the database file at `path`: read-only unless `opts.writable`
---- is true, in which case a missing file is created. Answers the handle,
+--- is true, in which case a missing file is created unless `opts.create`
+--- is false. Answers the handle,
 --- or `nil` and why. `opts` that is not a table raises.
+--- SQLite's special empty and `:memory:` paths still open temporary
+--- databases, including with `create = false`.
 ---
 --- `opts.immutable` opens a database that nothing will change while it
 --- is open, read-only and with no lock: no `-wal`, `-shm` or journal file
@@ -179,7 +184,7 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | n
     error("sqlite: open: options is a table such as { writable = true }, not a " ..
       type(given), 2)
   end
-  return sqlite.open(path, opts and opts.writable, opts and opts.immutable)
+  return sqlite.open(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end
 
 --- A writable database held in memory: it is gone when the handle

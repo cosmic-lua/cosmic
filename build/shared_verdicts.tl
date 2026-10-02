@@ -36,6 +36,7 @@ local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
 local plural = require("build.plural")
 local shared_sqlite = require("build.shared_sqlite")
+local cache_formats = require("build.cache_formats")
 
 local record shared_verdicts
   --- An open cache.
@@ -106,7 +107,7 @@ local kept_ns <const> = 30 * 24 * 3600 * 1000000000
 --- A later format keeps a table of its own, so a binary of it sharing
 --- the file never empties this one's; nor does this one empty the
 --- tables observation-keyed runs shared (`prepare`).
-local declared <const> = "declared_v1"
+local declared <const> = cache_formats.declared
 
 --- The table of what each closure store's bytes digest to, by its
 --- address: `stores_v1`. An address digests everything a store's bytes
@@ -114,7 +115,7 @@ local declared <const> = "declared_v1"
 --- runs that code ([`build.test`]'s `address_stores`) -- so one address
 --- names one store's bytes wherever it is written, and a checkout can
 --- key a test by a store it has not written. Bounded as `declared` is.
-local stores <const> = "stores_v1"
+local stores <const> = cache_formats.stores
 
 local text = bind.text
 
@@ -162,20 +163,7 @@ function shared_verdicts.turn_off(environment: {string:string})
   environment[variable] = "0"
 end
 
-local schema <const> = {
-  "CREATE TABLE IF NOT EXISTS " .. declared .. [[ (key TEXT PRIMARY KEY,
-                                                  test TEXT NOT NULL,
-                                                  hits BLOB NOT NULL,
-                                                  elapsed_ns INTEGER NOT NULL,
-                                                  used_ns INTEGER NOT NULL,
-                                                  origin TEXT NOT NULL,
-                                                  parts TEXT NOT NULL DEFAULT '')]],
-  "CREATE INDEX IF NOT EXISTS " .. declared .. "_by_use ON " .. declared .. " (used_ns)",
-  "CREATE TABLE IF NOT EXISTS " .. stores .. [[ (address TEXT PRIMARY KEY,
-                                                digest TEXT NOT NULL,
-                                                used_ns INTEGER NOT NULL)]],
-  "CREATE INDEX IF NOT EXISTS " .. stores .. "_by_use ON " .. stores .. " (used_ns)",
-}
+local schema <const> = cache_formats.verdicts
 
 --- Hits as [`build.test`] encodes them -- a line per module, its path, a
 --- tab, then the lines it hit, ascending and comma-separated -- with

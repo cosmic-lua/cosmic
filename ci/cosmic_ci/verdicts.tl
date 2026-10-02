@@ -44,11 +44,10 @@ end
 --- restores it keys its tests without writing the stores; and the
 --- observation-keyed `verdicts_v<n>`, which the tree's tool does not
 --- stamp, so every row of it goes wherever the file is trimmed.
-local tables: CacheTrim.Tables = { patterns = { "declared_v[0-9]*", "stores_v[0-9]*",
-  "verdicts_v[0-9]*" }, whole_unless_reached = true }
+local patterns: {string} = { "declared_v[0-9]*", "stores_v[0-9]*", "verdicts_v[0-9]*" }
 
 --- The caches in `dir`, each a `.db` file: not their logs, nor what
---- was set aside beside them, which [`CacheTrim.file`] removes.
+--- was set aside beside them, which the maintenance command removes.
 local function caches(dir: string): {string}
   local listed, _ = Fs.list(dir)
   local out: {string} = {}
@@ -59,59 +58,24 @@ local function caches(dir: string): {string}
   return out
 end
 
---- `driver.tl verdicts-trim SINCE|whole` in `env`: its exit status,
---- and what it says on standard output and on standard error. It trims
---- every cache in the directory of the file `env.COSMIC_VERDICT_CACHE`
---- names (the directory ci.yml saves) to the verdicts used since SINCE,
---- in Unix seconds ([`CacheTrim.file`]). Given `whole`, it trims none, so
---- a run that failed saves what it restored with what it reached;
---- either way it removes what was set aside beside them. Then it writes
---- `digest=<hex>` of the caches' rows ([`CacheTrim.digest`]) to the
---- step's outputs ([`CacheTrim.output`]), the tail of the key ci.yml
---- saves them under. Nothing to do, and no digest, where the variable
---- names no file or its directory holds no cache. Only a SINCE that is
---- no count of seconds fails it (2): a cache it cannot trim is reported
---- on standard error and left, or removed where it is no database.
+--- Trims the sorted save set through the running driver. Any incomplete
+--- file withholds the aggregate key; unreadable active files stay put.
 function Verdicts.command(argv: {string}, env: {string:string}): integer, string, string
   local whole = argv[1] == "whole"
   local since = CacheTrim.since(argv)
   if since == nil and not whole then
-    return 2, "", "verdicts-trim: SINCE must be Unix seconds, or whole\n"
+    return 2, "", "verdicts-trim: SINCE must be bounded Unix seconds, or whole\n"
   end
   local path = env.COSMIC_VERDICT_CACHE or ""
   if path:sub(1, 1) ~= "/" then
-    return 0, "verdicts-trim: COSMIC_VERDICT_CACHE names no file ('" .. path ..
-      "'); nothing to trim\n", ""
+    return 0, "verdicts-trim: COSMIC_VERDICT_CACHE names no file; nothing to trim\n", ""
   end
-  local dir = Fs.dirname(path)
-  local found = caches(dir)
-  if #found == 0 then
-    return 0, "verdicts-trim: " .. dir .. " holds no cache; nothing to trim\n", ""
-  end
-  local outs, errs: {string}, {string} = {}, {}
-  for _, cache in ipairs(found) do
-    if whole then
-      local aside = CacheTrim.remove_set_aside(cache)
-      if #aside > 0 then
-        outs[#outs + 1] = "verdicts-trim: removed what was set aside: " ..
-          table.concat(aside, ", ") .. "\n"
-      end
-      outs[#outs + 1] = "verdicts-trim: kept every row of " .. cache .. ", as asked\n"
-    else
-      local out, err = CacheTrim.file("verdicts-trim", cache, since, tables)
-      outs[#outs + 1], errs[#errs + 1] = out, err
-    end
-  end
-  -- Listed again, since a trim removes a cache that is no database.
-  local kept = caches(dir)
-  if #kept > 0 then
-    local digest, trouble = CacheTrim.digest(kept)
-    if trouble ~= "" then errs[#errs + 1] = "verdicts-trim: " .. trouble .. "\n" end
-    outs[#outs + 1] = "verdicts-trim: digest " .. digest .. " of " .. Plural.count(#kept, "cache") .. "\n"
-    local unsaid = CacheTrim.output(env, "digest", digest)
-    if unsaid ~= "" then errs[#errs + 1] = "verdicts-trim: " .. unsaid .. "\n" end
-  end
-  return 0, table.concat(outs), table.concat(errs)
+  if path:find("\0", 1, true) then return 2, "", "verdicts-trim: cache path contains NUL\n" end
+  local found = caches(Fs.dirname(path))
+  if #found == 0 then return 0, "verdicts-trim: no cache; nothing to trim\n", "" end
+  local out, err = CacheTrim.run({ family = "verdicts", paths = found,
+    since_ns = since, whole = whole }, env)
+  return 0, out, err
 end
 
 --- Writes what a command said, and answers its status.
@@ -160,7 +124,7 @@ end
 
 --- Adds to the cache at `into` (made where it is not there) the rows of
 --- the cache at `from` that `into` has no row of under the same primary
---- key, in the tables of the tool's formats (`tables`), in one
+--- key, in the tables of the tool's formats (`patterns`), in one
 --- transaction. It is a union: it never replaces a row `into` holds nor
 --- makes one neither file held, so a second merge of the same file adds
 --- nothing. A table `into` lacks is made as `from` declares it, with its
@@ -191,7 +155,7 @@ local function merge_file(from: string, into: string): string, string
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return false, begin_trouble end
     local globs: {string} = {}
-    for _, pattern in ipairs(tables.patterns) do
+    for _, pattern in ipairs(patterns) do
       globs[#globs + 1] = "name GLOB '" .. pattern .. "'"
     end
     local names, trouble = Sqlite.text_rows(db, "SELECT name, sql FROM ahead.sqlite_schema " ..

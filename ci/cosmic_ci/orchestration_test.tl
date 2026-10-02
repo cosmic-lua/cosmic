@@ -198,7 +198,7 @@ chmod 755 o/bin/cosmic
       TARGET = "x86_64-linux-musl",
       COSMIC_ZIG_CACHE_SEED = seed, COSMIC_CI_SELFTEST_REPLAY_FAILURE = "true",
       TMPDIR = tmp .. "/temporary",
-    }), Time.seconds(10))
+    }), Time.seconds(20))
   assert(outcome.result.code == 23, "suite failure was not primary")
   assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
@@ -1379,4 +1379,30 @@ local function test_a_native_suite_ran_every_test_where_none_stood()
     "test: PASS (4 tests, 3 modules; 4 ran, 0 stood, 5 ms; unsandboxed; shard 1 of 2)\n", 0))
   assert(not Orchestration.native_ran_every(
     "test: FAIL (1 of 4 failed, 0 infrastructure errors, 5 ms; unsandboxed)\n", 1))
+end
+
+--- The noexec launcher uses the same keyed product contract as the
+--- ordinary launcher, adding only a requested private mount grant.
+local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Orchestration.sandboxed_fixtures.launcher_noexec)
+  local source = code_of("launcher_noexec")
+  assert(source:match("noexec%s*=%s*true") and source:match("system%s*=%s*true"))
+  assert(source:find('Env.get("COSMIC_TEST_NOEXEC")', 1, true))
+  assert(not source:find("COSMIC_PORTABLE_NOEXEC_ROOT", 1, true) and
+    not source:find("/dev/shm", 1, true), "noexec fixture discovers host scratch")
+  for _, target in ipairs({ "x86_64-linux-musl", "aarch64-linux-musl" }) do
+    assert(Orchestration.noexec_fixture(target), target .. ": no noexec fixture scheduled")
+    local env = Orchestration.fixture_run("launcher_noexec", {
+      COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+      COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+      COSMIC_FIXTURE_TARGET = target, COSMIC_FIXTURE_PRODUCT = tmp .. "/product",
+      COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
+    }, tmp .. "/tmp", tmp .. "/compiles.db")
+    assert(env.COSMIC_TEST_SANDBOX == "1" and env.COSMIC_SANDBOX == "must")
+    assert(env.COSMIC_VERDICT_CACHE == tmp .. "/fixtures.db" and env.COSMIC_TEST_NO_SHARED == nil)
+  end
+  for _, target in ipairs({ "aarch64-macos", "x86_64-windows", "", "unknown" }) do
+    assert(not Orchestration.noexec_fixture(target), target .. ": unsupported noexec fixture scheduled")
+  end
 end

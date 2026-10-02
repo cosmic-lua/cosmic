@@ -17,8 +17,8 @@ local String = require("cosmic.string")
 -- on; the database the product carries moves no verdict here
 -- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
 -- `system`: the launcher is a /bin/sh script, and the tests start
--- /bin/sh themselves. The noexec case, which needs the host's own
--- noexec mount, is launcher_noexec_test.tl's, run unsandboxed.
+-- /bin/sh themselves. launcher_noexec_test.tl separately requests
+-- private noexec scratch on the Linux legs.
 Test.needs{
   host = {
     "$COSMIC_FIXTURE_PRODUCT/prefix",
@@ -158,6 +158,21 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     assert(permissions(temp .. "/" .. made[1]) == 0x1c0,
       name .. " cache leaf is not private")
   end
+  -- `cosmic help build` says a program runs with an empty environment:
+  -- with no PATH or HOME the launcher finds its utilities on the shell's
+  -- default. Only TMPDIR, so the cache leaf lands in this test's
+  -- directory rather than the runner's /tmp, and the two names the
+  -- stand-in payload checks for are set.
+  local bare = ctx.work .. "/empty-environment-tmp"; Fixture.mkdir(bare)
+  outcome_ok(Fixture.call_with_environment("empty-environment",
+    { ctx.artifact }, ctx.work, ctx.diagnostics, {
+      TMPDIR = bare,
+      PORTABLE_ORDINARY_ENV = "preserved",
+      PORTABLE_CALLER_LOCALE = "preserved",
+    }), "empty environment")
+  local bare_made = assert(Fs.list(bare))
+  assert(#bare_made == 1 and bare_made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
+    "an empty environment did not make its cache leaf in TMPDIR")
 end
 
 local function test_launcher_cache_policy_and_integrity(tmp: string)
@@ -273,12 +288,12 @@ local function test_launcher_publication_and_interruption(tmp: string)
       hook_environment(race, "before_publish", ready1, go1),
       ctx.diagnostics)
     active[#active + 1] = first
-    Process.await_ready(ctx.work, ctx.diagnostics, "race1", ready1)
+    Process.await_ready(ctx.work, ctx.diagnostics, "race1", ready1, first)
     local second = Process.start("race2", { ctx.artifact }, ctx.work,
       hook_environment(race, "before_publish", ready2, go2),
       ctx.diagnostics)
     active[#active + 1] = second
-    Process.await_ready(ctx.work, ctx.diagnostics, "race2", ready2)
+    Process.await_ready(ctx.work, ctx.diagnostics, "race2", ready2, second)
     Process.release(ctx.work, ctx.diagnostics, "race1", go1)
     Process.release(ctx.work, ctx.diagnostics, "race2", go2)
     assert(Process.finish(first).ok and Process.finish(second).ok,
@@ -295,7 +310,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
       hook_environment(late, "before_recheck", late_ready, late_go),
       ctx.diagnostics)
     active[#active + 1] = waiting
-    Process.await_ready(ctx.work, ctx.diagnostics, "late-waiting", late_ready)
+    Process.await_ready(ctx.work, ctx.diagnostics, "late-waiting", late_ready, waiting)
     outcome_ok(run(ctx, "late-publisher", late), "late publisher")
     Process.release(ctx.work, ctx.diagnostics, "late-waiting", late_go)
     assert(Process.finish(waiting).ok, "a launcher refused the core another published")
@@ -308,7 +323,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
       hook_environment(interrupted, "before_publish", ready, go),
       ctx.diagnostics)
     active[#active + 1] = publisher
-    Process.await_ready(ctx.work, ctx.diagnostics, "interrupt", ready)
+    Process.await_ready(ctx.work, ctx.diagnostics, "interrupt", ready, publisher)
     assert(publisher.handle:stop(sys.SIGTERM))
     assert(not Process.finish(publisher).ok, "interrupted publisher succeeded")
     no_private_entries(interrupted, ".core.")
@@ -322,7 +337,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
       hook_environment(interrupted, "after_repair_lock", repair_ready, repair_go),
       ctx.diagnostics)
     active[#active + 1] = repair
-    Process.await_ready(ctx.work, ctx.diagnostics, "repair", repair_ready)
+    Process.await_ready(ctx.work, ctx.diagnostics, "repair", repair_ready, repair)
     assert(repair.handle:stop(sys.SIGTERM))
     assert(not Process.finish(repair).ok, "interrupted repair succeeded")
     no_private_entries(interrupted, ".repair-")
@@ -335,7 +350,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
       hook_environment(interrupted, "after_repair_lock", kill_ready, kill_go),
       ctx.diagnostics)
     active[#active + 1] = killed
-    Process.await_ready(ctx.work, ctx.diagnostics, "kill", kill_ready)
+    Process.await_ready(ctx.work, ctx.diagnostics, "kill", kill_ready, killed)
     assert(killed.handle:stop(sys.SIGKILL))
     assert(not Process.finish(killed).ok, "killed repair succeeded")
     expect_failure(ctx, "stale-lock", "cache repair is already locked:", interrupted)

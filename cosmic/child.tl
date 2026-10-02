@@ -122,6 +122,13 @@ local record Sandbox
   --- running there; and it leads a session, and so a process group, of
   --- its own whatever `process_group` says.
   unveil: Unveil
+  --- With `unveil`, fresh writable scratch at /noexec, mounted noexec:
+  --- files there cannot execute, including through aliases. Reading,
+  --- interpreting or copying their bytes elsewhere is still allowed.
+  --- No unveiled path or alias may occupy / or /noexec or beneath it.
+  --- This option does not change ordinary /tmp policy. Unsupported
+  --- creation fails.
+  noexec_scratch: boolean
   --- A network namespace of its own, with nothing but a loopback.
   offline: boolean
   --- With `unveil` and `group`, the user the child runs as in place of
@@ -172,6 +179,20 @@ local enum Stderr
   "stdout"
 end
 
+--- An ordinary-filesystem Linux launch under both nonzero IDs. All
+--- real, effective and saved IDs are set, supplementary groups and
+--- effective/permitted/inheritable/ambient capabilities are cleared,
+--- and no_new_privs prevents privileged exec from restoring privilege.
+--- The capability bounding set stays unchanged. Inherited cwd and
+--- descriptors remain grants; an explicit cwd is checked after the
+--- transition. Unsupported platforms fail before starting a child.
+local record Credentials
+  --- The user ID, from 1 through 4294967294.
+  user: integer
+  --- The group ID, from 1 through 4294967294.
+  group: integer
+end
+
 local record Options
   --- The child's whole environment, by name: it replaces this process's
   --- rather than adding to it. Nil inherits this process's.
@@ -212,6 +233,11 @@ local record Options
   timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
+  --- The IDs and privilege limits for this launch. Excludes sandbox
+  --- unveil, offline, user and group. Child setup errors precede exec;
+  --- a parent dumpability restoration error can follow exec and ends
+  --- the owned child before reporting failure.
+  credentials: Credentials
 end
 
 --- What [`Handle.try_wait`] answers.
@@ -1533,6 +1559,7 @@ end
 local record Child
   type Result = Result
   type Options = Options
+  type Credentials = Credentials
   type Sandbox = Sandbox
   type Unveil = Unveil
   type TryWait = TryWait
@@ -1659,6 +1686,26 @@ local function validate(argv: {string}, opts: Options)
     error("child: capture_limit is out of range", 3)
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
+  if opts.credentials ~= nil then
+    local user, group = opts.credentials.user, opts.credentials.group
+    if not (user is integer) or not (group is integer) or
+      user < 1 or user > 4294967294 or group < 1 or group > 4294967294 then
+      error("child: credentials need integer user and group from 1 to 4294967294", 3)
+    end
+    local sandbox = opts.sandbox
+    if sandbox ~= nil and (sandbox.unveil ~= nil or sandbox.offline == true or
+      sandbox.user ~= nil or sandbox.group ~= nil) then
+      error("child: credentials exclude sandbox unveil, offline, user and group", 3)
+    end
+  end
+  if opts.sandbox ~= nil and opts.sandbox.noexec_scratch ~= nil then
+    if type(opts.sandbox.noexec_scratch) ~= "boolean" then
+      error("child: noexec_scratch must be a boolean", 3)
+    end
+    if opts.sandbox.noexec_scratch and opts.sandbox.unveil == nil then
+      error("child: noexec_scratch requires unveil", 3)
+    end
+  end
   if opts.sandbox ~= nil and opts.sandbox.unveil ~= nil then
     local unveil = opts.sandbox.unveil
     for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do
@@ -1848,14 +1895,19 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local sandbox: raw_process.Sandbox = nil
   if opts.sandbox ~= nil then
     local given = opts.sandbox.unveil
-    sandbox = { offline = opts.sandbox.offline == true, user = opts.sandbox.user,
+    sandbox = { offline = opts.sandbox.offline == true,
+      noexec_scratch = opts.sandbox.noexec_scratch == true, user = opts.sandbox.user,
       group = opts.sandbox.group }
     if given ~= nil then
       sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at }
     end
   end
+  local credentials: raw_process.Credentials
+  if opts.credentials ~= nil then
+    credentials = { user = opts.credentials.user, group = opts.credentials.group }
+  end
   local pid, trouble, errno = raw.spawn(argv[1], argv, opts.env, opts.cwd,
-    slots[0], slots[1], slots[2], grouped, extra, sandbox)
+    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
   unwire(wiring, pid ~= nil)
   if not pid then
     if errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then

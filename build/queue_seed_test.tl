@@ -440,18 +440,25 @@ end
 local function test_the_run_ahead_is_waited_for(tmp: string)
   if not has_jq() then return end
   local running = listed(run("42", "in_progress", nil, SHA, QUEUE))
+  -- The third round finds them, a wait between each: a window well
+  -- past that, which costs nothing once they are found, so that a slow
+  -- host's rounds still reach it.
+  local started = Time.monotonic_ns()
   local output, calls, code, said = ahead(tmp, SHA, { running, "FAIL", running },
     { ["42-1"] = artifacts({ "ci-driver-a" }, {}), ["42"] = KEPT },
-    { ["42"] = jobs("in_progress a", "completed b") })
+    { ["42"] = jobs("in_progress a", "completed b") }, { WITHIN_SECONDS = "15" })
   assert(code == 0 and output == "run=42\n", output .. said)
   assert(lookups(calls) == 3, calls)
+  assert(Time.monotonic_ns() - started >= Time.seconds(2), "the rounds did not wait between them")
   assert(calls:find("api repos/o/r/actions/runs/42/jobs?per_page=100 --jq " .. JOBS_FILTER, 1, true), calls)
-  -- One that never keeps them, or an API that keeps failing, is given
-  -- up on when the time given has passed, and fails nothing.
+  -- One that never keeps them, or an API that keeps failing, is asked
+  -- after again, then given up on when the time given has passed, and
+  -- fails nothing. With no wait between rounds, they run for a second or
+  -- more, however long one takes on a slow host.
   for _, stuck in ipairs({ running, "FAIL" }) do
     output, calls, code, said = ahead(tmp, SHA, { stuck }, {}, { ["42"] = jobs("in_progress a") },
-      { WITHIN_SECONDS = "2" })
-    assert(code == 0 and output == "run=\n" and lookups(calls) >= 2 and lookups(calls) <= 4, output .. calls)
+      { WITHIN_SECONDS = "1", WAIT_SECONDS = "0" })
+    assert(code == 0 and output == "run=\n" and lookups(calls) >= 2, output .. calls)
     assert(said:find("left no verdicts-a in time", 1, true), said)
   end
 end

@@ -64,6 +64,28 @@ local function test_portable_format_contract(tmp: string)
     local entry = assert(Fixture.entry(decoded, target.id, target.configuration),
       "missing format entry for " .. target.name)
     local core = Fixture.read(root .. "/o/core/" .. target.name .. "/cosmic-core")
+    local host_path = program .. ".host-" .. target.name
+    local host_inspection = Fixture.run("host-inspection-" .. target.name,
+      { decoder, "--inspect-host", host_path }, root, diagnostics)
+    local host = Fixture.inspection(host_inspection.out)
+    local host_entry = assert(Fixture.entry(host, target.id, target.configuration),
+      "host inspection identity differs: " .. target.name)
+    local host_bytes = Fixture.read(host_path)
+    assert(host.entry_count == 1 and host_entry.offset == 0 and
+      host_entry.length == #core and host_bytes:sub(1, #core) == core and
+      host_entry.digest == Hash.hex_sha256(core),
+      "host inspection does not describe the leading core: " .. target.name)
+    local subset_path = program .. ".subset-" .. target.name
+    local subset_inspection = Fixture.run("subset-inspection-" .. target.name,
+      { decoder, "--inspect", subset_path }, root, diagnostics)
+    local subset = Fixture.inspection(subset_inspection.out)
+    local subset_entry = assert(Fixture.entry(subset, target.id, target.configuration),
+      "subset inspection identity differs: " .. target.name)
+    local subset_bytes = Fixture.read(subset_path)
+    assert(subset.entry_count == 1 and subset_entry.length == #core and
+      subset_bytes:sub(subset_entry.offset + 1, subset_entry.offset + #core) == core and
+      subset_entry.digest == Hash.hex_sha256(core),
+      "subset inspection does not describe its core: " .. target.name)
     assert(#core == entry.length, "format core length differs: " .. target.name)
     local extracted = artifact:sub(entry.offset + 1,
       entry.offset + entry.length)

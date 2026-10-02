@@ -659,6 +659,8 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
   elseif unveil ~= nil then
     return nil
   end
+  local noexec = rawget(raw, "noexec_scratch")
+  if noexec is boolean then plain.noexec_scratch = noexec elseif noexec ~= nil then return nil end
   plain.offline = rawget(raw, "offline") == true
   local user, group = rawget(raw, "user"), rawget(raw, "group")
   if user is integer then plain.user = user elseif user ~= nil then return nil end
@@ -803,7 +805,8 @@ local function enter(own?: {string}, sandboxed?: boolean): function(): string | 
   process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                            cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                            stderr: integer | nil, process_group: boolean,
-                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
+                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
+                           credentials?: raw_process.Credentials):
                            integer | nil, string, integer
     if ended then
       -- A reference to a stand-in that no longer stands in starts a
@@ -813,7 +816,7 @@ local function enter(own?: {string}, sandboxed?: boolean): function(): string | 
           "started through a spawn taken while an earlier stand-in ran", sys.EINVAL), sys.EINVAL
       end
       return own_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,
-        fds, sandbox)
+        fds, sandbox, credentials)
     end
     -- A sandbox of its own that unveils and takes the network holds a
     -- process as a confinement does. It is read as the core reads it,
@@ -830,7 +833,7 @@ local function enter(own?: {string}, sandboxed?: boolean): function(): string | 
     local must = confinement ~= nil and strict or nil
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true then
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
-        process_group, fds, plain)
+        process_group, fds, plain, credentials)
       if pid == nil and unconfinable[errno] and must ~= nil and runnable(path) then
         return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
           errno
@@ -940,7 +943,7 @@ local function enter(own?: {string}, sandboxed?: boolean): function(): string | 
         end
         local pid, trouble, errno = spawn(path, argv, given_environment, start_in, stdin, stdout,
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
-            offline = true })
+            offline = true }, credentials)
         if pid ~= nil or not unconfinable[errno] then
           return pid, trouble, errno
         end
@@ -958,7 +961,7 @@ local function enter(own?: {string}, sandboxed?: boolean): function(): string | 
     -- test asked, a sandboxed worker's process with this one's sandbox
     -- and no more.
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
-      sandbox)
+      sandbox, credentials)
   end
   entered[#entered + 1] = entry
   return function(): string | nil

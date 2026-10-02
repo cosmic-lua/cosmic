@@ -665,6 +665,19 @@ COSMIC_SYSCALL(utimensat, 5);
 COSMIC_SYSCALL(fsync, 1);
 
 /*
+ * --- Requests Darwin's F_FULLFSYNC: flush the file and ask the device
+ * --- to flush its write cache. The device may not honor that request;
+ * --- success is not proof of physical durability. A filesystem that
+ * --- cannot perform it returns its error. ENOSYS off Darwin, with no
+ * --- fallback to fsync; [`cosmic.sys.fsync`] retains its ordinary contract.
+ * ---@param fd integer the descriptor to flush
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(full_fsync, 1);
+
+/*
  * --- Sets a descriptor's file to exactly `length` bytes, cutting it
  * --- short or extending it with zero bytes.
  * ---@param fd integer the descriptor, open for writing

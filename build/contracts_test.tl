@@ -700,9 +700,9 @@ local function test_the_raw_process_table_is_held_as_bindings_are()
     "process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,\n" ..
     "    cwd: string | nil, stdin: integer | nil, stdout: integer | nil,\n" ..
     "    stderr: integer | nil, process_group: boolean, fds?: {integer:integer},\n" ..
-    "    sandbox?: process.Sandbox): integer | nil, string, integer\n" ..
+    "    sandbox?: process.Sandbox, credentials?: process.Credentials): integer | nil, string, integer\n" ..
     "  local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout,\n" ..
-    "    stderr, process_group, fds, sandbox)\n" ..
+    "    stderr, process_group, fds, sandbox, credentials)\n" ..
     "  return pid, trouble, errno\nend")
   flags(process .. "local record M end\n" ..
     "function M.adopt(): boolean\n  local ok, _ = process.subreaper()\n  return ok\nend\n" ..

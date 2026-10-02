@@ -304,6 +304,7 @@ static int sqlite_open (lua_State *L) {
   const char *path = luaL_checklstring(L, 1, &path_len);
   int writable = lua_toboolean(L, 2);
   int immutable = lua_toboolean(L, 3);
+  int create = lua_isnoneornil(L, 4) || lua_toboolean(L, 4);
   if (writable && immutable) {
     return luaL_error(L, "sqlite: a database cannot be both writable and immutable");
   }
@@ -317,8 +318,8 @@ static int sqlite_open (lua_State *L) {
    * is set only for the one URI this file builds itself, from an escaped
    * path and `immutable=1`, so `vfs=`, `off=` and `len=` are never parsed
    * out of a caller's path at all, not even refused. */
-  int flags = writable ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
-                       : SQLITE_OPEN_READONLY;
+  int flags = writable ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READONLY;
+  if (writable && create) flags |= SQLITE_OPEN_CREATE;
   const char *name = path;
   if (immutable) {
     name = immutable_uri(L, path, path_len); /* stays on the stack */

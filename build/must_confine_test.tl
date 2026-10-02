@@ -122,10 +122,11 @@ local function refusing(fn: function())
   process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                            cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                            stderr: integer | nil, process_group: boolean,
-                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
+                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
+                       credentials?: raw_process.Credentials):
                            integer | nil, string, integer
     if sandbox ~= nil then return nil, "Operation not permitted", sys.EPERM end
-    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
+    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds, sandbox, credentials)
   end
   local ok, trouble: boolean, any = pcall(fn)
   process.spawn = spawn

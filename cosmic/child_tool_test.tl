@@ -196,7 +196,9 @@ end
   local descendant = assert(host_pid(driver.pid, assert(math.tointeger((assert(tonumber(
     assert(Fs.read(descendant_path)):match("%d+"))))))))
   assert(driver:stop(sys.SIGTERM))
-  local stopped = assert(driver:wait(Time.seconds(2)))
+  -- Generous, as the start was: a driver that ignored the signal is
+  -- told apart by the signal its Result names, not by the time.
+  local stopped = assert(driver:wait(Time.seconds(8)))
   assert(Fs.close(fd))
   assert(stopped.signal == sys.SIGTERM,
     "driver cancellation result code=" .. tostring(stopped.code) ..
@@ -310,6 +312,7 @@ local function test_guard_keeps_a_signal_and_delivers_it_on_close(tmp: string)
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
@@ -326,16 +329,24 @@ return function(argv: {string}): integer
     local timed = this("require('cosmic.time').sleep_ns(30000000000)")
     local untimed = this("require('cosmic.time').sleep_ns(30000000000)")
     local done = this("return 3")
-    -- Until `done` has exited: Linux shows it as a zombie in /proc;
-    -- elsewhere, half a second is ample for `return 3`.
-    local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
-    local on_proc = Fs.read(stat_path) ~= nil
-    local by = Time.monotonic_ns() + (on_proc and Time.seconds(5) or Time.ms(500))
-    local zombie = false
-    while not zombie and Time.monotonic_ns() < by do
-      Time.sleep_ns(Time.ms(20))
-      local stat = Fs.read(stat_path)
-      zombie = stat ~= nil and stat:match("^%d+ %b() Z") ~= nil
+    -- Until `done` has exited, its status unclaimed: on its exit watch,
+    -- or, for a child with none (a Linux without pidfd_open, or Darwin's
+    -- kqueue refusing a child that has already exited, ESRCH), until
+    -- /proc shows it a zombie, where there is a /proc.
+    -- TODO: on Darwin the watch may be readable a moment before waitpid
+    -- can reap the child (core/syscalls.c's `exit_watch` TODO); once
+    -- that is settled, this wait is exact there too.
+    if done._exit_fd >= 0 then
+      assert(Poll.readable(done._exit_fd, Time.seconds(8)))
+    else
+      local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
+      local by = Time.monotonic_ns() + Time.seconds(8)
+      while true do
+        local stat = Fs.read(stat_path)
+        if stat == nil or stat:match("^%d+ %b() Z") ~= nil then break end
+        assert(Time.monotonic_ns() < by, "the child did not exit")
+        Time.sleep_ns(Time.ms(10))
+      end
     end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     local answers: {string} = {}

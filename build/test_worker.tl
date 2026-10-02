@@ -851,6 +851,9 @@ function worker.run(argv: {integer:string}): integer
   -- change ([`confine.call`]): its own, as it is handed it and as it
   -- resolves, and where a process it starts writes its coverage.
   local own: {string} = { tmp }
+  if sandboxed and ("\n" .. expected_needs .. "\n"):find("\nnoexec true\n", 1, true) then
+    own[#own + 1] = "/noexec"
+  end
   local resolved_tmp, _ = Fs.absolute(tmp)
   if resolved_tmp ~= nil then own[#own + 1] = resolved_tmp end
   if children ~= nil then own[#own + 1] = children end
