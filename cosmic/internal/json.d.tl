@@ -21,7 +21,8 @@ local record json
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean): any | nil, string
   -- `value` as JSON text. nil and a message when it holds something
-  -- JSON cannot say, naming where: `... at $.users[3].name`. Raises
+  -- JSON cannot say, naming where: `... at $.users[3].name`. Keys are
+  -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
   -- when `max_depth` is outside 1 to `depth_limit`.
   encode: function(value: any, pretty?: boolean, max_depth?: integer): string | nil, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
