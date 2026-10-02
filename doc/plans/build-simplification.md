@@ -72,12 +72,12 @@ clean second worktree instead. Preserve this distinction in later reporting.
 | 2. Writer identity boundary | [#2531](https://github.com/cosmic-lua/cosmic/pull/2531) | merged | 09240c31; branch and integrated queue36941246664 green; independent approval |
 | 3. Build phase and cleanup ownership | [#2532](https://github.com/cosmic-lua/cosmic/pull/2532) | merged | e75cee04; branch and queue36942878305 green; independent approval |
 | 4. Reporting outside the acknowledged runner | [#2533](https://github.com/cosmic-lua/cosmic/pull/2533) | merged | 56637153; branch and queue36944097828 green; independent approval |
-| 5a. Bootstrap lock ownership preparation | [#2534](https://github.com/cosmic-lua/cosmic/pull/2534) | CI running | e534d545; exact reviewed tree5d4f9098 on merged step4 |
-| 5b. Pin, flock/scratch and obsolete adapters | pending | integration review | c5ae41c9 approved in both slices; integrate reporting/epoch acknowledgment |
-| 6a. CI cache-name policy | pending | locally approved | 20420196; independent output/identity/policy checks and 38 tests pass |
-| 6b. CI operation recording | pending | reviewing | 46be398a; 60 focused tests pass; preserve exit codes, diagnostics and timing |
-| 7. Zig graph construction | pending | locally approved | 32d63aa5; 19 artifact hashes and 590 dependency lines preserved |
-| 8. Documentation and integrated audit | pending | preparing | confirmed stale architecture/comments; final audit after earlier merges |
+| 5a. Bootstrap lock ownership preparation | [#2534](https://github.com/cosmic-lua/cosmic/pull/2534) | merged | 44518e84; branch and queue 36945326385 green; independent approval |
+| 5b. Pin, flock/scratch and obsolete adapters | [#2535](https://github.com/cosmic-lua/cosmic/pull/2535) | CI running | 569b0d44; final tree a8f5780f approved by both reviewers |
+| 6a. CI cache-name policy | pending | integrated approval | 4d5d5e95; unchanged patch, 38 workflow tests pass |
+| 6b. CI operation recording | pending | integrated approval | ad3d2f4d; phase contracts independently checked; runner/parser tests pass |
+| 7. Zig graph construction | pending | integrated approval | 5743c2e2; exact original patch and graph context preserved |
+| 8. Documentation and integrated audit | pending | reviewing/auditing | ae320349; 81 focused tests, root636/CI56 checks pass |
 
 ## PR 1: isolate the compiler and analyzer's semantic inputs
 
@@ -529,3 +529,19 @@ changes the design, update this plan before proceeding and explain the decision.
   handling and selected-release execution, and corrected stale switch comments.
   Rebase onto integrated5a conflicts only in the expected runner acknowledgment;
   recompute it for combined reporting extraction and worker-input change.
+
+- 2026-10-02: step5a #2534 merged as
+  44518e84bf497b7e756ead8c0fd315ed34a1648c after queue36945326385 passed.
+  Step5b is published as #2535 at569b0d44, exact reviewed treea8f5780f,
+  with auto-merge enabled subject to required checks. Final local mandatory
+  run timed out after3163 declared tests without a reported assertion failure.
+- 2026-10-02: final prepared steps6a/6b independently approved at4d5d5e95
+  andad3d2f4d. Patch IDs unchanged; integrated boot,38workflow,11parser and
+  8runner tests passed. Step7 integration is also approved: its patch and
+  upstream build.zig context are byte-identical to the original graph audit.
+  Actual preceding merge alignment and remote CI remain required.
+- 2026-10-02: step8 implementation ae320349 documents actual owners, identities,
+  bootstrap seeds, self-rebuild eligibility, scratch/SQL compatibility and CI
+  phase contracts.81 focused tests and root636/CI56 checks passed. Removed one
+  resolved generated-doctest confinement TODO; no new TODOs. Independent final
+  review and the focused warm/fresh shared-cache audit are in progress.
