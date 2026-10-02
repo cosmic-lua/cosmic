@@ -48,6 +48,23 @@ local record Sqlite
   --- One prepared statement.
   type Statement = raw_sqlite.Statement
 
+  --- One execution's SQLite result, independent of later calls, closes
+  --- and statement finalizers. `code` is the primary result code and
+  --- `extended_code` retains its extended detail. Both are [`Sqlite.OK`]
+  --- on success, with an empty `reason`; otherwise `reason` is for a
+  --- person. No statement is retried: earlier statements in a batch
+  --- may already have changed the database when a later one fails.
+  --- `handle:exec_result(sql)` returns this record alone. A closed
+  --- handle or SQL containing a NUL raises; `handle:exec` returns
+  --- false and a reason for SQL containing a NUL.
+  type ExecResult = raw_sqlite.ExecResult
+
+  --- Successful execution.
+  OK: integer
+  --- Another connection prevents the operation; extended_code can
+  --- distinguish cases such as a stale WAL snapshot requiring rollback.
+  BUSY: integer
+
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
   --- allowed; an empty table explicitly binds SQL NULL. A value of
@@ -483,6 +500,8 @@ function Sqlite.transact(handle: Sqlite.Handle,
   return true, ""
 end
 
+Sqlite.OK = 0
+Sqlite.BUSY = 5
 Sqlite.version = sqlite.version
 
 return Sqlite
