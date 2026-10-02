@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local sys = require("cosmic.sys")
 
 local record Images
 end
@@ -131,23 +130,6 @@ function Images.build(env: {string:string}): integer, string
   return code, trouble
 end
 
---- `text` added to the end of the file at `path`, created if missing:
---- the step summary other steps also write to.
--- TODO: use cosmic.fs's own append once ci/cosmic-driver.pin names a
--- cosmic whose cosmic.fs carries one; until then this opens the file
--- with O_APPEND itself (driver.tl's summarize reads and rewrites the
--- whole file instead).
-local function append(path: string, text: string): boolean, string
-  local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND,
-    0x1a4)
-  if fd == nil then return false, path .. ": " .. trouble end
-  local put, put_trouble = Fs.put(fd, text)
-  local closed, close_trouble = Fs.close(fd)
-  if not put then return false, path .. ": " .. put_trouble end
-  if not closed then return false, path .. ": " .. close_trouble end
-  return true, ""
-end
-
 --- Joins one image's architectures under `name:SOURCE_COMMIT`, the
 --- commit of the ci-images run that pushed them (not GITHUB_SHA, which
 --- in ci-images-publish.yml's workflow_run is main's head), writes its
@@ -173,7 +155,7 @@ function Images.publish(env: {string:string}, out: integer): integer, string
   local reference = name .. "@" .. digest
   local put, put_trouble = Fs.put(out, reference .. "\n")
   if not put then return 1, put_trouble end
-  local appended, append_trouble = append(summary,
+  local appended, append_trouble = Fs.append(summary,
     image .. ": `" .. reference .. "`\n")
   if not appended then return 1, append_trouble end
   return 0, ""

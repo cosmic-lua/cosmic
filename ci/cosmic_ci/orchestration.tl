@@ -24,6 +24,7 @@ local record Orchestration
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string})
   sandboxed_fixtures: {string:boolean}
+  noexec_fixture: function(target: string): boolean
   fixture: function(env: {string:string}, tmpdir: string, compiles: string,
     verdicts?: string): {string:string}
   fixture_run: function(source: string, env: {string:string}, tmpdir: string,
@@ -531,12 +532,18 @@ end
 ---
 --- The rest run unsandboxed, as before, and share nothing: `format`,
 --- `self_rebuild`, `fixed_point` and `self_driven` write a checkout and
---- compile it cold, with zig's caches and the host's toolchain, and
---- `launcher_noexec` needs the host's own noexec mount
---- (launcher_noexec_test.tl's TODO).
+--- compile it cold, with zig's caches and the host's toolchain.
+--- `launcher_noexec` declares private noexec scratch and runs on Linux
+--- only; the ordinary launcher fixture still runs on every platform.
 Orchestration.sandboxed_fixtures = {
-  product = true, runtime = true, launcher = true, identity = true,
+  product = true, runtime = true, launcher = true, launcher_noexec = true, identity = true,
 }
+
+--- Only the Linux legs can supply the launcher's private noexec grant.
+--- Omission elsewhere is no passing noexec verdict.
+function Orchestration.noexec_fixture(target: string): boolean
+  return target == "x86_64-linux-musl" or target == "aarch64-linux-musl"
+end
 
 --- `env`, an operation's environment, made a fixture's `cosmic test`'s:
 --- its temporary files under `tmpdir`.
@@ -1368,11 +1375,14 @@ local function phase_fixtures(p: PlatformContext): integer
     COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
     COSMIC_FIXTURE_TARGET = target,
   }); if s ~= 0 then return s end
-  s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
-    launcher_noexec_test_timeout_ns, {
-    COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
-    COSMIC_FIXTURE_TARGET = target,
-  }); if s ~= 0 then return s end
+  if Orchestration.noexec_fixture(target) then
+    s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
+      launcher_noexec_test_timeout_ns, {
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
+      COSMIC_FIXTURE_TARGET = target,
+    }); if s ~= 0 then return s end
+  end
   s = fixture_test(c, work, "identity-regression", "identity",
     identity_test_timeout_ns, {
     COSMIC_FIXTURE_PRODUCT = product,

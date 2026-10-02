@@ -17,8 +17,8 @@ local String = require("cosmic.string")
 -- on; the database the product carries moves no verdict here
 -- (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
 -- `system`: the launcher is a /bin/sh script, and the tests start
--- /bin/sh themselves. The noexec case, which needs the host's own
--- noexec mount, is launcher_noexec_test.tl's, run unsandboxed.
+-- /bin/sh themselves. launcher_noexec_test.tl separately requests
+-- private noexec scratch on the Linux legs.
 Test.needs{
   host = {
     "$COSMIC_FIXTURE_PRODUCT/prefix",

@@ -592,6 +592,13 @@
           shell: "leg-shell --root {0}",
           run: "sh .github/scripts/credentials-proof.sh",
         },
+        {
+          name: "prove local runner privilege and ownership boundaries",
+          if: "runner.os == 'Linux'",
+          "working-directory": ".",
+          shell: "leg-shell --root {0}",
+          run: "sh .github/scripts/run-local-proof.sh",
+        },
 
         # The macOS leg's darwin-branch tests, which stand on no verdict
         # (ci/darwin-tests.txt): after the boundary, and after the upload

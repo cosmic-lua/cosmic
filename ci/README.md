@@ -118,28 +118,38 @@ with, and, in `held`, what its `test: census:` line says the verdict
 cache it restored held: each set of key parts the cache's rows were
 kept under, and how many rows (`1994 rows under host features ...,
 harness e1t60000; 3 rows under no parts named`, or `no rows`). A
-fixture's run is keyed by nothing and says none. `summarize` appends
-these rows as a second table. The driver's self-check (`cosmic-driver
+fixture that builds a checkout does not share its verdicts. Product,
+runtime, launcher and identity fixtures declare the artifacts they read;
+their keys follow those contents. The noexec fixture does too on Linux;
+its unsupported operation is omitted on macOS, where ordinary launcher
+coverage remains. `summarize` appends these rows as a second table. The driver's self-check (`cosmic-driver
 test cosmic_ci`) is a step of its own and writes none.
 
 `compiles-trim SINCE [RESTORED]` and `verdicts-trim SINCE|whole` are ci.yml's, run
-on every leg before its caches are saved. Each cuts the cache
+on every leg before its caches are saved. CI selects the cache
 `COSMIC_BUILD_CACHE` names, or every `.db` beside the file
-`COSMIC_VERDICT_CACHE` names, to the rows the run used since SINCE, in
-Unix seconds (`whole`, for a run that failed, cuts none), and writes
-`digest=<hex>` to `$GITHUB_OUTPUT`: a SHA-256 of the rows it kept, every
-column but `used_ns`, which each run stamps again
-([`cosmic_ci/cache_trim.tl`]). The save's key is the cache's prefix and
-that digest, so a run that kept only rows already saved names that
-entry's key again and saves nothing new. Only a push to main and the
-scheduled run save these caches; every run restores the newest main
-saved, except where its own ref holds an entry under the same prefix
+`COSMIC_VERDICT_CACHE` names, and the cutoff SINCE in Unix seconds.
+The running driver's build-free `cache trim` owns the formats, deletion,
+and digest/fresh calculation ([`cosmic_ci/cache_trim.tl`]). It cuts supported
+tables to rows used since the cutoff; `whole` and verdict caches this run
+never reached are retained whole. Unknown tables and unreadable caches are
+retained and reported. CI publishes save outputs only from a complete,
+validated report; a failed or incomplete maintenance/comparison withholds
+them, while the step remains best effort.
+
+`digest=<hex>` in `$GITHUB_OUTPUT` is a SHA-256 of the retained rows, every
+column but `used_ns`, which each run stamps again. The save's key is the
+cache's prefix and that digest, so a run that kept only rows already saved
+names that entry's key again and saves nothing new. Only a push to main
+and the scheduled run save these caches; every run restores the newest
+main saved, except where its own ref holds an entry under the same prefix
 saved before only main saved, which GitHub searches first, until that
 branch or entry goes. The one exception is a branch's compiles for its
-own later pushes (the caches, below): given RESTORED, a copy of what
-the leg restored made before its builds, `compiles-trim` also writes
-`fresh=<n>`, how many of the compiles it kept that copy lacks, which
-that save turns on, and removes the copy.
+own later pushes (the caches, below): given RESTORED, a copy of what the
+leg restored made before its builds, a complete comparison also publishes
+`fresh=<n>`, how many retained compiles that copy lacks, which that save
+turns on. CI owns the snapshot's cleanup and retains it if its identity
+cannot be established safely.
 
 `verdicts-merge DIR` is ci.yml's too, run in a merge queue run before
 its suite: it adds each `.db` in DIR, the verdicts the queue's run

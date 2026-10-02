@@ -2460,4 +2460,8 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
     "credential proof must remain required on every Linux leg")
   assert(proof.shell == "leg-shell --root {0}" and proof["continue-on-error"] == nil,
     "credential proof lost its privileged failure gate")
+  local runner, ran = step_running(steps, "run-local-proof.sh")
+  assert(proved < ran, "local runner proof must follow the credential proof and database boundary")
+  assert(runner["if"] == "runner.os == 'Linux'" and runner.shell == "leg-shell --root {0}" and
+    runner["continue-on-error"] == nil, "local runner proof lost its required privileged Linux gate")
 end

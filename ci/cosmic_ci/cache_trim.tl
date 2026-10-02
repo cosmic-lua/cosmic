@@ -132,20 +132,10 @@ local function remove_snapshot(path: string): string
 end
 
 local function output(env: {string:string}, values: string): string
-  -- TODO: append without reading and replacing the workflow output once
-  -- ci/cosmic-driver.pin names a cosmic with Fs.append.
   local path = env.GITHUB_OUTPUT or ""
   if path == "" or values == "" then return "" end
-  local existing = ""
-  local exists, exists_trouble = Fs.exists(path)
-  if exists == nil then return path .. ": " .. exists_trouble end
-  if exists then
-    local read, why = Fs.read(path)
-    if read == nil then return path .. ": " .. why end
-    existing = read
-  end
-  local ok, why = Fs.write(path, existing .. values)
-  return ok and "" or path .. ": " .. why
+  local ok, why = Fs.append(path, values)
+  return ok and "" or why
 end
 
 local function invoke(request: CacheTrim.Request): Report | nil, string
