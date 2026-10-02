@@ -264,6 +264,14 @@ local function test_a_keyword_named_variable_is_no_old_type_declaration()
   } as {string:any}, { __index = _G as {string:any} })
   assert(load(assert(code), "repro", "t", env))()
   assert(printed[1] == "1 1" and #printed == 1, table.concat(printed, "; "))
+  -- A failed look for a type body leaves the tokens as they were: it
+  -- rewrote `>>` to `>`, and put a `>` at the line break.
+  for _, source in ipairs({ "local b = record < n >> 1\n", "local b = record < n\nprint(b)\n" }) do
+    local _, checked = built.gen("local n = 4\nlocal record = 1\n" .. source .. "assert(b == true)\n",
+      nil, nil, "tl")
+    assert(#assert(checked).syntax_errors == 0 and #checked.type_errors == 0,
+      source .. tostring((checked.syntax_errors[1] or checked.type_errors[1] or {}).msg))
+  end
   for _, word in ipairs({ "record", "interface", "enum" }) do
     for _, source in ipairs({
       "local x = WORD\nprint(x)\n",
