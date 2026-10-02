@@ -1910,3 +1910,32 @@ local function test_o_nofollow_refuses_a_final_link(tmp: string)
   failed(sys.open(tmp .. "/link", sys.O_RDONLY | sys.O_NOFOLLOW))
   sys.close((assert(sys.open(path, sys.O_RDONLY | sys.O_NOFOLLOW))))
 end
+
+--- Full storage flush is an explicit Darwin operation, not an alias for
+--- fsync elsewhere. The file remains the caller's on either outcome.
+local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: string)
+  local fd = create(tmp .. "/full-flush")
+  assert(sys.write(fd, "data"))
+  local ok, trouble, errno = sys.full_fsync(fd)
+  local names = assert(sys.uname())
+  if names.sysname == "Darwin" then
+    assert(ok == true and trouble == nil and errno == nil, tostring(trouble))
+  else
+    assert(ok == false, "unsupported full flush must not report success")
+    failed_with(sys.ENOSYS, ok, trouble, errno)
+  end
+  assert(sys.fstat(fd), "full_fsync closed its caller's descriptor")
+  assert(Fs.fsync(fd), "ordinary Fs.fsync remains available")
+  assert(sys.close(fd))
+  local closed, why, number = sys.full_fsync(fd)
+  assert(closed == false, "a closed descriptor must not be flushed")
+  failed_with(names.sysname == "Darwin" and sys.EBADF or sys.ENOSYS, closed, why, number)
+end
+
+--- Descriptor validation precedes platform dispatch, including on hosts
+--- that do not implement the operation.
+local function test_full_fsync_validates_its_descriptor()
+  raises(sys.full_fsync, {})
+  raises(sys.full_fsync, 1.5)
+  raises(sys.full_fsync, 1 << 40)
+end
