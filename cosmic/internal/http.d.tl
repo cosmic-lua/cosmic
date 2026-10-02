@@ -19,10 +19,10 @@ local record http
     -- The final response's headers, by lowercased name; a repeated
     -- name's values joined with ", " (Set-Cookie's with "\n").
     headers: function(Handle): {string:string}
-    -- One chunk of the body, at most `max` bytes (a default when
+    -- One chunk of the body, at most `max_bytes` bytes (a default when
     -- omitted), and "". `nil, ""` at a clean end of body; `nil, err`
     -- on failure.
-    read: function(Handle, max?: integer): string | nil, string
+    read: function(Handle, max_bytes?: integer): string | nil, string
     -- What curl has written to a scripted transfer's connections so
     -- far; "" for one over the network. Raises if recording it ran
     -- out of memory.

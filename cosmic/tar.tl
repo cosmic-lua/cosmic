@@ -350,17 +350,17 @@ end
 local Buffered_methods: {string:any} = {}
 local buffered_mt: metatable<Buffered> = { __index = Buffered_methods }
 
-Buffered_methods.read = function(self: Buffered, max: integer): string | nil, string
+Buffered_methods.read = function(self: Buffered, max_bytes: integer): string | nil, string
   local buf, at = self.buf, self.at
   local avail = #buf - at + 1
   if avail <= 0 then
-    if max ~= nil and max >= READ_AHEAD then return self.raw:read(max) end
+    if max_bytes ~= nil and max_bytes >= READ_AHEAD then return self.raw:read(max_bytes) end
     local chunk, trouble = self.raw:read(READ_AHEAD)
     if chunk == nil then return nil, trouble end
     buf, at, avail = chunk, 1, #chunk
     self.buf = buf
   end
-  local n = max or avail
+  local n = max_bytes or avail
   if n > avail then n = avail end
   self.at = at + n
   if at == 1 and n == #buf then return buf, "" end
@@ -414,7 +414,7 @@ end
 local Body_methods: {string:any} = {}
 local body_mt: metatable<Body> = { __index = Body_methods }
 
-Body_methods.read = function(self: Body, max: integer): string | nil, string
+Body_methods.read = function(self: Body, max_bytes: integer): string | nil, string
   if self.failed then return nil, self.failed end
   if self.closed then return refuse("the entry body is closed") end
   local state = self.state
@@ -423,7 +423,7 @@ Body_methods.read = function(self: Body, max: integer): string | nil, string
   end
   local left = self.left
   if left <= 0 then return nil, "" end
-  local want = max or chunk_size
+  local want = max_bytes or chunk_size
   if want > left then want = left end
   local chunk, rtrouble = state.raw:read(want)
   if chunk == nil then

@@ -192,7 +192,7 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
     integer, boolean, number, number
   local sent = 0
   local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+  input.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
     if sent == rounds then return nil, "" end
     sent = sent + 1
     return chunk, ""
@@ -267,10 +267,10 @@ end
 local function trickle(text: string): Stream.Reader
   local at, turn = 1, 0
   local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     if at > #text then return nil, "" end
     turn = turn % 4 + 1
-    local piece = text:sub(at, at + math.min(turn, max or turn) - 1)
+    local piece = text:sub(at, at + math.min(turn, max_bytes or turn) - 1)
     at = at + #piece
     return piece, ""
   end
@@ -311,10 +311,10 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
   local writes = 0
   local sent = 0
   local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+  input.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
     if sent == 3 then return nil, "" end
     sent = sent + 1
-    return ("a"):rep(max or 1), ""
+    return ("a"):rep(max_bytes or 1), ""
   end
   input.close = function(_self: Stream.Reader): boolean, string
     return true, ""

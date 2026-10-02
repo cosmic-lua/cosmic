@@ -511,8 +511,8 @@ end
 local function trickle(data: string, step: integer): Stream.Reader
   local inner = Stream.from_string(data)
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
-    local want = max or step
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    local want = max_bytes or step
     if want > step then want = step end
     return inner:read(want)
   end
@@ -573,7 +573,7 @@ end
 
 local function test_a_failing_body_names_what_the_writer_was_doing()
   local bad: Stream.Reader = {}
-  bad.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
     return nil, "disk on fire"
   end
   bad.close = function(_self: Stream.Reader): boolean, string return true, "" end

@@ -115,13 +115,13 @@ local record Net
     --- A value no wait can last raises, naming `timeout_ns`, at the
     --- caller.
     set_timeout: function(Conn, timeout_ns: integer | nil)
-    --- What has arrived, at most `max` bytes (64 KiB by default), once
+    --- What has arrived, at most `max_bytes` bytes (64 KiB by default), once
     --- something has; nil and "" once the peer has ended what it sends.
     --- nil and [`Poll.TIMEOUT`], "interrupted" or "cancelled" (in a task of
     --- [`Poll.run`]) takes nothing, and a later read may still answer; nil
     --- and any other failure is every read's after. A failed read leaves
-    --- writing be. A `max` below 1 raises.
-    read: function(Conn, max?: integer): string | nil, string
+    --- writing be. A `max_bytes` below 1 raises.
+    read: function(Conn, max_bytes?: integer): string | nil, string
     --- Sends all of `data`, waiting as the peer takes it. False and
     --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of [`Poll.run`])
     --- or why not may leave part of it sent,
@@ -290,12 +290,12 @@ local function new_conn(socket: raw_socket.Socket, timeout_ns: integer | nil): N
       Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
       limit = wait_ns
     end,
-    read = function(_self: Net.Conn, max?: integer): string | nil, string
-      if max ~= nil and max <= 0 then error("net: max must be positive", 2) end
+    read = function(_self: Net.Conn, max_bytes?: integer): string | nil, string
+      if max_bytes ~= nil and max_bytes <= 0 then error("net: max_bytes must be positive", 2) end
       if not open then return nil, "net: the connection is closed" end
       if read_failure ~= "" then return nil, read_failure end
       while true do
-        local data, why, errno = sys.read(fd, max or DEFAULT_READ)
+        local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
         if data == "" then return nil, "" end
         if data ~= nil then return data, "" end
         if errno ~= raw.EAGAIN then
