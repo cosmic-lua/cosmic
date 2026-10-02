@@ -122,7 +122,7 @@ local record Sqlite
   type Rows = {Row}
 
   --- A query's rows read one at a time: see [`Sqlite.query`].
-  record Query
+  interface Query
     metamethod __close: function(Query)
     --- The next row, and ""; nil and "" after the last; nil and why
     --- when stepping failed, the same again on every later read.
@@ -374,11 +374,67 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
   return each_row(statement, cells_of)
 end
 
-local query_mt: metatable<Sqlite.Query> = {
-  __close = function(self: Sqlite.Query)
+-- How an object of this module is made: see the note on objects in
+-- cosmic/stream.tl.
+
+--- The Query over one prepared statement, which it finalizes.
+local record StatementQuery is Sqlite.Query
+  statement: Sqlite.Statement
+  open: boolean
+  ended: boolean
+  failed: string
+  read: function(StatementQuery): Sqlite.Row | nil, string
+  each: function(StatementQuery): function(): Sqlite.Row
+  failure: function(StatementQuery): string
+  close: function(StatementQuery)
+end
+
+local statement_query_mt: metatable<StatementQuery> = {
+  __index = StatementQuery,
+  __close = function(self: StatementQuery)
     self:close()
   end,
 }
+
+--- Finalizes `query`'s statement, once.
+local function finish(query: StatementQuery)
+  if query.open then
+    query.open = false
+    query.statement:finalize()
+  end
+end
+
+function StatementQuery:read(): Sqlite.Row | nil, string
+  if self.failed ~= "" then return nil, self.failed end
+  if self.ended then return nil, "" end
+  if not self.open then return nil, "sqlite: the query is closed" end
+  local row, failure = step_row(self.statement, cells_of)
+  if row == nil then
+    if failure == "" then
+      self.ended = true
+    else
+      self.failed = failure
+    end
+    finish(self)
+    return nil, failure
+  end
+  return row, ""
+end
+
+function StatementQuery:each(): function(): Sqlite.Row
+  return function(): Sqlite.Row
+    local row, _ = self:read()
+    return row
+  end
+end
+
+function StatementQuery:failure(): string
+  return self.failed
+end
+
+function StatementQuery:close()
+  finish(self)
+end
 
 --- A query whose rows are read one at a time, as `rows` gives them but
 --- never all held at once: nil and why when the statement does not
@@ -405,46 +461,9 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
   if opened == nil then
     return nil, trouble
   end
-  local statement: Sqlite.Statement = opened
-  local open = true
-  local ended = false
-  local failed = ""
-  local q: Sqlite.Query = {}
-  local function finish()
-    if open then
-      open = false
-      statement:finalize()
-    end
-  end
-  q.read = function(_self: Sqlite.Query): Sqlite.Row | nil, string
-    if failed ~= "" then return nil, failed end
-    if ended then return nil, "" end
-    if not open then return nil, "sqlite: the query is closed" end
-    local row, failure = step_row(statement, cells_of)
-    if row == nil then
-      if failure == "" then
-        ended = true
-      else
-        failed = failure
-      end
-      finish()
-      return nil, failure
-    end
-    return row, ""
-  end
-  q.each = function(self: Sqlite.Query): function(): Sqlite.Row
-    return function(): Sqlite.Row
-      local row, _ = self:read()
-      return row
-    end
-  end
-  q.failure = function(_self: Sqlite.Query): string
-    return failed
-  end
-  q.close = function(_self: Sqlite.Query)
-    finish()
-  end
-  setmetatable(q, query_mt)
+  local q: StatementQuery = setmetatable({
+    statement = opened, open = true, ended = false, failed = "",
+  }, statement_query_mt)
   return q, ""
 end
 

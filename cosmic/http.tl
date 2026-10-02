@@ -142,7 +142,7 @@ local record Http
   --- succeeds and is idempotent, a `<close>` variable closes the
   --- response when it goes out of scope, and a `read` after either
   --- fails. `sent` after close raises.
-  record Response is Stream.Reader
+  interface Response is Stream.Reader
     metamethod __close: function(Response)
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -197,33 +197,49 @@ end
 local MS <const> = Time.ms(1)
 local SECOND <const> = Time.seconds(1)
 
-local response_mt: metatable<Http.Response> = {
-  __close = function(self: Http.Response)
+-- How an object of this module is made: see the note on objects in
+-- cosmic/stream.tl.
+
+--- The Response over a curl handle, which it owns.
+local record CurlResponse is Http.Response
+  handle: raw_http.Handle
+  closed: boolean
+  read: function(CurlResponse, max_bytes?: integer): string | nil, string
+  close: function(CurlResponse): boolean, string
+  sent: function(CurlResponse): string
+end
+
+local curl_response_mt: metatable<CurlResponse> = {
+  __index = CurlResponse,
+  __close = function(self: CurlResponse)
     local _, _ = self:close()
   end,
 }
 
+function CurlResponse:read(max_bytes?: integer): string | nil, string
+  if self.closed then return nil, "http: the response is closed" end
+  return self.handle:read(max_bytes)
+end
+
+function CurlResponse:close(): boolean, string
+  self.closed = true
+  self.handle:close()
+  return true, ""
+end
+
+function CurlResponse:sent(): string
+  return self.handle:sent()
+end
+
 --- The Response over a handle whose final headers are known.
 local function respond(handle: raw_http.Handle): Http.Response
-  local closed = false
-  local response: Http.Response = {
+  local response: CurlResponse = setmetatable({
     status = handle:status(),
     headers = handle:headers(),
     url = handle:url(),
-    read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-      if closed then return nil, "http: the response is closed" end
-      return handle:read(max_bytes)
-    end,
-    close = function(_self: Stream.Reader): boolean, string
-      closed = true
-      handle:close()
-      return true, ""
-    end,
-    sent = function(_self: Http.Response): string
-      return handle:sent()
-    end,
-  }
-  setmetatable(response, response_mt)
+    handle = handle,
+    closed = false,
+  }, curl_response_mt)
   return response
 end
 
@@ -292,21 +308,36 @@ function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   return { status = response.status, body = body, headers = response.headers }, ""
 end
 
+--- A Reader over a Response that fails with "interrupted" once
+--- `cancelled` answers true.
+local record CancellableReader is Stream.Reader
+  response: Http.Response
+  cancelled: function(): boolean
+  read: function(CancellableReader, max_bytes?: integer): string | nil, string
+  close: function(CancellableReader): boolean, string
+end
+
+local cancellable_reader_mt: metatable<CancellableReader> = { __index = CancellableReader }
+
+function CancellableReader:read(max_bytes?: integer): string | nil, string
+  if self.cancelled() then return nil, "interrupted" end
+  local chunk, why = self.response:read(max_bytes)
+  if chunk ~= nil then return chunk, "" end
+  if why == "" and self.cancelled() then return nil, "interrupted" end
+  return nil, why
+end
+
+function CancellableReader:close(): boolean, string
+  return self.response:close()
+end
+
 --- `response` as a Reader that fails with "interrupted" once `cancelled`
 --- answers true: asked before each read and once more at the end of the
 --- body, so a body that came whole is still refused after a cancel.
 local function cancellable(response: Http.Response, cancelled: function(): boolean): Stream.Reader
-  local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
-    if cancelled() then return nil, "interrupted" end
-    local chunk, why = response:read(max_bytes)
-    if chunk ~= nil then return chunk, "" end
-    if why == "" and cancelled() then return nil, "interrupted" end
-    return nil, why
-  end
-  reader.close = function(_self: Stream.Reader): boolean, string
-    return response:close()
-  end
+  local reader: CancellableReader = setmetatable({
+    response = response, cancelled = cancelled,
+  }, cancellable_reader_mt)
   return reader
 end
 
