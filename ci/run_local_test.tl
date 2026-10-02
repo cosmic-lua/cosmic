@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Local = require("run_local")
+local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
@@ -258,4 +259,112 @@ exit 31
     not diagnostic:find("error: line 21\n", 1, true))
   assert(assert(Fs.read(env.COSMIC_CI_LOCAL .. "/logs/build.log")):find("error: line 30\n", 1, true),
     "bounded diagnostics truncated the retained log")
+end
+
+--- Execute the copied runtime as the current user solely to check its
+--- real startup/descriptor identity. The intercepted credential preflight
+--- still returns refusal; native CI proves the unmodified dropped launch.
+local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tmp: string)
+  local root, env = checkout(tmp)
+  local launched = assert(Proc.relaunch())
+  local slot = assert(math.tointeger(tonumber(launched.env.COSMIC_PORTABLE_CORE_FD)))
+  local borrowed = assert(launched.fds[slot])
+  local original = assert(Fs.stat(launched.argv[1]))
+  local digest = Hash.hex_sha256((assert(Fs.read(launched.argv[1]))))
+  local argv_before = table.concat(launched.argv, "\0")
+  local owner = sys.getuid()
+  local at = assert(sys.lseek(borrowed, 0, sys.SEEK_CUR))
+  assert(sys.lseek(borrowed, 13, sys.SEEK_SET))
+  local user, run = Proc.user, Child.run
+  local scratch, handed, entered = "", -1, 0
+  Proc.user = function(_name: string): Proc.User | nil, string return { uid = 65532, gid = 65532 }, "" end
+  Child.run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
+    if not options or not options.credentials then return run(words, options) end
+    entered = entered + 1
+    scratch = Fs.dirname(words[1])
+    assert(words[1] ~= launched.argv[1] and assert(Fs.stat(scratch)).mode & 0x1ff == 0x1c9)
+    local file = assert(Fs.stat(words[1]))
+    assert(file.uid == owner and file.mode & 0x1ff == 0x16d and file.size == original.size)
+    assert(Hash.hex_sha256((assert(Fs.read(words[1])))) == digest)
+    local given = options.fds[slot]
+    assert(type(given) == "number"); handed = given as integer
+    assert(handed ~= borrowed and assert(sys.fstat(handed)).ino == file.ino)
+    for number, fd in pairs(launched.fds) do
+      assert(options.fds[number] == (number == slot and handed or fd), "another runtime grant changed")
+    end
+    for name, value in pairs(launched.env) do assert(options.env[name] == value) end
+    local probe: {string} = {}; for _, word in ipairs(words) do probe[#probe + 1] = word end
+    probe[#probe] = "assert(require('cosmic.proc').executable()==" ..
+      string.format("%q", tostring((assert(Proc.executable())))) .. "); print('copied runtime identity')"
+    local result = assert(run(probe, { env = options.env, fds = options.fds, cwd = "/",
+      stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(10) }))
+    assert(result.ok and result.stdout == "copied runtime identity\n", result.stderr)
+    return nil, "injected credential refusal after copied-runtime check"
+  end
+  local called, code, diagnostic = pcall(invoke, root, env, { "build" }, 0)
+  Proc.user, Child.run = user, run
+  local after_offset = assert(sys.lseek(borrowed, 0, sys.SEEK_CUR))
+  assert(sys.lseek(borrowed, at, sys.SEEK_SET))
+  assert(called, tostring(code))
+  assert(code == 2 and diagnostic:find("injected credential refusal", 1, true) and entered == 1)
+  assert(after_offset == 13 and table.concat(launched.argv, "\0") == argv_before and launched.fds[slot] == borrowed)
+  local after = assert(Fs.stat(launched.argv[1]))
+  assert(after.ino == original.ino and after.mode == original.mode and
+    Hash.hex_sha256((assert(Fs.read(launched.argv[1])))) == digest)
+  assert(scratch ~= "" and Fs.exists(scratch) == false and sys.fstat(handed) == nil,
+    "refusal leaked the runtime scratch or descriptor")
+  assert(Fs.exists(env.COSMIC_CI_LOCAL) == false and Fs.exists(env.TRACE) == false)
+end
+
+local function test_runtime_copy_failure_cleans_up_before_any_credential_child(tmp: string)
+  local root, env = checkout(tmp)
+  local user, pread, mkdtemp = Proc.user, sys.pread, sys.mkdtemp
+  local scratch = ""
+  Proc.user = function(_name: string): Proc.User | nil, string return { uid = 65532, gid = 65532 }, "" end
+  sys.mkdtemp = function(template: string): string | nil, string, integer
+    local path, why, errno = mkdtemp(template)
+    if template:find("cosmic-local-runtime", 1, true) then scratch = path or "" end
+    return path, why, errno
+  end
+  sys.pread = function(_fd: integer, _count: integer, _offset: integer): string | nil, string, integer
+    return nil, "injected runtime read failure", 5
+  end
+  local called, code, diagnostic = pcall(invoke, root, env, { "build" }, 0)
+  Proc.user, sys.pread, sys.mkdtemp = user, pread, mkdtemp
+  assert(called, tostring(code))
+  assert(code == 2 and diagnostic:find("injected runtime read failure", 1, true))
+  assert(scratch ~= "" and Fs.exists(scratch) == false and Fs.exists(env.COSMIC_CI_LOCAL) == false)
+end
+
+local function test_ordinary_runner_creates_no_runtime_handoff(tmp: string)
+  local root, env = checkout(tmp)
+  local mkdtemp, copies = sys.mkdtemp, 0
+  sys.mkdtemp = function(template: string): string | nil, string, integer
+    if template:find("cosmic-local-runtime", 1, true) then copies = copies + 1 end
+    return mkdtemp(template)
+  end
+  local called, code = pcall(invoke, root, env, { "build", "fixtures" })
+  sys.mkdtemp = mkdtemp
+  assert(called, tostring(code))
+  assert(code == 0 and copies == 0)
+end
+
+local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: string)
+  local root, env = checkout(tmp)
+  local outer <close> = assert(Child.guard())
+  local user, run = Proc.user, Child.run
+  local scratch = ""
+  Proc.user = function(_name: string): Proc.User | nil, string return { uid = 65532, gid = 65532 }, "" end
+  Child.run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
+    if not options or not options.credentials then return run(words, options) end
+    scratch = Fs.dirname(words[1])
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    return nil, "cancelled credential probe"
+  end
+  local called, code = pcall(invoke, root, env, { "build" }, 0)
+  Proc.user, Child.run = user, run
+  local signal = assert(outer:release())
+  assert(called, tostring(code))
+  assert(code == 2 and signal == sys.SIGTERM and scratch ~= "" and Fs.exists(scratch) == false)
+  assert(Fs.exists(env.COSMIC_CI_LOCAL) == false)
 end

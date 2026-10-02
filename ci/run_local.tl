@@ -23,6 +23,19 @@ local descriptor_mt: metatable<Descriptor> = {
   end,
 }
 
+local record Runtime
+  metamethod __close: function(Runtime)
+  path: string
+  fd: integer
+end
+
+local runtime_mt: metatable<Runtime> = {
+  __close = function(self: Runtime)
+    if self.fd >= 0 then local _, _ = Fs.close(self.fd); self.fd = -1 end
+    if self.path ~= "" then local _, _ = Fs.remove_tree(self.path); self.path = "" end
+  end,
+}
+
 local function fallback_value(values: {string:string}, name: string, fallback: string): string
   local found = values[name]
   return found ~= nil and found ~= "" and found or fallback
@@ -125,17 +138,49 @@ local function execute(argv: {integer:string}): integer
     credentials = { user = account.uid, group = account.gid }
   end
 
-  -- Relaunch only supplies the released runtime's descriptors. Every
-  -- invocation gets new argv/env/fd tables; Proc.relaunch is cached.
+  -- A dropped user cannot execute root's private cached core (0500).
+  -- Grant one nonwritable copy for this run without changing that cache.
+  -- Its retained descriptor must name the executing copy: startup checks
+  -- both its digest against the artifact and its physical inode.
   local relaunch = assert(Proc.relaunch())
+  local runtime <close>: Runtime = setmetatable({ path = "", fd = -1 }, runtime_mt)
+  local core_slot: integer | nil = nil
+  if credentials then
+    runtime.path = assert(sys.mkdtemp("/tmp/cosmic-local-runtime.XXXXXX"))
+    local source <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
+    local from: integer
+    if relaunch.env.COSMIC_PORTABLE_CORE_FD then
+      core_slot = assert(math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_CORE_FD)))
+      from = assert(relaunch.fds[core_slot], "relaunch names no core descriptor")
+    else
+      source.fd = assert(Fs.open_read(relaunch.argv[1])); from = source.fd
+    end
+    local native = runtime.path .. "/core"
+    local output <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
+    output.fd = assert(sys.open(native, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180))
+    local offset = 0
+    while true do
+      local bytes = assert(sys.pread(from, 65536, offset))
+      if #bytes == 0 then break end
+      assert(Fs.put(output.fd, bytes)); offset = offset + #bytes
+    end
+    assert(Fs.chmod(native, 0x16d))
+    local written = output.fd; output.fd = -1; assert(Fs.close(written))
+    runtime.fd = assert(Fs.open_read(native))
+    assert(Fs.chmod(runtime.path, 0x1c9))
+  end
+  -- Every invocation gets new tables; Proc.relaunch is cached.
   local function probe(code: string, values?: {string:string}, input?: string): Child.Result
     local words: {string} = {}
     for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
+    if runtime.fd >= 0 then words[1] = runtime.path .. "/core" end
     words[#words + 1] = "-e"; words[#words + 1] = code
     local child_env = copy(values or env)
     for name, value in pairs(relaunch.env) do child_env[name] = value end
     local fds: {integer:integer} = {}
-    for destination, source in pairs(relaunch.fds) do fds[destination] = source end
+    for destination, source in pairs(relaunch.fds) do
+      fds[destination] = destination == core_slot and runtime.fd or source
+    end
     local answer, why = Child.run(words, { cwd = "/", env = child_env, fds = fds,
       credentials = credentials, input = input, stdout = "capture", stderr = "capture" })
     return (assert(answer, why))
