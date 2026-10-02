@@ -123,10 +123,20 @@ host. Execution selection performs that separate compatibility check. Share the
 decoder/invariants rather than proliferating slightly different C and Teal
 parsers. Preserve native and portable startup behavior and retained-descriptor
 protections, including the test-worker restrictions in `core/check.h`. Descriptor
-checks alone are insufficient: reopening the runtime by path, a registered VFS
-URI, inspection queries and SQLite attachment must all respect `Store.hold` and
-the worker's declared `store`/file capabilities, including unsandboxed workers.
-Exercise those boundaries across handle close, collection and reattachment.
+checks alone are insufficient: the new API must refuse reopening the runtime
+inode by path or alias and must not turn a registered VFS URI into access to the
+held runtime store. Exercise those boundaries across handle close, collection
+and reattachment. External artifact paths retain the existing filesystem policy;
+the inspection reader cannot enforce confinement in an unsandboxed process.
+
+This is not a guarantee against inspecting bytes a worker can already copy.
+Existing `tool` authority deliberately permits reading the executable, and
+`build.artifact.split` already extracts a copied database. Host-format workers
+without `tool` have a separate existing executable-read gap tracked by the
+`TODO:` in `build/confine.tl`'s `worker_unveil`. The inode guard does not recognize
+a copy on a new inode. Preserve that distinction: this step grants no new access
+through the retained runtime descriptor or registration; closing existing raw
+byte access requires separate confinement work.
 
 ### Authoritative facts and derived indexes
 
@@ -234,20 +244,25 @@ Step 0 establishes a reusable harness and archived raw observations. Every PR
 uses the same parent/candidate method, with additional workloads appropriate to
 the changed code. The coordinator owns the measurement window: no parallel
 builds, test suites, fuzzers, or benchmarks in any agent worktree. Agents may
-read/review source during a window. A disturbed run is discarded with its reason.
+read/review source during a window. A disturbed run is invalidated with its
+reason, retaining its raw evidence.
 
 1. Record full commit and artifact hashes, target/configuration, bootstrap pin,
    compiler and SQLite versions, host/kernel/CPU, cache mode, and command lines.
    Boot parent and candidate worktrees before timing; verify neither command can
    trigger an automatic build. Compare the same optimized target/configuration.
 2. Run an A/A calibration using identical parent artifacts under separate labels.
-   Use at least 30 paired observations per microbenchmark after warmup; batch
-   submillisecond operations within a sample. Calibrate process/timer overhead.
+   Use the corrected step-0.6 protocol: 200 paired observations in each of A/A
+   and A/B after three discarded warmup pairs per phase. Smaller runs are
+   exploratory and cannot pass the gate. Batch submillisecond operations within
+   a sample and state when tails describe batch averages.
 3. Run alternating paired A/B and B/A observations, retaining raw timings,
    medians, p95, paired changes and uncertainty. Avoid all-parent then
    all-candidate ordering. Repetition and batch sizes are fixed before reviewing
    candidate results. Do not choose favorable subsets or average away a tail
-   regression. Extend only to resolve a concrete noisy/inconclusive comparison.
+   regression. Do not extend or repeat an unchanged experiment after viewing its
+   outcome. Diagnose nonpassing results; declare any later experiment separately
+   before collection and retain the earlier result.
 4. Measure process startup with a minimal native `-e ''` command and portable launcher
    (not a version command that hashes the whole artifact),
    first module load and a representative dependency closure, exact symbol
@@ -260,11 +275,14 @@ read/review source during a window. A disturbed run is discarded with its reason
    cold filesystem measurements. A fresh process is not a cold page cache. Use
    only supported reproducible cold-cache controls; otherwise report cold I/O as
    unmeasured and obtain a supported runner before claiming it is guarded.
-6. Establish the practical resolution from A/A observations and publish it. A
-   repeatable candidate slowdown beyond that noise band blocks merge. A wide
-   interval is inconclusive, not a pass. There is no blanket allowed startup
-   regression percentage. Resolve noise on a stable runner, fix the regression,
-   or revise the implementation. Size growth is reported but does not block.
+6. Report separate A/A median and tail resolutions and candidate upper slowdown
+   bounds. A wholly positive median or p95 change interval blocks merge even
+   inside the A/A resolution; unbounded intervals, biased calibration and the
+   dispersion diagnostic also block. Apply the corrected gate exactly: a pass
+   means no detected slowdown at its reported resolution, not equivalence.
+   Finite bounds can remain broad and detection power limited. There is no
+   blanket allowed startup regression percentage. Diagnose noise or revise the
+   implementation before another declared experiment. Size growth does not block.
 7. Repeat against the original step-0 baseline at steps 7, 10, and 13 so small
    cumulative losses cannot disappear in successive parent comparisons.
 
@@ -322,7 +340,8 @@ Inventory existing benchmarks and add the smallest repository-native extension
 needed for paired measurements. Record the baseline artifacts and fixture
 definitions, fresh query plans and duplicate declaration cases. Keep generated
 timings out of source unless a concise checked-in fixture/result is intentional.
-Publish raw measurements as PR/CI artifacts with stable identifiers.
+Retain raw measurements privately with stable identities. Publish concise
+results and limitations only, as the user subsequently requested.
 
 Acceptance: A/A calibration and initial A/B smoke comparison complete without
 concurrent workloads; commands demonstrably exercise the stated paths; baseline
@@ -386,8 +405,9 @@ The previous positive startup interval remains an unresolved historical finding.
   no detected slowdown at that resolution, not equivalence or zero regression.
 - Validate against fixed, candidate-blind populations and seeds before timing
   artifacts: independent/common-delay normal, exponential, lognormal and mixture
-  nulls; location changes; tail-only changes; variance changes; order/correlation
-  stress cases. Use 5,000 repetitions and report Monte Carlo uncertainty, coverage,
+  nulls; location changes; tail-only changes; order/correlation stress cases.
+  Cover variance changes separately with deterministic regression cases.
+  Use 5,000 repetitions and report Monte Carlo uncertainty, coverage,
   false regression/inconclusive rates, and detection power. For the reviewed
   supported independent cases, require coverage at least 94%, false regressions
   at most 6%, and null passes at least 80%; strong location changes of one standard
@@ -478,11 +498,13 @@ Acceptance: join rows from two different artifacts, open the same file twice,
 close handles in different orders, collect an owner while consumers remain,
 replace/unlink paths after open, and exercise open/close/allocation failures.
 No stale registration, use-after-close, descriptor leak or module shadowing;
-held test workers cannot recover omitted store contents by reopening the program
-or attaching an artifact URI, on either sandboxed or unsandboxed runs;
+held test workers cannot use this API to reopen the running program's inode
+or replay an artifact URI, on either sandboxed or unsandboxed runs;
 include explicit portable and host-format reopening-denial cases;
-untrusted path/range inputs cannot expose the running artifact or escape worker
-read restrictions. Startup/load A/B and relevant sanitizers pass.
+untrusted path/range inputs cannot reach the retained runtime descriptor or
+escape OS-enforced worker read restrictions. Copies already readable under
+existing file authority remain outside this guarantee, as described above.
+Startup/load A/B and relevant sanitizers pass.
 
 The reviewed implementation surface is an opaque `Sqlite.Artifact` obtained by
 `Sqlite.artifact(path)`, with `open`, `close` and normal Lua cleanup; an owned
@@ -492,6 +514,12 @@ them. Initially reject borrowed Store handles and ordinary connections without
 the explicit inspection capability. Preserve a later explicit constructor for
 writable projection workspaces with read-only artifact attachments; do not
 enable URI interpretation globally.
+
+The first slice permits only artifact attachments on these inspection
+connections. Ordinary SQL ATTACH is denied there; ordinary SQLite connections
+retain their existing behavior. Register the inspection VFS and userdata
+metatable lazily. Keep its per-file ownership and close method separate from
+the runtime file layout and close path.
 
 Use a separate inspection VFS and refcounted C backing object owning a regular
 file descriptor, structural format and validated range. Each SQLite file holds
@@ -561,8 +589,9 @@ The independent review identified this delivery split:
   retroactively make them reject a future incompatible format. Original
   step-3 acceptance remains open until this integration lands.
 
-Proceed with 3a and 3b after step 1, as separate reviewed PRs. This changes
-sequencing only where the work is independent of the blocked access capability.
+The earlier split allowed 3a and 3b to proceed independently while artifact
+access was blocked. That block is resolved; the current execution order is
+step 2, then 3a, 3b and 3c, each as a separate reviewed PR.
 
 The reviewed 3a entry point is `cosmic db --format`, a metadata-only mode.
 It must bypass dispatch's ancestor-tree discovery as well as the command's
