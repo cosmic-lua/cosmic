@@ -783,6 +783,93 @@ local function test_a_search_stems_and_offers_the_closest_when_none_has_every_wo
   assert(whole[1].symbol == "read", "a member comes before its module: " .. whole[1].symbol)
 end
 
+--- The lines of `answer` as one text, for a search of it.
+local function answered(answer: docs.Answer): string
+  return table.concat(answer.lines, "\n")
+end
+
+--- Several qualified names are each looked up as they would be alone,
+--- in the order given, where bare words -- which often each name
+--- something too ("read", "write") -- are still searched for together.
+local function test_several_qualified_names_are_each_looked_up(dir: string)
+  local db = built(dir, fs_tree())
+  local both = assert(docs.answer(view({ db }), { "Fs.write", "Fs.read" }))
+  local text = answered(both)
+  assert(both.found and both.said == "2 named", both.said)
+  assert(not text:find("No exact symbol match", 1, true), text)
+  local write = text:find("cosmic.fs Fs.write (", 1, true)
+  local read = text:find("cosmic.fs Fs.read (", 1, true)
+  assert(write ~= nil and read ~= nil and write < read, text)
+  local bare = assert(docs.answer(view({ db }), { "read", "write" }))
+  assert(bare.said == "nothing named or documented as 'read write'", bare.said)
+  local missing = assert(docs.answer(view({ db }), { "Fs.read", "Nope.unheard" }))
+  assert(not missing.found, missing.said)
+  assert(missing.said == "nothing named or documented as 'Nope.unheard', 1 named", missing.said)
+  assert(answered(missing):find("cosmic.fs Fs.read (", 1, true), answered(missing))
+  assert(answered(missing):find("\nNothing named or documented as 'Nope.unheard'.", 1, true),
+    answered(missing))
+end
+
+--- `cosmic` alone, which a search finds in nearly every comment, lists
+--- the standard library's modules instead, a line each, ahead of a name
+--- a tree's own module gives a symbol; no words list every module.
+local function test_cosmic_alone_lists_the_standard_library(dir: string)
+  local db = built(dir, fs_tree({
+    ["build/tool.tl"] = source(
+      "--- A tool of the tree's own.",
+      "local record Tool",
+      "end",
+      "",
+      "--- Starts cosmic.",
+      "function Tool.cosmic()",
+      "end",
+      "",
+      "return Tool"),
+  }))
+  local all = assert(docs.answer(view({ db }), {}))
+  assert(all.found and all.said == "4 modules", all.said)
+  assert(answered(all):find("build.tool  A tool of the tree's own.", 1, true), answered(all))
+  for _, word in ipairs({ "cosmic", "cosmic." }) do
+    local answer = assert(docs.answer(view({ db }), { word }))
+    local text = answered(answer)
+    assert(answer.found and answer.said == "1 module", answer.said)
+    assert(text:find("cosmic.fs  Files and directories.", 1, true), text)
+    assert(not text:find("build.", 1, true), text)
+    assert(not text:find("Tool.cosmic", 1, true), text)
+  end
+end
+
+--- A search with no exact match shows its first five entries whole and
+--- names the rest a line each, so a broad word answers in a page.
+local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
+  local lines: {string} = { "--- Many things.", "local record Many", "end", "" }
+  for at = 1, 8 do
+    lines[#lines + 1] = "--- Sentinel number " .. at .. ". Then more words."
+    lines[#lines + 1] = "function Many.f" .. at .. "(): integer"
+    lines[#lines + 1] = "  return " .. at
+    lines[#lines + 1] = "end"
+    lines[#lines + 1] = ""
+  end
+  lines[#lines + 1] = "return Many"
+  local db = built(dir, { ["cosmic/many.tl"] = source(table.unpack(lines)) })
+  local answer = assert(docs.answer(view({ db }), { "sentinel" }))
+  local text = answered(answer)
+  assert(answer.found and answer.said == "8 found", answer.said)
+  assert(text:find("No exact symbol match for 'sentinel'", 1, true), text)
+  local whole, listed = 0, 0
+  for _, line in ipairs(answer.lines) do
+    if line:match("^cosmic%.many Many%.f%d %(") then whole = whole + 1 end
+    if line:match("^  cosmic%.many Many%.f%d %(cosmic/many%.tl:%d+%) %-%- Sentinel number %d%.$") then
+      listed = listed + 1
+    end
+  end
+  assert(whole == 5 and listed == 3, whole .. " whole, " .. listed .. " listed:\n" .. text)
+  assert(text:find("3 more; narrow the search", 1, true), text)
+  local near = assert(docs.answer(view({ db }), { "sentinel", "number", "unheard" }))
+  assert(answered(near):find("No entry has every word of 'sentinel number unheard'; closest matches:",
+    1, true), answered(near))
+end
+
 --- A name counts as documented by an example only when the example
 --- spells it whole: the index stems words, so `Fs.reads` reaches an
 --- example of [`Fs.read`], which the compiler's hint must not follow.
