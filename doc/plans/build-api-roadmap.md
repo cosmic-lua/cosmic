@@ -175,7 +175,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | merged | f4c30c3d/tree0a398186; branch36962413125 and queue36962779158 green; incoming #2557/#2558 preserved; epoch14 |
 | B3 | [#2564](https://github.com/cosmic-lua/cosmic/pull/2564) | merged | 3fbe396a/tree8e9b37a8; branch 36964006809 and merge queue 36964406073 green |
 | B4a | [#2573](https://github.com/cosmic-lua/cosmic/pull/2573) | merged | 55724526/treeb3c0574f; branch36977328228 and queue36977805814 green; exact queue tree independently approved; native80 and checked56 pass |
-| B4b | pending | integrating actual B4a merge | prepared1dfbcdc7/treec1c66559; native63 integration plus independent50 native/27 checked pass; aligning actual merged parent before final review/publication |
+| B4b | [#2578](https://github.com/cosmic-lua/cosmic/pull/2578) | CI running | remote5c43a5df/tree44c25249 on actual55724526; final native63 and independentchecked35 pass; whole650 zero; matching three artifacts; auto-merge enabled |
 | B5 | pending | source preparation approved | a1439795/treeff2eba5b; independent46 CI and44 Zig tests pass; pin unchanged until verified B-wave release |
 | C1 | pending | locally approved | 938b3686/tree254eea31 prep preserves original668ef813 feature and incoming Fs changes; focused60 pass; final integration/publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
