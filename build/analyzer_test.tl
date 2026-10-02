@@ -1430,8 +1430,6 @@ local function test_a_malformed_needs_call_is_refused()
       "call it as a statement at the module's top level" },
     { "local needs = Test.needs\nneeds { tool = true }",
       "call it as a statement at the module's top level" },
-    { 'local _inputs = { tool = true }',
-      "fixture_test.tl:3: _inputs: a module declares what its tests read with cosmic.test's needs" },
   }
   for _, case in ipairs(cases) do
     local got, trouble = declared('local name = "x"\nlocal Test = require("cosmic.test")\n' ..

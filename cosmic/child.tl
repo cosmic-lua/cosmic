@@ -246,6 +246,40 @@ local record Pipe
   failure: string
   head: integer
   tail: integer
+  --- The Reader ended this pipe, explicitly or after an escaped writer.
+  reader_closed: boolean
+  consuming: boolean
+end
+
+--- Bounds and borrowed destinations for [`Handle.drain`].
+local record DrainOptions
+  --- Required finite wait budget, in nanoseconds; 0 makes one nonblocking round.
+  timeout_ns: integer
+  --- Required positive total byte budget across both outputs.
+  max_bytes: integer
+  --- Required exactly when stdout was started as "stream"; never closed here.
+  stdout: Stream.Writer | nil
+  --- Required exactly when stderr was started as "stream"; never closed here.
+  stderr: Stream.Writer | nil
+end
+
+--- Why a bounded output drain stopped.
+local enum DrainKind
+  "eof"
+  "limit"
+  "timeout"
+  "interrupted"
+  "failed"
+end
+
+--- The outcome of [`Handle.drain`], independent of the child's exit status.
+local record DrainResult
+  --- The stopping condition; an interrupted guard signal remains untaken.
+  kind: DrainKind
+  --- Source bytes offered to sinks, including a final failed write; never replayed.
+  bytes: integer
+  --- Empty except for interrupted or failed, which name the original cause.
+  reason: string
 end
 
 local record Handle
@@ -286,6 +320,8 @@ local record Handle
   _result: Result
   _status: raw_process.ChildStatus
   _closed: boolean
+  _explicit_close: boolean
+  _drain_next: integer
   _streams: {Pipe}
   _input_fd: integer | nil
   _input: string
@@ -304,6 +340,16 @@ local record Handle
   --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ns`
   --- below 0 or past [`Poll.MOST_NS`] raises.
   wait: function(Handle, timeout_ns?: integer): Result | nil, string
+  --- Fairly copies streamed outputs to borrowed Writers within both required
+  --- bounds. EOF requires closed pipes, including escaped writers. A previous
+  --- guard cancellation may be bypassed only after its signal was taken; a
+  --- fresh signal interrupts without being consumed. Ordinary Reader failures
+  --- remain sticky. No process is ended, reaped to completion, or timed out.
+  --- Concurrent reads/drains raise. Sink failure may have written a prefix;
+  --- it ends the selected read ends, and the caller still owns child cleanup.
+  --- The deadline bounds pipe waits, not arbitrary code in a Writer. A zero
+  --- timeout pumps once without waiting and writes at most one chunk per pipe.
+  drain: function(Handle, DrainOptions): DrainResult
   --- Whether the child has exited, without waiting: `finished` is false
   --- while it runs, and true with its `result` once it has exited and its
   --- group is cleared, as `wait` would answer. It services the child's
@@ -898,6 +944,51 @@ local function interrupted(self: Handle): string
   return trouble
 end
 
+--- One read or drain owns its queues even while a sink or pipe wait yields.
+local record Consumption
+  pipes: {Pipe}
+  discard: boolean
+  reason: string
+  metamethod __close: function(Consumption)
+end
+
+local consumption_mt: metatable<Consumption> = {
+  __close = function(self: Consumption)
+    for _, pipe in ipairs(self.pipes) do
+      if self.discard then
+        if pipe.failure == nil then pipe.failure = self.reason end
+        end_stream(pipe)
+        pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
+      end
+      pipe.consuming = false
+    end
+  end,
+}
+
+local function consume(pipes: {Pipe}): Consumption
+  for _, pipe in ipairs(pipes) do
+    if pipe.consuming then error("child: output is already being consumed", 3) end
+  end
+  local owner: Consumption = setmetatable({ pipes = pipes, discard = false,
+    reason = "child: output sink did not complete" }, consumption_mt)
+  for _, pipe in ipairs(pipes) do pipe.consuming = true end
+  return owner
+end
+
+--- Takes only the queued prefix requested, shared by Reader and drain.
+local function take_chunk(pipe: Pipe, want: integer): string
+  local chunk = pipe.chunks[pipe.head]
+  if #chunk <= want then
+    pipe.chunks[pipe.head] = nil
+    pipe.head = pipe.head + 1
+    pipe.size = pipe.size - #chunk
+    return chunk
+  end
+  pipe.chunks[pipe.head] = chunk:sub(want + 1)
+  pipe.size = pipe.size - want
+  return chunk:sub(1, want)
+end
+
 -- How an object of this module is made. A handle, a guard and the Reader
 -- and Writer of a streamed pipe are each one table, whose methods live
 -- once on a record's own table, reached through `__index`, with the state
@@ -919,17 +1010,19 @@ local record PipeReader is Stream.Reader
   --- Why a wait the child could not go on with ended, "" until one has:
   --- every later read answers it.
   failed: string
+  --- Holds the pipe while a read waits; one per Reader, so a read costs no
+  --- allocation.
+  owner: Consumption
   read: function(PipeReader, max_bytes?: integer): string | nil, string
   close: function(PipeReader): boolean, string
 end
 
 local pipe_reader_mt: metatable<PipeReader> = { __index = PipeReader }
 
-function PipeReader:read(max_bytes?: integer): string | nil, string
-  if max_bytes ~= nil and max_bytes < 1 then error("child: read's max_bytes must be positive", 2) end
-  if self.failed ~= "" then return nil, self.failed end
-  if self.closed then return nil, closed_reader end
+local function waiting_read(self: PipeReader, max_bytes?: integer): string | nil, string
   local child, pipe = self.child, self.pipe
+  local _ownership <close> = self.owner
+  pipe.consuming = true
   while pipe.size == 0 do
     if pipe.failure ~= nil then
       self.failed = pipe.failure
@@ -946,30 +1039,34 @@ function PipeReader:read(max_bytes?: integer): string | nil, string
       -- a round that finds nothing ready means only an escaped
       -- descendant holds it open, which this read does not wait for.
       local _, _ = pump(watching({ child }), 0)
-      if pipe.size == 0 and pipe.fd ~= nil then end_stream(pipe) end
+      if pipe.size == 0 and pipe.fd ~= nil then
+        pipe.reader_closed = true
+        end_stream(pipe)
+      end
     else
       local _, cancelled = pump(watching({ child }), slice(nil, { child }), true, true)
       -- Not kept as `failed`: the task's end, not the stream's.
       if cancelled ~= "" then return nil, cancelled end
     end
   end
-  local want = max_bytes or CHUNK
-  local chunk = pipe.chunks[pipe.head]
-  if #chunk <= want then
-    pipe.chunks[pipe.head] = nil
-    pipe.head = pipe.head + 1
-    pipe.size = pipe.size - #chunk
-    return chunk, ""
-  end
-  pipe.chunks[pipe.head] = chunk:sub(want + 1)
-  pipe.size = pipe.size - want
-  return chunk:sub(1, want), ""
+  return take_chunk(pipe, max_bytes or CHUNK), ""
+end
+
+function PipeReader:read(max_bytes?: integer): string | nil, string
+  if max_bytes ~= nil and max_bytes < 1 then error("child: read's max_bytes must be positive", 2) end
+  local pipe = self.pipe
+  if pipe.consuming then error("child: output is already being consumed", 2) end
+  if self.failed ~= "" then return nil, self.failed end
+  if self.closed then return nil, closed_reader end
+  if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
+  return waiting_read(self, max_bytes)
 end
 
 function PipeReader:close(): boolean, string
   if self.closed then return true, "" end
   self.closed = true
   local pipe = self.pipe
+  pipe.reader_closed = true
   -- The child's next write to it fails, as it would into `head`.
   end_stream(pipe)
   pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
@@ -978,8 +1075,10 @@ end
 
 --- The Reader of `self`'s streamed output at `index`.
 local function pipe_reader(self: Handle, index: integer): Stream.Reader
+  local pipe = self._streams[index]
+  local owner: Consumption = setmetatable({ pipes = { pipe }, discard = false }, consumption_mt)
   local r: PipeReader = setmetatable(
-    { child = self, pipe = self._streams[index], closed = false, failed = "" }, pipe_reader_mt)
+    { child = self, pipe = pipe, closed = false, failed = "", owner = owner }, pipe_reader_mt)
   return r
 end
 
@@ -1071,6 +1170,117 @@ local function end_or_kill(self: Handle): Result | nil, string
   return nil, tostring(r)
 end
 
+local function drain(self: Handle, opts: DrainOptions): DrainResult
+  if type(opts) ~= "table" or math.type(opts.timeout_ns) ~= "integer" or
+      math.type(opts.max_bytes) ~= "integer" or opts.max_bytes < 1 then
+    error("child: drain requires integer timeout_ns and positive max_bytes", 3)
+  end
+  Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
+  local timeout_ns, max_bytes = opts.timeout_ns, opts.max_bytes
+  local pipes: {Pipe} = {}
+  local sinks: {Stream.Writer} = {}
+  local stdout, stderr = false, false
+  for _, pipe in ipairs(self._streams or {}) do
+    if pipe.streamed then
+      local sink: Stream.Writer
+      if pipe.child_fd == 1 then sink = opts.stdout else sink = opts.stderr end
+      if sink == nil then error("child: drain requires a sink for each streamed output", 3) end
+      if type(sink.write) ~= "function" then error("child: drain requires Writers", 3) end
+      if pipe.child_fd == 1 then stdout = true else stderr = true end
+      pipes[#pipes + 1], sinks[#sinks + 1] = pipe, sink
+    end
+  end
+  if #pipes == 0 or (opts.stdout ~= nil and not stdout) or (opts.stderr ~= nil and not stderr) then
+    error("child: drain sinks must name streamed outputs", 3)
+  end
+  local owner <close> = consume(pipes)
+  local bytes = 0
+  local guard = active
+  local stamp: integer
+  local deadline = now() + timeout_ns
+  local function result(kind: DrainKind, reason?: string): DrainResult
+    return { kind = kind, bytes = bytes, reason = reason or "" }
+  end
+  local function control(): DrainResult | nil
+    if self._explicit_close then return result("failed", "child: the handle is closed") end
+    for _, pipe in ipairs(pipes) do
+      if pipe.reader_closed then return result("failed", closed_reader) end
+    end
+    if guard ~= nil then
+      if guard._closed then return result("failed", "child: the guard is closed") end
+      local signal = guard:cancelled()
+      if (stamp == nil and guard._fresh ~= 0) or (stamp ~= nil and guard._read ~= stamp) then
+        return result("interrupted", cancelled_by(signal))
+      end
+      if stamp == nil then stamp = guard._read end
+    end
+    return nil
+  end
+  local function complete(): DrainResult | nil
+    local eof = true
+    for _, pipe in ipairs(pipes) do
+      if pipe.size == 0 and pipe.failure ~= nil then return result("failed", pipe.failure) end
+      if pipe.fd ~= nil or pipe.size ~= 0 then eof = false end
+    end
+    if eof then return result("eof") end
+    if bytes == max_bytes then return result("limit") end
+    return nil
+  end
+  local stopped = control() or complete()
+  if stopped ~= nil then return stopped end
+  if timeout_ns == 0 then
+    local _, _ = pump(watching({ self }), 0, true, guard ~= nil)
+  end
+  while true do
+    stopped = control() or complete()
+    if stopped ~= nil then return stopped end
+    if timeout_ns ~= 0 and now() >= deadline then return result("timeout") end
+    local moved = false
+    local first = self._drain_next or 1
+    for offset = 0, #pipes - 1 do
+      local index = (first + offset - 1) % #pipes + 1
+      stopped = control() or complete()
+      if stopped ~= nil then return stopped end
+      if timeout_ns ~= 0 and now() >= deadline then return result("timeout") end
+      local pipe = pipes[index]
+      if pipe.size ~= 0 then
+        local chunk = take_chunk(pipe, math.min(CHUNK, max_bytes - bytes))
+        bytes = bytes + #chunk
+        self._drain_next = index % #pipes + 1
+        owner.discard = true
+        local ok, why = sinks[index]:write(chunk)
+        if not ok then
+          owner.reason = why
+          return result("failed", why)
+        end
+        owner.discard = false
+        moved = true
+      end
+    end
+    stopped = control() or complete()
+    if stopped ~= nil then return stopped end
+    if timeout_ns == 0 then return result("timeout") end
+    if not moved then
+      local _, why = exited(self)
+      if why ~= "" then return result("failed", why) end
+      local left = slice(deadline, { self })
+      if left == nil then return result("timeout") end
+      local _, cancelled = pump(watching({ self }), left, true, guard ~= nil)
+      stopped = control()
+      if stopped ~= nil then return stopped end
+      if cancelled ~= "" then return result("failed", cancelled) end
+    end
+  end
+end
+
+--- An explicit close ends a drain even while group cleanup is waiting.
+local function closing_outputs(self: Handle)
+  self._explicit_close = true
+  for _, pipe in ipairs(self._streams or {}) do
+    if pipe.streamed and pipe.fd ~= nil then Poll.closing(pipe.fd) end
+  end
+end
+
 Handle.try_wait = function(self: Handle): TryWait | nil, string
   if self._result then return { finished = true, result = self._result }, "" end
   local _, _ = pump(watching({ self }), 0)
@@ -1140,6 +1350,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
 end
 
 Handle.close = function(self: Handle): boolean, string
+  closing_outputs(self)
   if not self._closed then
     local r, trouble = end_child(self)
     if not r then return false, trouble end
@@ -1148,13 +1359,17 @@ Handle.close = function(self: Handle): boolean, string
   return true, ""
 end
 
+Handle.drain = drain
+
 local handle_mt: metatable<Handle> = {
   __index = Handle,
   __close = function(self: Handle)
+    closing_outputs(self)
     if not self._closed then local _, _ = end_or_kill(self) end
     end_streamed(self)
   end,
   __gc = function(self: Handle)
+    closing_outputs(self)
     if not self._closed then local _, _ = end_or_kill(self) end
     end_streamed(self)
   end,
@@ -1164,6 +1379,7 @@ local handle_mt: metatable<Handle> = {
 local function make_handle(pid: integer, process_group: boolean, limit: integer): Handle
   local h: Handle = setmetatable({
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
+    _explicit_close = false, _drain_next = 1,
   }, handle_mt)
   -- Owned only once it has its metatable, so the finalizer covers the child from then; a
   -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
@@ -1320,6 +1536,9 @@ local record Child
   type Sandbox = Sandbox
   type Unveil = Unveil
   type TryWait = TryWait
+  type DrainOptions = DrainOptions
+  type DrainKind = DrainKind
+  type DrainResult = DrainResult
   type Handle = Handle
   type Guard = Guard
 end
@@ -1480,7 +1699,7 @@ local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): i
   if not nonblocking then return nil, nonblocking_trouble end
   wiring.streams[#wiring.streams + 1] = {
     fd = ends.reader, child_fd = child_fd, chunks = {}, size = 0, truncated = false,
-    streamed = streamed or false, head = 1, tail = 0,
+    streamed = streamed or false, head = 1, tail = 0, reader_closed = false, consuming = false,
   }
   return ends.writer, ""
 end
