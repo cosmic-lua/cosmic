@@ -18,8 +18,9 @@ controller explicitly; keep it identical throughout a comparison series.
 
 Each workload first compares the parent with itself under labels A/A, then the
 parent with the candidate under A/B. Each phase discards three checked warmups
-and retains 30 pairs, alternating which side runs first. A fourth argument can
-choose 30 through 200 pairs before measurements begin. Startup/load samples
+and retains 200 pairs, alternating which side runs first. A fourth argument can
+choose a fixed count from 30 through 2000 before measurements begin. Counts below
+200 are exploratory and cannot pass. There are no adaptive repeats or early stops. Startup/load samples
 batch five fresh processes. This measures warm filesystem caches; cold I/O and
 peak RSS are explicitly unmeasured. Child supervision is included identically
 on both sides; there is no subtraction of estimated overhead.
@@ -46,26 +47,40 @@ observations, including checked warmups, are saved after every pair under
 recorded in its fixture's `o/perf/failure.json`; the latest completed observation
 and build counters are retained beside it. Generated files stay outside Git.
 
-The report gives medians, p95s and exact sign-based 95% intervals for paired median
-differences. A/A's median interval sets the reported practical resolution. A
-biased calibration, a wholly positive candidate interval inside that resolution,
-or demonstrably noisier candidate observations are inconclusive. A repeatable positive
-interval beyond the resolution is a regression. A slower empirical p95 can veto
-a median pass; 30 pairs do not establish a precise tail confidence interval.
-The median sign interval assumes independent paired observations; alternating
-order reduces drift but does not prove independence. The centered absolute
-deviation intervals are a conservative noise diagnostic, not exact confidence
-intervals for population dispersion.
+The report gives medians, p95s, sample counts, reason codes and uncertainty
+intervals. Median bounds use the exact binomial sign ranks with 95% coverage.
+Each p95 uses a 97.5% order-statistic interval; subtracting opposite endpoints
+of the two intervals gives a conservative joint 95% interval for the p95
+change, by Bonferroni. This does not require independence between the two sides
+of a pair. Binomial masses are normalized from their mode, so large sample
+counts do not underflow at `2^-n`. A missing finite endpoint is encoded as JSON
+`null` with an explicit bounded flag; it is never replaced by the sample maximum.
 
-Every nonpass gets one complete new A/A and A/B reading; both readings remain in
-the output. The final classification uses all first and repeat observations
-together. Different empirical tail verdicts also set `needs_review` and print a
-warning for the reviewer; pooling must not make that evidence disappear.
-Exit 0 means no
-detected slowdown at the published resolution, not proof of zero regression.
+A/A must include zero in both its median and p95-change intervals. Each
+statistic has its own A/A resolution (the larger absolute interval endpoint).
+A wholly positive candidate interval for either statistic prevents a pass:
+its lower bound beyond that statistic's A/A resolution means regression;
+otherwise it means inconclusive. The empirical p95 difference alone is not a
+veto and is never compared with median uncertainty. A centered-deviation
+noise check can also make a comparison inconclusive; it is a heuristic, not
+an exact confidence interval for population dispersion.
+
+The sample count is fixed before collecting any observations. The classifier
+runs once after each complete A/A and A/B phase; it neither adds samples on a
+nonpass nor pools later selected runs into a new nominal confidence claim.
+Independent paired observations are assumed. Alternating order reduces drift
+but does not prove independence. Confidence applies to each reported statistic,
+not jointly to every workload or decision in a suite.
+
+Exit 0 means at least 200 pairs, finite tail bounds, unbiased calibrations and
+no detected slowdown at the published resolutions. It does not establish
+equivalence or prove zero regression. The candidate-independent numerical,
+null and detection validation protocol is in [validation.md](performance/validation.md).
 Exit 2 means regression or unresolved measurements; exit 1 means an invalid
 command, output or counter. An inconclusive result is not permission to merge:
-resolve it on a quieter host or through a larger, predeclared comparison. Artifact
+investigate it and, if another comparison is needed, declare its protocol before
+collecting data and retain the earlier result. Do not rerun until a favorable
+result appears. Artifact
 size growth is recorded and does not fail the gate.
 
 [`bin/perf`]: ../bin/perf
