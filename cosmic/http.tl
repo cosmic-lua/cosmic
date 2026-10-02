@@ -200,19 +200,26 @@ local function respond(handle: raw_http.Handle): Http.Response
   return response
 end
 
+--- The level `error` raises a refusal of `opts` at from [`counted`],
+--- past [`raw_options`], [`opened`] and the public entry point that called
+--- that: the entry point's caller. So every entry point calls
+--- [`opened`] itself, and not as a tail call, which would leave no level
+--- of its own.
+local CALLER <const> = 5
+
 --- `ns` as the count of `unit` nanoseconds the raw module takes, rounded
 --- up so that a span above 0 is never the 0 that curl reads as no limit;
---- nil stays nil, the raw module's default. Raises, naming `name` as the
---- raw module's own refusals do, for what is no integer from 0 to
---- `most_ns`.
+--- nil stays nil, the raw module's default. Raises at the caller of the
+--- public entry point (`CALLER`), naming `name` as the raw module's own
+--- refusals do, for what is no integer from 0 to `most_ns`.
 local function counted(ns: integer | nil, unit: integer, most_ns: integer,
     name: string): integer | nil
   if ns == nil then return nil end
   if math.type(ns) ~= "integer" then
-    error(("http: opts.%s must be an integer"):format(name), 4)
+    error(("http: opts.%s must be an integer"):format(name), CALLER)
   end
   if ns < 0 or ns > most_ns then
-    error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), 4)
+    error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), CALLER)
   end
   return Time.ceil(ns, unit)
 end
@@ -237,11 +244,9 @@ local function raw_options(opts: Http.Options | nil): raw_http.Options | nil
   }
 end
 
---- Opens `url`, blocking until the final response's headers arrive.
---- The body is not read yet -- call `response:read(max_bytes)` until it
---- returns `nil, ""` for a clean end, or use [`Http.get`] to read it
---- all at once.
-function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
+--- [`Http.open`]'s work, which each public entry point calls itself, so
+--- that a refusal of `opts` is raised at its caller (`CALLER`).
+local function opened(url: string, opts: Http.Options | nil): Http.Response | nil, string
   local handle, trouble = http.open(url, raw_options(opts))
   if handle == nil then
     return nil, trouble
@@ -249,11 +254,23 @@ function Http.open(url: string, opts?: Http.Options): Http.Response | nil, strin
   return respond(handle), ""
 end
 
+--- Opens `url`, blocking until the final response's headers arrive.
+--- The body is not read yet -- call `response:read(max_bytes)` until it
+--- returns `nil, ""` for a clean end, or use [`Http.get`] to read it
+--- all at once.
+function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
+  local response, trouble = opened(url, opts)
+  if response == nil then
+    return nil, trouble
+  end
+  return response, ""
+end
+
 --- [`Http.open`], then the whole body read at once. Fails on a
 --- connection or protocol error the same way [`Http.open`] does; a
 --- non-2xx status is not itself a failure here -- check `result.status`.
 function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
-  local response, trouble = Http.open(url, opts)
+  local response, trouble = opened(url, opts)
   if response == nil then
     return nil, trouble
   end
@@ -308,7 +325,7 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
       checks[#checks + 1] = { algorithm, wanted:lower(), hashing }
     end
   end
-  local response, open_trouble = Http.open(url, opts)
+  local response, open_trouble = opened(url, opts)
   if response == nil then return false, open_trouble end
   if response.status < 200 or response.status >= 300 then
     local _, _ = response:close()

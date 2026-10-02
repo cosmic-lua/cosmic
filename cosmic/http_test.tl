@@ -515,6 +515,52 @@ local function test_an_integer_option_curl_would_clamp_is_refused()
     err)
 end
 
+--- A refused option is raised at the line that called the public
+--- entry point, whichever it is, and not inside cosmic.http: between the
+--- lines that raise `mark` ahead of the call and behind it.
+local function test_a_refused_option_is_raised_at_the_callers_line()
+  -- Each answers a value, which a raise leaves `pcall` the message in
+  -- place of.
+  local entries: {string: function(Http.Options, string): string} = {
+    open = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _, _ = Http.open(url, opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+    get = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _, _ = Http.get(url, opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+    download = function(opts: Http.Options, mark: string): string
+      if mark == "ahead" then error("mark") end
+      local _, _ = Http.download(url, "never-written", opts)
+      if mark == "behind" then error("mark") end
+      return ""
+    end,
+  }
+  --- Where `entry` raises, given `opts` and `mark`: its file and line.
+  local function raised_at(entry: function(Http.Options, string): string, opts: Http.Options,
+                           mark: string): string, integer
+    local ok, err = pcall(entry, opts, mark)
+    assert(not ok, mark .. ": expected a raise")
+    local file, line = tostring(err):match("^(.-):(%d+): ")
+    assert(file ~= nil, tostring(err))
+    return file, math.tointeger(tonumber(line)) or 0
+  end
+  for name, entry in pairs(entries) do
+    local good: Http.Options = { script = {} }
+    local file, ahead = raised_at(entry, good, "ahead")
+    local _, behind = raised_at(entry, good, "behind")
+    local refused, at = raised_at(entry, { timeout_ns = -5, script = {} }, "")
+    assert(refused == file and ahead < at and at < behind,
+      name .. ": raised at " .. refused .. ":" .. at .. ", not between " .. file .. ":" ..
+      ahead .. " and " .. behind)
+  end
+end
+
 local function test_zero_integer_options_are_accepted()
   local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ns = 0,
     max_redirects = 0, low_speed_bytes = 0, low_speed_ns = 0 })
