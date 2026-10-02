@@ -329,10 +329,10 @@ end
 --- The look for an old type body costs what it reads, not the rest of
 --- the file: a file naming `record` or `enum` on many lines, or in
 --- nested functions, compiles in about the time of one naming a plain
---- variable, where reading on to the next `end`, copying every token,
---- shifting them for an inserted one, or parsing a `where` clause's
---- function bodies made the time grow with the square of the lines or
---- double with each level.
+--- variable. A look that read past its body, copied or shifted every
+--- token, or parsed the function bodies in a `where` clause would grow
+--- with the square of the lines or double with each level; one begun
+--- within another would read each token through every look around it.
 local function test_a_keyword_named_variable_costs_what_it_reads()
   local built = assert(teal.load())
   local head = "local record, recd, enum, enmd, n, a = 1, 1, 1, 1, 2, 1\n" ..
@@ -356,6 +356,15 @@ local function test_a_keyword_named_variable_costs_what_it_reads()
     nested = "local xN = record\nwhere(function()\n" .. nested .. "end)\nprint(xN)\n"
     nested = nested:gsub("xN", "x" .. k)
   end
+  local within = "1"
+  for k = 1, 120 do
+    within = "(function(): integer local y" .. k .. " = record\n" ..
+      "  f: function(integer): integer = macroexp(_a: integer): integer return " .. within .. " end\n" ..
+      "end\nreturn 1 end)()"
+  end
+  -- Old declarations nested in each other's bodies are refused, each
+  -- look reading the tokens itself rather than through the one around it.
+  assert(#syntax_errors(head .. "local x = " .. within .. "\nprint(x)\n") > 0)
   for _, source in ipairs({
     repeated("local xN = enum\n"),
     repeated("local tN = { k = enum }\n"),

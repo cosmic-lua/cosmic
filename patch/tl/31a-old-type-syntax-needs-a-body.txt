@@ -19,6 +19,11 @@ local function parse_table_value(ps: ParseState, i: integer): integer, Node, int
 -- Raised by a look ahead's tokens to end it early.
 local look_ended = {}
 
+-- Is a look ahead running? One begun within another (a body's
+-- `macroexp` holds a function holding `local y = record`) answers none:
+-- its tokens would read through the other's, a call deeper for each.
+local looking = false
+
 -- What parse makes of the tokens from i on, or nil where it fails, run
 -- on copies so that it leaves the parse to come as it was: a type
 -- argument list's `>>` is rewritten to `>` (`record < n >> 1`). The
@@ -29,6 +34,9 @@ local look_ended = {}
 -- `where`, whose clause is an expression, function bodies and all, in
 -- which a look of its own could begin.
 local function look_ahead<T>(ps: ParseState, i: integer, parse: function(ParseState, integer): (integer, T)): T
+   if looking then
+      return nil
+   end
    local base = ps.tokens
    local tokens: {Token} = setmetatable({} as {Token}, {
       __index = function(t: {Token}, j: integer): Token
@@ -57,7 +65,9 @@ local function look_ahead<T>(ps: ParseState, i: integer, parse: function(ParseSt
       required_modules = {},
       parse_lang = ps.parse_lang,
    }
+   looking = true
    local ok, raised, result = pcall(parse, err_ps, i)
+   looking = false
    if not ok then
       if raised ~= look_ended then
          error(raised, 0)
