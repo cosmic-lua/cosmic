@@ -224,9 +224,9 @@ local function usage_line(verb: string): string
   return table.concat(words, " ")
 end
 
---- The index `cosmic help` prints: what `cosmic` is, each verb's usage
---- and purpose in the sections [`cosmic.cli.groups`] names, and where to
---- read more.
+--- The index `cosmic help` prints: what `cosmic` is, the guides to
+--- start from, each verb's usage and purpose in the sections
+--- [`cosmic.cli.groups`] names, and where to read more.
 local function index_help(): string
   -- TODO: write the index through Flags.dispatch's program help, which
   -- lists every command alphabetically with its `about`. It waits on
@@ -244,6 +244,10 @@ local function index_help(): string
     "nothing installed, and builds them into single executables. Its",
     "verbs run code, work on a project, do quick jobs at the shell, and",
     "look things up.",
+    "",
+    "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
+    "library, and `cosmic docs doc.guides.project` builds a project with",
+    "a module, tests, an example and a program.",
   }
   for _, group in ipairs(Cli.groups) do
     lines[#lines + 1] = ""
