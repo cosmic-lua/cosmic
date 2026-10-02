@@ -168,21 +168,21 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | --- | --- | --- | --- |
 | A1 | [#2545](https://github.com/cosmic-lua/cosmic/pull/2545) | merged | 338a8e25; reviewed tree ef80637e; branch 36955108004 and queue 36955383885 green |
 | A2 | [#2546](https://github.com/cosmic-lua/cosmic/pull/2546) | merged | 143b9926; reviewed tree f1a68e18; branch 36956411363 and queue 36956779031 green |
-| A3 | [#2550](https://github.com/cosmic-lua/cosmic/pull/2550) | CI running | 476924d8/tree37787864; exact approved source on merged A2; auto-merge enabled |
-| A4 | pending | source preparation; release-gated | Four of eleven inventoried pin TODOs unblocked; actual published A3 release must be downloaded, hashed and executed before pin change |
+| A3 | [#2550](https://github.com/cosmic-lua/cosmic/pull/2550) | merged | b951ab95/tree02802767; incoming Stream retained; branch 36957749478 and queue 36957951958 green |
+| A4 | [#2552](https://github.com/cosmic-lua/cosmic/pull/2552) | CI running | 53816203/tree683dcc50; actual published b951ab95 release independently verified and executed; four TODOs retired; auto-merge enabled |
 | B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
 | B2a | pending | locally approved; release checkpoint pending | 3f10d7da/tree4a438ebc; 195 focused tests and independent 73 cases plus real closed-descriptor checks passed; epoch 13 |
 | B2b | pending | locally approved after three review corrections | b48168c6/treed4522aad; exact sink selection, abandoned Reader state and fixed per-call bounds tested; epoch 14 |
 | B3 | pending | locally approved; release checkpoint pending | f13f2725/tree8efd806e; native/checked and independent lifetime/cancellation review passed; publication follows A4 |
-| B4a | pending | local preparation | Minimal existing-only open option; separately reviewed native lifetime and default-compatibility coverage |
+| B4a | pending | locally approved | 6d1d3232/tree9f54b268; native/checked lifetime and default compatibility reviewed; special SQLite paths retain their existing behavior |
 | B4b | pending | local preparation | Command follows B4a; conservative file retention, format ownership and independent dispatch |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
 | C4 | pending | local preparation | Minimal guarded username-to-uid/gid lookup; publication after B5 |
-| C5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| C6 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| C5 | pending | local preparation | Credential, capability and parent dumpability design reviewed; actual privileged CI proof required |
+| C6 | pending | local preparation | Private noexec tmpfs and declaration/keying design reviewed; native sandbox CI proof required |
 | C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
@@ -269,9 +269,28 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   bytes) took median 419.971 ms with per-file fsync versus 424.654 ms with
   syncfs; 2,001 small files took 187.495 versus 205.933 ms. Every payload hash,
   mode and name matched; warm hits made no flush/write calls. Flush work was
-  already under 1 ms on this overlay host, so this does not establish real-disk
+  already under 1 ms on this overlay host, whose mount uses `fsync=volatile`,
+  so this does not establish real-disk
   benefit or harm. Keep the API candidate and production fast path on hold.
   A narrow temporary diagnostic on an already-required native CI run can
   provide disk-backed evidence; remove diagnostic workflow changes before any
   production merge. If no consumer is justified, document deferral instead of
   shipping an unused capability.
+
+- 2026-10-02 UTC: A3 merged as `b951ab95` after green branch and queue CI.
+  A4 #2552 publishes exact independently approved tree `683dcc50`. The actual
+  immutable release binary is 14,901,296 bytes with SHA256
+  `24c8dacbbd42eef3dd2a923fa4f9761e5d1aab293666e564a3ddce53a3eac7b5`;
+  both manifests, executed version, tag and main/publisher provenance agree.
+  Independent actual-pin boot and 153 native tests passed; the selected release
+  checked the separate CI project and passed 62 tests. Real empty-cache Zig
+  installation took 23.970 s; warm reuse 30 ms; missing digest refused before
+  transfer. Whole-tree check covered 637 files with zero findings. The required
+  30-second suite attempt timed out without a final verdict. Matching-source
+  artifacts are byte-identical across independent worktrees; seven pin TODOs
+  remain after the four intended retirements. The selected release includes
+  #2547 and excludes the still-open #2548.
+- 2026-10-02 UTC: B4a review clarified that `create = false` refuses missing
+  named files; SQLite's empty and `:memory:` special paths keep their existing
+  transient-database semantics. Corrected `6d1d3232`/`9f54b268` is independently
+  approved with native and checked regression coverage.
