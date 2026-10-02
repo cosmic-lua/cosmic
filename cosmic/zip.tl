@@ -279,19 +279,19 @@ end
 --- offset, without walking whatever came before it. `held`, when set,
 --- is the start of those bytes, already read along with the local
 --- header. Its methods live on a shared metatable.
-local record Span is Stream.Reader
+local record SpanReader is Stream.Reader
   pread: Pread
   pos: integer
   left: integer
   held: string
   failed: string
-  read: function(Span, max_bytes?: integer): string | nil, string
-  close: function(Span): boolean, string
+  read: function(SpanReader, max_bytes?: integer): string | nil, string
+  close: function(SpanReader): boolean, string
 end
 
-local span_mt: metatable<Span> = { __index = Span }
+local span_reader_mt: metatable<SpanReader> = { __index = SpanReader }
 
-function Span:read(max_bytes?: integer): string | nil, string
+function SpanReader:read(max_bytes?: integer): string | nil, string
   if self.failed then return nil, self.failed end
   local left = self.left
   if left <= 0 then return nil, "" end
@@ -322,7 +322,7 @@ function Span:read(max_bytes?: integer): string | nil, string
   return chunk, ""
 end
 
-function Span:close(): boolean, string
+function SpanReader:close(): boolean, string
   self.left = 0
   self.held = nil
   return true, ""
@@ -332,20 +332,20 @@ end
 --- against `crc` at end of file; fails the moment more than `size`
 --- bytes arrive, so a body lying about its size is never expanded
 --- much past it.
-local record Checked is Stream.Reader
+local record CheckedReader is Stream.Reader
   inner: Stream.Reader
   crc: integer
   size: integer
   seen: integer
   state: integer
   failed: string
-  read: function(Checked, max_bytes?: integer): string | nil, string
-  close: function(Checked): boolean, string
+  read: function(CheckedReader, max_bytes?: integer): string | nil, string
+  close: function(CheckedReader): boolean, string
 end
 
-local checked_mt: metatable<Checked> = { __index = Checked }
+local checked_reader_mt: metatable<CheckedReader> = { __index = CheckedReader }
 
-function Checked:read(max_bytes?: integer): string | nil, string
+function CheckedReader:read(max_bytes?: integer): string | nil, string
   if self.failed then return nil, self.failed end
   local chunk, trouble = self.inner:read(max_bytes)
   if chunk == nil then
@@ -371,7 +371,7 @@ function Checked:read(max_bytes?: integer): string | nil, string
   return chunk, ""
 end
 
-function Checked:close(): boolean, string
+function CheckedReader:close(): boolean, string
   return self.inner:close()
 end
 
@@ -402,9 +402,9 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
     held = header:sub(skip + 1, skip + csize)
     if held == "" then held = nil end
   end
-  local raw: Span = setmetatable({
+  local raw: SpanReader = setmetatable({
     pread = pread, pos = e.offset + skip, left = csize, held = held,
-  }, span_mt)
+  }, span_reader_mt)
   local body: Stream.Reader
   local method = e.method
   if method == 0 then
@@ -416,9 +416,9 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
   else
     return refuse("unsupported compression method " .. tostring(method))
   end
-  local checked: Checked = setmetatable({
+  local checked: CheckedReader = setmetatable({
     inner = body, crc = e.crc32, size = e.size, seen = 0,
-  }, checked_mt)
+  }, checked_reader_mt)
   return checked, ""
 end
 
@@ -873,7 +873,7 @@ end
 
 --- What a streamed body is copied to: compressed, if it is, as it goes,
 --- into the writer's sink, counting what it comes to in `done`.
-local record Feed is Stream.Writer
+local record FeedWriter is Stream.Writer
   owner: EntryWriter
   done: Written
   --- The body's deflater, or nil for a stored one.
@@ -881,15 +881,15 @@ local record Feed is Stream.Writer
   --- Whether the entry is written as zip64, so that its sizes may pass 4 GiB.
   wide: boolean
   too_big: string
-  write: function(Feed, string): boolean, string
-  close: function(Feed): boolean, string
-  abort: function(Feed): boolean, string
+  write: function(FeedWriter, string): boolean, string
+  close: function(FeedWriter): boolean, string
+  abort: function(FeedWriter): boolean, string
 end
 
-local feed_mt: metatable<Feed> = { __index = Feed }
+local feed_writer_mt: metatable<FeedWriter> = { __index = FeedWriter }
 
 --- Writes the body's compressed bytes `data`, counting them.
-local function emit(self: Feed, data: string): boolean, string
+local function emit(self: FeedWriter, data: string): boolean, string
   if data == "" then return true, "" end
   local done = self.done
   done.csize = done.csize + #data
@@ -897,7 +897,7 @@ local function emit(self: Feed, data: string): boolean, string
   return put(self.owner, data)
 end
 
-function Feed:write(chunk: string): boolean, string
+function FeedWriter:write(chunk: string): boolean, string
   local done = self.done
   done.usize = done.usize + #chunk
   if not self.wide and done.usize >= U32_MAX then return self.owner.sink:fail(self.too_big) end
@@ -909,11 +909,11 @@ function Feed:write(chunk: string): boolean, string
   return emit(self, out)
 end
 
-function Feed:close(): boolean, string
+function FeedWriter:close(): boolean, string
   return true, ""
 end
 
-function Feed:abort(): boolean, string
+function FeedWriter:abort(): boolean, string
   return true, ""
 end
 
@@ -933,10 +933,10 @@ local function write_streamed(self: EntryWriter, path: string, body: Stream.Read
   local ok, trouble = put(self, local_header(path, method, dos_time, dos_date, 0, 0, 0,
     FLAG_DESCRIPTOR, wide))
   if not ok then return false, trouble end
-  local feed: Feed = setmetatable({
+  local feed: FeedWriter = setmetatable({
     owner = self, done = done, deflater = deflater, wide = wide,
     too_big = "zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size",
-  }, feed_mt)
+  }, feed_writer_mt)
   local copied, ctrouble = Stream.copy(body, feed)
   if copied == nil then
     -- A failed write is the sink's already, said as the Writer said it.

@@ -220,7 +220,8 @@ function Archive.list_reader(reader: Archive.Reader): {Archive.Entry} | nil, str
       if etrouble ~= "" then return nil, etrouble end
       return out, ""
     end
-    -- Dropping the per-entry reader closure keeps a long listing small.
+    -- The reader is closed before the list is returned, so no entry can be
+    -- opened: say so, rather than read a closed reader.
     entry.open = listed_open
     out[#out + 1] = entry
   end

@@ -349,18 +349,18 @@ local READ_AHEAD <const> = 1 << 16
 --- a read per body and a seek per padding. A read at least that big
 --- with nothing held goes straight through, and a skip past what is
 --- held goes to the underlying Reader's own skip.
-local record Buffered is Stream.Reader
+local record BufferedReader is Stream.Reader
   raw: Stream.Reader
   buf: string
   at: integer
-  read: function(Buffered, max_bytes?: integer): string | nil, string
-  skip: function(Buffered, n: integer): boolean, string
-  close: function(Buffered): boolean, string
+  read: function(BufferedReader, max_bytes?: integer): string | nil, string
+  skip: function(BufferedReader, n: integer): boolean, string
+  close: function(BufferedReader): boolean, string
 end
 
-local buffered_mt: metatable<Buffered> = { __index = Buffered }
+local buffered_reader_mt: metatable<BufferedReader> = { __index = BufferedReader }
 
-function Buffered:read(max_bytes?: integer): string | nil, string
+function BufferedReader:read(max_bytes?: integer): string | nil, string
   local buf, at = self.buf, self.at
   local avail = #buf - at + 1
   if avail <= 0 then
@@ -377,7 +377,7 @@ function Buffered:read(max_bytes?: integer): string | nil, string
   return buf:sub(at, at + n - 1), ""
 end
 
-function Buffered:skip(n: integer): boolean, string
+function BufferedReader:skip(n: integer): boolean, string
   local avail = #self.buf - self.at + 1
   if n <= avail then
     self.at = self.at + n
@@ -387,13 +387,13 @@ function Buffered:skip(n: integer): boolean, string
   return Stream.skip(self.raw, n - avail)
 end
 
-function Buffered:close(): boolean, string
+function BufferedReader:close(): boolean, string
   self.buf, self.at = "", 1
   return self.raw:close()
 end
 
-local function buffered(raw: Stream.Reader): Buffered
-  local b: Buffered = setmetatable({ raw = raw, buf = "", at = 1 }, buffered_mt)
+local function buffered(raw: Stream.Reader): BufferedReader
+  local b: BufferedReader = setmetatable({ raw = raw, buf = "", at = 1 }, buffered_reader_mt)
   return b
 end
 
@@ -404,7 +404,7 @@ local record EntryReader is Tar.Reader
   --- What the reader was given, which `close` closes, and what the
   --- headers and bodies are read through.
   raw: Stream.Reader
-  src: Buffered
+  src: BufferedReader
   pax_global: {string:string}
   ended: boolean
   closed: boolean
@@ -425,19 +425,19 @@ end
 local entry_reader_mt: metatable<EntryReader> = { __index = EntryReader }
 
 --- An entry's body: a Reader bounded to the entry's size.
-local record Body is Stream.Reader
+local record BodyReader is Stream.Reader
   state: EntryReader
   generation: integer
   left: integer
   failed: string
   closed: boolean
-  read: function(Body, max_bytes?: integer): string | nil, string
-  close: function(Body): boolean, string
+  read: function(BodyReader, max_bytes?: integer): string | nil, string
+  close: function(BodyReader): boolean, string
 end
 
-local body_mt: metatable<Body> = { __index = Body }
+local body_reader_mt: metatable<BodyReader> = { __index = BodyReader }
 
-function Body:read(max_bytes?: integer): string | nil, string
+function BodyReader:read(max_bytes?: integer): string | nil, string
   if self.failed then return nil, self.failed end
   if self.closed then return refuse("the entry body is closed") end
   local state = self.state
@@ -458,7 +458,7 @@ function Body:read(max_bytes?: integer): string | nil, string
   return chunk, ""
 end
 
-function Body:close(): boolean, string
+function BodyReader:close(): boolean, string
   self.closed = true
   return true, ""
 end
@@ -569,9 +569,9 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
         -- left off, silently -- refuse it.
         if r.opened then return refuse("entry already opened once") end
         r.opened = true
-        local body: Body = setmetatable({
+        local body: BodyReader = setmetatable({
           state = r, generation = r.generation, left = r.size, closed = false,
-        }, body_mt)
+        }, body_reader_mt)
         return body, ""
       end,
     },
