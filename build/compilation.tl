@@ -464,10 +464,12 @@ local function bytecode_of(code: string, name: string,
                            file: string): string | nil, string
   local chunk, load_trouble = load(code, "@" .. name, "t")
   if chunk == nil then
-    -- TODO: tl's checker passes what Lua 5.5 refuses only here: `global`,
-    -- which Lua reserves, as a local, parameter, field or method name
-    -- (the generator would write a key so named as `["global"]`, the
-    -- checker refuse the rest), and a `goto` into a local's scope.
+    -- TODO: tl's checker passes what Lua 5.5 refuses only here:
+    -- `global`, which Lua reserves, as a local, parameter, field or
+    -- method name; a `goto` into a local's scope; and `function f()`
+    -- over a `<const>` local or a for loop's control variable. The
+    -- generator would write a key named `global` as `["global"]`, and
+    -- the checker refuse the rest, as patch/tl/34 does an assignment.
     return nil, at_source_line(tostring(load_trouble), file)
   end
   local bytecode = string.dump(chunk, false)
