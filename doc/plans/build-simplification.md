@@ -288,7 +288,7 @@ pin and removing its adapter. Locations refer to that reviewed source snapshot.
 
 | Priority | Capability needed | Adapter or behavior it would replace | Pin TODO locations |
 | --- | --- | --- | --- |
-| 1 | Structured failure kinds from `Proc.find`, SQLite and `Http.download` | Distinguish missing/non-executable programs, `SQLITE_BUSY`, and digest mismatches without parsing diagnostic text. Three TODOs. | `build/zig.tl:283`, `build/zig.tl:804`, `build/zig_fetch.tl:286` |
+| 1 | Structured failure kinds from [`Proc.find`], SQLite and [`Http.download`] | Distinguish missing/non-executable programs, `SQLITE_BUSY`, and digest mismatches without parsing diagnostic text. Three TODOs. | `build/zig.tl:283`, `build/zig.tl:804`, `build/zig_fetch.tl:286` |
 | 1 | URL-neutral HTTP failure reasons | Let the fetcher add each mirror URL once without stripping a URL prefix from the returned reason. | `build/zig_fetch.tl:257` |
 | 2 | Guard signal origin (`siginfo.si_code`) | Distinguish a process-directed SIGINT from terminal delivery before re-raising a signal that was never passed to the child. | `build/zig.tl:637` |
 | 2 | Child output draining after cancellation | Preserve a child's final trap/report output after the guard catches a signal; replace CI fuzz's polling of an output file with a pipe. Current readers still consult the cancelled guard and can retain that failure. | `ci/cosmic_ci/fuzz.tl:211` |
@@ -296,7 +296,7 @@ pin and removing its adapter. Locations refer to that reviewed source snapshot.
 | 3 | Filesystem-wide `syncfs` or `sync` | Replace serial per-file fsyncs on a patched-tree cache miss while preserving durability before publication. | `build/patch.tl:272` |
 | 3 | Username lookup (`getpwnam`) and a suitable privilege-drop launch | Resolve names for a Teal `run-local`. `chown` and child UID/GID options already exist, but the latter require `unveil`; they cannot directly replace the unrestricted `setpriv`/`runuser` launch. A port must also provide that launch or deliberately redesign its sandbox. | `ci/run-local:2` |
 | 3 | `Fs.append` | Replace the CI image summary's local `O_APPEND` helper with a library operation. | `ci/cosmic_ci/images.tl:136` |
-| 3 | A `Test.needs` declaration for writable noexec scratch | Run the launcher's noexec case inside the test sandbox with a directory mounted noexec. | `ci/fixtures/launcher_noexec_test.tl:24` |
+| 3 | A [`Test.needs`] declaration for writable noexec scratch | Run the launcher's noexec case inside the test sandbox with a directory mounted noexec. | `ci/fixtures/launcher_noexec_test.tl:24` |
 
 Two related needs sit outside that eleven-TODO count: a cancellable SQLite busy
 wait (`build/rebuild_lock.tl:155`, alongside the priority-2 cancellation work),
@@ -792,3 +792,7 @@ compatibility retirements unblocked by the selected pin were completed; the
 API gaps above are explicitly the next phase, authorized by the user after
 reviewing that roadmap. No extra abstraction or test framework is planned
 without a concrete need. This reference PR remains draft and must never merge.
+
+[`Http.download`]: ../../cosmic/http.tl
+[`Proc.find`]: ../../cosmic/proc.tl
+[`Test.needs`]: ../../cosmic/test.tl

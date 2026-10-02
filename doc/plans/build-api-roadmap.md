@@ -136,9 +136,9 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 
 | Step | Implementation PR | State | Evidence |
 | --- | --- | --- | --- |
-| A1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| A2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
-| A3 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+| A1 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
+| A2 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
+| A3 | pending | implementing | Separate implementation and adversarial-review agents assigned; exact-tree approval and remote gates required |
 | A4 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | B2 | pending | planned | Independent design review completed; implementation and exact-tree review required |
@@ -153,3 +153,5 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C6 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
+
+- 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
