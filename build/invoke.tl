@@ -1,8 +1,8 @@
 --- Runs cosmic's command line in this process, for a test that would
 --- otherwise start the binary only to see what a verb prints and exits
---- with. A test that starts a process never stands (see [`build.test`]),
---- while one that runs the verb here is keyed by what the verb read, like
---- any other.
+--- with. This avoids a process start and keeps the verb's coverage in
+--- the caller's test. Either form can stand on its declared inputs
+--- ([`build.test`]); a process is needed where the isolation below demands it.
 ---
 --- The run is the binary's own: [`build.dispatch`]'s `main`, given the
 --- command line, in the directory asked for, with descriptors 1 and 2

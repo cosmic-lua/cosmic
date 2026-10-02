@@ -435,7 +435,7 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- Each fixed-point test rebuilds the product twice from a fresh tree, and
 -- the compiler's cases -- the compiler's own, its identity redefined, and
 -- that redefined with the fingerprint -- each compile the whole tree
--- about twice over (80 s alone on four cores; the sixth case, the last of
+-- about twice over (80 s alone on four cores; the combined case, the last of
 -- these, adds about 20 to 30 s to the fixture), so each runs apart from
 -- the self-rebuild file's.
 local fixed_point_test_timeout_ns <const> = Time.seconds(300)
@@ -1334,7 +1334,7 @@ local function phase_fixtures(p: PlatformContext): integer
     }); if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
-  -- (about 90 to 180 s: each of its six tests rebuilds the product twice
+  -- (about 90 to 180 s: each of its seven tests rebuilds the product twice
   -- from a fresh tree, and three compile the tree twice over), and what
   -- it checks, that the compiler compiles itself to itself, is the same
   -- on every platform. So a gating run runs it on one leg, and the

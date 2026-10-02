@@ -65,9 +65,10 @@ these argues with the principle, not with the reviewer.
    be half-enforced reports per section as `full`, `degraded`, or
    `skipped`, and the report is what a conformance cell observed, not
    what an ABI probe returned.
-7. **no network in a build; one external tool.** every input is in
-   the repository. the one thing a fresh clone needs is the pinned
-   zig.
+7. **pinned bootstrap seeds; offline builds once cached.** source
+   inputs are in the repository. a fresh clone acquires the cosmic
+   release and zig tarball their pins name, verifies their digests,
+   and caches them. the build needs no network once both are present.
 8. **docs are always right.** a disagreement between doc and code is
    fixed in the code, and every example runs or says why not. tests
    run because they are defined. gates end in a verdict line. an
@@ -128,8 +129,9 @@ kernel                               Linux; macOS
 the host language is C: Lua, SQLite, and the small libraries are the
 C they ship as. one pinned zig is the compiler and the build for the
 C core: `zig cc` cross-compiles all three targets from a Linux lane,
-and `build.zig` compiles the vendored C. `build.zig` is a source list
-and flags, nothing more, so a zig bump costs an hour.
+and `build.zig` owns the C build graph: source lists and flags, release
+and checked cores, the two links that embed the coverage map, static
+analysis, fixture programs, installation and the boot bridge.
 
 zig's bundled musl is the libc on Linux and its libSystem stubs are
 the link target on macOS. the zig pin is therefore the libc pin. a
@@ -543,30 +545,45 @@ inside the tree read the rest from `o/cosmic.db`, and a release has no
 use for them. a fresh clone and CI run `boot`; a
 developer runs `o/bin/cosmic build` the other hundred times a day.
 
+[`build.work`] stages inputs and manages the working database.
+[`build.identity`] defines input policy, fingerprints and semantic identities.
+[`build.derivation`] writes generated inputs and analysis rows;
+[`build.compilation`] defines compilation and acceptance. [`build.importer`]
+coordinates parses, compiles and cache lookups. its `compile_tree` owns the
+shared caches through derivation, identity selection and compilation; the caller
+controls the transaction and publication. [`build.writer`] publishes deterministic
+projections. reporting and cache placement stay outside the compiler's semantic
+closure so changes to them do not invalidate every compile.
+
 cosmic builds itself, so the tool is also an artifact of the tree,
 and a stale tool is the bug to design against. `boot` stores two
 fingerprints in the binary it produces: one over everything the tool
 is made of, one over what the C core is built from. every run in
-cosmic's own tree fingerprints the tree first. when only Teal
-differs, the tool rebuilds itself -- compiles the tree, projects the database,
-combines it with the exact retained portable prefix -- and writes and re-execs
-the logical path returned by [`Proc.executable()`], once, refusing a second round
-by name. rename and unlink remain supported because retained descriptors carry
-the running artifact. an externally copied tool is therefore rewritten at
-that copied logical path; a read-only logical path fails rather than silently
-redirecting the rebuild into the tree;
-when the C core's inputs differ, only zig can build it, so the tool
-runs `bin/zig build boot` and re-enters the command, or, under
-`COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries
-two identities: the compiler it is, over the build's own modules a compile or a parse runs to
-decide what it stores ([`build.identity`]'s `compiler_identity`), among
-them build.teal, which names the globals the checker is stripped of,
-and the Teal compiler's and Lua's pins and patches, which every module key
-carries; and the runtime it is, over its host image and the same
-pins, which every test verdict carries. the standard library the
-importer runs on is in neither, so an edit there reaches what
-imports it and nothing more. a row compiled by another compiler is
-never mistaken for this one's. a sandboxed test's key holds what the
+cosmic's own tree fingerprints the tree first. only the tree's own tool
+under `o/` rebuilds itself ([`build.reboot.own_tool`]); a stale release or
+an externally copied tool refuses with exit 3. when only Teal differs,
+the tree's tool compiles the tree, projects the database and combines it
+with the exact retained portable prefix before re-entering the command.
+retained descriptors keep the running artifact available across rename
+and unlink. when the C core's inputs differ, only zig can build it, so
+the tree's tool runs `bin/zig build boot` and re-enters, or, under
+`COSMIC_AUTO_BOOT=0`, refuses with exit 3.
+
+semantic identities keep different kinds of reuse separate. the compiler
+identity holds the modules that decide generated code, stored analysis and
+acceptance, plus the Teal compiler's and Lua's pins and patches
+([`build.identity.compiler_identity`]). module keys carry it; importer
+coordination, diagnostic presentation and general standard-library plumbing
+stay outside it. the analyzer identity keys stored parses and includes that
+compiler identity plus the analyzer modules' sources
+([`build.importer.analyzer_identity`]). the writer identity holds the code and
+core image that determine a projection's bytes, including its standard-library
+dependencies. the projection records which compiler and writer produced it so a
+self-rebuild can settle on its own code. the runtime basis holds the Teal and Lua
+pins and patches; startup combines it with the validated target, configuration
+and exact core digest to identify the running runtime. every test verdict holds
+that runtime identity. a row compiled by another compiler is never mistaken
+for this one's. a sandboxed test's key holds what the
 compiler made rather than its identity -- the bytecode and rows of
 the store of the test's import closure, and the harness's epoch,
 which a guard test holds to a digest per harness module of its source
@@ -598,6 +615,21 @@ named here: the earlier cosmic release [`ci/cosmic-driver.pin`] names,
 fetched and verified by the POSIX sh [`bin/cosmic-bootstrap`], and the
 zig tarball [`bin/zig.pin`] verifies. everything else is vendored or
 built from them.
+
+[`build/zig.tl`] and [`build/rebuild_lock.tl`] serialize rebuilds on the
+same lock file. they take flock first, then SQLite's transaction where
+the two lock kinds are independent. the SQLite half excludes older tools
+that take only that lock, including a checkout visited during a bisect.
+a child boot proceeds under its parent's handed lock only when the handoff
+names the same device and inode.
+
+[`build/patch.tl`] and [`build/zig_fetch.tl`] each use a persistent gate
+while sweeping scratch directories and creating a new wrapper with its
+owner file locked. the gate is released before patching or downloading;
+the owner lock remains held through publication and cleanup. a sweep
+removes a wrapper only after locking its existing owner file. wrappers
+without one and legacy PID-only directories are left alone. publication
+moves the payload alone, keeping ownership files out of the cached product.
 
 the target build architecture is fast, incremental, and reproducible.
 today a module whose key stands is read back from the working
@@ -650,8 +682,9 @@ that does run runs in a worker process of its own:
   -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. the
-  worker never opens a database; it reports what it read, what it hit, and
-  its verdict over a pipe, and the build process alone writes them. a test
+  worker reads its import closure's store, never the working build database.
+  it reports what it read, what it hit, and its verdict over a pipe; the
+  build process alone records those results in the working database. a test
   that exits, crashes, or hangs fails by itself, and on Linux the runner, a
   child subreaper, also ends what a dead worker's descendants left behind.
 - *reproducible*: the shipped database is a host-neutral projection of the
@@ -1051,7 +1084,15 @@ in [roadmap.md](roadmap.md).
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
+[`build.compilation`]: ../build/compilation.tl
+[`build.derivation`]: ../build/derivation.tl
+[`build.identity.compiler_identity`]: ../build/identity.tl
 [`build.identity`]: ../build/identity.tl
+[`build.importer.analyzer_identity`]: ../build/importer.tl
+[`build.importer`]: ../build/importer.tl
+[`build.reboot.own_tool`]: ../build/reboot.tl
+[`build.work`]: ../build/work.tl
+[`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler_test.tl`]: ../build/compiler_test.tl
@@ -1062,6 +1103,7 @@ in [roadmap.md](roadmap.md).
 [`build/key_parts.tl`]: ../build/key_parts.tl
 [`build/link_index.tl`]: ../build/link_index.tl
 [`build/patch.tl`]: ../build/patch.tl
+[`build/rebuild_lock.tl`]: ../build/rebuild_lock.tl
 [`build/refresh.tl`]: ../build/refresh.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
 [`build/test.tl`]: ../build/test.tl
@@ -1097,7 +1139,6 @@ in [roadmap.md](roadmap.md).
 [`cosmic.time`]: ../cosmic/time.tl
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
-[`Proc.executable()`]: ../cosmic/proc.tl
 [`schema.tables_digest`]: ../build/schema.tl
 [`Spec.tree`]: ../build/declared_key.tl
 [`Store.bytecode`]: ../cosmic/store.tl

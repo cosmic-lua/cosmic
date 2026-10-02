@@ -319,10 +319,6 @@ end
 ---   assertion's failure message and in the header comment; never
 ---   prefixed onto an error this function itself returns -- the caller
 ---   already does that for every module, doc-derived or not
--- TODO: confine what a doc's examples start (doc/guides start this
--- program and /bin/sh, so their verdicts never stand), once a generated
--- module can declare it where build.confine is out of
--- reach: another project's docs compile without cosmic's build/.
 --- @param prose the doc's prose ([`generate.prose`]), written first as
 ---   the module's own documentation; "" or absent for none
 function generate.from_blocks(blocks: {Block}, file: string, prose?: string): string | nil, string
@@ -378,7 +374,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
     -- Not `Fs`, which a doc's entry would choose for its own
     -- `require("cosmic.fs")`: declaring it again there would shadow this
     -- local. tl's warning for shadowing a local carries a source
-    -- position, so [`build.importer`]'s discount (which matches only the
+    -- position, so [`build.compilation`]'s discount (which matches only the
     -- message for the global `print`, see `__doctest_capture` below)
     -- would not drop it.
     out[#out + 1] = 'local __doctest_fs = require("cosmic.fs")'
@@ -449,7 +445,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   end
 
   -- Where each example opens in the doc, which `cosmic docs` shows in
-  -- place of this file's own lines ([`build.importer`]'s `origin_lines`).
+  -- place of this file's own lines ([`build.derivation`]'s `origin_lines`).
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then
