@@ -36,7 +36,7 @@ The execution ledger below is the sole status record.
 | C5 | Child credentials without a filesystem sandbox | C4 enables consumer; security-sensitive primitive |
 | C6 | Declared writable noexec scratch | Core mount support + harness declaration/keying |
 | C7 | Verified release and remaining consumers | C1/C2/C4–C6 published; C3 decision recorded; five post-B5 pin TODO sites across four groups, plus Context/Darwin consumers |
-| D1 | Final API/build audit and documentation | All selected production steps merged and explicit deferral decisions recorded |
+| D1 | pending | final documentation and audit in progress | Align narrow roadmap correction after actual C7 merge; two fresh same-candidate builds, cache/artifact/integrity/TODO audit and one actual-parent vendor materialization; separate exact-source/evidence review required |
 
 Preparation can overlap on disjoint files. Publish B steps serially against actual merged main. After B5's verified release and consumer migration merge, C1/C2/C4 may publish as three separately reviewed PRs from that same actual merged base. C2 shares no changed paths with the other two; C1/C4 touch separate Fs and Proc acknowledgment entries in the harness file, with no epoch change or API dependency. Preserve independent exact-tree reviews and every branch/queue gate, and review each cumulative queue candidate. Resolve and re-review any integration conflict before landing. Join after all three merge, then keep C5 and C6 serial. C3 retains its independent measurement decision; C7 retains the actual published-release barrier. This overlaps CI waiting without claiming faster builds or reduced runner work. If another sensible reviewed slice can land earlier, update this table before implementation; do not combine unrelated new C mechanisms merely to reduce PR count. Release waves avoid repeated pin churn while keeping each consumer transition reviewable.
 
@@ -183,7 +183,7 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | C4 | [#2582](https://github.com/cosmic-lua/cosmic/pull/2582) | merged | b5349e2c/tree02eed572; branch36984198489 and cumulative queue36984578014 green; exact approved union with C1; local full30 retained inherited Unix-socket EPERM/timeout |
 | C5 | [#2583](https://github.com/cosmic-lua/cosmic/pull/2583) | merged | actual0b111618/tree19b9b089; branch36988568683 and queue36989013309 all green; independently verified all eight privileged modes and database boundary on x86/ARM/Alpine |
 | C6 | [#2585](https://github.com/cosmic-lua/cosmic/pull/2585) | merged | c6e5966d/treeeec1975c; corrected branch37041482218 and full queue37041999545 green; all3380 native tests ran without skips on x86/ARM/Alpine and checked, including3 noexec cases; all8 credential proof modes passed on all3 Linux legs |
-| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | reviewed runtime handoff correction published; CI-gated auto-merge | 1ab64010/treee5356823 fixes actual cached-core EACCES with root-only scoped copy; independently19 runner tests, whole663/63 and formatting pass; pin unchanged and fresh native branch/queue proofs required |
+| C7 | [#2586](https://github.com/cosmic-lua/cosmic/pull/2586) | merged | 8f43b4d7/tree560056cc, parent1eb04d80; corrected branch37047803289 and queue37048258849 green; all3 Linux real root/credential/heldnoexec and Darwin flush/patch proofs verified; incoming four PRs preserved/reviewed |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
 - 2026-10-02 UTC: build series completed at `9ac37cba`; user authorized API execution. A1/A2/A3 are being prepared independently and will publish/merge serially. Incoming #2544 merged as `7f35550d`; preserve its max_bytes surface and harness acknowledgment during integration.
@@ -718,3 +718,28 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   clean cancellation. Exact changed-path TODO query finds only the retained
   state-pruning follow-up, now `ci/run_local.tl:112`; none added. Required
   native root success and branch/queue checks still gate automatic merge.
+
+- 2026-10-02 UTC: C7 merged at18:46:10UTC as `8f43b4d7`, exact
+  reviewed queue tree `560056cc`, parent `1eb04d80`. Corrected branch
+  `37047803289` and queue `37048258849` passed all required gates.
+  Linux x86/ARM/Alpine each ran all3397 native tests without skips and
+  passed all eight credential modes plus the real root-runner proof. Held
+  launcher-noexec fixtures actually ran on both architectures. Darwin ran
+  all3397 with only three expected Linux-only noexec skips, exercising full
+  flush and empty/nonempty patch publication; checked ran all3397 unskipped.
+  Incoming #2587 compiler hints, #2588 statistical gates, #2589 Fs/build
+  docs/acknowledgment and #2566 structural decoder are preserved. Two
+  independent reviews verified exact patch parity and compatible startup
+  selection/digest/length/inode semantics. Sixteen API production PRs merged.
+
+- 2026-10-02 UTC: D1 now audits a narrow documentation correction aligned
+  after actual C7 merge. Incoming patch/tl inputs make the older C6-to-C7
+  vendor receipt historical rather than final-input evidence. Independently
+  approved bounded adjustment: retain two fresh same-D1 source/build trees
+  and their cold/warm full manifests, plus one source-only checkout of actual
+  C7 first parent materialized cold with the identical verified C6 bootstrap.
+  Require unchanged vendor/patch inputs, compare complete keys/names/bytes/
+  modes against final A, and stop on unexpected input deltas. No parent
+  bootstrap build, warm repeat, broad API suite or new benchmark is needed.
+  Retain raw identities/manifests, treat timings as diagnostic and keep C3's
+  explicit deferral. Reference #2521 remains open/draft/unmerged/auto-off.
