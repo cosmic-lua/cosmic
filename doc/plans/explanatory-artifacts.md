@@ -424,8 +424,33 @@ unmeasured. This new experiment cannot retroactively erase the earlier finding.
 Current integration parent is `117d49cdc61746c6be375d399f2c92650d551c1b`.
 Local merge `f9d139b2fd7e113f84067baa8e8c745367b617b4` preserves the exact six-file
 decoder change without conflicts. Separate source review approves that merge;
-new correctness and performance validation are in progress. No new artifact
-timings have begun at this checkpoint.
+published as source-equivalent `99c4237815968ec5b893f9045b54bdbb22fc6f5d`.
+Correctness and performance gates now pass; the normal merge queue remains
+pending, so this is not yet a merged step.
+
+The renewed experiment completed once in 551.004 seconds. All 15 workloads
+passed the fixed gate and independent exact-rank recomputation over all 12,000
+retained observations and 180 warmups. Input/controller/source/runner hashes
+were unchanged; CPU 0 remained set; no descendants or invalidity remained.
+Two host-wide cgroup throttle events totaled 44.650 ms. Exclusive CPU ownership
+was not established. Candidate size grew 4,096 bytes, permitted by this plan.
+
+Selected results in milliseconds, candidate minus parent:
+
+| Workload | Paired median change [95% interval] | p95-change upper 95% bound | A/A median / tail resolution |
+| --- | --- | ---: | ---: |
+| Tool startup | -0.0370 [-0.0629, +0.0007] | +3.881 | 0.0489 / 1.452 |
+| Portable packaging | +0.2507 [-0.3970, +0.9387] | +19.305 | 0.8531 / 17.949 |
+| Reverse imports | +0.0473 [-0.0092, +0.1044] | +1.547 | 0.0859 / 4.072 |
+| Outgoing uses | +0.1150 [-0.0082, +0.2352] | +1.310 | 0.1585 / 2.275 |
+| Leaf edit | +1.1519 [-0.0996, +2.2317] | +28.250 | 1.0427 / 34.439 |
+
+Approval is no detected slowdown at these resolutions, not equivalence. Tail
+bounds are broad. Caches were warm and child supervision included; no cold-I/O
+or peak-RSS claim is made. Startup tails describe five-launch averages. The old
+positive startup interval belongs to a different parent/protocol and remains
+historical evidence; it was neither pooled with this run nor reclassified.
+Raw results remain local, as requested.
 
 ### 1. Structural artifact decoder independent of host selection
 
@@ -760,7 +785,7 @@ Reference PR: [#2556](https://github.com/cosmic-lua/cosmic/pull/2556); **draft, 
 | --- | --- | --- | --- |
 | 0 Baseline/harness | Merged | [#2563](https://github.com/cosmic-lua/cosmic/pull/2563), merge `c41d73db391fef74518ebb93e9cc05902e154ca2` | Separate code and raw-evidence reviews approved. Seven focused tests and 641-file whole-tree check pass. All push and merge-queue CI legs pass. Initial 14/15 readings pass; predeclared 100-pair packaging follow-up resolves the remaining uncertainty. Local full suite timed out during preparation; remote CI provides full correctness gate. |
 | 0.5 Runtime VFS capability | Merged | [#2572](https://github.com/cosmic-lua/cosmic/pull/2572), merge `eb8ea8ccc04b00ab8d4f6909cfe04a4de3426fa7` | Reproduced on pinned release and in a held sandboxed worker. Separate adversarial review: no blocking findings; comment/doc suggestions applied. Full suite 3,299 tests pass; `fix --check .`, sanitized build, `ci/run-local` (all stages incl. fixtures) and all push/merge-queue CI pass. `bin/perf` vs parent `5805988`: 15/17 pass at 30 pairs; `exact_docs` and `embed_host` inconclusive on tails only, both pass in predeclared 100-pair reruns. One run with a mistyped parent commit discarded before review. Raw evidence kept locally, not published. No new TODOs. |
-| 1 Structural decoder | Draft; performance blocks merge | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), head `40203127ca9f7ee4668eceb8e85bdec2cc11a9d6` | Independent code review approved local `1c091ee` (identical tree). All required push CI passed, including checked/Linux/macOS legs. Published summaries preserve the fifteen-workload measurements, five follow-ups and final eight-invocation pinned crossover round; unpublished raw files expired with the old scratch environment. Startup's cumulative paired median remains +0.036 ms, interval [+0.018, +0.051] ms; calibration/tail/noise issues also remain. The predeclared protocol stopped unresolved. No auto-merge or further discretionary local reruns. No VFS, store authority or new artifact-access changes. |
+| 1 Structural decoder | Reviewed; merge queue pending | [#2566](https://github.com/cosmic-lua/cosmic/pull/2566), head `99c4237815968ec5b893f9045b54bdbb22fc6f5d`, parent `117d49cdc61746c6be375d399f2c92650d551c1b` | Conflict-free integration preserves the six-file decoder change; separate source review approves. Fresh boots, native/production format fixtures, release and checked focused tests, sanitizer/analyzer, 661-file whole-tree and 59-file CI checks pass. Local full suite timed out with diagnosed host restrictions; normal CI driver chown was refused. All required exact-head remote CI passes. Frozen 200-pair experiment passed all 15 workloads; independent review verified 12,000 observations plus 180 warmups and recomputed every statistic. Current results and limits below; older positive intervals remain historical evidence. No new TODOs. |
 | 0.6 Performance inference | Merged | [#2588](https://github.com/cosmic-lua/cosmic/pull/2588), merge `117d49cdc61746c6be375d399f2c92650d551c1b` | Independent statistical/source review approved identical local tree `ee1493a4`. All 42 configurations / 210,000 frozen simulation trials met criteria: supported null passes 93.16–94.24%, minimum interval coverage 95.50%, strong location block 100%, doubled tail block 95.08%. Thirteen focused tests and 660-file check pass. Prescribed local full suite timed out with host failures; the three opaque assertions were diagnosed identically on parent/candidate as denied socket sends and confined compiler starts. All required push and merge-queue CI passed. Core bytes unchanged against the PR parent; database +16 KiB. Small noisy shifts retain limited detection power. Historical step-1 finding remains open. |
 | 2 Artifact handles | Pending | — | VFS prerequisite reviewed and complete; add direct host-format reopening-denial coverage. |
 | 3 Schema/reader contract | Pending; split below | — | Original acceptance remains open until 3c. |
