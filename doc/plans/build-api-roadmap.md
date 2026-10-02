@@ -170,19 +170,19 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
 | A2 | [#2546](https://github.com/cosmic-lua/cosmic/pull/2546) | merged | 143b9926; reviewed tree f1a68e18; branch 36956411363 and queue 36956779031 green |
 | A3 | [#2550](https://github.com/cosmic-lua/cosmic/pull/2550) | merged | b951ab95/tree02802767; incoming Stream retained; branch 36957749478 and queue 36957951958 green |
 | A4 | [#2552](https://github.com/cosmic-lua/cosmic/pull/2552) | merged | 3511e6cd/tree0c00b3b3; branch36959640308 and queue36959944853 green; verified release and four consumer migrations complete |
-| B1 | included in B2a | scope corrected by independent review | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
-| B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | CI running | 20569b76/tree5fd49ed6; exact reviewed patch on actual A4; incoming acknowledgments retained; auto-merge enabled; epoch13 |
-| B2b | pending | locally approved on A4/B2a | 3a2a6c6e/tree3ed45698; incoming #2551 preserved; 124 related and 45 independent integration tests passed; epoch14 |
+| B1 | included in #2554 | completed as policy correction | Recipient scope cannot be inferred; preserve behavior and explain policy, no speculative public API |
+| B2a | [#2554](https://github.com/cosmic-lua/cosmic/pull/2554) | merged | 8e4a8992/treeecc23d74; branch36961017020 and queue36961286634 green; incoming #2548/#2553 preserved; epoch13 |
+| B2b | [#2559](https://github.com/cosmic-lua/cosmic/pull/2559) | CI running | fd834a8e/tree668c3b95; reviewed on actual B2a with incoming #2548/#2553 intact; auto-merge enabled; epoch14 |
 | B3 | pending | locally approved on A4/B2b | 7aa69c15/tree2093cb5d; 90 native, 53 checked and 17 independent integration cases pass; only the combined SQLite acknowledgment changed |
 | B4a | pending | locally approved | 6d1d3232/tree9f54b268; native/checked lifetime and default compatibility reviewed; special SQLite paths retain their existing behavior |
-| B4b | pending | local preparation | Command follows B4a; conservative file retention, format ownership and independent dispatch |
+| B4b | pending | locally approved; integration review | 79d84149/tree35024802; independent native45/checked22, analyzer, bare-dispatch and conservative save-readiness review pass |
 | B5 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | C1 | pending | locally approved | 668ef813/treed5981b64; independent native/checked allocation and concurrency review passed; publication after B5 |
 | C2 | pending | locally approved | 6345c513/tree789e747a; independent native/checked review passed; actual Darwin execution remains a CI gate |
 | C3 | pending | measurement-gated; API held | Overlay benchmark found no demonstrated benefit; prepare a small disk-backed CI diagnostic before deciding whether the API/consumer should ship |
 | C4 | pending | locally approved | 73ae44e0/tree1a99265a; independent native/checked allocation, bounded growth and account-service failure review passed; publication after B5 |
-| C5 | pending | exact-candidate review pending | 08a1d96c/treea28a267e; local native/checked/analyzer checks pass; actual privileged CI proof required |
-| C6 | pending | local preparation | Private noexec tmpfs and declaration/keying design reviewed; native sandbox CI proof required |
+| C5 | pending | locally approved | 08a1d96c/treea28a267e; independent native61/checked15 and analyzer checks pass; actual privileged CI proof required |
+| C6 | pending | locally approved | 42823b63/tree7c4ad967; independent native150/checked14 and harness9 pass with three honest mount skips; native Linux proof and fresh combined epoch required |
 | C7 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 | D1 | pending | planned | Independent design review completed; implementation and exact-tree review required |
 
@@ -334,3 +334,36 @@ PR #2543's codec and Stream.transform changes are already included in 9ac37cba. 
   deleting a snapshot. Fuzz capture uses bounded pipe draining, preserves known
   child status and saved bytes on output failure, and never replays a chunk
   partly delivered to its sinks.
+
+- 2026-10-02 UTC: B2a merged as `8e4a8992`/`ecc23d74` after every required
+  branch (`36961017020`) and queue (`36961286634`) check passed. B2b proceeds
+  onto that actual parent.
+- 2026-10-02 UTC: C5 and C6 exact local candidates are independently
+  approved. C5's native/checked tests cannot establish a privileged transition
+  on this host; its narrow root fixture must pass in CI. C6's three actual mount
+  tests are honestly skipped here and must execute under held Linux CI. C6's
+  temporary epoch is replaced during integration after B2/C5, preserving all
+  incoming analyzer metadata. C5 adds one explicit TODO at `core/syscalls.c:2722`
+  for the pre-existing unchecked namespace-drop dumpability restoration and
+  required ownership-preserving cleanup; its new ordinary credential path
+  checks restoration and cleanup now.
+
+- 2026-10-02 UTC: B2b published as #2559 at `fd834a8e`, exact independently
+  reviewed tree `668c3b95`, based on actual B2a merge `8e4a8992`. Both original
+  patches are unchanged and all 27 incoming #2548/#2553 files are preserved.
+  Final nine harness checks passed; auto-merge waits for required branch and
+  queue CI.
+- 2026-10-02 UTC: B4b candidate `79d84149`/`35024802` is independently
+  approved. Real cancellation returns incomplete JSON/exit1 cooperatively;
+  mixed healthy/unreadable sets suppress aggregate outputs. A 64.5-MiB,
+  1,024-row cache trim/vacuum/digest took 0.531 s with 16,244 KiB peak RSS;
+  absent-cache startup ranged 9.58–23.15 ms across five runs. These describe
+  this host, not a cross-host speedup. One new TODO at
+  `build/cache_maintenance.tl:245` retains unreadable caches until typed SQLite
+  open/prepare/step failures can justify automatic corruption retirement.
+- 2026-10-02 UTC: C7's consumer design is independently approved. Keep the
+  existing Git, POSIX checksum and symlink-safe recursive ownership boundary;
+  use the pin for the standalone launcher and the checkout tool for phases.
+  Schedule noexec fixtures explicitly on Linux because current CI phase
+  records cannot represent a skipped fixture; retain ordinary native macOS
+  coverage. This does not change the harness's honest unsupported-host skips.
