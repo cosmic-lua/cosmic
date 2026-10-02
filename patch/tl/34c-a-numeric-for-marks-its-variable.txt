@@ -1,0 +1,8 @@
+file: tl.tl
+note: a numeric for's variable is its control variable, which Lua 5.5 makes read-only
+--- find
+            self:add_var(node.var, node.var.tk, a_type(node.var, typename, {}))
+--- replace
+            local var = self:add_var(node.var, node.var.tk, a_type(node.var, typename, {}))
+            var.is_loop_control = true
+--- end
