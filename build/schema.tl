@@ -1,15 +1,12 @@
 --- The shape of a cosmic database, in one place.
 ---
---- Every ordinary table is WITHOUT ROWID on a natural key, so insertion
---- order cannot reach the bytes and two builds of one tree produce one
---- file. `docs`, `catalog` and `examples` are the exceptions: FTS5's
---- external-content mode needs a real rowid to join against, so each
---- is keyed on one instead -- ordinary INSERTs still run in one
---- deterministic order (see [`build/writer.tl`]), which is what keeps the
---- file byte-identical, not the rowid's absence. `ca_roots` and
---- `zoneinfo` are ones too, for their size: a WITHOUT ROWID row lives in
---- an index page, where a blob past about a kilobyte spills into
---- overflow pages of its own; see below. Each is written in key order.
+--- Tables use natural keys, with WITHOUT ROWID for narrow rows. The
+--- producers insert every table in a deterministic order, including the
+--- rowid tables: `docs`, `catalog` and `examples`, which FTS5 joins by
+--- rowid; `ca_roots` and `zoneinfo`, whose blobs fit table pages better;
+--- and `modules`, whose separate path index keeps name lookups from
+--- reading other modules' overflow pages. A rowid is never an identity
+--- a reader may keep across builds.
 
 local record schema
 end
@@ -27,14 +24,17 @@ local tables: {{string}} = {
   -- is stored raw-deflated (`deflate(X)`, [`build.writer`]), as is a
   -- declaration's: only an uncaught error's line and [`Store.source`]
   -- read it, and it is most of what a module's row weighs.
-  { "modules", [[(path TEXT PRIMARY KEY,
+  -- A WITHOUT ROWID lookup compares wide records and can read their
+  -- overflow chains even when only the path is needed. A separate
+  -- narrow primary-key index keeps unrelated bytecode out of a require.
+  { "modules", [[(path TEXT PRIMARY KEY NOT NULL,
                   file TEXT NOT NULL,
                   kind TEXT NOT NULL,
                   source_hash BLOB NOT NULL,
                   key BLOB NOT NULL,
                   bytecode BLOB NOT NULL,
                   tests TEXT NOT NULL,
-                  source BLOB NOT NULL) WITHOUT ROWID]] },
+                  source BLOB NOT NULL)]] },
 
   { "imports", [[(path TEXT NOT NULL,
                   requires TEXT NOT NULL,
@@ -135,7 +135,7 @@ local tables: {{string}} = {
 
   -- The CA roots the binary trusts ([`build.roots`]), one DER
   -- certificate a row: filled and carried as the bill of materials is.
-  -- A rowid table, unlike the rest: a row of a WITHOUT ROWID table
+  -- A rowid table: a row of a WITHOUT ROWID table
   -- past about a thousand bytes spills onto an overflow page of its
   -- own, which would more than double this one's size. Rows go in in
   -- `sha256` order, which keeps the file the same on every build, and
