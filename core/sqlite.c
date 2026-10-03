@@ -99,7 +99,10 @@ static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
     const char *reason = db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
     size_t size = strlen(reason) + 1;
     out->message->resource = cosmic_malloc(size);
-    if (out->message->resource == NULL) luaL_error(L, "not enough memory");
+    if (out->message->resource == NULL) {
+      luaL_error(L, "not enough memory");
+      return;
+    }
     memcpy(out->message->resource, reason, size);
   }
 }
