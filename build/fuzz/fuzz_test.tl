@@ -531,7 +531,9 @@ local function test_nested_budget_exhaustion_cannot_be_swallowed()
     gen = any_bytes,
     check = function(_input: string): boolean, string
       local _ = pcall(Fuzz.replay, { name = "inner budget",
-        check = function(_s: string): boolean, string while true do end end }, "")
+        check = function(_s: string): boolean, string
+          while true do end
+        end }, "")
       return true, ""
     end })
   assert(err:find("spent its budget of 100000 VM instructions", 1, true), err)

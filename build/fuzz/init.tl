@@ -436,7 +436,9 @@ local function run(p: Fuzz.Property): integer
       local other_count = 0
       local others: {string} = {}
       local function remember(candidate: string, result: Outcome)
-        if result.held or result.identity == outcome.identity or secondary[result.identity] then return end
+        if result.held or result.identity == outcome.identity or secondary[result.identity] then
+          return
+        end
         if other_count >= 4 then return end
         secondary[result.identity] = true
         other_count = other_count + 1
