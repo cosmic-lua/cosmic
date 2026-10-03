@@ -166,17 +166,17 @@ end
 
 --- `argv` as zig gets it: `build` gains its flags ahead of the caller's
 --- own arguments, installing under `root/o`, with zig's project cache at
---- `project` and its global cache at `shared`, and running [`build_jobs`]
---- steps at once for `cpus` processors unless the caller passes `-j`;
---- anything else passes through unchanged.
-function Zig.build_args(root: string, project: string, shared: string,
+--- `project`, and running [`build_jobs`] steps at once for `cpus`
+--- processors unless the caller passes `-j`; anything else passes
+--- through unchanged. `zig build` takes no flag for its global cache,
+--- only ZIG_GLOBAL_CACHE_DIR ([`Zig.build_environment`]).
+function Zig.build_args(root: string, project: string,
     argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
       "--cache-dir", project,
-      "--global-cache-dir", shared,
       "--prefix", root .. "/o",
     }
     for _, define in ipairs(defines or {}) do
@@ -410,6 +410,17 @@ function Zig.passthrough_environment(root: string,
   if (out.ZIG_LOCAL_CACHE_DIR or "") == "" then
     out.ZIG_LOCAL_CACHE_DIR = Zig.project_cache(root, environment)
   end
+  return out
+end
+
+--- The environment `zig build` runs in: `environment`, with
+--- ZIG_GLOBAL_CACHE_DIR `shared` whatever the caller set, so every
+--- build of every checkout shares it.
+function Zig.build_environment(shared: string,
+                               environment: {string:string}): {string:string}
+  local out: {string:string} = {}
+  for name, value in pairs(environment) do out[name] = value end
+  out.ZIG_GLOBAL_CACHE_DIR = shared
   return out
 end
 
@@ -898,7 +909,8 @@ function Zig.main(argv: {integer:string}): integer
     -- The vendored trees are patched once the snapshot is taken, so a
     -- vendored file edited while they are is caught as any source is.
     local function build(env?: {string:string}): integer
-      return watched_build(root, env, function(): {string} | nil
+      local zig_env = Zig.build_environment(Zig.global_cache(root), env or Env.all())
+      return watched_build(root, zig_env, function(): {string} | nil
         local manifest, patch_trouble = patch(root, Zig.project_cache(root))
         if manifest == nil then
           log:complain(patch_trouble)
@@ -906,7 +918,7 @@ function Zig.main(argv: {integer:string}): integer
         end
         local build_argv: {string} = { program }
         for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
-            Zig.global_cache(root), given, Proc.cpu_count(),
+            given, Proc.cpu_count(),
             { "-Dpatched=" .. manifest })) do
           build_argv[#build_argv + 1] = a
         end
@@ -919,8 +931,7 @@ function Zig.main(argv: {integer:string}): integer
     return build()
   end
   local exec_argv: {string} = { zig }
-  for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
-      Zig.global_cache(root), given,
+  for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root), given,
       Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a
   end

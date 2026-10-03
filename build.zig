@@ -149,7 +149,7 @@ const own_warnings = [_][]const u8{
 /// (COSMIC_ZIG_CACHE_SEED); a checkout's own `o/zig-cache` names that
 /// checkout, as run-local's does.
 // TODO: compile musl's debug information with `.` for its directory,
-// or strip it alone, once zig's libc build takes our flags (zig 0.16
+// or strip it alone, once zig's libc build takes our flags (zig 0.17
 // builds it in the global cache with none of ours, keyed without the
 // cwd): each musl unit names the tree root of whichever checkout first
 // built libc into zig-global, so the checked core's bytes are not the
@@ -500,7 +500,7 @@ const Own = struct {
     fn init(b: *std.Build) *Own {
         const io = b.graph.io;
         var names: std.ArrayList([]const u8) = .empty;
-        var dir = b.build_root.handle.openDir(io, "core", .{ .iterate = true }) catch |err| {
+        var dir = b.root.openDir(io, "core", .{ .iterate = true }) catch |err| {
             std.debug.print("build.zig: cannot open core/: {s}\n", .{@errorName(err)});
             std.process.exit(1);
         };
@@ -646,7 +646,7 @@ pub fn build(b: *std.Build) void {
         own,
         "format-test-native",
         baselineHostTarget(b),
-        .Debug,
+        .debug,
         null,
     );
     installFixture(
@@ -666,7 +666,7 @@ pub fn build(b: *std.Build) void {
             own,
             b.fmt("format-test-{s}", .{t.name}),
             resolved,
-            .ReleaseFast,
+            .fast,
             t,
         );
         installFixture(
@@ -719,7 +719,7 @@ pub fn build(b: *std.Build) void {
         .name = "strnlen-check",
         .root_module = b.createModule(.{
             .target = baselineHostTarget(b),
-            .optimize = .ReleaseFast,
+            .optimize = .fast,
             .link_libc = true,
         }),
     });
@@ -731,7 +731,7 @@ pub fn build(b: *std.Build) void {
         .name = "environment-check",
         .root_module = b.createModule(.{
             .target = baselineHostTarget(b),
-            .optimize = .ReleaseSafe,
+            .optimize = .safe,
             .link_libc = true,
         }),
     });
@@ -749,7 +749,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("core/coverage_map.zig"),
             .target = baselineHostTarget(b),
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
@@ -855,7 +855,10 @@ pub fn build(b: *std.Build) void {
     checked_boot.addDirectoryArg(tl);
     checked_boot.addArg(checked_target.name);
     checked_boot.addFileArg(target_records);
-    checked_boot.addArg(b.getInstallPath(.prefix, "sanitized"));
+    checked_boot.addDirectoryArg2(
+        .{ .relative = .{ .base = .install_prefix, .sub_path = "sanitized" } },
+        .{ .make_absolute = true },
+    );
     checked_boot.addFileArg(checked.getEmittedBin());
     checked_boot.addFileArg(checked_records);
     checked_boot.step.dependOn(cores);
@@ -909,7 +912,7 @@ fn formatDecoder(
     own: *Own,
     name: []const u8,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     target_record: ?Target,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
@@ -919,7 +922,7 @@ fn formatDecoder(
         // Stripped like [`core()`] so a target build reuses the musl libc
         // `cores` already built; see [`launcherHelper()`]. The native Debug
         // decoder keeps its symbols.
-        .strip = optimize != .Debug,
+        .strip = optimize != .debug,
     });
     own.add(mod, &.{ "core/portable.c", "test/portable/format_test.c" }, &own_c);
     mod.addIncludePath(own.include());
@@ -950,7 +953,7 @@ fn launcherHelper(
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
-        .optimize = .ReleaseFast,
+        .optimize = .fast,
         .link_libc = true,
         // Matching [`core()`]'s strip setting keeps this module's musl libc
         // build cache-compatible with the one `cores` already built for
@@ -1488,8 +1491,8 @@ fn ownCoreFiles(b: *std.Build, configuration: Configuration, portable_startup_te
     return paths.items;
 }
 
-fn coreOptimize(configuration: Configuration) std.builtin.OptimizeMode {
-    return if (configuration.sanitize) .ReleaseSafe else .ReleaseFast;
+fn coreOptimize(configuration: Configuration) std.lang.Optimize {
+    return if (configuration.sanitize) .safe else .fast;
 }
 
 fn core(

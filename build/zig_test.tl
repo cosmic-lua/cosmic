@@ -63,14 +63,13 @@ local function test_host_agrees_with_the_running_host()
 end
 
 local function test_build_args_adds_cache_flags_only_for_build()
-  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "build", "-Doptimize=ReleaseFast" }, 4)
-  assert(#got == 9)
+  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-Doptimize=ReleaseFast" }, 4)
+  assert(#got == 7)
   assert(got[1] == "build")
   assert(got[2] == "--cache-dir" and got[3] == "/cache/zig-project")
-  assert(got[4] == "--global-cache-dir" and got[5] == "/cache/zig-global")
-  assert(got[6] == "--prefix" and got[7] == "/repo/o")
-  assert(got[8] == "-j8")
-  assert(got[9] == "-Doptimize=ReleaseFast")
+  assert(got[4] == "--prefix" and got[5] == "/repo/o")
+  assert(got[6] == "-j8")
+  assert(got[7] == "-Doptimize=ReleaseFast")
 end
 
 -- Twice the processors, at least 8: under zig's default the three targets'
@@ -79,18 +78,18 @@ local function test_build_args_run_steps_past_the_processor_count()
   assert(Zig.build_jobs(1) == 8)
   assert(Zig.build_jobs(4) == 8)
   assert(Zig.build_jobs(16) == 32)
-  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "build", "boot" }, 16)
-  assert(got[8] == "-j32" and got[9] == "boot")
+  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "boot" }, 16)
+  assert(got[6] == "-j32" and got[7] == "boot")
 end
 
 local function test_build_args_keep_the_callers_jobs()
-  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "build", "-j2", "boot" }, 16)
-  assert(#got == 9)
-  assert(got[8] == "-j2" and got[9] == "boot")
+  local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-j2", "boot" }, 16)
+  assert(#got == 7)
+  assert(got[6] == "-j2" and got[7] == "boot")
 end
 
 local function test_build_args_passes_other_subcommands_through()
-  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "version" }, 4)
+  local got = Zig.build_args("/repo", "/cache/zig-project", { "version" }, 4)
   assert(#got == 1 and got[1] == "version")
 end
 
@@ -104,6 +103,13 @@ local function test_other_subcommands_use_the_build_s_caches()
   local kept = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", ZIG_GLOBAL_CACHE_DIR = "/mine" })
   assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p")
+end
+
+--- `zig build` finds its global cache only in the environment, and
+--- uses the shared one whatever the caller named.
+local function test_build_names_its_global_cache_in_the_environment()
+  local got = Zig.build_environment("/g", { ZIG_GLOBAL_CACHE_DIR = "/mine", PATH = "/bin" })
+  assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.PATH == "/bin")
 end
 
 -- The global cache is shared: named outright, else in this user's cache
