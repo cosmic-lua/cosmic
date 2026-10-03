@@ -1,0 +1,8 @@
+file: tl.tl
+note: the standard `type` gets a special-function handler, as `error` has (24b), so 36d can see a call to it
+--- find
+      set_special_function(stdlib_globals["error"].t, "error")
+--- replace
+      set_special_function(stdlib_globals["error"].t, "error")
+      set_special_function(stdlib_globals["type"].t, "type")
+--- end

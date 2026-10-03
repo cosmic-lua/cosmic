@@ -1,0 +1,12 @@
+file: tl.tl
+note: `type` joins the names a special-function handler may carry, so 36c can give the standard `type` one
+--- find
+local enum SpecialFunctionName
+   "assert"
+   "error"
+--- replace
+local enum SpecialFunctionName
+   "assert"
+   "error"
+   "type"
+--- end
