@@ -103,11 +103,11 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
-  ["build.shared_sqlite"] = "59af0c02d7e7d5360b32af0dd1c188ba9dbf91d949561fc8c2df59106fecef73",
+  ["build.shared_sqlite"] = "e252145787655cec0a42a689236fffbabd5da03f12a676a8ce41f1586476efb5",
 
-  ["build.shared_verdicts"] = "e08916e384e936cb26ef897ac47a38c882a779e706d3b6e5cc1bc03b8e673d48",
+  ["build.shared_verdicts"] = "516c08e34d1fc392de5363af92b6d669344fc3c8b504c469ae3771a424d0db6b",
 
-  ["build.test"] = "d4597c35f7c7d5b5106b3c596d5502a629374eb1b7e604095fab04fdb515330c",
+  ["build.test"] = "a313d7be1617c1e4fe2d0d81fcb3b2a4cfc5c701d5451df6f87709f4fee21014",
 
   ["build.test_inputs"] = "cee341ade84428b0370c66cab7185f333acfbb57a57bf5842e52ed174f5e7ed1",
 
@@ -131,7 +131,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
 
-  ["cosmic.sqlite"] = "5efd53d5b270770283e891624f58a0fdc035b90da73a85617f49ad46ac13460c",
+  ["cosmic.sqlite"] = "ac3fd16dd89251feaee572e4e4b1d29257037afeca3b5c9b141557f2ce732390",
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
@@ -160,7 +160,7 @@ harness_epoch.library = {
   ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
     "it: the launcher's template (`build.launcher`), the runtime identity " ..
     "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
-    "header (`build.artifact`), cache set-aside names (`build.shared_sqlite`) and " ..
+    "header (`build.artifact`) and " ..
     "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",

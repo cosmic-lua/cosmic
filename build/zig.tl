@@ -175,12 +175,25 @@ end
 --- than quietly configure again on every build (it calls `findProgram`,
 --- say). A read build.zig does not declare, it cannot catch: build.zig
 --- declares each (`dependOn*`).
+---
+--- `--build-file` names build.zig by its absolute path, though zig would
+--- find it in the working directory: a build root found there has no path
+--- in zig 0.17 (compiler/Maker.zig's `findBuildRoot`), so its cache
+--- (std/Build/Cache.zig's `resolveAppendPath`) keys every file of the tree
+--- by its absolute path rather than by its path under the root, and a
+--- checkout elsewhere (CI's Linux legs move the tree with every commit,
+--- .github/scripts/place-tree.sh) misses each step that copies one,
+--- with every compile that reads the copy: the three vendored libraries'
+--- among them, about 100 s.
+--- TODO: drop `--build-file` once zig keys a build root found in the
+--- working directory by its path.
 function Zig.build_args(root: string, project: string,
                         argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
+      "--build-file", root .. "/build.zig",
       "--cache-dir", project,
       "--prefix", root .. "/o",
       "--cache-poison=disallowed",
@@ -710,7 +723,9 @@ end
 --- [`build/patch.tl`] does, into `project`'s `cosmic-vendor` directory, by
 --- running that script on this same binary standalone; and the manifest
 --- it prints, naming each tree's directory, to `root/o/patched.tsv`,
---- which build.zig reads (`-Dpatched=`). Answers the manifest's path.
+--- which build.zig reads (`-Dpatched=`). Answers the manifest's path
+--- under `root`: a `-D` option keys zig's configuration, which an
+--- absolute path would move with the checkout.
 --- build.zig compiles every vendored file from these directories, each
 --- named by its contents, so its path is the same from every checkout.
 local function patch(root: string, project: string): string | nil, string
@@ -726,8 +741,8 @@ local function patch(root: string, project: string): string | nil, string
   if not made then
     return nil, made_trouble
   end
-  local manifest = root .. "/o/patched.tsv"
-  local written, write_trouble = Fs.write(manifest, result.stdout or "")
+  local manifest = "o/patched.tsv"
+  local written, write_trouble = Fs.write(root .. "/" .. manifest, result.stdout or "")
   if not written then
     return nil, write_trouble
   end

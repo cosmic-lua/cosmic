@@ -104,4 +104,24 @@ function Example.version()
   assert(Sqlite.version:match("^3%.%d+%.%d+$") ~= nil, Sqlite.version)
 end
 
+--- Codes describe an operation; its reason is for a person. A SQL error
+--- such as malformed JSON says nothing about the health of the database.
+function Example.captured_results()
+  local opened = Sqlite.open_result(":memory:", { writable = true })
+  local db = assert(opened.handle, opened.reason)
+  local created = Sqlite.run_result(db, "CREATE TABLE notes (body TEXT)")
+  assert(created.code == Sqlite.OK, created.reason)
+  local inserted = Sqlite.run_result(db, "INSERT INTO notes VALUES (?1)", { { text = "hello" } })
+  assert(inserted.code == Sqlite.OK, inserted.reason)
+  local cells = Sqlite.rows_result(db, "SELECT count(*) FROM notes")
+  assert(cells.code == Sqlite.OK and cells.rows[1][1].integer == 1, cells.reason)
+  local texts = Sqlite.text_rows_result(db, "SELECT body FROM notes")
+  assert(texts.code == Sqlite.OK and texts.rows[1][1] == "hello", texts.reason)
+  local invalid = Sqlite.rows_result(db, "SELECT json('invalid')")
+  assert(invalid.rows == nil and invalid.code ~= Sqlite.OK)
+  assert(invalid.code ~= Sqlite.CORRUPT and invalid.code ~= Sqlite.NOTADB)
+  assert(invalid.code ~= Sqlite.BUSY and invalid.code ~= Sqlite.LOCKED)
+  assert(db:close())
+end
+
 return Example

@@ -198,15 +198,21 @@ local function test_a_broken_cache_never_fails_a_build(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cache"))
   assert(Fs.write(path, string.rep("not a database\n", 512)))
   assert(Fs.chmod(path, 0x180))
-  checkout(tmp .. "/first")
-  local first = built(tmp .. "/first", env, "(3 compiled, 0 cached;")
-  assert(first:find("shared compiles: ", 1, true) and first:find("moved aside", 1, true), first)
-  -- Moved aside, it is made again by the next build, and shared.
-  checkout(tmp .. "/second")
-  local second = built(tmp .. "/second", env, "(3 compiled, 0 cached;")
-  assert(not second:find("shared compiles: ", 1, true), second)
-  checkout(tmp .. "/third")
-  built(tmp .. "/third", env, "(0 compiled, 3 cached, 3 of them taken from another checkout;")
+  local before = assert(Fs.stat(path))
+  local bytes = assert(Fs.read(path))
+  local sibling = path .. ".corrupt-older"
+  assert(Fs.write(sibling, "earlier evidence"))
+  for _, name in ipairs({ "first", "second" }) do
+    checkout(tmp .. "/" .. name)
+    local output = built(tmp .. "/" .. name, env, "(3 compiled, 0 cached;")
+    local _, complaints = output:gsub("shared compiles: ", "")
+    assert(complaints == 1 and output:find("building without them", 1, true), output)
+    assert(not output:find("moved aside", 1, true), output)
+    local after = assert(Fs.stat(path))
+    assert(after.ino == before.ino and after.dev == before.dev)
+    assert(Fs.read(path) == bytes and Fs.read(sibling) == "earlier evidence")
+    assert(#assert(Fs.list(Fs.dirname(path))) == 2, "a cache was renamed or replaced")
+  end
 end
 
 --- A row that does not decode to what its digest says is a miss: the

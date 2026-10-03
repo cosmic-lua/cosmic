@@ -3,10 +3,10 @@
 --- another checkout of the same content, at another path with its own
 --- o/, through the cache `COSMIC_VERDICT_CACHE` names, by its declared
 --- key (build/declared_key.tl), while a changed file or variable its
---- module declares, or `--all`, runs it again. Only a run whose workers
---- are sandboxed shares its verdicts: each suite declares what its tests
---- read, and a case stops where the run it starts cannot sandbox one
---- (`shares`).
+--- module declares, or `--all`, runs it again. Sharing across checkout
+--- paths requires sandboxed workers: those cases stop where the host
+--- cannot sandbox one (`shares`). Failure cases run unsandboxed with an
+--- explicit cache: their assertions concern cache handling, not isolation.
 --- They declare `tool` because they start this program.
 
 local Child = require("cosmic.child")
@@ -547,35 +547,43 @@ end
 --- the run runs what it must and passes.
 local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   local env = environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
   local corrupt = tmp .. "/corrupt/verdicts.db"
   env.COSMIC_VERDICT_CACHE = corrupt
   checkout(tmp .. "/first", "one\n")
-  if not shares(run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })) then
-    return
-  end
+  run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
   local bytes = assert(Fs.read(corrupt))
   assert(#bytes > 4096, "more than one page")
   assert(Fs.write(corrupt, bytes:sub(1, 4096) .. string.rep("\xff", #bytes - 4096)))
-  checkout(tmp .. "/second", "one\n")
-  local second = run(tmp .. "/second", tmp .. "/second.out", env, { "suite/reads_test.tl" })
-  assert(second:find("4 ran, 0 stood", 1, true), second)
-  assert(second:find("running without them", 1, true), second)
-  assert(second:find("moved aside", 1, true), second)
-  -- Set aside, it is not met again: the next run starts a fresh cache.
-  checkout(tmp .. "/fresh", "one\n")
-  local fresh = run(tmp .. "/fresh", tmp .. "/fresh.out", env, { "suite/reads_test.tl" })
-  assert(not fresh:find("running without them", 1, true), fresh)
+  local before = assert(Fs.stat(corrupt))
+  local damaged = assert(Fs.read(corrupt))
+  local sibling = corrupt .. ".corrupt-older"
+  assert(Fs.write(sibling, "earlier evidence"))
+  for _, name in ipairs({ "second", "third" }) do
+    checkout(tmp .. "/" .. name, "one\n")
+    local output = run(tmp .. "/" .. name, tmp .. "/" .. name .. ".out", env,
+      { "suite/reads_test.tl" })
+    assert(output:find("4 ran, 0 stood", 1, true), output)
+    local _, complaints = output:gsub("running without them", "")
+    assert(complaints == 1, output)
+    assert(not output:find("moved aside", 1, true), output)
+    local after = assert(Fs.stat(corrupt))
+    assert(after.ino == before.ino and after.dev == before.dev)
+    assert(Fs.read(corrupt) == damaged and Fs.read(sibling) == "earlier evidence")
+    assert(#assert(Fs.list(Fs.dirname(corrupt))) == 2, "a cache was renamed or replaced")
+  end
 end
 
 --- A cache holding this format's table in the shape of none is said so
 --- once and done without: the run runs what it must and passes.
 local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   local env = environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
-  local other = tmp .. "/other/verdicts.db"
+  local other = tmp .. "/other/malformed.db"
   assert(Fs.mkdirs(tmp .. "/other"))
   local db = assert(Sqlite.open(other, { writable = true }))
   local probe = assert(shared_verdicts.open(tmp .. "/probe/verdicts.db"))
@@ -583,14 +591,20 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
   assert(db:exec("CREATE TABLE " .. named[1][1] .. " (x TEXT)"))
-  assert(db:close())
+  local before = assert(Fs.stat(other))
   env.COSMIC_VERDICT_CACHE = other
   checkout(tmp .. "/third", "one\n")
   local third = run(tmp .. "/third", tmp .. "/third.out", env, { "suite/reads_test.tl" })
   assert(third:find("4 ran, 0 stood", 1, true), third)
-  if not shares(third) then return end
   local _, complaints = third:gsub("running without them", "")
   assert(complaints == 1, third)
+  assert(assert(Fs.stat(other)).ino == before.ino)
+  assert(db:exec("CREATE TABLE healthy (value TEXT)"))
+  assert(db:exec("INSERT INTO healthy VALUES ('still usable')"))
+  local reader = assert(Sqlite.open(other))
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1][1] == "still usable")
+  assert(reader:close())
+  assert(db:close())
 end
 
 --- Rewrites `path` as it was, a moment later: its contents the same,
