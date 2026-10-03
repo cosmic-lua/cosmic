@@ -944,18 +944,19 @@ local function boot(p: PlatformContext): integer
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
       "; compiling from nothing\n")
   end
-  -- A restore gives every file of zig's caches a new inode, which zig
-  -- 0.17 reads as a changed C source (cosmic_ci/zig_restat.tl).
-  if seed then
-    local _, out, err = ZigRestat.run(root)
-    Fs.put(Fs.stderr, out .. err)
-  end
   if not seed and from and is_dir(from) then
     mkdir(root .. "/o")
     local copied = step(c, "restore zig-cache", function(): boolean, string
       return Fs.copy_tree(from, root .. "/o/zig-cache")
     end)
     if copied ~= 0 then return copied end
+  end
+  -- A restore or a copy gives every file of zig's caches a new inode,
+  -- which zig 0.17 reads as a changed C source (cosmic_ci/zig_restat.tl).
+  if cache then
+    local project = seed and cache or root .. "/o/zig-cache"
+    local _, out, err = ZigRestat.run(root, project, named("COSMIC_ZIG_GLOBAL_CACHE"))
+    Fs.put(Fs.stderr, out .. err)
   end
   return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
 end

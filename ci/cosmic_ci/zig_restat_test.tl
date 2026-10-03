@@ -115,20 +115,39 @@ local function test_what_cannot_be_checked_is_left(tmp: string)
   assert(Fs.read(project .. "/h/" .. name) == written)
 end
 
---- The command restats the caches the driver's builds use and never
---- fails; where they are not there it has nothing to do.
+--- The command restats the caches it is given, the global one only
+--- where there is one, and never fails; where the project cache holds
+--- no manifests it has nothing to do.
 local function test_the_command_says_what_it_did(tmp: string)
-  local code, out, err = ZigRestat.command({}, tmp)
+  local code, out, err = ZigRestat.command(tmp .. "/absent", nil, tmp)
   assert(code == 0 and out:find("nothing to restat", 1, true) and err == "", out .. err)
   local project, shared, tree = layout(tmp .. "/seed")
   assert(Fs.write(project .. "/o/1/a.c", "int a;"))
   assert(Fs.write(project .. "/h/" .. name, record(project .. "/o/1/a.c", 2, "o/1/a.c") .. "\0"))
   restored(project .. "/o/1/a.c")
-  code, out, err = ZigRestat.command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/seed",
-    COSMIC_ZIG_GLOBAL_CACHE = shared }, tree)
+  code, out, err = ZigRestat.command(project, shared, tree)
   assert(code == 0 and err == "", err)
   assert(out == "zig-restat: 1 file listed: 1 given their new inode, 0 re-hashed and " ..
     "taken, 0 left; 1 manifest rewritten\n", out)
+  restored(project .. "/o/1/a.c")
+  code, out, err = ZigRestat.command(project, nil, tree)
+  assert(code == 0 and err == "" and out:find("1 given their new inode", 1, true), out .. err)
+end
+
+--- A file of another size is changed whatever its mtime says: left.
+local function test_a_file_of_another_size_is_left(tmp: string)
+  local project, shared, tree = layout(tmp)
+  assert(Fs.write(tree .. "/a.c", "int a;"))
+  local text = record(tree .. "/a.c", 4, "a.c") .. "\0"
+  assert(Fs.write(project .. "/h/" .. name, text))
+  local stat = assert(sys.stat(tree .. "/a.c"))
+  assert(Fs.write(tree .. "/a.c.new", "int a, b;"))
+  assert(sys.utimensat(tree .. "/a.c.new", nil, nil, stat.mtime, stat.mtime_ns))
+  assert(Fs.rename(tree .. "/a.c.new", tree .. "/a.c"))
+  local result = assert(ZigRestat.restat({ { path = project, prefix = 2 },
+    { path = shared, prefix = 3 } }, { [4] = tree }))
+  assert(result.left == 1 and result.adopted == 0 and result.manifests == 0)
+  assert(Fs.read(project .. "/h/" .. name) == text)
 end
 
 local function test_the_lib_directory_comes_from_zig_env()

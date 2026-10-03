@@ -155,27 +155,25 @@ function ZigRestat.lib_dir(text: string): string | nil
   return text:match('%.lib_dir = "([^"]*)"')
 end
 
---- `driver.tl zig-restat` in `env`, for the tree at `root` whose zig
---- names `lib` its lib directory: its exit status, and what it says on
---- standard output and on standard error. It restats the project cache
---- under `env.COSMIC_ZIG_CACHE_SEED` (its `zig-cache`) and the global
---- cache `env.COSMIC_ZIG_GLOBAL_CACHE` names, as [`ZigPrune.command`]
---- prunes them, with the tree as the directory zig runs in and its build
---- root. Nothing to do where either is not there. It never fails (0): a
---- cache it cannot read is left as it was and said so, since a cache
---- left so costs only time.
-function ZigRestat.command(env: {string:string}, root: string, lib?: string): integer, string, string
-  local seed = env.COSMIC_ZIG_CACHE_SEED or ""
-  local shared = env.COSMIC_ZIG_GLOBAL_CACHE or ""
-  local project = seed ~= "" and seed .. "/zig-cache" or ""
-  if project == "" or shared == "" or not Predicate.is_dir(project .. "/h") or
-      not Predicate.is_dir(shared .. "/h") then
-    return 0, "zig-restat: no zig caches at '" .. project .. "' and '" .. shared ..
-      "'; nothing to restat\n", ""
+--- Restats the project cache `project` and, when named, the global
+--- cache `shared` ([`ZigRestat.restat`]), with `root` as the directory
+--- zig runs in and its build root and `lib` as zig's lib directory: its
+--- exit status, and what it says on standard output and on standard
+--- error. Nothing to do where `project` holds no manifests. It never
+--- fails (0): a cache it cannot read is left as it was and said so,
+--- since a cache left so costs only time.
+function ZigRestat.command(project: string, shared: string | nil, root: string,
+    lib?: string): integer, string, string
+  if not Predicate.is_dir(project .. "/h") then
+    return 0, "zig-restat: no zig cache at '" .. project .. "'; nothing to restat\n", ""
   end
-  local roots: {integer:string} = { [0] = root, [1] = lib, [3] = shared, [4] = root }
-  local result, trouble = ZigRestat.restat({ { path = project, prefix = 2 },
-    { path = shared, prefix = 3 } }, roots)
+  local caches: {ZigPrune.Cache} = { { path = project, prefix = 2 } }
+  local roots: {integer:string} = { [0] = root, [1] = lib, [4] = root }
+  if shared ~= nil and Predicate.is_dir(shared .. "/h") then
+    caches[2] = { path = shared, prefix = 3 }
+    roots[3] = shared
+  end
+  local result, trouble = ZigRestat.restat(caches, roots)
   if result == nil then
     return 0, "", "zig-restat: left as restored: " .. trouble .. "\n"
   end
@@ -185,20 +183,32 @@ function ZigRestat.command(env: {string:string}, root: string, lib?: string): in
     Plural.count(result.manifests, "manifest") .. " rewritten\n", ""
 end
 
---- [`ZigRestat.command`] for the tree at `root`, in the driver's
---- environment, asking the tree's `bin/zig env` for zig's lib directory
---- (left unnamed where it cannot say, and the files under it left).
-function ZigRestat.run(root: string): integer, string, string
+--- [`ZigRestat.command`] for the tree at `root`, asking its `bin/zig
+--- env` for zig's lib directory -- in the tree, with `project` the
+--- cache bin/zig names, so that asking makes no cache of its own --
+--- only where `project` holds manifests to restat, and leaving the files
+--- under the lib directory where zig cannot say.
+function ZigRestat.run(root: string, project: string, shared: string | nil): integer, string, string
+  if not Predicate.is_dir(project .. "/h") then return ZigRestat.command(project, shared, root) end
+  local env = Env.all()
+  env.COSMIC_ZIG_CACHE = project
+  if shared ~= nil then env.COSMIC_ZIG_GLOBAL_CACHE = shared end
   local lib: string | nil = nil
-  local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { stdout = "capture",
-    stderr = "capture" })
+  local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { cwd = root, env = env,
+    stdout = "capture", stderr = "capture" })
   if ran ~= nil and ran.ok then lib = ZigRestat.lib_dir(ran.stdout or "") end
-  return ZigRestat.command(Env.all(), root, lib)
+  return ZigRestat.command(project, shared, root, lib)
 end
 
---- `driver.tl zig-restat`, for the tree the driver runs in ([`ZigRestat.run`]).
+--- `driver.tl zig-restat`: [`ZigRestat.run`] for the tree the driver runs
+--- in, over the caches CI restores, the `zig-cache` under
+--- COSMIC_ZIG_CACHE_SEED and the global cache COSMIC_ZIG_GLOBAL_CACHE
+--- names, as `driver.tl zig-prune` takes them.
 function ZigRestat.restat_command(_argv: {string}): integer
-  local code, out, err = ZigRestat.run((assert(Fs.absolute("."))))
+  local seed = Env.get("COSMIC_ZIG_CACHE_SEED") or ""
+  local shared = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
+  local code, out, err = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache",
+    shared ~= "" and shared or nil)
   if out ~= "" then local _, _ = Fs.put(Fs.stdout, out) end
   if err ~= "" then local _, _ = Fs.put(Fs.stderr, err) end
   return code
