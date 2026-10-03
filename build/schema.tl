@@ -165,12 +165,12 @@ local tables: {{string}} = {
 local virtual_tables: {{string}} = {
   { "docs_fts",
     "USING fts5(symbol, signature, text, content=docs, content_rowid=id, " ..
-    "tokenize='porter unicode61')" },
+      "tokenize='porter unicode61')" },
   { "catalog_fts",
     "USING fts5(message, text, content=catalog, content_rowid=id)" },
   { "examples_fts",
     "USING fts5(name, text, source, content=examples, content_rowid=id, " ..
-    "tokenize='porter unicode61')" },
+      "tokenize='porter unicode61')" },
 }
 
 --- The settings a reproducible file depends on. They are stated rather

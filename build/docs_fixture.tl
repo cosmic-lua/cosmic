@@ -42,7 +42,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   for _, path in ipairs(paths) do
     assert(Sqlite.run(db,
       "INSERT INTO files (path, size, mtime_ns, ino, dev, sha256, data) " ..
-      "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
+        "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
       { { text = path }, { text = files[path] } }))
   end
   local handle: work.Handle = { db = db, root = dir, run = 1, inside = false }
@@ -57,11 +57,11 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   -- compile a tree staged without a root on disk.
   assert(db:exec(
     "INSERT INTO plan (path, key, ordinal) SELECT path, source_hash, " ..
-    "row_number() OVER (ORDER BY path) FROM inputs " ..
-    "WHERE kind NOT IN ('decl', 'vendor')"))
+      "row_number() OVER (ORDER BY path) FROM inputs " ..
+      "WHERE kind NOT IN ('decl', 'vendor')"))
   assert(db:exec(
     "INSERT INTO compiled (key, tool, lua, bytecode, seen) " ..
-    "SELECT key, '', '', '', 0 FROM plan"))
+      "SELECT key, '', '', '', 0 FROM plan"))
   written = written + 1
   local path = dir .. "/cosmic-" .. written .. ".db"
   -- A fixture's tree stands in for cosmic's own, whose links name its

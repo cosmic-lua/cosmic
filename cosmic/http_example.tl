@@ -87,7 +87,7 @@ function Example.serve()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Time.seconds(5) }))
       assert(conn:write("PUT /greeting HTTP/1.1\r\nHost: kv\r\nContent-Length: 5\r\n\r\nhello" ..
-        "GET /greeting HTTP/1.1\r\nHost: kv\r\nConnection: close\r\n\r\n"))
+          "GET /greeting HTTP/1.1\r\nHost: kv\r\nConnection: close\r\n\r\n"))
       local answer = assert(Stream.read_all(conn))
       print(answer)
       assert(answer:find("^HTTP/1.1 204 No Content\r\n") and answer:find("\r\n\r\nhello$"), answer)

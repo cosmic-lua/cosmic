@@ -159,7 +159,7 @@ those up is the author's judgement, not the tool's.]]
 local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
   if spec == nil then
     return wrapped("Prints only what its program prints, and exits with what it returns, " ..
-      "as `cosmic help exit` says.", help_width)
+        "as `cosmic help exit` says.", help_width)
   end
   local paragraphs: {string} = {}
   if verb == "fix" then
@@ -170,7 +170,7 @@ local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
     paragraphs[#paragraphs + 1] = wrapped(spec.exits, help_width)
   else
     paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, `" .. verb .. ": PASS (...)` or `" ..
-      verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
+        verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
   end
   return table.concat(paragraphs, "\n\n")
 end
@@ -188,7 +188,7 @@ local function exit_help(specs: {verb_spec.Spec}): string
     end
   end
   return wrapped("Every verb but " .. listed(bare) .. " " .. help_verdict .. " " ..
-    table.concat(sentences, " "), help_width) .. "\n"
+      table.concat(sentences, " "), help_width) .. "\n"
 end
 
 --- The text of `cosmic help <verb>`: the verb's docs, its options, then
@@ -268,15 +268,15 @@ local function index_help(): string
     end
   end
   for _, line in ipairs({
-    "",
-    "More:",
-    "  cosmic help <verb>       a verb's full text, with its options",
-    "  cosmic help exit         verdict lines and exit codes",
-    "  cosmic docs              every module of the standard library",
-    "  cosmic docs <module>     a module, or a symbol such as Fs.read",
-    "",
-    "Lua's io, os and debug are absent (print stays): `cosmic docs",
-    "cosmic.removed` names what replaces each.",
+      "",
+      "More:",
+      "  cosmic help <verb>       a verb's full text, with its options",
+      "  cosmic help exit         verdict lines and exit codes",
+      "  cosmic docs              every module of the standard library",
+      "  cosmic docs <module>     a module, or a symbol such as Fs.read",
+      "",
+      "Lua's io, os and debug are absent (print stays): `cosmic docs",
+      "cosmic.removed` names what replaces each.",
   }) do
     lines[#lines + 1] = line
   end
@@ -759,7 +759,7 @@ function dispatch.main(argv: {integer:string}): integer
         return 1
       end
       local _, _ = Fs.put(Fs.stderr, "cosmic: " .. verb .. " runs in " .. moved.root ..
-        ", the tree this directory is in;\n  paths below are relative to " .. moved.root .. "\n")
+          ", the tree this directory is in;\n  paths below are relative to " .. moved.root .. "\n")
       argv = moved.argv
     end
   end

@@ -118,7 +118,7 @@ local function test_a_tool_holding_only_the_sqlite_lock_is_excluded(tmp: string)
   local flock = probed(root)
   rebuild_lock.release()
   assert(late_said == "busy", "a tool from before the flock took the lock " ..
-    "this one held")
+      "this one held")
   assert(flock == "refused", "the holder does not hold the flock")
   assert(probed(root) == "taken", "the flock outlived the release")
 end

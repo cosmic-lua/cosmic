@@ -259,7 +259,7 @@ local function module_doc(parsed: ast.Parsed): string, integer
   end
   local first_stmt = parsed.node[1]
   if first_stmt ~= nil and takes_a_doc_comment(first_stmt) and
-     comments[last].y == first_stmt.y - 1 then
+      comments[last].y == first_stmt.y - 1 then
     return "", 1
   end
   local run: {compiler.Comment} = {}
@@ -312,7 +312,7 @@ local function owner_name(owner: ast.Node | nil): string
   end
   local op, member = owner.op, owner.e2
   if owner.kind == "op" and op ~= nil and op.op == "." and member ~= nil and
-     member.tk ~= nil then
+      member.tk ~= nil then
     return owner_name(owner.e1) .. "." .. member.tk
   end
   return ""
@@ -408,7 +408,7 @@ local function nodes_under_inner_functions(body: ast.Node): {ast.Node: boolean}
   local inner: {ast.Node: boolean} = {}
   ast.walk(body, function(n: ast.Node)
     if n.kind == "local_function" or n.kind == "record_function" or
-       n.kind == "global_function" or n.kind == "function" then
+        n.kind == "global_function" or n.kind == "function" then
       ast.walk(n, function(under: ast.Node)
         inner[under] = true
       end)
@@ -425,7 +425,7 @@ end
 --- one) -- but never crosses into a function declared inside it, since
 --- that inner function's own returns are not this function's failures.
 local function catalog_in_body(body: ast.Node, patterns: {ast.Node},
-    symbol: string): {analyzer.CatalogEntry}
+                               symbol: string): {analyzer.CatalogEntry}
   local out: {analyzer.CatalogEntry} = {}
   local inner = nodes_under_inner_functions(body)
   for _, pattern in ipairs(patterns) do
@@ -462,7 +462,7 @@ local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.Catalo
   local out: {analyzer.CatalogEntry} = {}
   for _, stmt in ipairs(parsed.node) do
     if (stmt.kind == "local_function" or stmt.kind == "record_function") and
-       stmt.body ~= nil then
+        stmt.body ~= nil then
       local symbol = symbol_of(stmt)
       for _, entry in ipairs(catalog_in_body(stmt.body, patterns, symbol)) do
         out[#out + 1] = entry
@@ -518,7 +518,7 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
     local tk = token.tk
     local previous = tokens[at - 1]
     if at > first and depth <= 0 and token.y > previous.y and tk ~= "|" and
-       previous.tk ~= "," and previous.tk ~= "|" and previous.tk ~= ":" then
+        previous.tk ~= "," and previous.tk ~= "|" and previous.tk ~= ":" then
       break
     end
     if token.comments ~= nil and at > first then
@@ -593,7 +593,7 @@ local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: st
             text = doc_before(lines, comments, field.y), line = field.y }
         end
       elseif nested ~= nil and (nested.typename == "record" or
-         nested.typename == "interface" or nested.typename == "enum") then
+          nested.typename == "interface" or nested.typename == "enum") then
         out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
           exported = false, kind = nested.typename,
           signature = line_at(lines, field.y),
@@ -687,7 +687,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
         local def = definition_of(typedecl)
         local kind = "type"
         if not typedecl.is_alias and def ~= nil and (def.typename == "record" or
-           def.typename == "interface" or def.typename == "enum") then
+            def.typename == "interface" or def.typename == "enum") then
           kind = def.typename
         end
         out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
@@ -699,7 +699,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
         end
       end
     elseif stmt.kind == "local_declaration" and stmt.vars ~= nil and
-           stmt.vars[1] ~= nil then
+        stmt.vars[1] ~= nil then
       local text = doc_before(lines, stmt.comments, stmt.y)
       -- The run above the file's first `local` is the module's (see
       -- [`module_doc`]), never that value's.
@@ -734,7 +734,7 @@ local function surface_of(parsed: ast.Parsed, export: string,
     local written = declared ~= nil and declared[1] or nil
     local names = written ~= nil and written.typename == "nominal" and written.names or nil
     if stmt.kind == "local_declaration" and #vars == 1 and vars[1].tk == export and
-       names ~= nil and #names == 1 then
+        names ~= nil and #names == 1 then
       for _, entry in ipairs(entries) do
         if entry.source_symbol == names[1] and entry.kind == "record" then
           return names[1]
@@ -780,10 +780,10 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
         for _, entry in ipairs(entries) do
           local name = entry.source_symbol
           if not entry.exported and name:find(".", 1, true) == nil and
-             (entry.kind == "record" or entry.kind == "enum" or
+              (entry.kind == "record" or entry.kind == "enum" or
                   entry.kind == "interface" or entry.kind == "type") and
-             entry.signature:sub(1, 6) == "local " and
-             words:find("[^.%w_]" .. name .. "[^%w_]") ~= nil then
+              entry.signature:sub(1, 6) == "local " and
+              words:find("[^.%w_]" .. name .. "[^%w_]") ~= nil then
             for _, member in ipairs(entries) do
               if under(member, name) then
                 member.exported = true
@@ -851,8 +851,8 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
         end
       end
     elseif export ~= "" and stmt.kind == "record_function" and stmt.fn_owner ~= nil and
-           stmt.fn_owner.tk == export and stmt.name ~= nil and
-           stmt.name.tk ~= nil then
+        stmt.fn_owner.tk == export and stmt.name ~= nil and
+        stmt.name.tk ~= nil then
       local public_source = export .. "." .. stmt.name.tk
       members[public_source] = public_source
     elseif stmt.kind == "assignment" and stmt.vars ~= nil then
@@ -864,10 +864,10 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       end
       for index, lhs in ipairs(stmt.vars) do
         if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "." and
-           lhs.e1 ~= nil and lhs.e1.kind == "variable" and
-           export ~= "" and lhs.e1.tk == export and
-           lhs.e2 ~= nil and lhs.e2.tk ~= nil
-        then
+            lhs.e1 ~= nil and lhs.e1.kind == "variable" and
+            export ~= "" and lhs.e1.tk == export and
+            lhs.e2 ~= nil and lhs.e2.tk ~= nil
+            then
           members[export .. "." .. lhs.e2.tk] = rhs_values[index]
         elseif lhs.kind == "variable" and lhs.tk ~= nil then
           values[lhs.tk] = rhs_values[index]
@@ -878,8 +878,8 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
   if export == "" and returned ~= nil and returned.kind == "literal_table" then
     for _, item in ipairs(returned) do
       if item.kind == "literal_table_item" and item.key_parsed ~= "implicit" and
-         item.key ~= nil and item.key.conststr ~= nil and item.value ~= nil and
-         item.value.kind == "variable" and item.value.tk ~= nil then
+          item.key ~= nil and item.key.conststr ~= nil and item.value ~= nil and
+          item.value.kind == "variable" and item.value.tk ~= nil then
         members[item.key.conststr] = values[item.value.tk] or ""
       end
     end
@@ -943,7 +943,7 @@ local function block_text(lines: {string}, y: integer, x: integer,
     parts[#parts + 1] = line:sub(from, to)
   end
   while #parts > 0 and (parts[#parts]:match("^%s*$") ~= nil or
-     parts[#parts]:match("^%s*%-%-") ~= nil) do
+      parts[#parts]:match("^%s*%-%-") ~= nil) do
     parts[#parts] = nil
   end
   return table.concat(parts, "\n")
@@ -1112,7 +1112,7 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
       end
     end
     if stmt.kind == "local_function" or stmt.kind == "local_type" or
-       stmt.kind == "local_declaration" then
+        stmt.kind == "local_declaration" then
       local names: {string} = {}
       if stmt.kind == "local_function" and stmt.name ~= nil and stmt.name.tk ~= nil then
         names[1] = stmt.name.tk
@@ -1603,6 +1603,54 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   return out, ""
 end
 
+--- What a chunk's own statement array says: its `test_*` functions, in
+--- order, whether it ends in a `return`, the name returned, and the
+--- value returned.
+local record Chunk
+  tests: {string}
+  has_return: boolean
+  export: string
+  returned: ast.Node
+end
+
+local function chunk_of(parsed: ast.Parsed): Chunk
+  local out: Chunk = { tests = {}, has_return = false, export = "" }
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "local_function" then
+      local fn_name = stmt.name
+      local tk = fn_name ~= nil and fn_name.tk or nil
+      if tk ~= nil and tk:match("^test_") ~= nil then
+        out.tests[#out.tests + 1] = tk
+      end
+    elseif stmt.kind == "return" then
+      out.has_return = true
+      local exps = stmt.exps
+      out.returned = exps ~= nil and exps[1] or nil
+      local returned = out.returned
+      if returned ~= nil and returned.kind == "variable" and returned.tk ~= nil then
+        out.export = returned.tk
+      end
+    end
+  end
+  return out
+end
+
+--- A chunk's doc entries, as [`analyzer.analysis_of`] gives them but for
+--- the module entry's signature, and no more of its analysis: what reads only what a module documents need
+--- not match every function body against the catalog.
+--- @param parsed ast.Parsed A parse already made of `source`
+--- @param source string The text `parsed` came from
+--- @return {DocEntry} The entries
+function analyzer.docs(parsed: ast.Parsed, source: string): {analyzer.DocEntry}
+  local chunk = chunk_of(parsed)
+  local lines = lines_of(source)
+  local doc_entries = docs_of(lines, parsed)
+  canonicalize_docs(doc_entries, parsed, chunk.export, chunk.returned)
+  local surface = surface_of(parsed, chunk.export, doc_entries)
+  mark_reachable_types(doc_entries, surface, chunk.export)
+  return doc_entries
+end
+
 --- The facts of `analyze`, read off a chunk that was parsed already, so a
 --- caller that needs the parse for another question too pays for it
 --- once. `built` is needed only to compile the patterns the catalog
@@ -1611,27 +1659,10 @@ end
 --- `source` is the text `parsed` came from, for the signatures the docs
 --- quote.
 function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
-                                source: string): analyzer.Analysis | nil, string
-  local names: {string} = {}
-  local has_return = false
-  local export = ""
-  local returned: ast.Node = nil
-  for _, stmt in ipairs(parsed.node) do
-    if stmt.kind == "local_function" then
-      local fn_name = stmt.name
-      local tk = fn_name ~= nil and fn_name.tk or nil
-      if tk ~= nil and tk:match("^test_") ~= nil then
-        names[#names + 1] = tk
-      end
-    elseif stmt.kind == "return" then
-      has_return = true
-      local exps = stmt.exps
-      returned = exps ~= nil and exps[1] or nil
-      if returned ~= nil and returned.kind == "variable" and returned.tk ~= nil then
-        export = returned.tk
-      end
-    end
-  end
+                              source: string): analyzer.Analysis | nil, string
+  local chunk = chunk_of(parsed)
+  local names, has_return, export, returned = chunk.tests, chunk.has_return, chunk.export,
+    chunk.returned
   local catalog, catalog_trouble = catalog_of(built, parsed)
   if catalog_trouble ~= "" then
     return nil, catalog_trouble
@@ -1687,7 +1718,7 @@ end
 --- @return Analysis | nil The analysis, or nil when `source` fails to lex or parse
 --- @return string Error message when nil
 function analyzer.analyze(built: compiler, source: string,
-                            name: string): analyzer.Analysis | nil, string
+                          name: string): analyzer.Analysis | nil, string
   local parsed, trouble = ast.parse(built, source, name)
   if parsed == nil then
     return nil, trouble

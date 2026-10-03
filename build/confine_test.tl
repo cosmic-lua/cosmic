@@ -136,7 +136,7 @@ local function sandboxed_worker(tmp: string): {string} | nil
     -- Only as a kernel that cannot confine refuses, never for a path
     -- the set left out.
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+        errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return nil
   end
   local status = assert(process.waitpid(pid, false))
@@ -183,7 +183,7 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
     assert(lines[3]:find("^refused EPERM") ~= nil, said)
   elseif confine.own_proc_given() then
     assert(lines[1] == "own-proc" and lines[3] == "exited 0" and lines[4] == "in" and
-      lines[5] == "hidden-absent", said)
+        lines[5] == "hidden-absent", said)
   else
     assert(lines[1] == "host-proc" and lines[3]:find("^refused EROFS") ~= nil, said)
   end
@@ -237,6 +237,6 @@ local function test_a_resolution_is_the_one_its_names_tell(tmp: string)
   for _, path in ipairs(paths) do
     local told, want = confine.resolution(path), resolved_by_names(path)
     assert(told == want, path:sub(1, 80) .. ": " .. told:sub(1, 80) .. " ~= " ..
-      want:sub(1, 80))
+        want:sub(1, 80))
   end
 end

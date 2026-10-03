@@ -21,7 +21,7 @@ verdict.log = {
   say = plain.say,
   complain = plain.complain,
   verdict = function(_: Log.Logger, verb: string, passed: boolean,
-      detail?: string): boolean, string
+                     detail?: string): boolean, string
     verdict.given = true
     return plain:verdict(verb, passed, detail)
   end,

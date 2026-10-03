@@ -19,13 +19,13 @@ local Zig = require("build.zig")
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(
     "version 0.16.0\n" ..
-    "x86_64-linux 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00\n" ..
-    "aarch64-macos b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489\n"))
+      "x86_64-linux 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00\n" ..
+      "aarch64-macos b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489\n"))
   assert(pin.version == "0.16.0")
   assert(pin.shas["x86_64-linux"] ==
-    "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00")
+      "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00")
   assert(pin.shas["aarch64-macos"] ==
-    "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489")
+      "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489")
   assert(pin.shas["aarch64-linux"] == nil)
 end
 
@@ -64,13 +64,14 @@ end
 
 local function test_build_args_adds_cache_flags_only_for_build()
   local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-Doptimize=ReleaseFast" }, 4)
-  assert(#got == 8)
+  assert(#got == 10)
   assert(got[1] == "build")
-  assert(got[2] == "--cache-dir" and got[3] == "/cache/zig-project")
-  assert(got[4] == "--prefix" and got[5] == "/repo/o")
-  assert(got[6] == "--cache-poison=disallowed")
-  assert(got[7] == "-j8")
-  assert(got[8] == "-Doptimize=ReleaseFast")
+  assert(got[2] == "--build-file" and got[3] == "/repo/build.zig")
+  assert(got[4] == "--cache-dir" and got[5] == "/cache/zig-project")
+  assert(got[6] == "--prefix" and got[7] == "/repo/o")
+  assert(got[8] == "--cache-poison=disallowed")
+  assert(got[9] == "-j8")
+  assert(got[10] == "-Doptimize=ReleaseFast")
 end
 
 -- Twice the processors, at least 8: under zig's default the three targets'
@@ -80,13 +81,24 @@ local function test_build_args_run_steps_past_the_processor_count()
   assert(Zig.build_jobs(4) == 8)
   assert(Zig.build_jobs(16) == 32)
   local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "boot" }, 16)
-  assert(got[7] == "-j32" and got[8] == "boot")
+  assert(got[9] == "-j32" and got[10] == "boot")
 end
 
 local function test_build_args_keep_the_callers_jobs()
   local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-j2", "boot" }, 16)
-  assert(#got == 8)
-  assert(got[7] == "-j2" and got[8] == "boot")
+  assert(#got == 10)
+  assert(got[9] == "-j2" and got[10] == "boot")
+end
+
+--- A patched zig library is named by its records' names and bytes, in
+--- name order whatever order they are given in, so an edit names a new one.
+local function test_lib_key_names_the_records()
+  local key = Zig.lib_key({ ["01-a.txt"] = "one", ["02-b.txt"] = "two" })
+  assert(#key == 16 and key:match("^%x+$") ~= nil)
+  assert(Zig.lib_key({ ["02-b.txt"] = "two", ["01-a.txt"] = "one" }) == key)
+  assert(Zig.lib_key({ ["01-a.txt"] = "one", ["02-b.txt"] = "two!" }) ~= key)
+  assert(Zig.lib_key({ ["01-a.txt"] = "one", ["03-b.txt"] = "two" }) ~= key)
+  assert(Zig.lib_key({ ["01-a.txt"] = "one" }) ~= key)
 end
 
 local function test_build_args_passes_other_subcommands_through()
@@ -100,7 +112,7 @@ local function test_other_subcommands_use_the_build_s_caches()
   local got = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", PATH = "/bin" })
   assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.ZIG_LOCAL_CACHE_DIR == "/p" and
-    got.PATH == "/bin")
+      got.PATH == "/bin")
   local kept = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", ZIG_GLOBAL_CACHE_DIR = "/mine" })
   assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p")
@@ -238,7 +250,7 @@ local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: stri
   end
   table.sort(paths)
   assert(table.concat(paths, " ") == "bin/zig.pin build.zig core/a.c doc/guides/start.md " ..
-    "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
+      "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
 end
 
 local function test_snapshot_follows_a_link_as_staging_does(tmp: string)
@@ -286,13 +298,13 @@ end
 
 local function test_race_report_names_five_paths_then_counts_the_rest()
   assert(Zig.race_report({ "core/a.c" }) ==
-    "sources changed during the build: core/a.c; run it again")
+      "sources changed during the build: core/a.c; run it again")
   local many: {string} = {}
   for i = 1, 8 do
     many[i] = "core/" .. tostring(i) .. ".c"
   end
   assert(Zig.race_report(many) == "sources changed during the build: " ..
-    "core/1.c, core/2.c, core/3.c, core/4.c, core/5.c and 3 more; run it again",
+      "core/1.c, core/2.c, core/3.c, core/4.c, core/5.c and 3 more; run it again",
     Zig.race_report(many))
 end
 
@@ -349,7 +361,7 @@ local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   for _, text in ipairs(contents) do
     assert(Fs.write(root .. "/o/rebuild.lock.pid", text))
     assert(Zig.holder(root) == rebuild_lock.holder(root), text .. ": " ..
-      Zig.holder(root) .. " against " .. rebuild_lock.holder(root))
+        Zig.holder(root) .. " against " .. rebuild_lock.holder(root))
   end
 end
 

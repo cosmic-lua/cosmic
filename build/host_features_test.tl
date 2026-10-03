@@ -82,7 +82,7 @@ end
 --- On a machine no audit has read, every feature listed is keyed.
 local function test_the_script_and_the_key_name_the_host_alike(tmp: string)
   local write, both = host(tmp, "riscv64", "processor : 0\nflags : sse avx b_2 a\n" ..
-    "vmx flags : ept\nprocessor : 1\nflags\t: a avx sse b_2\n")
+      "vmx flags : ept\nprocessor : 1\nflags\t: a avx sse b_2\n")
   both("the start", true)
   write("cpuinfo", "flags : sse a b_2 avx\n")
   both("the same features in another order", false)
@@ -140,7 +140,7 @@ end
 --- either list keeps, and some neither does, is named alike.
 local function test_the_script_and_the_key_take_the_same_machine_by_default(tmp: string)
   local _, both = host(tmp, nil, "flags : aes avx2 fma fma4 pclmulqdq sse4_1 ssse3 " ..
-    "avx512f hypervisor\nFeatures : asimd aes pmull crc32 sve\n")
+      "avx512f hypervisor\nFeatures : asimd aes pmull crc32 sve\n")
   both("this host", true)
 end
 
@@ -157,8 +157,8 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   -- Where each is found on the host: the real plist on a Mac, and
   -- none elsewhere.
   assert(script({ tmp .. "/cpuinfo", "", "", "arm64", "Darwin" }) ==
-    declared_key.host_features({ cpu_features = {}, machine = "arm64",
-      sysname = "Darwin" }), "the system's own")
+      declared_key.host_features({ cpu_features = {}, machine = "arm64",
+        sysname = "Darwin" }), "the system's own")
   local plist = tmp .. "/SystemVersion.plist"
   local system: {string} = {}
   for i, path in ipairs(darwin) do system[i] = path == darwin[2] and plist or path end
@@ -171,7 +171,7 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   local function both(what: string)
     local named = script({ tmp .. "/cpuinfo", plist, "", "arm64", "Darwin" })
     assert(named == declared_key.host_features(sources), what .. ": the script names " ..
-      named .. ", the key " .. declared_key.host_features(sources))
+        named .. ", the key " .. declared_key.host_features(sources))
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)
     assert(names[named] == nil and identities[id] == nil, what .. " moved nothing")
     names[named], identities[id] = true, true

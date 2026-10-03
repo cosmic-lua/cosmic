@@ -1,0 +1,34 @@
+file: tl.tl
+note: a generic call binds its type variables only once every argument is checked, so a function literal among them read its expected type with them unbound and inferred nothing (37d): `table.sort(xs, function(a, b) ... end)` left a and b `any`. The arguments before such a literal now bind them as they are checked (37c), as the call's own check will bind them again in the same order, so the literal reads xs's element type. A literal with no argument before it to bind them, as in `map(function(x) ... end, xs)`, stays as before
+--- find
+                  if e1type.args.is_va then
+                     local typ = e1args[#e1args]
+                     for i = at + 1, #node.e2 do
+                        node.e2[i].expected = self:infer_at(node.e2[i], typ)
+                     end
+                  end
+               end
+            elseif node.op.op == "@index" then
+--- replace
+                  if e1type.args.is_va then
+                     local typ = e1args[#e1args]
+                     for i = at + 1, #node.e2 do
+                        node.e2[i].expected = self:infer_at(node.e2[i], typ)
+                     end
+                  end
+                  -- TODO: a literal before the arguments binding its type
+                  -- variables (`map(function(x) ... end, xs)`) reads none,
+                  -- and a call whose result goes where `any` is expected
+                  -- (`print(apply(v, function(x) ... end))`) has them bound
+                  -- to any by its expected returns above; both wait on
+                  -- checking a literal after the arguments that bind them.
+                  for k, arg in ipairs(node.e2) do
+                     if arg.kind == "function" and arg.expected and has_unbound_typevars(self, arg.expected) then
+                        for j = 1, k - 1 do
+                           node.e2[j].binds_context = true
+                        end
+                     end
+                  end
+               end
+            elseif node.op.op == "@index" then
+--- end

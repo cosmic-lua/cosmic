@@ -211,7 +211,7 @@ local function check_total(input: string): boolean, string
   end
   if err ~= "" then
     if out ~= nil then return false, "a failure answered a value" end
-    if err:sub(1, 1) ~= "$" then return false, "a failure without a path: " .. err end
+    if err:sub(1, 9) ~= 'pointer "' then return false, "a failure without a pointer: " .. err end
     return true, ""
   end
   if not fits(out, spec) then return false, "the answer is not its shape" end
@@ -283,7 +283,7 @@ local function check_strict(input: string): boolean, string
   local want: string
   if byte(r, 2) == 0 then
     extra = byte(r, 4) - 1
-    want = ("$: expected record, got the integer key %d"):format(extra as integer)
+    want = ("pointer \"\": expected record, got the integer key %d"):format(extra as integer)
   else
     local k = key(r)
     if fields[k] ~= nil then k = "not a field" end
@@ -294,7 +294,7 @@ local function check_strict(input: string): boolean, string
   if err == "" or out ~= nil then return false, "a strict record admitted an unknown key" end
   if want ~= nil then
     if err ~= want then return false, ("wanted %q, got %q"):format(want, err) end
-  elseif err:sub(-13) ~= ": unknown key" or err:find("^%$[.[]") == nil then
+  elseif err:sub(-13) ~= ": unknown key" or err:find('^pointer "/') == nil then
     return false, "an unknown key reported as " .. err
   end
   return true, ""

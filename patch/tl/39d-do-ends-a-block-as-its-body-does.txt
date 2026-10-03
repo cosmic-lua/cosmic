@@ -1,0 +1,18 @@
+file: tl.tl
+note: a `do ... end` whose body ends -- in a `return`, `break`, `goto`, `error(...)`, an `if` with an `else` whose every block ends, or an endless loop (39a) -- never falls through to the statement after it either, so it ends the block holding it the same way: `if e == nil then do return end end` narrows e below it, and a function literal ending in `do ... return v end` needs no return after it (37f)
+--- find
+   visit_node.cbs["do"] = {
+      after = function(_self: TypeChecker, _node: Node, _children: {Type}): Type
+         return NONE
+      end,
+   }
+--- replace
+   visit_node.cbs["do"] = {
+      after = function(_self: TypeChecker, node: Node, _children: {Type}): Type
+         if #node.body > 0 and node.body[#node.body].block_returns then
+            node.block_returns = true
+         end
+         return NONE
+      end,
+   }
+--- end

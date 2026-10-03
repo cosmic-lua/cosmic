@@ -24,13 +24,13 @@ local function test_discover_prunes_top_level_trees_and_sorts(tmp: string)
   end
   local found = table.concat(Fuzz.discover(tmp), " ")
   assert(found == "./a/_fuzz_test.tl ./a/b/x_fuzz_test.tl ./a/y_fuzz_test.tl" ..
-    " ./b/z_fuzz_test.tl ./deep/o/kept_fuzz_test.tl", found)
+      " ./b/z_fuzz_test.tl ./deep/o/kept_fuzz_test.tl", found)
 end
 
 local function test_header_names_the_seed_and_iterations()
   assert(Fuzz.header("42", "2000") == "FUZZ_SEED=42 FUZZ_ITERS=2000\n\n" ..
-    "A failure's report names the FUZZ_CASE that checks its input again," ..
-    " and its iteration under this seed.\n")
+      "A failure's report names the FUZZ_CASE that checks its input again," ..
+      " and its iteration under this seed.\n")
 end
 
 --- A function answering `text` `size` bytes at a time, then "".
@@ -88,7 +88,7 @@ local function test_failure_matches_the_shell_it_replaced()
       if size > 1 or #output < 10000 then
         local text = Fuzz.failure(pieces(output, size), "7")
         assert(text == want, "output " .. tostring(n) .. " in pieces of " ..
-          tostring(size) .. " differs:\n" .. text .. "\nfrom:\n" .. want)
+            tostring(size) .. " differs:\n" .. text .. "\nfrom:\n" .. want)
       end
     end
   end
@@ -100,9 +100,9 @@ local function test_failure_bounds_what_it_lists()
   for i = 1, 70 do parts[#parts + 1] = "report " .. tostring(i) .. "\n" end
   local text = Fuzz.failure(pieces(table.concat(parts), 5), "1")
   assert(text:find("test: FAIL 30\n\n", 1, true) and
-    not text:find("test: FAIL 31", 1, true), "failing lines were not bounded")
+      not text:find("test: FAIL 31", 1, true), "failing lines were not bounded")
   assert(text:find("report 60\n~~~~\n", 1, true) and
-    not text:find("report 61", 1, true), "report lines were not bounded")
+      not text:find("report 61", 1, true), "report lines were not bounded")
 end
 
 local function test_failure_stops_reading_once_it_has_its_lines()
@@ -127,7 +127,7 @@ local function test_tail_matches_the_shell_it_replaced(tmp: string)
     local got = table.concat(tail, "\n") .. (#tail > 0 and "\n" or "")
     local want = expected("tail", n)
     assert(got == want, "output " .. tostring(n) .. "'s tail differs:\n" ..
-      got .. "\nfrom:\n" .. want)
+        got .. "\nfrom:\n" .. want)
   end
 end
 
@@ -173,14 +173,14 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   local out = read(temp .. "/fuzz.out")
   assert(out == read(tmp .. "/log"), "the log differs from the kept output")
   assert(out:find("args: test --all ./build/a_fuzz_test.tl" ..
-    " ./build/fuzz/b_fuzz_test.tl\n", 1, true), out)
+      " ./build/fuzz/b_fuzz_test.tl\n", 1, true), out)
   assert(out:find("env: 9 5 0 1200 " .. temp .. "/fuzz\n", 1, true), out)
   assert(out:find("cwd: " .. assert(Fs.absolute(root)) .. "\n", 1, true), out)
   local exists = Predicate.is_dir(temp .. "/fuzz")
   assert(exists, "the scratch directory was not made")
   assert(read(temp .. "/fuzz.status") == "3\n")
   assert(#summary == 2 and summary[1] == Fuzz.header("9", "5") and
-    summary[2] == Fuzz.failure(pieces(out, 65536), "9"), table.concat(summary))
+      summary[2] == Fuzz.failure(pieces(out, 65536), "9"), table.concat(summary))
   assert(summary[2]:find("~~~~\ntest: FAIL ./build/a_fuzz_test.tl\n\n", 1, true))
 end
 
@@ -255,7 +255,7 @@ local function test_driver_commands_read_the_environment(tmp: string)
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(cancelled.ok, (cancelled.stdout or "") .. (cancelled.stderr or ""))
   assert(read(summary) == text ..
-    Fuzz.cancelled_summary(Fuzz.tail(temp .. "/fuzz.out")))
+      Fuzz.cancelled_summary(Fuzz.tail(temp .. "/fuzz.out")))
   assert(Fs.remove(temp .. "/fuzz.out"))
   assert(assert(Child.run({ driver[1], driver[2], "fuzz-cancelled" },
     { cwd = project, env = env, stdout = "null", stderr = "null" })).ok,
@@ -276,7 +276,7 @@ end
 --- `driver.tl fuzz` started on a checkout whose core runs `body`, its
 --- stdout (the job's log) in `<tmp>/log`.
 local function start_fuzz(tmp: string, body: {string},
-    extra?: {string:string}): Child.Handle, string, string
+                          extra?: {string:string}): Child.Handle, string, string
   local driver, project = driver_project(tmp)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "0", body)

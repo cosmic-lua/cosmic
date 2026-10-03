@@ -43,6 +43,13 @@ local String = require("cosmic.string")
 local type Node = ast.Node
 
 local record tree_checks
+  --- What [`plurals`] finds in one text of a file, read off a parse made
+  --- before the checks ran ([`plurals_in`]).
+  record Plurals
+    --- The text the sites were found in.
+    source: string
+    sites: {{string}}
+  end
 end
 
 --- The exports kept although nothing outside their module but a test
@@ -57,6 +64,8 @@ allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
+allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
+  "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
@@ -89,7 +98,7 @@ allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal
 allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..
   "text without a compile"
 for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "requires",
-                        "look_parse" }) do
+    "look_parse" }) do
   allowed["build.shared_compiles." .. name] = "tested directly: build/shared_compiles_test.tl, " ..
     "build/shared_parses_test.tl and build/importer_test.tl read and write the cache file " ..
     "itself, to see what a build shared and what a salt does to a key"
@@ -193,30 +202,30 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 local function unearned(db: Sqlite.Handle): {string} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.file || ':' || d.line || ': ' || d.module || '.' || d.symbol " ..
-    "FROM docs d " ..
-    "WHERE d.exported = 1 AND d.symbol <> '' AND instr(d.symbol, '.') = 0 " ..
-    "AND d.kind IN ('function', 'method', 'field') " ..
-    "AND d.signature NOT GLOB 'type *' AND d.symbol NOT GLOB '[A-Z]*[a-z]*' " ..
-    "AND d.symbol <> 'main' " ..
-    "AND NOT (d.kind = 'function' AND d.symbol = d.source_symbol) " ..
-    "AND (d.file GLOB 'build/*' OR d.file GLOB 'cmd/*' OR d.file GLOB 'eval/*' " ..
-    "OR (d.file GLOB 'cosmic/*' AND d.file NOT GLOB 'cosmic/internal/*')) " ..
-    "AND d.file GLOB '*.tl' AND d.file NOT GLOB '*.d.tl' " ..
-    "AND NOT EXISTS (SELECT 1 FROM uses u " ..
-    "WHERE u.module = d.module AND u.symbol = d.symbol " ..
-    "AND u.from_module <> d.module " ..
-    "AND (u.from_file NOT GLOB '*_test.tl' " ..
-    "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
-    "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
-    "OR (d.file NOT GLOB 'cosmic/*' " ..
-    "AND (u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
-    "AND (substr(u.from_module, 1, length(u.from_module) - 5) = d.module " ..
-    "OR NOT EXISTS (SELECT 1 FROM imports j " ..
-    "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
-    "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
-    "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
-    "AND p.symbol IN ('main', 'run', 'spec'))))) " ..
-    "ORDER BY d.file, d.line")
+      "FROM docs d " ..
+      "WHERE d.exported = 1 AND d.symbol <> '' AND instr(d.symbol, '.') = 0 " ..
+      "AND d.kind IN ('function', 'method', 'field') " ..
+      "AND d.signature NOT GLOB 'type *' AND d.symbol NOT GLOB '[A-Z]*[a-z]*' " ..
+      "AND d.symbol <> 'main' " ..
+      "AND NOT (d.kind = 'function' AND d.symbol = d.source_symbol) " ..
+      "AND (d.file GLOB 'build/*' OR d.file GLOB 'cmd/*' OR d.file GLOB 'eval/*' " ..
+      "OR (d.file GLOB 'cosmic/*' AND d.file NOT GLOB 'cosmic/internal/*')) " ..
+      "AND d.file GLOB '*.tl' AND d.file NOT GLOB '*.d.tl' " ..
+      "AND NOT EXISTS (SELECT 1 FROM uses u " ..
+      "WHERE u.module = d.module AND u.symbol = d.symbol " ..
+      "AND u.from_module <> d.module " ..
+      "AND (u.from_file NOT GLOB '*_test.tl' " ..
+      "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
+      "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
+      "OR (d.file NOT GLOB 'cosmic/*' " ..
+      "AND (u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
+      "AND (substr(u.from_module, 1, length(u.from_module) - 5) = d.module " ..
+      "OR NOT EXISTS (SELECT 1 FROM imports j " ..
+      "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
+      "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
+      "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
+      "AND p.symbol IN ('main', 'run', 'spec'))))) " ..
+      "ORDER BY d.file, d.line")
   if rows == nil then
     return nil, trouble
   end
@@ -304,7 +313,7 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, kind, signature, text, file, line FROM docs WHERE " ..
-    symbols.public_only("module", true) .. " ORDER BY module, id")
+      symbols.public_only("module", true) .. " ORDER BY module, id")
   if rows == nil then
     return { "reading the public catalog: " .. trouble }
   end
@@ -720,8 +729,8 @@ local function spec_fields(text: string, start: integer): Fields
     elseif token.kind == "mark" and token.value == "}" then
       depth = depth - 1
     elseif depth == 1 and token.kind == "word" and tokens[i + 1] ~= nil and
-      tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark" and
-      tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
+        tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark" and
+        tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
       local name, value = token.value, tokens[i + 2]
       if value.kind == "str" then
         if fields.strings[name] == nil then fields.strings[name] = value.value end
@@ -1008,7 +1017,7 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
   excused = excused or doc_exempt
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
-    symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
+      symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
   if rows == nil then
     return { "reading the public docs: " .. trouble }
   end
@@ -1192,10 +1201,7 @@ end
 --- string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`,
 --- `(a - b) .. " rows"`, any name, field or call), or after a `%d` in a
 --- literal.
-local function plural_sites(built: compiler, source: string, file: string):
-    {{string}} | nil, string
-  local parsed, trouble = ast.parse(built, source, file)
-  if parsed == nil then return nil, trouble end
+local function sites_in(parsed: ast.Parsed): {{string}}
   local sites: {{string}} = {}
   ast.walk(parsed.node, function(node: Node)
     local left, right = node.e1, node.e2
@@ -1206,7 +1212,7 @@ local function plural_sites(built: compiler, source: string, file: string):
       if literal ~= nil and noun ~= nil then
         sites[#sites + 1] = { tostring(right.y), noun, "... .. \"" .. literal:sub(1, 24),
           "write `plural.count(n, singular)` (with the plural as a third argument when it is " ..
-          "not the singular and an `s`)" }
+            "not the singular and an `s`)" }
       end
     elseif node.kind == "string" and node.conststr ~= nil and node.conststr:find("%%d ") then
       for _, noun in ipairs(format_plurals(node.conststr)) do
@@ -1216,6 +1222,27 @@ local function plural_sites(built: compiler, source: string, file: string):
     end
   end)
   return sites
+end
+
+--- [`sites_in`] of `source`, parsed by `built`.
+local function plural_sites(built: compiler, source: string, file: string):
+    {{string}} | nil, string
+  local parsed, trouble = ast.parse(built, source, file)
+  if parsed == nil then return nil, trouble end
+  return sites_in(parsed)
+end
+
+--- What [`plurals`] finds in `source`, the text of `file` (its path from
+--- the tree's root), read off `parsed`, a parse of it already made, so
+--- the checks need not parse it again; nil for a file they do not read.
+function tree_checks.plurals_in(file: string, source: string, parsed: ast.Parsed):
+    tree_checks.Plurals | nil
+  if not file:match("%.tl$") or file:match("_test%.tl$") or file:match("%.d%.tl$") or
+      not (file:match("^build/") or file:match("^cmd/") or file:match("^cosmic/") or
+          file:match("^ci/cosmic_ci/")) then
+    return nil
+  end
+  return { source = source, sites = sites_in(parsed) }
 end
 
 --- Every place in the Teal sources under `build/`, `cmd/` and
@@ -1236,13 +1263,16 @@ end
 --- (`name .. " needs"`) is passed over, and a count spelled by a name
 --- in front of a plural that is right for it (a count that cannot be 1)
 --- goes in `plural_exempt` with the reason.
+--- @param read what [`plurals_in`] found before the checks, by file: a
+---   file whose text is the one read there is not parsed again
 function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{string}},
-    excused?: {string: string}): {string}
+                             excused?: {string: string}, read?: {string: tree_checks.Plurals}):
+    {string}
   excused = excused or plural_exempt
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules WHERE kind <> 'test' " ..
-    "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
-    "OR file GLOB 'cmd/*' OR file GLOB 'cosmic/*') ORDER BY file")
+      "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
+      "OR file GLOB 'cmd/*' OR file GLOB 'cosmic/*') ORDER BY file")
   if rows == nil then
     return { "reading the sources: " .. trouble }
   end
@@ -1252,7 +1282,13 @@ function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{strin
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(sources) do
-    local sites, parse_trouble = plural_sites(built, row[2], row[1])
+    local known = read ~= nil and read[row[1]] or nil
+    local sites, parse_trouble: {{string}}, string
+    if known ~= nil and known.source == row[2] then
+      sites = known.sites
+    else
+      sites, parse_trouble = plural_sites(built, row[2], row[1])
+    end
     if sites == nil then
       out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. parse_trouble
     else
@@ -1304,25 +1340,28 @@ end
 ---   docs` shows read; `db` itself when not given
 --- @param help what `cosmic help` prints ([`build.help_source`]' `texts`),
 ---   whose references are checked with the docs'; none when not given
+--- @param read the plurals already found in files' texts, as [`plurals`]
+---   takes them
 function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: compiler,
-    extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string}): {string}
+                         extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string},
+                         read?: {string: tree_checks.Plurals}): {string}
   local out: {string} = {}
   local plurals: {string} = {}
-  if built ~= nil then plurals = tree_checks.plurals(db, built, extra) end
+  if built ~= nil then plurals = tree_checks.plurals(db, built, extra, nil, read) end
   for _, check in ipairs({
-    { name = "exports", lines = tree_checks.exports(db) },
-    { name = "doc anchors", lines = tree_checks.anchors(db) },
-    { name = "compiler readers", lines = tree_checks.compiler_readers(db) },
-    { name = "stand-ins", lines = tree_checks.stand_ins(db) },
-    { name = "docs queries", lines = tree_checks.queries(db) },
-    { name = "quieted", lines = tree_checks.quieted(db) },
-    { name = "declarations", lines = tree_checks.declarations(db) },
-    { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
-    { name = "guides", lines = tree_checks.guides(db) },
-    { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
-    { name = "doc references", lines = docs_checks.references(carried or db, help) },
-    { name = "public docs", lines = tree_checks.public_docs(db) },
-    { name = "plurals", lines = plurals },
+      { name = "exports", lines = tree_checks.exports(db) },
+      { name = "doc anchors", lines = tree_checks.anchors(db) },
+      { name = "compiler readers", lines = tree_checks.compiler_readers(db) },
+      { name = "stand-ins", lines = tree_checks.stand_ins(db) },
+      { name = "docs queries", lines = tree_checks.queries(db) },
+      { name = "quieted", lines = tree_checks.quieted(db) },
+      { name = "declarations", lines = tree_checks.declarations(db) },
+      { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
+      { name = "guides", lines = tree_checks.guides(db) },
+      { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
+      { name = "doc references", lines = docs_checks.references(carried or db, help) },
+      { name = "public docs", lines = tree_checks.public_docs(db) },
+      { name = "plurals", lines = plurals },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

@@ -318,7 +318,7 @@ function flow.scalar(value: any): flow.Node
     return { kind = "scalar", text = tostring(value) }
   end
   error("flow.scalar: " .. tostring(value) .. " is no string, boolean, integer of at most 15 digits " ..
-    "or Json.null", 2)
+      "or Json.null", 2)
 end
 
 --- A parse failure is raised as its message after this prefix, which

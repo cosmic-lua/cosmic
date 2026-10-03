@@ -127,7 +127,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     "every zone the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
-    "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
+      "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
   assert(materials[1][1] == "1" and materials[1][2] == "1",
     "the program carries the bill of materials its cores ship under")
   local trusted = rows_of(path, "SELECT count(*) FROM ca_roots")
@@ -218,12 +218,12 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
 
   local modules = rows_of(path,
     "SELECT path FROM modules WHERE path IN ('shared_example', 'fixture_test') " ..
-    "ORDER BY path")
+      "ORDER BY path")
   assert(#modules == 2, "a required example and test are carried, and " ..
-    "only " .. #modules .. " were")
+      "only " .. #modules .. " were")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
-    "AND requires = 'fixture_test'")
+      "AND requires = 'fixture_test'")
   assert(imports[1][1] == "1", "the edge between them is carried")
 end
 

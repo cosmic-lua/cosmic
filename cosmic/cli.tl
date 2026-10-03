@@ -167,8 +167,9 @@ local record Cli
   --- `.jsonl` and `.ndjson`, as CSV for `.csv` and as TSV for `.tsv` and
   --- `.tab`; `--as json|ndjson|csv|tsv` overrides the extension, and
   --- standard input needs it. `--as`, `--at '<path>'` and `--raw` apply
-  --- to the `--from` before them, and `--at` reads the rows from
-  --- the array at a path, as `cosmic json` reads one (a CSV or TSV has
+  --- to the `--from` before them, and `--at` reads the rows from the
+  --- array at a path, a JSONPath query naming one value as `cosmic json`
+  --- reads it (`--at '$.data.rows'`, indices from 0; a CSV or TSV has
   --- no path). A CSV or TSV (RFC 4180, quotes and all) has a header
   --- line naming the columns, in that order, and a row per record; a record with more
   --- or fewer fields than the header is refused, naming its line, and a
@@ -199,51 +200,53 @@ local record Cli
   sql: string
   --- `cosmic json [options] [path] [file|-]`: the answer to a quick
   --- question about a JSON file -- is there a key `x` in this export,
-  --- what is under `users[1]` -- with no script to write. It reads the
+  --- what is under `users[0]` -- with no script to write. It reads the
   --- file, or standard input when the file is `-` or absent, and prints
   --- the value at the path as JSON, indented, or on one line with
-  --- `--compact`; a string prints as its text with `-r`. A path reads
-  --- as the paths the JSON messages print: `$` is the document, then
-  --- `.key` or `["a key"]` and `[1]`, counted from 1
-  --- (`$.users[1].name`); with a file after it, a first key
-  --- needs no dot (`a.b`), and whitespace in a path is part of a key.
-  --- `*` (`.*` or `[*]`) is every member of an object or element of an
-  --- array, and `..key` or `..[n]` that key or index at any depth, the
-  --- current level included (`$..id`, `$.users[*].name`): such a path
-  --- prints each match as a `path = value` line, the value as compact
-  --- JSON (`$.users[1].name = "ann"`), in document order (arrays by
-  --- index, keys sorted); with `-r`, the raw values alone, one to a line
-  --- (a string prints as its text, so one with a newline in it spans
-  --- lines; without `-r`, or with `--flat`, every line is one JSON value);
-  --- with `--exists`, nothing, and 0 when at least one matches. A key
-  --- named `*` is `["*"]`. JSONPath's filters, slices and unions are
-  --- left out on purpose: this is a lookup, not a query language.
-  --- `--flat` prints every leaf under the path (the whole document with
-  --- none) as such lines, in the same order, an empty object or array
-  --- as `{}` or `[]`; the path of each line is exactly one this command
-  --- takes, so `cosmic json --flat export.json | grep -i email` finds a
-  --- leaf and its path pastes back into `cosmic json '$.users[2].email'
-  --- export.json`. Quote a path in single quotes in a shell
-  --- (`'$.users[1]'`), which would expand `$` and `[1]`. With one word,
-  --- it is the path when it begins `$`, `.` or `[` (and not `./` or
-  --- `../`), else the file; a file named `.data.json` is `./.data.json`,
-  --- and after `--` the words are `[path] file` whatever they begin
-  --- with. The value is printed as [`Json.encode`] writes it, not echoed
-  --- byte for byte: `1e2` prints as `100.0` and a big integer loses
-  --- precision. `--exists` prints
-  --- nothing and only answers by its exit status; `--keys` lists an
-  --- object's keys, sorted, one per line, or an array's length;
-  --- `--shape` prints a summary of the value's shape (`{ids: [2 x number],
-  --- ok: boolean}`), and neither takes a pattern, which can match many
-  --- values. Only a lookup: no
-  --- filter, no transform; to count or sum, use `cosmic sql --from`.
-  --- Exits 0 when the path is found (a pattern:
-  --- when something matches), 1 when it is not, with a message on
-  --- standard error naming the path reached (a pattern that matches nothing:
-  --- `<pattern>: no match`; a `null` value is found), 2 for a command line
-  --- it cannot read, a pattern too deep to walk, or a
-  --- file that is missing or not JSON. It prints no verdict line, which
-  --- would be in the data a pipe reads
+  --- `--compact`; a string prints as its text with `-r`. A path is a
+  --- JSONPath query (RFC 9535), in the subset [`Json.query`] reads, and
+  --- goes in single quotes, as a shell would expand its `$` and `[0]`:
+  --- `cosmic json '$.users[0].name' export.json`. `$` is the document and
+  --- comes first, then `.key` (a key that is a word), `["a key"]` (any
+  --- key, in a JSON string) or `['a key']`, and `[0]`, counted from 0, or
+  --- `[-1]` from the end. A key holding `'` is written `["it's"]`, whose
+  --- `'` inside a shell's single quotes is `'\''`:
+  --- `cosmic json '$["it'\''s"]'`. `*` (`.*` or `[*]`) is every member of
+  --- an object or element of an array, and `..key`, `..[n]` or `..*`
+  --- that selector at any depth, the current level included (`$..id`,
+  --- `$.users[*].name`): such a query prints each match as a
+  --- `path = value` line, the value as compact JSON
+  --- (`$.users[0].name = "ann"`), in the order RFC 9535 gives (arrays by
+  --- index, keys in byte order), a value reached twice once; with `-r`,
+  --- the raw values alone, one to a line (a string prints as its text,
+  --- so one with a newline in it spans lines; without `-r`, or with
+  --- `--flat`, every line is one JSON value); with `--exists`, nothing,
+  --- and 0 when at least one matches. Filters, slices and unions are
+  --- refused by name: this is a lookup, not a query language. `--flat`
+  --- prints every leaf under the path (the whole document with none) as
+  --- such lines, an empty object or array as `{}` or `[]`; the path of
+  --- each line is one this command reads back, in that shorthand form
+  --- (`$.users[1].email`, `$["a key"][0]`), so `cosmic json --flat
+  --- export.json | grep -i email` finds a leaf and its path pastes back
+  --- into `cosmic json '$.users[1].email' export.json`. With one word, it
+  --- is the path when it begins with `$`, else the file; a file named
+  --- `$x.json` is `./$x.json`, and after `--` the words are `[path] file`
+  --- whatever
+  --- they begin with. The value is printed as [`Json.encode`] writes it,
+  --- not echoed byte for byte: `1e2` prints as `100.0` and a big integer
+  --- loses precision. `--exists` prints nothing and only answers by its
+  --- exit status; `--keys` lists an object's keys, sorted, one per line,
+  --- or an array's length; `--shape` prints a summary of the value's
+  --- shape (`{ids: [2 x number], ok: boolean}`), and neither takes a
+  --- query of `*` or `..`, which can match many values. Only a lookup:
+  --- no filter, no transform; to count or sum, use `cosmic sql --from`.
+  --- Exits 0 when the path is found (a query of many: when something
+  --- matches), 1 when it is not, with a message on standard error naming
+  --- by its JSON Pointer the first place not there (`no value at pointer
+  --- "/users/4"`; a query of many that matches nothing: `<query>: no
+  --- match`; a `null` value is found), 2 for a command line or a path it
+  --- cannot read, or a file that is missing or not JSON. It prints no
+  --- verdict line, which would be in the data a pipe reads
   json: string
   --- `cosmic hash [options] [file|-]...`: the digest of each file, or of
   --- standard input for `-` or no file, printed as `sha256sum` prints
@@ -404,7 +407,7 @@ local record Cli
   codec: string
   --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]`: one
   --- GET, a small curl. With no `-o` the body goes to standard output, so
-  --- `cosmic fetch <url> | cosmic json '.items'` reads it; with `-o` it is
+  --- `cosmic fetch <url> | cosmic json '$.items'` reads it; with `-o` it is
   --- written to a temporary file beside the target and renamed into place
   --- only once it is all in and matches `--sha256`, `--sha512` or the digest
   --- the URL's fragment carries (`<url>#sha256=<hex>`, or `#sha256sum=`,
@@ -546,15 +549,15 @@ local module: Module = {
       usage = "[selector...]",
       spec = {
         ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
-          "checkout or another (COSMIC_TEST_ALL=1)" },
+            "checkout or another (COSMIC_TEST_ALL=1)" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
-          "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
+            "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
-          "stood on the shared cache, how many rows it holds, even in a checkout " ..
-          "that ran before" },
+            "stood on the shared cache, how many rows it holds, even in a checkout " ..
+            "that ran before" },
         ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
-          "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
+            "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
         ["--timeout"] = { value = "seconds",
           about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
       },
@@ -565,7 +568,7 @@ local module: Module = {
       spec = {
         ["--check"] = { about = "write nothing; name what a fix would change, and fail if any" },
         ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
-          "changed since the whole tree passed; what spans files still covers it all" },
+            "changed since the whole tree passed; what spans files still covers it all" },
       },
     },
     build = {
@@ -587,13 +590,13 @@ local module: Module = {
         ["--build"] = { about = "run against o/build.db" },
         ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
         ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
-          "named for its stem, or `name=file`; repeat for a join" },
+            "named for its stem, or `name=file`; repeat for a join" },
         ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
-          "or tsv, rather than by its extension" },
+            "or tsv, rather than by its extension" },
         ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
-          "no number is read, an empty cell is '' not NULL" },
+            "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
-          "path ($.rows), not the document" },
+            "JSONPath ($.data.rows), not the document" },
       },
     },
     cache = {
@@ -611,8 +614,8 @@ local module: Module = {
       usage = "<path> [file]",
       spec = {
         ["--compact"] = { about = "print the value on one line" },
-        ["-r"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
-        ["--raw"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+        ["-r"] = { about = "print a string as its text, without quotes; a query's matches as bare values" },
+        ["--raw"] = { about = "print a string as its text, without quotes; a query's matches as bare values" },
         ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
         ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
         ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
@@ -685,7 +688,7 @@ local module: Module = {
         ["--seconds"] = { about = "between: whole seconds" },
         ["--clamp"] = { about = "add: a day the month lacks takes its last day, not an error" },
         ["--disambiguate"] = { value = "how", about = "a local time in a gap or overlap: " ..
-          "compatible (default), earlier, later or reject" },
+            "compatible (default), earlier, later or reject" },
         ["--json"] = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" },
       },
     },

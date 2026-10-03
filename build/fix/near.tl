@@ -45,6 +45,28 @@ local record near
     text: string
   end
 
+  --- What the notes read of the library's functions, made once for
+  --- every module compared ([`near.index`]).
+  --- Each field but `named` and `named_in` is by a function's place in
+  --- the `known` the index was made of, which [`near.notes`] is given
+  --- with it.
+  record Index
+    --- How many public symbols are called each name, a raw binding's
+    --- not counted: in all (`named`) and in each module (`named_in`).
+    named: {string: integer}
+    named_in: {string: {string: integer}}
+    --- How many distinct words each function's doc comment has.
+    their_counts: {integer: integer}
+    --- The functions that use each word, in order.
+    using: {string: {integer}}
+    --- The patterns that find a function's name in a doc comment:
+    --- qualified, and as code.
+    qualified: {integer: string}
+    coded: {integer: string}
+    --- Whether a function is compared at all.
+    comparable: {integer: boolean}
+  end
+
   --- One exported function of a fixed file.
   record Candidate
     source_symbol: string
@@ -124,60 +146,122 @@ local function stands_in(other: near.Known, name: string): boolean
   return spelled and not parameter
 end
 
---- Whether `text` already names `other`: by the name it was written as
---- ([`Proc.find`]), or by its own name as code (`` `find` ``). A bare word
---- does not count: short names (find, list, rename) are everyday verbs.
-local function names(text: string, other: near.Known): boolean
-  local lower = text:lower()
-  local qualified = "%f[%w_.]" .. escaped(other.source_symbol:lower()) .. "%f[^%w_]"
-  return lower:find(qualified) ~= nil or
-    lower:find("`" .. last_name(other.symbol) .. "`", 1, true) ~= nil
+--- Whether `lower`, a doc comment lowercased, already names `other`:
+--- by the name it was written as ([`Proc.find`]), or by its own name as
+--- code (`` `find` ``). A bare word does not count: short names (find,
+--- list, rename) are everyday verbs. `qualified` is the pattern for the
+--- first and `coded` the text of the second, both `other`'s.
+local function names(lower: string, qualified: string, coded: string): boolean
+  return lower:find(qualified) ~= nil or lower:find(coded, 1, true) ~= nil
+end
+
+--- The index of `known`, made once to hand [`near.notes`] for each of
+--- many modules compared with the same library.
+--- @param known {near.Known} The library's symbols
+--- @return near.Index
+function near.index(known: {near.Known}): near.Index
+  local named: {string: integer} = {}
+  local named_in: {string: {string: integer}} = {}
+  local their_counts: {integer: integer} = {}
+  local using: {string: {integer}} = {}
+  local qualified: {integer: string} = {}
+  local coded: {integer: string} = {}
+  local comparable: {integer: boolean} = {}
+  for index, other in ipairs(known) do
+    -- A raw binding's name (sys.mkdir) is what its wrapper stands in
+    -- for, so it takes nothing.
+    if other.module ~= "cosmic.sys" then
+      local taken = last_name(other.symbol)
+      named[taken] = (named[taken] or 0) + 1
+      local within = named_in[other.module]
+      if within == nil then
+        within = {}
+        named_in[other.module] = within
+      end
+      within[taken] = (within[taken] or 0) + 1
+    end
+    comparable[index] = (other.kind == "function" or other.kind == "method") and
+      other.text ~= "" and not EXAMPLES_ONLY[other.module]
+    if comparable[index] then
+      local set, count = words(other.text)
+      their_counts[index] = count
+      for word in pairs(set) do
+        local list = using[word]
+        if list == nil then
+          list = {}
+          using[word] = list
+        end
+        list[#list + 1] = index
+      end
+      qualified[index] = "%f[%w_.]" .. escaped(other.source_symbol:lower()) .. "%f[^%w_]"
+      coded[index] = "`" .. last_name(other.symbol) .. "`"
+    end
+  end
+  return { named = named, named_in = named_in, their_counts = their_counts,
+    using = using, qualified = qualified, coded = coded, comparable = comparable }
 end
 
 --- The notes for `candidates`, declared in `module`, against `known`.
 --- Each is one line, `line: message`, in the candidates' order.
+---
+--- Each library function's words and patterns are made once, not once
+--- per candidate, each candidate's lowercased text once, and the words
+--- two doc comments share
+--- are counted through an index of which functions use each word, so a
+--- pair that shares none costs nothing. A caller comparing many modules
+--- with one `known` makes the index once ([`near.index`]) and passes it
+--- as `prepared`.
 function near.notes(module: string, candidates: {near.Candidate},
-                    known: {near.Known}): {string}
-  local named: {string: integer} = {}
-  -- Each library function's words, counted once rather than once per
-  -- candidate.
-  local their_words: {integer: {string: boolean}} = {}
-  local their_counts: {integer: integer} = {}
-  for index, other in ipairs(known) do
-    -- A raw binding's name (sys.mkdir) is what its wrapper stands in
-    -- for, so it takes nothing.
-    if other.module ~= module and other.module ~= "cosmic.sys" then
-      local taken = last_name(other.symbol)
-      named[taken] = (named[taken] or 0) + 1
-    end
-    if other.kind == "function" or other.kind == "method" then
-      their_words[index], their_counts[index] = words(other.text)
-    end
-  end
+                    known: {near.Known}, prepared?: near.Index): {string}
+  local made = prepared or near.index(known)
+  local named_all, named_in = made.named, made.named_in[module]
+  local their_counts, using = made.their_counts, made.using
+  local qualified, coded, comparable = made.qualified, made.coded, made.comparable
   local out: {string} = {}
   for _, mine in ipairs(candidates) do
     local name = last_name(mine.source_symbol)
+    local lower = mine.text:lower()
     local my_words, my_count = words(mine.text)
-    for index, other in ipairs(known) do
-      local same = other.module == module and
-        (other.source_symbol == mine.source_symbol or other.symbol == name)
-      local comparable = (other.kind == "function" or other.kind == "method") and
-        other.text ~= "" and not EXAMPLES_ONLY[other.module]
-      if comparable and not same and not names(mine.text, other) then
+    local shared: {integer: integer} = {}
+    local order: {integer} = {}
+    if my_count >= MIN_WORDS then
+      for word in pairs(my_words) do
+        for _, index in ipairs(using[word] or {}) do
+          local seen = shared[index]
+          if seen == nil then order[#order + 1] = index end
+          shared[index] = (seen or 0) + 1
+        end
+      end
+    end
+    local commands = COMMANDS[name] and
+      (named_all[name] or 0) - (named_in ~= nil and named_in[name] or 0) == 0
+    -- A pair that shares no words can only be noted as a command's
+    -- stand-in, so only then is every library function looked at.
+    local scan: {integer} = order
+    if commands then
+      scan = {}
+      for index = 1, #known do scan[index] = index end
+    else
+      table.sort(order)
+    end
+    for _, index in ipairs(scan) do
+      local other = known[index]
+      if comparable[index] then
+        local same = other.module == module and
+          (other.source_symbol == mine.source_symbol or other.symbol == name)
         local why: string = nil
-        if other.module ~= module and COMMANDS[name] and named[name] == nil and
-            stands_in(other, name) then
+        if same then
+          why = nil
+        elseif commands and other.module ~= module and stands_in(other, name) then
           why = "stands in for `" .. name .. "`"
-        elseif my_count >= MIN_WORDS and their_counts[index] >= MIN_WORDS then
-          local shared = 0
-          for word in pairs(my_words) do
-            if their_words[index][word] then shared = shared + 1 end
-          end
-          if shared / (my_count + their_counts[index] - shared) >= SIMILAR then
+        else
+          local together = shared[index]
+          if together ~= nil and their_counts[index] >= MIN_WORDS and
+              together / (my_count + their_counts[index] - together) >= SIMILAR then
             why = "is documented in nearly the same words"
           end
         end
-        if why ~= nil then
+        if why ~= nil and not names(lower, qualified[index], coded[index]) then
           out[#out + 1] = mine.line .. ": " .. mine.source_symbol .. ": " ..
             other.source_symbol .. " (" .. other.module .. ") " .. why ..
             "; see cosmic docs " .. other.source_symbol
@@ -204,7 +288,7 @@ function near.known(databases: {Sqlite.Handle}): {near.Known} | nil, string
     if #tables > 0 then
       local found, trouble = Sqlite.text_rows(db,
         "SELECT module, symbol, source_symbol, signature, text, kind FROM docs " ..
-        "WHERE exported = 1 AND symbol <> '' ORDER BY module, id")
+          "WHERE exported = 1 AND symbol <> '' ORDER BY module, id")
       if found == nil then
         return nil, trouble
       end

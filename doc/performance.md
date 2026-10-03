@@ -114,7 +114,8 @@ The actual fixture lifecycle and old shared-parent regression cases run in
 platform and the checked candidate in the checked job. Their 30-pair runs
 ignore elapsed times. CI gives these two cases 60 seconds each (150 seconds
 for the phase), while each controller child retains its 30-second bound.
-The ordinary suite keeps its 10-second deadline; that deadline had interrupted
-these process-heavy correctness cases on Linux and macOS.
+The release suite keeps its 10-second per-test deadline; that deadline had
+interrupted these process-heavy correctness cases on Linux and macOS. The
+checked suite retains its separate 120-second per-test deadline.
 
 [`ci/fixtures/performance_test.tl`]: ../ci/fixtures/performance_test.tl

@@ -55,14 +55,14 @@ local downloaded: Http.DownloadResult = { kind = "downloaded", reason = "" }
 --- and records calls, options and pauses. Only pauses and `per_call_ns`
 --- advance the clock.
 local function scripted(replies: {string:{Http.DownloadResult}}, calls: {string},
-    sleeps: {integer}, per_call_ns?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
+                        sleeps: {integer}, per_call_ns?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
   local served: {string:integer} = {}
   local clock = 0
   return {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
       assert(opts.sha256 == "abc")
       assert(opts.connect_timeout_ns > 0 and opts.low_speed_bytes >= 1024 and
-        opts.low_speed_ns > 0, "an attempt has no stall guard")
+          opts.low_speed_ns > 0, "an attempt has no stall guard")
       assert(Fs.exists(path) == false, "an attempt started over an earlier file")
       calls[#calls + 1] = url
       if seen ~= nil then
@@ -161,7 +161,7 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tm
     }, calls, sleeps, Time.minutes(5), seen))
   assert(not ok)
   assert(table.concat(calls, " ") ==
-    "http://mirror http://fallback http://mirror http://fallback http://fallback",
+      "http://mirror http://fallback http://mirror http://fallback http://fallback",
     table.concat(calls, " "))
   -- The first mirror attempt gets the whole 3 minutes; the second, 10
   -- minutes and a 2 s pause in, the 118 s left.
@@ -197,7 +197,7 @@ local function test_fetch_sees_a_real_mismatch(tmp: string)
   assert(trouble:find("sha256 mismatch", 1, true) ~= nil, trouble)
   -- The mirror once; the fallback, never barred, each round.
   assert(table.concat(calls, " ") ==
-    "http://127.0.0.1/a http://127.0.0.1/b http://127.0.0.1/b http://127.0.0.1/b",
+      "http://127.0.0.1/a http://127.0.0.1/b http://127.0.0.1/b http://127.0.0.1/b",
     table.concat(calls, " "))
   assert(Fs.exists(tmp .. "/z") == false)
 end

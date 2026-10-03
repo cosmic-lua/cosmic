@@ -109,7 +109,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   analyzer_checkout(tmp .. "/edited_alone", edited)
   local _, alone_named, alone_rows = boot(tmp .. "/edited_alone", "0")
   assert(declined_named ~= named and declined_named == alone_named and
-    declined_rows == alone_rows, "a declined analyzer's parse differs from one made alone")
+      declined_rows == alone_rows, "a declined analyzer's parse differs from one made alone")
   -- The first tree's analyzer again, but the cache's `requires` of
   -- build.analyzer leave build.thing out: the name those rows give is
   -- not the analyzer's, so it is declined, the tree parsed, and the
@@ -118,7 +118,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   assert(analyzer_hash ~= nil, rows)
   local cache = assert(Sqlite.open(path, { writable = true }))
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET requires = 'build.ast\n' " ..
-    "WHERE analyzer = ?1 AND source_hash = ?2", { { text = named }, { text = analyzer_hash } }))
+      "WHERE analyzer = ?1 AND source_hash = ?2", { { text = named }, { text = analyzer_hash } }))
   assert(cache:close())
   assert(dump(path, "SELECT count(*) FROM parsed_v1 WHERE requires = 'build.ast\n'") == "1")
   analyzer_checkout(tmp .. "/misled")
@@ -142,9 +142,9 @@ local function test_a_taken_analyzer_the_parse_moves_is_parsed_afresh(tmp: strin
   tmp = assert(Fs.absolute(tmp))
   local path = tmp .. "/cache/cache.db"
   local reaching: {string:string} = { ["build/analyzer.tl"] = "local ast = require(\"build.ast\")\n" ..
-    "local thing = require(\"build.thing\")\nlocal extra = require(\"build.extra\")\n" ..
-    "--- The analyzer.\nlocal record analyzer\n  n: integer\nend\n" ..
-    "analyzer.n = ast.n + thing.n + extra.n\nreturn analyzer\n" }
+      "local thing = require(\"build.thing\")\nlocal extra = require(\"build.extra\")\n" ..
+      "--- The analyzer.\nlocal record analyzer\n  n: integer\nend\n" ..
+      "analyzer.n = ast.n + thing.n + extra.n\nreturn analyzer\n" }
   analyzer_checkout(tmp .. "/lacking", reaching)
   local _, lacking_named, lacking_rows = boot(tmp .. "/lacking", path)
   local having: {string:string} = {
@@ -158,7 +158,7 @@ local function test_a_taken_analyzer_the_parse_moves_is_parsed_afresh(tmp: strin
   assert(analyzer_hash ~= nil, lacking_rows)
   local cache = assert(Sqlite.open(path, { writable = true }))
   assert(Sqlite.run(cache, "UPDATE parsed_v1 SET requires = 'build.ast\nbuild.thing\n' " ..
-    "WHERE analyzer = ?1 AND source_hash = ?2",
+      "WHERE analyzer = ?1 AND source_hash = ?2",
     { { text = lacking_named }, { text = analyzer_hash } }))
   assert(Sqlite.run(cache, "DELETE FROM parsed_v1 WHERE analyzer = ?1", { { text = having_named } }))
   assert(cache:close())

@@ -130,7 +130,7 @@ local function test_rendering_keeps_the_tree_and_the_comments()
   local before, before_trouble = ast.parse(built, fixture, "fixture.tl")
   assert(before ~= nil, "parse failed: " .. tostring(before_trouble))
   local after, after_trouble = ast.parse(built, fixed(fixture, "fixture.tl"),
-                                         "fixture.tl")
+    "fixture.tl")
   assert(after ~= nil, "reparse failed: " .. tostring(after_trouble))
   local same, difference = equiv.same_tree(before.node, after.node)
   assert(same, "the tree changed: " .. difference)
@@ -144,9 +144,9 @@ end
 --- that changed nothing, and this shows that it does change things.
 local function test_mangled_spacing_and_indentation_are_repaired()
   local mangled = "local   x <const>   = 5\nlocal t = {1,2}\nif  x  then\n" ..
-                  "        print( x )\nend\n"
+    "        print( x )\nend\n"
   local want = "local x <const> = 5\nlocal t = { 1, 2 }\nif x then\n" ..
-               "  print(x)\nend\n"
+    "  print(x)\nend\n"
   local got = fixed(mangled, "mangled.tl")
   assert(got == want, "got:\n" .. got .. "\nwant:\n" .. want)
 end
@@ -170,18 +170,18 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
     tmp .. "/notes.txt",
   })
   assert(picked ~= nil, "naming a missing path should not end the run: " ..
-    tostring(trouble))
+      tostring(trouble))
   assert(#picked.files == 1 and picked.files[1] == tmp .. "/real.tl",
     "the real source should still be listed")
   assert(#picked.refused == 3, "expected three refusals, got " .. #picked.refused)
   for i, what in ipairs({ "nope", "nosuchdir/" }) do
     assert(picked.refused[i]:find("No such file", 1, true) ~= nil,
       what .. " should be reported as missing, not judged on its suffix: " ..
-      picked.refused[i])
+        picked.refused[i])
   end
   assert(picked.refused[3]:find("not a Teal or C source, YAML, Markdown or Zig", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
-    picked.refused[3])
+      picked.refused[3])
 end
 
 --- C is checked only where the rules it is checked against belong:
@@ -236,11 +236,11 @@ local function program_modules(): Sqlite.Handle
   assert(Sqlite.run(db, "CREATE TABLE modules (path TEXT, file TEXT)"))
   assert(Sqlite.run(db, "CREATE TABLE imports (path TEXT, requires TEXT)"))
   for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.breaks",
-                            "build.fix.equiv", "build.ast",
-                            "build.teal", "build.flow", "build.c", "build.fix.near",
-                            "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
-                            "cosmic.cli",
-                            "cosmic.string" }) do
+      "build.fix.equiv", "build.ast",
+      "build.teal", "build.flow", "build.c", "build.fix.near",
+      "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
+      "cosmic.cli",
+      "cosmic.string" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
@@ -261,7 +261,7 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
     assert(Fs.mkdirs(own .. dir))
   end
   for _, file in ipairs({ "/build/importer.tl", "/build/fix/init.tl", "/cosmic/thing.tl",
-                          "/cosmic/other.tl", "/cosmic/string.tl", "/ci/a.tl" }) do
+      "/cosmic/other.tl", "/cosmic/string.tl", "/ci/a.tl" }) do
     assert(Fs.write(own .. file, "return {}\n"))
   end
   assert(Fs.write(own .. "/core/a.c", "int a;\n"))
@@ -277,7 +277,7 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   end
 
   local narrowed = fix.narrowed(own, every, { "ci/a.tl", "./cosmic/thing.tl", "gone/x.tl",
-                                              own .. "/doc/r.md" }, { db })
+    own .. "/doc/r.md" }, { db })
   assert(narrowed.widened == nil, tostring(narrowed.widened))
   assert(narrowed.whole and narrowed.every == every, "a run of --changed is not whole")
   assert(names(narrowed.files) == "ci/a.tl cosmic/thing.tl", names(narrowed.files))
@@ -287,20 +287,20 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
 
   narrowed = fix.narrowed(own, every, { "ci/a.tl", "lib/b.c" }, { db })
   assert(narrowed.widened == nil and names(narrowed.files) == "ci/a.tl" and
-    names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
+      names(narrowed.noted) == "ci/a.tl cosmic/other.tl cosmic/string.tl cosmic/thing.tl",
     "outside the standard library, it notes " .. names(narrowed.noted))
   assert(names(narrowed.c_files) == "core/a.c lib/b.c", "one C file changed holds " ..
-    names(narrowed.c_files) .. " to the rules")
+      names(narrowed.c_files) .. " to the rules")
 
   for _, case in ipairs({
-    { "cosmic/string.tl", "it checks each file alone" }, { "cosmic", "it checks each file alone" },
-    { "core/a.c", "core/" }, { "build/fix/init.tl", "this verb" }, { "vendor", "vendor/" },
-    { "build/patch.tl", "patched" }, { "ci/cosmic-driver.pin", "clang" },
-    { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
+      { "cosmic/string.tl", "it checks each file alone" }, { "cosmic", "it checks each file alone" },
+      { "core/a.c", "core/" }, { "build/fix/init.tl", "this verb" }, { "vendor", "vendor/" },
+      { "build/patch.tl", "patched" }, { "ci/cosmic-driver.pin", "clang" },
+      { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
   }) do
     local widened = fix.narrowed(own, every, { "ci/a.tl", case[1] }, { db })
     assert(widened.widened ~= nil and widened.widened:find(case[2], 1, true) ~= nil and
-      #widened.files == #every.files and widened.noted == nil,
+        #widened.files == #every.files and widened.noted == nil,
       case[1] .. ": " .. tostring(widened.widened))
   end
   -- A test of the core is not what the program runs on; its links are
@@ -344,7 +344,9 @@ end
 
 --- A renderer whose output is not a fixed point is refused, even when
 --- its first pass looks fine on its own: [`fix.source`] renders what it
---- produced a second time and requires the same bytes back.
+--- produced a second time and requires the same bytes back. The first
+--- pass changes the text, since one that leaves it untouched has
+--- rendered the very tree and text a second pass would.
 local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   local original = render_mod.laid_out
   local ok, trouble = pcall(function(): (any...)
@@ -353,7 +355,7 @@ local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
     render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout | nil, string
       calls = calls + 1
       if calls == 1 then
-        return { text = src }
+        return { text = "local  x = 1\n" }
       end
       return { text = src .. "-- a second pass added this\n" }
     end
@@ -582,7 +584,7 @@ local function test_links_to_symbols_wait_for_a_build(tmp: string)
   local root = assert(Fs.absolute(tmp))
   assert(Fs.write(root .. "/a.md", "[`m.one`] [`m.two`] [gone](gone.md)\n"))
   assert(Fs.write(root .. "/b.tl", 'local M = require("m")\n\n--- See [`M.three`].\n' ..
-    "local function f(): integer return M.three() end\n\nreturn f\n"))
+      "local function f(): integer return M.three() end\n\nreturn f\n"))
   local source = fix.link_context(root, false, false,
     function(_: string): boolean, string return true, "" end,
     function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
@@ -599,7 +601,7 @@ end
 local function test_an_unbuilt_project_still_checks_a_known_modules_members(tmp: string)
   local root = assert(Fs.absolute(tmp))
   assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- See [`Fs.nosuch`].\n' ..
-    'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
+      'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
   local context = link_resolve.on_disk(root,
     function(query: string): {link_resolve.Symbol} | nil, string
       if query == "cosmic.fs" then return { { module = "cosmic.fs", symbol = "" } }, "" end
@@ -641,7 +643,7 @@ local function test_a_plain_span_would_link_and_a_fix_links_it(tmp: string)
   local said = table.concat(checking.would, "\n")
   assert(said == root .. "/a.md:1: link: `Known.thing` would link to known.Known.thing", said)
   assert(#checking.redefined == 1 and
-    checking.redefined[1] == root .. "/a.md: link: its definitions would be rewritten",
+      checking.redefined[1] == root .. "/a.md: link: its definitions would be rewritten",
     table.concat(checking.redefined, "\n"))
   assert(#checking.broken == 0 and #checking.rewritten == 0, table.concat(checking.broken, "\n"))
   assert(assert(Fs.read(root .. "/a.md")) == text, "a check wrote the file")

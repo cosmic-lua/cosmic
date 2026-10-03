@@ -234,46 +234,39 @@ local module: Module = {
       "Stream.Writer (" .. json .. ")",
     ["cosmic.json.encode_lines"] = "use Json.encode(value) for each value, joined by " ..
       "\"\\n\" and ended by one (" .. json .. ")",
-    ["cosmic.json.parse_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "and `cosmic sql --at` call; a script indexes the value Json.decode answers " ..
-      "directly, `doc.users[1].name` for `$.users[1].name` (" .. json .. ")",
-    ["cosmic.json.parse_pattern"] = "moved to build.json_query, which only `cosmic json` " ..
-      "calls; `cosmic json '$..id' file` lists the values a pattern matches",
-    ["cosmic.json.spell_pattern"] = "moved to build.json_query, which only `cosmic json` calls",
-    ["cosmic.json.select"] = "moved to build.json_query, which only `cosmic json` calls; " ..
-      "`cosmic json '$..id' file` lists the values a pattern matches, and a script " ..
-      "walks the value Json.decode answers (" .. json .. ")",
+    ["cosmic.json.parse_path"] = "use Json.from_path, which reads a singular JSONPath " ..
+      "query (`$.users[0]['a key']`, indices from 0) as Json.Steps, and Json.get to " ..
+      "follow them (" .. json .. ")",
+    ["cosmic.json.parse_pattern"] = "use Json.query, which reads a JSONPath query with " ..
+      "`*` and `..` (`$..id`), and Json.select for the values it matches (" .. json .. ")",
+    ["cosmic.json.spell_pattern"] = "keep the query's text, which Json.Query holds as " ..
+      "written; Json.path writes one match's steps as a normalized path (" .. json .. ")",
     ["cosmic.json.flatten"] = "moved to build.json_query, which only `cosmic json` calls; " ..
-      "`cosmic json --flat file` prints every leaf as a `path = value` line",
+      "`cosmic json --flat file` prints every leaf as a `path = value` line, its path " ..
+      "as Json.path writes it",
     ["cosmic.json.flat_line"] = "moved to build.json_query, which only `cosmic json` calls; " ..
-      "`cosmic json --flat file` prints every leaf as a `path = value` line",
+      "`cosmic json --flat file` prints every leaf as a `path = value` line, its path " ..
+      "as Json.path writes it",
     ["cosmic.json.describe"] = "moved to build.json_query, which only `cosmic json` calls; " ..
       "`cosmic json --shape file` prints a document's shape",
-    ["cosmic.json.child_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "calls; spell a path by concatenating its steps, Json.quote(key) for a key that is no word (" ..
+    ["cosmic.json.child_path"] = "use Json.path or Json.pointer, which write " ..
+      "Json.Steps as a JSONPath or a JSON Pointer: a step's position counts from 1, " ..
+      "as Lua does, and the text written counts from 0, so { \"rows\", 1 } is " ..
+      "`$['rows'][0]` and `/rows/0` (" .. json .. ")",
+    ["cosmic.json.entries"] = "use Json.get(value, steps) to reach the value, and " ..
+      "Json.layout(value) == \"object\" to tell an object; Json.decode_object answers " ..
+      "the outermost object as a map to loop over with pairs (" .. json .. ")",
+    ["cosmic.json.items"] = "use Json.get(value, steps) to reach the value, and " ..
+      "Json.layout(value) == \"array\" to tell an array; Json.decode_array answers " ..
+      "the outermost array as a list to loop over with ipairs (" .. json .. ")",
+    ["cosmic.json.Step"] = "use Json.Segment, one segment of the JSONPath query " ..
+      "Json.query reads (" .. json .. ")",
+    ["cosmic.json.StepKind"] = "use Json.SelectorKind, what a Json.Segment selects (" ..
       json .. ")",
-    ["cosmic.json.get"] = "moved to build.json_query, which only `cosmic json` and " ..
-      "`cosmic sql --at` call; a script indexes the table Json.decode_object or " ..
-      "Json.decode_array answers directly, `doc.users[1].name`, and finds a missing " ..
-      "key as nil (" .. json .. ")",
-    ["cosmic.json.entries"] = "moved to build.json_query, which only `cosmic json` and " ..
-      "`cosmic sql --at` call; Json.decode_object answers the outermost object as a " ..
-      "map to loop over with pairs; `value is {string: any}` narrows a field to a " ..
-      "table, and Json.is_array(value) tells an array from an object (" ..
-      json .. ")",
-    ["cosmic.json.items"] = "moved to build.json_query, which only `cosmic json` and " ..
-      "`cosmic sql --at` call; Json.decode_array answers the outermost array as a " ..
-      "list to loop over with ipairs; `value is {any}` narrows a field to a table, " ..
-      "and Json.is_array(value) tells an array from an object (" ..
-      json .. ")",
-    ["cosmic.json.Step"] = "moved to build.json_query, with parse_pattern, which only " ..
-      "`cosmic json` calls",
-    ["cosmic.json.StepKind"] = "moved to build.json_query, with parse_pattern, which only " ..
-      "`cosmic json` calls",
-    ["cosmic.json.Located"] = "moved to build.json_query, with select and flatten, which " ..
-      "only `cosmic json` calls",
-    ["cosmic.json.WalkOptions"] = "moved to build.json_query, with select and flatten, " ..
-      "which only `cosmic json` calls",
+    ["cosmic.json.Located"] = "use Json.Match, what Json.select answers: the steps " ..
+      "to a value and the value (" .. json .. ")",
+    ["cosmic.json.WalkOptions"] = "use Json.SelectOptions, what Json.select may be " ..
+      "told (" .. json .. ")",
     ["cosmic.json.DescribeOptions"] = "moved to build.json_query, with describe, which " ..
       "only `cosmic json` calls",
     ["cosmic.csv.rows"] = "use Csv.table(text, opts) and its rows field, the table per record " ..
@@ -287,7 +280,8 @@ local module: Module = {
       "failure; a config whose author wants every mistake runs again after fixing each (" ..
       shape .. ")",
     ["cosmic.shape.Failure"] = "Shape.into(value, spec) answers the first failure as one " ..
-      "message, its path first (`$.rows[2].id: expected string, got integer`) (" .. shape .. ")",
+      "message, its place first (`pointer \"/rows/1/id\": expected string, got integer`) (" ..
+      shape .. ")",
     ["cosmic.shape.either"] = "use Shape.one_of(...) for literal alternatives, or call " ..
       "Shape.into once for each form the value may take and keep the first that answers " ..
       "a value (" .. shape .. ")",

@@ -292,7 +292,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
     end
     local inserted, insert_trouble = Sqlite.run(db,
       "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
-      "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "sha256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
       { text(name), text(component.kind), text(component.version),
         text(component.license), text(component.url), text(component.sha256),
         text(patches) })
@@ -306,7 +306,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
       end
       local put, put_trouble = Sqlite.run(db,
         "INSERT INTO " .. qualifier .. "notices (component, ordinal, file, text) " ..
-        "VALUES (?1, ?2, ?3, ?4)",
+          "VALUES (?1, ?2, ?3, ?4)",
         { text(name), bind.integer(ordinal), text(notice.file), text(body) })
       if not put then
         return false, put_trouble
@@ -320,7 +320,7 @@ end
 function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name, kind, version, license, url, sha256, patches " ..
-    "FROM components ORDER BY name")
+      "FROM components ORDER BY name")
   if rows == nil then
     return nil, trouble
   end
@@ -359,8 +359,8 @@ end
 function bom.notices(db: Sqlite.Handle): string | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT c.name, c.version, c.license, c.url, n.file IS NULL, " ..
-    "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
-    "LEFT JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")
+      "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
+      "LEFT JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")
   if rows == nil then
     return nil, trouble
   end

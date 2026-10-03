@@ -42,16 +42,16 @@ local function test_each_form_is_a_link()
     "[ref]: build/links.tl",
     "[Collapsed]: <doc/b.md>",
     "[defined]: https://example.com")), {
-    "1 shortcut Fs.read",
-    "2 inline doc/a.md",
-    "2 inline cosmic/fs.tl#L3",
-    "3 reference build/links.tl",
-    "3 reference doc/b.md",
-    "3 reference https://example.com",
-    "5 definition build/links.tl",
-    "6 definition doc/b.md",
-    "7 definition https://example.com",
-  })
+      "1 shortcut Fs.read",
+      "2 inline doc/a.md",
+      "2 inline cosmic/fs.tl#L3",
+      "3 reference build/links.tl",
+      "3 reference doc/b.md",
+      "3 reference https://example.com",
+      "5 definition build/links.tl",
+      "6 definition doc/b.md",
+      "7 definition https://example.com",
+    })
 end
 
 --- CommonMark shows a reference whose label nothing defines as it is
@@ -81,10 +81,10 @@ local function test_an_inline_link_needs_a_destination()
   same(parsed(lines(
     "captures [%a](%d+), [a](b c), [p]((x)), [q](a*b), [r](%zz)",
     "[titled](a.md \"The title\") [angled](<my file.md>) [escaped](my%20file.md)")), {
-    "2 inline a.md",
-    "2 inline my file.md",
-    "2 inline my%20file.md",
-  })
+      "2 inline a.md",
+      "2 inline my file.md",
+      "2 inline my%20file.md",
+    })
 end
 
 --- A code span ends with its paragraph: a stray backtick hides no link
@@ -155,8 +155,8 @@ local function test_an_indented_code_block_hides_links()
     "Out of the list,",
     "",
     "\t[t](u.md) is code again.")), {
-    "8 inline g.md", "12 inline i.md", "13 inline k.md", "17 inline o.md", "21 inline q.md",
-  })
+      "8 inline g.md", "12 inline i.md", "13 inline k.md", "17 inline o.md", "21 inline q.md",
+    })
 end
 
 --- A fence closes only on a run of its own character; a run of
@@ -234,9 +234,9 @@ local function test_an_html_comment_hides_links()
     "text <!-- [s](t.md)",
     "",
     "[u](v.md) -->")), {
-    "3 inline f.md", "4 inline l.md", "4 inline n.md", "5 inline p.md", "5 inline r.md",
-    "7 inline t.md", "9 inline v.md",
-  })
+      "3 inline f.md", "4 inline l.md", "4 inline n.md", "5 inline p.md", "5 inline r.md",
+      "7 inline t.md", "9 inline v.md",
+    })
 end
 
 --- Symbols spelled in full, each split at its first `.`: the module a
@@ -529,10 +529,10 @@ local function test_a_file_resolves_from_its_directory_then_the_root()
   same(checked(context, "/p/doc/a.md", "markdown", lines(
     "[b](b.md) [x](build/x.tl) [up](../build/x.tl) [dir](../build/) [top](/doc/b.md)",
     "[out](../o/bin/y) [gone](c.md) [far](../../q/z.md)")), {
-    "/p/doc/a.md:2: link: ../o/bin/y does not resolve (it is under o/, the build's output)",
-    "/p/doc/a.md:2: link: c.md does not resolve (no declaration, symbol or file by that name)",
-    "/p/doc/a.md:2: link: ../../q/z.md does not resolve (it lies outside the project's root)",
-  })
+      "/p/doc/a.md:2: link: ../o/bin/y does not resolve (it is under o/, the build's output)",
+      "/p/doc/a.md:2: link: c.md does not resolve (no declaration, symbol or file by that name)",
+      "/p/doc/a.md:2: link: ../../q/z.md does not resolve (it lies outside the project's root)",
+    })
 end
 
 local function test_an_anchor_names_a_heading()
@@ -544,11 +544,11 @@ local function test_an_anchor_names_a_heading()
     "# Here",
     "[a](a.md#top) [b](a.md#links-the-x-form) [c](a.md#links-the-x-form-1) [d](#here)",
     "[e](a.md#missing) [f](#nowhere) [g](b.tl#L3) [h](b.tl#top) [i](/p#x)")), {
-    "/p/c.md:3: link: a.md#missing does not resolve (no heading of a.md has the anchor #missing)",
-    "/p/c.md:3: link: #nowhere does not resolve (no heading of c.md has the anchor #nowhere)",
-    "/p/c.md:3: link: b.tl#top does not resolve (only a Markdown file's headings take an anchor)",
-    "/p/c.md:3: link: /p#x does not resolve (no declaration, symbol or file by that name)",
-  })
+      "/p/c.md:3: link: a.md#missing does not resolve (no heading of a.md has the anchor #missing)",
+      "/p/c.md:3: link: #nowhere does not resolve (no heading of c.md has the anchor #nowhere)",
+      "/p/c.md:3: link: b.tl#top does not resolve (only a Markdown file's headings take an anchor)",
+      "/p/c.md:3: link: /p#x does not resolve (no declaration, symbol or file by that name)",
+    })
 end
 
 --- A shortcut that names a symbol and a file fails, saying how to name
@@ -587,9 +587,9 @@ end
 local function test_the_standard_library_resolves()
   same(checked(world({}), "/p/a.md", "markdown",
     "[`string.format`] [`table.concat`] [`print`] [`warn`] [`_VERSION`] [`io.open`] [`dofile`]\n"), {
-    "/p/a.md:1: link: io.open does not resolve (no declaration, symbol or file by that name)",
-    "/p/a.md:1: link: dofile does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
-  })
+      "/p/a.md:1: link: io.open does not resolve (no declaration, symbol or file by that name)",
+      "/p/a.md:1: link: dofile does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+    })
 end
 
 --- A global resolves by what `_G` holds when the link is read: one set
@@ -614,12 +614,12 @@ end
 local function test_a_global_is_not_reached_through_g_or_package_loaded()
   same(checked(world({}), "/p/a.md", "markdown",
     "[`_G`] [`package.config`] [`_G._G.print`] [`package.loaded._G.warn`] " ..
-    "[`package.loaded.string.format`] [`package.preload`]\n"), {
-    "/p/a.md:1: link: _G._G.print does not resolve (no declaration, symbol or file by that name)",
-    "/p/a.md:1: link: package.loaded._G.warn does not resolve (no declaration, symbol or file by that name)",
-    "/p/a.md:1: link: package.loaded.string.format does not resolve (no declaration, symbol or file by that name)",
-    "/p/a.md:1: link: package.preload does not resolve (no declaration, symbol or file by that name)",
-  })
+      "[`package.loaded.string.format`] [`package.preload`]\n"), {
+        "/p/a.md:1: link: _G._G.print does not resolve (no declaration, symbol or file by that name)",
+        "/p/a.md:1: link: package.loaded._G.warn does not resolve (no declaration, symbol or file by that name)",
+        "/p/a.md:1: link: package.loaded.string.format does not resolve (no declaration, symbol or file by that name)",
+        "/p/a.md:1: link: package.preload does not resolve (no declaration, symbol or file by that name)",
+      })
 end
 
 local function test_a_path_is_unescaped_and_its_query_dropped()
@@ -638,10 +638,10 @@ local function test_only_the_roots_output_and_the_outside_are_refused()
   }, {}, {}, { ["/p/out"] = "/elsewhere" })
   same(checked(context, "/p/a.md", "markdown",
     "[x](sub/o/x.md) [y](o/y.md) [z](out/z.md) [up](../)\n"), {
-    "/p/a.md:1: link: o/y.md does not resolve (it is under o/, the build's output)",
-    "/p/a.md:1: link: out/z.md does not resolve (a symbolic link leads it out of the project)",
-    "/p/a.md:1: link: ../ does not resolve (it lies outside the project's root)",
-  })
+      "/p/a.md:1: link: o/y.md does not resolve (it is under o/, the build's output)",
+      "/p/a.md:1: link: out/z.md does not resolve (a symbolic link leads it out of the project)",
+      "/p/a.md:1: link: ../ does not resolve (it lies outside the project's root)",
+    })
 end
 
 --- The root's `o/` is refused before anything is asked of it, so what
@@ -791,16 +791,16 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
   same(checked(context, dir .. "/a.md", "markdown", lines(
     "[`Fs.read`] [`cosmic.fs.read`] [`cosmic.fs.Fs.read`] [`cosmic.fs`] [`read`]",
     "[`Thing.Box.grow`] [`cosmic.thing.Box.grow`] [`Thing.Box.shrink`]")), {
-    dir .. "/a.md:1: link: read does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
-    dir .. "/a.md:2: link: Thing.Box.shrink does not resolve " ..
-      "(no declaration, symbol or file by that name)",
-  })
+      dir .. "/a.md:1: link: read does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+      dir .. "/a.md:2: link: Thing.Box.shrink does not resolve " ..
+        "(no declaration, symbol or file by that name)",
+    })
   same(checked(context, dir .. "/b.tl", "teal", lines(
     "local Thing = require(\"cosmic.thing\")",
     "-- [`Thing.Box.grow`] grows; [`Thing.Box.shrink`] does not.",
     "return Thing")), {
-    dir .. "/b.tl:2: link: Thing.Box.shrink does not resolve (cosmic.thing has no Box.shrink)",
-  })
+      dir .. "/b.tl:2: link: Thing.Box.shrink does not resolve (cosmic.thing has no Box.shrink)",
+    })
 end
 
 --- A member a type takes from another module's, through the name its
@@ -841,8 +841,8 @@ local function test_a_member_through_a_required_modules_type_resolves(dir: strin
     "-- [`User.Entry.path`], [`User.Item.path`], [`cosmic.user.Item.path`];",
     "-- not [`User.Item.size`].",
     "return User")), {
-    dir .. "/b.tl:3: link: User.Item.size does not resolve (cosmic.user has no Item.size)",
-  })
+      dir .. "/b.tl:3: link: User.Item.size does not resolve (cosmic.user has no Item.size)",
+    })
 end
 
 --- A module whose value is typed by a record of another name hands out
@@ -878,9 +878,9 @@ local function test_a_module_typed_by_another_record_answers_its_fields(dir: str
     "-- [`Cli.order`], [`cosmic.cli.order`], [`Module.order`]; not [`Cli.chaos`],",
     "-- nor a field of another record the module hands out: [`Cli.ok`].",
     "return Cli")), {
-    dir .. "/b.tl:2: link: Cli.chaos does not resolve (cosmic.cli has no chaos)",
-    dir .. "/b.tl:3: link: Cli.ok does not resolve (cosmic.cli has no ok)",
-  })
+      dir .. "/b.tl:2: link: Cli.chaos does not resolve (cosmic.cli has no chaos)",
+      dir .. "/b.tl:3: link: Cli.ok does not resolve (cosmic.cli has no ok)",
+    })
 end
 
 --- `source`, a file of `kind` at `path`, as [`links.rewrite`] links it,
@@ -934,7 +934,7 @@ local function test_a_plain_span_links_only_when_it_names_one_thing()
   local got, linked = rewritten(linking_world(), "/p/a.tl", "teal", source)
   local want = source:gsub("`Box`, `Box.width`, `top_level`, `Known.thing` and `build/x.tl`",
     "[`Box`], [`Box.width`], [`top_level`], [`Known.thing`] and [`build/x.tl`]"):
-     gsub("plain comment: `Known.thing`", "plain comment: [`Known.thing`]")
+    gsub("plain comment: `Known.thing`", "plain comment: [`Known.thing`]")
   same({ got }, { want })
   same(linked, {
     "/p/a.tl:7: link: `Box` would link to Box",
@@ -1075,9 +1075,9 @@ local function test_a_reader_is_shown_a_link_as_its_code_span()
     "",
     "[z]: b.md",
     "[`Fs.read`]: cosmic/fs.tl")) }, { lines(
-    "See `Fs.read`, [`x`](a.md), [`y`][z] and `` [`w`] ``.",
-    "",
-    "[z]: b.md"):sub(1, -2) })
+      "See `Fs.read`, [`x`](a.md), [`y`][z] and `` [`w`] ``.",
+      "",
+      "[z]: b.md"):sub(1, -2) })
 end
 
 --- A name alone links only to its own file's declaration, however

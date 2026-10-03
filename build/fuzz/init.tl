@@ -204,7 +204,7 @@ end
 
 --- Runs `check` on `input` once, under the budget.
 local function attempt(check: function(string): boolean, string, input: string,
-    budget: integer): boolean, string
+                       budget: integer): boolean, string
   if arm then arm(budget) end
   local ok, held, why = pcall(check, input)
   if arm then arm() end
@@ -270,7 +270,7 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): in
     local held, why = attempt(p.check, input, budget)
     if not held then
       error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
-        format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
+          format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
     end
     checked = checked + 1
     ::continue::
@@ -281,7 +281,7 @@ end
 --- The line `run` prints of how many inputs reached each label, in
 --- name order, or nil when no label was reached and none is required.
 local function label_counts(counts: {string: integer}, required: {string},
-    iters: integer): string | nil
+                            iters: integer): string | nil
   local names: {string} = {}
   for name in pairs(counts) do names[#names + 1] = name end
   for _, name in ipairs(required or {}) do
@@ -346,7 +346,7 @@ local function run(p: Fuzz.Property): integer
   if p.dir ~= nil then
     kept = p.dir .. "/" .. slug(p.name) .. ".input"
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
-       format(p.name, seed, iters, kept))
+        format(p.name, seed, iters, kept))
   end
   if case_name == nil then check_corpus(p, budget, kept) end
   local counts: {string: integer} = {}
@@ -380,9 +380,9 @@ local function run(p: Fuzz.Property): integer
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-           format(p.name, where, why, plural.count(#input, "byte"), shown(input),
-            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
-            reproduce), 0)
+            format(p.name, where, why, plural.count(#input, "byte"), shown(input),
+              kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+              reproduce), 0)
       end
       local function fails(values: {integer}): boolean, {Draw}
         local candidate, used = build(p.gen, values)
@@ -408,12 +408,12 @@ local function run(p: Fuzz.Property): integer
         "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-         format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
-          plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
-          kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
-          reproduce,
-          kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
-            ("write the input above to " .. keep)), 0)
+          format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
+            plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
+            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+            reproduce,
+            kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
+              ("write the input above to " .. keep)), 0)
     end
   end
   local named: {string} = {}
@@ -442,7 +442,7 @@ local function run(p: Fuzz.Property): integer
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
           "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
-          p.shares[name]), 0)
+            p.shares[name]), 0)
       end
     end
   end

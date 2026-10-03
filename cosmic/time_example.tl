@@ -223,7 +223,7 @@ function Example.zone_from_tzif()
   local tokyo = assert(Time.zone_from_tzif(assert(Store.zoneinfo("Asia/Tokyo")), "Asia/Tokyo"))
   print(Time.format_rfc3339(0, tokyo, { zone_name = true }))
   assert(Time.format_rfc3339(0, tokyo, { zone_name = true }) ==
-    "1970-01-01T09:00:00+09:00[Asia/Tokyo]")
+      "1970-01-01T09:00:00+09:00[Asia/Tokyo]")
 end
 
 --- RFC 9557 text names the zone after the offset: the moment and the

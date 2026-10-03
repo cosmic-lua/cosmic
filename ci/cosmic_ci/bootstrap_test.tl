@@ -40,7 +40,7 @@ local child_timeout = Time.seconds(20)
 local trivial_timeout = tostring(Time.seconds(10))
 
 local function call(argv: {string}, cwd: string, output: string,
-    extra?: {string:string}, timeout?: integer): Child.Result
+                    extra?: {string:string}, timeout?: integer): Child.Result
   local fd = assert(Fs.open_write(output))
   local result, trouble = Child.run(argv, {
     cwd = cwd, env = environment(extra), stdout = fd, stderr = fd,
@@ -59,8 +59,8 @@ end
 
 local function pin(path: string, commit: string, digest: string)
   assert(Fs.write(path, commit .. "\n" ..
-    "https://github.com/cosmic-lua/cosmic/releases/download/next-" ..
-    commit .. "/cosmic\n" .. digest .. "\n"))
+      "https://github.com/cosmic-lua/cosmic/releases/download/next-" ..
+      commit .. "/cosmic\n" .. digest .. "\n"))
 end
 
 --- A checkout of its own at `tmp/root` for bin/cosmic-bootstrap, which
@@ -80,7 +80,7 @@ end
 --- Runs bin/cosmic-bootstrap under `root` as CI does, re-verifying its
 --- cache, with `extra` in its environment.
 local function bootstrap(tmp: string, root: string, output: string,
-    extra?: {string:string}): Child.Result
+                         extra?: {string:string}): Child.Result
   local env: {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
   if extra then
     for name, value in pairs(extra) do env[name] = value end
@@ -139,7 +139,7 @@ end
 --- to its real step summary; every test builds this context explicitly
 --- and passes it as `call`'s extra env instead.
 local function driver_context(candidate: string, runner_temp: string,
-    extra?: {string:string}): {string:string}
+                              extra?: {string:string}): {string:string}
   local env: {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run-1",
@@ -360,7 +360,7 @@ local function test_bootstrap_refuses_a_cosmic_bootstrap_it_cannot_run(tmp: stri
     local out = assert(Fs.read(tmp .. "/refused.out"))
     assert(not result.ok, given .. " was taken")
     assert(out == "bin/cosmic-bootstrap: COSMIC_BOOTSTRAP=" .. given ..
-      " is not an executable file\n", out)
+        " is not an executable file\n", out)
   end
   assert(not Predicate.exists(tmp .. "/calls"), "a refused stand-in fell back to the pin")
 end
@@ -381,7 +381,7 @@ local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
         DOWNLOAD_SOURCE = tmp .. "/missing", XDG_CACHE_HOME = tmp .. "/xdg" })
     local out = assert(Fs.read(tmp .. "/tool.out"))
     assert(result.ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" ..
-      root .. "/build/" .. script .. "\nx\ny z\n", tool .. ": " .. out)
+        root .. "/build/" .. script .. "\nx\ny z\n", tool .. ": " .. out)
   end
 end
 
@@ -451,7 +451,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(call({ "/bin/ln", "-s", sentinel,
     symlink_runner_temp .. "/cosmic-ci/operations.db" }, tmp, tmp .. "/db-ln.out").ok)
   local linked = call({ runner, driver, "run", "symlink-db", trivial_timeout,
-      "--", "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
+    "--", "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
     driver_context(candidate, symlink_runner_temp), driver_timeout)
   assert(not linked.ok, "symlink operation database was accepted")
   assert(Hash.hex_sha256((assert(Fs.read(sentinel)))) == before,
@@ -472,10 +472,10 @@ local function test_summarize_reports_unavailable_database(tmp: string)
     { RUNNER_TEMP = tmp .. "/runner-temp", GITHUB_STEP_SUMMARY = summary },
     driver_timeout)
   assert(result.ok, "summarize failed for a missing operation database: " ..
-    (Fs.read(tmp .. "/summarize.out") or "<no output>"))
+      (Fs.read(tmp .. "/summarize.out") or "<no output>"))
   local text = assert(Fs.read(summary))
   assert(text:find("## Cosmic CI operations", 1, true) and
-    text:find("unavailable", 1, true), "summary omitted the unavailable-database line")
+      text:find("unavailable", 1, true), "summary omitted the unavailable-database line")
 end
 
 local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: string)

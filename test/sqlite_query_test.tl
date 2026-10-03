@@ -79,7 +79,7 @@ local function test_a_failed_step_ends_the_rows_with_why()
   local db = assert(Sqlite.memory())
   local q = assert(Sqlite.query(db,
     "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 3) " ..
-    "SELECT CASE WHEN n < 3 THEN n ELSE json('not json') END FROM c"))
+      "SELECT CASE WHEN n < 3 THEN n ELSE json('not json') END FROM c"))
   local seen = 0
   for _ in q:each() do seen = seen + 1 end
   assert(seen == 2, tostring(seen))

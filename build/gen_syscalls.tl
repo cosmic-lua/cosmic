@@ -54,10 +54,29 @@ local record Class
   line: integer
 end
 
---- Everything one read of the header found: its calls and its classes.
+--- One string an `@alias` admits (`---| "file" # a regular file`).
+local record Member
+  value: string
+  description: string
+end
+
+--- A set of strings a header names (`@alias Name` and a `---|` line
+--- per member), declared as a Teal enum, so a value outside it is a
+--- compile error rather than a comparison that is never true.
+local record Alias
+  name: string
+  prose: {string}
+  members: {Member}
+  --- The header line of its `@alias` tag.
+  line: integer
+end
+
+--- Everything one read of the header found: its calls, its classes and
+--- its aliases.
 local record Declarations
   calls: {Call}
   classes: {Class}
+  aliases: {Alias}
 end
 
 --- What one header declares a module of: the header, the record the
@@ -83,6 +102,8 @@ local record generator
   Call: Call
   Field: Field
   Class: Class
+  Member: Member
+  Alias: Alias
   Declarations: Declarations
 end
 
@@ -274,6 +295,53 @@ local function parse_class(lines: {string}, at: {integer}): Class | nil, string
   return class
 end
 
+local function parse_alias(lines: {string}, at: {integer}): Alias | nil, string
+  local alias: Alias = { name = "", prose = {}, members = {}, line = 0 }
+  for index, line in ipairs(lines) do
+    local tag, rest = line:match("^@(%a+)%s+(.*)$")
+    if tag == "alias" then
+      local name = rest:match("^([%w_]+)$")
+      if name == nil then
+        return nil, "an alias block names no alias, or gives it a type on its own line"
+      end
+      alias.name = name
+      alias.line = at[index]
+    elseif line:sub(1, 1) == "|" then
+      local value, description = line:match('^|%s*"([%w_]+)"%s*(.*)$')
+      if value == nil then
+        return nil, (alias.name ~= "" and alias.name or "an alias") ..
+          ": a member line is not `| \"word\" # what it means`"
+      end
+      local said = description:match("^#%s*(.*)$")
+      if said == nil or said == "" then
+        return nil, alias.name .. ": the member \"" .. value .. "\" says nothing about what it means"
+      end
+      for _, member in ipairs(alias.members) do
+        if member.value == value then
+          return nil, alias.name .. ": the member \"" .. value .. "\" is listed twice"
+        end
+      end
+      alias.members[#alias.members + 1] = { value = value, description = said }
+    elseif tag == nil then
+      alias.prose[#alias.prose + 1] = (line:gsub("^%s+", ""))
+    else
+      return nil, (alias.name ~= "" and alias.name or "an alias") .. ": an alias block takes no @" ..
+        tag
+    end
+  end
+  if alias.name == "" then
+    return nil, "an alias block names no alias"
+  end
+  alias.prose = trimmed(alias.prose)
+  if #alias.prose == 0 then
+    return nil, alias.name .. ": the alias says nothing about what it is"
+  end
+  if #alias.members == 0 then
+    return nil, alias.name .. ": the alias has no members"
+  end
+  return alias
+end
+
 --- Whether the `COSMIC_CONSTANT` lines right after a `Constants` class's
 --- block, from `at` in `header`, name exactly its fields in their order:
 --- core/syscalls.c builds the table the constants are set from out of
@@ -311,13 +379,14 @@ local function constants_follow(class: Class, header: string,
   return true, ""
 end
 
---- Reads every annotated call and class out of the header. The two
+--- Reads every annotated call, class and alias out of the header. The
 --- lists travel together in one record, so a fallible read stays two
 --- slots: the record, or nil and why.
 --- @param header the whole text of core/syscalls.h
 function generator.read(header: string): Declarations | nil, string
   local calls: {Call} = {}
   local classes: {Class} = {}
+  local aliases: {Alias} = {}
   -- The header line `position` is on.
   local function line_of(position: integer): integer
     local _, newlines = header:sub(1, position - 1):gsub("\n", "")
@@ -349,13 +418,24 @@ function generator.read(header: string): Declarations | nil, string
         end
         calls[#calls + 1] = call
       else
-        local has_class = false
+        local has_class, has_alias = false, false
         for _, line in ipairs(lines) do
           if line:match("^@class%s") then
             has_class = true
+          elseif line:match("^@alias%s") then
+            has_alias = true
           end
         end
-        if has_class then
+        if has_class and has_alias then
+          return nil, "a block declares both a class and an alias"
+        end
+        if has_alias then
+          local alias, trouble = parse_alias(lines, lines_at)
+          if alias == nil then
+            return nil, trouble
+          end
+          aliases[#aliases + 1] = alias
+        elseif has_class then
           local class, trouble = parse_class(lines, lines_at)
           if class == nil then
             return nil, trouble
@@ -374,6 +454,14 @@ function generator.read(header: string): Declarations | nil, string
   if #calls == 0 then
     return nil, "the header declares no calls"
   end
+  -- Both become types of one record, so a shared name would be declared twice.
+  for _, alias in ipairs(aliases) do
+    for _, class in ipairs(classes) do
+      if class.name == alias.name then
+        return nil, alias.name .. ": names both a class and an alias"
+      end
+    end
+  end
   -- core/syscalls.c registers every COSMIC_CONSTANT in the header, so
   -- one anywhere but after the `Constants` block, where
   -- [`constants_follow`] holds it to a field, would be set undeclared.
@@ -388,7 +476,7 @@ function generator.read(header: string): Declarations | nil, string
     return nil, "Constants: the header writes " .. plural.count(written, "COSMIC_CONSTANT line") ..
       " for " .. plural.count(declared, "field") .. "; one stands outside the block after `Constants`"
   end
-  return { calls = calls, classes = classes }
+  return { calls = calls, classes = classes, aliases = aliases }
 end
 
 --- Appends `lines` to `out` as a doc comment at `indent`, so `cosmic
@@ -487,7 +575,7 @@ function generator.declaration(header: string, target?: Target): string | nil, s
   if found == nil then
     return nil, trouble
   end
-  local calls, classes = found.calls, found.classes
+  local calls, classes, aliases = found.calls, found.classes, found.aliases
 
   local out: {string} = {}
   for _, line in ipairs(target.summary) do
@@ -497,6 +585,25 @@ function generator.declaration(header: string, target?: Target): string | nil, s
   out[#out + 1] = "-- Edit the header; this file is written by the build."
   out[#out + 1] = ""
   out[#out + 1] = "local record " .. target.record_name
+
+  -- A class's field may name an alias, so every alias comes first.
+  for _, alias in ipairs(aliases) do
+    local lines: {string} = {}
+    for _, line in ipairs(alias.prose) do
+      lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = ""
+    for _, member in ipairs(alias.members) do
+      lines[#lines + 1] = "- `\"" .. member.value .. "\"`: " .. member.description
+    end
+    comment(out, "  ", lines)
+    out[#out + 1] = "  enum " .. alias.name
+    for _, member in ipairs(alias.members) do
+      out[#out + 1] = "    \"" .. member.value .. "\""
+    end
+    out[#out + 1] = "  end"
+    out[#out + 1] = ""
+  end
 
   for _, class in ipairs(classes) do
     if class.name ~= "Constants" then
@@ -539,6 +646,9 @@ function generator.declaration(header: string, target?: Target): string | nil, s
   out[#out + 1] = "-- Where each declaration above sits in " .. target.header .. ", which"
   out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
   out[#out + 1] = "-- `build.derivation`'s `origin_lines`."
+  for _, alias in ipairs(aliases) do
+    out[#out + 1] = "-- line " .. alias.name .. " " .. alias.line
+  end
   for _, class in ipairs(classes) do
     local prefix = ""
     if class.name ~= "Constants" then

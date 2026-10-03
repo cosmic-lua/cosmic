@@ -70,9 +70,9 @@ local function test_an_export_only_a_test_calls_is_flagged(dir: string)
   }))
   local refused, stale = judged(db, {})
   assert(table.concat(refused, "\n") ==
-    "build/thing.tl:6: build.thing.limit\n" ..
-    "build/thing.tl:10: build.thing.tested\n" ..
-    "build/thing.tl:11: build.thing.alone", table.concat(refused, "\n"))
+      "build/thing.tl:6: build.thing.limit\n" ..
+      "build/thing.tl:10: build.thing.tested\n" ..
+      "build/thing.tl:11: build.thing.alone", table.concat(refused, "\n"))
   assert(#stale == 0)
 end
 

@@ -40,7 +40,7 @@ end
 
 local function test_expects_four()
   assert(Prerelease.expects_four("4\n") and Prerelease.expects_four("4") and
-    Prerelease.expects_four("4\n\n"))
+      Prerelease.expects_four("4\n\n"))
   for _, bad in ipairs({ "3\n", " 4\n", "4 \n", "04\n", "", "\n4\n" }) do
     assert(not Prerelease.expects_four(bad), bad)
   end
@@ -53,14 +53,14 @@ local function test_release_text_is_the_shell_scripts()
   local run_url = run_prefix .. "123"
   assert(Prerelease.sums(digest) == digest .. "  cosmic\n")
   assert(Prerelease.source_json(commit, digest, run_url) ==
-    '{\n  "commit": "' .. commit .. '",\n  "digest": "' .. digest ..
-    '",\n  "run_url": "' .. run_url .. '"\n}\n')
+      '{\n  "commit": "' .. commit .. '",\n  "digest": "' .. digest ..
+      '",\n  "run_url": "' .. run_url .. '"\n}\n')
   assert(Prerelease.notes(commit, digest, run_url) ==
-    "Prerelease of commit `" .. commit .. "` from [CI run](" .. run_url .. ").\n\n" ..
-    "The identical Cosmic bytes (SHA-256 `" .. digest .. "`) were tested by all four native " ..
-    "workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. Each worker " ..
-    "uploaded its executed-byte attestation, and the provenance join verified all four " ..
-    "hashes before publication.\n")
+      "Prerelease of commit `" .. commit .. "` from [CI run](" .. run_url .. ").\n\n" ..
+      "The identical Cosmic bytes (SHA-256 `" .. digest .. "`) were tested by all four native " ..
+      "workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. Each worker " ..
+      "uploaded its executed-byte attestation, and the provenance join verified all four " ..
+      "hashes before publication.\n")
 end
 
 local function test_source_valid()
@@ -70,7 +70,7 @@ local function test_source_valid()
   end
   assert(valid(Prerelease.source_json(commit, digest, run_prefix .. "123")))
   assert(valid('{"run_url":"' .. run_prefix .. '9","digest":"' .. digest ..
-    '","commit":"' .. commit .. '","extra":1}'))
+      '","commit":"' .. commit .. '","extra":1}'))
   for _, bad in ipairs({
       Prerelease.source_json(string.rep("d", 40), digest, run_prefix .. "1"),
       Prerelease.source_json(commit, string.rep("cd", 32), run_prefix .. "1"),
@@ -106,7 +106,7 @@ local function test_asset_set()
     assert(not Prerelease.complete_assets(bad), table.concat(bad, ","))
   end
   assert(Prerelease.known_asset("cosmic") and Prerelease.known_asset("SHA256SUMS") and
-    Prerelease.known_asset("source.json"))
+      Prerelease.known_asset("source.json"))
   assert(not Prerelease.known_asset("notes.md") and not Prerelease.known_asset("cosmic.exe"))
 end
 
@@ -215,7 +215,7 @@ local function repo(tmp: string, bytes?: string): Repo
   assert(Fs.mkdirs(state) and Fs.mkdirs(bin))
   write(state .. "/repo", repository)
   write(bin .. "/gh", "#!/bin/sh\nexec '" .. assert(Proc.executable()) ..
-    "' --standalone '" .. gh_script() .. "' \"$@\"\n")
+      "' --standalone '" .. gh_script() .. "' \"$@\"\n")
   assert(Fs.chmod(bin .. "/gh", 0x1ed))
   local s = stage_context(tmp)
   s.products = products(tmp .. "/staged-products", bytes or "product bytes")
@@ -302,7 +302,7 @@ local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: 
   local dir = r.state .. "/releases/5"
   assert(read(dir .. "/draft") == "false")
   assert(read(dir .. "/assets/source.json") ==
-    Prerelease.source_json(commit, digest, run_prefix .. "3"))
+      Prerelease.source_json(commit, digest, run_prefix .. "3"))
   assert(read(dir .. "/assets/cosmic") == "product bytes")
   assert(read(dir .. "/assets/SHA256SUMS") == read(r.release .. "/SHA256SUMS"))
 end
@@ -329,7 +329,7 @@ local function test_publish_verifies_an_identical_published_release(tmp: string)
   assert(publish(r) == "prerelease already published and verified: " .. tag)
   local log = calls(r)
   assert(count(log, "release create ") == 0 and count(log, "release upload ") == 0 and
-    count(log, "release edit ") == 0 and count(log, "POST") == 0, log)
+      count(log, "release edit ") == 0 and count(log, "POST") == 0, log)
   assert(count(log, "release download ") == 1)
 end
 
@@ -379,7 +379,7 @@ local function test_publish_skips_a_commit_the_default_branchs_workflows_moved_p
   write(r.state .. "/compare", "build/x.tl\n.github/workflows/ci.yml\n")
   local line = publish(r)
   assert(line == "::warning::prerelease skipped: " .. tag .. ": GitHub refused the tag, " ..
-    "the default branch's workflows having moved past it", line)
+      "the default branch's workflows having moved past it", line)
   assert(not exists(r.state .. "/tags") and not exists(r.state .. "/releases"))
   local log = calls(r)
   assert(count(log, "compare/" .. commit .. "%.%.%.main") == 1, log)
@@ -421,7 +421,7 @@ end
 local function test_publish_refuses_a_draft_whose_source_names_another_digest(tmp: string)
   local r = repo(tmp)
   seed(r, "1", true, { ["source.json"] =
-    Prerelease.source_json(commit, string.rep("cd", 32), run_prefix .. "3") })
+      Prerelease.source_json(commit, string.rep("cd", 32), run_prefix .. "3") })
   refused("source.json names another digest", function() publish(r) end)
   local log = calls(r)
   assert(count(log, "release upload ") == 0 and count(log, "release edit ") == 0, log)

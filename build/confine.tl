@@ -82,7 +82,7 @@ local record Calls
   realpath: function(path: string): string | nil, string, integer
   lstat: function(path: string): sys.Stat | nil, string, integer
   stat: function(path: string): sys.Stat | nil, string, integer
-  readdir: function(path: string): {string:string} | nil, string, integer
+  readdir: function(path: string): {string:sys.Kind} | nil, string, integer
   getenv: function(name: string): string | nil
   environ: function(): {string:string}
   access: function(path: string, mode: integer): boolean, string, integer
@@ -223,8 +223,8 @@ end
 --- naming the declaration that lets it.
 local function nests_refusal(program: string, module: string): string
   return string.format("%s cannot start in a root of its own: %s's worker is held by a " ..
-    "Landlock ruleset, under which the kernel refuses every mount; declare nests = true " ..
-    "in its Test.needs", program, module)
+      "Landlock ruleset, under which the kernel refuses every mount; declare nests = true " ..
+      "in its Test.needs", program, module)
 end
 
 --- `wanted`, each relative path taken from the directory this process
@@ -902,7 +902,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
                            stderr: integer | nil, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
                            credentials?: raw_process.Credentials):
-                           integer | nil, string, integer
+      integer | nil, string, integer
     if ended then
       -- A reference to a stand-in that no longer stands in starts a
       -- process no confinement holds: under [`must_confine`], none.
@@ -943,7 +943,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     if plain ~= nil and must ~= nil then
       return nil, refuse(must, path, "unveil and offline",
         "a sandbox of its own that does not unveil and take the network, which " ..
-        "must_confine does not add to", sys.EINVAL), sys.EINVAL
+          "must_confine does not add to", sys.EINVAL), sys.EINVAL
     end
     -- One a library's work starts (`declaring`), where no confinement
     -- of the test's holds it: where this process runs in a sandbox, by

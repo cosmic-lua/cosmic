@@ -1,0 +1,15 @@
+file: compiler/Maker.zig
+note: A root named by a build file with no directory (`--build-file build.zig`) takes the working directory's path, as 05's found by searching does. (05's note says why.)
+--- find
+            .directory = .cwd(),
+            .close_directory = false,
+        };
+    }
+    // Search up parent directories until we find build.zig.
+--- replace
+            .directory = .{ .path = options.cwd_path, .handle = Io.Dir.cwd() },
+            .close_directory = false,
+        };
+    }
+    // Search up parent directories until we find build.zig.
+--- end

@@ -28,7 +28,7 @@ local function cosmic(dir: string, words: {string}, input?: string): Ran
 end
 
 local function test_it_reads_standard_input_and_prints_no_verdict(tmp: string)
-  local ran = cosmic(tmp, { "json", ".a[2]" }, '{"a": [1, {"b": "c"}]}')
+  local ran = cosmic(tmp, { "json", "$.a[1]" }, '{"a": [1, {"b": "c"}]}')
   assert(ran.code == 0, ran.err)
   assert(ran.out == '{\n  "b": "c"\n}\n', ran.out)
   assert(ran.err == "", ran.err)
@@ -39,14 +39,14 @@ end
 local function test_a_file_and_the_exit_status_are_the_verdict(tmp: string)
   local path = tmp .. "/doc.json"
   assert(Fs.write(path, '{"a": 1}'))
-  local found = cosmic(tmp, { "json", "--compact", ".a", path })
+  local found = cosmic(tmp, { "json", "--compact", "$.a", path })
   assert(found.code == 0 and found.out == "1\n" and found.err == "", found.out .. found.err)
-  local missing = cosmic(tmp, { "json", ".b", path })
+  local missing = cosmic(tmp, { "json", "$.b", path })
   assert(missing.code == 1 and missing.out == "", missing.out)
-  assert(missing.err == 'cosmic: json: $: no key "b"\n', missing.err)
-  local exists = cosmic(tmp, { "json", "--exists", ".b", path })
+  assert(missing.err == 'cosmic: json: no value at pointer "/b"\n', missing.err)
+  local exists = cosmic(tmp, { "json", "--exists", "$.b", path })
   assert(exists.code == 1 and exists.out == "" and exists.err == "")
-  local invalid = cosmic(tmp, { "json", ".a" }, "{")
+  local invalid = cosmic(tmp, { "json", "$.a" }, "{")
   assert(invalid.code == 2 and invalid.out == "", invalid.out)
   local usage = cosmic(tmp, { "json", "--bogus", path })
   assert(usage.code == 2 and usage.out == "", usage.out)

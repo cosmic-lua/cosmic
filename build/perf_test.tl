@@ -153,11 +153,11 @@ local function test_build_history_transitions_cover_queries_docs_and_leaf_edits(
   assert(not pcall(Perf.check_transition, before, before, true, false))
   assert(not pcall(Perf.check_transition, before, next_run, false, false))
   for _, invalid in ipairs({
-    { "0", "6", "0", "PASS", "6", "6" },
-    { "0", "6", "0", "PASS", "5", "4" },
-    { "0", "6", "1", "PASS", "5", "5" },
-    { "1", "5", "0", "PASS", "5", "5" },
-    { "0", "5", "0", "PASS", "5", "5" },
+      { "0", "6", "0", "PASS", "6", "6" },
+      { "0", "6", "0", "PASS", "5", "4" },
+      { "0", "6", "1", "PASS", "5", "5" },
+      { "1", "5", "0", "PASS", "5", "5" },
+      { "0", "5", "0", "PASS", "5", "5" },
   }) do assert(not pcall(Perf.check_transition, before, invalid, true, false)) end
   assert(not pcall(Perf.check_transition, before, next_run, true, true))
 end

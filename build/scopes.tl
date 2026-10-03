@@ -37,6 +37,13 @@ end
 --- The field that points back up the tree, never followed.
 local back_up: {string: boolean} = { if_parent = true }
 
+--- The kinds of expression that hold no node, which a walk need not
+--- look inside.
+local leaves: {string: boolean} = {
+  variable = true, string = true, number = true, integer = true, boolean = true,
+  ["nil"] = true, ["..."] = true,
+}
+
 local type Stack = {{string: string}}
 
 local function binding(stack: Stack, name: string): string | nil
@@ -80,7 +87,7 @@ local function required_name(call: ast.Node): string | nil
   end
   local callee, args = call.e1, call.e2
   if callee == nil or callee.kind ~= "variable" or callee.tk ~= "require" or
-     args == nil or #args ~= 1 or args[1].kind ~= "string" then
+      args == nil or #args ~= 1 or args[1].kind ~= "string" then
     return nil
   end
   return args[1].conststr
@@ -139,7 +146,7 @@ function scopes.walk(parsed: ast.Parsed,
     if name == nil then return nil end
     stack[#stack][name] = module
     local made: scopes.Binding = { name = name, module = module, from = from, to = ends[#ends],
-                                   head = head, top = #ends == 1, annotated = annotated == true }
+      head = head, top = #ends == 1, annotated = annotated == true }
     out[#out + 1] = made
     return made
   end
@@ -158,12 +165,13 @@ function scopes.walk(parsed: ast.Parsed,
   local walk_expression: function(ast.Node)
 
   walk_expression = function(n: ast.Node)
+    if leaves[n.kind] then return end
     if n.kind == "function" then
       process_function(n)
       return
     end
     if member ~= nil and n.kind == "op" and n.op ~= nil and n.op.op == "." and n.e1 ~= nil and
-       n.e2 ~= nil and n.e2.tk ~= nil then
+        n.e2 ~= nil and n.e2.tk ~= nil then
       -- `alias.member`, or a member read straight off the module a
       -- literal `require` names: `require("build.test").run`.
       local module: string | nil = nil
@@ -176,9 +184,7 @@ function scopes.walk(parsed: ast.Parsed,
         member(module, n.e2.tk, n.e1.y)
       end
     end
-    for _, child in ipairs(ast.children(n, back_up)) do
-      walk_expression(child)
-    end
+    ast.each_child_node(n, back_up, walk_expression)
   end
 
   --- A function, or a macroexp, whose body is one expression.

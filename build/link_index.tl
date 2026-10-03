@@ -177,7 +177,7 @@ local raw_links =
 local function remembering(root: string, memo: link_index.Memo,
                            symbols_of: function(string): {link_resolve.Symbol} | nil, string,
                            member_of: function(string, string): {link_resolve.Symbol} | nil, string):
-                           link_resolve.Context
+    link_resolve.Context
   local disk = link_resolve.on_disk(root, symbols_of, member_of,
     function(): string | nil return nil end)
   local context: link_resolve.Context = {
@@ -353,7 +353,7 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, source_symbol, file, kind, signature, exported, id FROM " ..
-    qualifier .. "docs ORDER BY module, exported DESC, id")
+      qualifier .. "docs ORDER BY module, exported DESC, id")
   if rows == nil then
     return nil, trouble
   end
@@ -395,7 +395,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
     end
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
-      "d.id, " .. symbols.shown_docs("d", true) .. " FROM docs d ORDER BY d.module, d.id")
+        "d.id, " .. symbols.shown_docs("d", true) .. " FROM docs d ORDER BY d.module, d.id")
     if rows == nil then
       return false, rows_trouble
     end
@@ -530,8 +530,8 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
   for _, row in ipairs(rows) do
     local ok, trouble = Sqlite.run(db,
       "INSERT INTO " .. qualifier .. "links (module, symbol, path, anchor, from_file, line, " ..
-      "column, from_module, kind, form, source, text) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "column, from_module, kind, form, source, text) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
       { text(row.module), text(row.symbol), text(row.path), text(row.anchor),
         text(row.from_file), { integer = row.line }, { integer = row.column },
         text(row.from_module), text(row.kind), text(row.form), text(row.source),

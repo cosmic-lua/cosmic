@@ -281,7 +281,7 @@ local function declarations(root: Node, name: string): {Declaration}
     for _, statement in ipairs(block) do
       local var, value = statement.var, statement.value
       if statement.kind == "local_type" and var ~= nil and var.tk == name and
-         value ~= nil and value.kind == "newtype" and value.newtype ~= nil then
+          value ~= nil and value.kind == "newtype" and value.newtype ~= nil then
         out[#out + 1] = {
           type = view_of_node(value.newtype), y = statement.y, x = statement.x,
           end_y = block.yend or 0, end_x = block.xend or 0,
@@ -313,7 +313,7 @@ local function required_name(call: Node | nil): string | nil
   if call == nil or call.kind ~= "op" then return nil end
   local op, callee, args = call.op, call.e1, call.e2
   if op == nil or op.op ~= "@funcall" or callee == nil or callee.kind ~= "variable" or
-     callee.tk ~= "require" or args == nil then
+      callee.tk ~= "require" or args == nil then
     return nil
   end
   local only = args[1]

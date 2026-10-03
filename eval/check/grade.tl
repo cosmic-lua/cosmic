@@ -268,7 +268,7 @@ local function put_back_journal(g: Grade, project: string): boolean
   end
   if exists(journal) then
     fail(g, aside .. " is an earlier grading's, beside a new JOURNAL.md; " ..
-      "keeping both, and checking the new one")
+        "keeping both, and checking the new one")
     return false
   end
   local back, trouble = Fs.rename(aside, journal)
@@ -333,7 +333,7 @@ local function expect(g: Grade, want: string, args: {string})
     ok(label(g, args) .. " -> " .. first_line(want))
   else
     fail(g, label(g, args) .. ": exit " .. status(result) .. ", got '" .. got ..
-      "', wanted '" .. want .. "'; stderr: " .. first_line(result.stderr or ""))
+        "', wanted '" .. want .. "'; stderr: " .. first_line(result.stderr or ""))
   end
 end
 
@@ -345,7 +345,7 @@ local function succeeds(g: Grade, args: {string})
     ok(label(g, args) .. " -> exit 0")
   else
     fail(g, label(g, args) .. ": exit " .. status(result) .. "; stderr: " ..
-      first_line(result.stderr or ""))
+        first_line(result.stderr or ""))
   end
 end
 
@@ -477,7 +477,7 @@ local function serves(g: Grade, args: {string}): Child.Handle, integer
   end
   local text, _ = Fs.read(out_path)
   fail(g, what .. " printed no 'listening on 127.0.0.1:<port>' line in 5s: " ..
-    first_line(text or ""))
+      first_line(text or ""))
   local _, _ = server:close()
   return nil, 0
 end
@@ -512,7 +512,7 @@ end
 --- after a HEAD's headers shows, and a response with no length is read
 --- to its close; without, a response with no length is an error.
 local function exchange(port: integer, request: string, head_only: boolean,
-  to_close: boolean): Answer | nil, string
+                        to_close: boolean): Answer | nil, string
   local conn, ctrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Time.seconds(3) })
   if conn == nil then return nil, ctrouble end
   local sent, strouble = conn:write(request)
@@ -731,7 +731,7 @@ local function pack(g: Grade)
   refuses(g, { "list", "missing.tar" })
 
   write(g, "evil.tar", ustar("ok.txt", "fine\n") .. ustar("../evil.txt", "escaped\n") ..
-    string.rep("\0", 1024))
+      string.rep("\0", 1024))
   local err = refuses(g, { "extract", "evil.tar", "dest-evil" })
   check(g, err:find("../evil.txt", 1, true) ~= nil, "extract evil.tar names the entry ../evil.txt",
     first_line(err))
@@ -763,10 +763,10 @@ local function reports(g: Grade, args: {string}, want: string): string
   local wanted = assert(Json.decode(want))
   if status(result) ~= 0 then
     fail(g, label(g, args) .. ": exit " .. status(result) .. "; stderr: " ..
-      first_line(result.stderr or ""))
+        first_line(result.stderr or ""))
   elseif got == nil then
     fail(g, label(g, args) .. ": stdout is no JSON (" .. trouble .. "): " ..
-      first_line(result.stdout or ""))
+        first_line(result.stdout or ""))
   elseif not same(got, wanted) then
     fail(g, label(g, args) .. ": got " .. trimmed(result.stdout or "") .. ", wanted " .. want)
   else
@@ -872,7 +872,7 @@ local function kv(g: Grade)
       ok("get while another client idles mid-request -> answered in " .. took .. " ms")
     else
       fail(g, "get while another client idles mid-request: exit " .. status(result) ..
-        " after " .. took .. " ms; stderr: " .. first_line(result.stderr or ""))
+          " after " .. took .. " ms; stderr: " .. first_line(result.stderr or ""))
     end
     local _, _ = idle:close()
   end
@@ -938,10 +938,10 @@ local function jobs_main(g: Grade, w: string): integer
     second = { cmd = sh("[ -e " .. w .. "/first.done ] && : > " .. w .. "/second.ok"),
       needs = { "first" } },
     envcheck = { cmd = sh("[ \"$ONLY\" = yes ] && [ -z \"${LEAK+x}\" ] && : > " .. w ..
-      "/env.ok"), env = { ONLY = "yes" } },
+        "/env.ok"), env = { ONLY = "yes" } },
     here = { cmd = sh(": > here.txt"), cwd = w .. "/sub" },
     flaky = { cmd = sh("if [ -e " .. w .. "/f2 ]; then exit 0; elif [ -e " .. w ..
-      "/f1 ]; then : > " .. w .. "/f2; exit 1; else : > " .. w .. "/f1; exit 1; fi"),
+        "/f1 ]; then : > " .. w .. "/f2; exit 1; else : > " .. w .. "/f1; exit 1; fi"),
       retries = 3 },
     broken = { cmd = sh("exit 3"), retries = 1 },
     missing = { cmd = { "/nonexistent/program" } },
@@ -976,7 +976,7 @@ local function jobs_main(g: Grade, w: string): integer
   local second_start = number_of(field(report.second, "start_ms"))
   check(g, first_end ~= nil and second_start ~= nil and second_start >= first_end,
     "second (needs first) started at " .. shown(second_start) .. " ms, after first ended at " ..
-    shown(first_end) .. " ms")
+      shown(first_end) .. " ms")
   check(g, exists(w .. "/second.ok"), "second saw first's file when it ran")
   check(g, not exists(w .. "/after_broken.ran") and not exists(w .. "/after_after.ran"),
     "skipped jobs never ran")
@@ -989,7 +989,7 @@ local function jobs_main(g: Grade, w: string): integer
     "a job with a 0.5 s timeout ran " .. shown(slow_ran) .. " ms")
   local log, _ = Fs.read(w .. "/logs/first.log")
   check(g, log ~= nil and log:find("first-out", 1, true) ~= nil and
-    log:find("first-err", 1, true) ~= nil, "w/logs/first.log holds first's stdout and stderr",
+      log:find("first-err", 1, true) ~= nil, "w/logs/first.log holds first's stdout and stderr",
     log == nil and "no such file" or "got '" .. trimmed(log or "") .. "'")
   check(g, not (result.stdout or ""):find("first-out", 1, true),
     "a job's output stays out of jobs's stdout")
@@ -1034,7 +1034,7 @@ local function jobs_interrupt(g: Grade, w: string): integer
     return late
   end
   check(g, status(result) ~= 0 and took < 3000, label(g, args) .. " ended on SIGTERM in " ..
-    took .. " ms, exit " .. status(result), "wanted a non-zero exit within 3 s")
+      took .. " ms, exit " .. status(result), "wanted a non-zero exit within 3 s")
   local report, rtrouble = jobs_report(result)
   if report == nil then
     fail(g, "report after SIGTERM: " .. rtrouble)
@@ -1054,7 +1054,7 @@ local function jobs_refusals(g: Grade, w: string)
   })
   local err = refuses(g, { "run", "w/cycle.json" })
   check(g, err:find("alpha", 1, true) ~= nil or err:find("beta", 1, true) ~= nil or
-    err:find("gamma", 1, true) ~= nil, "the cycle's refusal names a job in it", trimmed(err))
+      err:find("gamma", 1, true) ~= nil, "the cycle's refusal names a job in it", trimmed(err))
   check(g, not exists(w .. "/free.ran"), "nothing runs from a jobfile with a cycle")
   jobfile(g, "w/unknown.json", {
     a = { cmd = sh("exit 0"), needs = { "ghost" } },
@@ -1085,7 +1085,7 @@ local function jobs_parallel(g: Grade)
   check(g, status(result) == 0, label(g, args) .. " exits 0 when every job is ok",
     "exit " .. status(result) .. "; stderr: " .. first_line(result.stderr or ""))
   check(g, took >= 1800 and took < 2900, label(g, args) .. " took " .. took ..
-    " ms for three 1 s jobs two at a time", "wanted about 2000 ms")
+      " ms for three 1 s jobs two at a time", "wanted about 2000 ms")
   local report, trouble = jobs_report(result)
   if report == nil then
     fail(g, label(g, args) .. ": " .. trouble)
@@ -1131,7 +1131,7 @@ end
 
 --- One request to the server with `Connection: close`, and its answer.
 local function request(port: integer, method: string, target: string,
-  headers?: {string: string}): Answer | nil, string
+                       headers?: {string: string}): Answer | nil, string
   local lines = { method .. " " .. target .. " HTTP/1.1", "Host: 127.0.0.1",
     "Connection: close" }
   local names: {string} = {}
@@ -1150,7 +1150,7 @@ end
 --- Asks the server, checks the status is one of `codes`, and answers
 --- what came back for more checks, or nil once it has failed.
 local function asks(g: Grade, site: Site, method: string, target: string,
-  headers: {string: string}, codes: {integer}): Answer
+                    headers: {string: string}, codes: {integer}): Answer
   local shown_headers: {string} = {}
   for name, value in pairs(headers) do shown_headers[#shown_headers + 1] = name .. ": " .. value end
   table.sort(shown_headers)
@@ -1224,7 +1224,7 @@ local function mirror_listings(g: Grade, site: Site)
         local got, trouble = Json.decode(answer.body)
         local expected = assert(Json.decode((assert(Json.encode(entries)))))
         check(g, got ~= nil and same(got, expected), "GET " .. target ..
-          " lists its entries by name", got == nil and trouble or "got " .. answer.body)
+            " lists its entries by name", got == nil and trouble or "got " .. answer.body)
       end
     end
   end
@@ -1284,11 +1284,11 @@ local function mirror_requests(g: Grade, site: Site)
   body_is(g, small_zip, "GET /a.txt accepting gzip", small)
 
   for _, target in ipairs({ "/../secret.txt", "/%2e%2e/secret.txt", "/sub/..%2f..%2fsecret.txt",
-    "/sub/%2E%2E/%2E%2E/secret.txt" }) do
+      "/sub/%2E%2E/%2E%2E/secret.txt" }) do
     local answer = asks(g, site, "GET", target, {}, { 403, 404 })
     if answer ~= nil then
       check(g, not answer.body:find("TOP SECRET", 1, true), "GET " .. target ..
-        " gives nothing of the file outside", "its body holds the secret")
+          " gives nothing of the file outside", "its body holds the secret")
     end
   end
   asks(g, site, "GET", "/nothing.txt", {}, { 404 })
@@ -1346,7 +1346,7 @@ local function pulls(g: Grade, args: {string}, lines: {string})
   local said = table.concat(got, "; ")
   check(g, status(result) == 0 and said == want, label(g, args) .. " -> " .. want,
     "exit " .. status(result) .. ", printed '" .. said .. "'; stderr: " ..
-    first_line(result.stderr or ""))
+      first_line(result.stderr or ""))
 end
 
 local function mirror_pulls(g: Grade, site: Site)
@@ -1397,7 +1397,7 @@ local function mirror_lie(g: Grade)
       local head = body ~= nil and "200 OK" or "404 Not Found"
       body = body or ""
       local _, _ = conn:write("HTTP/1.1 " .. head .. "\r\nContent-Length: " .. #body ..
-        "\r\nConnection: close\r\n\r\n" .. body)
+          "\r\nConnection: close\r\n\r\n" .. body)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       args = { "pull", "http://127.0.0.1:" .. addresses[1].port .. "/", "lied" }
@@ -1478,7 +1478,7 @@ function Grader.grade(name: string, dir: string): integer
   local is_project, project_trouble = Fs.is_dir(project)
   if not is_project then
     say("FAIL no project at " .. project ..
-      (project_trouble ~= "" and ": " .. project_trouble or ""))
+        (project_trouble ~= "" and ": " .. project_trouble or ""))
     say("FAIL")
     return 1
   end
@@ -1507,7 +1507,7 @@ function Grader.grade(name: string, dir: string): integer
       return false
     end
     local _, _ = Fs.put(out, "evidence: " .. evidence.tests .. " tests, " ..
-      evidence.examples .. " examples\n")
+        evidence.examples .. " examples\n")
     return evidence.tests > 0 and evidence.examples > 0
   end)
   fix_check(g, cosmic, project, set_aside)
@@ -1550,7 +1550,7 @@ function Grader.main(argv: {integer: string}): integer
     for each in pairs(TASKS) do names[#names + 1] = each end
     table.sort(names)
     local _, _ = Fs.put(Fs.stderr, "usage: eval/check/<task> <dir>, where <task> is one of " ..
-      table.concat(names, ", ") .. "\n")
+        table.concat(names, ", ") .. "\n")
     return 2
   end
   -- The steps run in other directories, and name the arena's files.

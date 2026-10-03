@@ -135,12 +135,12 @@ local function test_a_second_checkout_compiles_nothing_the_first_compiled(tmp: s
   -- bytecode, and the record-field use `b` makes of `c.Box` with it.
   local queries: {{string}} = {
     { "o/cosmic.db", "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), " ..
-      "tests FROM modules ORDER BY path" },
+        "tests FROM modules ORDER BY path" },
     { "o/cosmic.db", "SELECT module, symbol, from_module, from_file, line FROM uses " ..
-      "ORDER BY module, symbol, from_module, line" },
+        "ORDER BY module, symbol, from_module, line" },
     { "o/build.db", "SELECT key, tool, lua, hex(bytecode), seen FROM compiled ORDER BY key" },
     { "o/build.db", "SELECT key, ordinal, module, member, line FROM typed_refs " ..
-      "ORDER BY key, ordinal" },
+        "ORDER BY key, ordinal" },
   }
   for _, query in ipairs(queries) do
     local first = dump(tmp .. "/first/" .. query[1], query[2])
@@ -198,15 +198,21 @@ local function test_a_broken_cache_never_fails_a_build(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cache"))
   assert(Fs.write(path, string.rep("not a database\n", 512)))
   assert(Fs.chmod(path, 0x180))
-  checkout(tmp .. "/first")
-  local first = built(tmp .. "/first", env, "(3 compiled, 0 cached;")
-  assert(first:find("shared compiles: ", 1, true) and first:find("moved aside", 1, true), first)
-  -- Moved aside, it is made again by the next build, and shared.
-  checkout(tmp .. "/second")
-  local second = built(tmp .. "/second", env, "(3 compiled, 0 cached;")
-  assert(not second:find("shared compiles: ", 1, true), second)
-  checkout(tmp .. "/third")
-  built(tmp .. "/third", env, "(0 compiled, 3 cached, 3 of them taken from another checkout;")
+  local before = assert(Fs.stat(path))
+  local bytes = assert(Fs.read(path))
+  local sibling = path .. ".corrupt-older"
+  assert(Fs.write(sibling, "earlier evidence"))
+  for _, name in ipairs({ "first", "second" }) do
+    checkout(tmp .. "/" .. name)
+    local output = built(tmp .. "/" .. name, env, "(3 compiled, 0 cached;")
+    local _, complaints = output:gsub("shared compiles: ", "")
+    assert(complaints == 1 and output:find("building without them", 1, true), output)
+    assert(not output:find("moved aside", 1, true), output)
+    local after = assert(Fs.stat(path))
+    assert(after.ino == before.ino and after.dev == before.dev)
+    assert(Fs.read(path) == bytes and Fs.read(sibling) == "earlier evidence")
+    assert(#assert(Fs.list(Fs.dirname(path))) == 2, "a cache was renamed or replaced")
+  end
 end
 
 --- A row that does not decode to what its digest says is a miss: the
@@ -229,7 +235,7 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = x'deadbeef' WHERE key = ?1",
     { { text = keys.b } }))
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = (SELECT lua FROM compiled_v2 " ..
-    "WHERE key = ?2) WHERE key = ?1", { { text = keys.c }, { text = keys.a } }))
+      "WHERE key = ?2) WHERE key = ?1", { { text = keys.c }, { text = keys.a } }))
   assert(cache:close())
   checkout(tmp .. "/second")
   local second = built(tmp .. "/second", env,
@@ -268,7 +274,7 @@ local function test_an_earlier_formats_table_is_dropped(tmp: string)
   assert(Fs.chmod(tmp .. "/cache", 0x1c0))
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE compiled_v1 (key TEXT PRIMARY KEY, lua BLOB NOT NULL, " ..
-    "bytecode BLOB NOT NULL, refs BLOB NOT NULL, size INTEGER NOT NULL, used_ns INTEGER NOT NULL)"))
+      "bytecode BLOB NOT NULL, refs BLOB NOT NULL, size INTEGER NOT NULL, used_ns INTEGER NOT NULL)"))
   assert(db:close())
   assert(Fs.chmod(path, 0x180))
   checkout(tmp .. "/first")

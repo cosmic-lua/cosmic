@@ -110,7 +110,7 @@ end
 
 --- The runner has already decided failure before asking for its summary.
 function test_report.failed(failures: integer, total: integer, errors: integer,
-                           elapsed: string): string
+                            elapsed: string): string
   return failures .. " of " .. total .. " failed, " ..
     plural.count(errors, "infrastructure error") .. ", " .. elapsed
 end

@@ -59,8 +59,8 @@ local function classify(value: any): Node | nil, {any} | nil
 end
 
 --- Call `consider` once for every child value in `node`'s fields, array
---- part first and then the named fields. `walk`, [`span_start`] and
---- [`span_end`] are each a fold over it.
+--- part first and then the named fields. `walk` and [`span_end`] are
+--- each a fold over it; [`span_start`] writes the same step out.
 --- @param node Node
 --- @param consider function(any) Called once per array element and per named field
 local function each_child(node: Node, consider: function(any))
@@ -123,6 +123,33 @@ local function children(node: Node, skipped?: {string: boolean}, passed?: {Node}
   return out
 end
 
+--- Calls `visit` on each node [`children`] lists for `node` and
+--- `skipped`, in the same order, without making the list: a walk that
+--- descends through every node of a file saves a table for each.
+--- `visit` must not change `node`.
+--- @param node Node
+--- @param skipped? {string: boolean} Field names not followed
+--- @param visit function(Node) Called once per child
+local function each_child_node(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
+  for _, v in ipairs(array_of(node)) do
+    local child = classify(v)
+    if child then visit(child) end
+  end
+  for k, v in pairs(map_of(node)) do
+    if not (k is integer) and not (k is string and skipped ~= nil and skipped[k] == true) then
+      local child, rest = classify(v)
+      if child then
+        visit(child)
+      elseif rest then
+        for _, e in ipairs(rest) do
+          local grandchild = classify(e)
+          if grandchild then visit(grandchild) end
+        end
+      end
+    end
+  end
+end
+
 --- Walk `node`'s subtree in depth-first order, calling `visit` once on
 --- every node reached, `node` itself first. A guard by identity stops
 --- the cycle through an "if_block" node's `if_parent`, which points
@@ -159,38 +186,67 @@ end
 --- `y`/`x` where it finished building the node, often mid-expression:
 --- the "@funcall" op node of `os.execute(cmd)` records the position
 --- after `(`, not the column of `os`.
+---
+--- `memo`, when given, keeps every subtree's start as it is found and
+--- is read first, so one table shared across calls over a tree walks
+--- each subtree once. A start found while walking up a link back to an
+--- ancestor (an `if_block`'s `if_parent`) counts that ancestor at its
+--- own position, which is its subtree's start: an `if` opens on its
+--- keyword.
 --- @param node Node
+--- @param memo? {Node: {integer}} Starts already found, and where to keep new ones
 --- @return integer The 1-based line
 --- @return integer The 1-based column
-local function span_start(node: Node): integer, integer
-  local function compute(n: Node, seen: {Node: boolean}): integer, integer
+local function span_start(node: Node, memo?: {Node: {integer}}): integer, integer
+  local seen: {Node: boolean} = {}
+  local compute: function(Node): integer, integer
+  -- The earlier of (`by`, `bx`) and where child field `value` starts.
+  -- It is [`each_child`]'s step written out, with no closure made per
+  -- node: this runs once for every node a renderer asks about.
+  local function fold(value: any, by: integer, bx: integer): integer, integer
+    local child, rest = classify(value)
+    if child then
+      local cy, cx = compute(child)
+      if cy < by or (cy == by and cx < bx) then
+        return cy, cx
+      end
+    elseif rest then
+      for _, e in ipairs(rest) do
+        local gc = classify(e)
+        if gc then
+          local cy, cx = compute(gc)
+          if cy < by or (cy == by and cx < bx) then
+            by, bx = cy, cx
+          end
+        end
+      end
+    end
+    return by, bx
+  end
+  compute = function(n: Node): integer, integer
+    local known = memo ~= nil and memo[n] or nil
+    if known ~= nil then
+      return known[1], known[2]
+    end
     local by, bx = n.y, n.x
     if seen[n] then
       return by, bx
     end
     seen[n] = true
-    each_child(n, function(value: any)
-      local child, rest = classify(value)
-      if child then
-        local cy, cx = compute(child, seen)
-        if cy < by or (cy == by and cx < bx) then
-          by, bx = cy, cx
-        end
-      elseif rest then
-        for _, e in ipairs(rest) do
-          local gc = classify(e)
-          if gc then
-            local cy, cx = compute(gc, seen)
-            if cy < by or (cy == by and cx < bx) then
-              by, bx = cy, cx
-            end
-          end
-        end
+    for _, v in ipairs(array_of(n)) do
+      by, bx = fold(v, by, bx)
+    end
+    for k, v in pairs(map_of(n)) do
+      if not (k is integer) then
+        by, bx = fold(v, by, bx)
       end
-    end)
+    end
+    if memo ~= nil then
+      memo[n] = { by, bx }
+    end
     return by, bx
   end
-  return compute(node, {})
+  return compute(node)
 end
 
 --- Is there a close-bracket token, `)`, `]` or `}`, at 1-based (`y`, `x`)?
@@ -203,7 +259,7 @@ end
 --- @param x integer
 --- @return boolean
 local function is_close_bracket_at(tokens: {compiler.Token},
-    y: integer, x: integer): boolean
+                                   y: integer, x: integer): boolean
   for _, t in ipairs(tokens) do
     if t.y == y and t.x == x then
       return t.tk == ")" or t.tk == "]" or t.tk == "}"
@@ -286,15 +342,17 @@ local record WalkModule
   end
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
-  span_start: function(node: Node): Position
+  each_child_node: function(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
+  span_start: function(node: Node, memo?: {Node: {integer}}): Position
   span_end: function(node: Node, tokens: {compiler.Token}): Position
 end
 
 local M: WalkModule = {
   walk = walk,
   children = children,
-  span_start = function(node: Node): WalkModule.Position
-    local y, x = span_start(node)
+  each_child_node = each_child_node,
+  span_start = function(node: Node, memo?: {Node: {integer}}): WalkModule.Position
+    local y, x = span_start(node, memo)
     return { y = y, x = x }
   end,
   span_end = function(node: Node, tokens: {compiler.Token}): WalkModule.Position

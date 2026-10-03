@@ -47,7 +47,7 @@ local function test_an_example_missing_a_require_is_refused(dir: string)
   local found = found_in(dir, (good:gsub('local Fs = require%("cosmic.fs"%)\n', "")))
   -- The finding names the line the function sits at in the example file.
   assert(#found > 0 and found[1]:find("^cosmic/thing_example%.tl:4: example read: ") ~= nil and
-    found[1]:find("Fs", 1, true) ~= nil, table.concat(found, "\n"))
+      found[1]:find("Fs", 1, true) ~= nil, table.concat(found, "\n"))
 end
 
 local function test_an_example_reading_a_harness_variable_is_refused(dir: string)
@@ -164,7 +164,7 @@ local function test_only_declarations_count_as_helpers(dir: string)
     "end",
     "return Example"))
   assert(#found > 0 and found[1]:find("unknown variable: Missing", 1, true) and
-    not found[1]:find("helper", 1, true), table.concat(found, "\n"))
+      not found[1]:find("helper", 1, true), table.concat(found, "\n"))
   local long: {string} = { "local a, b = {" }
   for at = 1, 20 do long[#long + 1] = "  " .. at .. "," end
   long[#long + 1] = "}, 2"

@@ -409,7 +409,7 @@ local function fd_options(opts: Stream.FdOptions | nil, level: integer): Stream.
   Poll.checked_ns(opts.timeout_ns, "stream", "timeout_ns", level + 1)
   if (opts.timeout_ns ~= nil or opts.wait ~= nil) and not opts.nonblocking then
     error("stream: timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
-      "cannot be waited on in pieces", level + 1)
+        "cannot be waited on in pieces", level + 1)
   end
   -- A copy, so a field set after this check cannot go past it.
   return { nonblocking = opts.nonblocking, timeout_ns = opts.timeout_ns, wait = opts.wait }
@@ -418,7 +418,7 @@ end
 --- Waits for `fd` to have `events` until `deadline` (nil for no limit),
 --- through the caller's `wait` or [`Poll.wait`].
 local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
-    deadline: integer | nil): boolean, string
+                        deadline: integer | nil): boolean, string
   local left: integer = nil
   if deadline ~= nil then left = math.max(deadline - Time.monotonic_ns(), 0) end
   if opts.wait ~= nil then return opts.wait(fd, events, left) end
@@ -766,7 +766,7 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, str
   if data == nil then return nil, trouble end
   if #data < n then
     return refuse("truncated: wanted " .. String.counted(n, "byte") ..
-      ", got " .. tostring(#data))
+        ", got " .. tostring(#data))
   end
   return data, ""
 end
@@ -1471,7 +1471,7 @@ end
 ---     assert(w:write(first_chunk))   -- nothing reaches `out` yet
 ---     assert(w:close())              -- the decoded bytes, or `out` aborted
 function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
-    opts?: Stream.TransformWriterOptions): Stream.Writer
+                                 opts?: Stream.TransformWriterOptions): Stream.Writer
   local hold = opts ~= nil and opts.hold or 0
   if math.type(hold) ~= "integer" or hold < 0 then
     error("stream: hold must be an integer of at least 0", 2)

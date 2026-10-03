@@ -74,6 +74,112 @@ static int checked_depth (lua_State *L, int arg) {
   return (int)depth;
 }
 
+/* ---- paths ------------------------------------------------------ */
+
+/* Where in a value a failure is, as a JSON Pointer (RFC 6901): `/3/name`,
+ * an array's index counted from 0. A walk that fails puts its own
+ * segment in front at each level it returns through, so the pointer is
+ * whole once the walk is out. `cut` says the outermost segments did not
+ * fit. */
+struct path {
+  char text[200];
+  size_t len;
+  bool cut;
+};
+
+/* Makes room for `n` bytes in front of `p`, and answers where they go;
+ * NULL, the path cut, when they do not fit. */
+static char *path_room (struct path *p, size_t n) {
+  if (p->cut || n >= sizeof p->text - p->len) {
+    p->cut = true;
+    return NULL;
+  }
+  memmove(p->text + n, p->text, p->len);
+  p->len += n;
+  return p->text;
+}
+
+/* `/i`: an array's index, counted from 0. */
+static void prepend_index (struct path *p, size_t i) {
+  char segment[32];
+  int n = snprintf(segment, sizeof segment, "/%zu", i);
+  char *at = path_room(p, (size_t)n);
+  if (at != NULL) memcpy(at, segment, (size_t)n);
+}
+
+/* The most bytes of a key a path keeps when the key alone does not fit:
+ * its start, then `...`, the path cut. */
+#define KEPT_KEY 40
+
+/* `/key`, with `~` written `~0` and `/` written `~1`. A key too long
+ * for the path even alone, the innermost, keeps its first KEPT_KEY
+ * bytes or fewer, ending on a whole escape and a whole UTF-8 character,
+ * and `...`. */
+static void prepend_key (struct path *p, const char *s, size_t n) {
+  size_t escapes = 0;
+  for (size_t i = 0; i < n; i++) escapes += s[i] == '~' || s[i] == '/';
+  if (p->len == 0 && !p->cut && 1 + n + escapes >= sizeof p->text) {
+    size_t used = 0;
+    p->text[used++] = '/';
+    for (size_t i = 0; i < n && used < 1 + KEPT_KEY; i++) {
+      unsigned char c = (unsigned char)s[i];
+      if (c == '~' || c == '/') {
+        if (used + 2 > 1 + KEPT_KEY) break;
+        p->text[used++] = '~';
+        p->text[used++] = c == '~' ? '0' : '1';
+      } else if (c >= 0x80 && (c & 0xc0) == 0xc0) {
+        /* A lead byte: the character fits whole, or not at all. */
+        size_t width = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : 2;
+        if (i + width > n || used + width > 1 + KEPT_KEY) break;
+        memcpy(p->text + used, s + i, width);
+        used += width;
+        i += width - 1;
+      } else {
+        p->text[used++] = (char)c;
+      }
+    }
+    memcpy(p->text + used, "...", 3);
+    p->len = used + 3;
+    p->cut = true;
+    return;
+  }
+  char *at = path_room(p, 1 + n + escapes);
+  if (at == NULL) return;
+  *at++ = '/';
+  for (size_t i = 0; i < n; i++) {
+    if (s[i] == '~' || s[i] == '/') {
+      *at++ = '~';
+      *at++ = s[i] == '~' ? '0' : '1';
+    } else {
+      *at++ = s[i];
+    }
+  }
+}
+
+/* Pushes `p` for a message, a JSON string as RFC 6901 writes a pointer
+ * in JSON: `pointer "/users/2/name"`, or `pointer ending "..."` when the
+ * outermost segments were cut. */
+static void push_path (lua_State *L, const struct path *p) {
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addstring(&b, p->cut ? "pointer ending \"" : "pointer \"");
+  for (size_t i = 0; i < p->len; i++) {
+    unsigned char c = (unsigned char)p->text[i];
+    if (c == '"' || c == '\\') {
+      luaL_addchar(&b, '\\');
+      luaL_addchar(&b, (char)c);
+    } else if (c < 0x20 || c == 0x7f) {
+      char escape[8];
+      snprintf(escape, sizeof escape, "\\u%04x", c);
+      luaL_addstring(&b, escape);
+    } else {
+      luaL_addchar(&b, (char)c);
+    }
+  }
+  luaL_addchar(&b, '"');
+  luaL_pushresult(&b);
+}
+
 /* ---- decoding ---------------------------------------------------- */
 
 struct decoding {
@@ -85,15 +191,104 @@ struct decoding {
   /* Whether a number no Lua number holds exactly as an integer, or at
    * all, decodes as its text rather than the nearest float. */
   int big_as_string;
+  /* Whether an object may hold a key twice, the last member standing. */
+  bool duplicate_keys;
+  /* Where the value decode refuses is, once it refuses one, and, for a
+   * key twice, the second. */
+  struct path path;
+  yyjson_val *repeated;
 };
 
-/* Pushes `val` as a Lua value and answers 1, or answers 0 having pushed
- * nothing when it nests deeper than the limit. `depth` counts the
- * arrays and objects open around it. A `null` without a stand-in pushes
+/* What makes a document that read cleanly one decode refuses. */
+enum problem { NO_PROBLEM, REPEATED_KEY, TOO_DEEP };
+
+/* What a member read as `null` holds while its object is built, when
+ * `null` decodes to nil and keys are checked: a nil would leave the key
+ * out, and a key twice after it unseen. */
+static const char null_member = 0;
+
+/* The most members an object may have for its keys to be compared
+ * pair by pair, and through a set of them on the C stack, twice as many
+ * slots as members. A larger object's keys are looked up in the table
+ * as they go in: Lua's string hash is seeded, where the set's is not, so
+ * keys chosen to collide make only a small set's search slow. */
+#define FEW_MEMBERS 8
+#define SET_MEMBERS 64
+
+/* FNV-1a over a key's bytes, for the set of an object's keys below. */
+static uint32_t key_hash (const char *s, size_t n) {
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < n; i++) {
+    h = (h ^ (unsigned char)s[i]) * 16777619u;
+  }
+  return h;
+}
+
+/* The index of the first member of `obj`, of SET_MEMBERS at most, whose
+ * key an earlier member has, or its size when none does, found through
+ * a set of its keys. Never inlined: the set would sit in each frame of
+ * the recursive walk that calls it, a kilobyte a level. */
+__attribute__((noinline)) static size_t repeated_in_set (yyjson_val *obj) {
+  /* No caller passes NULL, but yyjson's iteration reads a NULL object as
+   * empty only by arithmetic on a null pointer. */
+  if (obj == NULL) return 0;
+  size_t count = yyjson_obj_size(obj);
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_val *set[2 * SET_MEMBERS];
+  size_t slots = 4;
+  while (slots < 2 * count) slots *= 2;
+  memset(set, 0, slots * sizeof *set);
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    const char *s = yyjson_get_str(key);
+    size_t n = yyjson_get_len(key);
+    size_t at = key_hash(s, n) & (slots - 1);
+    while (set[at] != NULL) {
+      if (yyjson_get_len(set[at]) == n &&
+          memcmp(yyjson_get_str(set[at]), s, n) == 0) {
+        return idx;
+      }
+      at = (at + 1) & (slots - 1);
+    }
+    set[at] = key;
+  }
+  return count;
+}
+
+/* The index of the first member of `obj`, of SET_MEMBERS at most, whose
+ * key an earlier member has, or its size when none does. */
+static size_t repeated_member (yyjson_val *obj) {
+  size_t count = yyjson_obj_size(obj);
+  if (count > FEW_MEMBERS) return repeated_in_set(obj);
+  const char *s[FEW_MEMBERS];
+  size_t n[FEW_MEMBERS];
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    s[idx] = yyjson_get_str(key);
+    n[idx] = yyjson_get_len(key);
+    for (size_t k = 0; k < idx; k++) {
+      if (n[k] == n[idx] && memcmp(s[k], s[idx], n[idx]) == 0) return idx;
+    }
+  }
+  return count;
+}
+
+/* Pushes `val` as a Lua value, or answers what decode refuses in it --
+ * an array or object nested `max_depth` deep, a key twice unless
+ * `duplicate_keys` -- having pushed nothing, with the path to it in
+ * `d->path`. It finds the first such in the order the text holds them:
+ * a member's key is checked before its value is read. `depth` counts the
+ * arrays and objects open around `val`. A `null` without a stand-in is
  * nil, which leaves a hole in an array and, set into an object, leaves
- * the key out -- after an earlier duplicate, too, since the last value
- * of a key is the one that stands. */
-static int push_value (struct decoding *d, yyjson_val *val, int depth) {
+ * the key out -- after an earlier member of the key too, which
+ * `duplicate_keys` lets through: the last value of a key stands. */
+static enum problem push_value (struct decoding *d, yyjson_val *val,
+                                int depth) {
   lua_State *L = d->L;
   size_t idx;
   size_t max;
@@ -102,7 +297,7 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
   switch (yyjson_get_type(val)) {
     case YYJSON_TYPE_BOOL:
     lua_pushboolean(L, yyjson_get_bool(val));
-    return 1;
+    return NO_PROBLEM;
     case YYJSON_TYPE_NUM:
     switch (yyjson_get_subtype(val)) {
       case YYJSON_SUBTYPE_SINT:
@@ -128,45 +323,94 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
       lua_pushnumber(L, (lua_Number)yyjson_get_real(val));
       break;
     }
-    return 1;
+    return NO_PROBLEM;
     /* TODO: a big number read this way encodes back as a JSON string.
      * A marker the encoder writes verbatim (Json.number(text), checked
      * to be a JSON number) would let it round-trip as a number. */
     case YYJSON_TYPE_RAW: /* only a big number, and only when asked */
     lua_pushlstring(L, yyjson_get_raw(val), yyjson_get_len(val));
-    return 1;
+    return NO_PROBLEM;
     case YYJSON_TYPE_STR:
     lua_pushlstring(L, yyjson_get_str(val), yyjson_get_len(val));
-    return 1;
+    return NO_PROBLEM;
     case YYJSON_TYPE_ARR: {
-      if (depth >= d->max_depth) return 0;
+      if (depth >= d->max_depth) return TOO_DEEP;
       luaL_checkstack(L, 3, "JSON nests too deeply");
       size_t count = yyjson_arr_size(val);
       lua_createtable(L, count > INT32_MAX ? INT32_MAX : (int)count, 0);
       luaL_setmetatable(L, ARRAY_TYPE);
       yyjson_arr_foreach(val, idx, max, item) {
-        if (!push_value(d, item, depth + 1)) {
+        enum problem found = push_value(d, item, depth + 1);
+        if (found != NO_PROBLEM) {
           lua_pop(L, 1);
-          return 0;
+          prepend_index(&d->path, idx);
+          return found;
         }
         lua_rawseti(L, -2, (lua_Integer)idx + 1);
       }
-      return 1;
+      return NO_PROBLEM;
     }
     case YYJSON_TYPE_OBJ: {
-      if (depth >= d->max_depth) return 0;
+      if (depth >= d->max_depth) return TOO_DEEP;
       luaL_checkstack(L, 4, "JSON nests too deeply");
       size_t count = yyjson_obj_size(val);
+      /* A small object's keys are compared with each other before it
+       * is built, which costs less than a lookup of each in the table;
+       * a large one's are looked up as they go in. */
+      size_t repeat = count;
+      bool check = false;
+      if (!d->duplicate_keys) {
+        if (count <= SET_MEMBERS) {
+          repeat = repeated_member(val);
+        } else {
+          check = true;
+        }
+      }
       lua_createtable(L, 0, count > INT32_MAX ? INT32_MAX : (int)count);
+      bool held = false;
       yyjson_obj_foreach(val, idx, max, key, item) {
+        if (idx == repeat) {
+          lua_pop(L, 1);
+          d->repeated = key;
+          prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+          return REPEATED_KEY;
+        }
         lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
-        if (!push_value(d, item, depth + 1)) {
+        /* The key, pushed to be set, is looked up first in the table it
+         * goes into: one lookup more for each member. */
+        if (check) {
+          lua_pushvalue(L, -1);
+          if (lua_rawget(L, -3) != LUA_TNIL) {
+            lua_pop(L, 3);
+            d->repeated = key;
+            prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+            return REPEATED_KEY;
+          }
+          lua_pop(L, 1);
+        }
+        enum problem found = push_value(d, item, depth + 1);
+        if (found != NO_PROBLEM) {
           lua_pop(L, 2);
-          return 0;
+          prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+          return found;
+        }
+        if (check && lua_isnil(L, -1)) {
+          lua_pop(L, 1);
+          lua_pushlightuserdata(L, (void *)&null_member);
+          held = true;
         }
         lua_rawset(L, -3);
       }
-      return 1;
+      if (held) {
+        yyjson_obj_foreach(val, idx, max, key, item) {
+          if (yyjson_is_null(item)) {
+            lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
+            lua_pushnil(L);
+            lua_rawset(L, -3);
+          }
+        }
+      }
+      return NO_PROBLEM;
     }
     default: /* YYJSON_TYPE_NULL: nothing else reads without a flag */
     if (d->null_index == 0) {
@@ -174,8 +418,74 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
     } else {
       lua_pushvalue(L, d->null_index);
     }
-    return 1;
+    return NO_PROBLEM;
   }
+}
+
+/* The index of the first member of `obj` whose key an earlier member
+ * has, or its size when none does. A large object's keys go through a
+ * Lua table, pushed and popped here, whose string hash is seeded. */
+static size_t repeated_key_index (lua_State *L, yyjson_val *obj) {
+  size_t count = yyjson_obj_size(obj);
+  if (count <= SET_MEMBERS) return repeated_member(obj);
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  luaL_checkstack(L, 3, "JSON nests too deeply");
+  lua_createtable(L, 0, count > INT32_MAX ? INT32_MAX : (int)count);
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
+    lua_pushvalue(L, -1);
+    if (lua_rawget(L, -3) != LUA_TNIL) {
+      lua_pop(L, 3);
+      return idx;
+    }
+    lua_pop(L, 1);
+    lua_pushboolean(L, 1);
+    lua_rawset(L, -3);
+  }
+  lua_pop(L, 1);
+  return count;
+}
+
+/* The first problem in `val` that [`push_value`] would find, in the same
+ * order, without building anything: for `check` and `format`. */
+static enum problem first_problem (lua_State *L, yyjson_val *val, int depth,
+                                   int max_depth, bool duplicate_keys,
+                                   struct path *path, yyjson_val **key) {
+  size_t idx;
+  size_t max;
+  yyjson_val *name;
+  yyjson_val *item;
+  if (!yyjson_is_ctn(val)) return NO_PROBLEM;
+  if (depth >= max_depth) return TOO_DEEP;
+  if (yyjson_is_arr(val)) {
+    yyjson_arr_foreach(val, idx, max, item) {
+      enum problem found =
+          first_problem(L, item, depth + 1, max_depth, duplicate_keys, path, key);
+      if (found != NO_PROBLEM) {
+        prepend_index(path, idx);
+        return found;
+      }
+    }
+    return NO_PROBLEM;
+  }
+  size_t repeat =
+      duplicate_keys ? yyjson_obj_size(val) : repeated_key_index(L, val);
+  yyjson_obj_foreach(val, idx, max, name, item) {
+    enum problem found = REPEATED_KEY;
+    if (idx == repeat) {
+      *key = name;
+    } else {
+      found = first_problem(L, item, depth + 1, max_depth, duplicate_keys, path, key);
+    }
+    if (found != NO_PROBLEM) {
+      prepend_key(path, yyjson_get_str(name), yyjson_get_len(name));
+      return found;
+    }
+  }
+  return NO_PROBLEM;
 }
 
 /* How a decoded text is laid out in lines, for a failure to say where
@@ -188,7 +498,71 @@ struct layout {
    * text is this one line of a larger one, a JSON Lines record, which
    * nothing inside ends. */
   lua_Integer record;
+  /* Where the text's first byte is in a larger one, for a text that is
+   * a part of it: 1 and 1 for a whole. */
+  lua_Integer line;
+  lua_Integer column;
+  /* The JSON Pointer of the value the text is in the larger one, NULL
+   * for a whole: a pointer in a message is put under it. */
+  const char *prefix;
 };
+
+/* Pushes the JSON Pointer s[0..n), whose segments are written as a
+ * pointer writes them, for a message as [`push_path`] pushes a path: whole
+ * when it fits a path, else its innermost segments that fit, and the
+ * innermost alone shortened when even it does not, as [`prepend_key`]
+ * shortens a key -- the rule a pointer cosmic.json writes in Teal is
+ * shortened by too. */
+static void push_pointer_text (lua_State *L, const char *s, size_t n) {
+  struct path p;
+  memset(&p, 0, sizeof p);
+  size_t end = n;
+  while (end > 0 && !p.cut) {
+    size_t start = end;
+    while (start > 0 && s[start - 1] != '/') start--;
+    size_t slash = start > 0 ? start - 1 : 0;
+    size_t width = end - slash;
+    if (p.len == 0 && width >= sizeof p.text) {
+      size_t used = 0;
+      p.text[used++] = '/';
+      for (size_t i = slash + 1; i < end && used < 1 + KEPT_KEY;) {
+        unsigned char c = (unsigned char)s[i];
+        size_t step = c == '~' ? 2 : c < 0x80 ? 1 : c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : 2;
+        if (i + step > end || used + step > 1 + KEPT_KEY) break;
+        memcpy(p.text + used, s + i, step);
+        used += step;
+        i += step;
+      }
+      memcpy(p.text + used, "...", 3);
+      p.len = used + 3;
+      p.cut = true;
+      break;
+    }
+    char *at = path_room(&p, width);
+    if (at == NULL) break;
+    memcpy(at, s + slash, width);
+    end = slash;
+  }
+  push_path(L, &p);
+}
+
+/* Pushes `p` as [`push_path`] does, under the layout's prefix, a JSON
+ * Pointer, when it has one: the two shortened as one pointer, when the
+ * path itself is whole. */
+static void push_placed_path (lua_State *L, const struct layout *layout,
+                              const struct path *p) {
+  if (layout->prefix == NULL || p->cut) {
+    push_path(L, p);
+    return;
+  }
+  lua_pushstring(L, layout->prefix);
+  lua_pushlstring(L, p->text, p->len);
+  lua_concat(L, 2);
+  size_t n;
+  const char *whole = lua_tolstring(L, -1, &n);
+  push_pointer_text(L, whole, n);
+  lua_remove(L, -2);
+}
 
 /* The line and column of byte `pos` of `text`, both counted from 1,
  * the column in bytes. A line ends at \n, \r, or \r\n taken as one:
@@ -201,13 +575,13 @@ struct layout {
 static void position (const char *text, size_t pos,
                       const struct layout *layout, size_t *line,
                       size_t *column) {
-  *line = 1;
-  *column = 1;
   if (layout->record > 0) {
     *line = (size_t)layout->record;
     *column = pos + 1;
     return;
   }
+  *line = (size_t)layout->line;
+  *column = (size_t)layout->column;
   bool json5 = layout->json5;
   for (size_t i = 0; i < pos; i++) {
     unsigned char c = (unsigned char)text[i];
@@ -269,21 +643,20 @@ static size_t deep_offset (const char *text, size_t len, int max_depth,
   return len;
 }
 
-/* Pushes nil and where `text` stopped being JSON, as a line and a column
+/* Pushes where `text` stopped being JSON, as a line and a column
  * of bytes, both counted from 1. A record that ran out of memory or holds
  * no value (where comments are read, only a comment) names its line
  * alone. */
-static int read_failure (lua_State *L, const char *text, size_t len,
-                         const struct layout *layout,
-                         const yyjson_read_err *err) {
-  lua_pushnil(L);
+static void read_failure (lua_State *L, const char *text, size_t len,
+                          const struct layout *layout,
+                          const yyjson_read_err *err) {
   if (err->code == YYJSON_READ_ERROR_MEMORY_ALLOCATION) {
     if (layout->record > 0) {
       lua_pushfstring(L, "line %I: out of memory", layout->record);
     } else {
       lua_pushliteral(L, "out of memory");
     }
-    return 2;
+    return;
   }
   if (len == 0 || err->code == YYJSON_READ_ERROR_EMPTY_CONTENT) {
     if (layout->record > 0) {
@@ -292,13 +665,12 @@ static int read_failure (lua_State *L, const char *text, size_t len,
     } else {
       lua_pushliteral(L, "invalid JSON: the text is empty");
     }
-    return 2;
+    return;
   }
   size_t line, column;
   position(text, err->pos < len ? err->pos : len, layout, &line, &column);
   lua_pushfstring(L, "invalid JSON at line %I, column %I: %s",
                   (lua_Integer)line, (lua_Integer)column, err->msg);
-  return 2;
 }
 
 /* The value of the four hex digits at `s`, or -1 when they are not. */
@@ -359,63 +731,213 @@ static size_t repair_surrogates (char *s, size_t n) {
  * rather than vendor/ itself (build/c/init.tl's include_dirs). */
 #define READ_ALLOW_HASH_COMMENTS ((yyjson_read_flag)1 << 14)
 
-/* decode(text, null?, max_depth?, json5?, big_as_string?,
- * lone_surrogates?, record?, hash_comments?): the value
- * `text` holds, and "". nil and a message when it is not one JSON
- * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
- * line comments when `hash_comments` is -- or nests past
- * `max_depth` (64 by default). JSON `null` is `null` when given, and
- * nil when not. With `big_as_string`, an integer past 64 bits, or a
- * number past a double's range, is its own text. With `record`, the
- * text is that line of a JSON Lines text, and a failure names it. */
-static int json_decode (lua_State *L) {
+/* Pushes that `key`, a member's key in `doc`, read from
+ * `text`, repeats a key of its object at `path`. A document read
+ * without YYJSON_READ_INSITU holds every string in `str_pool`, a copy
+ * of the text unescaped in place, so a key's offset there is its offset
+ * in the text: the first byte after its opening quote, or its own first
+ * when JSON5 leaves it unquoted. */
+static void repeat_failure (lua_State *L, const char *text, size_t len,
+                            const struct layout *layout, yyjson_doc *doc,
+                            yyjson_val *key, const struct path *path) {
+  size_t pos = (size_t)(yyjson_get_str(key) - doc->str_pool);
+  if (pos > 0 && pos <= len && (text[pos - 1] == '"' || text[pos - 1] == '\'')) {
+    pos--;
+  }
+  size_t line, column;
+  position(text, pos < len ? pos : len, layout, &line, &column);
+  lua_pushfstring(L, "duplicate key at line %I, column %I (",
+                  (lua_Integer)line, (lua_Integer)column);
+  push_placed_path(L, layout, path);
+  lua_pushliteral(L, ")");
+  lua_concat(L, 3);
+}
+
+/* Pushes that the array or object at `path` in `text`, with `opened`
+ * open around the text, nests deeper than `max_depth`. The position is
+ * the first bracket in the text that opens that deep, which is that
+ * container: the walk that found it visits the document in the order
+ * the text holds it. */
+static void deep_failure (lua_State *L, const char *text, size_t len,
+                          const struct layout *layout, int max_depth,
+                          int opened, const struct path *path) {
+  size_t line, column;
+  position(text, deep_offset(text, len, max_depth - opened, layout->json5),
+           layout, &line, &column);
+  lua_pushfstring(L, "JSON nests deeper than %d level%s at line %I, column %I (",
+                  max_depth, max_depth == 1 ? "" : "s", (lua_Integer)line,
+                  (lua_Integer)column);
+  push_placed_path(L, layout, path);
+  lua_pushliteral(L, ")");
+  lua_concat(L, 3);
+}
+
+/* What a read of a text is told. */
+struct reading {
+  /* The text, which [`read_text`] replaces with a copy it repaired when it
+   * reads lone surrogates. */
+  const char *text;
   size_t len;
-  const char *text = luaL_checklstring(L, 1, &len);
-  struct decoding d;
-  d.L = L;
-  d.null_index = lua_isnoneornil(L, 2) ? 0 : 2;
-  d.max_depth = checked_depth(L, 3);
   struct layout layout;
-  layout.json5 = lua_toboolean(L, 4);
-  layout.record = luaL_optinteger(L, 7, 0);
-  luaL_argcheck(L, layout.record >= 0, 7, "a record's line is not negative");
-  yyjson_read_flag flags =
-      layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
-  d.big_as_string = lua_toboolean(L, 5);
-  if (d.big_as_string) flags |= YYJSON_READ_BIGNUM_AS_RAW;
-  int lone_surrogates = lua_toboolean(L, 6);
-  if (lua_toboolean(L, 8)) flags |= READ_ALLOW_HASH_COMMENTS;
-  lua_settop(L, 8);
-  /* Building the value allocates, and an allocation can raise: the
-   * guard frees the document then, and on every return. */
-  struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
+  yyjson_read_flag flags;
+  bool lone_surrogates;
+  bool duplicate_keys;
+  int max_depth;
+  /* How many arrays and objects are open around the text's value in a
+   * larger text: 0 for a whole. */
+  int opened;
+};
+
+/* Reads the options every read takes from the arguments at `at`:
+ * `max_depth`, `json5`, `lone_surrogates`, `hash_comments` and
+ * `duplicate_keys`, in that order. */
+static void read_options (lua_State *L, int at, struct reading *r) {
+  r->max_depth = checked_depth(L, at);
+  r->layout.json5 = lua_toboolean(L, at + 1);
+  r->layout.record = 0;
+  r->layout.line = 1;
+  r->layout.column = 1;
+  r->layout.prefix = NULL;
+  r->flags = r->layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
+  r->lone_surrogates = lua_toboolean(L, at + 2);
+  if (lua_toboolean(L, at + 3)) r->flags |= READ_ALLOW_HASH_COMMENTS;
+  r->duplicate_keys = lua_toboolean(L, at + 4);
+  r->opened = 0;
+}
+
+/* Reads `r->text` into a document, which it sets as `guard`'s resource,
+ * and answers it; or NULL, having pushed why it is refused: it is not
+ * one JSON value as `r` reads one, or, when `walk` is true, the walk
+ * below finds a problem in it -- which a decode, building the value,
+ * finds itself. A repaired copy of the text stays on the stack above
+ * the guard. */
+static yyjson_doc *read_text (lua_State *L, struct reading *r,
+                              struct cosmic_guard *guard, bool walk) {
   yyjson_read_err err;
   yyjson_doc *doc =
-      yyjson_read_opts((char *)text, len, flags, &allocator, &err);
-  if (doc == NULL && lone_surrogates && err.msg != NULL &&
+      yyjson_read_opts((char *)r->text, r->len, r->flags, &allocator, &err);
+  if (doc == NULL && r->lone_surrogates && err.msg != NULL &&
       strstr(err.msg, "surrogate") != NULL) {
     /* yyjson refuses a lone surrogate escape whatever it is told, so
      * read a copy with each one written over as \ufffd. The copy is a
      * userdata on the stack, above the guard, and outlives the read. */
-    char *copy = lua_newuserdatauv(L, len, 0);
-    memcpy(copy, text, len);
-    if (repair_surrogates(copy, len) > 0) {
-      text = copy;
-      doc = yyjson_read_opts(copy, len, flags, &allocator, &err);
+    char *copy = lua_newuserdatauv(L, r->len, 0);
+    memcpy(copy, r->text, r->len);
+    if (repair_surrogates(copy, r->len) > 0) {
+      r->text = copy;
+      doc = yyjson_read_opts(copy, r->len, r->flags, &allocator, &err);
     }
   }
-  if (doc == NULL) return read_failure(L, text, len, &layout, &err);
+  if (doc == NULL) {
+    read_failure(L, r->text, r->len, &r->layout, &err);
+    return NULL;
+  }
   guard->resource = doc;
-  if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
-    lua_pushnil(L);
-    size_t line, column;
-    position(text, deep_offset(text, len, d.max_depth, layout.json5), &layout, &line,
-             &column);
-    lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I",
-                    d.max_depth, (lua_Integer)line, (lua_Integer)column);
+  if (!walk) return doc;
+  struct path path;
+  memset(&path, 0, sizeof path);
+  yyjson_val *key = NULL;
+  switch (first_problem(L, yyjson_doc_get_root(doc), r->opened, r->max_depth,
+                        r->duplicate_keys, &path, &key)) {
+    case REPEATED_KEY:
+    repeat_failure(L, r->text, r->len, &r->layout, doc, key, &path);
+    return NULL;
+    case TOO_DEEP:
+    deep_failure(L, r->text, r->len, &r->layout, r->max_depth, r->opened, &path);
+    return NULL;
+    default:
+    return doc;
+  }
+}
+
+/* Answers nil and the message on top of the stack. */
+static int refused (lua_State *L) {
+  lua_pushnil(L);
+  lua_insert(L, -2);
+  return 2;
+}
+
+/* decode(text, null?, max_depth?, json5?, big_as_string?,
+ * lone_surrogates?, record?, hash_comments?, duplicate_keys?, line?,
+ * column?, prefix?, opened?): the value
+ * `text` holds, and "". nil and a message when it is not one JSON
+ * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
+ * line comments when `hash_comments` is -- holds an object with a key
+ * twice unless `duplicate_keys`, or nests past
+ * `max_depth` (64 by default). JSON `null` is `null` when given, and
+ * nil when not. With `big_as_string`, an integer past 64 bits, or a
+ * number past a double's range, is its own text. With `record`, the
+ * text is that line of a JSON Lines text, and a failure names it. With
+ * `line` and `column`, the text starts there in a larger one, and a
+ * failure counts from there; with `prefix`, the JSON Pointer of the
+ * value the text is, a pointer a failure names is put under it; with
+ * `opened`, that
+ * many arrays and objects are open around it there, and count toward
+ * `max_depth`. */
+static int json_decode (lua_State *L) {
+  struct reading r;
+  r.text = luaL_checklstring(L, 1, &r.len);
+  r.max_depth = checked_depth(L, 3);
+  r.layout.json5 = lua_toboolean(L, 4);
+  r.layout.record = luaL_optinteger(L, 7, 0);
+  luaL_argcheck(L, r.layout.record >= 0, 7, "a record's line is not negative");
+  r.layout.line = luaL_optinteger(L, 10, 1);
+  luaL_argcheck(L, r.layout.line >= 1, 10, "a line is counted from 1");
+  r.layout.column = luaL_optinteger(L, 11, 1);
+  luaL_argcheck(L, r.layout.column >= 1, 11, "a column is counted from 1");
+  r.layout.prefix = luaL_optstring(L, 12, NULL);
+  lua_Integer opened = luaL_optinteger(L, 13, 0);
+  luaL_argcheck(L, opened >= 0 && opened < r.max_depth, 13,
+                "fewer levels open than max_depth");
+  r.opened = (int)opened;
+  r.flags = r.layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
+  struct decoding d;
+  d.L = L;
+  d.null_index = lua_isnoneornil(L, 2) ? 0 : 2;
+  d.max_depth = r.max_depth;
+  d.big_as_string = lua_toboolean(L, 5);
+  if (d.big_as_string) r.flags |= YYJSON_READ_BIGNUM_AS_RAW;
+  r.lone_surrogates = lua_toboolean(L, 6);
+  if (lua_toboolean(L, 8)) r.flags |= READ_ALLOW_HASH_COMMENTS;
+  r.duplicate_keys = lua_toboolean(L, 9);
+  d.duplicate_keys = r.duplicate_keys;
+  memset(&d.path, 0, sizeof d.path);
+  d.repeated = NULL;
+  lua_settop(L, 13);
+  /* Building the value allocates, and an allocation can raise: the
+   * guard frees the document then, and on every return. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
+  yyjson_doc *doc = read_text(L, &r, guard, false);
+  if (doc == NULL) return refused(L);
+  switch (push_value(&d, yyjson_doc_get_root(doc), r.opened)) {
+    case REPEATED_KEY:
+    repeat_failure(L, r.text, r.len, &r.layout, doc, d.repeated, &d.path);
+    return refused(L);
+    case TOO_DEEP:
+    deep_failure(L, r.text, r.len, &r.layout, r.max_depth, r.opened, &d.path);
+    return refused(L);
+    default:
+    return cosmic_succeeded(L);
+  }
+}
+
+/* check(text, max_depth?, json5?, lone_surrogates?, hash_comments?,
+ * duplicate_keys?, big_as_string?): true and "" when `decode` would read
+ * `text` under the same options; else false and the message it would
+ * fail with. It builds no value. */
+static int json_check (lua_State *L) {
+  struct reading r;
+  r.text = luaL_checklstring(L, 1, &r.len);
+  read_options(L, 2, &r);
+  if (lua_toboolean(L, 7)) r.flags |= YYJSON_READ_BIGNUM_AS_RAW;
+  lua_settop(L, 7);
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
+  if (read_text(L, &r, guard, true) == NULL) {
+    lua_pushboolean(L, 0);
+    lua_insert(L, -2);
     return 2;
   }
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 /* ---- encoding ---------------------------------------------------- */
@@ -434,14 +956,9 @@ struct encoding {
   int max_depth;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
-  /* Where, as a path below `$`: `[3].name`. Each level the failure
-   * returns through puts its own segment in front, so the path is
-   * whole once the walk is out. `path_cut` says the outermost segments
-   * did not fit; `out_of_memory` that the failure was not the value's,
-   * so no path is told. */
-  char path[200];
-  size_t path_len;
-  int path_cut;
+  /* Where. `out_of_memory` says the failure was not the value's, so no
+   * path is told. */
+  struct path path;
   int out_of_memory;
 };
 
@@ -455,60 +972,6 @@ static int refuse (struct encoding *e, const char *why) {
 static int refuse_memory (struct encoding *e) {
   e->out_of_memory = 1;
   return refuse(e, "out of memory");
-}
-
-static void prepend_path (struct encoding *e, const char *segment, size_t n) {
-  if (e->path_cut || n >= sizeof e->path - e->path_len) {
-    e->path_cut = 1;
-    return;
-  }
-  memmove(e->path + n, e->path, e->path_len);
-  memcpy(e->path, segment, n);
-  e->path_len += n;
-}
-
-/* `[i]`: an array's index, as Lua counts it, from 1. */
-static void prepend_index (struct encoding *e, lua_Integer i) {
-  char segment[32];
-  int n = snprintf(segment, sizeof segment, "[%lld]", (long long)i);
-  prepend_path(e, segment, (size_t)n);
-}
-
-static int is_word_byte (unsigned char c, int first) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
-         (!first && c >= '0' && c <= '9');
-}
-
-/* `.name` for a key that is a word, and `["some key"]` for any other,
- * its unprintable bytes shown as `?` and a long one cut short. */
-static void prepend_key (struct encoding *e, const char *s, size_t n) {
-  char segment[48];
-  size_t used = 0;
-  int word = n > 0 && n <= 40;
-  for (size_t i = 0; word && i < n; i++) {
-    word = is_word_byte((unsigned char)s[i], i == 0);
-  }
-  if (word) {
-    segment[used++] = '.';
-    memcpy(segment + used, s, n);
-    used += n;
-  } else {
-    segment[used++] = '[';
-    segment[used++] = '"';
-    for (size_t i = 0; i < n; i++) {
-      if (used > sizeof segment - 8) {
-        memcpy(segment + used, "...", 3);
-        used += 3;
-        break;
-      }
-      unsigned char c = (unsigned char)s[i];
-      if (c == '"' || c == '\\') segment[used++] = '\\';
-      segment[used++] = c >= 0x20 && c < 0x7f ? (char)c : '?';
-    }
-    segment[used++] = '"';
-    segment[used++] = ']';
-  }
-  prepend_path(e, segment, used);
 }
 
 static int put (struct encoding *e, const char *s, size_t n) {
@@ -653,7 +1116,7 @@ static int put_array (struct encoding *e, int idx, lua_Integer top,
     int status = put_value(e, lua_gettop(L), depth + 1);
     lua_pop(L, 1);
     if (status < 0) {
-      prepend_index(e, i);
+      prepend_index(&e->path, (size_t)(i - 1));
       return -1;
     }
   }
@@ -676,7 +1139,7 @@ static int put_member (struct encoding *e, int key, int value, int first,
   if (PUT_LITERAL(e, ":") < 0) return -1;
   if (e->pretty && PUT_LITERAL(e, " ") < 0) return -1;
   if (put_value(e, value, depth + 1) < 0) {
-    prepend_key(e, s, n);
+    prepend_key(&e->path, s, n);
     return -1;
   }
   return 0;
@@ -850,12 +1313,361 @@ static int json_encode (lua_State *L) {
   e.guard = cosmic_guard_push(L, cosmic_free);
   if (put_value(&e, 1, 0) < 0) {
     lua_pushnil(L);
-    if (e.path_len == 0 || e.out_of_memory) {
+    if (e.path.len == 0 || e.out_of_memory) {
       lua_pushstring(L, e.failure);
     } else {
-      e.path[e.path_len] = '\0';
-      lua_pushfstring(L, "%s at $%s%s", e.failure, e.path_cut ? "..." : "",
-                      e.path);
+      lua_pushfstring(L, "%s at ", e.failure);
+      push_path(L, &e.path);
+      lua_concat(L, 2);
+    }
+    return 2;
+  }
+  lua_pushlstring(L, e.p, e.len);
+  return cosmic_succeeded(L);
+}
+
+/* ---- text to text ------------------------------------------------ */
+
+/* Whether s[0..n) is a number as RFC 8259 writes one. */
+static bool is_json_number (const char *s, size_t n) {
+  size_t i = 0;
+  if (i < n && s[i] == '-') i++;
+  if (i < n && s[i] == '0') {
+    i++;
+  } else if (i < n && s[i] >= '1' && s[i] <= '9') {
+    while (i < n && s[i] >= '0' && s[i] <= '9') i++;
+  } else {
+    return false;
+  }
+  if (i < n && s[i] == '.') {
+    size_t start = ++i;
+    while (i < n && s[i] >= '0' && s[i] <= '9') i++;
+    if (i == start) return false;
+  }
+  if (i < n && (s[i] == 'e' || s[i] == 'E')) {
+    i++;
+    if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+    size_t start = i;
+    while (i < n && s[i] >= '0' && s[i] <= '9') i++;
+    if (i == start) return false;
+  }
+  return i == n;
+}
+
+/* A number read as its text, `s[0..n)`: as written when RFC 8259 writes
+ * it so. JSON5's decimal forms differ from RFC 8259's only in a leading
+ * `+`, a point with no digit before it (`.5`) or none after it (`5.`),
+ * so they are written with the same digits, whatever the number's size:
+ * `5.0`, `0.5`, a float still. Hexadecimal is written as the shortest text for the
+ * integer it names. NaN and the infinities are refused: JSON has no
+ * text for them. */
+static int put_raw_number (struct encoding *e, const char *s, size_t n) {
+  if (is_json_number(s, n)) return put(e, s, n);
+  size_t start = e->len;
+  size_t i = 0;
+  int status = 0;
+  if (i < n && s[i] == '+') {
+    i++;
+  } else if (i < n && s[i] == '-') {
+    status = PUT_LITERAL(e, "-");
+    i++;
+  }
+  if (status == 0 && i < n && s[i] == '.') status = PUT_LITERAL(e, "0");
+  size_t point = i;
+  while (point < n && s[point] != '.') point++;
+  if (status == 0 && point < n &&
+      (point + 1 == n || s[point + 1] == 'e' || s[point + 1] == 'E')) {
+    status = put(e, s + i, point - i);
+    if (status == 0) status = PUT_LITERAL(e, ".0");
+    if (status == 0) status = put(e, s + point + 1, n - point - 1);
+  } else if (status == 0) {
+    status = put(e, s + i, n - i);
+  }
+  if (status < 0) return -1;
+  if (is_json_number(e->p + start, e->len - start)) return 0;
+  e->len = start;
+  yyjson_read_err err;
+  yyjson_doc *doc =
+      yyjson_read_opts((char *)s, n, YYJSON_READ_JSON5, &allocator, &err);
+  if (doc == NULL) {
+    /* The number read once already, as part of the text. */
+    return err.code == YYJSON_READ_ERROR_MEMORY_ALLOCATION
+               ? refuse_memory(e)
+               : refuse(e, "cannot format a number");
+  }
+  yyjson_val *val = yyjson_doc_get_root(doc);
+  double f = yyjson_get_num(val);
+  char text[48];
+  char *end = NULL;
+  if (isfinite(f)) end = yyjson_write_number(val, text);
+  yyjson_doc_free(doc);
+  if (end == NULL) {
+    return refuse(e, isnan(f) ? "cannot format NaN"
+                              : "cannot format an infinite number");
+  }
+  return put(e, text, (size_t)(end - text));
+}
+
+/* `f` as ECMAScript's Number.prototype.toString writes it, which RFC
+ * 8785 makes a canonical number: the shortest digits that read back to
+ * `f`, laid out without an exponent from 1e-6 up to but not including
+ * 1e21, and with one, signed, outside it. -0 is "0". `f` is finite. */
+static int put_canonical_number (struct encoding *e, double f) {
+  if (f == 0) return PUT_LITERAL(e, "0");
+  yyjson_val val;
+  val.tag = YYJSON_TYPE_NUM | YYJSON_SUBTYPE_REAL;
+  val.uni.f64 = f;
+  char shortest[48];
+  char *end = yyjson_write_number(&val, shortest);
+  if (end == NULL) return refuse(e, "cannot format a number");
+  /* The digits of `shortest`, whatever its layout, and `point`: the
+   * number is 0.<digits> times ten to the `point`. */
+  char digits[24];
+  int count = 0;
+  int point = 0;
+  bool seen_point = false;
+  const char *c = shortest;
+  if (*c == '-') c++;
+  for (; c < end && *c != 'e' && *c != 'E'; c++) {
+    if (*c == '.') {
+      seen_point = true;
+    } else if (count == 0 && *c == '0') {
+      if (seen_point) point--;
+    } else {
+      if (count < (int)sizeof digits) digits[count++] = *c;
+      if (!seen_point) point++;
+    }
+  }
+  if (c < end) point += atoi(c + 1);
+  /* A number other than zero has a digit other than zero. */
+  if (count == 0) return refuse(e, "cannot format a number");
+  while (count > 1 && digits[count - 1] == '0') count--;
+  char out[48];
+  int used = 0;
+  if (f < 0) out[used++] = '-';
+  if (point >= count && point <= 21) {
+    memcpy(out + used, digits, (size_t)count);
+    used += count;
+    for (int i = count; i < point; i++) out[used++] = '0';
+  } else if (point > 0 && point <= 21) {
+    memcpy(out + used, digits, (size_t)point);
+    used += point;
+    out[used++] = '.';
+    memcpy(out + used, digits + point, (size_t)(count - point));
+    used += count - point;
+  } else if (point > -6 && point <= 0) {
+    out[used++] = '0';
+    out[used++] = '.';
+    for (int i = point; i < 0; i++) out[used++] = '0';
+    memcpy(out + used, digits, (size_t)count);
+    used += count;
+  } else {
+    out[used++] = digits[0];
+    if (count > 1) {
+      out[used++] = '.';
+      memcpy(out + used, digits + 1, (size_t)(count - 1));
+      used += count - 1;
+    }
+    used += snprintf(out + used, sizeof out - (size_t)used, "e%c%d",
+                     point - 1 < 0 ? '-' : '+', abs(point - 1));
+  }
+  return put(e, out, (size_t)used);
+}
+
+/* The code point of the UTF-8 sequence at `s`, which is well formed. */
+static uint32_t code_point (const unsigned char *s) {
+  if (s[0] < 0x80) return s[0];
+  if (s[0] < 0xe0) return (uint32_t)(s[0] & 0x1f) << 6 | (s[1] & 0x3f);
+  if (s[0] < 0xf0) {
+    return (uint32_t)(s[0] & 0x0f) << 12 | (uint32_t)(s[1] & 0x3f) << 6 |
+           (s[2] & 0x3f);
+  }
+  return (uint32_t)(s[0] & 0x07) << 18 | (uint32_t)(s[1] & 0x3f) << 12 |
+         (uint32_t)(s[2] & 0x3f) << 6 | (s[3] & 0x3f);
+}
+
+/* The order RFC 8785 sorts keys in: by their UTF-16 code units. It is
+ * the order of their code points, which is UTF-8's byte order, but for
+ * one case: a character past U+FFFF is a surrogate pair, whose first
+ * unit (U+D800 to U+DBFF) sorts before U+E000 to U+FFFF. Both keys are
+ * well-formed UTF-8. */
+static int compare_utf16 (const char *a, size_t an, const char *b, size_t bn) {
+  size_t n = an < bn ? an : bn;
+  size_t i = 0;
+  while (i < n && a[i] == b[i]) i++;
+  if (i == n) return (an > bn) - (an < bn);
+  /* The keys share every byte before `i`, so the character holding
+   * byte `i` starts at the same place in both. */
+  while (i > 0 && ((unsigned char)a[i] & 0xc0) == 0x80) i--;
+  uint32_t x = code_point((const unsigned char *)a + i);
+  uint32_t y = code_point((const unsigned char *)b + i);
+  if ((x > 0xffff) != (y > 0xffff)) {
+    uint32_t bmp = x > 0xffff ? y : x;
+    int pair_first = bmp >= 0xe000 ? -1 : 1;
+    return x > 0xffff ? pair_first : -pair_first;
+  }
+  return (x > y) - (x < y);
+}
+
+/* One member of an object being sorted. */
+struct member {
+  yyjson_val *key;
+  yyjson_val *value;
+};
+
+static int compare_members (const void *a, const void *b) {
+  const struct member *x = a;
+  const struct member *y = b;
+  return compare_utf16(yyjson_get_str(x->key), yyjson_get_len(x->key),
+                       yyjson_get_str(y->key), yyjson_get_len(y->key));
+}
+
+static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
+                           bool canonical);
+
+/* One member of an object, `key` and `value`. */
+static int put_text_member (struct encoding *e, yyjson_val *key,
+                            yyjson_val *value, bool first, int depth,
+                            bool canonical) {
+  if (!first && PUT_LITERAL(e, ",") < 0) return -1;
+  if (put_break(e, depth + 1) < 0) return -1;
+  if (put_string(e, yyjson_get_str(key), yyjson_get_len(key)) < 0) return -1;
+  if (PUT_LITERAL(e, ":") < 0) return -1;
+  if (e->pretty && PUT_LITERAL(e, " ") < 0) return -1;
+  if (put_text_value(e, value, depth + 1, canonical) < 0) {
+    prepend_key(&e->path, yyjson_get_str(key), yyjson_get_len(key));
+    return -1;
+  }
+  return 0;
+}
+
+/* The object `obj`: its members as the text holds them, or, when
+ * `canonical`, sorted as RFC 8785 sorts them, in a userdata pushed and
+ * popped here. */
+static int put_text_object (struct encoding *e, yyjson_val *obj, int depth,
+                            bool canonical) {
+  size_t count = yyjson_obj_size(obj);
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  if (count == 0) return PUT_LITERAL(e, "{}");
+  if (PUT_LITERAL(e, "{") < 0) return -1;
+  if (!canonical) {
+    yyjson_obj_foreach(obj, idx, max, key, item) {
+      if (put_text_member(e, key, item, idx == 0, depth, false) < 0) return -1;
+    }
+  } else {
+    luaL_checkstack(e->L, 2, "JSON nests too deeply");
+    struct member *members =
+        lua_newuserdatauv(e->L, count * sizeof *members, 0);
+    yyjson_obj_foreach(obj, idx, max, key, item) {
+      members[idx].key = key;
+      members[idx].value = item;
+    }
+    qsort(members, count, sizeof *members, compare_members);
+    for (size_t i = 0; i < count; i++) {
+      if (put_text_member(e, members[i].key, members[i].value, i == 0, depth,
+                          true) < 0) {
+        lua_pop(e->L, 1);
+        return -1;
+      }
+    }
+    lua_pop(e->L, 1);
+  }
+  if (put_break(e, depth) < 0) return -1;
+  return PUT_LITERAL(e, "}");
+}
+
+/* `val`, a value of a document [`first_problem`] found nothing in, so no
+ * deeper than the limit it was given. Without `canonical` its numbers
+ * were read as their text (YYJSON_READ_NUMBER_AS_RAW); with it, as
+ * numbers. */
+static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
+                           bool canonical) {
+  size_t idx;
+  size_t max;
+  yyjson_val *item;
+  switch (yyjson_get_type(val)) {
+    case YYJSON_TYPE_NULL:
+    return PUT_LITERAL(e, "null");
+    case YYJSON_TYPE_BOOL:
+    return yyjson_get_bool(val) ? PUT_LITERAL(e, "true")
+                                : PUT_LITERAL(e, "false");
+    case YYJSON_TYPE_RAW:
+    return put_raw_number(e, yyjson_get_raw(val), yyjson_get_len(val));
+    case YYJSON_TYPE_NUM: {
+      double f = yyjson_get_num(val);
+      if (!isfinite(f)) {
+        return refuse(e, isnan(f) ? "cannot format NaN"
+                                  : "cannot format an infinite number");
+      }
+      return put_canonical_number(e, f);
+    }
+    case YYJSON_TYPE_STR:
+    return put_string(e, yyjson_get_str(val), yyjson_get_len(val));
+    case YYJSON_TYPE_ARR:
+    if (yyjson_arr_size(val) == 0) return PUT_LITERAL(e, "[]");
+    if (PUT_LITERAL(e, "[") < 0) return -1;
+    yyjson_arr_foreach(val, idx, max, item) {
+      if (idx > 0 && PUT_LITERAL(e, ",") < 0) return -1;
+      if (put_break(e, depth + 1) < 0) return -1;
+      if (put_text_value(e, item, depth + 1, canonical) < 0) {
+        prepend_index(&e->path, idx);
+        return -1;
+      }
+    }
+    if (put_break(e, depth) < 0) return -1;
+    return PUT_LITERAL(e, "]");
+    default: /* YYJSON_TYPE_OBJ */
+    return put_text_object(e, val, depth, canonical);
+  }
+}
+
+/* format(text, max_depth?, json5?, lone_surrogates?, hash_comments?,
+ * duplicate_keys?, pretty?, canonical?): the value `text` holds, read as
+ * `check` reads it, written again as RFC 8259 text, and "". Its members
+ * keep the text's order, a key twice too, and its numbers their text,
+ * in RFC 8259's form where JSON5 wrote another; with `pretty`, laid out as
+ * `encode` lays a value out. With `canonical`, RFC 8785's form instead:
+ * members sorted by their keys' UTF-16 code units, numbers as
+ * ECMAScript writes the double each reads as, and no space. nil and a
+ * message when the text does not read, or holds NaN or an infinity. */
+static int json_format (lua_State *L) {
+  struct reading r;
+  r.text = luaL_checklstring(L, 1, &r.len);
+  read_options(L, 2, &r);
+  bool canonical = lua_toboolean(L, 8);
+  struct encoding e;
+  memset(&e, 0, sizeof e);
+  e.L = L;
+  e.pretty = !canonical && lua_toboolean(L, 7);
+  lua_settop(L, 8);
+  struct cosmic_guard *doc_guard = cosmic_guard_push(L, release_doc);
+  yyjson_doc *doc = read_text(L, &r, doc_guard, true);
+  if (doc == NULL) return refused(L);
+  if (!canonical) {
+    /* What decode refuses is refused with its message: yyjson reads a
+     * number as its text with checks of its own, which word a failure
+     * and place it otherwise and pass a hexadecimal number too large
+     * for any integer. So the text is read as decode reads it first,
+     * then again keeping each number's text: the same values, which
+     * the first read's walk found nothing in. */
+    yyjson_doc_free(doc);
+    doc_guard->resource = NULL;
+    r.flags |= YYJSON_READ_NUMBER_AS_RAW;
+    doc = read_text(L, &r, doc_guard, false);
+    if (doc == NULL) return refused(L);
+  }
+  e.guard = cosmic_guard_push(L, cosmic_free);
+  if (put_text_value(&e, yyjson_doc_get_root(doc), 0, canonical) < 0) {
+    lua_pushnil(L);
+    if (e.path.len == 0 || e.out_of_memory) {
+      lua_pushstring(L, e.failure);
+    } else {
+      lua_pushfstring(L, "%s at ", e.failure);
+      push_path(L, &e.path);
+      lua_concat(L, 2);
     }
     return 2;
   }
@@ -902,6 +1714,7 @@ static int null_tostring (lua_State *L) {
 
 static const luaL_Reg module[] = {
   {"decode", json_decode},     {"encode", json_encode},
+  {"check", json_check},       {"format", json_format},
   {"array", json_array},       {"is_array", json_is_array},
   {NULL, NULL},
 };

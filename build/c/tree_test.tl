@@ -46,7 +46,7 @@ end
 local function test_a_macro_expansion_is_placed_where_it_was_used()
   local parent: tree.Node = { kind = "CallExpr", file = "core/a.c", line = 3, children = {} }
   local child: tree.Node = { kind = "CallExpr", file = "vendor/lua/src/lua.h", line = 9,
-                             children = {}, parent = parent }
+    children = {}, parent = parent }
   local at = assert(tree.placed(child))
   assert(at.file == "core/a.c" and at.line == 3)
 end
@@ -64,4 +64,37 @@ local function test_a_declaration_beginning_in_a_macro_is_placed_at_its_name()
   assert(#decls == 2, "kept " .. #decls)
   assert(decls[2].file == "core/a.c" and decls[2].line == 5 and decls[2].col == 6,
     tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
+end
+
+--- A range nests a made-up position in brackets of its own, and every
+--- part of it moves the cursor: the declaration after the expression
+--- is read against core/a.c's line 3, the range's second part.
+local function test_each_part_of_a_nested_range_is_read()
+  local decls = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-FunctionDecl 0x2 <core/a.c:2:1, line:4:1> line:2:5 f 'int (void)'",
+    "| `-ParenExpr 0x3 <<scratch space>:1:1, core/a.c:3:9> 'int'",
+    "`-VarDecl 0x4 <col:2, col:9> col:5 y 'int'",
+  }, "\n"))
+  assert(#decls == 2, "kept " .. #decls)
+  local paren = decls[1].children[1]
+  assert(paren.file == "<scratch space>" and paren.line == 1, tostring(paren.file))
+  assert(paren.text == "'int'", paren.text)
+  assert(decls[2].file == "core/a.c" and decls[2].line == 3 and decls[2].col == 2,
+    tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
+end
+
+--- A dropped declaration's line whose name is placed in a file called
+--- `col` (`col:1:14`, which `#line` can make) moves the cursor to that
+--- file, so a declaration after it written as `line:` is read there.
+local function test_a_file_named_col_moves_the_cursor_from_a_dropped_line()
+  local decls = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-RecordDecl 0x2 </abs/v2.h:10:1, col:25> col:8 struct S definition",
+    "| `-FieldDecl 0x3 <col:12, col:22> col:1:14 a 'int[3]'",
+    "`-VarDecl 0x4 <line:5:1, col:5> col:5 y 'int'",
+  }, "\n"))
+  assert(#decls == 1, "kept " .. #decls)
+  assert(decls[1].kind == "VarDecl" and decls[1].file == "col" and decls[1].line == 5,
+    tostring(decls[1].file) .. ":" .. tostring(decls[1].line))
 end

@@ -390,7 +390,7 @@ local function test_a_reader_beside_an_open_write_reads_the_last_commit(tmp: str
   local path = tmp .. "/reserved.db"
   local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("PRAGMA journal_mode = DELETE; CREATE TABLE t (v TEXT); " ..
-    "INSERT INTO t VALUES ('committed'); BEGIN; INSERT INTO t VALUES ('pending')"))
+      "INSERT INTO t VALUES ('committed'); BEGIN; INSERT INTO t VALUES ('pending')"))
   local reader = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
   assert(#rows == 1 and rows[1][1] == "committed", "the reader must see only the last commit")
@@ -478,8 +478,8 @@ local function test_limit_sets_a_named_limit_and_answers_the_old_one()
   raises_saying("sqlite: no such limit: nonesuch", handle.limit, handle, "nonesuch", 0)
   raises(handle.limit, handle, "attached", 2 ^ 40)
   for _, name in ipairs({ "length", "sql_length", "column", "expr_depth", "compound_select",
-    "vdbe_op", "function_arg", "like_pattern_length", "variable_number",
-    "trigger_depth", "worker_threads" }) do
+      "vdbe_op", "function_arg", "like_pattern_length", "variable_number",
+      "trigger_depth", "worker_threads" }) do
     assert(handle:limit(name, -1) >= 0, name)
   end
   handle:close()

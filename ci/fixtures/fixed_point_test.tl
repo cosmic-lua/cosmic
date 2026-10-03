@@ -38,7 +38,7 @@ end
 -- rebuilt tool finds its database built by other code than its own and
 -- builds it again once (`build.reboot`). Outside both, neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
-    edit: function(string): string, settles: boolean)
+                                    edit: function(string): string, settles: boolean)
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local case_root = tmp .. "/case-fixed-point-" .. name
   local tree = case_root .. "/tree"
@@ -64,24 +64,24 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
       Fixture.write(path, original)
     end
     local outcome = Fixture.call_with_environment("fixed-point-" .. name ..
-      "-" .. stage, { program, "docs", "cosmic.child" }, tree, diagnostics,
+        "-" .. stage, { program, "docs", "cosmic.child" }, tree, diagnostics,
       values, rebuild_timeout_ns)
     assert(outcome.result.code == 0, name .. ": " .. stage ..
-      ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
+        ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
     local err = Fixture.read(outcome.err)
     local stale_lines = count_occurrences(err,
       "the tool is stale; rebuilding it from the tree")
     assert(stale_lines == 1, name .. ": " .. stage .. ": reported " ..
-      tostring(stale_lines) .. " stale-rebuild lines, want 1")
+        tostring(stale_lines) .. " stale-rebuild lines, want 1")
     local settled_lines = count_occurrences(err,
       "the tool's database was built by other code than its own; building it again")
     local want = settles and 1 or 0
     assert(settled_lines == want, name .. ": " .. stage .. ": built its " ..
-      "database again " .. tostring(settled_lines) .. " times, want " ..
-      tostring(want))
+        "database again " .. tostring(settled_lines) .. " times, want " ..
+        tostring(want))
   end
   assert(Fixture.hash(program) == booted, name .. ": the tool two " ..
-    "self-rebuilds left is not the tool the boot wrote")
+      "self-rebuilds left is not the tool the boot wrote")
 end
 
 -- A comment appended to a module's source.

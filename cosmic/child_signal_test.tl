@@ -48,7 +48,7 @@ end
     assert(Proc.executable()), fixture, report },
     { env = nested_cosmic_environment(), stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local got = Fs.read(report)
   assert(got == "0", tostring(got))
 end

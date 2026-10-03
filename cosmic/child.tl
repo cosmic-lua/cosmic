@@ -1,5 +1,16 @@
 --- Bounded child-process supervision with explicit argv, environment,
---- directory and descriptors.
+--- directory and descriptors. A child started with [`Child.start`]
+--- keeps running if a signal ends this process, which then never closes
+--- its handle -- unless a `sandbox` that unveils holds it, whose pid
+--- namespace ends with this process. Only [`Child.run`] holds SIGINT
+--- and SIGTERM for you. A supervisor takes a [`Child.guard`] and asks
+--- `g:cancelled()` after each round of [`Child.wait_any`] or
+--- `h:try_wait`, which do not read the guard. Once one is caught, it
+--- closes its handles, ending their children, and calls `g:release()`
+--- -- not `g:close()`, which delivers the signal again and so ends this
+--- process -- before it prints its report and exits non-zero, as the
+--- `supervisor` example in [`cosmic/child_example.tl`] does
+--- (`cosmic docs Child.wait_any` shows it).
 ---
 --- A child owns a new process group by default, and its Handle owns
 --- that group: once a wait, a timeout, or a close has an answer, no
@@ -197,7 +208,8 @@ local record Options
   --- The child's whole environment, by name: it replaces this process's
   --- rather than adding to it. Nil inherits this process's.
   env: {string:string}
-  --- The directory the child starts in. Nil inherits this process's.
+  --- The directory the child starts in; nil for this process's own
+  --- directory. An empty one raises.
   cwd: string
   --- A descriptor, or "inherit" (the default), "null" or "stream", whose
   --- Writer is the handle's `stdin_stream`. A pipe to stdin, this one
@@ -227,18 +239,19 @@ local record Options
   --- and ends with it; true by default. False for a child meant to
   --- outlive the call that started it.
   process_group: boolean
-  --- How long the child may run, from its start, before it is ended as
-  --- an expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
+  --- How long the child may run, from its start, before it is ended as an
+  --- expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
   --- SIGKILL, its group included -- its Result `timed_out`. Nil for no
-  --- limit. [`Child.run`]'s wait ends the child at it. A started child
-  --- is ended for it by whatever waits on it once it has passed: its
-  --- handle's `wait` (with a timeout of its own or not), [`try_wait`],
-  --- [`Child.wait_any`], or a read or write of its streams. A child that
-  --- exited by itself before that is not `timed_out`. Nothing ends it
-  --- while nothing waits on it, as no thread runs here but the caller's:
-  --- it runs past the deadline until something waits, or its handle
-  --- closes. [`Handle.drain`], which ends no process, does not end it
-  --- either: a loop over it asks [`try_wait`] to have the deadline kept.
+  --- limit, not 0, which ends it at the first wait on it. [`Child.run`]'s
+  --- wait ends the child at it. A started child is ended for it by
+  --- whatever waits on it once it has passed: its handle's `wait` (with a
+  --- timeout of its own or not), [`try_wait`], [`Child.wait_any`], or a
+  --- read or write of its streams. A child that exited by itself before
+  --- that is not `timed_out`. Nothing ends it while nothing waits on it,
+  --- as no thread runs here but the caller's: it runs past the deadline
+  --- until something waits, or its handle closes. [`Handle.drain`], which
+  --- ends no process, does not end it either: a loop over it asks
+  --- [`try_wait`] to have the deadline kept.
   timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
@@ -806,7 +819,7 @@ end
 --- shielded from the cancel ([`Poll.shielded`]), as the cleanup it
 --- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(entries: {Entry}, timeout_ns: integer,
-    cancellable?: boolean, signalled?: boolean): boolean, string
+                    cancellable?: boolean, signalled?: boolean): boolean, string
   -- TODO: wait through Poll.delay and Poll.ready alone, here and in
   -- Child.end_strays's sleep, once it is decided how they answer where
   -- no task can wait. (a) They go on, holding the thread, outside a run
@@ -1459,7 +1472,7 @@ local handle_mt: metatable<Handle> = {
 
 --- A handle for `pid`, owning it until it settles.
 local function make_handle(pid: integer, process_group: boolean, limit: integer,
-    deadline: integer | nil): Handle
+                           deadline: integer | nil): Handle
   local h: Handle = setmetatable({
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
     _explicit_close = false, _drain_next = 1, _deadline = deadline,
@@ -1688,7 +1701,7 @@ local function descriptor(value: integer | string, name: string, words: {string:
   if value is integer and value >= 0 and value <= INT_MAX then return value end
   if name == "stdin" and value == "pipe" then
     error("child: stdin = \"pipe\" was removed: use \"stream\" and write through the handle's " ..
-      "stdin_stream, closing it for end of file, or `input` for bytes known in advance", 4)
+        "stdin_stream, closing it for end of file, or `input` for bytes known in advance", 4)
   end
   local allowed: {string} = {}
   for word in pairs(words) do allowed[#allowed + 1] = "'" .. word .. "'" end
@@ -1714,6 +1727,9 @@ local function validate(argv: {string}, opts: Options)
       error("child: argv[" .. tostring(i) .. "] must be a string", 3)
     end
     without_nul(value, "argv[" .. tostring(i) .. "]")
+  end
+  if opts.cwd == "" then
+    error("child: cwd is empty; leave it nil to start in this process's directory", 3)
   end
   if opts.cwd ~= nil then without_nul(opts.cwd, "cwd") end
   if opts.env ~= nil then
@@ -1750,12 +1766,12 @@ local function validate(argv: {string}, opts: Options)
   if opts.credentials ~= nil then
     local user, group = opts.credentials.user, opts.credentials.group
     if not (user is integer) or not (group is integer) or
-      user < 1 or user > 4294967294 or group < 1 or group > 4294967294 then
+        user < 1 or user > 4294967294 or group < 1 or group > 4294967294 then
       error("child: credentials need integer user and group from 1 to 4294967294", 3)
     end
     local sandbox = opts.sandbox
     if sandbox ~= nil and (sandbox.unveil ~= nil or sandbox.offline == true or
-      sandbox.user ~= nil or sandbox.group ~= nil) then
+        sandbox.user ~= nil or sandbox.group ~= nil) then
       error("child: credentials exclude sandbox unveil, offline, user and group", 3)
     end
   end
@@ -1907,6 +1923,17 @@ local function unfound_name(name: string, cwd?: string): boolean
   return found == nil
 end
 
+--- Whether `opts.cwd` is given and missing as this process sees it --
+--- not there, rather than closed to it -- so that a start that failed
+--- ENOENT or ENOTDIR failed on it. Not for a sandbox that unveils, whose
+--- child finds the directory in a root of its own, where `at` may bind
+--- it under another name.
+local function missing_cwd(opts: Options): boolean
+  if opts.cwd == nil or (opts.sandbox ~= nil and opts.sandbox.unveil ~= nil) then return false end
+  local there, _, errno = sys.stat(opts.cwd)
+  return there == nil and (errno == sys.ENOENT or errno == sys.ENOTDIR)
+end
+
 --- Why a start that failed with EINVAL or EMFILE may have failed: the
 --- descriptors it places above the highest it hands the child are
 --- refused past RLIMIT_NOFILE's soft limit, which a process raises at
@@ -1971,7 +1998,9 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
   unwire(wiring, pid ~= nil)
   if not pid then
-    if errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then
+    if (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then
+      trouble = trouble .. ": cwd " .. string.format("%q", opts.cwd) .. " does not exist"
+    elseif errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then
       trouble = trouble .. ": " .. string.format("%q", argv[1]) ..
         " is run as a path, with no PATH search; Proc.find(" ..
         string.format("%q", argv[1]) .. ") answers where a shell would find it"

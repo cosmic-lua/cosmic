@@ -88,7 +88,7 @@ end
 local function columns(db: Sqlite.Handle, name: string): {string} | nil, string
   local rows, why = Sqlite.text_rows(db,
     'SELECT name, upper(type), "notnull", coalesce(dflt_value, \'\'), pk, hidden ' ..
-    "FROM pragma_table_xinfo(?1) ORDER BY cid", { { text = name } })
+      "FROM pragma_table_xinfo(?1) ORDER BY cid", { { text = name } })
   if rows == nil then return nil, why end
   local shape: {string} = {}
   for _, row in ipairs(rows) do shape[#shape + 1] = table.concat(row, "\0") end
@@ -156,7 +156,7 @@ end
 --- A DELETE must not invoke schema code or cascade into an unknown table.
 --- Conservatively retain all family rows when any such effect is present.
 local function inspect(db: Sqlite.Handle, family: maintenance.Family,
-    expected: {string:Shape}): {Table} | nil, string
+                       expected: {string:Shape}): {Table} | nil, string
   local schema, why = Sqlite.text_rows(db,
     "SELECT name, type, coalesce(sql, '') FROM sqlite_schema ORDER BY name")
   if schema == nil then return nil, why end
@@ -199,7 +199,8 @@ local function failed(file: maintenance.File, why: string): maintenance.File
   return file
 end
 
---- Only already retired siblings of this exact basename belong to cleanup.
+--- Only regular files with the exact historical retirement names belong to
+--- cleanup. A matching prefix alone says nothing about who owns a sibling.
 local function clean_aside(file: maintenance.File): boolean, string
   local dir, base = Fs.dirname(file.path), Fs.basename(file.path)
   local st, why, errno = sys.stat(dir)
@@ -212,10 +213,19 @@ local function clean_aside(file: maintenance.File): boolean, string
   local prefix = base .. ".corrupt-"
   for _, name in ipairs(names) do
     if name:sub(1, #prefix) == prefix then
-      local path = dir .. "/" .. name
-      local ok, remove_why = Fs.remove(path)
-      if not ok then return false, remove_why end
-      file.removed_set_aside[#file.removed_set_aside + 1] = path
+      local tail = name:sub(#prefix + 1)
+      local retired = tail:match("^%d+$") or tail:match("^%d+%-wal$") or tail:match("^%d+%-shm$")
+      if retired then
+        local path = dir .. "/" .. name
+        local entry, entry_why, entry_errno = sys.lstat(path)
+        if entry == nil then
+          if entry_errno ~= sys.ENOENT then return false, entry_why end
+        elseif entry.kind == "file" then
+          local ok, remove_why = Fs.remove(path)
+          if not ok then return false, remove_why end
+          file.removed_set_aside[#file.removed_set_aside + 1] = path
+        end
+      end
     end
   end
   table.sort(file.removed_set_aside)
@@ -234,7 +244,7 @@ local function checkpoint(db: Sqlite.Handle): boolean, string
 end
 
 local function maintain_file(path: string, options: maintenance.Options,
-    expected: {string:Shape}): maintenance.File
+                             expected: {string:Shape}): maintenance.File
   local file = file_result(path)
   local cleaned, clean_why = clean_aside(file)
   if not cleaned then return failed(file, clean_why) end
@@ -250,8 +260,9 @@ local function maintain_file(path: string, options: maintenance.Options,
   file.before_bytes = before.size
   local opened, open_why = Sqlite.open(path, { writable = true, create = false })
   -- TODO: restore automatic retirement of a provably corrupt active cache
-  -- once SQLite exposes typed open/prepare/step failures. Until then keep
-  -- every unreadable file and omit its save digest; diagnostics authorize no deletion.
+  -- once cache-wide lifetime ownership and identity checks exclude concurrent
+  -- users and replacements. Typed failure codes alone authorize no deletion;
+  -- keep every unreadable file and omit its save digest.
   if opened == nil then return failed(file, open_why) end
   local database <close> = owned(opened)
   local db = database.db
@@ -273,7 +284,7 @@ local function maintain_file(path: string, options: maintenance.Options,
       supported = supported + 1
       if not options.whole then
         local used, used_why = count(db, "SELECT count(*) FROM " .. quoted(entry.name) ..
-          " WHERE used_ns >= ?1", { { integer = options.since_ns } })
+            " WHERE used_ns >= ?1", { { integer = options.since_ns } })
         if used == nil then return failed(file, used_why) end
         if used > 0 then reached = true end
       end
@@ -287,7 +298,7 @@ local function maintain_file(path: string, options: maintenance.Options,
     for _, entry in ipairs(tables) do
       if entry.supported then
         local ok, why = Sqlite.run(db, "DELETE FROM " .. quoted(entry.name) ..
-          " WHERE used_ns < ?1", { { integer = options.since_ns } })
+            " WHERE used_ns < ?1", { { integer = options.since_ns } })
         if not ok then return failed(file, why) end
         left = left - db:changes()
       end
@@ -325,7 +336,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Child.Guard):
   if begun.code ~= Sqlite.OK then return false, begun.reason end
   database.transaction = true
   local names, names_why = Sqlite.text_rows(db, "SELECT name FROM sqlite_schema " ..
-    "WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")
+      "WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")
   if names == nil then return false, names_why end
   for _, row in ipairs(names) do
     if guard:cancelled() ~= 0 then return false, "cache maintenance interrupted" end
@@ -343,7 +354,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Child.Guard):
     hasher:update("table\0" .. #name .. ":" .. name .. "\0" .. #fields .. "\0")
     if #selected > 0 then
       local query, query_why = Sqlite.query(db, "SELECT " .. table.concat(selected, ", ") ..
-        " FROM " .. quoted(name) .. " ORDER BY " .. table.concat(order, ", "))
+          " FROM " .. quoted(name) .. " ORDER BY " .. table.concat(order, ", "))
       if query == nil then return false, query_why end
       local q <close> = query
       for cells in q:each() do
@@ -381,7 +392,7 @@ end
 
 --- Merge two ordered key cursors; memory holds at most one key from each.
 local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle,
-    name: string, guard: Child.Guard): integer | nil, string
+                        name: string, guard: Child.Guard): integer | nil, string
   if restored == nil then return count(db, "SELECT count(*) FROM " .. quoted(name)) end
   local there, there_why = count(restored,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1", { { text = name } })
@@ -414,7 +425,7 @@ local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle,
 end
 
 local function fresh_keys(path: string, restored: string, expected: {string:Shape},
-    guard: Child.Guard): integer | nil, string
+                          guard: Child.Guard): integer | nil, string
   local opened, why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return nil, why end
   local live <close> = owned(opened)

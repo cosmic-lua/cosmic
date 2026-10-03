@@ -209,7 +209,7 @@ function Perf.check_transition(before: {string}, after: {string}, builds: boolea
   assert(#before == 6 and #after == 6, "missing build history counters")
   local delta = builds and 1 or 0
   assert(tonumber(after[5]) == tonumber(before[5]) + delta and
-    tonumber(after[6]) == tonumber(before[6]) + delta, "unexpected build history transition")
+      tonumber(after[6]) == tonumber(before[6]) + delta, "unexpected build history transition")
   assert(after[4] == "PASS", "fixture build failed")
   if builds then
     assert(tonumber(after[1]) + tonumber(after[2]) == 6, "build lost fixture modules")
@@ -292,7 +292,7 @@ end
 
 local function leaf(fixture: Fixture, value: integer)
   assert(Fs.write(fixture.root .. "/leaf.tl", "local record Leaf end\n" ..
-    "function Leaf.value(): integer return " .. value .. " end\nreturn Leaf\n"))
+      "function Leaf.value(): integer return " .. value .. " end\nreturn Leaf\n"))
   assert(Fs.set_mtime(fixture.root .. "/leaf.tl", 1000000000, value))
 end
 
@@ -388,7 +388,7 @@ local function workloads(): {Workload}
     { name = "native_tool_startup", args = { "-e", "" }, batch = 5, executable = "host_tool" },
     { name = "first_require", args = { "-e", "assert(require('cosmic.sqlite'))" }, batch = 5 },
     { name = "require_closure", args = { "-e", "assert(require('cosmic.sqlite')); " ..
-      "assert(require('cosmic.json')); assert(require('cosmic.child'))" }, batch = 5 },
+        "assert(require('cosmic.json')); assert(require('cosmic.child'))" }, batch = 5 },
     { name = "exact_docs", builds = true, args = { "docs", "Fs.read" }, batch = 1 },
     { name = "uses", builds = true, args = { "uses", "Fs.read" }, batch = 1 },
     { name = "reverse_imports", args = { "sql", "--store",

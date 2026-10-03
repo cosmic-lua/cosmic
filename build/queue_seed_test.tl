@@ -67,7 +67,7 @@ end
 
 --- A run, as the API lists it: of `event`, else merge_group.
 local function run(id: string, status: string, conclusion: string | nil, sha: string, branch: string,
-    event?: string): string
+                   event?: string): string
   return '{"id":' .. id .. ',"event":"' .. (event or "merge_group") .. '","status":"' .. status .. '","conclusion":' ..
     (conclusion and ('"' .. conclusion .. '"') or "null") .. ',"head_sha":"' .. sha ..
     '","head_branch":"' .. branch .. '","html_url":"https://github.com/o/r/actions/runs/' .. id .. '"}'
@@ -148,7 +148,7 @@ local function test_a_passing_queue_run_is_found(tmp: string)
   assert(code == 0, said)
   assert(output == found("42"), output)
   assert(calls:find("api repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
-    "&per_page=20 --jq " .. RUNS_FILTER, 1, true), calls)
+      "&per_page=20 --jq " .. RUNS_FILTER, 1, true), calls)
   assert(calls:find("api repos/o/r/actions/runs/42/artifacts?per_page=100 --jq " .. ARTIFACTS_FILTER, 1, true), calls)
   assert(said:find("passed the merge queue in https://github.com/o/r/actions/runs/42", 1, true), said)
   assert((Fs.read(tmp .. "/run-" .. runs .. "/summary") or ""):find("runs/42", 1, true))
@@ -246,7 +246,7 @@ local function test_stage_keeps_what_main_would_save(tmp: string)
     COMPILES_PREFIX = "compiles-leg-", COMPILES_DIGEST = "e1", COMPILES_RESTORED = "",
   }, true)
   assert(keys == "verdicts=verdicts-leg-h-f-d1\ncompiles=compiles-leg-e1\n" ..
-    "driver-checked=driver-checked-v2-leg-x\n", keys)
+      "driver-checked=driver-checked-v2-leg-x\n", keys)
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v" and Fs.read(seed .. "/build-cache/cache.db") == "c")
   assert(Fs.read(seed .. "/driver-checked/key") == "driver-checked-v2-leg-x\n")
 
@@ -256,7 +256,7 @@ local function test_stage_keeps_what_main_would_save(tmp: string)
   }, false)
   assert(keys == "", keys)
   assert(not Fs.exists(seed .. "/verdicts") and not Fs.exists(seed .. "/build-cache") and
-    not Fs.exists(seed .. "/driver-checked"))
+      not Fs.exists(seed .. "/driver-checked"))
 
   -- A job that keeps no compiles (ci.yml's `checked`) names none.
   seed, keys = stage(tmp, {
@@ -284,7 +284,7 @@ local function test_stage_keeps_the_verdicts_under_the_commit(tmp: string)
     SHA = SHA,
   }, true)
   assert(keys == "verdicts=verdicts-leg-h-f-d1\nverdicts-sha=verdicts-leg-h-f-sha-" .. SHA ..
-    "\ndriver-checked=driver-checked-v2-leg-x\n", keys)
+      "\ndriver-checked=driver-checked-v2-leg-x\n", keys)
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
 
   seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "", SHA = SHA }, false)
@@ -389,7 +389,7 @@ end
 --- environment, in `cwd` where given. It waits a second between rounds,
 --- for five seconds in all.
 local function ahead(tmp: string, base: string, answers: {string}, listing: {string: string},
-    listed_jobs?: {string: string}, extra?: {string: string}, cwd?: string): string, string, integer, string
+                     listed_jobs?: {string: string}, extra?: {string: string}, cwd?: string): string, string, integer, string
   runs = runs + 1
   local dir = tmp .. "/ahead-" .. runs
   assert(Fs.mkdirs(dir .. "/bin"))
@@ -427,7 +427,7 @@ local function test_the_run_ahead_is_found_with_its_verdicts(tmp: string)
       run("41", "completed", "cancelled", SHA, QUEUE)) }, { ["42"] = KEPT })
     assert(code == 0 and output == "run=42\n", output .. said)
     assert(calls:find("api repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
-      "&per_page=20 --jq " .. AHEAD_RUNS_FILTER, 1, true), calls)
+        "&per_page=20 --jq " .. AHEAD_RUNS_FILTER, 1, true), calls)
     assert(calls:find("api repos/o/r/actions/runs/42/artifacts?per_page=100 --jq " .. ARTIFACTS_FILTER, 1, true),
       calls)
     assert(lookups(calls) == 1 and not calls:find("/jobs", 1, true), calls)
@@ -716,7 +716,7 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
       -- macOS's, on the runner's own userland, names the image.
       if in_container(name) then
         assert(marker:find("-container-verdicts-" .. name .. "-", 1, true) and
-          not marker:find(IMAGES[name], 1, true), marker)
+            not marker:find(IMAGES[name], 1, true), marker)
       else
         assert(marker:find("-" .. IMAGES[name] .. "-verdicts-" .. name .. "-", 1, true), marker)
       end

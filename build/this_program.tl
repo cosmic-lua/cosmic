@@ -99,7 +99,7 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
     for number, fd in pairs(relaunch.fds) do
       if fds[number] ~= nil then
         error("this_program.program: descriptor " .. tostring(number) ..
-          " is the one the relaunch hands the program its artifact or core as", 2)
+            " is the one the relaunch hands the program its artifact or core as", 2)
       end
       fds[number] = fd
     end

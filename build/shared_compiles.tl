@@ -166,8 +166,8 @@ end
 function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
                              format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
-    (own_tree and "own" or "project") .. "\n" ..
-    (generated and "doctest" or "tree"))
+      (own_tree and "own" or "project") .. "\n" ..
+      (generated and "doctest" or "tree"))
 end
 
 local schema <const> = cache_formats.compiles
@@ -224,14 +224,14 @@ end
 local function parse_digest(key: shared_compiles.ParseKey, requires: string,
                             rows: string): string
   return Hash.hex_sha256(#key.analyzer .. "\n" .. key.analyzer .. key.source_hash .. "\n" ..
-    (key.mapped and "mapped" or "own") .. "\n" .. #requires .. "\n" .. requires .. rows)
+      (key.mapped and "mapped" or "own") .. "\n" .. #requires .. "\n" .. requires .. rows)
 end
 
 --- Whether `path` is `kind` (a "dir" or a "file"), this user's and
 --- writable by no one else, as [`Fs.cache_dir`] holds its directories.
 --- A file is taken as it is, never through a link: SQLite writes its
 --- log beside where a link leads, which the directory checked is not.
-local function private(path: string, kind: string): boolean, string
+local function private(path: string, kind: sys.Kind): boolean, string
   local st, trouble: sys.Stat, string = nil, ""
   if kind == "file" then st, trouble = sys.lstat(path) else st, trouble = sys.stat(path) end
   if st == nil then return false, path .. ": " .. trouble end
@@ -250,7 +250,7 @@ end
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
-    "(name GLOB 'compiled_v*' OR name GLOB 'parsed_v*')")
+      "(name GLOB 'compiled_v*' OR name GLOB 'parsed_v*')")
   if rows == nil then return false, trouble end
   local stale: {string} = {}
   local current = 0
@@ -360,8 +360,8 @@ function shared_compiles.analyzers(cache: shared_compiles.Cache,
                                    hashes: {string}): {string} | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT analyzer FROM " .. parsed .. " WHERE source_hash IN " ..
-    "(SELECT value FROM json_each(?1)) GROUP BY analyzer " ..
-    "HAVING count(DISTINCT source_hash) = ?2 ORDER BY max(used_ns) DESC, analyzer",
+      "(SELECT value FROM json_each(?1)) GROUP BY analyzer " ..
+      "HAVING count(DISTINCT source_hash) = ?2 ORDER BY max(used_ns) DESC, analyzer",
     { text(json_list(hashes)), { integer = #hashes } })
   if rows == nil then return nil, trouble end
   local out: {string} = {}
@@ -378,7 +378,7 @@ function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string
                                   hashes: {string}): {string:{string}} | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT source_hash, requires FROM " .. parsed .. " WHERE analyzer = ?1 " ..
-    "AND source_hash IN (SELECT value FROM json_each(?2))",
+      "AND source_hash IN (SELECT value FROM json_each(?2))",
     { text(analyzer), text(json_list(hashes)) })
   if rows == nil then return nil, trouble end
   local out: {string:{string}} = {}
@@ -398,7 +398,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
     { integer = key.mapped and 1 or 0 } }
   local rows, trouble = Sqlite.rows(cache.db,
     "SELECT requires, rows, digest FROM " .. parsed ..
-    " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3", where)
+      " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3", where)
   if rows == nil then return nil, trouble end
   local row = rows[1]
   if row == nil then return nil, "" end
@@ -415,7 +415,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
       stored ~= parse_digest(key, requires, inflated) then
     where[4] = stored ~= nil and text(stored) or {}
     local _, _ = Sqlite.run(cache.db, "DELETE FROM " .. parsed ..
-      " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)
+        " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)
     return nil, ""
   end
   return { requires = names, rows = inflated }, ""
@@ -432,8 +432,8 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   end
   local over, trouble = Sqlite.text_rows(db,
     "SELECT tab, id FROM (SELECT tab, id, SUM(size) OVER (ORDER BY used_ns DESC, tab, id) " ..
-    "AS total FROM (SELECT 'c' AS tab, rowid AS id, size, used_ns FROM " .. compiled ..
-    " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
+      "AS total FROM (SELECT 'c' AS tab, rowid AS id, size, used_ns FROM " .. compiled ..
+      " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
     { { integer = bound_bytes } })
   if over == nil then return false, trouble end
   local ids: {string:{string}} = { c = {}, p = {} }
@@ -444,7 +444,7 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   for tab, name in pairs({ c = compiled, p = parsed }) do
     if #ids[tab] > 0 then
       local ok, delete_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
-        " WHERE rowid IN (SELECT value FROM json_each(?1))",
+          " WHERE rowid IN (SELECT value FROM json_each(?1))",
         { text("[" .. table.concat(ids[tab], ",") .. "]") })
       if not ok then return false, delete_trouble end
     end
@@ -476,13 +476,13 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
       local refs = packed(kept.references)
       local ok, trouble = Sqlite.run(db,
         "INSERT OR IGNORE INTO " .. compiled .. " (key, lua, bytecode, refs, digest, size, " ..
-        "used_ns) VALUES (?1, deflate(?2), deflate(?3), deflate(?4), ?5, 0, ?6)",
+          "used_ns) VALUES (?1, deflate(?2), deflate(?3), deflate(?4), ?5, 0, ?6)",
         { text(kept.key), { blob = kept.lua }, { blob = kept.bytecode }, { blob = refs },
           text(digest_of(kept.lua, kept.bytecode, refs)), { integer = now_ns } })
       if not ok then return false, trouble end
       ok, trouble = Sqlite.run(db, "UPDATE " .. compiled ..
-        " SET size = length(key) + length(lua) + length(bytecode) + length(refs) " ..
-        "WHERE key = ?1 AND size = 0", { text(kept.key) })
+          " SET size = length(key) + length(lua) + length(bytecode) + length(refs) " ..
+          "WHERE key = ?1 AND size = 0", { text(kept.key) })
       if not ok then return false, trouble end
     end
     for _, key in ipairs(owed.used) do
@@ -497,18 +497,18 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
       local requires = packed_requires(one.made.requires)
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO " .. parsed .. " (analyzer, source_hash, mapped, requires, rows, " ..
-        "digest, size, used_ns) VALUES (?1, ?2, ?3, ?4, deflate(?5), ?6, 0, ?7)",
+          "digest, size, used_ns) VALUES (?1, ?2, ?3, ?4, deflate(?5), ?6, 0, ?7)",
         { where[1], where[2], where[3], text(requires), { blob = one.made.rows },
           text(parse_digest(key, requires, one.made.rows)), { integer = now_ns } })
       if not ok then return false, trouble end
       ok, trouble = Sqlite.run(db, "UPDATE " .. parsed ..
-        " SET size = length(analyzer) + length(source_hash) + length(requires) + length(rows) " ..
-        "WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND size = 0", where)
+          " SET size = length(analyzer) + length(source_hash) + length(requires) + length(rows) " ..
+          "WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND size = 0", where)
       if not ok then return false, trouble end
     end
     for _, key in ipairs(parses_used) do
       local ok, trouble = Sqlite.run(db, "UPDATE " .. parsed .. " SET used_ns = ?1 " ..
-        "WHERE analyzer = ?2 AND source_hash = ?3 AND mapped = ?4",
+          "WHERE analyzer = ?2 AND source_hash = ?3 AND mapped = ?4",
         { { integer = now_ns }, text(key.analyzer), text(key.source_hash),
           { integer = key.mapped and 1 or 0 } })
       if not ok then return false, trouble end
@@ -527,29 +527,20 @@ end
 --- The shared cache for one build, as [`importer.derive`] and
 --- [`importer.compile`] take it, or nil where there is none: turned off,
 --- or not to be opened. That is reported once, as is any later failure
---- to read or write it, and the build goes on without the cache. A
---- corrupt file is moved aside ([`shared_sqlite.set_aside`]), so the next build starts a
---- fresh one.
+--- to read or write it, and the build goes on without the cache.
 function shared_compiles.for_build(environment?: {string:string}): importer.Shared | nil
   local path, trouble = location(environment)
   local cache: shared_compiles.Cache | nil = nil
   if path ~= nil then cache, trouble = shared_compiles.open(path) end
   local function drop(why: string)
-    local aside = ""
-    if path ~= nil and shared_sqlite.corrupt(why) then
-      if cache ~= nil then
-        shared_compiles.close(cache)
-        cache = nil
-      end
-      local moved, _ = shared_sqlite.set_aside(path, Time.now_ns())
-      if moved ~= nil then aside = "; moved aside to " .. moved end
-    end
+    -- TODO: retire broken caches automatically once cache-wide lifetime
+    -- ownership and identity checks can exclude concurrent users and replacements.
     if cache ~= nil then
       shared_compiles.close(cache)
       cache = nil
     end
     local _, _ = log:complain("build: shared compiles: " .. why ..
-      "; building without them (" .. variable .. "=0 turns them off)" .. aside)
+        "; building without them (" .. variable .. "=0 turns them off)")
   end
   if cache == nil then
     if trouble ~= "" then drop(trouble) end

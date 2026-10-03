@@ -64,7 +64,7 @@ end
 function Fixture.small(path: string, limit: integer): string
   local size = assert(Fs.stat(path)).size
   assert(size <= limit, path .. ": expected at most " .. Plural.count(limit, "byte") ..
-    ", found " .. tostring(size))
+      ", found " .. tostring(size))
   return Fixture.read(path)
 end
 
@@ -129,7 +129,7 @@ end
 --- in only as deep as the host allows. So it means the same on every
 --- host, as AGENTS.md asks of a test's own `cosmic test`.
 function Fixture.environment_of(base: {string:string},
-    extra?: {string:string}): {string:string}
+                                extra?: {string:string}): {string:string}
   local environment: {string:string} = {}
   for name, value in pairs(base) do environment[name] = value end
   environment.COSMIC_BUILD_CACHE = "0"
@@ -155,9 +155,9 @@ local function preview(path: string): string
 end
 
 function Fixture.call_with_environment(label: string, argv: {string},
-    directory: string, diagnostics: string, environment: {string:string},
-    timeout_ns?: integer, input?: string,
-    fds?: {integer:integer}): Fixture.Outcome
+                                       directory: string, diagnostics: string, environment: {string:string},
+                                       timeout_ns?: integer, input?: string,
+                                       fds?: {integer:integer}): Fixture.Outcome
   Fixture.mkdir(diagnostics)
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
@@ -166,21 +166,21 @@ function Fixture.call_with_environment(label: string, argv: {string},
     input = input, output = out, error = err, fds = fds })
   if not outcome.result then
     error(label .. ": could not start: " .. tostring(outcome.trouble) ..
-      "; stdout=" .. out .. "; stderr=" .. err)
+        "; stdout=" .. out .. "; stderr=" .. err)
   end
   local finished = outcome.result as Child.Result
   assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": DONE (" ..
-    tostring(outcome.elapsed_ns // 1000000) .. " ms; code=" ..
-    tostring(finished.code) .. "; signal=" .. tostring(finished.signal) ..
-    "; timed_out=" .. tostring(finished.timed_out) .. ")\n"))
+      tostring(outcome.elapsed_ns // 1000000) .. " ms; code=" ..
+      tostring(finished.code) .. "; signal=" .. tostring(finished.signal) ..
+      "; timed_out=" .. tostring(finished.timed_out) .. ")\n"))
   return { result = finished, out = out, err = err }
 end
 
 --- [`call_with_environment`] with each file of `paths` open for reading on
 --- the descriptor it is keyed by, in the child only.
 function Fixture.call_with_descriptors(label: string, argv: {string},
-    directory: string, diagnostics: string, environment: {string:string},
-    paths: {integer:string}): Fixture.Outcome
+                                       directory: string, diagnostics: string, environment: {string:string},
+                                       paths: {integer:string}): Fixture.Outcome
   local fds: {integer:integer} = {}
   local called, answer = pcall(function(): Fixture.Outcome
     for number, path in pairs(paths) do
@@ -195,8 +195,8 @@ function Fixture.call_with_descriptors(label: string, argv: {string},
 end
 
 function Fixture.call(label: string, argv: {string}, directory: string,
-    diagnostics: string, extra?: {string:string}, timeout_ns?: integer,
-    input?: string): Fixture.Outcome
+                      diagnostics: string, extra?: {string:string}, timeout_ns?: integer,
+                      input?: string): Fixture.Outcome
   return Fixture.call_with_environment(label, argv, directory, diagnostics,
     Fixture.environment(extra), timeout_ns, input)
 end
@@ -207,17 +207,17 @@ function Fixture.succeeded(label: string, outcome: Fixture.Outcome): Fixture.Cap
   local finished = outcome.result
   if not finished.ok then
     error(label .. ": failed code=" .. tostring(finished.code) ..
-      " signal=" .. tostring(finished.signal) ..
-      " timed_out=" .. tostring(finished.timed_out) ..
-      "; stdout=" .. outcome.out .. "; stderr=" .. outcome.err ..
-      "; output preview:\n" .. preview(outcome.out) .. preview(outcome.err))
+        " signal=" .. tostring(finished.signal) ..
+        " timed_out=" .. tostring(finished.timed_out) ..
+        "; stdout=" .. outcome.out .. "; stderr=" .. outcome.err ..
+        "; output preview:\n" .. preview(outcome.out) .. preview(outcome.err))
   end
   return { out = outcome.out, err = outcome.err }
 end
 
 function Fixture.run(label: string, argv: {string}, directory: string,
-    diagnostics: string, extra?: {string:string}, timeout_ns?: integer,
-    input?: string): Fixture.Capture
+                     diagnostics: string, extra?: {string:string}, timeout_ns?: integer,
+                     input?: string): Fixture.Capture
   return Fixture.succeeded(label, Fixture.call(label, argv, directory,
     diagnostics, extra, timeout_ns, input))
 end
@@ -234,7 +234,7 @@ function Fixture.targets(path: string): {Fixture.Target}
   local names_seen: {string:boolean} = {}
   local contents = Fixture.read(path)
   assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
-    not contents:find("\n\n", 1, true),
+      not contents:find("\n\n", 1, true),
     "generated targets have empty or unterminated records")
   for line in contents:gmatch("[^\n]+") do
     local id_text, configuration_text, kind, name, uname_os, uname_arch =
@@ -270,7 +270,7 @@ function Fixture.inspection(path: string): Fixture.Inspection
   local count = 0
   local contents = Fixture.small(path, 8192)
   assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
-    not contents:find("\n\n", 1, true),
+      not contents:find("\n\n", 1, true),
     "decoder inspection has empty or unterminated records")
   for line in contents:gmatch("[^\n]+") do
     if line:sub(1, 7) == "prefix " then
@@ -292,7 +292,7 @@ function Fixture.inspection(path: string): Fixture.Inspection
       local offset = math.tointeger(assert(tonumber(offset_text)))
       local length = math.tointeger(assert(tonumber(length_text)))
       assert(target and configuration and offset and length and digest and
-        #digest == 64, "invalid decoder entry record: " .. line)
+          #digest == 64, "invalid decoder entry record: " .. line)
       local key = tostring(target) .. ":" .. tostring(configuration)
       assert(entries[key] == nil, "duplicate decoder entry record: " .. key)
       entries[key] = { target = target, configuration = configuration,
@@ -303,7 +303,7 @@ function Fixture.inspection(path: string): Fixture.Inspection
     end
   end
   assert(prefix_length and manifest_offset and manifest_length and
-    database_offset and database_length and declared_count,
+      database_offset and database_length and declared_count,
     "decoder prefix record is missing")
   assert(count == declared_count, "decoder entry count differs")
   return { prefix_length = prefix_length, manifest_offset = manifest_offset,
@@ -312,7 +312,7 @@ function Fixture.inspection(path: string): Fixture.Inspection
 end
 
 function Fixture.entry(inspection: Fixture.Inspection, target: integer,
-    configuration: integer): Fixture.Entry | nil
+                       configuration: integer): Fixture.Entry | nil
   return inspection.entries[tostring(target) .. ":" .. tostring(configuration)]
 end
 

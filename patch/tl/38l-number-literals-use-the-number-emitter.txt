@@ -1,0 +1,9 @@
+file: tl.tl
+note: number and integer literals use 38k's emitter
+--- find
+      ["number"] = emit_exactly_visitor_cbs,
+      ["integer"] = emit_exactly_visitor_cbs,
+--- replace
+      ["number"] = emit_number_visitor_cbs,
+      ["integer"] = emit_number_visitor_cbs,
+--- end

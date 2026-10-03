@@ -105,8 +105,8 @@ end
 local function test_argv_environment_directory_and_file_output(tmp: string)
   local fd, path = output(tmp, "answer")
   local r = assert(Child.run(lua('local a, b = ... ' .. SYS .. FS ..
-    'assert(Fs.put(1, a .. "|" .. b .. "|" .. (sys.getenv("WORD") or "") .. ' ..
-    'assert(sys.getcwd()) .. "\\n"))', { "a b", "" },
+      'assert(Fs.put(1, a .. "|" .. b .. "|" .. (sys.getenv("WORD") or "") .. ' ..
+      'assert(sys.getcwd()) .. "\\n"))', { "a b", "" },
     { cwd = tmp, env = { WORD = "value" }, stdout = fd })))
   assert(Fs.close(fd))
   assert(r.ok)
@@ -124,7 +124,7 @@ end
 local function test_redirect_source_descriptor_does_not_leak(tmp: string)
   local fd = assert(Fs.open_write(tmp .. "/out"))
   local r = assert(Child.run(lua(SYS ..
-    'return sys.fstat(math.tointeger(tonumber(sys.getenv("SOURCE")))) == nil and 0 or 1',
+      'return sys.fstat(math.tointeger(tonumber(sys.getenv("SOURCE")))) == nil and 0 or 1',
     nil, { env = { SOURCE = tostring(fd) }, stdout = fd })))
   assert(Fs.close(fd))
   assert(r.ok)
@@ -134,7 +134,7 @@ local function test_nonzero_and_signal_status()
   local exited = assert(Child.run(lua("return 23")))
   assert(exited.code == 23 and exited.signal == nil and not exited.ok)
   local signaled = assert(Child.run(lua(SYS .. "sys.kill(sys.getpid(), sys.SIGTERM) " ..
-    sleep(1000))))
+      sleep(1000))))
   assert(signaled.code == nil and signaled.signal == sys.SIGTERM)
 end
 
@@ -142,8 +142,8 @@ local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
   local function check(name: string)
     local fd, path = output(tmp, name)
     local h = assert(Child.start(lua(AGAIN ..
-      "local h = again('" .. sleep(30000) .. "', { process_group = false }) " .. FS ..
-      "assert(Fs.put(1, tostring(h.pid))) h:wait()",
+        "local h = again('" .. sleep(30000) .. "', { process_group = false }) " .. FS ..
+        "assert(Fs.put(1, tostring(h.pid))) h:wait()",
       nil, { stdout = fd, stderr = fd })))
     local deadline = Time.monotonic_ns() + Time.seconds(10)
     while assert(Fs.stat(path)).size == 0 and Time.monotonic_ns() < deadline do
@@ -168,8 +168,8 @@ end
 local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   local ready = tmp .. "/ready"
   local h = assert(Child.start(lua('local g = assert(require("cosmic.child").guard()) ' ..
-    FS .. 'assert(Fs.write((...), "ready")) while g:cancelled() == 0 do ' .. sleep(10) ..
-    'end return 19', { ready }, { process_group = false })))
+      FS .. 'assert(Fs.write((...), "ready")) while g:cancelled() == 0 do ' .. sleep(10) ..
+      'end return 19', { ready }, { process_group = false })))
   local deadline = Time.monotonic_ns() + Time.seconds(10)
   while not path_exists(ready) and Time.monotonic_ns() < deadline do
     Time.sleep_ns(Time.ms(10))
@@ -263,7 +263,7 @@ end
 local function test_more_descriptors_by_number(tmp: string)
   local fd, path = output(tmp, "five")
   local r = assert(Child.run(lua(FS .. SYS .. 'Fs.put(3, "report") Fs.put(5, "five") ' ..
-    'return sys.fstat(4) == nil and 0 or 1', nil,
+      'return sys.fstat(4) == nil and 0 or 1', nil,
     { fds = { [3] = "capture", [5] = fd }, stdout = "capture" })))
   assert(Fs.close(fd))
   assert(r.ok, "code " .. tostring(r.code))
@@ -287,7 +287,7 @@ end
 local function test_a_stdin_pipe_names_the_stream_to_use()
   local ok, trouble = pcall(Child.start, { "/bin/sh" }, { stdin = "pipe" } as Child.Options)
   assert(not ok and tostring(trouble):find('"stream"', 1, true) ~= nil and
-    tostring(trouble):find("stdin_stream", 1, true) ~= nil, tostring(trouble))
+      tostring(trouble):find("stdin_stream", 1, true) ~= nil, tostring(trouble))
   assert(not pcall(Child.run, { "/bin/sh" }, { stdin = "pipe" } as Child.Options))
 end
 
@@ -300,8 +300,8 @@ end
 --- first output has been read.
 local function test_streams_are_read_and_written_while_the_child_runs()
   local h = assert(Child.start(lua(FS .. 'Fs.put(1, "first") local x = "" while true do ' ..
-    'local c = assert(Fs.take(0, 1)) if c == "" or c == "\\n" then break end x = x .. c end ' ..
-    'Fs.put(1, "second-" .. x)', nil, { stdin = "stream", stdout = "stream" })))
+      'local c = assert(Fs.take(0, 1)) if c == "" or c == "\\n" then break end x = x .. c end ' ..
+      'Fs.put(1, "second-" .. x)', nil, { stdin = "stream", stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
   local stdin = assert(h.stdin_stream)
   assert(h.stderr_stream == nil)
@@ -320,7 +320,7 @@ end
 --- stderr before it writes stdout does not stall the read.
 local function test_reading_stdout_does_not_stall_on_a_full_stderr()
   local h = assert(Child.start(lua(FS .. 'assert(Fs.put(2, string.rep("0123456789", 20000))) ' ..
-    'Fs.put(1, "done")', nil, { stdout = "stream", stderr = "stream" })))
+      'Fs.put(1, "done")', nil, { stdout = "stream", stderr = "stream" })))
   assert(read_all(assert(h.stdout_stream)) == "done")
   assert(#read_all(assert(h.stderr_stream)) == 200000)
   assert(assert(h:wait(Time.seconds(5))).ok)
@@ -383,7 +383,7 @@ end
 local function test_an_escaped_writer_does_not_hold_up_a_read()
   local started = Time.monotonic_ns()
   local h = assert(Child.start(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-    "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
     { stdout = "stream" })))
   local said = read_all(assert(h.stdout_stream))
   -- A zombie answers `kill(pid, 0)` too, where this process adopted
@@ -452,8 +452,8 @@ end
 --- fill the pipe ahead of it and leave the child blocked.
 local function test_a_wait_holds_a_streamed_output_to_its_limit()
   local h = assert(Child.start(lua(AGAIN .. FS .. 'assert(Fs.put(1, string.rep("\\0", 2048))) ' ..
-    "again('" .. FS .. 'Fs.put(1, string.rep("\\\\0", 4000000))' .. "', " ..
-    '{ process_group = false }) require("cosmic.sys").exit(0)', nil,
+      "again('" .. FS .. 'Fs.put(1, string.rep("\\\\0", 4000000))' .. "', " ..
+      '{ process_group = false }) require("cosmic.sys").exit(0)', nil,
     { stdout = "stream", capture_limit = 1024, process_group = false })))
   assert(assert(h:wait(Time.seconds(5))).ok)
   Time.sleep_ns(Time.ms(100))
@@ -518,13 +518,13 @@ end
 local function test_exit_ends_and_reaps_what_the_group_left_behind()
   local function check()
     local h = assert(Child.start(lua(AGAIN .. "local h = again('" .. sleep(30000) ..
-      "', { process_group = false }) " .. FS ..
-      'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil, { stdout = "capture" })))
+        "', { process_group = false }) " .. FS ..
+        'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil, { stdout = "capture" })))
     local r = assert(h:wait(Time.seconds(5)))
     assert(r.ok and not r.timed_out and assert(math.tointeger(tonumber(r.stdout))) > 0)
     local alive, _, errno = sys.kill(-h.pid, 0)
     assert(not alive and errno == sys.ESRCH, "a member of group " .. tostring(h.pid) ..
-      " survived")
+        " survived")
   end
   check()
 end
@@ -542,10 +542,10 @@ local function test_end_strays_ends_a_stray_named_as_an_init()
     -- the stray as.
     assert(Child.run(lua("")))
     local r = assert(Child.run(lua(AGAIN .. "local h = again([=[" .. SYS ..
-      'local fd = assert(sys.open("/proc/self/comm", sys.O_WRONLY)) ' ..
-      'assert(sys.write(fd, "cosmic-init")) while true do ' .. sleep(1000) .. "end]=], " ..
-      '{ process_group = false, stdout = "null", stderr = "null" }) ' .. FS ..
-      'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
+        'local fd = assert(sys.open("/proc/self/comm", sys.O_WRONLY)) ' ..
+        'assert(sys.write(fd, "cosmic-init")) while true do ' .. sleep(1000) .. "end]=], " ..
+        '{ process_group = false, stdout = "null", stderr = "null" }) ' .. FS ..
+        'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
       { stdout = "capture", process_group = false })))
     local pid = assert(math.tointeger(tonumber(r.stdout)))
     local name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
@@ -570,8 +570,8 @@ local function test_end_strays_spares_a_stray_in_a_spared_group()
   -- the stray as.
   assert(Child.run(lua("")))
   local r = assert(Child.run(lua(AGAIN .. "local h = again('" .. sleep(30000) ..
-    "', { process_group = false, stdout = \"null\", stderr = \"null\" }) " .. FS ..
-    'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
+      "', { process_group = false, stdout = \"null\", stderr = \"null\" }) " .. FS ..
+      'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
     { stdout = "capture", process_group = false })))
   local pid = assert(math.tointeger(tonumber(r.stdout)))
   local group = assert(sys.getpgid(0))
@@ -589,7 +589,7 @@ end
 --- times out.
 local function test_an_escaped_writer_does_not_hold_up_the_wait()
   local r = assert(Child.run(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-    "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
     { stdout = "capture", timeout_ns = Time.seconds(5) })))
   local alive = ended_escaped(assert(r.stdout))
   assert(r.ok and not r.timed_out, "the wait was held open: " .. tostring(r.stdout))
@@ -683,6 +683,18 @@ local function test_a_start_timeout_ends_the_child_a_wait_waits_on()
   local quick <close> = assert(Child.start(lua("return 3", nil, { timeout_ns = Time.seconds(10) })))
   r = assert(quick:wait())
   assert(r.code == 3 and not r.timed_out)
+end
+
+--- A `timeout_ns` of 0 is not "no limit": the first wait on the child
+--- ends it, [`Child.run`]'s at once.
+local function test_a_timeout_of_0_ends_the_child_at_the_first_wait()
+  local began = Time.monotonic_ns()
+  local r = assert(Child.run(lua(sleep(30000), nil, { timeout_ns = 0 })))
+  assert(r.timed_out and not r.ok, "a run with a timeout of 0 was not ended for it")
+  assert(about(began, 0), ms_since(began))
+  local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = 0 })))
+  local look = assert(h:try_wait())
+  assert(look.finished and look.result.timed_out, "the first try_wait left the child running")
 end
 
 --- [`Child.wait_any`] ends a handle whose start's deadline passes while

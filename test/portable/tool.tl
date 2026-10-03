@@ -103,7 +103,7 @@ local function verify_verdicts(argv: {string}): integer
   for _ in pairs(distinct) do distinct_count = distinct_count + 1 end
   assert(#keys == 4 and #lines == 4 and distinct_count == 3 and lines[2] == lines[1],
     "identity fixture: expected four verdicts of three distinct runtimes, the second the " ..
-    "first's")
+      "first's")
   return 0
 end
 
@@ -159,8 +159,8 @@ local function prepare_artifacts(argv: {string}): integer
   assert(Fs.write(new_path, changed.bytes, 0x1ed))
 
   for _, name in ipairs({
-    "runtime.release", "runtime.old", "runtime.new", "runtime.basis",
-    "runtime.missing", "runtime.sanitized",
+      "runtime.release", "runtime.old", "runtime.new", "runtime.basis",
+      "runtime.missing", "runtime.sanitized",
   }) do
     local one = assert(fixture.read(root .. "/" .. name))
     assert(Fs.write(root .. "/" .. name .. ".prefix-sha256",
@@ -218,7 +218,7 @@ local function verify_ranges(path: string, from: fixture.Artifact,
       path .. ": manifest core range differs from raw core")
     local first, last = from.bytes:find(core, 1, true)
     assert(first ~= nil and first == found.offset + 1 and
-      last == found.offset + found.length,
+        last == found.offset + found.length,
       path .. ": raw core occurs outside its manifest range")
     assert(from.bytes:find(core, first + 1, true) == nil,
       path .. ": raw core occurs more than once")
@@ -231,7 +231,7 @@ local function product_extract(argv: {string}): integer
   local program, prefix_path, manifest_path, targets_path, cores =
     argv[1], argv[2], argv[3], argv[4], argv[5]
   assert(program ~= nil and prefix_path ~= nil and manifest_path ~= nil and
-    targets_path ~= nil and cores ~= nil,
+      targets_path ~= nil and cores ~= nil,
     "usage: tool.tl product-extract PROGRAM PREFIX MANIFEST TARGETS CORES APPLICATION...")
   local records = assert(Fs.read(targets_path))
   local targets: {Target} = {}
@@ -239,7 +239,7 @@ local function product_extract(argv: {string}): integer
     local id, configuration, kind, name =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t")
     assert(id ~= nil and configuration ~= nil and kind == "release" and
-      name ~= nil, "portable product: invalid generated target record")
+        name ~= nil, "portable product: invalid generated target record")
     targets[#targets + 1] = {
       id = assert(math.tointeger(tonumber(id))),
       configuration = assert(math.tointeger(tonumber(configuration))),
@@ -343,7 +343,7 @@ local function write_runtime_fixture(argv: {string}): integer
   local records_path, cores_root, database_path, output =
     argv[1], argv[2], argv[3], argv[4]
   assert(records_path ~= nil and cores_root ~= nil and
-    database_path ~= nil and output ~= nil,
+      database_path ~= nil and output ~= nil,
     "usage: tool.tl write-runtime-fixture TARGETS CORES DATABASE OUTPUT [test]")
   local targets = fixture.load_by_target(records_path,
     function(target: string): string

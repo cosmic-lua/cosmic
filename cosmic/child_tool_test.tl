@@ -202,8 +202,8 @@ end
   assert(Fs.close(fd))
   assert(stopped.signal == sys.SIGTERM,
     "driver cancellation result code=" .. tostring(stopped.code) ..
-    " signal=" .. tostring(stopped.signal) .. " log=" ..
-    (Fs.read(diagnostic) or "<none>"))
+      " signal=" .. tostring(stopped.signal) .. " log=" ..
+      (Fs.read(diagnostic) or "<none>"))
   local gone_by = Time.monotonic_ns() + Time.seconds(1)
   while sys.kill(descendant, 0) and Time.monotonic_ns() < gone_by do
     Time.sleep_ns(Time.ms(10))
@@ -245,7 +245,7 @@ end
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.signal == nil and r.ok, "ended by signal " .. tostring(r.signal) .. ": " ..
-    tostring(r.stderr))
+      tostring(r.stderr))
   assert(assert(r.stdout):find("^false "), r.stdout)
 end
 
@@ -278,11 +278,11 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   reads[#reads + 1] = "/proc"
   reads[#reads + 1] = "/dev/null"
   local r, trouble = Child.run(lua(AGAIN .. FS .. SYS .. 'local hidden, given = ... ' ..
-    'Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
-    '(Fs.exists(hidden) == true and "hidden-seen" or "hidden-absent") .. "\\n") ' ..
-    'local own = assert(again("return require(\'cosmic.fs\').exists(" .. ' ..
-    'string.format("%q", given) .. ") == true and 0 or 1"):wait()) ' ..
-    'Fs.put(1, (own.code == 0 and "own-name" or "no-own-name") .. "\\n")', { hidden, given },
+      'Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
+      '(Fs.exists(hidden) == true and "hidden-seen" or "hidden-absent") .. "\\n") ' ..
+      'local own = assert(again("return require(\'cosmic.fs\').exists(" .. ' ..
+      'string.format("%q", given) .. ") == true and 0 or 1"):wait()) ' ..
+      'Fs.put(1, (own.code == 0 and "own-name" or "no-own-name") .. "\\n")', { hidden, given },
     { cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then
@@ -406,7 +406,7 @@ end
     { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ term, term, term, "true" }, "|"), tostring(got))
@@ -441,7 +441,7 @@ end
     { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local int, term = tostring(sys.SIGINT), tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ int, term, term }, "|"), tostring(got))
@@ -476,7 +476,7 @@ end
     { stderr = "capture", timeout_ns = Time.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ term, term, term, "0", term, term }, "|"), tostring(got))
@@ -584,7 +584,7 @@ end
     { stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ "true child: cancelled by signal " .. term, term, "4", term }, "|"),

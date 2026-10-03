@@ -160,7 +160,7 @@ end
 --- input is handed to `on_stream` as it arrives, with the bytes sniffed
 --- for the format put back.
 local function with_archive(file: string, to: verb.Io, on_path: function(string): Outcome,
-    on_stream: function(Stream.Reader): Outcome): Outcome
+                            on_stream: function(Stream.Reader): Outcome): Outcome
   if file ~= "-" then return on_path(file) end
   local source, why = to.stdin()
   if source == nil then return fail(bare.refused, why) end
@@ -179,7 +179,7 @@ end
 --- it arrives, with no file and memory that stays bounded; a zip there
 --- is spooled to a temporary file first, since it is read by seeking.
 local function with_entries(file: string, to: verb.Io,
-    body: function({Archive.Entry}): Outcome): Outcome
+                            body: function({Archive.Entry}): Outcome): Outcome
   if file ~= "-" then
     local entries, why = Archive.list(file)
     if entries == nil then return fail(bare.refused, trouble_of(file, file, why)) end
@@ -289,9 +289,9 @@ end
 
 local function overwrite_refusal(dest: string, clashes: Clashes): Outcome
   return fail(bare.failed, "would overwrite " .. clashes.count .. " existing " ..
-    (clashes.count == 1 and "path" or "paths") .. " under " .. dest .. " (" ..
-    table.concat(clashes.first, ", ") .. (clashes.count > 5 and ", ..." or "") ..
-    "); nothing written, use --force to replace")
+      (clashes.count == 1 and "path" or "paths") .. " under " .. dest .. " (" ..
+      table.concat(clashes.first, ", ") .. (clashes.count > 5 and ", ..." or "") ..
+      "); nothing written, use --force to replace")
 end
 
 --- `text` with each `from` in it read as `to`.
@@ -357,7 +357,7 @@ end
 --- stays -- only another process racing the extraction reaches it, and
 --- holding the destination still would need a lock no reader honours.
 local function plan_move(tree: string, dest: string, force: boolean, rel: string,
-    steps: {Step}, why_of: function(string): string): Outcome | nil
+                         steps: {Step}, why_of: function(string): string): Outcome | nil
   local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel))
   if names == nil then return fail(bare.refused, list_why) end
   for _, name in ipairs(names) do
@@ -383,10 +383,10 @@ local function plan_move(tree: string, dest: string, force: boolean, rel: string
       -- Decided already from the listing; a path that appeared since is
       -- one more that would be overwritten.
       return fail(bare.failed, "would overwrite 1 existing path under " .. dest .. " (" ..
-        child .. "); nothing written, use --force to replace")
+          child .. "); nothing written, use --force to replace")
     elseif there.kind == "dir" then
       return fail(bare.refused, why_of(staged.kind == "link" and ("archive: " .. target .. " is a directory") or
-        (target .. ": Is a directory")))
+          (target .. ": Is a directory")))
     else
       steps[#steps + 1] = { rel = child, replace = true, keep = false, mtime = 0, before = 0, backup = "" }
     end
@@ -481,7 +481,7 @@ end
 --- at that instant is worth. A kill before the move leaves only the
 --- staging directory.
 local function extract_streamed(file: string, source: Stream.Reader, dest: string, force: boolean,
-    wanted: {string}, selected: function(string): boolean, to: verb.Io): Outcome
+                                wanted: {string}, selected: function(string): boolean, to: verb.Io): Outcome
   local reader, open_why = Archive.open_stream(source)
   if reader == nil then return fail(bare.refused, trouble_of(file, file, open_why)) end
   local inner: Archive.Reader = reader
@@ -601,7 +601,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   if moved.why ~= "" then
     if not moved.whole then
       return fail(bare.refused, why_of(moved.why .. "; the paths it had moved could not all be put back, " ..
-        "and are under " .. stage))
+          "and are under " .. stage))
     end
     -- A rename names the staged path it moved from: read as `dest`'s.
     return give_up(fail(bare.refused, why_of(moved.why)))
@@ -611,7 +611,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
 end
 
 local function extract(file: string, dest: string, force: boolean, members: {string},
-    to: verb.Io): Outcome
+                       to: verb.Io): Outcome
   local wanted: {string} = {}
   for _, member in ipairs(members) do
     local name = normal(member)
@@ -683,7 +683,7 @@ end
 local record Item
   name: string
   full: string
-  kind: string
+  kind: sys.Kind
   mode: integer
   mtime: integer
   size: integer
@@ -718,7 +718,7 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
     local name = normal(given)
     if given == "" or given:sub(1, 1) == "/" or has_dotdot(given) then
       return nil, fail(bare.refused, given .. ": an absolute path or one with .. would extract outside its " ..
-        "directory; run from the directory it is under")
+          "directory; run from the directory it is under")
     end
     -- `.` is the working directory itself: its contents, named from it.
     local root = name == ""
@@ -730,7 +730,7 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
     if (root and rooted) or (not root and by_name[name].kind == "dir") then
       local seen: {{string, string}} = {}
       local odd: string | nil
-      local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: string): boolean
+      local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
           seen[#seen + 1] = { relative, kind }
         elseif kind ~= "file" and odd == nil then
@@ -861,7 +861,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   if action ~= "list" and action ~= "extract" and action ~= "create" then
     complain((action == nil and "name list, extract or create" or ("no such action: " .. action)) ..
-      "; " .. usage)
+        "; " .. usage)
     return bare.refused
   end
   if not (only("--json", { "list" }) and only("-C", { "extract" }) and

@@ -100,7 +100,7 @@ local SITES <const>: {string:Site} = {
   -- to: no feature.
   ["core/syscalls.c"] = { lines = "02e9eda4b1a84a30", reads = {} },
   ["core/syscalls.h"] = { lines = "b61d799e030c5448", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "8d0bded5af38f8bd", reads = {} },
+  ["core/syscalls_test.tl"] = { lines = "06265a36a78315f4", reads = {} },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
@@ -241,7 +241,7 @@ local function test_every_library_build_zig_compiles_is_walked()
   for library in source:gmatch('patched%(b, trees, "([%w_]+)"%)') do
     count = count + 1
     assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
-      ", which this test does not walk: add it to LIBRARIES and to Test.needs")
+        ", which this test does not walk: add it to LIBRARIES and to Test.needs")
   end
   assert(count >= #LIBRARIES, "build.zig names " .. count .. " patched trees")
 end

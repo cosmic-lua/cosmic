@@ -47,10 +47,10 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
       fds = { [3] = 1 } })
     local argv = started.argv
     assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
-      argv[3] == "", table.concat(argv, " "))
+        argv[3] == "", table.concat(argv, " "))
     local env = started.options.env
     assert(env.HOME == "/home" and env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+        env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
     assert(started.options.fds[3] == 1 and next(started.options.fds, 3) == nil)
   end)
   -- And this very program's: its relaunch where it has one.
@@ -83,17 +83,17 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     local opts = this_program.program({}, given).options
     assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
     assert(opts.env.HOME == "/home" and opts.env.COSMIC_PORTABLE_ARTIFACT == "/a" and
-      opts.env.SHARED == "relaunch")
+        opts.env.SHARED == "relaunch")
     assert(opts.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+        opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
     assert(opts.fds[3] == 1 and opts.fds[4] == "capture" and opts.fds[254] == 7 and
-      opts.fds[255] == 8)
+        opts.fds[255] == 8)
     assert(opts.cwd == "/somewhere" and opts.stdin == "stream" and opts.stdout == "capture" and
-      opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
-      opts.timeout_ns == Time.ms(5) and opts.sandbox == sandbox)
+        opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
+        opts.timeout_ns == Time.ms(5) and opts.sandbox == sandbox)
     assert(given.env == env and given.fds == fds)
     assert(env.SHARED == "caller" and env.COSMIC_PORTABLE_ARTIFACT == nil and
-      env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
+        env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
     assert(fds[254] == nil and fds[255] == nil)
     -- A descriptor the relaunch hands the core its artifact as, named
     -- by the caller too, raises rather than being dropped.
@@ -105,13 +105,13 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     local own = Env.all()
     for name, value in pairs(own) do
       if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO" and
-        relaunch.env[name] == nil then
+          relaunch.env[name] == nil then
         assert(whole.env[name] == value, name)
       end
     end
     for name, value in pairs(relaunch.env) do assert(whole.env[name] == value, name) end
     assert(whole.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      whole.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+        whole.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
     assert(whole.fds[254] == 7 and whole.fds[255] == 8)
   end)
 end
@@ -130,5 +130,5 @@ print(cmdline ~= nil and cmdline:match("^[^%z]*") or "")
   local relaunch = Proc.relaunch()
   if relaunch == nil or not Fs.exists("/proc/self/cmdline") then return end
   assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
-    relaunch.argv[1])
+      relaunch.argv[1])
 end

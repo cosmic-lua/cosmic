@@ -231,10 +231,10 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
   local function requires(name: string): {string} | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT DISTINCT r.name FROM inputs i " ..
-      "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-      "AND ?1 IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
-      "AND r.name IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
-      "ORDER BY r.name", { text(name) })
+        "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
+        "AND ?1 IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
+        "AND r.name IN (SELECT path FROM inputs WHERE kind <> 'decl') " ..
+        "ORDER BY r.name", { text(name) })
     if rows == nil then
       return nil, rows_trouble
     end
@@ -247,7 +247,7 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
   local function source(name: string): string | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT source FROM inputs WHERE path = ?1 " ..
-      "ORDER BY kind = 'decl' DESC LIMIT 1", { text(name) })
+        "ORDER BY kind = 'decl' DESC LIMIT 1", { text(name) })
     if rows == nil then
       return nil, rows_trouble
     end
@@ -484,7 +484,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   for _, name in ipairs(analyzer_roots) do roots[#roots + 1] = name end
   local found, trouble = Sqlite.text_rows(db,
     "SELECT DISTINCT source_hash FROM inputs WHERE kind <> 'decl' " ..
-    "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
+      "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
     { text('["' .. table.concat(roots, '","') .. '"]') })
   if found == nil then return nil, trouble end
   if #found == 0 then return "", "" end
@@ -596,8 +596,8 @@ local function derive_new(handle: work.Handle, built: compiler, tally: importer.
   local db = handle.db
   local swept, sweep_trouble = db:exec(
     "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
-    "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
-    "AND f.sha256 = derived.from_hash)")
+      "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
+      "AND f.sha256 = derived.from_hash)")
   if not swept then
     return nil, sweep_trouble
   end
@@ -623,7 +623,7 @@ local function derive_new(handle: work.Handle, built: compiler, tally: importer.
   end
   for _, table_name in ipairs(analysis_tables) do
     local ok, trouble = db:exec("DELETE FROM " .. table_name ..
-      " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
+        " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
     if not ok then
       return nil, trouble
     end
@@ -872,7 +872,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
   end
   local put, put_trouble = db:prepare(
     "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen) " ..
-    "VALUES (?1, ?2, ?3, ?4, ?5)")
+      "VALUES (?1, ?2, ?3, ?4, ?5)")
   if put == nil then
     look:finalize()
     return nil, put_trouble
@@ -885,7 +885,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
     return nil, plan_trouble
   end
   return { run = handle.run, tool = tool, look = look, put = put,
-           plan = plan }
+    plan = plan }
 end
 
 local function finish_cache(cache: Cache)

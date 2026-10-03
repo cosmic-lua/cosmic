@@ -22,6 +22,14 @@ local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
 
+  --- What a path is, as a [`Stat`]'s `kind` and [`Fs.walk`]'s `skip`
+  --- name it: [`sys.Kind`]'s members. Comparing a `Stat`'s `kind`, or a
+  --- `skip`'s third parameter, with a name outside them (`"directory"`)
+  --- is a compile error, the parameter left untyped or declared
+  --- [`Fs.Kind`], since a function literal's untyped parameter is the
+  --- type its callee declares.
+  type Kind = sys.Kind
+
   --- A file at a path being written through a temporary neighbor and a
   --- rename, as [`Fs.create`] returns it: a [`cosmic.stream`] Writer
   --- (`write`, `close` and `abort`) that can also `sync`. Every failure
@@ -504,7 +512,7 @@ function Fs.remove_tree(path: string): boolean, string
 end
 
 --- The names in a directory, sorted, without `.` and `..`.
-local function sorted_names(entries: {string:string}): {string}
+local function sorted_names(entries: {string:Fs.Kind}): {string}
   local names: {string} = {}
   for name in pairs(entries) do
     names[#names + 1] = name
@@ -538,7 +546,7 @@ local record Pending
 end
 
 --- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
-local function walk(root: string, skip: function(string, string, string): boolean,
+local function walk(root: string, skip: function(string, string, Fs.Kind): boolean,
                     follow: boolean): {string} | nil, string
   local found: {string} = {}
   local pending: {Pending} = { { relative = "", above = nil } }
@@ -561,7 +569,7 @@ local function walk(root: string, skip: function(string, string, string): boolea
       end
       above = { key = key, up = above }
     end
-    local entries: {string:string} = {}
+    local entries: {string:Fs.Kind} = {}
     if inside then
       local listed, trouble = sys.readdir(directory)
       if listed == nil then
@@ -595,12 +603,12 @@ end
 --- listed (`-type f`): a link is neither listed nor walked into,
 --- whatever it leads to. The paths are sorted bytewise, whole.
 --- `skip` is asked about each entry's relative path, its bare name
---- second, and what the listing says it is third, as [`Fs.stat`]'s
---- `kind` names it (`"file"`, `"dir"`, `"link"`, `"socket"` and so
---- on), and may refuse a whole directory. The
+--- second, and what the listing says it is third, a [`Fs.Kind`] as
+--- [`Fs.stat`]'s `kind` names it (`"file"`, `"dir"`, `"link"`,
+--- `"socket"` and so on), and may refuse a whole directory. The
 --- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
-                 skip?: function(string, string, string): boolean): {string} | nil, string
+                 skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
   return walk(root, skip, false)
 end
 
@@ -619,7 +627,7 @@ end
 --- before a link is followed, so it is told `"link"` and may refuse
 --- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
-                           skip?: function(string, string, string): boolean): {string} | nil, string
+                           skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
   return walk(root, skip, true)
 end
 

@@ -67,12 +67,12 @@ end
 
 local function test_what_it_cannot_lay_out_is_refused()
   for _, text in ipairs({
-    "{a: # between\n 1}",
-    "{a 1}",
-    "{a: 1 b: 2}",
-    "{a: [1}",
-    "{a: 1} x",
-    "",
+      "{a: # between\n 1}",
+      "{a 1}",
+      "{a: 1 b: 2}",
+      "{a: [1}",
+      "{a: 1} x",
+      "",
   }) do
     local out, why = flow.format(text)
     assert(out == nil and why:match("^line %d+: "), ("%q: %s"):format(text, tostring(out)))
@@ -213,7 +213,7 @@ local function test_a_tree_is_built_from_teal_values()
   assert(formatted(text) == text)
   local wide = flow.write({ a = { string.rep("x", 60), string.rep("y", 60) } }, { width = 80 })
   assert(wide == "{\n  a: [\n    \"" .. string.rep("x", 60) .. "\",\n    \"" .. string.rep("y", 60) ..
-    "\",\n  ],\n}\n", wide)
+      "\",\n  ],\n}\n", wide)
   assert(not pcall(flow.from, { a = 1.5 }), "a float is refused")
   assert(not pcall(flow.from, { [true] = 1 }), "a key that is no string is refused")
 end
@@ -276,12 +276,12 @@ local function test_update_keeps_each_steps_comments_with_it()
   doc.root = flow.update(doc.root, { steps = Json.array({
     { uses = "actions/checkout" }, { run = "make test" }, { run = "make install" } }) })
   assert(flow.render(doc) == "{\n  steps: [\n    # check out the tree\n    {uses: \"actions/checkout\"},\n" ..
-    "    {run: \"make test\"},\n    {run: \"make install\"},\n  ],\n}\n", flow.render(doc))
+      "    {run: \"make test\"},\n    {run: \"make install\"},\n  ],\n}\n", flow.render(doc))
 
   doc = assert(flow.parse(text))
   doc.root = flow.update(doc.root, { steps = Json.array({ { uses = "actions/checkout" }, { run = "make all" } }) })
   assert(flow.render(doc) == "{\n  steps: [\n    # check out the tree\n    {uses: \"actions/checkout\"},\n" ..
-    "    {run: \"make all\"}, # build it\n  ],\n}\n", flow.render(doc))
+      "    {run: \"make all\"}, # build it\n  ],\n}\n", flow.render(doc))
 end
 
 --- What `from`, `update` and `set` build is kept on one line only where

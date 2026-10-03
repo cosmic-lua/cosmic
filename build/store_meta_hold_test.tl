@@ -40,7 +40,7 @@ end
 --- read as ever.
 local function test_the_runtime_and_the_closure_rows_are_read()
   for _, key in ipairs({ "runtime_basis", "runtime", "host", "host_image",
-                          "runtime_context", "artifact", "image_hash", "main", "boot_hash" }) do
+      "runtime_context", "artifact", "image_hash", "main", "boot_hash" }) do
     local ok, why = pcall(Store.meta, key)
     assert(ok, "meta " .. key .. " is held: " .. tostring(why))
   end
@@ -54,7 +54,7 @@ local function test_a_database_the_test_attached_answers_a_held_row(tmp: string)
   local path = tmp .. "/own.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT, value TEXT); " ..
-    "INSERT INTO meta VALUES ('projected', 'mine')"))
+      "INSERT INTO meta VALUES ('projected', 'mine')"))
   assert(db:close())
   assert(Store.attach(path))
   assert(Store.meta("projected") == "mine", "the test's own database answers")

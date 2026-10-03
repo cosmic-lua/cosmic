@@ -479,7 +479,7 @@ local function test_copy_tree_names_why_a_target_cannot_be_made(tmp: string)
   assert(Fs.write(tmp .. "/file", "f"))
   local copied, trouble = Fs.copy_tree(tmp .. "/file", tmp .. "/file/x")
   assert(not copied and not trouble:find("already exists", 1, true) and
-    trouble:find(tmp .. "/file/x", 1, true), trouble)
+      trouble:find(tmp .. "/file/x", 1, true), trouble)
 end
 
 local function test_copy_tree_drops_setuid_and_setgid(tmp: string)
@@ -591,7 +591,7 @@ local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
   assert(Fs.write(root .. "/sub/f", "f"))
   assert(Fs.symlink("sub", root .. "/to_dir"))
   local kinds: {string} = {}
-  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: string): boolean
+  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: Fs.Kind): boolean
     kinds[#kinds + 1] = entry .. "=" .. kind
     return kind == "link"
   end)

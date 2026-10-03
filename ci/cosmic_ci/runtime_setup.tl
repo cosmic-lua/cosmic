@@ -19,7 +19,7 @@ end
 -- The id and name of the single target whose uname fields match this host.
 -- Both come from one row, so they cannot mismatch.
 local function host_target_row(targets_path: string, work: string,
-    diagnostics: string): string, string
+                               diagnostics: string): string, string
   local function host_uname(flag: string, label: string): string
     local answer = Fixture.run("uname-" .. label,
       { "/usr/bin/env", "uname", flag }, work, diagnostics)
@@ -41,7 +41,7 @@ local function host_target_row(targets_path: string, work: string,
     end
   end
   assert(found_id and found_name, "no generated target matches this host: " ..
-    sysname .. " " .. arch)
+      sysname .. " " .. arch)
   return found_id, found_name
 end
 
@@ -83,7 +83,7 @@ end
 --- `root` and sorted, but a test module (`*_test.tl`) other than
 --- `keep`, a path relative to `root`.
 function RuntimeSetup.files_but_tests(root: string, directory: string,
-    keep: string): {string}
+                                      keep: string): {string}
   local out: {string} = {}
   local function walk(relative: string)
     for _, name in ipairs((assert(Fs.list(root .. "/" .. relative)))) do
@@ -120,7 +120,7 @@ function RuntimeSetup.pack(root: string, files: {string}, out: string)
 end
 
 function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
-    database: string, out: string, tmp: string): string
+                            database: string, out: string, tmp: string): string
   local output_exists = Predicate.exists(out)
   assert(not output_exists, "runtime fixture output already exists: " .. out)
 
@@ -182,8 +182,8 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   local sanitized_name = "sanitized-" .. target
   local sanitized_targets_path = out .. "/sanitized-targets.tsv"
   Fixture.write(sanitized_targets_path, Fixture.read(targets_path) ..
-    target_id .. "\t2\tsanitized\t" .. sanitized_name ..
-    "\tFixture\tSanitized\n")
+      target_id .. "\t2\tsanitized\t" .. sanitized_name ..
+      "\tFixture\tSanitized\n")
   Fixture.mkdir(out .. "/sanitized-cores")
   for _, release_target in ipairs(targets) do
     Fixture.mkdir(out .. "/sanitized-cores/" .. release_target.name)

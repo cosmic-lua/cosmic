@@ -77,6 +77,48 @@ static int failed_effect (lua_State *L, sqlite3 *db, int rc) {
   return 2;
 }
 
+static void release_message (void *message) {
+  cosmic_free(message);
+}
+
+struct outcome {
+  int code;
+  int extended;
+  bool cancelled;
+  struct cosmic_guard *message;
+};
+
+/* Copy before any Lua allocation: a finalizer can run another operation
+ * on this connection, finalize a statement, or close the connection. */
+static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
+                     bool cancelled) {
+  out->code = rc & 0xff;
+  out->extended = rc == SQLITE_OK || db == NULL ? rc : sqlite3_extended_errcode(db);
+  out->cancelled = out->code == SQLITE_BUSY && cancelled;
+  if (rc != SQLITE_OK) {
+    const char *reason = db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
+    size_t size = strlen(reason) + 1;
+    out->message->resource = cosmic_malloc(size);
+    if (out->message->resource == NULL) {
+      luaL_error(L, "not enough memory");
+      return;
+    }
+    memcpy(out->message->resource, reason, size);
+  }
+}
+
+static void push_outcome (lua_State *L, const struct outcome *out, bool payload) {
+  lua_createtable(L, 0, payload ? 5 : 4);
+  lua_pushinteger(L, out->code);
+  lua_setfield(L, -2, "code");
+  lua_pushinteger(L, out->extended);
+  lua_setfield(L, -2, "extended_code");
+  lua_pushstring(L, out->message->resource == NULL ? "" : out->message->resource);
+  lua_setfield(L, -2, "reason");
+  lua_pushboolean(L, out->cancelled);
+  lua_setfield(L, -2, "cancelled");
+}
+
 static struct handle *checked_handle (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
@@ -299,7 +341,7 @@ static const char *immutable_uri (lua_State *L, const char *path,
   return lua_tostring(L, -1);
 }
 
-static int sqlite_open (lua_State *L) {
+static int open_database (lua_State *L, bool result) {
   size_t path_len;
   const char *path = luaL_checklstring(L, 1, &path_len);
   int writable = lua_toboolean(L, 2);
@@ -310,6 +352,7 @@ static int sqlite_open (lua_State *L) {
   }
   /* SQLite takes a C string: a NUL would silently open a shorter path. */
   if (memchr(path, '\0', path_len) != NULL) {
+    if (result) return luaL_error(L, "sqlite: the path contains an embedded NUL byte");
     lua_pushnil(L);
     lua_pushstring(L, "the path contains an embedded NUL byte");
     return 2;
@@ -326,7 +369,10 @@ static int sqlite_open (lua_State *L) {
     flags |= SQLITE_OPEN_URI;
   }
 
+  struct outcome out = {0};
+  if (result) out.message = cosmic_guard_push(L, release_message);
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
+  int handle_index = lua_gettop(L);
   h->db = NULL;
   h->borrowed = 0;
   h->busy_ms = -1;
@@ -348,13 +394,34 @@ static int sqlite_open (lua_State *L) {
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
+  if (result) {
+    capture(L, &out, h->db, rc, false);
+    if (rc != SQLITE_OK) {
+      sqlite3_close_v2(h->db);
+      h->db = NULL;
+    }
+    push_outcome(L, &out, rc == SQLITE_OK);
+    if (rc == SQLITE_OK) {
+      lua_pushvalue(L, handle_index);
+      lua_setfield(L, -2, "handle");
+    }
+    return 1;
+  }
   if (rc != SQLITE_OK) {
-    int result = failed(L, h->db, rc);
+    int returns = failed(L, h->db, rc);
     sqlite3_close_v2(h->db);
     h->db = NULL;
-    return result;
+    return returns;
   }
   return cosmic_succeeded(L);
+}
+
+static int sqlite_open (lua_State *L) {
+  return open_database(L, false);
+}
+
+static int sqlite_open_result (lua_State *L) {
+  return open_database(L, true);
 }
 
 /* Both surfaces execute each statement once. SQLite stops at the first
@@ -383,39 +450,17 @@ static int handle_exec (lua_State *L) {
   return cosmic_done(L);
 }
 
-static void release_message (void *message) {
-  cosmic_free(message);
-}
-
 static int handle_exec_result (lua_State *L) {
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
   if (memchr(sql, '\0', len) != NULL)
     return luaL_error(L, "sqlite: SQL contains an embedded NUL byte");
-  struct cosmic_guard *message = cosmic_guard_push(L, release_message);
-  lua_createtable(L, 0, 4);
-  /* Allocating above can run finalizers, including one closing this
-   * handle. Check it afterward; no Lua allocation occurs before the
-   * result's codes and error text have been copied out of SQLite. */
+  struct outcome out = {0};
+  out.message = cosmic_guard_push(L, release_message);
   struct handle *h = checked_handle(L);
   int rc = execute(h, sql);
-  int extended = rc == SQLITE_OK ? SQLITE_OK : sqlite3_extended_errcode(h->db);
-  bool cancelled = (rc & 0xff) == SQLITE_BUSY && h->cancelled;
-  if (rc != SQLITE_OK) {
-    const char *reason = sqlite3_errmsg(h->db);
-    size_t size = strlen(reason) + 1;
-    message->resource = cosmic_malloc(size);
-    if (message->resource == NULL) return luaL_error(L, "not enough memory");
-    memcpy(message->resource, reason, size);
-  }
-  lua_pushinteger(L, rc & 0xff);
-  lua_setfield(L, -2, "code");
-  lua_pushinteger(L, extended);
-  lua_setfield(L, -2, "extended_code");
-  lua_pushstring(L, message->resource == NULL ? "" : message->resource);
-  lua_setfield(L, -2, "reason");
-  lua_pushboolean(L, cancelled);
-  lua_setfield(L, -2, "cancelled");
+  capture(L, &out, h->db, rc, h->cancelled);
+  push_outcome(L, &out, false);
   return 1;
 }
 
@@ -433,21 +478,26 @@ static int handle_busy_timeout (lua_State *L) {
   return 0;
 }
 
-static int handle_prepare (lua_State *L) {
+static int prepare_statement (lua_State *L, bool result) {
   checked_handle(L);
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
   if (len > INT_MAX) {
+    if (result) return luaL_error(L, "sqlite: SQL is too long");
     lua_pushnil(L);
     lua_pushstring(L, "SQL is too long");
     return 2;
   }
   if (memchr(sql, '\0', len) != NULL) {
+    if (result) return luaL_error(L, "sqlite: SQL contains an embedded NUL byte");
     lua_pushnil(L);
     lua_pushstring(L, "SQL contains an embedded NUL byte");
     return 2;
   }
-  struct statement *s = lua_newuserdatauv(L, sizeof *s, 1);
+  struct outcome out = {0};
+  if (result) out.message = cosmic_guard_push(L, release_message);
+  struct statement *s = lua_newuserdatauv(L, sizeof *s, 2);
+  int statement_index = lua_gettop(L);
   s->stmt = NULL;
   s->db = NULL;
   s->owner = NULL;
@@ -464,9 +514,13 @@ static int handle_prepare (lua_State *L) {
   const char *tail = NULL;
   int rc = sqlite3_prepare_v2(h->db, sql, (int)len, &s->stmt, &tail);
   if (rc != SQLITE_OK) {
-    return failed(L, h->db, rc);
+    if (!result) return failed(L, h->db, rc);
+    capture(L, &out, h->db, rc, h->cancelled);
+    push_outcome(L, &out, false);
+    return 1;
   }
   if (s->stmt == NULL) {
+    if (result) return luaL_error(L, "sqlite: SQL contains no statement");
     lua_pushnil(L);
     lua_pushstring(L, "SQL contains no statement");
     return 2;
@@ -476,6 +530,13 @@ static int handle_prepare (lua_State *L) {
   const char *end = sql + len;
   rc = sqlite3_prepare_v2(h->db, tail, (int)(end - tail), &extra, NULL);
   if (rc != SQLITE_OK) {
+    if (result) {
+      capture(L, &out, h->db, rc, h->cancelled);
+      sqlite3_finalize(s->stmt);
+      s->stmt = NULL;
+      push_outcome(L, &out, false);
+      return 1;
+    }
     lua_pushnil(L);
     lua_pushstring(L, sqlite3_errmsg(h->db));
     sqlite3_finalize(s->stmt);
@@ -486,11 +547,27 @@ static int handle_prepare (lua_State *L) {
     sqlite3_finalize(extra);
     sqlite3_finalize(s->stmt);
     s->stmt = NULL;
+    if (result) return luaL_error(L, "sqlite: SQL contains more than one statement");
     lua_pushnil(L);
     lua_pushstring(L, "SQL contains more than one statement");
     return 2;
   }
+  if (result) {
+    capture(L, &out, h->db, SQLITE_OK, false);
+    push_outcome(L, &out, true);
+    lua_pushvalue(L, statement_index);
+    lua_setfield(L, -2, "statement");
+    return 1;
+  }
   return cosmic_succeeded(L);
+}
+
+static int handle_prepare (lua_State *L) {
+  return prepare_statement(L, false);
+}
+
+static int handle_prepare_result (lua_State *L) {
+  return prepare_statement(L, true);
 }
 
 static int handle_close (lua_State *L) {
@@ -635,6 +712,105 @@ static int statement_bind_blob (lua_State *L) {
                s->db);
 }
 
+/* Values are read raw: neither a metatable nor a coercion may run Lua
+ * between checking this statement and binding its parameters. */
+static int value_kind (lua_State *L, int index) {
+  luaL_checktype(L, index, LUA_TTABLE);
+  int kind = SQLITE_NULL;
+  lua_pushnil(L);
+  while (lua_next(L, index) != 0) {
+    if (kind != SQLITE_NULL || lua_type(L, -2) != LUA_TSTRING)
+      luaL_error(L, "sqlite: a Value has at most one named field");
+    size_t size;
+    const char *name = lua_tolstring(L, -2, &size);
+    if (size == 7 && memcmp(name, "integer", 7) == 0 && lua_isinteger(L, -1)) kind = SQLITE_INTEGER;
+    else if (size == 6 && memcmp(name, "number", 6) == 0 && lua_type(L, -1) == LUA_TNUMBER) kind = SQLITE_FLOAT;
+    else if (size == 4 && memcmp(name, "text", 4) == 0 && lua_type(L, -1) == LUA_TSTRING) kind = SQLITE_TEXT;
+    else if (size == 4 && memcmp(name, "blob", 4) == 0 && lua_type(L, -1) == LUA_TSTRING) kind = SQLITE_BLOB;
+    else luaL_error(L, "sqlite: a Value needs an integer, number, text or blob field of that type");
+    lua_pop(L, 1);
+  }
+  return kind;
+}
+
+static int statement_bind_values_result (lua_State *L) {
+  luaL_checktype(L, 2, LUA_TTABLE);
+  struct outcome out = {0};
+  out.message = cosmic_guard_push(L, release_message);
+  struct statement *s = checked_statement(L);
+  int count = sqlite3_bind_parameter_count(s->stmt);
+  lua_pushnil(L);
+  while (lua_next(L, 2) != 0) {
+    if (!lua_isinteger(L, -2) || lua_tointeger(L, -2) < 1 || lua_tointeger(L, -2) > count)
+      return luaL_error(L, "sqlite: values must match the statement's parameter positions");
+    lua_pop(L, 1);
+  }
+  /* Validate the whole list before changing any bindings. */
+  for (int index = 1; index <= count; index++) {
+    lua_rawgeti(L, 2, index);
+    value_kind(L, lua_gettop(L));
+    lua_pop(L, 1);
+  }
+  int rc = SQLITE_OK;
+  for (int index = 1; index <= count; index++) {
+    lua_rawgeti(L, 2, index);
+    int kind = value_kind(L, lua_gettop(L));
+    if (kind == SQLITE_NULL) {
+      rc = sqlite3_bind_null(s->stmt, index);
+    } else {
+      lua_pushnil(L);
+      lua_next(L, -2);
+      if (kind == SQLITE_INTEGER) rc = sqlite3_bind_int64(s->stmt, index, lua_tointeger(L, -1));
+      else if (kind == SQLITE_FLOAT) rc = sqlite3_bind_double(s->stmt, index, lua_tonumber(L, -1));
+      else {
+        size_t len;
+        const char *value = lua_tolstring(L, -1, &len);
+        rc = kind == SQLITE_TEXT ?
+          sqlite3_bind_text64(s->stmt, index, value, (sqlite3_uint64)len, SQLITE_TRANSIENT, SQLITE_UTF8) :
+          sqlite3_bind_blob64(s->stmt, index, value, (sqlite3_uint64)len, SQLITE_TRANSIENT);
+      }
+      lua_pop(L, 2);
+    }
+    lua_pop(L, 1);
+    if (rc != SQLITE_OK) break;
+  }
+  capture(L, &out, s->db, rc, false);
+  push_outcome(L, &out, false);
+  return 1;
+}
+
+/* The empty guard is cached across successful rows. Detach it before
+ * allocating a failure record: a finalizer can re-enter this statement,
+ * but must never reuse the guard that owns this call's captured message. */
+static int statement_step_result (lua_State *L) {
+  checked_statement(L);
+  lua_getiuservalue(L, 1, 2);
+  bool marked = false;
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    cosmic_guard_push(L, release_message);
+    marked = true;
+    lua_pushvalue(L, -1);
+    lua_setiuservalue(L, 1, 2);
+  }
+  int guard_index = lua_gettop(L);
+  struct outcome out = {0};
+  out.message = lua_touserdata(L, guard_index);
+  struct statement *s = checked_statement(L);
+  begin_wait(s->owner);
+  int rc = sqlite3_step(s->stmt);
+  if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
+    lua_pushstring(L, rc == SQLITE_ROW ? "row" : "done");
+    return 1;
+  }
+  capture(L, &out, s->db, rc, s->owner->cancelled);
+  lua_pushnil(L);
+  lua_setiuservalue(L, 1, 2);
+  if (!marked) lua_toclose(L, guard_index);
+  push_outcome(L, &out, false);
+  return 1;
+}
+
 static int statement_step (lua_State *L) {
   struct statement *s = checked_statement(L);
   begin_wait(s->owner);
@@ -759,6 +935,7 @@ static const luaL_Reg handle_methods[] = {
   {"last_insert_rowid", handle_last_insert_rowid},
   {"limit", handle_limit},
   {"busy_timeout", handle_busy_timeout},
+  {"prepare_result", handle_prepare_result},
   {NULL, NULL},
 };
 
@@ -770,6 +947,8 @@ static const luaL_Reg statement_methods[] = {
   {"bind_text", statement_bind_text},
   {"bind_blob", statement_bind_blob},
   {"step", statement_step},
+  {"step_result", statement_step_result},
+  {"bind_values_result", statement_bind_values_result},
   {"columns", statement_columns},
   {"name", statement_name},
   {"kind", statement_kind},
@@ -794,6 +973,7 @@ static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
 
 static const luaL_Reg module[] = {
   {"open", sqlite_open},
+  {"open_result", sqlite_open_result},
   {NULL, NULL},
 };
 

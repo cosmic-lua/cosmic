@@ -5,11 +5,41 @@
 --- method.
 
 local record sqlite
-  record ExecResult
+  interface Outcome
     code: integer
     extended_code: integer
     reason: string
     cancelled: boolean
+  end
+  record ExecResult is Outcome
+    code: integer
+    extended_code: integer
+    reason: string
+    cancelled: boolean
+  end
+  record OpenResult is Outcome
+    handle: Handle
+    code: integer
+    extended_code: integer
+    reason: string
+    cancelled: boolean
+  end
+  record PrepareResult is Outcome
+    statement: Statement
+    code: integer
+    extended_code: integer
+    reason: string
+    cancelled: boolean
+  end
+  record Value
+    --- Bound as a 64-bit SQLite integer.
+    integer: integer
+    --- Bound as a floating-point number.
+    number: number
+    --- Bound as UTF-8 text, including embedded NUL.
+    text: string
+    --- Bound as bytes, distinct from text.
+    blob: string
   end
   --- One prepared statement. It keeps its handle alive while it is
   --- open. Every call on a finalized statement raises.
@@ -32,6 +62,10 @@ local record sqlite
 
     --- "row" when a row is ready, "done" when the statement is finished.
     step: function(Statement): string | nil, string
+    --- "row" or "done" without a result allocation; a captured failure otherwise.
+    step_result: function(Statement): string | ExecResult
+    --- Binds a dense list of explicit Values. Invalid parameter shapes raise.
+    bind_values_result: function(Statement, values: {Value}): ExecResult
     --- How many columns a row of this statement has.
     columns: function(Statement): integer
     --- The name of the column at `index`, from zero: its `AS` alias,
@@ -81,6 +115,9 @@ local record sqlite
     busy_timeout: function(Handle, timeout_ns: integer)
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement | nil, string
+    --- Captures a preparation's outcome before cleanup or another operation.
+    --- Empty, multiple, overlong or NUL-containing SQL raises.
+    prepare_result: function(Handle, sql: string): PrepareResult
     --- Closes the connection; closing one already closed does nothing.
     --- A borrowed handle, such as the store's, only lets go of it.
     close: function(Handle): boolean, string
@@ -117,6 +154,8 @@ local record sqlite
   --- `writable` raises. Writable opens create a missing file unless
   --- `create` is explicitly false; read-only opens never create.
   open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle | nil, string
+  --- A captured open outcome. Invalid path/options raise.
+  open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): OpenResult
   --- The SQLite library's version, such as "3.53.4".
   version: string
 end

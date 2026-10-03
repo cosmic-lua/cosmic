@@ -41,7 +41,7 @@ local function describe(path: string): integer | nil, string
   end
   local sizes, size_trouble = Sqlite.text_rows(db,
     "SELECT name, count(*), sum(pgsize), sum(payload) FROM dbstat " ..
-    "GROUP BY name ORDER BY sum(pgsize) DESC, name")
+      "GROUP BY name ORDER BY sum(pgsize) DESC, name")
   if sizes == nil then
     local _, _ = db:close()
     return nil, size_trouble
@@ -59,7 +59,7 @@ local function describe(path: string): integer | nil, string
   local st, _ = Fs.stat(path)
   log:say(path .. "  " .. plural.count(st ~= nil and st.size or 0, "byte"))
   log:say("  " .. column("rows", 8) .. column("pages", 8) ..
-    column("bytes", 10) .. column("payload", 10) .. "  name")
+      column("bytes", 10) .. column("payload", 10) .. "  name")
   for _, row in ipairs(sizes) do
     local name, pages, bytes, payload = row[1], row[2], row[3], row[4]
     local rows = ""
@@ -73,7 +73,7 @@ local function describe(path: string): integer | nil, string
       rows = counted[1][1]
     end
     log:say("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
-      column(payload, 10) .. "  " .. name)
+        column(payload, 10) .. "  " .. name)
   end
   local _, _ = db:close()
   return #tables
@@ -87,7 +87,7 @@ local function builds(path: string): boolean, string
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT run, ms, files, read, compiled, cached, verdict FROM builds " ..
-    "ORDER BY run DESC LIMIT 5")
+      "ORDER BY run DESC LIMIT 5")
   local _, _ = db:close()
   if rows == nil then
     return false, trouble
@@ -95,8 +95,8 @@ local function builds(path: string): boolean, string
   log:say("builds, latest first")
   for _, row in ipairs(rows) do
     log:say("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. plural.count(math.tointeger(tonumber(row[3])) or 0, "file") ..
-      " staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
-      row[6] .. " cached  " .. row[7])
+        " staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
+        row[6] .. " cached  " .. row[7])
   end
   return true, ""
 end
@@ -129,7 +129,7 @@ local function slowest(path: string, about: function(string): boolean): boolean,
   for _, row in ipairs(kept) do
     local ns = math.tointeger(tonumber(row[3]) or 0) or 0
     log:say("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row[1] ..
-      " " .. row[2])
+        " " .. row[2])
   end
   return true, ""
 end
@@ -146,10 +146,10 @@ local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 local function module_files(root: string): {string:string} | nil, string
   local files: {string:string} = {}
   for _, source in ipairs({
-    { "o/cosmic.db", "SELECT path, file FROM modules" },
-    { "o/build.db", "SELECT path, file FROM derived" },
-    { "o/build.db", "SELECT source_hash, file FROM derived" },
-    { "o/build.db", "SELECT sha256, path FROM files" },
+      { "o/cosmic.db", "SELECT path, file FROM modules" },
+      { "o/build.db", "SELECT path, file FROM derived" },
+      { "o/build.db", "SELECT source_hash, file FROM derived" },
+      { "o/build.db", "SELECT sha256, path FROM files" },
   }) do
     local path = root .. "/" .. source[1]
     local present, present_trouble = Fs.exists(path)
@@ -333,22 +333,22 @@ local function run(argv: {integer:string}): integer
   end
   if seen == 0 then
     log:verdict("db", false, "no database under " .. root .. "/o; build first, " ..
-      clock.took(started))
+        clock.took(started))
     return 1
   end
   if #paths > 0 then
     local under = table.concat(paths, ", ")
     if rows == 0 then
       log:verdict("db", false, "no row is about " .. under .. ", " ..
-        clock.took(started))
+          clock.took(started))
       return 1
     end
     log:verdict("db", true, plural.count(rows, "row") .. " about " .. under .. " in " ..
-      plural.count(seen, "database") .. ", " .. clock.took(started))
+        plural.count(seen, "database") .. ", " .. clock.took(started))
     return 0
   end
   log:verdict("db", true, plural.count(tables, "table") .. " in " .. plural.count(seen, "database") .. ", " ..
-    clock.took(started))
+      clock.took(started))
   return 0
 end
 

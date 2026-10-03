@@ -19,7 +19,7 @@ local function test_a_bare_name_not_found_points_at_proc_find(tmp: string)
   local _, trouble = Child.run({ "cosmic-no-such-program" }, { cwd = tmp })
   assert(trouble:sub(1, 13) == "child: start:", trouble)
   assert(trouble:find("with no PATH search; " ..
-    "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
+      "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
   local _, pathed = Child.run({ tmp .. "/cosmic-no-such-program" })
   assert(pathed:find("Proc.find(", 1, true) == nil, pathed)
   -- A missing directory, or a script whose interpreter is missing, fails
@@ -32,6 +32,27 @@ local function test_a_bare_name_not_found_points_at_proc_find(tmp: string)
   assert(script ~= "" and script:find("Proc.find(", 1, true) == nil, script)
   local _, empty = Child.run({ "" }, { cwd = tmp })
   assert(empty:find("Proc.find(", 1, true) == nil, empty)
+end
+
+--- A start in a directory that is not there names it, whatever the
+--- program; one that is there, or a file in its place, is not blamed.
+local function test_a_missing_cwd_is_named(tmp: string)
+  local missing = tmp .. "/not-here"
+  for _, argv in ipairs({ { "ls" }, { tmp .. "/never-started" } }) do
+    local started, trouble = Child.start(argv, { cwd = missing })
+    assert(started == nil and trouble:sub(1, 13) == "child: start:", trouble)
+    assert(trouble:find(": cwd \"" .. missing .. "\" does not exist", 1, true) ~= nil, trouble)
+  end
+  local _, beneath = Child.run({ "ls" }, { cwd = missing .. "/deeper" })
+  assert(beneath:find("cwd \"" .. missing .. "/deeper\" does not exist", 1, true) ~= nil, beneath)
+  local _, there = Child.run({ tmp .. "/never-started" }, { cwd = tmp })
+  assert(there:find("cwd", 1, true) == nil, there)
+  assert(Fs.write(tmp .. "/file", ""))
+  local _, a_file = Child.run({ tmp .. "/never-started" }, { cwd = tmp .. "/file" })
+  assert(a_file:find("does not exist", 1, true) == nil, a_file)
+  local _, under_a_file = Child.run({ "ls" }, { cwd = tmp .. "/file/x" })
+  assert(under_a_file:find("cwd \"" .. tmp .. "/file/x\" does not exist", 1, true) ~= nil,
+    under_a_file)
 end
 
 --- A start refused for want of descriptors above the highest it hands
@@ -48,7 +69,7 @@ local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
   assert(ok, tostring(child))
   assert(child == nil, "started past the limit")
   assert(trouble:find("handed descriptor 255", 1, true) ~= nil and
-    trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
+      trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
 end
 
 --- A refused option is blamed on the line that passed it, not on a line
@@ -56,9 +77,10 @@ end
 --- caller's caller.
 local function test_a_refused_option_names_the_caller_s_line()
   for _, opts in ipairs({
-    { stdout = "bad" } as Child.Options,
-    { cwd = "/tmp\0bad" } as Child.Options,
-    { timeout_ns = -1 } as Child.Options,
+      { stdout = "bad" } as Child.Options,
+      { cwd = "/tmp\0bad" } as Child.Options,
+      { cwd = "" } as Child.Options,
+      { timeout_ns = -1 } as Child.Options,
   }) do
     local ok, why: boolean, any = pcall(function()
       local _, _ = Child.run({ "/bin/sh" }, opts)
@@ -80,9 +102,11 @@ local function test_a_raise_names_the_module()
       local _, _ = Child.start({ "/bin/sh" }, { env = { [""] = "x" } } as Child.Options)
     end,
     function() local _, _ = Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end,
+    function() local _, _ = Child.run({ "/bin/sh" }, { cwd = "" }) end,
   }
   local says = { "argv is empty", "argv is empty", "no handles to wait for", "capture_limit is out of range",
-    "environment name is empty", "fds keys are child descriptors" }
+    "environment name is empty", "fds keys are child descriptors",
+    "cwd is empty; leave it nil to start in this process's directory" }
   for i, call in ipairs(raising) do
     local ok, why: boolean, any = pcall(call)
     assert(not ok and tostring(why):find(": child: " .. says[i], 1, true) ~= nil,
@@ -92,7 +116,7 @@ end
 
 local function test_run_refuses_a_stream()
   for _, opts in ipairs({
-    { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
+      { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
   } as {Child.Options}) do
     local ok, message = pcall(Child.run, { "/bin/sh", "-c", "exit 0" }, opts)
     assert(not ok and tostring(message):find("Child.start", 1, true), tostring(message))
@@ -228,7 +252,7 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
     assert(not ok and tostring(why):find("credentials need integer user and group", 1, true), tostring(why))
   end
   for _, sandbox in ipairs({
-    { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 },
+      { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 },
   } as {Child.Sandbox}) do
     local ok, why = pcall(Child.start, { "/never-started" },
       { credentials = { user = 1, group = 1 }, sandbox = sandbox })

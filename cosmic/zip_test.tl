@@ -599,8 +599,8 @@ local function test_a_streamed_size_below_zero_or_no_integer_raises()
   end
   -- Whatever the body, and before any other refusal of the call.
   for _, call in ipairs({
-    function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
-    function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
+      function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
+      function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
     local ok, why: boolean, any = pcall(call)
     assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true),
@@ -702,7 +702,7 @@ end
 
 --- The Unix time of a UTC calendar moment.
 local function unix(year: integer, month: integer, day: integer, hour: integer, minute: integer,
-    second: integer): integer
+                    second: integer): integer
   local ns = assert(Time.from_civil({
     year = year, month = month, day = day, hour = hour, minute = minute, second = second,
     ns = 0,
@@ -721,7 +721,7 @@ local function test_a_dos_date_no_calendar_has_is_clamped()
   local raw = c:result()
   local header = (assert(raw:find("PK\1\2", 1, true)))
   local function mtime_of(year: integer, month: integer, day: integer, hour: integer,
-      minute: integer, second: integer): integer
+                          minute: integer, second: integer): integer
     local date = ((year - 1980) << 9) | (month << 5) | day
     local clock = (hour << 11) | (minute << 5) | (second // 2)
     local r = assert(Zip.open_string(patch(raw, header + 12, le16(clock) .. le16(date))))

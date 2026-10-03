@@ -57,7 +57,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "27"
+local version <const> = "28"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -133,7 +133,9 @@ local version <const> = "27"
 --- staged file, keyed by the file's content hash like `parsed`: staging
 --- scans a file in the same moment it reads it, so an unchanged file
 --- costs nothing, and a row is a function of the bytes and the scan's
---- rule alone -- a change to the rule bumps `version`. A row no
+--- rule alone -- a change to the rule bumps `version`, and so does one
+--- to what [`build.patch`]'s [`Patch.parse`] takes as a record, whose
+--- TODOs the rule reads apart. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
 --- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
 --- external-content mode over `todos` -- which is why `todos` has a
@@ -289,27 +291,27 @@ for _, statement in ipairs(analysis_schema.statements) do
   work.schema[#work.schema + 1] = statement
 end
 for _, statement in ipairs({
-  [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
                                            lines TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
                                       sha256 TEXT NOT NULL,
                                       line INTEGER NOT NULL,
                                       last INTEGER NOT NULL,
                                       text TEXT NOT NULL,
                                       UNIQUE (sha256, line))]],
-  [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
+    [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
       USING fts5(text, content=todos, content_rowid=id)]],
-  [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
+    [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
       INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
     END]],
-  [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
+    [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
       INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
     END]],
-  [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
+    [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
       INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
       INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
     END]],
-  [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
                                        line INTEGER NOT NULL,
                                        sha256 TEXT NOT NULL,
                                        head TEXT NOT NULL,
@@ -318,30 +320,30 @@ for _, statement in ipairs({
                                        summary TEXT NOT NULL,
                                        boundary INTEGER NOT NULL,
                                        PRIMARY KEY (path, line)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
                                          data BLOB NOT NULL)]],
-  [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
                                          seen INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
                                            ordinal INTEGER NOT NULL,
                                            module TEXT NOT NULL,
                                            member TEXT NOT NULL,
                                            line INTEGER NOT NULL,
                                            PRIMARY KEY (key, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
                                      key TEXT NOT NULL,
                                      ordinal INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
                                        ms INTEGER NOT NULL,
                                        files INTEGER NOT NULL,
                                        read INTEGER NOT NULL,
                                        compiled INTEGER NOT NULL,
                                        cached INTEGER NOT NULL,
                                        verdict TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
                                      test TEXT NOT NULL,
                                      passed INTEGER NOT NULL,
                                      message TEXT NOT NULL,
@@ -350,23 +352,23 @@ for _, statement in ipairs({
                                      run_at_ns INTEGER NOT NULL,
                                      elapsed_ns INTEGER NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
                                          passed INTEGER NOT NULL,
                                          run_at_ns INTEGER NOT NULL,
                                          seen INTEGER NOT NULL,
                                          elapsed_ns INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS digests (path TEXT PRIMARY KEY,
+    [[CREATE TABLE IF NOT EXISTS digests (path TEXT PRIMARY KEY,
                                         signature TEXT NOT NULL,
                                         sha256 TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
+    [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
                                           PRIMARY KEY)]],
-  [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,
                                          path TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          hit INTEGER NOT NULL,
                                          PRIMARY KEY (ran_at_ns, path, line))
                                         WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
+    [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
                                                  test TEXT NOT NULL,
                                                  hits TEXT NOT NULL,
                                                  PRIMARY KEY (ran_at_ns, test))]],
@@ -484,14 +486,14 @@ function work.open(root: string): work.Handle | nil, string
   end
   local stamped, stamp_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
-    "ON CONFLICT (key) DO NOTHING", { text(version) })
+      "ON CONFLICT (key) DO NOTHING", { text(version) })
   if not stamped then
     local _, _ = db:close()
     return nil, path .. ": " .. stamp_trouble
   end
   local counted, count_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
-    "ON CONFLICT (key) DO UPDATE SET value = value + 1")
+      "ON CONFLICT (key) DO UPDATE SET value = value + 1")
   if not counted then
     local _, _ = db:close()
     return nil, path .. ": " .. count_trouble
@@ -697,22 +699,32 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
   return once(put)
 end
 
---- Whether a file's TODOs are the tree's own: a patch record's context
---- lines and a vendored pin are upstream's.
+--- Whether a file is a patch record ([`build/patch.tl`]): a `.txt` in
+--- `patch/<name>/`.
+local function is_record(file: string): boolean
+  return file:match("^patch/[^/]+/[^/]+%.txt$") ~= nil
+end
+
+--- Whether a file holds TODOs of the tree's own: a vendored tree and
+--- its pin are upstream's, and so is everything under `patch/` but a
+--- record, whose find blocks are too ([`build.todo_scan.scan_record`]).
 local function holds_own_todos(file: string): boolean
   local first = identity.first_of(file)
-  return first ~= "patch" and first ~= "vendor"
+  return first ~= "vendor" and (first ~= "patch" or is_record(file))
 end
 
 --- Records the TODOs in one file's bytes under their hash, unless a
---- file with the same bytes already has. Text holding no `TODO:`, or
---- holding a NUL, is not scanned.
+--- file with the same bytes already has: text that parses as a patch
+--- record is scanned as one wherever it sits, since the rows are keyed
+--- by the bytes alone. Text holding no `TODO:`, or holding a NUL,
+--- is not scanned.
 local function put_todos(put: Sqlite.Statement, data: string,
                          sha256: string): boolean, string
   if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
     return true, ""
   end
-  for _, found in ipairs(todo_scan.scan(data)) do
+  local scanned = todo_scan.scan_record(data) or todo_scan.scan(data)
+  for _, found in ipairs(scanned) do
     local ok, trouble = put:bind_text(1, sha256)
     if ok then ok, trouble = put:bind_integer(2, found.line) end
     if ok then ok, trouble = put:bind_integer(3, found.last) end
@@ -938,8 +950,8 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   end
   local pruned, prune_trouble = db:exec(
     "DELETE FROM todos WHERE sha256 NOT IN " ..
-    "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
-    "UNION SELECT sha256 FROM scanned)")
+      "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
+      "UNION SELECT sha256 FROM scanned)")
   if not pruned then
     return nil, prune_trouble
   end
@@ -1042,7 +1054,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   end
   local unread, unread_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, sha256 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
-    "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
+      "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
   if unread == nil then
     return false, unread_trouble
   end
@@ -1077,7 +1089,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
         local link = entry.link
         local ok, trouble = Sqlite.run(db,
           "INSERT INTO linked_found (sha256, kind, ordinal, line, column, form, text, " ..
-          "target, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "target, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
           { text(sha256), text(kind), { integer = ordinal }, { integer = link.line },
             { integer = link.column }, text(link.form), text(link.text), text(link.target),
             { integer = entry.own and 1 or 0 } })
@@ -1089,8 +1101,8 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   end
   for _, name in ipairs({ "linked_found", "linked_texts" }) do
     local ok, trouble = db:exec("DELETE FROM " .. name .. " WHERE NOT EXISTS " ..
-      "(SELECT 1 FROM linked l WHERE l.sha256 = " .. name .. ".sha256 AND l.kind = " ..
-      name .. ".kind)")
+        "(SELECT 1 FROM linked l WHERE l.sha256 = " .. name .. ".sha256 AND l.kind = " ..
+        name .. ".kind)")
     if not ok then
       return false, trouble
     end
@@ -1176,7 +1188,7 @@ function work.record(handle: work.Handle, ms: integer, staged: work.Staged,
                      verdict: string): boolean, string
   return Sqlite.run(handle.db,
     "INSERT OR REPLACE INTO builds (run, ms, files, read, compiled, cached, " ..
-    "verdict) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      "verdict) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     { integer(handle.run), integer(ms), integer(staged.files),
       integer(staged.read), integer(compiled), integer(cached), text(verdict) })
 end

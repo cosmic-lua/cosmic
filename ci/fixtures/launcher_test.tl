@@ -41,7 +41,7 @@ local function permissions(path: string): integer
 end
 
 local function expect_failure(ctx: Context, label: string, pattern: string,
-    cache: string, program?: string): Fixture.Outcome
+                              cache: string, program?: string): Fixture.Outcome
   local answer = run(ctx, label, cache, nil, program)
   assert(not answer.result.ok and not answer.result.timed_out,
     label .. " unexpectedly succeeded or timed out")
@@ -57,7 +57,7 @@ local function no_private_entries(cache: string, stem: string)
 end
 
 local function hook_environment(cache: string, hook: string, ready: string,
-    go: string): {string:string}
+                                go: string): {string:string}
   return environment(cache, { COSMIC_PORTABLE_TEST_HOOK = hook,
     COSMIC_PORTABLE_TEST_READY = ready, COSMIC_PORTABLE_TEST_GO = go })
 end
@@ -94,11 +94,11 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local cache_after = assert(Fs.stat(cache))
   local core_after = assert(Fs.stat(core))
   assert(permissions(cache) == 0x140 and
-    cache_after.mtime == cache_stat.mtime and
-    cache_after.mtime_ns == cache_stat.mtime_ns and
-    core_after.mtime == core_stat.mtime and
-    core_after.mtime_ns == core_stat.mtime_ns and
-    Fixture.hash(core) == core_hash, "warm launch changed cache state")
+      cache_after.mtime == cache_stat.mtime and
+      cache_after.mtime_ns == cache_stat.mtime_ns and
+      core_after.mtime == core_stat.mtime and
+      core_after.mtime_ns == core_stat.mtime_ns and
+      Fixture.hash(core) == core_hash, "warm launch changed cache state")
   Process.chmod(cache, 0x1c0)
 
   local home, xdg = ctx.work .. "/home", ctx.work .. "/xdg"
@@ -139,7 +139,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   for _, case in ipairs({
       { "empty-cache", "", home, "must be an absolute path" },
       { "relative-cache", "relative", home, "must be an absolute path" },
-    }) do
+  }) do
     local values = environment(case[2])
     values.HOME = case[3]
     local answer = Fixture.call_with_environment(case[1],
@@ -232,7 +232,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local repaired = run(ctx, "symlink-repair", linked)
   outcome_ok(repaired, "symlink repair")
   assert(Fixture.read(sentinel) == "untouched\n" and
-    assert(sys.lstat(linked .. "/" .. key)).kind == "file",
+      assert(sys.lstat(linked .. "/" .. key)).kind == "file",
     "symlink repair wrote through the link or left no core file")
   Fixture.contains(repaired.err, "symbolic link; repairing")
 
@@ -246,7 +246,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   Fixture.mkdir(mode_entry)
   Process.chmod(mode_entry, 0x1c0)
   Fixture.write(mode_entry .. "/" .. key,
-core_bytes, 0x1c0)
+    core_bytes, 0x1c0)
   local mode_repair = run(ctx, "entry-mode-repair", mode_entry)
   outcome_ok(mode_repair, "entry mode repair")
   Fixture.contains(mode_repair.err, "mode is not 0500; repairing")
@@ -290,7 +290,7 @@ core_bytes, 0x1c0)
     ctx.work .. "/truncated-cache", truncated)
   local equal = ctx.work .. "/equal-corrupt"
   Fixture.write(equal, artifact:sub(1, offset) .. "Z" ..
-    artifact:sub(offset + 2), 0x1ed)
+      artifact:sub(offset + 2), 0x1ed)
   expect_failure(ctx, "equal-corrupt", "extracted core digest differs",
     ctx.work .. "/equal-cache", equal)
 end
@@ -425,18 +425,18 @@ result=$?
 printf 'after\n' >&9
 exit "$result"
 ]], "9" },
-    }) do
+  }) do
     local guard = ctx.work .. "/" .. one[1] .. ".guard"
     local err = ctx.work .. "/" .. one[1] .. ".err"
     local answer = Fixture.call_with_environment(one[1],
       { "/bin/sh", "-c", one[2], "sh",
-      ctx.artifact, guard, err }, ctx.work, ctx.diagnostics,
+        ctx.artifact, guard, err }, ctx.work, ctx.diagnostics,
       environment(ctx.work .. "/" .. one[1] .. "-cache"))
     assert(not answer.result.ok, one[1] .. " unexpectedly succeeded")
     Fixture.contains(err,
       "fewer than two private descriptors are available in 3 through 9")
     assert(Fixture.read(guard) == "before\nafter\n" and
-      Fs.exists(ctx.work .. "/" .. one[1] .. "-cache") == false,
+        Fs.exists(ctx.work .. "/" .. one[1] .. "-cache") == false,
       one[1] .. " disturbed the caller's descriptors or made a cache")
   end
 
@@ -465,6 +465,6 @@ local function test_launcher_timing_and_immutability(tmp: string)
   outcome_ok(run(ctx, "timing-warm", timing), "warm timing launch")
   local warm_ms = (Time.monotonic_ns() - warm_started) // 1000000
   assert(Fs.put(Fs.stderr, "portable launcher timing: cold=" ..
-    tostring(cold_ms) .. "ms warm=" .. tostring(warm_ms) .. "ms\n"))
+      tostring(cold_ms) .. "ms warm=" .. tostring(warm_ms) .. "ms\n"))
   assert(Fixture.hash(ctx.artifact) == before, "launcher artifact changed")
 end

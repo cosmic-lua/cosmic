@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local ast = require("build.ast")
 local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
 
@@ -33,7 +34,7 @@ local function test_an_unearned_export_and_a_stale_allowance_are_refused(dir: st
   })
   local found = tree_checks.exports(db, {})
   assert(#found == 1 and found[1]:find("^build/thing%.tl:4: build%.thing%.alone: nothing outside") ~=
-    nil, table.concat(found, "\n"))
+      nil, table.concat(found, "\n"))
   assert(#tree_checks.exports(db, { ["build.thing.alone"] = "kept for a reason" }) == 0)
   found = tree_checks.exports(db, { ["build.thing.alone"] = "kept for a reason",
     ["build.thing.used"] = "no longer needed" })
@@ -152,7 +153,7 @@ local function test_a_stand_in_that_stops_naming_its_command_is_refused(dir: str
   })
   found = tree_checks.stand_ins(unnamed, cases)
   assert(#found == 1 and found[1]:find("^`cosmic docs which` answers nothing first, not Proc.find") ~=
-    nil, table.concat(found, "\n"))
+      nil, table.concat(found, "\n"))
 end
 
 --- A query a compile's failure points to is answered by a worked
@@ -177,7 +178,7 @@ local function test_a_query_no_example_answers_is_refused(dir: string)
   assert(#found == 0, table.concat(found, "\n"))
   found = tree_checks.queries(db, { "records_and_their_fields", "unions_and_their_members" })
   assert(#found == 1 and found[1]:find("^`cosmic docs unions_and_their_members` answers nothing") ~=
-    nil, table.concat(found, "\n"))
+      nil, table.concat(found, "\n"))
 end
 
 --- A quieted method its record declares passes; one it lacks, or a
@@ -232,7 +233,7 @@ local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   })
   found = tree_checks.declarations(db)
   assert(#found == 1 and found[1]:find("^build%.raw requires build%.thing, which is no " ..
-    "declaration") ~= nil, table.concat(found, "\n"))
+      "declaration") ~= nil, table.concat(found, "\n"))
 end
 
 --- The files held to earn no note are the public standard library's:
@@ -275,10 +276,10 @@ local function test_a_verb_is_held_to_its_registration(dir: string)
 
   found = found_with(verb("thing", "a thing", ok), { ["build/spare.tl"] = verb("spare", "none: a spare", ok) })
   assert(#found == 1 and found[1]:find("^`spare` %(build%.spare%) assigns a `spec` but " ..
-    "build/verb_list%.tl does not list its module") ~= nil, table.concat(found, "\n"))
+      "build/verb_list%.tl does not list its module") ~= nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "a missing heading", ok))
   assert(#found == 1 and found[1]:find("^`thing`'s guide is \"a missing heading\", which is no `## ` heading") ~=
-    nil, table.concat(found, "\n"))
+      nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "none: ", ok))
   assert(#found == 1 and found[1]:find("^`thing` has no guide and gives no reason") ~= nil,
     table.concat(found, "\n"))
@@ -292,7 +293,7 @@ local function test_a_verb_is_held_to_its_registration(dir: string)
   assert(#found == 1 and found[1]:find("is no `## ` heading", 1, true) ~= nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "a thing", "\"build.gone_test\", \"build.thing\", " .. ok))
   assert(#found == 2 and found[1]:find("^`thing`'s tests name build%.gone_test, which is no test module") ~=
-    nil and found[2]:find("name build%.thing, which is no test module") ~= nil,
+      nil and found[2]:find("name build%.thing, which is no test module") ~= nil,
     table.concat(found, "\n"))
 end
 
@@ -343,7 +344,7 @@ local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
   found = found_with(spec("  name = \"thing\",", "  guide = \"a thing\",",
     "  tests = { \"build.thing_test\", other },"))
   assert(#found == 1 and found[1]:find("^`thing` names no test module in `tests`, as string literals") ~=
-    nil, table.concat(found, "\n"))
+      nil, table.concat(found, "\n"))
 
   -- A spec exported from a local is no literal the check reads: refused
   -- as a listed verb with none.
@@ -355,9 +356,9 @@ local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
   -- "spec", and a line inside a comment.
   found = found_with(spec("  name = \"thing\",", "  guide = \"a thing\",",
     "  tests = { \"build.thing_test\" },"), {
-    ["build/other.tl"] = source("local m = {}", "m.respec = { name = \"other\" }",
-      "--- m.spec = { name = \"other\" }", "return m"),
-  })
+      ["build/other.tl"] = source("local m = {}", "m.respec = { name = \"other\" }",
+        "--- m.spec = { name = \"other\" }", "return m"),
+    })
   assert(#found == 0, table.concat(found, "\n"))
 
   -- Its guide is not held to a quickstart that could not be read.
@@ -386,7 +387,7 @@ local function test_a_run_names_each_check(dir: string)
     seen[line:match("^([^:]+): ") or line] = true
   end
   for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "stand-ins",
-                          "docs queries", "quieted", "rendered docs", "doc references" }) do
+      "docs queries", "quieted", "rendered docs", "doc references" }) do
     assert(seen[name], name .. " reported nothing on a projection that has none of the tree")
   end
 end
@@ -425,7 +426,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
   local text = table.concat(found, "\n")
   assert(#found == 6, text)
   assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl`.*%(path rule%) %-%- say what a caller needs") ~=
-    nil, text)
+      nil, text)
   assert(found[2]:find("^cosmic/thing%.tl:7: .*`TODO:` %(todo rule%).*`%-%-` comment") ~= nil, text)
   assert(found[3]:find("^cosmic/thing%.tl:9: .*`core/thing%.c`") ~= nil, text)
   assert(found[4]:find("^cosmic/thing%.tl:9: .*`cosmic%.internal%.thing%.`") ~= nil, text)
@@ -519,7 +520,35 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
     ["build/count.tl:rows"] = "always many", ["build/count.tl:stores"] = "always many",
     ["build/fine.tl:tests"] = "unneeded" })
   assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil and
-    found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+      found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+end
+
+--- The plurals a parse already found stand for a file's only while its
+--- text is the one parsed: a file whose text has moved since is parsed
+--- again, and a file the check does not read is found nothing in.
+local function test_plurals_found_before_stand_for_the_same_text(dir: string)
+  local text = source("local n = 2", "return n .. \" tests\"")
+  local db = fixture.database(dir, {
+    ["build/count.tl"] = text,
+    ["build/moved.tl"] = source("local n = 2", "return n .. \" rows\""),
+  })
+  local built = assert(teal.load())
+  local parsed = assert(ast.parse(built, text, "build/count.tl"))
+  assert(tree_checks.plurals_in("build/count_test.tl", text, parsed) == nil)
+  assert(tree_checks.plurals_in("examples/count.tl", text, parsed) == nil)
+  local read: {string: tree_checks.Plurals} = {
+    ["build/count.tl"] = assert(tree_checks.plurals_in("build/count.tl", text, parsed)),
+    -- What was found in an older text of the file, which no longer stands.
+    ["build/moved.tl"] = { source = "return 1\n", sites = {} },
+  }
+  assert(#read["build/count.tl"].sites == 1)
+  -- A site the parse did not find is reported, so the check took it.
+  read["build/count.tl"].sites[1][2] = "kept"
+  local found = tree_checks.plurals(db, built, {}, {}, read)
+  local all = table.concat(found, "\n")
+  assert(#found == 2, all)
+  assert(found[1]:find("^build/count%.tl:2: .*`kept`") ~= nil, all)
+  assert(found[2]:find("^build/moved%.tl:2: .*`rows`") ~= nil, all)
 end
 
 --- The `ci/` sources the plural check reads are the modules of
@@ -550,13 +579,13 @@ local function test_a_guide_in_neither_list_is_refused()
   for _, module in ipairs({ "doc.guides.quickstart", "doc.guides.portable-runtime" }) do
     assert(Sqlite.run(db,
       "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-      "VALUES (?1, ?1, 'test', '', '', '', '', '')", { { text = module } }))
+        "VALUES (?1, ?1, 'test', '', '', '', '', '')", { { text = module } }))
   end
   local found = tree_checks.guides(db)
   assert(#found == 0, table.concat(found, "\n"))
   assert(Sqlite.run(db,
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-    "VALUES ('doc.guides.newcomer', 'f', 'test', '', '', '', '', '')"))
+      "VALUES ('doc.guides.newcomer', 'f', 'test', '', '', '', '', '')"))
   found = tree_checks.guides(db)
   assert(#found == 1 and found[1]:find("^doc/guides/newcomer%.md is in neither") ~= nil,
     table.concat(found, "\n"))

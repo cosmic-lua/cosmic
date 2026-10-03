@@ -286,7 +286,7 @@ local function matched_restored(now: {string:string}, held: string): string, str
     return "matched", string.format("%d of %s", matched, Plural.count(rows, "row"))
   end
   return "moved", string.format("runtime or harness not among the restored cache's " ..
-    "(%s)", Plural.count(rows, "row"))
+      "(%s)", Plural.count(rows, "row"))
 end
 
 --- Sets `qualifies` and `why` of each of the first `shown` of `runs`,
@@ -568,7 +568,7 @@ local function read_suites(o: Report.Options, run: Report.Run, scratch: string)
   local listed = api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id .. "/artifacts?per_page=100")
   for _, artifact in ipairs(Report.driver_artifacts(listed)) do
     local zip, why = gh(o, { "api", "repos/" .. o.repo .. "/actions/artifacts/" ..
-      artifact.id .. "/zip" })
+        artifact.id .. "/zip" })
     local rows: {State.SuiteRun} | nil = nil
     if zip ~= nil then
       local database: string | nil
@@ -596,14 +596,14 @@ function Report.report(o: Report.Options): string
   local query = "status=completed&per_page=" .. listed .. "&event=" .. o.event
   if o.branch then query = query .. "&branch=" .. o.branch end
   local runs = Report.runs(api(o, "repos/" .. o.repo .. "/actions/workflows/" ..
-    o.workflow .. "/runs?" .. query))
+      o.workflow .. "/runs?" .. query))
   local shown: {Report.Run} = {}
   for i = 1, math.min(o.runs, #runs) do shown[i] = runs[i] end
   local scratch = assert(Fs.mkdtemp("cosmic-ci-report-"))
   local called, trouble = pcall(function(): boolean
     for _, run in ipairs(shown) do
       run.jobs = Report.jobs(api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id ..
-        "/jobs?per_page=100"))
+          "/jobs?per_page=100"))
       read_suites(o, run, scratch)
     end
     for i = #shown + 1, #runs do

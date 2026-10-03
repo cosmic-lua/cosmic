@@ -160,7 +160,7 @@ local function test_the_store_finalizes_its_statement_whenever_an_allocation_fai
   collectgarbage("collect")
   assert(testing.open_statements() == before,
     "a refused allocation left " .. (testing.open_statements() - before) ..
-    " statements open")
+      " statements open")
 end
 
 --- print builds its line in a buffer that moves to the heap past 1 KB;
@@ -290,7 +290,7 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   local bytes, blocks = testing.c_heap()
   assert(bytes == before_bytes and blocks == before_blocks,
     what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
-    (bytes - before_bytes) .. " bytes) on the C heap")
+      (bytes - before_bytes) .. " bytes) on the C heap")
 end
 
 --- `children` reads its list into a block of the core's C heap, and
@@ -505,7 +505,10 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   if not checked then return end
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
   local wide: {string: any} = {}
-  for i = 1, 40 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
+  for i = 1, 80 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
+  -- An object too large for a set of its keys on the C stack, whose
+  -- keys go through a Lua table, holding a key twice.
+  local wide_text = assert(Json.encode(wide)):gsub("}$", ',"key1":0}')
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
@@ -515,6 +518,12 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
     assert(assert(Json.encode(wide, { pretty = true })):sub(1, 1) == "{")
     local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string}
     assert(lone[1] == "\u{FFFD}")
+    assert(Json.check(text))
+    assert(assert(Json.format(text, { pretty = true })):sub(1, 1) == "{")
+    assert(Json.format("{a: [0x1F, .5]}", { json5 = true }) == '{"a":[31,0.5]}')
+    assert(assert(Json.canonical((assert(Json.encode(wide))))):sub(1, 1) == "{")
+    local _, twice = Json.decode(wide_text)
+    assert(twice:match("^json: duplicate key "), twice)
   end)
   assert(ended > 0, "decoding and encoding allocate")
   assert_c_heap(bytes, blocks, "JSON under refusal")
@@ -543,6 +552,20 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
   end
   assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"],
     "each record's refusal names its line")
+  -- format reads a hexadecimal number again, as a document of its own,
+  -- after every read of the text: the last allocation it makes.
+  local last = -1
+  for skip = 0, 16 do
+    testing.fail_at("json_malloc", skip)
+    local formatted, why = Json.format("[0x1F]", { json5 = true })
+    if testing.fail_at() then
+      assert(formatted == '[31]', why)
+      break
+    end
+    assert(formatted == nil and why == "json: out of memory", tostring(why))
+    last = skip
+  end
+  assert(last >= 4, "format read the text twice and the number once: " .. last)
 end
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
@@ -563,7 +586,7 @@ local exchanges: {Exchange} = {
   { name = "a Content-Length body", options = { script = { reply("200 OK", "", hello) } } },
   { name = "a chunked body", options = { script = {
     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
-    "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
+      "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
   { name = "a redirect", options = { script = {
     reply("302 Found", "Location: /next\r\n", "moved"), reply("200 OK", "", hello) } } },
   { name = "a 100 Continue", options = { script = {
@@ -724,4 +747,57 @@ local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
   end)
   assert(next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
   assert(testing.c_heap() == heap, "credential refusal leaked native allocations")
+end
+
+local function test_sqlite_captured_operations_release_every_refused_allocation(tmp: string)
+  if not checked then return end
+  local db = assert(Sqlite.memory())
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local statements = testing.open_statements()
+  local before = next_descriptor(tmp)
+  for _, present in ipairs({ true, false }) do
+    local ended = under_every_failure(function()
+      local opened = Sqlite.open_result(present and ":memory:" or tmp .. "/absent")
+      if present then
+        assert(opened.handle ~= nil and opened.code == Sqlite.OK)
+        assert(opened.handle:close())
+      else
+        assert(opened.handle == nil and opened.code ~= Sqlite.OK)
+      end
+    end)
+    assert(ended > 0)
+    assert(next_descriptor(tmp) == before)
+    assert_c_heap(bytes, blocks, "captured SQLite open")
+  end
+  for _, sql in ipairs({ "SELECT ?1", "SELECT 1; SELECT * FROM missing" }) do
+    local ended = under_every_failure(function()
+      local prepared = db:prepare_result(sql)
+      if prepared.statement ~= nil then
+        local statement = prepared.statement
+        assert(statement:bind_values_result({ { text = "hello" } }).code == Sqlite.OK)
+        assert(statement:step_result() == "row")
+        statement:finalize()
+      else
+        assert(prepared.code ~= Sqlite.OK)
+      end
+    end)
+    assert(ended > 0)
+    assert(testing.open_statements() == statements)
+    assert_c_heap(bytes, blocks, "captured SQLite preparation/binding")
+  end
+  local ended = under_every_failure(function()
+    local statement = assert(db:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
+    assert(statement:bind_integer(1, 1))
+    assert(statement:step_result() == "row")
+    assert(statement:reset())
+    assert(statement:bind_integer(1, 0))
+    local failed = statement:step_result()
+    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "")
+    statement:finalize()
+  end)
+  assert(ended > 0)
+  assert(testing.open_statements() == statements)
+  assert_c_heap(bytes, blocks, "captured SQLite step")
+  assert(db:close())
 end

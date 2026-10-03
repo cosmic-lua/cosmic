@@ -89,7 +89,7 @@ local function walk(input: string): boolean, string
       local body, otrouble = e:open()
       if body == nil then
         Fuzz.label(otrouble:find("local file header", 1, true) and "local header refused" or
-          "body refused")
+            "body refused")
       end
       if body ~= nil then
         local data = Stream.read_all(body)

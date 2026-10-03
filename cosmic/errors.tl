@@ -18,10 +18,10 @@ end
 --- general-purpose list.
 local stopwords: {string:boolean} = {}
 for _, word in ipairs({
-  "a", "an", "the", "is", "are", "was", "were", "be",
-  "to", "of", "in", "on", "at", "for", "and", "or",
-  "not", "no", "this", "that", "it", "its", "as", "by",
-  "with", "from", "own",
+    "a", "an", "the", "is", "are", "was", "were", "be",
+    "to", "of", "in", "on", "at", "for", "and", "or",
+    "not", "no", "this", "that", "it", "its", "as", "by",
+    "with", "from", "own",
 }) do
   stopwords[word] = true
 end
@@ -130,12 +130,12 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | ni
   end
   local rows, _ = Sqlite.text_rows(handle,
     "SELECT coalesce(catalog.text, (SELECT d.text FROM main.docs d " ..
-    "WHERE d.module = catalog.module AND " ..
-    "d.source_symbol = catalog.symbol)), " ..
-    "catalog.message, catalog.symbol, catalog.file, catalog.line " ..
-    "FROM main.catalog_fts JOIN main.catalog " ..
-    "ON catalog.id = catalog_fts.rowid " ..
-    "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1",
+      "WHERE d.module = catalog.module AND " ..
+      "d.source_symbol = catalog.symbol)), " ..
+      "catalog.message, catalog.symbol, catalog.file, catalog.line " ..
+      "FROM main.catalog_fts JOIN main.catalog " ..
+      "ON catalog.id = catalog_fts.rowid " ..
+      "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1",
     { { text = query } })
   if rows == nil or #rows == 0 then
     return nil
