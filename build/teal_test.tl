@@ -736,7 +736,7 @@ end
 
 --- The callee is the function in scope at the call: a local of a
 --- closed block is not, and a method is found through the type its
---- receiver was declared of.
+--- receiver was declared of, a local's, a parameter's or `self`'s.
 local function test_a_short_call_reads_the_callee_in_scope()
   assert(replacement_for("do\n  local function f(a: string, b: string | nil) print(a, b) end\n" ..
     "  print(f)\nend\nlocal function f(a: string, b: integer | nil) print(a, b) end\nf('x')\n", short)
@@ -745,6 +745,13 @@ local function test_a_short_call_reads_the_callee_in_scope()
     "function R:m(b: string | nil) print(self, b) end\nlocal r: R = {n = 1}\nr:m()\n",
     "wrong number of arguments (given 1, expects 2)")
     == "a parameter a caller may leave out is written 'b?: string'")
+  local record_r = "local record R\n  n: integer\nend\nfunction R:b(x: string | nil) print(self, x) end\n"
+  assert(replacement_for(record_r .. "function R:a() self:b() end\n",
+    "wrong number of arguments (given 1, expects 2)")
+    == "a parameter a caller may leave out is written 'x?: string'")
+  assert(replacement_for(record_r .. "local function g(r: R) r:b() end\nprint(g)\n",
+    "wrong number of arguments (given 1, expects 2)")
+    == "a parameter a caller may leave out is written 'x?: string'")
 end
 
 --- A key no field is near by spelling is told the fields that hold it
