@@ -90,3 +90,28 @@ local function test_every_statement_kind_is_walked()
   }
   assert(table.concat(got, "\n") == table.concat(want, "\n"), table.concat(got, "\n"))
 end
+
+--- The walk passes by a name, a literal and `...` without looking inside:
+--- none of them holds a node, in any spelling tl reads.
+local function test_a_leaf_expression_holds_no_node()
+  local parsed = assert(ast.parse(built, lines({
+    "local function f(...: any): any",
+    "  local a, b, c, d, e = 1, 2.5, 0x10, \"s\", [[long]]",
+    "  local g, h, i = true, false, nil",
+    "  return a, b, c, d, e, g, h, i, ..., 'q', 1e3, -1",
+    "end",
+    "return f",
+  }), "leaves.tl"))
+  local seen: {string: boolean} = {}
+  ast.walk(parsed.node, function(node: ast.Node)
+    local kind = node.kind
+    if kind == "variable" or kind == "string" or kind == "number" or kind == "integer" or
+        kind == "boolean" or kind == "nil" or kind == "..." then
+      seen[kind] = true
+      assert(#ast.children(node) == 0, kind .. " holds a node")
+    end
+  end)
+  for _, kind in ipairs({ "variable", "string", "number", "integer", "boolean", "nil", "..." }) do
+    assert(seen[kind], "no " .. kind .. " was read")
+  end
+end
