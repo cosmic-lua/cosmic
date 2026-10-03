@@ -157,7 +157,9 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
     observe(counts, "aa_tail_positive", aa_tail_low ~= nil and aa_tail_low > 0)
     local reasons: {string:boolean} = {}
     for _, reason in ipairs(reading.reasons) do reasons[reason] = true end
-    for _, reason in ipairs(reason_keys) do observe(counts, "reason_" .. reason, reasons[reason] == true) end
+    for _, reason in ipairs(reason_keys) do
+      observe(counts, "reason_" .. reason, reasons[reason] == true)
+    end
     local tail_low = reading.tail_interval.low
     observe(counts, "tail_positive", tail_low ~= nil and tail_low > 0)
     if case.gate == "null" or case.stress == 1 then
@@ -183,7 +185,9 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
       for _, key in ipairs(coverage_keys) do
         if counts[key].hits / 5000 < 0.94 then failures[#failures + 1] = key end
       end
-      if counts["regression"].hits / 5000 > 0.06 then failures[#failures + 1] = "false_regression" end
+      if counts["regression"].hits / 5000 > 0.06 then
+        failures[#failures + 1] = "false_regression"
+      end
       if counts["pass"].hits / 5000 < 0.80 then failures[#failures + 1] = "null_pass_rate" end
     end
   elseif case.gate == "shift" then

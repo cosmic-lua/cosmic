@@ -379,7 +379,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     complain((sums_name == "-" and "standard input" or sums_name) .. ":" .. bad.line .. ": " .. bad.why)
   end
   if #sums.entries == 0 then
-    if #sums.bad == 0 then complain((sums_name == "-" and "standard input" or sums_name) .. ": no checksum lines found") end
+    if #sums.bad == 0 then
+      complain((sums_name == "-" and "standard input" or sums_name) .. ": no checksum lines found")
+    end
     return bare.refused
   end
   local failed, unread = 0, 0

@@ -963,7 +963,9 @@ local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: s
   assert(refused_run.code == 2 and refused_run.err:find("through a symlink", 1, true), refused_run.err)
   assert(not Fs.exists(dest .. "/aaa.txt") and not Fs.exists(out .. "/f.txt"))
   assert(#tree_of(out) == 0)
-  for _, name in ipairs(Fs.list(dest) or {}) do assert(not name:find("cosmic-extract", 1, true), name) end
+  for _, name in ipairs(Fs.list(dest) or {}) do
+    assert(not name:find("cosmic-extract", 1, true), name)
+  end
 end
 
 local function test_a_move_that_fails_partway_is_undone(tmp: string)
@@ -971,7 +973,9 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
     file_member("b.txt", "new b"), file_member("c.txt", "new c") })))
   local dest = tmp .. "/dest"
   assert(Fs.mkdirs(dest))
-  for _, name in ipairs({ "a", "b", "c" }) do assert(Fs.write(dest .. "/" .. name .. ".txt", "old " .. name)) end
+  for _, name in ipairs({ "a", "b", "c" }) do
+    assert(Fs.write(dest .. "/" .. name .. ".txt", "old " .. name))
+  end
   local real = Fs.rename
   local patched = Fs as {string:any}
   local into = 0

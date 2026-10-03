@@ -842,10 +842,16 @@ end
 function Zig.with_lock(root: string, environment: {string:string},
     run: function({string:string}): integer): integer
   local made, made_trouble = Fs.mkdirs(root .. "/o")
-  if not made then log:complain(root .. "/o: " .. made_trouble); return 1 end
+  if not made then
+    log:complain(root .. "/o: " .. made_trouble)
+    return 1
+  end
   local path = root .. lock_name
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
-  if fd == nil then log:complain(path .. ": " .. open_trouble); return 1 end
+  if fd == nil then
+    log:complain(path .. ": " .. open_trouble)
+    return 1
+  end
   local opened: Lock = { fd = fd }
   local lock <close> = setmetatable(opened, lock_mt)
   local taken, trouble = take(lock, path, 0)
@@ -872,7 +878,10 @@ function Zig.with_lock(root: string, environment: {string:string},
       end
     end
   end
-  if taken == nil then log:complain(trouble); return 1 end
+  if taken == nil then
+    log:complain(trouble)
+    return 1
+  end
   if not handed then
     local aside = root .. holder_name .. "." .. tostring(Proc.pid())
     local written, _ = Fs.write(aside, tostring(Proc.pid()) .. "\nrebuild\n")

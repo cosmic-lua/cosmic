@@ -68,7 +68,9 @@ local function context(candidate: string, runner_temp: string,
     COSMIC_ZIG_CACHE_SEED = "",
     COSMIC_ZIG_CACHE_FROM = "",
   }
-  if extra then for name, value in pairs(extra) do env[name] = value end end
+  if extra then
+    for name, value in pairs(extra) do env[name] = value end
+  end
   return env
 end
 

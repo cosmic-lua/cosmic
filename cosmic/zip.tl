@@ -261,8 +261,14 @@ local function apply_zip64_extra(extra: string, usize: integer, csize: integer,
     if id == 1 then
       local data = extra:sub(at + 4, at + 4 + sz - 1)
       local p = 1
-      if usize == U32_MAX and p + 7 <= #data then usize = string.unpack("<I8", data, p); p = p + 8 end
-      if csize == U32_MAX and p + 7 <= #data then csize = string.unpack("<I8", data, p); p = p + 8 end
+      if usize == U32_MAX and p + 7 <= #data then
+        usize = string.unpack("<I8", data, p)
+        p = p + 8
+      end
+      if csize == U32_MAX and p + 7 <= #data then
+        csize = string.unpack("<I8", data, p)
+        p = p + 8
+      end
       if local_offset == U32_MAX and p + 7 <= #data then
         local_offset = string.unpack("<I8", data, p)
         p = p + 8
@@ -794,8 +800,14 @@ local function central_header(name: string, method: integer, dos_time: integer, 
     crc: integer, csize: integer, usize: integer, ext_attrs: integer, local_offset: integer,
     flags?: integer): string
   local wide: {integer} = {}
-  if usize >= U32_MAX then wide[#wide + 1] = usize; usize = U32_MAX end
-  if csize >= U32_MAX then wide[#wide + 1] = csize; csize = U32_MAX end
+  if usize >= U32_MAX then
+    wide[#wide + 1] = usize
+    usize = U32_MAX
+  end
+  if csize >= U32_MAX then
+    wide[#wide + 1] = csize
+    csize = U32_MAX
+  end
   if local_offset >= U32_MAX then
     wide[#wide + 1] = local_offset
     local_offset = U32_MAX

@@ -1032,7 +1032,9 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         local leads = cache ~= nil and led_to(cache) or nil
         if leads ~= nil and leads ~= cache then
           local renamed: {string:string} = {}
-          for name, value in pairs(given_environment or asked.environ()) do renamed[name] = value end
+          for name, value in pairs(given_environment or asked.environ()) do
+            renamed[name] = value
+          end
           renamed.COSMIC_PORTABLE_CACHE = leads
           given_environment = renamed
         end
@@ -1080,7 +1082,10 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     ended = true
     process.spawn = spawn
     for at = #entered, 1, -1 do
-      if entered[at] == entry then table.remove(entered, at) break end
+      if entered[at] == entry then
+        table.remove(entered, at)
+        break
+      end
     end
     local refused = refusals[entry]
     refusals[entry] = nil

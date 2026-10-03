@@ -150,7 +150,9 @@ end
 --- The ids `calls` deleted, in order.
 local function deleted(calls: string): string
   local ids: {string} = {}
-  for id in calls:gmatch("api %-X DELETE repos/o/r/actions/caches/(%d+)\n") do ids[#ids + 1] = id end
+  for id in calls:gmatch("api %-X DELETE repos/o/r/actions/caches/(%d+)\n") do
+    ids[#ids + 1] = id
+  end
   return table.concat(ids, " ")
 end
 

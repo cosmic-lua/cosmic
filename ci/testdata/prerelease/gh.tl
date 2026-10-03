@@ -178,7 +178,9 @@ local function api(p: Parsed, repo: string): integer
   if base and method == "GET" then
     local files: {any} = {}
     if exists(state .. "/compare") then
-      for name in read(state .. "/compare"):gmatch("[^\n]+") do files[#files + 1] = { filename = name } end
+      for name in read(state .. "/compare"):gmatch("[^\n]+") do
+        files[#files + 1] = { filename = name }
+      end
     end
     return http(p, "200 OK", json({ status = "ahead", files = Json.array(files) }))
   end
@@ -223,13 +225,17 @@ local function release(p: Parsed, repo: string): integer
   if verb == "view" then
     local answer: {string:any} = {}
     for field in assert(p.options["--json"]):gmatch("[^,]+") do
-      if field == "isDraft" then answer.isDraft = read(dir .. "/draft") == "true"
-      elseif field == "isPrerelease" then answer.isPrerelease = read(dir .. "/prerelease") == "true"
+      if field == "isDraft" then
+        answer.isDraft = read(dir .. "/draft") == "true"
+      elseif field == "isPrerelease" then
+        answer.isPrerelease = read(dir .. "/prerelease") == "true"
       elseif field == "assets" then
         local assets: {any} = {}
         for _, name in ipairs(list(dir .. "/assets")) do assets[#assets + 1] = { name = name } end
         answer.assets = Json.array(assets)
-      else return fail("unknown field " .. field) end
+      else
+        return fail("unknown field " .. field)
+      end
     end
     return out(json(answer))
   elseif verb == "download" then
@@ -249,7 +255,9 @@ local function release(p: Parsed, repo: string): integer
   elseif verb == "upload" then
     local path = assert(p.positional[3], "upload: no file")
     local name = assert(path:match("([^/]+)$"))
-    if exists(dir .. "/assets/" .. name) then return fail("asset under the same name already exists") end
+    if exists(dir .. "/assets/" .. name) then
+      return fail("asset under the same name already exists")
+    end
     write(dir .. "/assets/" .. name, read(path))
     return 0
   elseif verb == "edit" then
@@ -271,7 +279,10 @@ end
 return function(argv: {integer:string}): integer
   local words: {string} = {}
   local i = 1
-  while argv[i] do words[#words + 1] = argv[i]; i = i + 1 end
+  while argv[i] do
+    words[#words + 1] = argv[i]
+    i = i + 1
+  end
   local calls = state .. "/calls"
   local logged = exists(calls) and read(calls) or ""
   write(calls, logged .. table.concat(words, " ") .. "\n")

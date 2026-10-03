@@ -26,8 +26,10 @@ local setup, run = LauncherFixture.setup, LauncherFixture.run
 local outcome_ok, only_core = LauncherFixture.outcome_ok, LauncherFixture.only_core
 
 local function test_launcher_noexec(tmp: string)
-  local ctx = setup(tmp); local before = Fixture.hash(ctx.artifact)
-  local base = ctx.work .. "/base"; outcome_ok(run(ctx, "base", base), "base")
+  local ctx = setup(tmp)
+  local before = Fixture.hash(ctx.artifact)
+  local base = ctx.work .. "/base"
+  outcome_ok(run(ctx, "base", base), "base")
   local key = only_core(base):match("([^/]+)$") as string
   assert(ctx.target ~= "aarch64-macos", "noexec fixture requires the Linux grant")
   local parent = assert(Env.get("COSMIC_TEST_NOEXEC"), "no private noexec grant")

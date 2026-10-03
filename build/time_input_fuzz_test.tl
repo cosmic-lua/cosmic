@@ -45,10 +45,15 @@ local function input_is_total(input: string): boolean, string
   end
   Fuzz.label("read")
   local text = fields[1]
-  if text:sub(1, 1) == "@" then Fuzz.label("epoch")
-  elseif #text == 10 then Fuzz.label("date")
-  elseif not text:find("[Zz+%-]", 11) then Fuzz.label("local")
-  else Fuzz.label("rfc3339") end
+  if text:sub(1, 1) == "@" then
+    Fuzz.label("epoch")
+  elseif #text == 10 then
+    Fuzz.label("date")
+  elseif not text:find("[Zz+%-]", 11) then
+    Fuzz.label("local")
+  else
+    Fuzz.label("rfc3339")
+  end
   local moment = got as Time.Zoned
   -- What it read is a moment the calendar holds: one `format_rfc3339` can write.
   local _ = Time.format_rfc3339(moment.ns, zone)
@@ -74,7 +79,9 @@ local function moment_round_trips(input: string): boolean, string
   local by_epoch = time_verb.parse_input(epoch, zone)
   if s >= 0 then
     Fuzz.label("epoch text")
-    if by_epoch == nil or by_epoch.ns ~= ns then return false, epoch .. " read as another moment" end
+    if by_epoch == nil or by_epoch.ns ~= ns then
+      return false, epoch .. " read as another moment"
+    end
   end
   return true, ""
 end

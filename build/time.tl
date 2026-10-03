@@ -454,7 +454,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   for _, name in ipairs({ "--days", "--months", "--seconds" }) do
     if parsed.set[name] then modes[#modes + 1] = name end
   end
-  if #modes > 1 then return refuse("name one of " .. table.concat(modes, " and ") .. ", not both") end
+  if #modes > 1 then
+    return refuse("name one of " .. table.concat(modes, " and ") .. ", not both")
+  end
   local unit = #modes == 1 and modes[1]:sub(3) or "duration"
   local value: integer | string
   if unit == "days" then
@@ -462,7 +464,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   elseif unit == "seconds" then
     local whole = second.ns // NS - first.ns // NS
     local fraction = second.ns % NS - first.ns % NS
-    if whole > 0 and fraction < 0 then whole = whole - 1 elseif whole < 0 and fraction > 0 then whole = whole + 1 end
+    if whole > 0 and fraction < 0 then
+      whole = whole - 1
+    elseif whole < 0 and fraction > 0 then
+      whole = whole + 1
+    end
     value = whole
   else
     local span = Time.between(first.ns, second.ns, calendar)

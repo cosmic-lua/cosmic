@@ -41,7 +41,9 @@ function LauncherFixture.environment(cache?: string,
   })
   for _, name in ipairs(private_environment) do values[name] = nil end
   values.COSMIC_PORTABLE_CACHE = cache
-  if extra then for name, value in pairs(extra) do values[name] = value end end
+  if extra then
+    for name, value in pairs(extra) do values[name] = value end
+  end
   return values
 end
 
@@ -55,7 +57,9 @@ function LauncherFixture.setup(tmp: string): Context
   local run = work .. "/run space"
   local alias = work .. "/run alias"
   local diagnostics = work .. "/logs"
-  Fixture.mkdir(program); Fixture.mkdir(run); Fixture.mkdir(diagnostics)
+  Fixture.mkdir(program)
+  Fixture.mkdir(run)
+  Fixture.mkdir(diagnostics)
   assert(Fs.symlink(run, alias))
   local artifact = program .. "/launcher.test"
   local contract = Fixture.required("COSMIC_FIXTURE_LAUNCHER")

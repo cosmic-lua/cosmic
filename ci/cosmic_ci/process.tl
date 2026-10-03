@@ -61,7 +61,8 @@ function Process.start(label: string, argv: {string}, cwd: string,
   if input then
     local opened, input_trouble = Fs.open_read(input)
     if opened == nil then
-      Fs.close(out_fd); Fs.close(err_fd)
+      Fs.close(out_fd)
+      Fs.close(err_fd)
       error(label .. ": " .. input_trouble)
     end
     input_fd = opened
@@ -72,7 +73,8 @@ function Process.start(label: string, argv: {string}, cwd: string,
   local handle, trouble = Child.start(argv, options)
   if handle == nil then
     if input_fd then Fs.close(input_fd) end
-    Fs.close(out_fd); Fs.close(err_fd)
+    Fs.close(out_fd)
+    Fs.close(err_fd)
     error(label .. ": " .. trouble)
   end
   return { label = label, handle = handle, out_fd = out_fd, err_fd = err_fd,
@@ -97,7 +99,8 @@ end
 function Process.finish(running: Process.Running, timeout?: integer): Child.Result
   local result, trouble = running.handle:wait(timeout or child_wait_timeout_ns)
   if result == nil then
-    running.handle:close(); close_descriptors(running)
+    running.handle:close()
+    close_descriptors(running)
     error(running.label .. ": child wait failed: " .. trouble)
   end
   close_descriptors(running)
@@ -116,7 +119,8 @@ end
 function Process.supervised(action: function({Process.Running}))
   local active: {Process.Running} = {}
   local called, failure = pcall(function(): boolean
-    action(active); return true
+    action(active)
+    return true
   end)
   for _, running in ipairs(active) do cleanup(running) end
   if not called then error(failure) end

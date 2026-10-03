@@ -181,7 +181,9 @@ local function total(data: string): boolean, string
       return false, ("civil(%d) has offset %d"):format(ns, c.offset)
     end
     local from_ok, back = pcall(Time.from_civil, c, zone)
-    if not from_ok then return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back)) end
+    if not from_ok then
+      return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back))
+    end
     if back == ns then Fuzz.label("round trip") end
     local format_ok, text = pcall(Time.format_rfc3339, ns, zone, { zone_name = true })
     if not format_ok then return false, ("format_rfc3339(%d) raised: %s"):format(ns, text) end

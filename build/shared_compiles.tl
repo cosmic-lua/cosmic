@@ -236,7 +236,9 @@ local function private(path: string, kind: sys.Kind): boolean, string
   if kind == "file" then st, trouble = sys.lstat(path) else st, trouble = sys.stat(path) end
   if st == nil then return false, path .. ": " .. trouble end
   if st.kind == "link" then return false, path .. ": a symbolic link" end
-  if st.kind ~= kind then return false, path .. ": not a " .. (kind == "dir" and "directory" or kind) end
+  if st.kind ~= kind then
+    return false, path .. ": not a " .. (kind == "dir" and "directory" or kind)
+  end
   if st.uid ~= sys.getuid() then return false, path .. ": owned by another user" end
   if st.mode & 0x12 ~= 0 then return false, path .. ": writable by its group or others" end
   return true, ""

@@ -195,7 +195,9 @@ local function with_entries(file: string, to: verb.Io,
     if dir == nil then return fail(bare.refused, spool_why) end
     local entries, list_why = Archive.list(dir .. "/stdin")
     local _, _ = Fs.remove_tree(dir)
-    if entries == nil then return fail(bare.refused, trouble_of(file, dir .. "/stdin", list_why)) end
+    if entries == nil then
+      return fail(bare.refused, trouble_of(file, dir .. "/stdin", list_why))
+    end
     return body(entries)
   end
   local reader, open_why = Archive.open_stream(replay)
@@ -568,7 +570,9 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- before anything was written: its trouble comes first.
   while advance() ~= nil do end
   local _, _ = inner:close()
-  if finish_why ~= "" then return give_up(fail(bare.refused, trouble_of(file, file, finish_why))) end
+  if finish_why ~= "" then
+    return give_up(fail(bare.refused, trouble_of(file, file, finish_why)))
+  end
   local missing: {string} = {}
   for slot, member in ipairs(wanted) do
     if not found[slot] then missing[#missing + 1] = member end

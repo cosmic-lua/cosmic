@@ -32,14 +32,22 @@ local gen_spec: function(r: Recipe, depth: integer): Shape.Spec
 gen_spec = function(r: Recipe, depth: integer): Shape.Spec
   local pick = byte(r, depth > 0 and 9 or 6)
   local spec: Shape.Spec
-  if pick == 0 then spec = Shape.string
-  elseif pick == 1 then spec = Shape.number
-  elseif pick == 2 then spec = Shape.integer
-  elseif pick == 3 then spec = Shape.boolean
-  elseif pick == 4 then spec = Shape.any
-  elseif pick == 5 then spec = Shape.one_of("a", 1, true)
-  elseif pick == 6 then spec = Shape.list(gen_spec(r, depth - 1))
-  elseif pick == 7 then spec = Shape.map(gen_spec(r, depth - 1))
+  if pick == 0 then
+    spec = Shape.string
+  elseif pick == 1 then
+    spec = Shape.number
+  elseif pick == 2 then
+    spec = Shape.integer
+  elseif pick == 3 then
+    spec = Shape.boolean
+  elseif pick == 4 then
+    spec = Shape.any
+  elseif pick == 5 then
+    spec = Shape.one_of("a", 1, true)
+  elseif pick == 6 then
+    spec = Shape.list(gen_spec(r, depth - 1))
+  elseif pick == 7 then
+    spec = Shape.map(gen_spec(r, depth - 1))
   else
     local fields: {string: Shape.Spec} = {}
     for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, depth - 1) end
@@ -73,11 +81,16 @@ gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolea
     return t
   end
   local kind = spec.kind
-  if kind == "string" or kind == "any" then return key(r)
-  elseif kind == "number" then return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) / 8
-  elseif kind == "integer" then return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) * 1.0
-  elseif kind == "boolean" then return byte(r, 2) == 0
-  elseif kind == "one_of" then return spec.values[byte(r, #spec.values) + 1]
+  if kind == "string" or kind == "any" then
+    return key(r)
+  elseif kind == "number" then
+    return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) / 8
+  elseif kind == "integer" then
+    return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) * 1.0
+  elseif kind == "boolean" then
+    return byte(r, 2) == 0
+  elseif kind == "one_of" then
+    return spec.values[byte(r, #spec.values) + 1]
   elseif kind == "list" then
     local t: {any} = {}
     for i = 1, byte(r, 4) do t[i] = gen_value(r, spec.of, depth - 1, strict) end
@@ -140,11 +153,16 @@ fits = function(v: any, spec: Shape.Spec): boolean
   if v == nil then return spec.optional end
   if rawequal(v, Json.null) then return false end
   local kind = spec.kind
-  if kind == "string" then return v is string
-  elseif kind == "number" then return v is number
-  elseif kind == "integer" then return math.type(v) == "integer"
-  elseif kind == "boolean" then return v is boolean
-  elseif kind == "any" then return true
+  if kind == "string" then
+    return v is string
+  elseif kind == "number" then
+    return v is number
+  elseif kind == "integer" then
+    return math.type(v) == "integer"
+  elseif kind == "boolean" then
+    return v is boolean
+  elseif kind == "any" then
+    return true
   elseif kind == "one_of" then
     for _, want in ipairs(spec.values) do
       if v == want then return true end
