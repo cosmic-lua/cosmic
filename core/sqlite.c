@@ -104,8 +104,8 @@ static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
   }
 }
 
-static void push_outcome (lua_State *L, const struct outcome *out) {
-  lua_createtable(L, 0, 5);
+static void push_outcome (lua_State *L, const struct outcome *out, bool payload) {
+  lua_createtable(L, 0, payload ? 5 : 4);
   lua_pushinteger(L, out->code);
   lua_setfield(L, -2, "code");
   lua_pushinteger(L, out->extended);
@@ -397,7 +397,7 @@ static int open_database (lua_State *L, bool result) {
       sqlite3_close_v2(h->db);
       h->db = NULL;
     }
-    push_outcome(L, &out);
+    push_outcome(L, &out, rc == SQLITE_OK);
     if (rc == SQLITE_OK) {
       lua_pushvalue(L, handle_index);
       lua_setfield(L, -2, "handle");
@@ -457,7 +457,7 @@ static int handle_exec_result (lua_State *L) {
   struct handle *h = checked_handle(L);
   int rc = execute(h, sql);
   capture(L, &out, h->db, rc, h->cancelled);
-  push_outcome(L, &out);
+  push_outcome(L, &out, false);
   return 1;
 }
 
@@ -513,7 +513,7 @@ static int prepare_statement (lua_State *L, bool result) {
   if (rc != SQLITE_OK) {
     if (!result) return failed(L, h->db, rc);
     capture(L, &out, h->db, rc, h->cancelled);
-    push_outcome(L, &out);
+    push_outcome(L, &out, false);
     return 1;
   }
   if (s->stmt == NULL) {
@@ -531,7 +531,7 @@ static int prepare_statement (lua_State *L, bool result) {
       capture(L, &out, h->db, rc, h->cancelled);
       sqlite3_finalize(s->stmt);
       s->stmt = NULL;
-      push_outcome(L, &out);
+      push_outcome(L, &out, false);
       return 1;
     }
     lua_pushnil(L);
@@ -551,7 +551,7 @@ static int prepare_statement (lua_State *L, bool result) {
   }
   if (result) {
     capture(L, &out, h->db, SQLITE_OK, false);
-    push_outcome(L, &out);
+    push_outcome(L, &out, true);
     lua_pushvalue(L, statement_index);
     lua_setfield(L, -2, "statement");
     return 1;
@@ -772,7 +772,7 @@ static int statement_bind_values_result (lua_State *L) {
     if (rc != SQLITE_OK) break;
   }
   capture(L, &out, s->db, rc, false);
-  push_outcome(L, &out);
+  push_outcome(L, &out, false);
   return 1;
 }
 
@@ -804,7 +804,7 @@ static int statement_step_result (lua_State *L) {
   lua_pushnil(L);
   lua_setiuservalue(L, 1, 2);
   if (!marked) lua_toclose(L, guard_index);
-  push_outcome(L, &out);
+  push_outcome(L, &out, false);
   return 1;
 }
 
