@@ -226,11 +226,68 @@ local function test_null_policy()
     "indexing the stand-in raises")
 end
 
-local function test_duplicate_keys_last_wins()
-  local v = decoded('{"a": 1, "a": 2}') as {string: any}
-  assert(v.a == 2, "the last value of a key stands")
-  local gone = decoded('{"a": 1, "a": null}') as {string: any}
-  assert(gone.a == nil, "even when it is null")
+--- A key twice in one object is refused, at the second, by line,
+--- column and path; `duplicate_keys` reads it, the last member standing.
+local function test_duplicate_keys_are_refused()
+  assert(decode_failure('{"a": 1, "a": 2}') == "json: duplicate key at line 1, column 10 ($.a)",
+    "the second is named")
+  assert(decode_failure('{"a": 1, "a": null}') == "json: duplicate key at line 1, column 10 ($.a)",
+    "a null member is a member")
+  assert(decode_failure('{"a": null, "a": 1}') == "json: duplicate key at line 1, column 13 ($.a)",
+    "and so is a null one before")
+  assert(decode_failure('{"a": 1, "\\u0061": 2}') == "json: duplicate key at line 1, column 10 ($.a)",
+    "a key compares as it reads, not as it is escaped")
+  local nested = '{"users": [\n  {"id": 1},\n  {"id": 2, "role": "a",\n   "role": "b"}]}'
+  assert(decode_failure(nested) == "json: duplicate key at line 4, column 4 ($.users[2].role)",
+    "the path names where it is")
+  assert(decode_failure('{"a": {"x": 1, "x": 2}, "a": 3}') == "json: duplicate key at line 1, column 16 ($.a.x)",
+    "the first in the text is named, inner before outer")
+  assert(decode_failure('{"a b": 1, "a b": 2}') == 'json: duplicate key at line 1, column 12 ($["a b"])',
+    "a key that is no word is quoted")
+  assert(decode_failure("{a: 1, 'b': 2, a: 3}", { json5 = true }) ==
+    "json: duplicate key at line 1, column 16 ($.a)", "an unquoted key")
+  assert(decode_failure("{a: 1, 'a': 3}", { json5 = true }) ==
+    "json: duplicate key at line 1, column 8 ($.a)", "a single-quoted key")
+  local many: {string} = {}
+  for i = 1, 40 do many[#many + 1] = ('"k%d": %d'):format(i, i) end
+  many[#many + 1] = '"k7": 0'
+  many[#many + 1] = '"k3": 0'
+  local wide = "{" .. table.concat(many, ", ") .. "}"
+  local _, at = wide:find('"k7": 0', 1, true)
+  assert(decode_failure(wide) == ("json: duplicate key at line 1, column %d ($.k7)"):format(at - 6),
+    "an object too large to search pair by pair is sorted, and the first repeat in the text named")
+  for _, size in ipairs({ 64, 65 }) do
+    local members: {string} = {}
+    for i = 1, size - 1 do members[#members + 1] = ('"k%d": {"x": %d}'):format(i, i) end
+    members[2] = '"k2": {"x": 1, "x": 2}'
+    members[#members + 1] = '"k1": 0'
+    assert(decode_failure("{" .. table.concat(members, ", ") .. "}") ==
+      "json: duplicate key at line 1, column 33 ($.k2.x)",
+      size .. " members, a set of keys or a sort: a repeat inside an earlier member comes first")
+  end
+  local _, lines = Json.decode_lines('1\n{"a": 1, "a": 2}')
+  assert(lines == "json: duplicate key at line 2, column 10 ($.a)", lines)
+  assert(decode_failure('{"a": [[{"x": 1, "x": 1}]]}', { max_depth = 2 }):match("^json: JSON nests deeper"),
+    "nothing past max_depth is searched")
+  assert(decode_failure('{"a": [[[1]]], "b": 1, "b": 2}', { max_depth = 2 }) ==
+    "json: JSON nests deeper than 2 levels at line 1, column 8 ($.a[1])",
+    "a depth failure earlier in the text comes first")
+  assert(decode_failure('{"b": 1, "b": 2, "a": [[[1]]]}', { max_depth = 2 }) ==
+    "json: duplicate key at line 1, column 10 ($.b)", "and a key twice before it does")
+  local allowed = { duplicate_keys = true }
+  assert((decoded('{"a": 1, "a": 2}', allowed) as {string: any}).a == 2, "the last value of a key stands")
+  assert((decoded('{"a": 1, "a": null}', allowed) as {string: any}).a == nil, "even when it is null")
+  assert(Json.decode_object('{"a": 1, "a": 2}', allowed) ~= nil, "decode_object takes it")
+end
+
+--- Keys that differ only in their lone surrogates read as the same key,
+--- which is a key twice.
+local function test_repaired_surrogates_can_repeat_a_key()
+  local text = '{"\\ud800": 1, "\\udc00": 2}'
+  assert(decode_failure(text, { lone_surrogates = true }) ==
+    "json: duplicate key at line 1, column 15 ($[\"???\"])", decode_failure(text, { lone_surrogates = true }))
+  local v = decoded(text, { lone_surrogates = true, duplicate_keys = true }) as {string: any}
+  assert(v["\u{fffd}"] == 2, "the last stands")
 end
 
 local function test_empty_containers_round_trip()
@@ -280,8 +337,11 @@ local function test_depth_limits()
   local ok = decoded(string.rep("[", 64) .. "1" .. string.rep("]", 64))
   assert(ok ~= nil, "64 levels decode by default")
   local deep = string.rep("[", 65) .. "1" .. string.rep("]", 65)
-  assert(decode_failure(deep) == "json: JSON nests deeper than 64 levels at line 1, column 65", "65 do not")
-  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "json: JSON nests deeper than 1 levels at line 1, column 6",
+  assert(decode_failure(deep) == "json: JSON nests deeper than 64 levels at line 1, column 65 ($" .. string.rep("[1]", 64) .. ")", "65 do not")
+  assert(decode_failure(string.rep("[", 100) .. string.rep("]", 100), { max_depth = 99 }) ==
+    "json: JSON nests deeper than 99 levels at line 1, column 100 ($..." .. string.rep("[1]", 66) .. ")",
+    "a path too long to tell keeps its innermost segments")
+  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "json: JSON nests deeper than 1 levels at line 1, column 6 ($.a)",
     "an object counts")
   assert(decoded(deep, { max_depth = 65 }) ~= nil, "the limit is the caller's")
   local root: {any} = {}
@@ -451,14 +511,14 @@ local function test_json_lines()
   local _, bad = Json.decode_lines('1\n\n{"a": tru}\n')
   assert(bad == "json: invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
   local _, deep = Json.decode_lines('1\n[[1]]', { max_depth = 1 })
-  assert(deep == "json: JSON nests deeper than 1 levels at line 2, column 2", deep)
+  assert(deep == "json: JSON nests deeper than 1 levels at line 2, column 2 ($[1])", deep)
   -- Records split on \n alone: a lone \r, or in JSON5 a U+2028, is
   -- no record boundary, before a failing record or inside it, and a
   -- failure's column counts from its record's start.
   local _, past_cr = Json.decode_lines('[1,\r2]\n{"a": tru}')
   assert(past_cr == "json: invalid JSON at line 2, column 7: invalid literal, expected 'true'", past_cr)
   local _, past_ls = Json.decode_lines('[1,\u{2028}2]\n[[1]]', { json5 = true, max_depth = 1 })
-  assert(past_ls == "json: JSON nests deeper than 1 levels at line 2, column 2", past_ls)
+  assert(past_ls == "json: JSON nests deeper than 1 levels at line 2, column 2 ($[1])", past_ls)
   local _, inside_cr = Json.decode_lines('1\n[1,\r x]')
   assert(inside_cr:match("^json: invalid JSON at line 2, column 6: "), inside_cr)
   local _, inside_ls = Json.decode_lines('1\n[1,\u{2028} x]', { json5 = true })
@@ -513,22 +573,22 @@ end
 local function test_a_depth_failure_says_where()
   local text = '{"s": "[[{", "a": [\n  [1, {"x": [2]}]]}'
   assert(decode_failure(text, { max_depth = 3 }) ==
-    "json: JSON nests deeper than 3 levels at line 2, column 7", decode_failure(text, { max_depth = 3 }))
+    "json: JSON nests deeper than 3 levels at line 2, column 7 ($.a[1][2])", decode_failure(text, { max_depth = 3 }))
   local five = "// [[[\n{'s': '[{', /* { */ a: [[0]]}"
   assert(decode_failure(five, { json5 = true, max_depth = 2 }) ==
-    "json: JSON nests deeper than 2 levels at line 2, column 25", decode_failure(five, { json5 = true, max_depth = 2 }))
+    "json: JSON nests deeper than 2 levels at line 2, column 25 ($.a[1])", decode_failure(five, { json5 = true, max_depth = 2 }))
   -- JSON5 ends a line comment at \r, U+2028 and U+2029 as well as \n,
   -- and the line it names counts each as a line end.
   for _, eol in ipairs({ "\r", "\r\n", "\u{2028}", "\u{2029}" }) do
     local failure = decode_failure("// c" .. eol .. "[[1]]", { json5 = true, max_depth = 1 })
-    assert(failure == "json: JSON nests deeper than 1 levels at line 2, column 2", failure)
+    assert(failure == "json: JSON nests deeper than 1 levels at line 2, column 2 ($[1])", failure)
     local hashed = decode_failure("# c" .. eol .. "[[1]]", { json5 = true, hash_comments = true, max_depth = 1 })
-    assert(hashed == "json: JSON nests deeper than 1 levels at line 2, column 2", hashed)
+    assert(hashed == "json: JSON nests deeper than 1 levels at line 2, column 2 ($[1])", hashed)
   end
   -- Outside JSON5, a # comment runs past U+2028 to the \n, and the
   -- brackets it holds are no part of the count.
   local past = decode_failure("# [ \u{2028} [\n[[1]]", { hash_comments = true, max_depth = 1 })
-  assert(past == "json: JSON nests deeper than 1 levels at line 2, column 2", past)
+  assert(past == "json: JSON nests deeper than 1 levels at line 2, column 2 ($[1])", past)
 end
 
 --- A syntax error's line counts every line end the text's grammar

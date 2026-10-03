@@ -58,9 +58,18 @@
 --- or `ipairs` it without a cast. [`Json.quote`] spells a key in a message
 --- of your own.
 ---
---- Duplicate keys are allowed, and the last one stands. Encoded
---- objects list their keys in byte order, so the same value always
---- encodes to the same text.
+--- An object that holds a key twice is refused, naming the second
+--- one: readers disagree about which of the two stands, so text that
+--- means one thing to this reader can mean another to the next. A key
+--- is compared as it reads, so `"a"` and `"\u0061"` are the same key.
+--- `decode(text, { duplicate_keys = true })` reads such an object, and
+--- the last of the key's members stands. Encoded objects list their keys
+--- in byte order, so the same value always encodes to the same text.
+---
+--- A failure that is not in the text's syntax -- a key twice, nesting
+--- past `max_depth` -- also names where it is in the value, as a path
+--- [`Json.encode`] spells one: `json: duplicate key at line 3, column 5
+--- ($.users[2].role)`.
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
@@ -116,8 +125,11 @@ local record Json
     --- character, as Python's json module and Claude Code transcripts
     --- can hold. A pair still reads as the character it names. Keys
     --- that differ only in their lone surrogates become the same key,
-    --- and the last one stands.
+    --- refused as any key twice is unless `duplicate_keys` is given.
     lone_surrogates: boolean
+    --- Read an object that holds a key twice, the last of its members
+    --- standing, rather than refusing it (default false).
+    duplicate_keys: boolean
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
@@ -169,16 +181,18 @@ local function decode_with(text: string, opts: Json.DecodeOptions, record?: inte
                            null_value?: any): any | nil, string
   if null_value == nil then null_value = opts.null_value end
   local value, err = raw.decode(text, null_value, opts.max_depth, opts.json5,
-    opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments)
+    opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments,
+    opts.duplicate_keys)
   if err ~= "" then return refuse(err) end
   return value, ""
 end
 
 --- Parses JSON text into the value it holds, and "". nil and a message,
---- naming the line and column, when the text is not one JSON value or
---- nests past `max_depth`. The value is `any`: when the text is from
---- outside, narrow it with `is` before trusting its shape, or use
---- [`decode_object`] or [`decode_array`], which check the outermost one.
+--- naming the line and column, when the text is not one JSON value,
+--- holds an object with a key twice, or nests past `max_depth`. The
+--- value is `any`: when the text is from outside, narrow it with `is`
+--- before trusting its shape, or use [`decode_object`] or
+--- [`decode_array`], which check the outermost one.
 function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
     local value, err = raw.decode(text)

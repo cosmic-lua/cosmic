@@ -181,9 +181,33 @@ local function decode_holds(input: string): boolean, string
   for _, json5 in ipairs({ false, true }) do
     for _, big in ipairs({ false, true }) do
       local where = ("json5=%s big=%s"):format(tostring(json5), tostring(big))
-      local ok, value, err = decode_once(input,
-        { null_value = Json.null, json5 = json5, big_numbers_as_strings = big }, where)
+      local ok, value, err = decode_once(input, { null_value = Json.null, json5 = json5,
+        big_numbers_as_strings = big, duplicate_keys = true }, where)
       if not ok then return false, err end
+      -- Without duplicate_keys, a text reads as it did with it, or is
+      -- refused for a key twice, naming where; and only such a text.
+      local once_ok, once_value, once_err = decode_once(input, { null_value = Json.null, json5 = json5,
+        big_numbers_as_strings = big }, where .. " refusing duplicate keys")
+      if not once_ok then return false, once_err end
+      -- TODO: nothing here checks that a refused text holds a key twice;
+      -- an oracle independent of core/json.c's walk (counting each
+      -- object's members in the text against the keys decode keeps)
+      -- would catch a key refused that is not repeated.
+      if once_err:match("^json: duplicate key ") then
+        -- A key twice comes before whatever the text holds after it,
+        -- which may nest too deep to read.
+        if err ~= "" and not err:match("^json: JSON nests deeper ") then
+          return false, where .. ": a key twice in text that did not read: " .. err
+        end
+        if not once_err:match("^json: duplicate key at line %d+, column %d+ %(%$[^\n]*%)$") then
+          return false, where .. ": " .. once_err
+        end
+        Fuzz.label("refused a key twice")
+      elseif (once_err == "") ~= (err == "") then
+        return false, where .. ": duplicate_keys changed more than a key twice: " .. once_err .. " vs " .. err
+      elseif err == "" and canonical(value, where) ~= canonical(once_value, where) then
+        return false, where .. ": duplicate_keys read a text without a key twice differently"
+      end
       if err == "" then
         Fuzz.label(json5 and "decoded as JSON5" or "decoded")
         local text, why = canonical(value, where)
@@ -197,11 +221,12 @@ local function decode_holds(input: string): boolean, string
         return false, "strict JSON read, JSON5 refused it: " .. err
       end
       -- Without a stand-in, a null is a hole: still total.
-      local plain_ok, _, plain_err = decode_once(input, { json5 = json5 }, where .. " without null_value")
+      local plain_ok, _, plain_err = decode_once(input, { json5 = json5, duplicate_keys = true },
+        where .. " without null_value")
       if not plain_ok then return false, plain_err end
       -- lone_surrogates is total too, and changes only what failed.
       local lone_ok, lone_value, lone_err = decode_once(input, { null_value = Json.null, json5 = json5,
-        big_numbers_as_strings = big, lone_surrogates = true }, where .. " lone_surrogates")
+        big_numbers_as_strings = big, lone_surrogates = true, duplicate_keys = true }, where .. " lone_surrogates")
       if not lone_ok then return false, lone_err end
       if err == "" then
         if lone_err ~= "" then
@@ -216,7 +241,7 @@ local function decode_holds(input: string): boolean, string
       -- hash_comments is total too, and only widens what reads: a text
       -- that read without it holds `#` only inside strings.
       local hash_ok, hash_value, hash_err = decode_once(input, { null_value = Json.null, json5 = json5,
-        big_numbers_as_strings = big, hash_comments = true }, where .. " hash_comments")
+        big_numbers_as_strings = big, hash_comments = true, duplicate_keys = true }, where .. " hash_comments")
       if not hash_ok then return false, hash_err end
       if err == "" then
         if hash_err ~= "" then
@@ -268,13 +293,13 @@ local function test_hash_comments_read_as_line_comments(tmp: string)
       for _, five in ipairs({ false, true }) do
         local where = five and "JSON5" or "RFC 8259"
         local before = five and input or (input:gsub("// c\n", "\n"))
-        local ok, read, why = same_reading(before, { null_value = Json.null, json5 = five }, text,
-          { null_value = Json.null, json5 = five, hash_comments = true }, where)
+        local ok, read, why = same_reading(before, { null_value = Json.null, json5 = five, duplicate_keys = true },
+          text, { null_value = Json.null, json5 = five, hash_comments = true, duplicate_keys = true }, where)
         if not ok then return false, why end
         if read then Fuzz.label(five and "read as JSON5" or "read") end
         if text ~= input then
           Fuzz.label("held a # comment")
-          local _, err = Json.decode(text, { json5 = five })
+          local _, err = Json.decode(text, { json5 = five, duplicate_keys = true })
           if err == "" then return false, where .. ": read a # comment without hash_comments" end
         end
       end
@@ -294,13 +319,32 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
+--- The path to the container the `limit + 1`th open of `opens` starts:
+--- `[1]` into each array and `.k` into each object before it. Only its
+--- innermost segments are kept when they run past the 199 bytes a
+--- message's path holds, behind `$...`.
+local function path_into(opens: string, limit: integer): string
+  local segments: {string} = {}
+  for open in opens:gmatch("[%[{]") do
+    if #segments == limit then break end
+    segments[#segments + 1] = open == "[" and "[1]" or ".k"
+  end
+  local kept, length = "", 0
+  for i = #segments, 1, -1 do
+    if length + #segments[i] >= 200 then return "$..." .. kept end
+    kept = segments[i] .. kept
+    length = length + #segments[i]
+  end
+  return "$" .. kept
+end
+
 -- Most drawn texts parse -- 44% strictly and 51% as JSON5, far above
 -- the 13% and 15% that edits and token soup alone reach -- so the walk
 -- into Lua values and the re-encoding checks run on most; a share under
 -- a fifth fails the run.
 local function test_decode_is_total_on_mutated_json(tmp: string)
   Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds,
-    shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2 } })
+    shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2, ["refused a key twice"] = 0.005 } })
 end
 
 local function test_decode_is_total_on_arbitrary_bytes(tmp: string)
@@ -450,8 +494,8 @@ local function test_the_depth_limits_are_exact(tmp: string)
         if err ~= "" then
           return false, ("%d levels under a limit of %d: %s"):format(n, limit, err)
         end
-      elseif value ~= nil or err ~= ("json: JSON nests deeper than %d levels at line 1, column %d"):
-           format(limit, deepest(opens, limit + 1)) then
+      elseif value ~= nil or err ~= ("json: JSON nests deeper than %d levels at line 1, column %d (%s)"):
+           format(limit, deepest(opens, limit + 1), path_into(opens, limit)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then
@@ -479,7 +523,8 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
     dir = tmp,
     gen = gen_lines,
     check = function(input: string): boolean, string
-      local ok, values, err = pcall(Json.decode_lines, input, { null_value = Json.null, json5 = true })
+      local ok, values, err = pcall(Json.decode_lines, input,
+        { null_value = Json.null, json5 = true, duplicate_keys = true })
       if not ok then return false, "raised: " .. tostring(values) end
       if values == nil then
         if err == "" then return false, "a failure without a message" end
