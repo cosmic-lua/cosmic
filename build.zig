@@ -971,9 +971,10 @@ fn launcherHelper(
 }
 
 /// The patched vendor trees bin/zig wrote before it ran zig
-/// (build/patch.tl), as the manifest it names with `-Dpatched=` holds
-/// them: a name, a tab and a directory per line. Each directory is named
-/// by its contents, so its path is the same from every checkout.
+/// (build/patch.tl), as the manifest it names with `-Dpatched=`, a path
+/// under the build root, holds them: a name, a tab and a directory per
+/// line. Each directory is named by its contents, so its path is the
+/// same from every checkout.
 fn patchedTrees(b: *std.Build) []const u8 {
     const manifest = b.option([]const u8, "patched", "the patched vendor trees' manifest bin/zig writes") orelse {
         std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
@@ -981,8 +982,9 @@ fn patchedTrees(b: *std.Build) []const u8 {
     };
     // The manifest's path is the same from build to build while the trees
     // it names move with every patch, so its contents key the configuration.
-    b.dependOnFileContents(b.graph.cwdRelativePath(manifest));
-    return std.Io.Dir.cwd().readFileAlloc(b.graph.io, manifest, b.allocator, .limited(1 << 20)) catch |err| {
+    b.dependOnFileContents(b.path(manifest));
+    const at = b.root.joinString(b.allocator, manifest) catch @panic("OOM");
+    return std.Io.Dir.cwd().readFileAlloc(b.graph.io, at, b.allocator, .limited(1 << 20)) catch |err| {
         std.debug.print("build.zig: cannot read {s}: {s}\n", .{ manifest, @errorName(err) });
         std.process.exit(1);
     };
