@@ -1526,8 +1526,8 @@ local function test_the_compiler_modules_are_closed_under_require()
     local source = assert(Fs.read(file))
     local parsed = assert(ast.parse(assert(built), source, file))
     for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
-      local ours = (required:match("^build%.") or required:match("^cosmic%."))
-        and not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
+      local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
+        not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
       if ours and not covered[required] then
         if name == "build.importer" and left_out[required] ~= nil then
           used[required] = true
@@ -1582,7 +1582,9 @@ local function test_the_writer_modules_are_closed_under_require()
     assert(not covered[name], name .. " is left out of the writer's identity, but is in it")
   end
   local compiler: {string:boolean} = {}
-  for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do compiler[name] = true end
+  for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do
+    compiler[name] = true
+  end
   --- What build.writer's closure reaches that neither identity holds,
   --- and why no projection's bytes turn on it.
   local neither: {string:string} = {
@@ -1665,8 +1667,8 @@ local function test_the_analyzer_modules_are_closed_under_require()
       local source = assert(Fs.read(file))
       local parsed = assert(ast.parse(assert(built), source, file))
       for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
-        local ours = (required:match("^build%.") or required:match("^cosmic%."))
-          and not required:match("^cosmic%.internal%.")
+        local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
+          not required:match("^cosmic%.internal%.")
         if ours and not listed[required] and file_of(required) ~= nil then
           missing[#missing + 1] = name .. " requires " .. required
         end
@@ -1913,6 +1915,32 @@ local function test_diagnostic_rendering_cannot_change_acceptance()
     end
   end
   assert(calls == 1, "successful compilation consulted diagnostic presentation")
+  work.close(handle)
+end
+
+--- What Lua's compiler refuses of a chunk the checker passed is said at
+--- the Teal file and its line, not at the chunk's module name: a
+--- `goto` into a local's scope, after declarations the generated Lua
+--- writes in fewer lines than the Teal. Lua says it at the statement
+--- after the label, and names the goto's line.
+local function test_a_lua_refusal_is_said_at_the_teal_line()
+  local root = assert(write_fixture("lua-refusal", {
+    ["lib/serve.tl"] = "local record Point\n  x: integer\n  y: integer\nend\n" ..
+      "local enum Mode\n  \"a\"\n  \"b\"\nend\n" ..
+      "local mode: Mode = \"a\"\nprint(mode, Point)\n" ..
+      "goto done\nlocal x = 1\nprint(x)\n::done::\nprint(2)\n",
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  assert(importer.derive(handle, false, built))
+  local modules = assert(compilation.collect(handle.db))
+  assert(#modules == 1 and modules[1].path == "lib.serve", tostring(#modules))
+  local env = assert(teal.environment_for(built, handle.db, handle.root))
+  local typed = receivers.install(env)
+  local made, trouble = compilation.generate(modules[1], built, env, typed, false, true,
+    function(_file: string, _source: string, _result: Compiler.Result): string return "" end)
+  assert(made == nil, "a goto into a local's scope compiled")
+  assert(trouble == "lib/serve.tl:15: <goto done> at line 11 jumps into the scope of 'x'", trouble)
   work.close(handle)
 end
 

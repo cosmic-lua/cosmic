@@ -46,10 +46,14 @@ end
 local function test_equal_cutoff_is_kept_and_fresh_counts_only_compiles(tmp: string)
   local path, old = tmp .. "/cache.db", tmp .. "/snapshot.db"
   local db = database(path, formats.compiles)
-  compiled(db, "old", 4); compiled(db, "equal", 5); compiled(db, "new", 6)
+  compiled(db, "old", 4)
+  compiled(db, "equal", 5)
+  compiled(db, "new", 6)
   assert(db:exec("INSERT INTO parsed_v1 VALUES ('a','s',0,'',x'','d',0,5)"))
   assert(db:close())
-  db = database(old, formats.compiles); compiled(db, "equal", 1); assert(db:close())
+  db = database(old, formats.compiles)
+  compiled(db, "equal", 1)
+  assert(db:close())
   local result = trim(path, "compiles", 5, old)
   assert(result.complete, table.concat(result.report.warnings, ";"))
   assert(result.report.files[1].kept == 3 and result.report.files[1].removed == 1)
@@ -72,7 +76,8 @@ local function test_verdicts_keep_unreached_then_trim_all_supported_tables(tmp: 
   assert(untouched.complete and untouched.report.files[1].kept == 3 and
     untouched.report.files[1].removed == 0 and not untouched.report.files[1].reached)
   db = assert(Sqlite.open(path, { writable = true }))
-  assert(db:exec("INSERT INTO stores_v1 VALUES ('new','digest',5)")); assert(db:close())
+  assert(db:exec("INSERT INTO stores_v1 VALUES ('new','digest',5)"))
+  assert(db:close())
   local cut = trim(path, "verdicts", 5)
   assert(cut.complete and cut.report.files[1].kept == 1 and cut.report.files[1].removed == 3)
 end
@@ -80,7 +85,8 @@ end
 local function test_whole_verdicts_never_vacuum_or_delete_active_rows(tmp: string)
   local path = tmp .. "/verdicts.db"
   local db = database(path, formats.verdicts)
-  assert(db:exec("INSERT INTO stores_v1 VALUES ('address','digest',1)")); assert(db:close())
+  assert(db:exec("INSERT INTO stores_v1 VALUES ('address','digest',1)"))
+  assert(db:close())
   local before = assert(Fs.read(path))
   local result = trim(path, "verdicts")
   assert(result.complete and result.report.files[1].kept == 1)
@@ -96,7 +102,8 @@ local function test_future_shapes_and_constraints_remain_whole(tmp: string)
   assert(db:exec("CREATE TABLE compiled_v99 (key TEXT, used_ns INTEGER)"))
   assert(db:exec("INSERT INTO compiled_v99 VALUES ('future', 1)"))
   assert(db:exec("CREATE TABLE parsed_v99 (value TEXT)"))
-  assert(db:exec("INSERT INTO parsed_v99 VALUES ('unversioned')")); assert(db:close())
+  assert(db:exec("INSERT INTO parsed_v99 VALUES ('unversioned')"))
+  assert(db:close())
   local result = trim(path, "compiles", 5)
   assert(result.complete and result.report.files[1].kept == 3 and result.report.files[1].removed == 0)
   assert(#result.report.files[1].unknown_tables == 3 and #result.report.files[1].unstamped_tables == 1)
@@ -107,7 +114,8 @@ end
 
 local function test_trigger_cannot_delete_unrelated_data(tmp: string)
   local path = tmp .. "/cache.db"
-  local db = database(path, formats.compiles); compiled(db, "old", 1)
+  local db = database(path, formats.compiles)
+  compiled(db, "old", 1)
   assert(db:exec("CREATE TABLE unrelated (value TEXT); INSERT INTO unrelated VALUES ('keep')"))
   assert(db:exec("CREATE TRIGGER surprising AFTER DELETE ON compiled_v2 BEGIN DELETE FROM unrelated; END"))
   assert(db:close())
@@ -140,7 +148,8 @@ local function test_only_exact_retired_basename_siblings_are_removed(tmp: string
 end
 
 local function test_digest_ignores_stamps_pages_and_locations_but_keeps_cell_kinds(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/a")); assert(Fs.mkdirs(tmp .. "/b"))
+  assert(Fs.mkdirs(tmp .. "/a"))
+  assert(Fs.mkdirs(tmp .. "/b"))
   local a, b = tmp .. "/a/cache.db", tmp .. "/b/cache.db"
   for i, path in ipairs({ a, b }) do
     local db = database(path, formats.compiles)
@@ -152,7 +161,8 @@ local function test_digest_ignores_stamps_pages_and_locations_but_keeps_cell_kin
   assert(first.complete and second.complete)
   assert(first.report.digest == second.report.digest)
   local db = assert(Sqlite.open(b, { writable = true }))
-  assert(db:exec("UPDATE mixed SET b = CAST(b AS TEXT)")); assert(db:close())
+  assert(db:exec("UPDATE mixed SET b = CAST(b AS TEXT)"))
+  assert(db:close())
   local changed = trim(b, "compiles", 0)
   assert(changed.complete and changed.report.digest ~= first.report.digest)
 end
@@ -160,7 +170,10 @@ end
 local function test_cli_usage_and_json_empty_arrays(tmp: string)
   local output, trouble = "", ""
   local io: cache.Io = {
-    out = function(text: string): boolean, string output = output .. text; return true, "" end,
+    out = function(text: string): boolean, string
+      output = output .. text
+      return true, ""
+    end,
     err = function(text: string) trouble = trouble .. text end,
   }
   local argv: {integer:string} = { [0] = "cosmic", "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
@@ -172,8 +185,10 @@ end
 
 local function test_failed_delete_rolls_back_earlier_tables(tmp: string)
   local path = tmp .. "/cache.db"
-  local db = database(path, formats.compiles); compiled(db, "old", 1)
-  assert(db:exec("INSERT INTO parsed_v1 VALUES ('a','s',0,'',x'','d',0,1)")); assert(db:close())
+  local db = database(path, formats.compiles)
+  compiled(db, "old", 1)
+  assert(db:exec("INSERT INTO parsed_v1 VALUES ('a','s',0,'',x'','d',0,1)"))
+  assert(db:close())
   local original = Sqlite.run
   Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string
     if sql:find('DELETE FROM "parsed_v1"', 1, true) then return false, "injected delete failure" end
@@ -204,21 +219,27 @@ end
 
 local function test_foreign_keys_and_added_constraints_are_kept(tmp: string)
   local path = tmp .. "/cache.db"
-  local db = database(path, formats.compiles); compiled(db, "old", 1)
+  local db = database(path, formats.compiles)
+  compiled(db, "old", 1)
   assert(db:exec("CREATE TABLE dependent (key TEXT REFERENCES compiled_v2(key) ON DELETE CASCADE)"))
-  assert(db:exec("INSERT INTO dependent VALUES ('old')")); assert(db:close())
+  assert(db:exec("INSERT INTO dependent VALUES ('old')"))
+  assert(db:close())
   local result = trim(path, "compiles", 5)
   assert(result.complete and result.report.files[1].removed == 0 and count(path, "dependent") == 1)
   local other = tmp .. "/constrained.db"
   local constrained = formats.compiles[1]:gsub("used_ns INTEGER NOT NULL", "used_ns INTEGER NOT NULL CHECK (used_ns > 0)")
-  db = database(other, { constrained }); compiled(db, "old", 1); assert(db:close())
+  db = database(other, { constrained })
+  compiled(db, "old", 1)
+  assert(db:close())
   result = trim(other, "compiles", 5)
   assert(result.complete and #result.report.files[1].unknown_tables == 1 and result.report.files[1].removed == 0)
 end
 
 local function test_disappearance_before_open_does_not_recreate_database(tmp: string)
   local path = tmp .. "/cache.db"
-  local db = database(path, formats.compiles); compiled(db, "old", 1); assert(db:close())
+  local db = database(path, formats.compiles)
+  compiled(db, "old", 1)
+  assert(db:close())
   local original = Sqlite.open
   Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
     if name == path then assert(Fs.remove(path)) end
@@ -233,7 +254,8 @@ end
 
 local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   local path = tmp .. "/verdicts.db"
-  local db = database(path, formats.verdicts); assert(db:close())
+  local db = database(path, formats.verdicts)
+  assert(db:close())
   local original = Sqlite.rows
   Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): {{Sqlite.Cell}} | nil, string
     if sql == "PRAGMA wal_checkpoint(TRUNCATE)" then
@@ -263,7 +285,9 @@ end
 
 local function test_vacuum_failure_reports_already_committed_row_counts(tmp: string)
   local path = tmp .. "/cache.db"
-  local db = database(path, { formats.compiles[1] }); compiled(db, "old", 1); compiled(db, "new", 5)
+  local db = database(path, { formats.compiles[1] })
+  compiled(db, "old", 1)
+  compiled(db, "new", 5)
   assert(db:close())
   local original = Sqlite.run
   Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string
@@ -285,7 +309,8 @@ end
 local function test_one_failed_verdict_file_suppresses_the_aggregate_save(tmp: string)
   local healthy, broken = tmp .. "/healthy.db", tmp .. "/broken.db"
   local db = database(healthy, formats.verdicts)
-  assert(db:exec("INSERT INTO stores_v1 VALUES ('a','d',1)")); assert(db:close())
+  assert(db:exec("INSERT INTO stores_v1 VALUES ('a','d',1)"))
+  assert(db:close())
   assert(Fs.write(broken, "unreadable active cache"))
   local result = maintenance.run({ family = "verdicts", paths = { healthy, broken }, whole = true })
   assert(not result.complete and result.report.digest == nil and result.report.fresh == nil)

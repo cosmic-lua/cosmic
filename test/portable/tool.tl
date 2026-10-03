@@ -183,7 +183,10 @@ local function prepare_artifacts(argv: {string}): integer
     if selected.configuration == 1 then
       local other: fixture.Entry | nil = nil
       for _, candidate in ipairs(old.entries) do
-        if candidate.target ~= selected.target then other = candidate; break end
+        if candidate.target ~= selected.target then
+          other = candidate
+          break
+        end
       end
       assert(other ~= nil, "runtime fixture: no nonselected core range")
       local offset = other.offset + math.min(128, other.length - 1)
@@ -214,8 +217,8 @@ local function verify_ranges(path: string, from: fixture.Artifact,
     assert(from.bytes:sub(found.offset + 1, found.offset + found.length) == core,
       path .. ": manifest core range differs from raw core")
     local first, last = from.bytes:find(core, 1, true)
-    assert(first ~= nil and first == found.offset + 1
-      and last == found.offset + found.length,
+    assert(first ~= nil and first == found.offset + 1 and
+      last == found.offset + found.length,
       path .. ": raw core occurs outside its manifest range")
     assert(from.bytes:find(core, first + 1, true) == nil,
       path .. ": raw core occurs more than once")

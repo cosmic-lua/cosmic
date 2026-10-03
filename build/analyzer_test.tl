@@ -988,8 +988,8 @@ local function test_a_member_of_an_inline_require_is_a_reference()
   }), "fixture.tl"))
   assert(#found.references == 1, tostring(#found.references))
   local reference = found.references[1]
-  assert(reference.module == "build.test" and reference.member == "run"
-    and reference.line == 2, reference.module .. " " .. reference.member)
+  assert(reference.module == "build.test" and reference.member == "run" and
+    reference.line == 2, reference.module .. " " .. reference.member)
 end
 
 --- Local import spellings are not target identity: two aliases of the same
@@ -1137,8 +1137,8 @@ local function test_final_unknown_member_write_removes_stale_callable_export()
       exported = exported + 1
       assert(entry.kind == "field", entry.kind)
       assert(entry.line == 2, tostring(entry.line))
-    elseif not entry.exported and entry.source_symbol == "Public.run"
-           and entry.kind == "function" then
+    elseif not entry.exported and entry.source_symbol == "Public.run" and
+           entry.kind == "function" then
       private_callable = private_callable + 1
     end
   end

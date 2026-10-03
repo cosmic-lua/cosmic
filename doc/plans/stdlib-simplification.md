@@ -470,7 +470,7 @@ description.
 [`cosmic.entrypoint`]: ../../cosmic/entrypoint.tl
 [`cosmic.errno`]: ../../cosmic/errno.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
-[`cosmic.http`]: ../../cosmic/http.tl
+[`cosmic.http`]: ../../cosmic/http/init.tl
 [`cosmic.internal.http`]: ../../cosmic/internal/http.d.tl
 [`cosmic.internal.store`]: ../../cosmic/internal/store.d.tl
 [`cosmic.layout`]: ../../cosmic/layout.tl
@@ -503,8 +503,8 @@ description.
 [`Hash.byte_sum`]: ../../cosmic/hash.tl
 [`Hash.Hasher`]: ../../cosmic/hash.tl
 [`Hash.Mac`]: ../../cosmic/hash.tl
-[`Http.download`]: ../../cosmic/http.tl
-[`Http.upload`]: ../../cosmic/http.tl
+[`Http.download`]: ../../cosmic/http/init.tl
+[`Http.upload`]: ../../cosmic/http/init.tl
 [`Json.layout`]: ../../cosmic/json.tl
 [`ListenOptions.reclaim`]: ../../cosmic/net.tl
 [`Net.Address`]: ../../cosmic/net.tl
@@ -515,7 +515,7 @@ description.
 [`Net.serve`]: ../../cosmic/net.tl
 [`Net.tcp`]: ../../cosmic/net.tl
 [`Net.unix`]: ../../cosmic/net.tl
-[`Options.cancelled`]: ../../cosmic/http.tl
+[`Options.cancelled`]: ../../cosmic/http/init.tl
 [`Pipe.streamed`]: ../../cosmic/child.tl
 [`Poll.CANCELLED`]: ../../cosmic/poll.tl
 [`Poll.checked_ns`]: ../../cosmic/poll.tl

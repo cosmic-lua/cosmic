@@ -76,6 +76,14 @@ local record Cli
   --- Each test runs in a process of its own, and fails if it runs past
   --- its timeout; what a failing test printed is shown beneath it.
   ---
+  --- Where the kernel can (Linux), each test runs sandboxed, given its
+  --- module's import closure and what the module declares with
+  --- [`Test.needs`] (`cosmic docs cosmic.test`), and nothing else of the
+  --- tree or the host: a test that starts a host program, /bin/sh or
+  --- `sleep`, declares `system = true`. A failure that met what its
+  --- sandbox left out at an absolute path -- a program it started, a
+  --- file it read -- says so beneath it, naming what to declare.
+  ---
   --- A test whose verdict still stands is not run again: one this
   --- checkout reached, in o/build.db, or one any checkout of the same
   --- content did, which every sandboxed run shares through

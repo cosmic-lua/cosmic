@@ -104,8 +104,8 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     local whole = this_program.program({ "x" }).options
     local own = Env.all()
     for name, value in pairs(own) do
-      if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO"
-        and relaunch.env[name] == nil then
+      if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO" and
+        relaunch.env[name] == nil then
         assert(whole.env[name] == value, name)
       end
     end

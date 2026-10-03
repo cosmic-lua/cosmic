@@ -143,18 +143,21 @@ local function laid_out(source: string): string
     local prev, prev2: Token, Token
     for i, t in ipairs(tokens) do
       if t.kind == "punct" or t.kind == "word" or t.kind == "literal" then
-        if t.text == "{" then depth = depth + 1
-        elseif t.text == "}" then depth = depth - 1
+        if t.text == "{" then
+          depth = depth + 1
+        elseif t.text == "}" then
+          depth = depth - 1
         elseif t.text == "(" then
-          if depth == 0 and parens == 0 and prev ~= nil and prev.kind == "word"
-              and not keywords[prev.text] and prev2 ~= nil
-              and (prev2.kind == "word" or prev2.text == "*")
-              and tokens[i - 1] == prev then
+          if depth == 0 and parens == 0 and prev ~= nil and prev.kind == "word" and
+              not keywords[prev.text] and prev2 ~= nil and
+              (prev2.kind == "word" or prev2.text == "*") and
+              tokens[i - 1] == prev then
             -- Find the close, then what follows it.
             local level, j = 0, i
             while j <= #tokens do
               local u = tokens[j]
-              if u.text == "(" then level = level + 1
+              if u.text == "(" then
+                level = level + 1
               elseif u.text == ")" then
                 level = level - 1
                 if level == 0 then break end
@@ -162,8 +165,8 @@ local function laid_out(source: string): string
               j = j + 1
             end
             j = j + 1
-            while tokens[j] ~= nil and (tokens[j].kind == "space" or tokens[j].kind == "newline"
-                or tokens[j].kind == "comment") do
+            while tokens[j] ~= nil and (tokens[j].kind == "space" or tokens[j].kind == "newline" or
+                tokens[j].kind == "comment") do
               j = j + 1
             end
             local after = tokens[j]
@@ -172,7 +175,8 @@ local function laid_out(source: string): string
             end
           end
           parens = parens + 1
-        elseif t.text == ")" then parens = parens - 1
+        elseif t.text == ")" then
+          parens = parens - 1
         end
         prev2, prev = prev, t
       end
@@ -232,8 +236,8 @@ local function laid_out(source: string): string
       out[#out + 1] = (table.concat(parts):gsub("[ \t]+$", ""))
 
       if lead.kind ~= "directive" then
-        local label = line.code[1] ~= nil
-          and (line.code[1].text == "case" or line.code[1].text == "default")
+        local label = line.code[1] ~= nil and
+          (line.code[1].text == "case" or line.code[1].text == "default")
         for _, t in ipairs(line.code) do
           if t.text == "{" then
             stack[#stack + 1] = opens_entries(prev, prev2, cast)
@@ -252,9 +256,9 @@ local function laid_out(source: string): string
         local last = line.code[#line.code]
         if last ~= nil then
           local v = last.text
-          ends = v == ";" or v == "{" or v == "}"
-            or (v == ":" and (label or #line.code == 2))
-            or (v == "," and stack[#stack] == true and parens == 0)
+          ends = v == ";" or v == "{" or v == "}" or
+            (v == ":" and (label or #line.code == 2)) or
+            (v == "," and stack[#stack] == true and parens == 0)
         end
       end
     end

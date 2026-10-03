@@ -1,0 +1,10 @@
+file: tl.tl
+note: Lua 5.5 makes a numeric for's variable, and the first of a generic for's, read-only, so an assignment to one passed the checker and was refused by Lua's compiler at a line of the generated chunk. A variable records whether it is one: true for a loop's (34b, 34c), false for a local declared over one (34d), nil for anything else, for check_assignment to refuse the assignment at its own line (34e)
+--- find
+   has_been_written_to: boolean
+end
+--- replace
+   has_been_written_to: boolean
+   is_loop_control: boolean
+end
+--- end

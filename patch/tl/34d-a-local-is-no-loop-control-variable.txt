@@ -1,0 +1,8 @@
+file: tl.tl
+note: `local item = item` declares a new, assignable local, but the checker records it as a "localizing" specialization, which over a narrowing of the name in the same block (`assert(item is string)`) is that narrowing's own record: say it is no control variable on whichever record it is
+--- find
+               self:add_var(var, var.tk, t, var.attribute, is_localizing_a_variable(node, i) and "localizing")
+--- replace
+               local declared = self:add_var(var, var.tk, t, var.attribute, is_localizing_a_variable(node, i) and "localizing")
+               declared.is_loop_control = false
+--- end

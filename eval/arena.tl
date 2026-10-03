@@ -17,11 +17,11 @@ end
 
 --- The prompt the solver is given, naming the arena's own paths.
 function Arena.prompt(dir: string): string
-  return "Your working directory is " .. dir .. "/project. Set that working directory explicitly\n"
-    .. "for every shell call, prepend " .. dir .. "/bin to PATH, and set TMPDIR=" .. dir .. "/tmp in\n"
-    .. "every shell call.\n"
-    .. "Read TASK.md there and do exactly what it says. Work independently without\n"
-    .. "sub-agents or coaching. Use the binary as your only source about cosmic.\n"
+  return "Your working directory is " .. dir .. "/project. Set that working directory explicitly\n" ..
+    "for every shell call, prepend " .. dir .. "/bin to PATH, and set TMPDIR=" .. dir .. "/tmp in\n" ..
+    "every shell call.\n" ..
+    "Read TASK.md there and do exactly what it says. Work independently without\n" ..
+    "sub-agents or coaching. Use the binary as your only source about cosmic.\n"
 end
 
 --- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,

@@ -1263,8 +1263,8 @@ local function view_of(rec: Recording, m: importer.Module): {string:string}
   local view = rec.views[m.path]
   if view == nil then
     local effective = rec.effective[m.path]
-    view = rec.sandbox and test_sandbox.environment(worker_view(), effective)
-      or test_sandbox.unenforced_view(worker_view(), effective)
+    view = rec.sandbox and test_sandbox.environment(worker_view(), effective) or
+      test_sandbox.unenforced_view(worker_view(), effective)
     rec.views[m.path] = view
   end
   return view

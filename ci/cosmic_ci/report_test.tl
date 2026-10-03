@@ -221,7 +221,10 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
       run_entry(40, "success", 1), run_entry(30, "success", 1),
       run_entry(25, "cancelled", 1), run_entry(22, "failure", 1),
       run_entry(20, "success", 2), run_entry(10, "success", 1) } })
-  jobs(f, "40", 13); jobs(f, "30", 11); jobs(f, "25", 12); jobs(f, "22", 14)
+  jobs(f, "40", 13)
+  jobs(f, "30", 11)
+  jobs(f, "25", 12)
+  jobs(f, "22", 14)
   artifact(f, "40", "rrrr", "h2", 90)
   artifact(f, "30", "rrrr", "h1", 100)
   artifact(f, "25", "rrrr", "h9", 50)

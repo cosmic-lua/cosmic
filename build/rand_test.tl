@@ -316,7 +316,9 @@ end
 
 local function test_a_failed_write_to_standard_output_is_exit_2()
   local function refuse(): Stand
-    return { out = function(_text: string): boolean, string return false, "No space left on device" end }
+    return { out = function(_text: string): boolean, string
+      return false, "No space left on device"
+    end }
   end
   local cases: {{string}} = {
     { "uuid" }, { "token" }, { "int", "1", "9" }, { "uuid", "--v7", "-n", "20000" },

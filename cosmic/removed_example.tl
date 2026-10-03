@@ -109,12 +109,18 @@ function Example.table_operations()
   local empty: {string} = {}
   assert(table.remove(empty) == nil and table.remove(xs, #xs + 1) == nil)
   assert(not pcall(function() table.remove(xs, 0) end))
-  table.insert(xs, "z"); assert(table.remove(xs) == "z")
-  table.insert(xs, 2, "x"); assert(table.remove(xs, 2) == "x")
-  table.sort(xs); assert(table.concat(xs, ":", 1, 3) == "a:b:c")
-  table.move(xs, 1, 2, 2, xs); assert(table.concat(xs) == "aab")
-  local packed = table.pack("a", nil, "c"); assert(packed.n == 3)
-  local a, b = table.unpack({ "a", "b" }); assert(a == "a" and b == "b")
+  table.insert(xs, "z")
+  assert(table.remove(xs) == "z")
+  table.insert(xs, 2, "x")
+  assert(table.remove(xs, 2) == "x")
+  table.sort(xs)
+  assert(table.concat(xs, ":", 1, 3) == "a:b:c")
+  table.move(xs, 1, 2, 2, xs)
+  assert(table.concat(xs) == "aab")
+  local packed = table.pack("a", nil, "c")
+  assert(packed.n == 3)
+  local a, b = table.unpack({ "a", "b" })
+  assert(a == "a" and b == "b")
 end
 
 --- string.byte/string.char convert bytes; string.len counts bytes; string.sub
@@ -158,7 +164,8 @@ end
 --- requires a fixed-size format. string.dump produces a binary function chunk.
 function Example.string_binary()
   assert(string.format("%04d", 7) == "0007")
-  local data = string.pack(">I2", 513); assert(string.packsize(">I2") == 2)
+  local data = string.pack(">I2", 513)
+  assert(string.packsize(">I2") == 2)
   local n, next_position = string.unpack(">I2", data)
   assert(n == 513 and next_position == 3)
 end
@@ -189,7 +196,8 @@ function Example.math_functions()
   assert(math.sin(0) == 0 and math.cos(0) == 1 and math.tan(0) == 0)
   assert(math.sqrt(9) == 3 and math.exp(0) == 1 and math.log(8, 2) == 3)
   assert(math.deg(math.rad(180)) == 180 and math.pi > 3)
-  local f, e = math.frexp(8); assert(math.ldexp(f, e) == 8)
+  local f, e = math.frexp(8)
+  assert(math.ldexp(f, e) == 8)
 end
 
 --- utf8.char encodes code points and rejects values outside Unicode's range;
@@ -205,7 +213,8 @@ function Example.utf8_operations()
   local text = utf8.char(0x03bb, 0x61)
   assert(utf8.len(text) == 2 and utf8.codepoint(text) == 0x03bb)
   assert(utf8.offset(text, 1) == 1 and utf8.offset(text, 2) == 3)
-  local count = 0; for _ in utf8.codes(text) do count = count + 1 end
+  local count = 0
+  for _ in utf8.codes(text) do count = count + 1 end
   assert(count == 2 and string.match(text, utf8.charpattern) ~= nil)
 end
 
@@ -217,10 +226,15 @@ end
 --- no pending to-be-closed variable fails, or false plus that close error;
 --- closing the running or a normal coroutine raises.
 function Example.coroutines()
-  local co = coroutine.create(function(): string coroutine.yield("paused"); return "done" end)
+  local co = coroutine.create(function(): string
+    coroutine.yield("paused")
+    return "done"
+  end)
   assert(coroutine.status(co) == "suspended")
-  local ok, state = coroutine.resume(co); assert(ok and state == "paused")
-  ok, state = coroutine.resume(co); assert(ok and state == "done" and coroutine.status(co) == "dead")
+  local ok, state = coroutine.resume(co)
+  assert(ok and state == "paused")
+  ok, state = coroutine.resume(co)
+  assert(ok and state == "done" and coroutine.status(co) == "dead")
   local abandoned = coroutine.create(function() coroutine.yield() end)
   assert(coroutine.close(abandoned))
 end
@@ -253,17 +267,23 @@ function Example.enums_arrays_maps_tuples()
     "red"
     "blue"
   end
-  local color: Color = "red"; local array: {integer} = { 2, 3 }
-  local map: {string:integer} = { answer = 42 }; local tuple: {string,integer} = { "age", 9 }
+  local color: Color = "red"
+  local array: {integer} = { 2, 3 }
+  local map: {string:integer} = { answer = 42 }
+  local tuple: {string,integer} = { "age", 9 }
   assert(color == "red" and array[2] == 3 and map.answer == 42 and tuple[1] == "age")
 end
 
 --- A union `A | B` accepts only values assignable to one member; operations
 --- must be valid for every member until control flow narrows it. Comparisons
---- with nil, `is` tests, and assert conditions narrow locals. `is` accepts a
---- variable, not an arbitrary expression. A union may contain only one table
---- type unless every table member is a record/interface declared with a
---- runtime discriminator using `where`. string|enum and unions of two enums
+--- with nil, `is` tests, Lua's own `type(v) == "string"` tests, truthiness
+--- (`if v`, and `v and v.field`, whose right operand sees v not nil) and
+--- assert conditions narrow locals. A `type()` test narrows as `is` would:
+--- `any` to string, number, boolean or nil, and a union to the members of
+--- that Lua type ("number" answers for integer too; `is integer` tells them
+--- apart). Each accepts a variable, not an arbitrary expression. A union
+--- may contain only one table type unless every table member is a
+--- record/interface declared with a runtime discriminator using `where`. string|enum and unions of two enums
 --- are rejected because their values are indistinguishable at runtime.
 --- Narrowing tracks stable local bindings, not arbitrary mutable table fields.
 --- `value as T` asks the checker to treat a value as T and adds no runtime check.
@@ -286,6 +306,14 @@ function Example.unions_narrowing_casts()
     if value is integer then return tostring(value + 1) end
     return string.upper(value as string)
   end
+  local function length(value: any): integer
+    if type(value) ~= "string" then return 0 end
+    return #value
+  end
+  local function first_size(sizes: {integer} | nil): integer | nil
+    return sizes and sizes[1]
+  end
+  assert(length("abc") == 3 and length(3) == 0 and first_size({ 7 }) == 7 and first_size(nil) == nil)
   local maybe: string | nil = "present"
   assert(maybe ~= nil)
   local definitely: string = maybe
@@ -316,8 +344,11 @@ end
 --- and nil are falsey; and/or return operands. Operators include //, %, ^, ..,
 --- #, shifts and bitwise operations with Lua precedence.
 function Example.scoping_control_operators()
-  local limit <const>: integer = 4; local total = 0
-  for i = 1, limit do if i % 2 == 0 then total = total + i end end
+  local limit <const>: integer = 4
+  local total = 0
+  for i = 1, limit do
+    if i % 2 == 0 then total = total + i end
+  end
   assert(total == 6 and (nil or "fallback") == "fallback" and #"abc" == 3)
 end
 

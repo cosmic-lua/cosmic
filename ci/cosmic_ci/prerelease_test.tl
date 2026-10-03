@@ -39,8 +39,8 @@ local function test_manifest_digest()
 end
 
 local function test_expects_four()
-  assert(Prerelease.expects_four("4\n") and Prerelease.expects_four("4")
-    and Prerelease.expects_four("4\n\n"))
+  assert(Prerelease.expects_four("4\n") and Prerelease.expects_four("4") and
+    Prerelease.expects_four("4\n\n"))
   for _, bad in ipairs({ "3\n", " 4\n", "4 \n", "04\n", "", "\n4\n" }) do
     assert(not Prerelease.expects_four(bad), bad)
   end
@@ -105,8 +105,8 @@ local function test_asset_set()
       { "cosmic", "cosmic", "source.json" }, { "cosmic", "SHA256SUMS", "notes.md" } }) do
     assert(not Prerelease.complete_assets(bad), table.concat(bad, ","))
   end
-  assert(Prerelease.known_asset("cosmic") and Prerelease.known_asset("SHA256SUMS")
-    and Prerelease.known_asset("source.json"))
+  assert(Prerelease.known_asset("cosmic") and Prerelease.known_asset("SHA256SUMS") and
+    Prerelease.known_asset("source.json"))
   assert(not Prerelease.known_asset("notes.md") and not Prerelease.known_asset("cosmic.exe"))
 end
 
@@ -118,7 +118,9 @@ local function test_release_ids_gathers_every_page()
   assert(#Prerelease.release_ids("[[]]", tag) == 0)
   refused("no JSON array", function() Prerelease.release_ids('{"id":1}', tag) end)
   refused("no array", function() Prerelease.release_ids('[{"id":1}]', tag) end)
-  refused("has no id", function() Prerelease.release_ids('[[{"tag_name":"' .. tag .. '"}]]', tag) end)
+  refused("has no id", function()
+    Prerelease.release_ids('[[{"tag_name":"' .. tag .. '"}]]', tag)
+  end)
 end
 
 --- Four lanes' products under `products`, each holding `bytes`.
@@ -151,7 +153,9 @@ end
 
 local function test_stage_refuses_what_the_lanes_disagree_on(tmp: string)
   local cases: {string: function(string)} = {
-    ["found 3"] = function(p: string) assert(Fs.remove_tree(p .. "/portable-product-macos-aarch64")) end,
+    ["found 3"] = function(p: string)
+      assert(Fs.remove_tree(p .. "/portable-product-macos-aarch64"))
+    end,
     ["found 5"] = function(p: string) assert(Fs.mkdirs(p .. "/portable-product-windows-x86_64")) end,
     ["expected portable-product-linux-x86_64"] = function(p: string)
       assert(Fs.rename(p .. "/portable-product-linux-x86_64", p .. "/elsewhere"))
@@ -324,8 +328,8 @@ local function test_publish_verifies_an_identical_published_release(tmp: string)
   seed(r, "1", false, staged(r))
   assert(publish(r) == "prerelease already published and verified: " .. tag)
   local log = calls(r)
-  assert(count(log, "release create ") == 0 and count(log, "release upload ") == 0
-    and count(log, "release edit ") == 0 and count(log, "POST") == 0, log)
+  assert(count(log, "release create ") == 0 and count(log, "release upload ") == 0 and
+    count(log, "release edit ") == 0 and count(log, "POST") == 0, log)
   assert(count(log, "release download ") == 1)
 end
 
@@ -389,7 +393,9 @@ local function test_publish_refuses_a_forbidden_tag_the_workflows_do_not_explain
   assert(Fs.mkdirs(r.state .. "/fail"))
   write(r.state .. "/fail/create-ref", "")
   write(r.state .. "/compare", "build/x.tl\n.github/scripts/y.sh\n")
-  refused("git/refs -f ref=refs/tags/" .. tag .. " failed (HTTP status 403)", function() publish(r) end)
+  refused("git/refs -f ref=refs/tags/" .. tag .. " failed (HTTP status 403)", function()
+    publish(r)
+  end)
   assert(not exists(r.state .. "/releases"))
 end
 

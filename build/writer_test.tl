@@ -460,3 +460,12 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   assert(out:close())
   assert(found[1][1] == "doc.guides.quickstart|A tour.", found[1][1])
 end
+
+--- Rebuilding the projection from the same source assigns the same
+--- rowids regardless of the output path or the working database.
+local function test_a_project_is_reproducible(tmp: string)
+  assert(work.close((build_and_write(tmp .. "/one", "world", tmp .. "/one.db"))))
+  assert(work.close((build_and_write(tmp .. "/two", "world", tmp .. "/two.db"))))
+  assert(Fs.read(tmp .. "/one.db") == Fs.read(tmp .. "/two.db"),
+    "equivalent projects produced different projections")
+end

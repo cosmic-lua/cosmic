@@ -235,7 +235,8 @@ local function program_modules(): Sqlite.Handle
   local db = assert(Sqlite.memory())
   assert(Sqlite.run(db, "CREATE TABLE modules (path TEXT, file TEXT)"))
   assert(Sqlite.run(db, "CREATE TABLE imports (path TEXT, requires TEXT)"))
-  for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.equiv", "build.ast",
+  for _, module in ipairs({ "build.fix.rule", "build.fix.render", "build.fix.breaks",
+                            "build.fix.equiv", "build.ast",
                             "build.teal", "build.flow", "build.c", "build.fix.near",
                             "build.analyzer", "build.verdict", "build.tree", "cosmic.flags",
                             "cosmic.cli",
@@ -315,7 +316,7 @@ end
 
 --- Changed output still has to parse and preserve both syntax and comments.
 local function test_changed_rendering_is_checked_before_it_is_accepted()
-  local original = render_mod.rendered
+  local original = render_mod.laid_out
   local ok, trouble = pcall(function(): (any...)
     local source = "-- keep this\nlocal x = 1\n"
     local outputs = {
@@ -329,15 +330,15 @@ local function test_changed_rendering_is_checked_before_it_is_accepted()
       "what was rendered does not parse:",
     }
     for i, output in ipairs(outputs) do
-      render_mod.rendered = function(): string | nil, string
-        return output
+      render_mod.laid_out = function(): render_mod.Layout | nil, string
+        return { text = output }
       end
       local result, why = fix.source(built, source, "probe.tl")
       assert(result == nil, "corrupt rendering was accepted")
       assert(why:find(errors[i], 1, true) ~= nil, why)
     end
   end)
-  render_mod.rendered = original
+  render_mod.laid_out = original
   assert(ok, tostring(trouble))
 end
 
@@ -345,22 +346,22 @@ end
 --- its first pass looks fine on its own: [`fix.source`] renders what it
 --- produced a second time and requires the same bytes back.
 local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
-  local original = render_mod.rendered
+  local original = render_mod.laid_out
   local ok, trouble = pcall(function(): (any...)
     local source = "local x = 1\n"
     local calls = 0
-    render_mod.rendered = function(_: ast.Parsed, src: string): string | nil, string
+    render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout | nil, string
       calls = calls + 1
       if calls == 1 then
-        return src
+        return { text = src }
       end
-      return src .. "-- a second pass added this\n"
+      return { text = src .. "-- a second pass added this\n" }
     end
     local result, why = fix.source(built, source, "probe.tl")
     assert(result == nil, "a renderer that is not a fixed point was accepted")
     assert(why:find("not a fixed point", 1, true) ~= nil, why)
   end)
-  render_mod.rendered = original
+  render_mod.laid_out = original
   assert(ok, tostring(trouble))
 end
 
@@ -563,7 +564,9 @@ local function test_links_keep_why_their_build_failed(tmp: string)
   assert(Fs.write(root .. "/a.md", "[`m.one`]\n"))
   for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do
     local source = fix.link_context(root, false, true,
-      function(_: string): boolean, string return case.ok, case.ok and "" or "a.tl: the compiler refused it" end,
+      function(_: string): boolean, string
+        return case.ok, case.ok and "" or "a.tl: the compiler refused it"
+      end,
       function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
     assert(source.unbuilt == nil, "before a link named a symbol")
     fix.links(source.context, built, { root .. "/a.md" })

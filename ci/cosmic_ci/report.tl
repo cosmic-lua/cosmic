@@ -282,7 +282,9 @@ local function matched_restored(now: {string:string}, held: string): string, str
     end
   end
   if not named then return "unnamed", "" end
-  if matched > 0 then return "matched", string.format("%d of %s", matched, Plural.count(rows, "row")) end
+  if matched > 0 then
+    return "matched", string.format("%d of %s", matched, Plural.count(rows, "row"))
+  end
   return "moved", string.format("runtime or harness not among the restored cache's " ..
     "(%s)", Plural.count(rows, "row"))
 end
@@ -309,7 +311,8 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
     local earlier: Report.Run | nil = nil
     for j = i + 1, #runs do
       if runs[j].conclusion ~= "cancelled" and next(deciding_rows(runs[j])) ~= nil then
-        earlier = runs[j]; break
+        earlier = runs[j]
+        break
       end
     end
     local keys: {string} = {}
@@ -342,7 +345,8 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
           local held_since = true
           for _, part in ipairs({ "runtime", "harness" }) do
             if now[part] ~= (was.parts or {})[part] then
-              moved[#moved + 1] = key .. ": " .. unnamed .. part .. " moved"; held_since = false
+              moved[#moved + 1] = key .. ": " .. unnamed .. part .. " moved"
+              held_since = false
             end
           end
           if held_since then
@@ -456,14 +460,18 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
     runner[#runner + 1] = Report.runner_seconds(run)
     for _, job in ipairs(platform_jobs(run)) do
       if job.seconds then
-        if not legs[job.name] then legs[job.name] = {}; leg_names[#leg_names + 1] = job.name end
+        if not legs[job.name] then
+          legs[job.name] = {}
+          leg_names[#leg_names + 1] = job.name
+        end
         table.insert(legs[job.name], job.seconds)
       end
     end
     for _, row in ipairs(run.suites) do
       local key = row.worker .. " | " .. row.suite
       if not suites[key] then
-        suites[key] = { ms = {}, stood = {}, ran = {} }; suite_names[#suite_names + 1] = key
+        suites[key] = { ms = {}, stood = {}, ran = {} }
+        suite_names[#suite_names + 1] = key
       end
       if row.elapsed_ms then table.insert(suites[key].ms, row.elapsed_ms) end
       if row.ran then table.insert(suites[key].ran, row.ran) end
@@ -471,7 +479,8 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
       if percent then table.insert(suites[key].stood, percent) end
     end
   end
-  table.sort(leg_names); table.sort(suite_names)
+  table.sort(leg_names)
+  table.sort(suite_names)
   out[#out + 1] = "- Wall: " .. Report.duration(whole(Report.median(walls))) .. "\n"
   out[#out + 1] = "- Runner time: " .. Report.duration(whole(Report.median(runner))) .. "\n"
   out[#out + 1] = "\n| Leg | Time |\n|---|---:|\n"
@@ -538,7 +547,8 @@ local function database_of(zip: string): string | nil, string
   for _, entry in ipairs(listed) do
     if entry.path == "operations.db" and entry.kind == "file" then
       local stream, opened = entry.open(entry)
-      if stream == nil then trouble = opened
+      if stream == nil then
+        trouble = opened
       else
         local bytes, read_trouble = Stream.read_all(stream)
         if bytes == nil then trouble = read_trouble else found = bytes end

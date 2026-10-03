@@ -19,6 +19,10 @@
 --- moves no key, so the verdict stands stale on it. Declare it anyway:
 --- a sandboxed run of the same test is what enforces it, where an
 --- undeclared read finds nothing and the test fails with its own error.
+--- A start or a read that found nothing at an absolute path the
+--- sandbox left out -- /bin/sh, say, for a test that does not declare
+--- `system` -- says so beneath that error, naming what to declare: a
+--- test that starts a host program declares `system = true`.
 ---
 --- The closure is what the build finds `require`d by a literal name,
 --- anywhere in the module and in each it requires. Under `cosmic test`,

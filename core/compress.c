@@ -879,7 +879,8 @@ static int stream_finish (lua_State *L) {
 
   if (s->op == OP_DEFLATE) {
     gzip_write_header(s, &out);
-    deflate_chunk(s, NULL, 0, TDEFL_FINISH, &out);
+    /* An empty string, not NULL: deflate_chunk adds its offset to it. */
+    deflate_chunk(s, (const unsigned char *)"", 0, TDEFL_FINISH, &out);
     if (s->format == FMT_GZIP) {
       push_u32le(&out, s->enc_crc);
       push_u32le(&out, s->enc_isize);

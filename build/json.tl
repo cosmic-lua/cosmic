@@ -262,8 +262,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     -- once per match above it (`$..a` over nested `a`s, `$..*`).
     local covered: string | nil
     for _, match in ipairs(matches) do
-      if covered ~= nil and String.starts_with(match.path, covered)
-        and match.path:find("^[.%[]", #covered + 1) then
+      if covered ~= nil and String.starts_with(match.path, covered) and
+        match.path:find("^[.%[]", #covered + 1) then
         goto next_match
       end
       covered = match.path

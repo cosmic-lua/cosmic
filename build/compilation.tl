@@ -310,9 +310,9 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       source = source,
       source_hash = source_hash,
       requires = requires[source_hash] or {},
-      tests = kind == "test" and (tests[source_hash] or {})
-        or kind == "example" and (examples[source_hash] or {})
-        or {},
+      tests = kind == "test" and (tests[source_hash] or {}) or
+        kind == "example" and (examples[source_hash] or {}) or
+        {},
       inputs = inputs,
       has_top_level_return = has_return == "1",
       generated = origin == "doctest",
@@ -446,13 +446,31 @@ local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
+--- Lua's refusal of the chunk compiled from `file`, said at `file`'s
+--- line rather than at the chunk's name. tl's generator writes each
+--- statement on its source's line, adding lines only to reach one, so
+--- the chunk's line is the line of the Teal.
+local function at_source_line(trouble: string, file: string): string
+  local line, said = trouble:match("^.-:(%d+): (.*)$")
+  if line == nil then
+    return file .. ": " .. trouble
+  end
+  return file .. ":" .. line .. ": " .. said
+end
+
 --- Bytecode for compiled Lua, checked to be the shape every target
 --- shares.
 local function bytecode_of(code: string, name: string,
                            file: string): string | nil, string
   local chunk, load_trouble = load(code, "@" .. name, "t")
   if chunk == nil then
-    return nil, file .. ": " .. tostring(load_trouble)
+    -- TODO: tl's checker passes what Lua 5.5 refuses only here:
+    -- `global`, which Lua reserves, as a local, parameter, field or
+    -- method name; a `goto` into a local's scope; and `function f()`
+    -- over a `<const>` local or a for loop's control variable. The
+    -- generator would write a key named `global` as `["global"]`, and
+    -- the checker refuse the rest, as patch/tl/34 does an assignment.
+    return nil, at_source_line(tostring(load_trouble), file)
   end
   local bytecode = string.dump(chunk, false)
   if not String.starts_with(bytecode, bytecode_header) then

@@ -176,7 +176,9 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       if written ~= nil and #written > 0 then Fuzz.label("extracted") end
       -- What a hostile entry among well-formed ones reaches: the
       -- writes before it, left in place when it is refused.
-      if written == nil and (Fs.list(dest) or {})[1] ~= nil then Fuzz.label("refused after writing") end
+      if written == nil and (Fs.list(dest) or {})[1] ~= nil then
+        Fuzz.label("refused after writing")
+      end
       -- The escape `target_crosses_link` exists for: `link -> .` made,
       -- then a link through it (`x -> link/..`, which leads to dest's
       -- parent) refused.
@@ -185,7 +187,10 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
         Fuzz.label("refused a link through a link")
       end
       for _, rel in ipairs(written or {}) do
-        if Fs.readlink(dest .. "/" .. rel) ~= nil then Fuzz.label("linked"); break end
+        if Fs.readlink(dest .. "/" .. rel) ~= nil then
+          Fuzz.label("linked")
+          break
+        end
       end
       for _, rel in ipairs(written or {}) do
         if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then
@@ -442,7 +447,9 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
         return false, "wrote " .. table.concat(from_file, ",") .. " / " .. table.concat(from_stream, ",")
       end
       local by_file, by_stream = snapshot(case .. "/by-file"), snapshot(case .. "/by-stream")
-      if by_file ~= by_stream then return false, "file:\n" .. by_file .. "\nstream:\n" .. by_stream end
+      if by_file ~= by_stream then
+        return false, "file:\n" .. by_file .. "\nstream:\n" .. by_stream
+      end
       Fuzz.label(from_file ~= nil and "both wrote" or "both refused")
       return true, ""
     end,

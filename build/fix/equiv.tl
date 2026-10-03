@@ -7,7 +7,8 @@
 --- trees here, field by field, ignoring only what a rewrite may move.
 ---
 --- Ignored: a node's position (`y`, `x`, `yend`, `xend`, and those of a
---- list the parser stamps one on), the filename stamped on it, the type
+--- list the parser stamps one on), whether a `;` follows a statement,
+--- the filename stamped on it, the type
 --- identifier tl hands out from a counter, and the comments the parser
 --- attached to statements. Comments are compared separately, off the
 --- token stream, where each appears exactly once. Everything else is
@@ -36,8 +37,13 @@ local plural = require("build.plural")
 
 local type Node = ast.Node
 
---- Fields that say where something was, not what it is.
+--- Fields that say where something was, not what it is. `semicolon`
+--- is among them: a `;` after a statement separates and means nothing
+--- more, and [`build.fix.breaks`] drops one where a line break now does
+--- its work. Where a `;` decides how a `(` that follows reads, the two
+--- readings differ in the tree itself.
 local positional: {string:boolean} = {
+  ["semicolon"] = true,
   ["y"] = true,
   ["x"] = true,
   ["yend"] = true,

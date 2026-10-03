@@ -49,6 +49,10 @@ local record confine
   record Ran
     ok: boolean
     produced: any
+    --- Why each start that failed for what its sandbox lacked failed
+    --- ([`confine.unseen`]), once each, in order: what a failed test's
+    --- report adds where its own message does not say it.
+    unseen: {string}
   end
 
   --- The most paths a sandbox unveils, its reads and writes together.
@@ -59,6 +63,14 @@ local record confine
 
   --- See below.
   held_variable: string
+  --- See below.
+  unseen: function(path: string, use: Use): string | nil
+
+  --- What a test reads or starts that a process may meet missing.
+  enum Use
+    "reads"
+    "starts"
+  end
 end
 
 --- The calls each question this module asks of the filesystem and the
@@ -74,10 +86,14 @@ local record Calls
   getenv: function(name: string): string | nil
   environ: function(): {string:string}
   access: function(path: string, mode: integer): boolean, string, integer
+  open: function(path: string, flags: integer, mode?: integer): integer | nil, string, integer
+  read: function(fd: integer, count: integer): string | nil, string, integer
+  close: function(fd: integer): boolean, string, integer
 end
 local asked: Calls = {
   getcwd = sys.getcwd, realpath = sys.realpath, lstat = sys.lstat, stat = sys.stat,
   readdir = sys.readdir, getenv = sys.getenv, environ = sys.environ, access = sys.access,
+  open = sys.open, read = sys.read, close = sys.close,
 }
 
 --- One running stand-in (see `enter`): the directories the running
@@ -87,6 +103,9 @@ local asked: Calls = {
 local record Entry
   own: {string}
   sandboxed: boolean
+  --- What each start that failed for what the sandbox lacked said of
+  --- it ([`confine.unseen`]), once each.
+  unseen: {string}
 end
 
 --- Every running stand-in, innermost last: one wraps another when a
@@ -465,9 +484,8 @@ end
 --- `programs`, it forbids running nothing, and holds the process only
 --- to that: a sandboxed worker whose module declares `tool` but not
 --- `nests` ([`cosmic.test`]). False and why where there is no Landlock.
--- TODO: let build/confine_tool_test.tl,
--- and build/test_sandbox_system_test.tl, declare `nests` alone,
--- dropping the `tool` they declare only to start what they confine,
+-- TODO: let build/confine_tool_test.tl declare `nests` alone,
+-- dropping the `tool` it declares only to start what it confines,
 -- once a confined process is given only what its worker has, `confine`
 -- narrowing its worker's inputs rather than adding to them: today
 -- `itself` is given to the process it confines, and a worker without
@@ -745,6 +763,76 @@ local function runnable(program: string): boolean
   return may
 end
 
+--- Whether `top`, a first part of a path, is one of the system's own
+--- paths (`system_paths`).
+local function system_path(top: string): boolean
+  for _, given in ipairs(system_paths) do
+    if given == top then return true end
+  end
+  return false
+end
+
+--- What a test declares to be given `top`, the first part of a path it
+--- `use`s, for what [`confine.unseen`] says.
+local function remedy(top: string, use: confine.Use): string
+  if system_path(top) and use == "starts" then
+    return "a test that starts a host program declares Test.needs { system = true } " ..
+      "(see cosmic docs cosmic.test)"
+  elseif system_path(top) then
+    return "a test that reads the system's own files declares Test.needs " ..
+      "{ system = true }, or names the few it reads in `host` (see cosmic docs cosmic.test)"
+  end
+  return "a test names each host file it starts or reads in Test.needs " ..
+    "{ host = { ... } } (see cosmic docs cosmic.test)"
+end
+
+--- Why a process in a sandboxed worker's sandbox (build/test_sandbox.tl)
+--- found nothing at the absolute `path` it `use`s, where the sandbox is
+--- why: the sandbox's root holds only what the worker was given, so the
+--- path's first part missing there is the sandbox's doing. One of the
+--- system's own paths is given with /usr, which every Linux host has, so
+--- with /usr there it is the host that lacks it. A start meets the same
+--- in the `#!` interpreter of a script that is there. Nil where the path
+--- is relative or its first part is there: what is missing is then the
+--- test's own to report. Only a caller in such a sandbox asks: elsewhere
+--- a first part missing is the host's own.
+-- TODO: say the same of a program's ELF interpreter (its PT_INTERP,
+-- /lib64/ld-linux-x86-64.so.2), which a host program declared in `host`
+-- without `system` fails to start without, ENOENT: today the start says
+-- only that.
+-- TODO: say the same of a bare name (`Child.run({ "sh" })`), and of
+-- Proc.find's finding nothing on PATH, where the sandbox has none of
+-- the system's programs, once cosmic.child hears from the stand-in
+-- before it adds its own hint: today a sandboxed start of "sh" says
+-- Proc.find("sh") answers where a shell would find it, which there it
+-- does not.
+local function unseen(path: string, use: confine.Use): string | nil
+  local first = path:match("^/+([^/]+)")
+  if first == nil then return nil end
+  local top = "/" .. first
+  local there, _ = asked.lstat(top)
+  if there == nil then
+    local usr, _ = asked.lstat("/usr")
+    if system_path(top) and usr ~= nil then return nil end
+    return path .. " is not in this test's sandbox, which has nothing of " .. top .. ": " ..
+      remedy(top, use)
+  end
+  if use ~= "starts" then return nil end
+  -- Only a regular file is read for its `#!`: a FIFO there would block.
+  local st, _ = asked.stat(path)
+  if st == nil or st.kind ~= "file" then return nil end
+  local fd, _ = asked.open(path, sys.O_RDONLY | sys.O_NONBLOCK)
+  if fd == nil then return nil end
+  local head, _ = asked.read(fd, 256)
+  local _, _ = asked.close(fd)
+  local interpreter = head ~= nil and head:match("^#!%s*(/[^%s]+)") or nil
+  if interpreter == nil or interpreter == path then return nil end
+  local why = unseen(interpreter, "starts")
+  if why == nil then return nil end
+  return path .. " is a script " .. interpreter .. " runs, and " .. why
+end
+confine.unseen = unseen
+
 --- The first spawn [`must_confine`] refused while each running stand-in
 --- ran, by its entry: which fails that stand-in's call, whatever the
 --- test made of the spawn's answer.
@@ -779,6 +867,9 @@ local function refuse_nesting(program: string, module: string): string
   return message
 end
 
+--- What ends a stand-in (`enter`).
+local type Leave = function(): string | nil
+
 --- Stands in for the process table's `spawn` until the function this
 --- answers is called, which puts back what it stood in for and answers
 --- the first spawn [`must_confine`] refused meanwhile, or nil. `own` holds
@@ -795,13 +886,17 @@ end
 --- not. A reference to the stand-in taken while it stood in starts a
 --- process as the process table's own does, once it no longer stands
 --- in -- or, under [`must_confine`], none.
-local function enter(own?: {string}, sandboxed?: boolean): function(): string | nil
+---
+--- Beside that function it answers a list that the stand-in fills, as
+--- each start that found nothing for what a sandboxed worker's sandbox
+--- left out fails, with why ([`confine.unseen`]).
+local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
   -- The call the stand-in wraps: what `spawn` was as it began.
   local spawn = process.spawn
   local ended = false
   local owned: {string} = {}
   for i, directory in ipairs(own or {}) do owned[i] = directory end
-  local entry: Entry = { own = owned, sandboxed = sandboxed == true }
+  local entry: Entry = { own = owned, sandboxed = sandboxed == true, unseen = {} }
   process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                            cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                            stderr: integer | nil, process_group: boolean,
@@ -937,7 +1032,9 @@ local function enter(own?: {string}, sandboxed?: boolean): function(): string | 
         local leads = cache ~= nil and led_to(cache) or nil
         if leads ~= nil and leads ~= cache then
           local renamed: {string:string} = {}
-          for name, value in pairs(given_environment or asked.environ()) do renamed[name] = value end
+          for name, value in pairs(given_environment or asked.environ()) do
+            renamed[name] = value
+          end
           renamed.COSMIC_PORTABLE_CACHE = leads
           given_environment = renamed
         end
@@ -960,20 +1057,40 @@ local function enter(own?: {string}, sandboxed?: boolean): function(): string | 
     -- Declared by nothing, or where the kernel cannot confine it: as the
     -- test asked, a sandboxed worker's process with this one's sandbox
     -- and no more.
-    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
-      sandbox, credentials)
+    local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
+      process_group, fds, sandbox, credentials)
+    if pid == nil and errno == sys.ENOENT and sandbox == nil and in_sandbox() then
+      -- Found nothing for what the worker's sandbox left out: the start
+      -- fails as it would have, saying so, and every running stand-in
+      -- hears it for a report its test's own message leaves it out of.
+      local why = unseen(path, "starts")
+      if why ~= nil then
+        trouble = trouble .. ": " .. why
+        for _, each in ipairs(entered) do
+          local heard = false
+          for _, said in ipairs(each.unseen) do
+            if said == why then heard = true end
+          end
+          if not heard then each.unseen[#each.unseen + 1] = why end
+        end
+      end
+    end
+    return pid, trouble, errno
   end
   entered[#entered + 1] = entry
   return function(): string | nil
     ended = true
     process.spawn = spawn
     for at = #entered, 1, -1 do
-      if entered[at] == entry then table.remove(entered, at) break end
+      if entered[at] == entry then
+        table.remove(entered, at)
+        break
+      end
     end
     local refused = refusals[entry]
     refusals[entry] = nil
     return refused
-  end
+  end, entry.unseen
 end
 
 --- Calls `fn` with `argument` under a stand-in of its own (`enter`,
@@ -986,14 +1103,14 @@ end
 --- the sandbox its own nested ones.
 function confine.call(fn: function(any...): (any...), argument?: any, own?: {string},
                       sandboxed?: boolean): confine.Ran
-  local leave = enter(own, sandboxed)
+  local leave, heard = enter(own, sandboxed)
   local ok, produced: boolean, any = pcall(fn, argument)
   local refused = leave()
   if refused ~= nil then
     produced = ok and refused or refused .. "; and then: " .. tostring(produced)
     ok = false
   end
-  return { ok = ok, produced = produced }
+  return { ok = ok, produced = produced, unseen = heard }
 end
 
 return confine

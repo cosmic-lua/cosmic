@@ -645,7 +645,9 @@ local function arguments(argv: {integer:string}): Request | nil, string
   end
   if request.lenient then
     if not request.decode then return nil, "--lenient is for -d" end
-    if request.name == "hex" then return nil, "--lenient has nothing to accept for hex, which has no padding" end
+    if request.name == "hex" then
+      return nil, "--lenient has nothing to accept for hex, which has no padding"
+    end
   end
   return request, ""
 end
@@ -722,8 +724,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   local reader: Stream.Reader = opened
   local decode = request.decode
-  local coder = decode and verb.decoding(request.name, request.lenient)
-    or encoding(request.name, request.wrap)
+  local coder = decode and verb.decoding(request.name, request.lenient) or
+    encoding(request.name, request.wrap)
   local source = request.file or "standard input"
   -- A Writer over `to.out`, local because no Stream helper adapts a
   -- function to a Writer and no other verb needs one. `lost` is why a

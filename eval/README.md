@@ -63,14 +63,16 @@ of the solver's project. The prompt varies only in arena paths.
   Record actual elapsed time and enforcement method. A turn cap is an
   additional runner-specific limit, not a claim of equal model budgets.
 - **Independent grading.** After the solver stops, run
-  `timeout 30 eval/check/notes <absolute-arena>` and save stdout/stderr as
-  `grade.log` outside `project/`. A timeout is distinct from an assertion
-  failure. The notes grader requires recorded tests and examples (including
-  guide doctests), checks formatting, builds exactly `o/bin/notes`, then
-  exercises it without supporting files or environment. The grader runs
-  on the pinned bootstrap cosmic, which is no solver dependency either;
-  run [`bin/cosmic-bootstrap`] once beforehand, so its first download is
-  not counted against the grader's 30 seconds.
+  `timeout 30 eval/check/<task> <absolute-arena>` (`timeout 60` for jobs
+  and mirror, whose checks wait out timeouts of their own) and save
+  stdout/stderr as `grade.log` outside `project/`. A timeout is distinct
+  from an assertion failure. The grader requires recorded tests and
+  examples (including guide doctests), checks formatting, builds exactly
+  `o/bin/<task>`, then exercises it without supporting files or
+  environment (see [grading](#grading)). It runs on the pinned bootstrap
+  cosmic, which is no solver dependency either; run
+  [`bin/cosmic-bootstrap`] once beforehand, so its first download is not
+  counted against the grader's time.
 - **Evidence.** Preserve the project and journal. Any path a tool call
   named outside the arena is a boundary breach to record. Preserve a full transcript
   where the runner supplies one; a journal is not a replacement transcript.
@@ -84,15 +86,65 @@ of the solver's project. The prompt varies only in arena paths.
 ## Claude Code
 
 Use a fresh noninteractive session, without resume or inherited project
-instructions. Set `dir` to the absolute arena path and `model` explicitly.
-The existing tool allowlist makes local tools usable without prompts.
-An empty `CLAUDE_CONFIG_DIR` leaves out user skills, plugins, hooks and
-instructions (credentials still come from the environment); a cloud
-session also sets `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
-`CLAUDE_ADDITIONAL_DIRECTORIES` and `CLAUDE_CODE_SYNC_SKILLS`, which can
-bring the checkout's instructions or a synced cosmic skill back in, so
-unset them. Probe once with `claude -p "list your skills"` under the same
-settings before trusting the setup.
+instructions, and set the model explicitly. [`eval/solve`] launches it
+for an arena in a sandbox, and writes `transcript.jsonl`, `stderr`,
+`started_at`, `finished_at` and `exit_code` beside PROMPT.md:
+
+```sh
+eval/solve "$dir" --model "$model"    # --max-turns 60 --timeout 600 by default
+```
+
+The sandbox is cosmic.child's (`unveil`, as `cosmic test` holds its
+workers): the solver, and every process it starts, has a root of its own
+holding only
+
+- the arena's `project/`, `tmp/` (its `TMPDIR`), and `config/` and
+  `home/` (its `CLAUDE_CONFIG_DIR` and `HOME`, fresh each run, outside
+  `project/`), to change; the arena's `bin/`, read-only;
+- the `claude` found on PATH, links resolved: a native executable alone,
+  or a script's directory and its interpreter;
+- read-only, `/usr` (and the links `/bin`, `/lib`, `/lib64` into it) and
+  `/etc`, for the shell, the tools its Bash calls start, the loader, and
+  passwd, resolv.conf and the CA store (and so `/etc/claude-code`,
+  Claude Code's managed settings, on a host that has them: check that
+  it does not); `/dev/null`, `zero`, `full`,
+  `random` and `urandom`; a `/proc` of its own pid namespace;
+- the CA bundle `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS` name, and, in a
+  Claude Code cloud session, `/home/claude/.claude/remote/.oauth_token`
+  alone, without which the CLI is not logged in;
+- a `/tmp` of its own, gone with it: a stray `/tmp/x` write lands
+  nowhere on the host.
+
+No checkout of this repository, `~/.claude`, `~/.cache/cosmic`, skills
+directory (`/mnt/skills`, `/home/claude/.claude/skills`), other arena or
+user config is there to read. Its environment is the proxy variables,
+the CA bundle variables, any Anthropic credential or endpoint variable
+the host sets, and its own PATH (the arena's `bin/` first), `HOME`,
+`CLAUDE_CONFIG_DIR` and `TMPDIR`, and nothing else: the variables a
+cloud session sets that bring the checkout's instructions or a synced
+skill back in (`CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
+`CLAUDE_ADDITIONAL_DIRECTORIES`, `CLAUDE_CODE_SYNC_SKILLS`) are never
+passed. It does not isolate the network: the solver reaches the API
+through the host's network and proxy, and so could fetch anything the
+proxy allows; the prompt's rule and the transcript still govern that.
+The solver runs as the caller's user, in a user namespace of its own,
+holding no capability, with every path but the arena's four mounted
+read-only.
+
+The sandbox needs Linux with user namespaces the caller may make: where
+`cosmic test` sandboxes its workers, eval/solve sandboxes the solver. A
+Claude Code cloud session (gVisor, running as root) has them, and the
+solver there is uid 0 of its own namespace; a host whose policy refuses
+them to an unprivileged user (Ubuntu's AppArmor restriction) does not.
+Where the kernel refuses one, or gives the sandbox the host's `/proc`
+in place of one of its own (a container that masks `/proc`), eval/solve
+fails before the solver starts
+rather than running it unconfined. There, and on macOS, launch by hand
+as below, where the isolation is by convention only: an empty `CLAUDE_CONFIG_DIR` leaves out
+user skills, plugins, hooks and instructions (credentials still come
+from the environment), and the three variables above are unset. Probe
+once with `claude -p "list your skills"` under the same settings before
+trusting the setup.
 
 ```sh
 config=$(mktemp -d)
@@ -107,6 +159,11 @@ cd "$dir/project" && env -u CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD \
   --max-turns 60 --output-format stream-json --verbose \
   < /dev/null > "$dir/transcript.jsonl" 2> "$dir/stderr"
 ```
+
+Record `deadline_method` as [`eval/solve`] or `timeout 600`. Either way,
+run [`eval/summarize`] over the transcript: its list of paths outside the
+arena is the second line of evidence, naming what the sandbox refused
+as well as what the manual launch let through.
 
 `eval/summarize <transcript.jsonl>` is specifically a Claude stream-json
 reader. Beyond turns, tool calls, minutes and cost it counts failed tool
@@ -191,8 +248,9 @@ something the agent was never told. Beyond that bar, what has worked:
   with nothing beside it.
 - **Use the standard library that exists.** A task that needs a module
   cosmic does not have yet measures the gap, not the tool.
-- **Pair it with a grader** at `eval/check/<task>`, taking the arena
-  directory and ending in a verdict line.
+- **Pair it with checks** in the grader (below), run by
+  `eval/check/<task>`, which takes the arena directory and ends in a
+  verdict line.
 - **Say what, never how.** Name the outcome -- tests that pass, examples
   cosmic checks, code formatted the way cosmic formats it, a binary that
   runs alone -- and never the cosmic command that gets it. Finding the
@@ -202,6 +260,43 @@ something the agent was never told. Beyond that bar, what has worked:
   an empty environment; the task says so in the same words.
 - **Keep the journal contract out of the task.** It is the same for
   every task and lives in [`eval/journal.md`].
+
+## grading
+
+One grader, [`eval/check/grade.tl`], grades every task; each
+`eval/check/<task>` runs it for that task on the bootstrap cosmic with
+`--standalone`, which loads no module beside the file, so the plumbing
+and every task's checks live in that one file, requiring `cosmic.*`
+modules only. For each task it
+
+1. requires `project/JOURNAL.md` to be a regular file with something
+   in it, as the journal contract asks -- what it says is the
+   reader's to judge, not the grader's;
+2. clears the runs `project/o/build.db` records, runs the arena's own
+   `bin/cosmic test`, and requires a passing test and a passing example
+   (or doctest) among the runs that test recorded;
+3. runs `cosmic fix --check` with `JOURNAL.md` set aside, and
+   `cosmic build`;
+4. copies `o/bin/<task>` -- only when that build passed and named it --
+   alone into the arena's `empty/`, and runs the task's checks there,
+   the executable with an empty environment but for a variable a check
+   names.
+
+Each step's output is kept in the arena as `check-<n>.out`, and a server
+task's as `check-serve.out`. Every check prints one `check: ok` or
+`check: FAIL` line, and the last line is `check: PASS` or `check: FAIL`,
+exiting 0 or 1.
+
+To add a task: write `eval/task/<task>.md`, a function `<task>(g)` in
+grade.tl's section for it, built from the helpers above them (`expect`,
+`refuses`, `help`, `run`, `write`, `check`, and for a server `serves`,
+`stops` and `exchange`), an entry in `TASKS` (how long one run may take,
+whether its stdin is /dev/null and its children outlive it, and the
+files a solver's own runs leave in the project that would answer for
+the executable), and
+`eval/check/<task>`, a copy of a sibling naming the task. Before running
+a model on it, grade a reference solution and a few broken ones (a
+mutation for each check that matters) and see each fail where it should.
 
 ## reading a journal
 
@@ -222,5 +317,7 @@ ranking. Then:
 
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`eval/arena`]: arena
+[`eval/check/grade.tl`]: check/grade.tl
 [`eval/journal.md`]: journal.md
+[`eval/solve`]: solve
 [`eval/summarize`]: summarize

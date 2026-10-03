@@ -13,6 +13,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
+local Url = require("cosmic.url")
 
 --- Requests to a closed local port, which a loopback alone answers:
 --- the worker runs offline, and is keyed. The tests that start the
@@ -238,10 +239,61 @@ local function test_open_waits_past_a_followed_redirect_for_the_final_headers()
   response:close()
 end
 
-local function test_a_url_with_a_nul_byte_is_refused()
-  -- curl reads the URL as a C string, which would stop at the NUL
-  local response, trouble = Http.open(url .. "\0.evil/", { script = {} })
-  assert(response == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+--- The request line curl wrote for `target`, a URL's text past
+--- "http://cosmic.test", answered over a script.
+local function request_line(target: string): string
+  local response = assert(Http.open("http://cosmic.test" .. target, { script = { reply("200 OK", "", "ok") } }))
+  local sent = response:sent()
+  response:close()
+  return (assert(sent:match("^GET (.-) HTTP/1%.1\r\n"), sent))
+end
+
+local function test_a_url_with_a_space_control_or_non_ascii_byte_is_sent_escaped()
+  assert(request_line("/two words.txt") == "/two%20words.txt")
+  assert(request_line("/caf\xc3\xa9.txt") == "/caf%C3%A9.txt")
+  assert(request_line("/a\tb?q=x\ny\127") == "/a%09b?q=x%0Ay%7F")
+  assert(request_line('/"<>\\^`{|}') == "/%22%3C%3E%5C%5E%60%7B%7C%7D")
+  local got = assert(Http.get(url .. "a b", { script = { reply("200 OK", "", "ok") } }))
+  assert(got.status == 200 and got.body == "ok")
+  got = assert(Http.request("PUT", url .. "a b", { body = "x", script = { reply("200 OK", "", "ok") } }))
+  assert(got.status == 200)
+end
+
+local function test_a_url_with_a_nul_byte_in_its_path_is_sent_escaped()
+  -- curl reads the URL as a C string, which would stop at a raw NUL
+  assert(request_line("/a\0.evil/") == "/a%00.evil/")
+end
+
+local function test_an_escaped_url_and_its_reserved_bytes_are_sent_as_written()
+  local reserved = "/a:b@c;d,e=f+g$h!i'(j)*k[l]~%2F%C3%A9?q=1&r=/2"
+  assert(request_line(reserved) == reserved, request_line(reserved))
+  assert(request_line("/two%20words.txt") == "/two%20words.txt")
+end
+
+local function test_a_percent_not_before_two_hex_digits_is_sent_as_25()
+  assert(request_line("/100%") == "/100%25")
+  assert(request_line("/%%41%zz%4") == "/%25%41%25zz%254")
+end
+
+local function test_a_space_or_control_byte_before_the_path_is_refused_naming_it()
+  local response, trouble = Http.open("http://cosmic.test\0.evil/", { script = {} })
+  assert(response == nil)
+  assert(trouble == "http: the URL holds a NUL at byte 19, in its host, which holds none", trouble)
+  local got, why = Http.get("http://us er@cosmic.test/", { script = {} })
+  assert(got == nil and why == "http: the URL holds a space at byte 10, in its user info; " ..
+    "a user name or password goes in through Url.escape", why)
+  got, why = Http.request("PUT", "cosmic\n.test/a b", { script = {} })
+  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true), why)
+  got, why = Http.get("http:/co smic.test/a", { script = {} })
+  assert(got == nil and why:find("a space at byte 9, in its host,", 1, true), why)
+end
+
+local function test_a_url_escaped_with_url_escape_is_sent_as_written()
+  local response = assert(Http.open(url .. Url.escape("a b/c"), { script = { reply("200 OK", "", "ok") } }))
+  assert(response.status == 200)
+  local sent = response:sent()
+  response:close()
+  assert(sent:find("GET /a%20b%2Fc HTTP/1.1\r\n", 1, true), sent)
 end
 
 -- A pattern no two nearby offsets share, so a byte out of place shows.
@@ -717,8 +769,8 @@ local function test_the_raw_handle_close_returns_no_values()
   local raw: {string: function(string, {string: any}): any, string} = nil
   for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
     local loader, extra = searcher("cosmic.http")
-    if type(loader) == "function" and type(extra) == "table"
-        and (extra as {string: any}).open ~= nil then
+    if type(loader) == "function" and type(extra) == "table" and
+        (extra as {string: any}).open ~= nil then
       raw = extra as {string: function(string, {string: any}): any, string}
     end
   end

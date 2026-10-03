@@ -14,7 +14,9 @@ local function environment(extra?: {string:string}): {string:string}
   local values = Env.all()
   values.COSMIC_BOOTSTRAP, values.COSMIC_BOOTSTRAP_VERIFY = nil, nil
   values.COSMIC_BOOTSTRAP_ATTEMPTS = nil
-  if extra then for name, value in pairs(extra) do values[name] = value end end
+  if extra then
+    for name, value in pairs(extra) do values[name] = value end
+  end
   return values
 end
 
@@ -80,7 +82,9 @@ end
 local function bootstrap(tmp: string, root: string, output: string,
     extra?: {string:string}): Child.Result
   local env: {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
-  if extra then for name, value in pairs(extra) do env[name] = value end end
+  if extra then
+    for name, value in pairs(extra) do env[name] = value end
+  end
   return call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" }, tmp, output, env)
 end
 
@@ -143,7 +147,9 @@ local function driver_context(candidate: string, runner_temp: string,
     RUNNER_TEMP = runner_temp,
     COSMIC_WORKER = "worker",
   }
-  if extra then for name, value in pairs(extra) do env[name] = value end end
+  if extra then
+    for name, value in pairs(extra) do env[name] = value end
+  end
   return env
 end
 

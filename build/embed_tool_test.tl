@@ -385,3 +385,13 @@ return lib
   assert(err:find('cosmic: at lib.tl:4: error("kaboom from lib")', 1, true),
     "the line is read back: " .. err)
 end
+
+--- Joining the standard library and project in their fixed batches
+--- assigns the same rowids and writes the same bytes on every build.
+local function test_the_embedded_database_is_reproducible(tmp: string)
+  write_project(tmp)
+  assert(embed.tree(tmp))
+  local one = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  local two = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  assert(one == two, "repeating the embed changed its database")
+end

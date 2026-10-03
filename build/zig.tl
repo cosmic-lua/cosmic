@@ -166,18 +166,24 @@ end
 
 --- `argv` as zig gets it: `build` gains its flags ahead of the caller's
 --- own arguments, installing under `root/o`, with zig's project cache at
---- `project` and its global cache at `shared`, and running [`build_jobs`]
---- steps at once for `cpus` processors unless the caller passes `-j`;
---- anything else passes through unchanged.
-function Zig.build_args(root: string, project: string, shared: string,
+--- `project`, and running [`build_jobs`] steps at once for `cpus`
+--- processors unless the caller passes `-j`; anything else passes
+--- through unchanged. `zig build` takes no flag for its global cache,
+--- only ZIG_GLOBAL_CACHE_DIR ([`Zig.build_environment`]). zig keeps
+--- build.zig's configuration until what build.zig declared it read
+--- changes; `--cache-poison=disallowed` makes build.zig fail rather
+--- than quietly configure again on every build (it calls `findProgram`,
+--- say). A read build.zig does not declare, it cannot catch: build.zig
+--- declares each (`dependOn*`).
+function Zig.build_args(root: string, project: string,
     argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
       "--cache-dir", project,
-      "--global-cache-dir", shared,
       "--prefix", root .. "/o",
+      "--cache-poison=disallowed",
     }
     for _, define in ipairs(defines or {}) do
       out[#out + 1] = define
@@ -413,6 +419,29 @@ function Zig.passthrough_environment(root: string,
   return out
 end
 
+--- The environment `zig build` runs in: `environment`, with
+--- ZIG_GLOBAL_CACHE_DIR `shared` whatever the caller set, so every
+--- build of every checkout shares it, and ZIG_DEBUG_CMD set.
+---
+--- zig compiles the maker that runs `zig build` for the host's own CPU
+--- model, ReleaseSafe unless ZIG_DEBUG_CMD is set at all, any value
+--- asking for Debug: 98 s against 10 s on an x86_64 Linux host, and no
+--- build of the tree is slower for it (a boot takes 7 s either way). A
+--- cache restored on a runner of another model, as GitHub's Linux
+--- runners vary, compiles it again; zig names no way to choose the
+--- model. Debug's maker logs at debug level, so a build prints zig's
+--- `debug:` lines (a configuration cache hit, say) on standard error.
+--- It is 89 MB, so CI's prune drops it before a save
+--- (cosmic_ci/zig_prune.tl).
+function Zig.build_environment(shared: string,
+                               environment: {string:string}): {string:string}
+  local out: {string:string} = {}
+  for name, value in pairs(environment) do out[name] = value end
+  out.ZIG_GLOBAL_CACHE_DIR = shared
+  out.ZIG_DEBUG_CMD = "1"
+  return out
+end
+
 --- The exit status a failed exec means, as a shell reports it.
 function Zig.exec_status(number: integer): integer
   if number == sys.ENOENT or number == sys.ENOTDIR then
@@ -596,16 +625,16 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
         pending = taken
       end
       if pending ~= 0 and now >= pass_on_at then
-        -- TODO: this reaches zig's own pid alone, so once zig build has
-        -- started its runner, the runner and its compile jobs outlive
-        -- zig, orphaned, and build on to the end (a SIGINT sent to
-        -- bin/zig alone mid-build leaves them). Pass it on to zig's
-        -- descendants as well -- or to this whole process group with
-        -- kill(0, signal), weighing that it also reaches the rest of a
-        -- pipeline such as `| tee`, and that this same guard catches
-        -- the signal sent to the group: such a fix must drop its own
-        -- reflected signal rather than take it as a new one and pass it
-        -- on again every PASS_ON_NS.
+        -- TODO: this reaches zig's own pid alone -- `zig build` execs its
+        -- maker there, which exits on it -- so the compile jobs the
+        -- maker started outlive it, orphaned, and build on to the end
+        -- (a SIGINT sent to bin/zig alone mid-build leaves them). Pass
+        -- it on to zig's descendants as well -- or to this whole process
+        -- group with kill(0, signal), weighing that it also reaches the
+        -- rest of a pipeline such as `| tee`, and that this same guard
+        -- catches the signal sent to the group: such a fix must drop its
+        -- own reflected signal rather than take it as a new one and pass
+        -- it on again every PASS_ON_NS.
         local _, _ = h:stop(pending)
         pending = 0
       end
@@ -825,10 +854,16 @@ end
 function Zig.with_lock(root: string, environment: {string:string},
     run: function({string:string}): integer): integer
   local made, made_trouble = Fs.mkdirs(root .. "/o")
-  if not made then log:complain(root .. "/o: " .. made_trouble); return 1 end
+  if not made then
+    log:complain(root .. "/o: " .. made_trouble)
+    return 1
+  end
   local path = root .. lock_name
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
-  if fd == nil then log:complain(path .. ": " .. open_trouble); return 1 end
+  if fd == nil then
+    log:complain(path .. ": " .. open_trouble)
+    return 1
+  end
   local opened: Lock = { fd = fd }
   local lock <close> = setmetatable(opened, lock_mt)
   local taken, trouble = take(lock, path, 0)
@@ -855,7 +890,10 @@ function Zig.with_lock(root: string, environment: {string:string},
       end
     end
   end
-  if taken == nil then log:complain(trouble); return 1 end
+  if taken == nil then
+    log:complain(trouble)
+    return 1
+  end
   if not handed then
     local aside = root .. holder_name .. "." .. tostring(Proc.pid())
     local written, _ = Fs.write(aside, tostring(Proc.pid()) .. "\nrebuild\n")
@@ -898,7 +936,8 @@ function Zig.main(argv: {integer:string}): integer
     -- The vendored trees are patched once the snapshot is taken, so a
     -- vendored file edited while they are is caught as any source is.
     local function build(env?: {string:string}): integer
-      return watched_build(root, env, function(): {string} | nil
+      local zig_env = Zig.build_environment(Zig.global_cache(root), env or Env.all())
+      return watched_build(root, zig_env, function(): {string} | nil
         local manifest, patch_trouble = patch(root, Zig.project_cache(root))
         if manifest == nil then
           log:complain(patch_trouble)
@@ -906,7 +945,7 @@ function Zig.main(argv: {integer:string}): integer
         end
         local build_argv: {string} = { program }
         for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
-            Zig.global_cache(root), given, Proc.cpu_count(),
+            given, Proc.cpu_count(),
             { "-Dpatched=" .. manifest })) do
           build_argv[#build_argv + 1] = a
         end
@@ -919,8 +958,7 @@ function Zig.main(argv: {integer:string}): integer
     return build()
   end
   local exec_argv: {string} = { zig }
-  for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
-      Zig.global_cache(root), given,
+  for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root), given,
       Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a
   end

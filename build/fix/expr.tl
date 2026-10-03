@@ -71,8 +71,8 @@ local function cast_start(c: Ctx, n: Node, anchor: integer | nil): integer | nil
   if declared == nil then
     return nil
   end
-  return anchor ~= nil and anchor + 1
-    or typescan.index_at(c.scan, declared.y, declared.x)
+  return anchor ~= nil and anchor + 1 or
+    typescan.index_at(c.scan, declared.y, declared.x)
 end
 
 --- What follows an `as` or an `is`, as original bytes.
@@ -202,8 +202,11 @@ local function literal_function(c: Ctx, n: Node)
   sig.returns(c, rets, args, body.y, body.x)
   c.margin = base
   c.block(c, body)
-  ctx_mod.lead_to(c, n.yend or body.y, n.xend or 1, base, " ")
+  local closing = n.yend or body.y
+  local inline = closing <= c.em.line
+  ctx_mod.lead_to(c, closing, n.xend or 1, base, " ")
   emit.put(c.em, "end")
+  ctx_mod.ended(c, n, inline)
   c.margin = outer
 end
 
@@ -267,6 +270,9 @@ local function operator(c: Ctx, n: Node)
     return
   end
   local anchor = typescan.index_at(c.scan, o.y, o.x)
+  if anchor ~= nil and o.y > c.em.line and o.op ~= "as" and o.op ~= "is" then
+    c.leading[#c.leading + 1] = anchor
+  end
   ctx_mod.lead_at(c, o.y, o.x, " ")
   emit.text(c.em, o.op)
   ctx_mod.lead(c, e2, " ")

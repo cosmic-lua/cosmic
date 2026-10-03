@@ -36,7 +36,9 @@ local function test_independent_fixture_histories_match_through_warmups_and_samp
   local names = { "aa-a", "aa-b", "ab-a", "ab-b" }
   local manifest = metadata.fixtures as {{string:any}}
   assert(#manifest == 4)
-  for i, name in ipairs(names) do assert(manifest[i].id == name and manifest[i].root == root .. "/" .. name) end
+  for i, name in ipairs(names) do
+    assert(manifest[i].id == name and manifest[i].root == root .. "/" .. name)
+  end
   for _, phase in ipairs({ "aa", "ab" }) do
     local observations = assert(Json.decode((assert(Fs.read(tmp .. "/results/" .. phase .. "-a/o/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
     assert(#observations == 66)

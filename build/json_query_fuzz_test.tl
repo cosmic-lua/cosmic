@@ -136,7 +136,9 @@ local function test_parse_path_is_total_on_any_text(tmp: string)
       local steps = got as {string | integer}
       local again, why = json_query.parse_path(render(steps))
       if again == nil then return false, "did not read back its own spelling: " .. why end
-      if not same(again, steps) then return false, "spelling " .. render(steps) .. " read differently" end
+      if not same(again, steps) then
+        return false, "spelling " .. render(steps) .. " read differently"
+      end
       return true, ""
     end,
   })
@@ -230,7 +232,9 @@ end
 local function same_steps(a: {json_query.Step}, b: {json_query.Step}): boolean
   if #a ~= #b then return false end
   for i = 1, #a do
-    if a[i].kind ~= b[i].kind or a[i].key ~= b[i].key or a[i].index ~= b[i].index then return false end
+    if a[i].kind ~= b[i].kind or a[i].key ~= b[i].key or a[i].index ~= b[i].index then
+      return false
+    end
   end
   return true
 end
@@ -247,8 +251,8 @@ local function test_a_spelled_pattern_reads_back(tmp: string)
       local steps = steps_of(input)
       if #steps == 0 then Fuzz.label("empty") end
       for _, step in ipairs(steps) do
-        Fuzz.label(step.kind == "deep_key" and "deep key" or step.kind == "deep_index" and "deep index"
-          or step.kind == "deep_any" and "deep any" or step.kind == "any" and "any" or "plain step")
+        Fuzz.label(step.kind == "deep_key" and "deep key" or step.kind == "deep_index" and "deep index" or
+          step.kind == "deep_any" and "deep any" or step.kind == "any" and "any" or "plain step")
       end
       local text = json_query.spell_pattern(steps)
       local ok, read, err = pcall(json_query.parse_pattern, text)
@@ -276,7 +280,9 @@ local function gen_doc(src: Fuzz.Source, depth: integer): string
     return Fuzz.pick(src, { "1", '"s"', "true", "null", "2.5" })
   elseif kind <= 2 then
     local parts: {string} = {}
-    while Fuzz.more(src, #parts, depth == 0 and 6 or 4) do parts[#parts + 1] = gen_doc(src, depth + 1) end
+    while Fuzz.more(src, #parts, depth == 0 and 6 or 4) do
+      parts[#parts + 1] = gen_doc(src, depth + 1)
+    end
     return "[" .. table.concat(parts, ",") .. "]"
   end
   local names: {string} = { "a", "b", "c", "1" }
@@ -359,9 +365,9 @@ local function reference(root: Node, pattern: {json_query.Step}): {string}
       end
       for _, cand in ipairs(candidates) do
         local last = cand.steps[#cand.steps]
-        local hit = step.kind == "any" or step.kind == "deep_any"
-          or ((step.kind == "key" or step.kind == "deep_key") and last == step.key)
-          or ((step.kind == "index" or step.kind == "deep_index") and last == step.index)
+        local hit = step.kind == "any" or step.kind == "deep_any" or
+          ((step.kind == "key" or step.kind == "deep_key") and last == step.key) or
+          ((step.kind == "index" or step.kind == "deep_index") and last == step.index)
         local at = spelled(cand.steps)
         if hit and not seen[at] then
           seen[at] = true
@@ -461,7 +467,9 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
         local value, get_err = json_query.get(doc, steps)
         if get_err ~= "" then return false, leaf.path .. ": " .. get_err end
         local a, b = Json.encode(value), Json.encode(leaf.value)
-        if a ~= b then return false, leaf.path .. " reads back as " .. tostring(a) .. ", not " .. tostring(b) end
+        if a ~= b then
+          return false, leaf.path .. " reads back as " .. tostring(a) .. ", not " .. tostring(b)
+        end
         if a == "{}" or a == "[]" then Fuzz.label("empty container") end
         if not selectable[leaf.path] then return false, leaf.path .. " is not selected by $..*" end
         if leaf.path == previous then return false, leaf.path .. " twice" end

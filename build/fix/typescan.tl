@@ -222,8 +222,8 @@ local function starts_a_parameter(s: Scan, i: integer): boolean
   if t.tk == "?" or t.tk == "..." then
     return true
   end
-  return t.kind == "identifier"
-    and (tk(s, i + 1) == ":" or (tk(s, i + 1) == "?" and tk(s, i + 2) == ":"))
+  return t.kind == "identifier" and
+    (tk(s, i + 1) == ":" or (tk(s, i + 1) == "?" and tk(s, i + 2) == ":"))
 end
 
 --- The index of the last token of a comma-separated list of types

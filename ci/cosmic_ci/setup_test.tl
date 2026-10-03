@@ -6,7 +6,10 @@ local ProductSetup = require("cosmic_ci.product_setup")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 
 local function fails(action: function(), expected: string)
-  local ok, problem = pcall(function(): boolean action(); return true end)
+  local ok, problem = pcall(function(): boolean
+    action()
+    return true
+  end)
   assert(not ok, "setup unexpectedly succeeded")
   assert(tostring(problem):find(expected, 1, true),
     "setup failure did not name " .. expected .. ": " .. tostring(problem))
@@ -95,9 +98,13 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
     table.concat(files, " "))
   -- The files' times move between the two packs, as a checkout's do
   -- from one run to the next: the tars must not.
-  for _, relative in ipairs(closure) do assert(Fs.set_mtime(root .. "/" .. relative, 1000000000)) end
+  for _, relative in ipairs(closure) do
+    assert(Fs.set_mtime(root .. "/" .. relative, 1000000000))
+  end
   RuntimeSetup.pack(root, closure, tmp .. "/one.tar")
-  for _, relative in ipairs(closure) do assert(Fs.set_mtime(root .. "/" .. relative, 2000000000)) end
+  for _, relative in ipairs(closure) do
+    assert(Fs.set_mtime(root .. "/" .. relative, 2000000000))
+  end
   RuntimeSetup.pack(root, closure, tmp .. "/two.tar")
   local one = assert(Fs.read(tmp .. "/one.tar"))
   assert(one == assert(Fs.read(tmp .. "/two.tar")), "the same files packed differently")

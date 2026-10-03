@@ -399,3 +399,53 @@ local function test_byte_sum_raises_on_a_range_outside_the_string()
   assert(not pcall(Hash.byte_sum, "abc", 5))
   assert(not pcall(Hash.byte_sum, "abc", 3, 1))
 end
+
+--- SipHash under the key 00 01 .. 0f, of the first n bytes of 00 01 ..
+--- (wrapping past ff): the reference vectors' scheme, with the tags
+--- zig's std.crypto.auth.siphash computes (the first of SipHash-2-4's,
+--- 310e0edd47db6f72, is the paper's own). The lengths reach a word's
+--- tail of 0, 1, 3 and 7 bytes, and past 255, where the length byte the
+--- last word carries wraps.
+local siphash_lengths: {integer} = { 0, 1, 3, 7, 8, 15, 16, 63, 257 }
+local siphash_vectors: {{any}} = {
+  { {}, { "310e0edd47db6f72", "fd67dc93c539f874", "2d7efbd796666785", "37d1018bf50002ab",
+    "6224939a79f5f593", "e545be4961ca29a1", "db9bc2577fcc2a3f", "724506eb4c328a95", "4897b2558d7b818a" } },
+  { { size = 16 }, { "a3817f04ba25a8e66df67214c7550293",
+    "da87c1d86b99af44347659119b22fc45", "9c70b60c5267a94e5f33b6b02985ed51",
+    "a1f1ebbed8dbc153c0b84aa61ff08239",
+    "3b62a9ba6258f5610f83e264f31497b4", "5493e99933b0a8117e08ec0f97cfc3d9",
+    "6ee2a4ca67b054bbfd3315bf85230577", "5150d1772f50834a503e069a973fbd7c", "1b25fee1ef6fbb23179c26056c2995fc" } },
+  { { compression = 1, finalization = 3, size = 16 }, { "e77ebcb22788a5befd62db6add303001",
+    "fc6f370460d3eda85e0573cc2b2ff063", "6bc5ccfa1edcf79f4823187712ebd743",
+    "1084b923f2aae0c3a62f2ec80848ab77",
+    "aa12fee1d5e3dab4724f16ab35f9c799", "c17e5505b2bd526c2921cdec1e7e0109",
+    "d0a8d95715518eebb513b0f83d9e1793", "4c5800e34efe426f079f6b0aa75260ad", "13749065b1571a858bd8b998656046a7" } },
+  { { compression = 1, finalization = 3 }, { "dcc40f055801acab", "93ca577df39bf4c9", "fbf7dde7b80af88b",
+    "4011b19b987d92d3", "8e9a298d11959036", "5699512a6dd820d3", "668b907d1add4fcc",
+    "a8b3bbb76290199d", "b8733c21a6fc8f5d" } },
+}
+
+local function test_siphash_matches_reference_vectors()
+  local key, message = "", ""
+  for i = 0, 15 do key = key .. string.char(i) end
+  for i = 0, 299 do message = message .. string.char(i % 256) end
+  for _, case in ipairs(siphash_vectors) do
+    local options = case[1] as Hash.SipHashOptions
+    local tags = case[2] as {string}
+    for i, n in ipairs(siphash_lengths) do
+      local got = Codec.hex(Hash.siphash(key, message:sub(1, n), options))
+      assert(got == tags[i], n .. " bytes: " .. got .. " ~= " .. tags[i])
+    end
+  end
+end
+
+local function test_siphash_refuses_a_bad_key_or_variant()
+  local key = string.rep("k", 16)
+  assert(not pcall(Hash.siphash, string.rep("k", 15), "m"))
+  assert(not pcall(Hash.siphash, string.rep("k", 17), "m"))
+  assert(not pcall(Hash.siphash, key, "m", { size = 12 }))
+  assert(not pcall(Hash.siphash, key, "m", { compression = 0 }))
+  assert(not pcall(Hash.siphash, key, "m", { finalization = 65 }))
+  assert(Hash.siphash(key, "m", {}) == Hash.siphash(key, "m",
+    { compression = 2, finalization = 4, size = 8 }))
+end

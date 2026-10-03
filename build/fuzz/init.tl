@@ -363,7 +363,10 @@ local function run(p: Fuzz.Property): integer
     end
     reached = mine
     local ok, input = pcall(p.gen, recording(Rand.new(case), draws))
-    if not ok then reached = nil; error(input, 0) end
+    if not ok then
+      reached = nil
+      error(input, 0)
+    end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     reached = nil
@@ -409,8 +412,8 @@ local function run(p: Fuzz.Property): integer
           plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
           reproduce,
-          kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
-            or ("write the input above to " .. keep)), 0)
+          kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
+            ("write the input above to " .. keep)), 0)
     end
   end
   local named: {string} = {}

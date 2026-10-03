@@ -243,8 +243,8 @@ local function gen_pair(src: Fuzz.Source): string
   end
   local from = moment()
   -- Often near the first, where the calendar's small counts and its edges are.
-  local to = src:int(0, 2) == 0 and from + src:int(-40, 40) * 86400 * NS + src:int(-5, 5) * 3600 * NS
-    or moment()
+  local to = src:int(0, 2) == 0 and from + src:int(-40, 40) * 86400 * NS + src:int(-5, 5) * 3600 * NS or
+    moment()
   return string.pack("<i8i8", from, to) .. Fuzz.pick(src, BETWEEN_ZONES)
 end
 
@@ -256,10 +256,12 @@ local function between_holds(input: string): boolean, string
   if not ok then return false, "raised: " .. tostring(span) end
   local d = span as Time.Duration
   local text_ok, text = pcall(Time.format_duration, d)
-  if not text_ok then return false, ("%d to %d in %s: %s"):format(from, to, name, tostring(text)) end
+  if not text_ok then
+    return false, ("%d to %d in %s: %s"):format(from, to, name, tostring(text))
+  end
   local back = Time.parse_duration(text)
-  if back == nil or back.years ~= d.years or back.months ~= d.months or back.days ~= d.days
-      or back.ns ~= d.ns then
+  if back == nil or back.years ~= d.years or back.months ~= d.months or back.days ~= d.days or
+      back.ns ~= d.ns then
     return false, text .. " does not read back"
   end
   local dir = to > from and 1 or to < from and -1 or 0

@@ -168,9 +168,9 @@ local function rest_capture_name(node: any): string | nil
     local e1 = node["e1"]
     local args = node["e2"]
     local name = e1 is {any: any} and e1["tk"] or nil
-    if op is {any: any} and e1 is {any: any} and op["op"] == "@funcall"
-    and e1["kind"] == "variable" and name is string and is_rest_capture(name)
-    and args is {any: any} and #arr(args) == 0 then
+    if op is {any: any} and e1 is {any: any} and op["op"] == "@funcall" and
+    e1["kind"] == "variable" and name is string and is_rest_capture(name) and
+    args is {any: any} and #arr(args) == 0 then
       return name
     end
   end
@@ -268,8 +268,8 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
   -- A capture parses as "variable" where it references a value
   -- (`f($X)`) and as "identifier" where it names a field
   -- (`cosmo.$X(...)`).
-  if (pv["kind"] == "variable" or pv["kind"] == "identifier")
-  and is_capture(pv["tk"]) then
+  if (pv["kind"] == "variable" or pv["kind"] == "identifier") and
+  is_capture(pv["tk"]) then
     if not (nv is {any: any}) then
       return false
     end

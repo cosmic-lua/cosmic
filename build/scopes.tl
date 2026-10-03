@@ -79,8 +79,8 @@ local function required_name(call: ast.Node): string | nil
     return nil
   end
   local callee, args = call.e1, call.e2
-  if callee == nil or callee.kind ~= "variable" or callee.tk ~= "require"
-     or args == nil or #args ~= 1 or args[1].kind ~= "string" then
+  if callee == nil or callee.kind ~= "variable" or callee.tk ~= "require" or
+     args == nil or #args ~= 1 or args[1].kind ~= "string" then
     return nil
   end
   return args[1].conststr
@@ -162,8 +162,8 @@ function scopes.walk(parsed: ast.Parsed,
       process_function(n)
       return
     end
-    if member ~= nil and n.kind == "op" and n.op ~= nil and n.op.op == "." and n.e1 ~= nil
-       and n.e2 ~= nil and n.e2.tk ~= nil then
+    if member ~= nil and n.kind == "op" and n.op ~= nil and n.op.op == "." and n.e1 ~= nil and
+       n.e2 ~= nil and n.e2.tk ~= nil then
       -- `alias.member`, or a member read straight off the module a
       -- literal `require` names: `require("build.test").run`.
       local module: string | nil = nil

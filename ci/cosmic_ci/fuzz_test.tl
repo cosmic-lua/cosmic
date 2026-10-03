@@ -284,7 +284,9 @@ local function start_fuzz(tmp: string, body: {string},
   local env = Env.all()
   env.GITHUB_WORKSPACE, env.RUNNER_TEMP = root, temp
   env.GITHUB_STEP_SUMMARY = tmp .. "/summary.md"
-  if extra then for name, value in pairs(extra) do env[name] = value end end
+  if extra then
+    for name, value in pairs(extra) do env[name] = value end
+  end
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
   local handle, trouble = Child.start({ driver[1], driver[2], "fuzz" },
     { cwd = project, env = env, stdout = log_fd, stderr = "null" })

@@ -106,8 +106,8 @@ local function declared(source: string, file: string): Surface
   for _, stmt in ipairs(chunk) do
     local value = stmt.value
     local typedecl = value ~= nil and value.kind == "newtype" and value.newtype or nil
-    if stmt.kind == "local_type" and stmt.var ~= nil and stmt.var.tk == returned
-        and typedecl ~= nil and typedecl.def ~= nil then
+    if stmt.kind == "local_type" and stmt.var ~= nil and stmt.var.tk == returned and
+        typedecl ~= nil and typedecl.def ~= nil then
       return surface_of(typedecl.def)
     end
   end
@@ -329,8 +329,8 @@ local function test_every_declaration_is_what_the_core_registers(tmp: string)
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
-    local made: Made = maker ~= nil and maker(members(raw), tmp)
-      or { instances = {}, release = nothing }
+    local made: Made = maker ~= nil and maker(members(raw), tmp) or
+      { instances = {}, release = nothing }
     local source = declaration_of(name)
     for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do
       problems[#problems + 1] = problem

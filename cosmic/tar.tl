@@ -240,8 +240,8 @@ local function parse_pax(body: string): {string:string}
       local key = rec:sub(sp - at + 2, eq - 1)
       if key:sub(1, 11) == "GNU.sparse." then
         out["GNU.sparse."] = ""
-      elseif key == "path" or key == "linkpath" or key == "size" or key == "mtime"
-        or key == "uid" or key == "gid" then
+      elseif key == "path" or key == "linkpath" or key == "size" or key == "mtime" or
+        key == "uid" or key == "gid" then
         out[key] = rec:sub(eq + 1, #rec - 1) -- drop the trailing newline
       end
     end
@@ -277,9 +277,12 @@ local function apply_pax(fields: {string:string}, f: Fields): boolean, string
       f.size = n
     elseif key == "mtime" then
       f.mtime = math.tointeger(math.floor(tonumber(value) or f.mtime)) or f.mtime
-    elseif key == "uid" then f.uid = math.tointeger(tonumber(value)) or f.uid
-    elseif key == "gid" then f.gid = math.tointeger(tonumber(value)) or f.gid
-    elseif key:sub(1, 11) == "GNU.sparse." then f.sparse = true
+    elseif key == "uid" then
+      f.uid = math.tointeger(tonumber(value)) or f.uid
+    elseif key == "gid" then
+      f.gid = math.tointeger(tonumber(value)) or f.gid
+    elseif key:sub(1, 11) == "GNU.sparse." then
+      f.sparse = true
     end
   end
   return true, ""

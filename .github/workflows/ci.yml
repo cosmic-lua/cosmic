@@ -295,11 +295,16 @@
         # linux-x86_64's grew 323 -> 347 -> 369 -> 388 MB over runs
         # 36317996933 to 36325134876, all with one input hash, where a
         # checkout at a new path, built from the same entry (even through
-        # a tar round trip), writes nothing. zig's build runner, compiled
-        # for the runner's detected CPU, is the likeliest (40 MB, and
-        # about 3 s to compile here); a step listing what the build wrote
-        # under zig-build (find -newer a stamp made after the restore)
-        # would say.
+        # a tar round trip), writes nothing. What zig builds for the
+        # runner's detected CPU is the likeliest: its maker (11 MB, in
+        # the global cache) and the configurer compiled from build.zig
+        # (22 MB, in the project cache, beside its configuration under
+        # `c/`); a step listing what the build wrote under zig-build
+        # (find -newer a stamp made after the restore) would say.
+        # An entry restored here gives every file a new inode, which zig
+        # 0.17 reads as a changed C source: the driver's boot takes the
+        # new inodes into the manifests before it builds
+        # (cosmic_ci/zig_restat.tl).
         {
           name: "name the zig build cache, and the run's start",
           id: "names",

@@ -149,7 +149,7 @@ const own_warnings = [_][]const u8{
 /// (COSMIC_ZIG_CACHE_SEED); a checkout's own `o/zig-cache` names that
 /// checkout, as run-local's does.
 // TODO: compile musl's debug information with `.` for its directory,
-// or strip it alone, once zig's libc build takes our flags (zig 0.16
+// or strip it alone, once zig's libc build takes our flags (zig 0.17
 // builds it in the global cache with none of ours, keyed without the
 // cwd): each musl unit names the tree root of whichever checkout first
 // built libc into zig-global, so the checked core's bytes are not the
@@ -499,8 +499,12 @@ const Own = struct {
 
     fn init(b: *std.Build) *Own {
         const io = b.graph.io;
+        // zig caches what build.zig configures, keyed by what it reads
+        // through the build API alone: a header added to core/ would
+        // otherwise go uncopied until something else moved the key.
+        b.dependOnDirectoryContents(b.path("core"));
         var names: std.ArrayList([]const u8) = .empty;
-        var dir = b.build_root.handle.openDir(io, "core", .{ .iterate = true }) catch |err| {
+        var dir = b.root.openDir(io, "core", .{ .iterate = true }) catch |err| {
             std.debug.print("build.zig: cannot open core/: {s}\n", .{@errorName(err)});
             std.process.exit(1);
         };
@@ -511,7 +515,7 @@ const Own = struct {
             std.process.exit(1);
         }) |entry| {
             if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".h"))
-                names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+                names.append(b.allocator, b.graph.dupeString(entry.name)) catch @panic("OOM");
         }
         std.mem.sort([]const u8, names.items, {}, struct {
             fn lessThan(_: void, x: []const u8, y: []const u8) bool {
@@ -541,7 +545,7 @@ const Own = struct {
         const files = b.addWriteFiles();
         _ = files.addCopyFile(b.path(path), path);
         const copied = own.copyHeaders(files);
-        own.roots.put(b.allocator, b.dupe(path), copied) catch @panic("OOM");
+        own.roots.put(b.allocator, b.graph.dupeString(path), copied) catch @panic("OOM");
         return copied;
     }
 
@@ -646,7 +650,7 @@ pub fn build(b: *std.Build) void {
         own,
         "format-test-native",
         baselineHostTarget(b),
-        .Debug,
+        .debug,
         null,
     );
     installFixture(
@@ -666,7 +670,7 @@ pub fn build(b: *std.Build) void {
             own,
             b.fmt("format-test-{s}", .{t.name}),
             resolved,
-            .ReleaseFast,
+            .fast,
             t,
         );
         installFixture(
@@ -719,7 +723,7 @@ pub fn build(b: *std.Build) void {
         .name = "strnlen-check",
         .root_module = b.createModule(.{
             .target = baselineHostTarget(b),
-            .optimize = .ReleaseFast,
+            .optimize = .fast,
             .link_libc = true,
         }),
     });
@@ -731,7 +735,7 @@ pub fn build(b: *std.Build) void {
         .name = "environment-check",
         .root_module = b.createModule(.{
             .target = baselineHostTarget(b),
-            .optimize = .ReleaseSafe,
+            .optimize = .safe,
             .link_libc = true,
         }),
     });
@@ -749,7 +753,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("core/coverage_map.zig"),
             .target = baselineHostTarget(b),
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
@@ -774,10 +778,10 @@ pub fn build(b: *std.Build) void {
         if (std.mem.eql(u8, t.name, hostName(b))) {
             const bridge = b.addRunArtifact(exe);
             bridge.addArg("--boot");
-            bridge.addDirectoryArg(b.path("."));
-            bridge.addDirectoryArg(tl);
+            bridge.addDirectoryArg2(b.path("."), .{});
+            bridge.addDirectoryArg2(tl, .{});
             bridge.addArg(t.name);
-            bridge.addFileArg(target_records);
+            bridge.addFileArg2(target_records, .{});
             // The bridge reads every raw core and writes the database
             // beside them, so it runs after both.
             bridge.step.dependOn(cores);
@@ -851,13 +855,16 @@ pub fn build(b: *std.Build) void {
     );
     const checked_boot = b.addRunArtifact(checked);
     checked_boot.addArg("--boot");
-    checked_boot.addDirectoryArg(b.path("."));
-    checked_boot.addDirectoryArg(tl);
+    checked_boot.addDirectoryArg2(b.path("."), .{});
+    checked_boot.addDirectoryArg2(tl, .{});
     checked_boot.addArg(checked_target.name);
-    checked_boot.addFileArg(target_records);
-    checked_boot.addArg(b.getInstallPath(.prefix, "sanitized"));
-    checked_boot.addFileArg(checked.getEmittedBin());
-    checked_boot.addFileArg(checked_records);
+    checked_boot.addFileArg2(target_records, .{});
+    checked_boot.addDirectoryArg2(
+        .{ .relative = .{ .base = .install_prefix, .sub_path = "sanitized" } },
+        .{ .make_absolute = true },
+    );
+    checked_boot.addFileArg2(checked.getEmittedBin(), .{});
+    checked_boot.addFileArg2(checked_records, .{});
     checked_boot.step.dependOn(cores);
     checked_boot.step.dependOn(vendored);
     checked_boot.has_side_effects = true;
@@ -909,7 +916,7 @@ fn formatDecoder(
     own: *Own,
     name: []const u8,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     target_record: ?Target,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
@@ -919,7 +926,7 @@ fn formatDecoder(
         // Stripped like [`core()`] so a target build reuses the musl libc
         // `cores` already built; see [`launcherHelper()`]. The native Debug
         // decoder keeps its symbols.
-        .strip = optimize != .Debug,
+        .strip = optimize != .debug,
     });
     own.add(mod, &.{ "core/portable.c", "test/portable/format_test.c" }, &own_c);
     mod.addIncludePath(own.include());
@@ -950,7 +957,7 @@ fn launcherHelper(
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
-        .optimize = .ReleaseFast,
+        .optimize = .fast,
         .link_libc = true,
         // Matching [`core()`]'s strip setting keeps this module's musl libc
         // build cache-compatible with the one `cores` already built for
@@ -972,6 +979,9 @@ fn patchedTrees(b: *std.Build) []const u8 {
         std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
         std.process.exit(1);
     };
+    // The manifest's path is the same from build to build while the trees
+    // it names move with every patch, so its contents key the configuration.
+    b.dependOnFileContents(b.graph.cwdRelativePath(manifest));
     return std.Io.Dir.cwd().readFileAlloc(b.graph.io, manifest, b.allocator, .limited(1 << 20)) catch |err| {
         std.debug.print("build.zig: cannot read {s}: {s}\n", .{ manifest, @errorName(err) });
         std.process.exit(1);
@@ -987,7 +997,7 @@ fn patched(b: *std.Build, trees: []const u8, name: []const u8) std.Build.LazyPat
     while (lines.next()) |line| {
         const tab = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
         if (std.mem.eql(u8, line[0..tab], name)) {
-            return .{ .cwd_relative = b.dupe(line[tab + 1 ..]) };
+            return b.graph.cwdRelativePath(line[tab + 1 ..]);
         }
     }
     std.debug.print("build.zig: the patched trees' manifest names no {s}\n", .{name});
@@ -1025,25 +1035,25 @@ fn analyze(
             b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
             b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
         });
-        run.addPrefixedDirectoryArg("-I", sources.own.include());
-        run.addPrefixedDirectoryArg("-I", sources.lua.path(b, "src"));
-        run.addPrefixedDirectoryArg("-I", sources.sqlite);
-        run.addPrefixedDirectoryArg("-I", sources.miniz);
+        run.addDirectoryArg2(sources.own.include(), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.lua.path(b, "src"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.sqlite, .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.miniz, .{ .prefix = "-I" });
         for (crypto_include_dirs) |dir| {
-            run.addPrefixedDirectoryArg("-I", crypto.path(b, dir));
+            run.addDirectoryArg2(crypto.path(b, dir), .{ .prefix = "-I" });
         }
-        run.addPrefixedDirectoryArg("-I", sources.mbedtls.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", sources.bzip2);
-        run.addPrefixedDirectoryArg("-I", sources.xz.path(b, "src/liblzma/api"));
-        run.addPrefixedDirectoryArg("-I", sources.cares.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", sources.curl.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", sources.yyjson.path(b, "src"));
+        run.addDirectoryArg2(sources.mbedtls.path(b, "include"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.bzip2, .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.xz.path(b, "src/liblzma/api"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.cares.path(b, "include"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.curl.path(b, "include"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.yyjson.path(b, "src"), .{ .prefix = "-I" });
         run.addArg("-o");
-        _ = run.addOutputFileArg(b.fmt("{s}.analysis", .{file}));
+        _ = run.addOutputFileArg2(b.fmt("{s}.analysis", .{file}), .{});
         // The tree's own file, so a finding names it: a file argument's
         // key is its path under the build root and its contents, the same
         // from every checkout, where a compile's is its absolute path.
-        run.addFileArg(b.path(b.fmt("core/{s}", .{file})));
+        run.addFileArg2(b.path(b.fmt("core/{s}", .{file})), .{});
         step.dependOn(&run.step);
     }
 }
@@ -1084,19 +1094,19 @@ fn observedCore(
     const first = core(b, target_record, configuration, target, sources, vendor, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
     write_map.addArg("write");
-    write_map.addFileArg(first.getEmittedBin());
-    const map = write_map.addOutputFileArg("coverage_map.c");
+    write_map.addFileArg2(first.getEmittedBin(), .{});
+    const map = write_map.addOutputFileArg2("coverage_map.c", .{});
     // Where each file the core observes was compiled from, and the
     // headers' copy a file outside core/ reads.
     for (ownCoreFiles(b, configuration, false)) |path| {
-        write_map.addDirectoryArg(sources.own.root(path));
+        write_map.addDirectoryArg2(sources.own.root(path), .{});
     }
-    write_map.addDirectoryArg(sources.own.header_root);
+    write_map.addDirectoryArg2(sources.own.header_root, .{});
     const second = core(b, target_record, configuration, target, sources, vendor, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
-    check_map.addFileArg(first.getEmittedBin());
-    check_map.addFileArg(second.getEmittedBin());
+    check_map.addFileArg2(first.getEmittedBin(), .{});
+    check_map.addFileArg2(second.getEmittedBin(), .{});
     checks.dependOn(&check_map.step);
     return second;
 }
@@ -1488,8 +1498,8 @@ fn ownCoreFiles(b: *std.Build, configuration: Configuration, portable_startup_te
     return paths.items;
 }
 
-fn coreOptimize(configuration: Configuration) std.builtin.OptimizeMode {
-    return if (configuration.sanitize) .ReleaseSafe else .ReleaseFast;
+fn coreOptimize(configuration: Configuration) std.lang.Optimize {
+    return if (configuration.sanitize) .safe else .fast;
 }
 
 fn core(

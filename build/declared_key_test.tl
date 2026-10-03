@@ -369,7 +369,9 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     id = append("id"), module_key = append("module_key"), runtime = append("runtime"),
     compiler = append("compiler"), host = append("host"),
     epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch .. "0" end },
-    timeout_ns = { change = function(s: declared_key.Spec) s.timeout_ns = s.timeout_ns + Time.seconds(1) end },
+    timeout_ns = { change = function(s: declared_key.Spec)
+      s.timeout_ns = s.timeout_ns + Time.seconds(1)
+    end },
     launcher = append("launcher"), declaration = append("declaration"),
     -- Keyed only for an unsandboxed worker, which sees the tree there.
     tree = append("tree"),
@@ -385,7 +387,9 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       change = function(s: declared_key.Spec) s.runs_tool = false end },
     environment = { change = function(s: declared_key.Spec) s.environment.DECLARED = "e" end },
     -- Each of its own fields is held below.
-    effective = { change = function(s: declared_key.Spec) s.effective.files["suite/data/a.txt"] = true end },
+    effective = { change = function(s: declared_key.Spec)
+      s.effective.files["suite/data/a.txt"] = true
+    end },
   }
   each_field_moves("Spec", fields_of("build.declared_key", "Spec"),
     function(): declared_key.Spec return full_spec(hostdir) end,
@@ -396,7 +400,9 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   local effective_changes: {string:Change<declared_key.Spec>} = {
     noexec = { change = function(s: declared_key.Spec) s.effective.noexec = false end },
     noexec_ready = { change = function(s: declared_key.Spec) s.effective.noexec_ready = false end },
-    files = { change = function(s: declared_key.Spec) s.effective.files["suite/data/a.txt"] = true end },
+    files = { change = function(s: declared_key.Spec)
+      s.effective.files["suite/data/a.txt"] = true
+    end },
     reads = { change = function(s: declared_key.Spec)
       table.insert(s.effective.reads, "suite/unrelated.txt")
     end },
