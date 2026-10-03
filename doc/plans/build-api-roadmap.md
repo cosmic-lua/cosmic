@@ -23,8 +23,8 @@ work, including #2614's Zig maker pruning, and coordinate with the separate
 artifact/schema PRs rather than duplicating them.
 
 Two independent source reviews found that typed errors alone do not make
-cache retirement safe. Online recovery currently renames the database and
-its WAL/SHM without owning every connection's lifetime; even a genuine
+cache retirement safe. At the initial review, online recovery renamed the
+database and its WAL/SHM without owning every connection's lifetime; even a genuine
 CORRUPT result cannot establish that no other checkout still uses those
 paths. Diagnostic matching is worse: a path or SQL error containing
 "malformed" can authorize a rename. Maintenance also recognizes retired
@@ -98,11 +98,11 @@ E2b is now PR #2631, head `2dc12e57`, tree `14ba1237`, based on that exact
 actual merge. Independent review and narrow integration checks are complete;
 branch `37136925817` passed every required job. Queue `a97110b3`, tree
 `0107330c`, run `37137232275`, passed every required job and merged at
-16:44:25 UTC. Four follow-up production PRs merged. E4 is PR #2633,
-head `8a7a84ea`, exact independently approved tree `2002e09a`; release
-verification and fresh preservation audit passed. Branch `37138818328`
-and all three CI-image jobs passed. Final queue `00992fad`, run
-`37139084798`, retains that exact audited tree with unchanged parent `b8a3`.
+16:44:25 UTC. E4 #2633 merged as `00992fad` at 17:12:20 UTC after green
+branch `37138818328`, all three CI-image jobs and full queue `37139084798`.
+Its exact audited tree `2002e09a` and parent `b8a3` are unchanged.
+All five selected follow-up production PRs are merged; the release boundary,
+independent reviews, native gates and final preservation audit are complete.
 E4 will pin a verified published release containing all four changes,
 so standalone CI maintenance executes the corrected code, then audit reuse.
 
@@ -268,15 +268,39 @@ explicit; no database was repaired or seeded, and no full-suite retry was
 added. Required TODO queries subsequently passed in the healthy unseeded
 audit checkout: zero TODOs in the pin and one unchanged deferred syncfs
 prerequisite at `build/patch.tl:272`. No new TODO is added. Final native
-branch and queue CI are still required for #2633; release CI does not
-replace them.
+branch and queue CI for #2633 subsequently passed as recorded below;
+release CI did not replace them.
 
 E4 branch passed every native, formatting and aggregate check on exact
 published head `8a7a84ea`. Auto-merge is enabled only through the normal
 queue. Queue `00992fad94de554b0e051dc7a1429071d4494d93` has tree
 `2002e09abd972c9be3a04c3e436dddade64eb2a3` and parent `b8a3da18`, exactly
 the source/pin audited in both fresh checkouts; no endpoint adjustment or
-re-audit is needed. Its full native and runtime-fixture gates remain pending.
+re-audit was needed. Its full native and runtime-fixture gates passed.
+
+Final E4 merge receipt: `00992fad94de554b0e051dc7a1429071d4494d93` at
+2026-10-03T17:12:20Z, tree `2002e09abd972c9be3a04c3e436dddade64eb2a3`,
+sole parent `b8a3da182372b51c4aae458ae2e15109e1423f16`. GitHub and Git
+receipts agree. Every required queue job and aggregate passed. A separate
+reviewer verified all four product platforms actually ran199 pinned-driver
+consumer tests and their fresh self-driven fixture, which rebuilt identical
+executable bytes. Runtime/launcher/identity fixtures and all four executed
+product attestations passed. Native suites passed3635 tests using keyed
+reuse: checked Linux, ARM, x86 and Alpine ran69/stood3566; Darwin ran279/
+stood3356 with only three expected Linux-noexec skips. These are not claims
+that every test re-executed. The exact-tree branch also passed the whole
+694-file tree check and actual199 pinned consumers, closing the initial
+author checkout's validation gaps while retaining its failed local receipts.
+
+The E1–E4 follow-up is complete: #2619, #2626, #2624, #2631 and #2633 all
+merged through green branch/queue checks and independent adversarial review.
+New TODOs at `build/shared_compiles.tl:536` and `build/test.tl:1329`, and the
+amended existing one at `build/cache_maintenance.tl:262`, require cache-wide
+lifetime ownership and identity checks before automatic retirement. The
+completed diagnostic-text retry TODO was removed. Old patch/Zig tree
+collection remains outside scope, and C3 syncfs remains explicitly deferred.
+No selected implementation, review, release or validation gate is pending.
+Reference #2521 remains open, draft, unmerged and without auto-merge.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
