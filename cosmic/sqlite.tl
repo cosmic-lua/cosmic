@@ -71,18 +71,28 @@ local record Sqlite
   type PrepareResult = raw_sqlite.PrepareResult
   --- All typed rows, or no rows on a captured failure.
   record RowsResult is raw_sqlite.Outcome
+    --- Every row on success; nil on failure, including a failed later step.
     rows: Rows
+    --- The primary SQLite code; [`Sqlite.OK`] on success.
     code: integer
+    --- The extended SQLite code, captured before cleanup; zero on success.
     extended_code: integer
+    --- A diagnostic for a person; empty on success, never parsed for a decision.
     reason: string
+    --- A busy wait stopped for an unread guard signal; see [`ExecResult`].
     cancelled: boolean
   end
   --- All text rows, or no rows on a captured failure.
   record TextRowsResult is raw_sqlite.Outcome
+    --- Every row on success; nil on failure, including a failed later step.
     rows: {{string}}
+    --- The primary SQLite code; [`Sqlite.OK`] on success.
     code: integer
+    --- The extended SQLite code, captured before cleanup; zero on success.
     extended_code: integer
+    --- A diagnostic for a person; empty on success, never parsed for a decision.
     reason: string
+    --- A busy wait stopped for an unread guard signal; see [`ExecResult`].
     cancelled: boolean
   end
   --- Successful execution.
