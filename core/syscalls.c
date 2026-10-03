@@ -327,6 +327,19 @@ static rlim_t check_limit (lua_State *L, int index) {
   return value == LUA_MAXINTEGER ? RLIM_INFINITY : (rlim_t)value;
 }
 
+/* The most limits one `spawn` takes: one for each resource its
+ * `rlimits` names, in RLIMIT_NAMES. */
+#define SPAWN_RLIMIT_MAX 4
+
+/* The resources `spawn`'s `rlimits` names, by the key it takes. */
+static const struct {
+  const char *name;
+  int resource;
+} RLIMIT_NAMES[SPAWN_RLIMIT_MAX] = {
+  { "nofile", RLIMIT_NOFILE }, { "fsize", RLIMIT_FSIZE }, { "cpu", RLIMIT_CPU },
+  { "core", RLIMIT_CORE },
+};
+
 COSMIC_SYSCALL(getrlimit, 1) {
   int resource = cosmic_checkint(L, 1);
   struct rlimit limits;
@@ -1367,6 +1380,13 @@ static int go_offline (int unmap_root, const char *uid_map, const char *gid_map)
 }
 #endif
 
+/* One resource limit a child is held to: `resource` is an RLIMIT_ constant
+ * and `value` both its soft and its hard limit. */
+struct spawn_rlimit {
+  int resource;
+  rlim_t value;
+};
+
 /* Everything a spawned child reads between starting and exec, made ready
  * by the parent: the child shares the parent's memory on Linux
  * ([`spawn_child`]), so it allocates nothing and writes nothing of the
@@ -1401,6 +1421,9 @@ struct spawn_plan {
    * and to which promises: COSMIC_PROMISE_ bits. */
   int promising;
   unsigned promises;
+  /* The limits to set, last but the filter: `rlimit_count` of them. */
+  int rlimit_count;
+  const struct spawn_rlimit *rlimits;
   int unveiling;
   int offline;
   int noexec_scratch;
@@ -1548,6 +1571,13 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   /* Lowered last, once every descriptor is moved above `top`, which a
    * lower limit can refuse; what is open above it stays open. */
   if (!failure) restore_descriptor_limit(0);
+  /* Set after the restore, which would raise a lowered NOFILE again, and
+   * before the filter, which follows every other step. Soft and hard
+   * together, so the program cannot raise one again. */
+  for (int i = 0; !failure && i < plan->rlimit_count; i++) {
+    struct rlimit limits = { .rlim_cur = plan->rlimits[i].value, .rlim_max = plan->rlimits[i].value };
+    if (setrlimit(plan->rlimits[i].resource, &limits) != 0) failure = errno;
+  }
   /* The promises filter goes last, so no step above is refused by it,
    * and just before exec, which it allows. It is built here because it
    * holds signals to the process's own pid, which only the child has;
@@ -2043,7 +2073,7 @@ _Noreturn void cosmic_sandbox_init (void) {
  * pid, or -1 and the errno in `error`. */
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
-  if (plan->confine >= 0 || plan->pledged || plan->promising) {
+  if (plan->confine >= 0 || plan->pledged || plan->promising || plan->rlimit_count > 0) {
     *error = ENOSYS;
     return -1;
   }
@@ -2462,7 +2492,7 @@ static uint64_t grants_handled (long abi) {
  * TODO: refuse where the kernel's ABI leaves out a right a grant's
  * letters or the scoping rely on, once a policy can ask for a start that
  * must be held whole (`isolate file` and a network namespace stand in
- * for the rights an older kernel lacks): `cosmic.sandbox`'s preflight.
+ * for the rights an older kernel lacks): [`cosmic.sandbox`]'s preflight.
  *
  * Each path is opened once, followed through links, with O_PATH, and its
  * rule is added from that descriptor, so the rule is on the file the
@@ -2479,7 +2509,7 @@ static uint64_t grants_handled (long abi) {
  * on as the descriptor `ruleset` takes, restricted by the child in
  * [`run_program`] before the promises filter, which follows it.
  * TODO: report a grant whose target (the path of its descriptor, read
- * from /proc/self/fd) differs from its name, once `cosmic.sandbox` has a
+ * from /proc/self/fd) differs from its name, once [`cosmic.sandbox`] has a
  * place to carry the report: `spawn` answers a pid alone. */
 static int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
                            char *message, size_t room, int *error) {
@@ -2588,6 +2618,8 @@ COSMIC_SYSCALL(spawn, 11) {
   int pledged = 0, unix_ok = 0, inet_ok = 0;
   int promising = 0;
   unsigned promise_bits = 0;
+  struct spawn_rlimit rlimits[SPAWN_RLIMIT_MAX];
+  int rlimit_count = 0;
   const char *grant_paths[GRANT_MAX];
   unsigned grant_letters[GRANT_MAX];
   int granting = 0, grant_count = 0;
@@ -2640,6 +2672,28 @@ COSMIC_SYSCALL(spawn, 11) {
         unsigned bit = lua_type(L, -1) == LUA_TSTRING ? cosmic_promise_named(lua_tostring(L, -1)) : 0;
         if (bit == 0) return luaL_argerror(L, 10, "a promise is \"fork\", \"jit\" or \"fattr\"");
         promise_bits |= bit;
+        lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
+    lua_pushliteral(L, "rlimits");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "rlimits must be a table");
+      lua_pushnil(L);
+      while (lua_next(L, -2) != 0) {
+        const char *name = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : "";
+        int resource = -1;
+        for (size_t n = 0; n < sizeof RLIMIT_NAMES / sizeof RLIMIT_NAMES[0]; n++) {
+          if (strcmp(name, RLIMIT_NAMES[n].name) == 0) resource = RLIMIT_NAMES[n].resource;
+        }
+        if (resource < 0)
+          return luaL_argerror(L, 10, "an rlimit is \"nofile\", \"fsize\", \"cpu\" or \"core\"");
+        if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "an rlimit is an integer");
+        rlimits[rlimit_count].resource = resource;
+        if (lua_tointeger(L, -1) < 0) return luaL_argerror(L, 10, "an rlimit is not negative");
+        rlimits[rlimit_count].value = check_limit(L, -1);
+        rlimit_count++;
         lua_pop(L, 1);
       }
     }
@@ -3053,6 +3107,7 @@ COSMIC_SYSCALL(spawn, 11) {
     .pledge = &pledge,
 #endif
     .promising = promising, .promises = promise_bits,
+    .rlimit_count = rlimit_count, .rlimits = rlimits,
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
     .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,

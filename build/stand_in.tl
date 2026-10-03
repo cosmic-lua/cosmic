@@ -71,6 +71,9 @@
 ---     env-of NAME      `NAME=` and the variable's value, or `NAME unset`,
 ---                      and a newline, to stdout: unlike `$NAME`, it
 ---                      tells an empty variable from an unset one
+---     rlimit R         `R soft hard` and a newline, to stdout, for R one of
+---                      nofile, fsize, cpu, core: a limit of none is
+---                      math.maxinteger
 ---     present P        fails unless P exists, as `test -e` does
 ---     connect P        connects to the unix socket file P, waiting five
 ---                      seconds at most, saying `connected` or why not,

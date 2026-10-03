@@ -845,6 +845,9 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field POLLHUP integer for `poll`: the other end hung up
  * ---@field POLLNVAL integer for `poll`: the descriptor is not open
  * ---@field RLIMIT_NOFILE integer for `getrlimit` and `setrlimit`: one more than the highest descriptor the process may open
+ * ---@field RLIMIT_FSIZE integer for `getrlimit` and `setrlimit`: the most bytes of a file the process may write
+ * ---@field RLIMIT_CPU integer for `getrlimit` and `setrlimit`: the CPU seconds the process may spend before SIGXCPU
+ * ---@field RLIMIT_CORE integer for `getrlimit` and `setrlimit`: the most bytes of a core dump the process may write, 0 for none
  */
 COSMIC_CONSTANT(O_RDONLY)
 COSMIC_CONSTANT(O_WRONLY)
@@ -897,3 +900,6 @@ COSMIC_CONSTANT(POLLERR)
 COSMIC_CONSTANT(POLLHUP)
 COSMIC_CONSTANT(POLLNVAL)
 COSMIC_CONSTANT(RLIMIT_NOFILE)
+COSMIC_CONSTANT(RLIMIT_FSIZE)
+COSMIC_CONSTANT(RLIMIT_CPU)
+COSMIC_CONSTANT(RLIMIT_CORE)
