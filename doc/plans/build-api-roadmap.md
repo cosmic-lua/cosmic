@@ -92,11 +92,11 @@ Execution status: E3 #2619 merged as `a1dd0d43` at 15:30:35 UTC.
 E2a #2626 merged as `e94a155d`, tree `0cd14e1f`, at 15:50:35 UTC after
 green branch `37132821965` and queue `37133600063`. Independent review
 confirmed identical patch content over incoming E3 and fuzzer #2618.
-E1 #2624 reviewed head `c4dd34b1`, tree `dbc9011b`, passed corrected
-branch `37134207777` and entered queue `096c6baf`, run `37134615585`.
-That queue is blocked by the analyzer finding below; no E1 merge occurred.
-E2b is implemented and locally
-validated, awaiting integration of actual merged parents before publication.
+E1 #2624 merged corrected queue `4926dbe1`, tree `2e78c672`, at
+16:26:14 UTC after green branch `37135224719` and full queue `37135708678`.
+E2b is now PR #2631, head `2dc12e57`, tree `14ba1237`, based on that exact
+actual merge. Independent review and narrow integration checks are complete;
+native branch and queue gates remain. Three follow-up production PRs merged.
 E4 will pin a verified published release containing all four changes,
 so standalone CI maintenance executes the corrected code, then audit reuse.
 
@@ -168,6 +168,13 @@ suite. New queue `4926dbe1`, run `37135708678`, includes incoming Zig #2628
 and must execute all native gates. E2b absorbed the same reviewed C fix;
 its separately approved five-file consumer delta remains unchanged.
 
+E1's final native queue passed every required job. Independent log review
+verified the actual checked suite ran all 3617 tests, zero stood or skipped,
+and entered all 439 checked C functions (15 exemptions). ARM also ran all
+3617, and all runtime/portable/self-hosting fixture jobs passed. The actual
+merge is `4926dbe1b1d6768ea2ba1e3650f9ad9807d3b206`, exact approved tree
+`2e78c6729db6a533593f97b9dfc125ec90df353e`, preserving incoming Zig #2628.
+
 E2a boot, formatting, whole-tree checks and focused validation passed. The
 final integrated focused run executed all 53 cases; 17 pre-existing nested
 sandbox cases were explicitly skipped on this host and no new regression
@@ -193,6 +200,14 @@ The initial zero-wait custom handler observes cancellation when SQLite calls
 it; no universal promise is made for paths where SQLite bypasses the handler.
 Only captured cancellation stops retries; the existing total deadline stays.
 Publication must first preserve E3's maintenance changes from actual main.
+
+Final E2b integration `07ab3490`, tree `14ba1237`, preserves E3, the
+reviewed E1 allocation correction and incoming Zig root-path changes.
+Its five-file consumer patch is byte-identical to the earlier approved
+patch. Own boot and all 55 cache/harness/Zig integration tests passed,
+zero stood or skipped. No additional broad full-suite attempt was needed.
+Published #2631 uses this exact tree on the actual E1 merge; native CI
+and normal queue remain mandatory before auto-merge.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
