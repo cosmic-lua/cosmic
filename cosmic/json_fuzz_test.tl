@@ -560,8 +560,8 @@ local function test_the_depth_limits_are_exact(tmp: string)
         if err ~= "" then
           return false, ("%d levels under a limit of %d: %s"):format(n, limit, err)
         end
-      elseif value ~= nil or err ~= ("json: JSON nests deeper than %d levels at line 1, column %d (%s)"):
-          format(limit, deepest(opens, limit + 1), path_into(opens, limit)) then
+      elseif value ~= nil or err ~= ("json: JSON nests deeper than %d level%s at line 1, column %d (%s)"):
+          format(limit, limit == 1 and "" or "s", deepest(opens, limit + 1), path_into(opens, limit)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then
