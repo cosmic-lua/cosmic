@@ -423,13 +423,16 @@ end
 --- ZIG_GLOBAL_CACHE_DIR `shared` whatever the caller set, so every
 --- build of every checkout shares it, and ZIG_DEBUG_CMD set.
 ---
---- zig compiles the maker that runs `zig build` for this host's exact
---- CPU, ReleaseSafe unless ZIG_DEBUG_CMD is set at all, any value
---- asking for Debug: 98 s against 10 s here, and no build of the tree
---- is slower for it (a boot takes 7 s either way). A cache restored on
---- a runner of another CPU model, as GitHub's Linux runners vary,
---- compiles it again. Debug's maker is 89 MB of the global cache rather
---- than 4, one for each CPU model a cache has met.
+--- zig compiles the maker that runs `zig build` for the host's own CPU
+--- model, ReleaseSafe unless ZIG_DEBUG_CMD is set at all, any value
+--- asking for Debug: 98 s against 10 s on an x86_64 Linux host, and no
+--- build of the tree is slower for it (a boot takes 7 s either way). A
+--- cache restored on a runner of another model, as GitHub's Linux
+--- runners vary, compiles it again; zig names no way to choose the
+--- model. Debug's maker logs at debug level, so a build prints zig's
+--- `debug:` lines (a configuration cache hit, say) on standard error.
+--- It is 89 MB, so CI's prune drops it before a save
+--- (cosmic_ci/zig_prune.tl).
 function Zig.build_environment(shared: string,
                                environment: {string:string}): {string:string}
   local out: {string:string} = {}
