@@ -327,8 +327,8 @@ local breaking_passes <const> = 16
 --- The output is then rendered once more from the tree in hand and must
 --- come back byte for byte, since a fix that a second pass would still
 --- change is not done. When the first render left the text untouched,
---- this reuses the tree already parsed, so the common case costs one
---- extra render and no extra parse.
+--- there is nothing to check: it rendered this very tree and text, so
+--- the common case costs one render and one parse.
 --- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param source string
 --- @param name string Filename used in diagnostics
@@ -385,6 +385,11 @@ function fix.source(built: compiler, source: string,
       return nil, "rendering changed the comments: " .. lost
     end
     parsed_out = after
+  end
+  if out == text then
+    -- The last render was of this text, parsed, and gave it back
+    -- unchanged; another gives the same.
+    return { source = out, changed = out ~= source, parsed = parsed_out }
   end
   local again, again_trouble = render_mod.laid_out(parsed_out, out)
   if again == nil then
@@ -839,6 +844,27 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   return source
 end
 
+--- Whether `file` is one whose functions `near` compares: not a test,
+--- an example or a declaration file, which offer nothing to compare.
+local function compared(file: string): boolean
+  return not String.ends_with(file, "_test.tl") and
+    not String.ends_with(file, "_example.tl") and not String.ends_with(file, ".d.tl")
+end
+
+--- What `near` compares of a file: each exported function or method
+--- with a doc comment, read off a parse already made of `source`.
+local function candidates_of(parsed: ast.Parsed, source: string): {near.Candidate}
+  local candidates: {near.Candidate} = {}
+  for _, entry in ipairs(analyzer.docs(parsed, source)) do
+    if entry.exported and (entry.kind == "function" or entry.kind == "method") and
+        entry.text ~= "" then
+      candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
+        text = entry.text, line = entry.line }
+    end
+  end
+  return candidates
+end
+
 --- `near`'s notes on the exported functions of `files`, each line
 --- prefixed with its file: a test, an example or a declaration file
 --- offers nothing to compare, nor does a file outside `root`. The module
@@ -849,9 +875,12 @@ end
 --- @param files {string} The files a fix covered
 --- @param databases {Sqlite.Handle} Where the standard library's docs are
 --- read, in search order: fix's `run` hands it [`Store.databases()`]
+--- @param ready? {string: {near.Candidate}} Each file's candidates
+--- ([`candidates_of`]), where a parse made already found them; a file
+--- missing here is read and parsed again
 --- @return {string} One line per note, `file:line: message`
 function fix.notes(built: compiler, root: string, files: {string},
-                   databases: {Sqlite.Handle}): {string}
+                   databases: {Sqlite.Handle}, ready?: {string: {near.Candidate}}): {string}
   -- Each file's path is resolved, so the root must be too: on macOS a
   -- temporary directory is under /var, a link to /private/var.
   local resolved_root, _ = Fs.absolute(root)
@@ -862,40 +891,45 @@ function fix.notes(built: compiler, root: string, files: {string},
   end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    local plain = not String.ends_with(file, "_test.tl") and
-      not String.ends_with(file, "_example.tl") and not String.ends_with(file, ".d.tl")
+    local plain = compared(file)
     local absolute, _ = Fs.absolute(file)
     local relative: string | nil = nil
     if plain and absolute ~= nil then
       local within, _ = Fs.relative(absolute, base)
       relative = within
     end
-    local source: string | nil = nil
+    local candidates: {near.Candidate} | nil = nil
     if relative ~= nil and relative:sub(1, 3) ~= "../" then
-      local read, _ = Fs.read(file)
-      source = read
-    end
-    local found: analyzer.Analysis | nil = nil
-    if source ~= nil then
-      local analyzed, _ = analyzer.analyze(built, source, file)
-      found = analyzed
-    end
-    if found ~= nil and relative ~= nil then
-      local module = relative:gsub("%.tl$", ""):gsub("/init$", ""):gsub("/", ".")
-      local candidates: {near.Candidate} = {}
-      for _, entry in ipairs(found.docs) do
-        if entry.exported and (entry.kind == "function" or entry.kind == "method") and
-            entry.text ~= "" then
-          candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
-            text = entry.text, line = entry.line }
+      candidates = ready ~= nil and ready[file] or nil
+      if candidates == nil then
+        local source, _ = Fs.read(file)
+        if source ~= nil then
+          local parsed, _ = ast.parse(built, source, file)
+          if parsed ~= nil then
+            candidates = candidates_of(parsed, source)
+          end
         end
       end
+    end
+    if candidates ~= nil and relative ~= nil then
+      local module = relative:gsub("%.tl$", ""):gsub("/init$", ""):gsub("/", ".")
       for _, note in ipairs(near.notes(module, candidates, known)) do
         out[#out + 1] = file .. ":" .. note
       end
     end
   end
   return out
+end
+
+--- What a run keeps of `file`'s parse, made in fixing it, so nothing
+--- after parses it again: what its links read (`facts`), and what the
+--- notes compare (`ready`).
+local function read_off(file: string, result: fix.Fixed,
+                        facts: {string: links.Facts}, ready: {string: {near.Candidate}})
+  facts[file] = links.facts(result.parsed, result.source)
+  if compared(file) then
+    ready[file] = candidates_of(result.parsed, result.source)
+  end
 end
 
 --- Whether `file` is in a tree of its own inside cosmic's own tree at
@@ -1028,6 +1062,9 @@ local function fix_verb(argv: {integer:string}): integer
   -- What the links read of each Teal file, from the parse its fix made,
   -- while the file on disk is what was parsed.
   local facts: {string: links.Facts} = {}
+  -- What the notes compare of each file whose text on disk the parse
+  -- read, kept from that parse rather than parsing it again.
+  local ready: {string: {near.Candidate}} = {}
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
@@ -1043,11 +1080,11 @@ local function fix_verb(argv: {integer:string}): integer
           if not written then
             failures[#failures + 1] = write_trouble
           else
-            facts[file] = links.facts(result.parsed, result.source)
+            read_off(file, result, facts, ready)
           end
         end
       else
-        facts[file] = links.facts(result.parsed, result.source)
+        read_off(file, result, facts, ready)
       end
     end
   end
@@ -1092,6 +1129,7 @@ local function fix_verb(argv: {integer:string}): integer
           failures[#failures + 1] = file .. ": " .. wrap_trouble
         elseif result.source ~= source then
           facts[file] = nil
+          ready[file] = nil
           local written, write_trouble = Fs.write(file, result.source)
           if not written then
             failures[#failures + 1] = write_trouble
@@ -1216,6 +1254,8 @@ local function fix_verb(argv: {integer:string}): integer
   local would = linked_out.would
   local redefined = linked_out.redefined
   for _, file in ipairs(linked_out.rewritten) do
+    -- What the notes kept of its parse is of the text before.
+    ready[file] = nil
     if not listed[file] then
       listed[file] = true
       changed[#changed + 1] = file
@@ -1229,7 +1269,7 @@ local function fix_verb(argv: {integer:string}): integer
   -- standard library, in a run over the whole tree, is a failure: the
   -- library as it stands earns no note against itself. The notes compare
   -- with every database the binary sees ([`Store.databases()`]).
-  for _, line in ipairs(fix.notes(built, root, picked.noted or files, Store.databases())) do
+  for _, line in ipairs(fix.notes(built, root, picked.noted or files, Store.databases(), ready)) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
     local relative: string | nil = nil

@@ -344,7 +344,9 @@ end
 
 --- A renderer whose output is not a fixed point is refused, even when
 --- its first pass looks fine on its own: [`fix.source`] renders what it
---- produced a second time and requires the same bytes back.
+--- produced a second time and requires the same bytes back. The first
+--- pass changes the text, since one that leaves it untouched has
+--- rendered the very tree and text a second pass would.
 local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   local original = render_mod.laid_out
   local ok, trouble = pcall(function(): (any...)
@@ -353,7 +355,7 @@ local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
     render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout | nil, string
       calls = calls + 1
       if calls == 1 then
-        return { text = src }
+        return { text = "local  x = 1\n" }
       end
       return { text = src .. "-- a second pass added this\n" }
     end

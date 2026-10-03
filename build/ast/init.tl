@@ -27,7 +27,7 @@ local record AstModule
   parse: function(built: compiler, source: string, name: string): Parsed | nil, string
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
-  span_start: function(node: Node): Position
+  span_start: function(node: Node, memo?: {Node: {integer}}): Position
   compile_pattern: function(built: compiler, pattern_src: string): Node | nil, string
   find_all: function(ast: Node, pattern: Node): {Hit}
   all_requires: function(built: compiler, parsed: Parsed): {string} | nil, string

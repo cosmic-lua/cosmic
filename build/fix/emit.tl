@@ -108,6 +108,10 @@ end
 --- @param text string
 --- @return integer
 local function newlines(text: string): integer
+  -- Most of what is written is one token, with none.
+  if text:find("\n", 1, true) == nil then
+    return 0
+  end
   local n = 0
   for _ in text:gmatch("\n") do
     n = n + 1

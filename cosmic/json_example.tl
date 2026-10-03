@@ -169,4 +169,16 @@ function Example.layout()
   assert(Json.layout({ 1, name = "cosmic" }) == "mixed")
 end
 
+--- Handle text as text: [`Json.check`] says whether it would decode,
+--- [`Json.format`] lays it out again keeping its order and its numbers,
+--- and [`Json.canonical`] gives the one text RFC 8785 makes of it, to hash.
+function Example.text_as_text()
+  local text = '{"b": 1.50, "a": [1, 2]}'
+  assert(Json.check(text))
+  print(assert(Json.format(text, { pretty = true })))
+  local canonical = assert(Json.canonical(text))
+  assert(canonical == '{"a":[1,2],"b":1.5}')
+  assert(Json.canonical('{"a": [1.0, 2e0], "b": 15e-1}') == canonical, "the same value, the same text")
+end
+
 return Example

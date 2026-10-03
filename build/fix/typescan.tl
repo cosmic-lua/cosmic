@@ -24,8 +24,16 @@ local type compiler = require("build.compiler")
 
 local record Scan
   tokens: {compiler.Token}
-  --- "y:x" of every token's start, to its index in `tokens`.
-  at: {string:integer}
+  --- Every token's start, as [`key`] spells it, to its index in
+  --- `tokens`.
+  at: {integer:integer}
+end
+
+--- One number for a position (`y`, `x`), which keys a table without a
+--- string built for each lookup: a column fits in 32 bits, as no source
+--- this reads is 4 GiB long.
+local function key(y: integer, x: integer): integer
+  return y * 4294967296 + x
 end
 
 --- An index over one parse's tokens, so a type object's start position
@@ -33,9 +41,9 @@ end
 --- @param tokens {compiler.Token} The token stream from the parse being rendered
 --- @return Scan
 local function new(tokens: {compiler.Token}): Scan
-  local at: {string:integer} = {}
+  local at: {integer:integer} = {}
   for i, t in ipairs(tokens) do
-    at[t.y .. ":" .. t.x] = i
+    at[key(t.y, t.x)] = i
   end
   return { tokens = tokens, at = at }
 end
@@ -48,7 +56,7 @@ end
 --- @param x integer
 --- @return integer|nil
 local function index_at(s: Scan, y: integer, x: integer): integer | nil
-  return s.at[y .. ":" .. x]
+  return s.at[key(y, x)]
 end
 
 --- Whether (`ay`, `ax`) comes before (`by`, `bx`) in the source.
