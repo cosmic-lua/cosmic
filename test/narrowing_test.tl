@@ -459,6 +459,22 @@ use()
   end
 end
 
+local function test_a_goto_out_of_an_endless_loop_reaches_a_label_that_widens(tmp: string)
+  local ok, trouble = try_build(tmp, "goto-out-of-loop", entry_prelude .. [[
+local function use()
+   local e = next_entry()
+   if e == nil then
+      while true do goto out end
+   end
+   ::out::
+   print(e.size)
+end
+use()
+]])
+  assert(refused_nil_index(ok, trouble), "the goto leaves the loop with e nil for the " ..
+      "label, so the narrow must not reach the code after it")
+end
+
 local function test_error_narrows_below_the_guard(tmp: string)
   local ok, trouble = try_build(tmp, "error-narrows", entry_prelude .. [[
 local e, trouble = next_entry()
