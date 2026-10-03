@@ -1,0 +1,9 @@
+file: tl.tl
+note: a '_' continues an exponent's digits (38a), as Rust allows (`6.02e2_3`)
+--- find
+         elseif state == "number power" then
+            if not lex_decimals[c] then
+--- replace
+         elseif state == "number power" then
+            if not lex_decimals[c] and c ~= "_" then
+--- end

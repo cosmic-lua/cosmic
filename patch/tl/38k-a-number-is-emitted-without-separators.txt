@@ -1,0 +1,15 @@
+file: tl.tl
+note: a number literal is emitted without its digit separators (38a), which Lua does not read
+--- find
+   local emit_exactly_visitor_cbs <const>: VisitorCallbacks<nil, Node, Output> = { after = emit_exactly }
+--- replace
+   local emit_exactly_visitor_cbs <const>: VisitorCallbacks<nil, Node, Output> = { after = emit_exactly }
+
+   local emit_number_visitor_cbs <const>: VisitorCallbacks<nil, Node, Output> = {
+      after = function(_: nil, node: Node, _children: {Output}): Output
+         local out: Output = { y = node.y, h = 0 }
+         add_string(out, (node.tk:gsub("_", "")))
+         return out
+      end
+   }
+--- end

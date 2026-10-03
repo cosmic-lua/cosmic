@@ -1,0 +1,9 @@
+file: tl.tl
+note: a '_' continues a decimal integer's digits (38a)
+--- find
+         elseif state == "number dec" then
+            if lex_decimals[c] then
+--- replace
+         elseif state == "number dec" then
+            if lex_decimals[c] or c == "_" then
+--- end

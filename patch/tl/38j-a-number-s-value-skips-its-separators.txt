@@ -1,0 +1,9 @@
+file: tl.tl
+note: a number literal's value is read past its digit separators (38a), so `1_000` is the integer 1000 and `1_000.0` the float; the node keeps the text as written, which build/fix reprints
+--- find
+   elseif kind == "number" or kind == "integer" then
+      local n = tonumber(tk)
+--- replace
+   elseif kind == "number" or kind == "integer" then
+      local n = tonumber((tk:gsub("_", "")))
+--- end
