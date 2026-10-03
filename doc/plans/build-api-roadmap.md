@@ -88,13 +88,15 @@ evidence unavailable locally. Performance acceptance is preservation of
 successful legacy allocations, warm cache reuse and deterministic artifacts,
 not an unsupported speedup claim.
 
-Execution status: E1 is PR #2624, latest head `60d10fe6`, tree `e33a2316`;
-E2a is PR #2626, head `d90d5324`, tree `2af6f7a4`. Both have independent
-source approval and native branch CI underway. E2b's typed WAL migration is
-being implemented separately on their combined source. E3 is PR #2619, source-reviewed tree
-`acc1ede353a611eed83c468929c22898f630daf5`, head `e1656450`; native CI is running
-and auto-merge remains off pending validation. E4 awaits these changes.
-No follow-up PR has merged yet.
+Execution status: E3 #2619 merged as `a1dd0d43` at 15:30:35 UTC.
+E2a #2626 passed branch CI `37132821965` and is in the normal merge queue
+at `e94a155d`, tree `0cd14e1f`, run `37133600063`. Independent review
+confirmed identical patch content over incoming E3 and fuzzer #2618.
+E1 #2624 now has reviewed head `c4dd34b1`, tree `dbc9011b`; native CI
+gates the correction described below. E2b is implemented and locally
+validated, awaiting integration of actual merged parents before publication.
+E4 will pin a verified published release containing all four changes,
+so standalone CI maintenance executes the corrected code, then audit reuse.
 
 Review separated E2a's independent removal of unsafe mutation from E2b's
 new-API consumption. E2a may land before E1; its success-path behavior,
@@ -112,7 +114,9 @@ and all 26 focused tests passed; changed-path TODO inventory found one
 existing entry and none added. Local whole-check hit the journal issue,
 and full30 exited124 with read-only child-start failures before cancellation.
 These are explicit local limits, not passing full checks. Queue CI
-`37132247460` remains the merge gate.
+`37132247460` passed all required gates, including the checked-core suite.
+Actual merge `a1dd0d4368171fbc87ff851f7be42249339bf249` has the exact
+reviewed queue tree `5ab1027a38fd73e8032f6108c147d80cf86746d1`.
 
 E1's focused validation ran and passed all 25 tests across four modules;
 independent direct-native probes cover legacy lifecycle, captured errors,
@@ -127,6 +131,15 @@ attempt was blocked by the local malformed-database/auto-boot condition and
 exited3; it is not a full-suite pass. Changed-path TODO inventory found only
 two existing core entries and none added. Native CI remains mandatory.
 
+E1 branch run `37133041078` found ten missing public row-result field
+comments and one missing cosmic.sqlite harness acknowledgement. All three
+failed native legs reported only the acknowledgement failure; the remaining
+native shard passed. Correction `c4dd34b1` adds those comments and the
+independently recomputed `d5293d78` acknowledgement, with no epoch change.
+Existing verdict criteria are unchanged and C changes alter runtime identity.
+The latest local guard rerun was blocked before tests by the database issue;
+the corrected native branch and queue remain mandatory.
+
 E2a boot, formatting, whole-tree checks and focused validation passed. The
 final integrated focused run executed all 53 cases; 17 pre-existing nested
 sandbox cases were explicitly skipped on this host and no new regression
@@ -137,6 +150,16 @@ acknowledgments. New TODOs at `build/shared_compiles.tl:536` and
 `build/test.tl:1329` name lifetime ownership and identity checks as the
 prerequisites for safe automatic recovery; E2b retires the narrowed existing
 busy-code TODO and corrects maintenance's incomplete retirement prerequisite.
+
+E2b checkpoint `8db2ef38`, tree `705bdd85`, passed all 32 focused tests
+with no skips, whole-tree checks across 692 files and its TODO inventory.
+The required full30 exited124 after keying 3605 tests and clean cancellation,
+without an assertion failure; this is not a suite pass. Tests use actual
+SQLite BUSY and LOCKED failures and a real pending cancellation guard.
+The initial zero-wait custom handler observes cancellation when SQLite calls
+it; no universal promise is made for paths where SQLite bypasses the handler.
+Only captured cancellation stops retries; the existing total deadline stays.
+Publication must first preserve E3's maintenance changes from actual main.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
