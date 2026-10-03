@@ -249,13 +249,14 @@
    starts too, which inherit its worker's sandbox and environment; build
    a process's environment from build.this_program's `environment()` only where
    the test means to choose it. The closure is what the build
-   finds `require`d by a literal name, leaving out the `local type`
-   requires of a module the tree's tests do not import themselves (Teal
-   erases them, so they load nothing; an edit to what they name that the
-   importer's bytecode does not answer runs no test again), and a test's
-   `require` of any other module of the tree (a computed name,
-   `pcall(require, ...)`, a type-only one) fails, naming it: require it
-   statically, at the top level. A test that type-checks a snippet reading
+   finds `require`d by a literal name. The `local type` requires of a
+   non-test module are not followed (Teal erases them, so they load
+   nothing, and an edit to what they name that the importer's bytecode
+   does not answer runs no test again); every require of a test module
+   itself is followed, `local type` ones too. A test's `require` of any
+   other module of the tree (a computed name, `pcall(require, ...)`, a
+   type-only one) fails, naming it: require it statically, at the top
+   level. A test that type-checks a snippet reading
    a module's types brings the sources it needs in with `local type _ =
    require(...)` of its own.
    Each worker runs sandboxed to those inputs ([`build/test_sandbox.tl`]),

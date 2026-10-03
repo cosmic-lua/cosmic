@@ -251,8 +251,10 @@ end
 
 --- The declarations of `basis` a closure store for `names` holds,
 --- sorted: each that `names` holds -- an import closure holds each
---- declaration a module of it requires, by `require` or by `local
---- type ... = require` ([`test_inputs.modules`]) -- and each that one of
+--- declaration a module of it requires by value, and each a test module
+--- of it requires by `require` or by `local type ... = require`; a
+--- non-test module's type-only edges are not followed
+--- ([`test_inputs.modules`]) -- and each that one of
 --- them requires, directly or not, so a declaration the checker reads
 --- to type another's is carried beside it and its edit moves the
 --- address too. The core's raw modules (`cosmic.internal.*`) and

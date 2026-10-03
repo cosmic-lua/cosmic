@@ -956,6 +956,15 @@ local function closure_of(roots: {string}, own: {string},
   return names
 end
 
+-- The `imports` rows whose importer is a module or main with no
+-- occurrence of the required name in its bytecode: Teal erased the
+-- require, so the edge is by type alone. [`test.value_imports`] keeps
+-- the rows this does not match and [`test.type_only_imports`] the rows
+-- it does, so the two cannot drift apart.
+local erased_require = "(SELECT 1 FROM modules m WHERE m.path = i.path " ..
+  "AND m.kind IN ('module', 'main') " ..
+  "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)"
+
 --- The `imports` rows of `db` a module makes by value, by importer: an
 --- edge is kept unless the importer's bytecode lacks the name it
 --- requires as a string constant. Teal erases a `local type` require,
@@ -967,9 +976,7 @@ end
 --- is only a string there: the test errs toward following an edge.
 function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " ..
-      "(SELECT 1 FROM modules m WHERE m.path = i.path AND m.kind IN ('module', 'main') " ..
-      "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)")
+    "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " .. erased_require)
   if rows == nil then return nil, trouble end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
@@ -989,9 +996,7 @@ end
 --- test importing the importer is not run again for it.
 function test.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT i.path, i.requires FROM imports i WHERE EXISTS " ..
-      "(SELECT 1 FROM modules m WHERE m.path = i.path AND m.kind IN ('module', 'main') " ..
-      "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)")
+    "SELECT i.path, i.requires FROM imports i WHERE EXISTS " .. erased_require)
   if rows == nil then return nil, trouble end
   local out: {string:{string:boolean}} = {}
   for _, row in ipairs(rows) do
@@ -2781,7 +2786,7 @@ local function run(argv: {integer:string}): integer
     forbiddable = {},
     epoch = epoch, timeout_ns = limits.timeout_ns,
     store_salt = harness.store_salt, carried = harness.carried,
-    closure_sets = {},
+    closure_sets = {}, type_only = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or ""),
   }
