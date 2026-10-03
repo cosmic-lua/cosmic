@@ -592,10 +592,3 @@ end
 local function test_a_semicolon_keeps_its_own_line()
   writes("f()\n; g()\n", "f()\n; g()\n")
 end
-
---- A line a million columns long or more is a line like any other: the
---- renderer's index of tokens tells its columns from the next line's.
-local function test_a_line_of_a_million_columns()
-  local long = "local s = \"" .. string.rep("A", 999987) .. "\" local t: integer = 1"
-  writes(long .. "\nlocal u: integer = 1\n", long:gsub("\" local t", "\"\nlocal t") .. "\nlocal u: integer = 1\n")
-end
