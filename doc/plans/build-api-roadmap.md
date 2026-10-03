@@ -100,7 +100,9 @@ branch `37136925817` passed every required job. Queue `a97110b3`, tree
 `0107330c`, run `37137232275`, passed every required job and merged at
 16:44:25 UTC. Four follow-up production PRs merged. E4 is PR #2633,
 head `8a7a84ea`, exact independently approved tree `2002e09a`; release
-verification and fresh preservation audit passed, native CI remains.
+verification and fresh preservation audit passed. Branch `37138818328`
+and all three CI-image jobs passed. Final queue `00992fad`, run
+`37139084798`, retains that exact audited tree with unchanged parent `b8a3`.
 E4 will pin a verified published release containing all four changes,
 so standalone CI maintenance executes the corrected code, then audit reuse.
 
@@ -268,6 +270,13 @@ audit checkout: zero TODOs in the pin and one unchanged deferred syncfs
 prerequisite at `build/patch.tl:272`. No new TODO is added. Final native
 branch and queue CI are still required for #2633; release CI does not
 replace them.
+
+E4 branch passed every native, formatting and aggregate check on exact
+published head `8a7a84ea`. Auto-merge is enabled only through the normal
+queue. Queue `00992fad94de554b0e051dc7a1429071d4494d93` has tree
+`2002e09abd972c9be3a04c3e436dddade64eb2a3` and parent `b8a3da18`, exactly
+the source/pin audited in both fresh checkouts; no endpoint adjustment or
+re-audit is needed. Its full native and runtime-fixture gates remain pending.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
