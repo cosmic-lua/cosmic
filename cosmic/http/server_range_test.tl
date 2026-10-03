@@ -1,13 +1,13 @@
---- Cases for [`Http.range`] and [`Http.none_match`], the reading of a
---- request's Range and If-None-Match; cosmic/http_range_fuzz_test.tl
+--- Cases for [`Server.range`] and [`Server.none_match`], the reading of a
+--- request's Range and If-None-Match; cosmic/http/server_range_fuzz_test.tl
 --- holds them to their properties over any bytes.
 
-local Http = require("cosmic.http")
+local Server = require("cosmic.http.server")
 
---- What `Http.range(header, size)` answers, as text: "whole",
+--- What `Server.range(header, size)` answers, as text: "whole",
 --- "unsatisfiable", or the span's "first-last".
 local function ranged(header: string | nil, size: integer): string
-  local r = Http.range(header, size)
+  local r = Server.range(header, size)
   if r.kind == "span" then return ("%d-%d"):format(r.first, r.last) end
   assert(r.first == nil and r.last == nil, "a bound set for " .. r.kind)
   return r.kind
@@ -92,58 +92,58 @@ end
 local function test_a_size_that_is_no_count_raises()
   local sizes: {any} = { -1, 1.5, "1" }
   for _, size in ipairs(sizes) do
-    local ok, why = pcall(Http.range, "bytes=0-1", size as integer)
+    local ok, why = pcall(Server.range, "bytes=0-1", size as integer)
     assert(not ok and tostring(why):find("size", 1, true), tostring(why))
   end
 end
 
 local function test_none_match_compares_weakly()
-  assert(Http.none_match('"v1"', '"v1"'))
-  assert(Http.none_match('W/"v1"', '"v1"'))
-  assert(Http.none_match('"v1"', 'W/"v1"'))
-  assert(Http.none_match('W/"v1"', 'W/"v1"'))
-  assert(not Http.none_match('"v2"', '"v1"'))
-  assert(not Http.none_match('"V1"', '"v1"'))
+  assert(Server.none_match('"v1"', '"v1"'))
+  assert(Server.none_match('W/"v1"', '"v1"'))
+  assert(Server.none_match('"v1"', 'W/"v1"'))
+  assert(Server.none_match('W/"v1"', 'W/"v1"'))
+  assert(not Server.none_match('"v2"', '"v1"'))
+  assert(not Server.none_match('"V1"', '"v1"'))
 end
 
 local function test_none_match_reads_each_tag_of_a_list()
-  assert(Http.none_match('"a", "b" ,\t"v1"', '"v1"'))
-  assert(Http.none_match(',,"v1",', '"v1"'))
-  assert(not Http.none_match('"a", "b"', '"v1"'))
+  assert(Server.none_match('"a", "b" ,\t"v1"', '"v1"'))
+  assert(Server.none_match(',,"v1",', '"v1"'))
+  assert(not Server.none_match('"a", "b"', '"v1"'))
 end
 
 local function test_a_star_matches_any_tag()
-  assert(Http.none_match("*", '"v1"'))
-  assert(Http.none_match(" * ", 'W/"v1"'))
+  assert(Server.none_match("*", '"v1"'))
+  assert(Server.none_match(" * ", 'W/"v1"'))
 end
 
 local function test_no_header_matches_nothing()
-  assert(not Http.none_match(nil, '"v1"'))
-  assert(not Http.none_match("", '"v1"'))
+  assert(not Server.none_match(nil, '"v1"'))
+  assert(not Server.none_match("", '"v1"'))
 end
 
 -- A comma is a byte an opaque tag may hold, so a list is not split on
 -- every comma.
 local function test_a_tag_holding_a_comma_is_one_tag()
-  assert(Http.none_match('"a,b"', '"a,b"'))
-  assert(not Http.none_match('"a,b"', '"b"'))
+  assert(Server.none_match('"a,b"', '"a,b"'))
+  assert(not Server.none_match('"a,b"', '"b"'))
 end
 
 local function test_an_element_that_is_no_tag_matches_nothing_and_the_rest_are_read()
-  assert(not Http.none_match("v1", '"v1"'))
-  assert(not Http.none_match('w/"v1"', '"v1"'))
-  assert(not Http.none_match('"v1" x', '"v1"'))
-  assert(not Http.none_match('"v1', '"v1"'))
-  assert(not Http.none_match('v0, "v1', '"v1"'))
-  assert(Http.none_match('junk, "v1"', '"v1"'))
-  assert(Http.none_match('"x" "y", "v1"', '"v1"'))
-  assert(Http.none_match('*, "v1"', '"v1"'))
-  assert(not Http.none_match('*, "v2"', '"v1"'))
+  assert(not Server.none_match("v1", '"v1"'))
+  assert(not Server.none_match('w/"v1"', '"v1"'))
+  assert(not Server.none_match('"v1" x', '"v1"'))
+  assert(not Server.none_match('"v1', '"v1"'))
+  assert(not Server.none_match('v0, "v1', '"v1"'))
+  assert(Server.none_match('junk, "v1"', '"v1"'))
+  assert(Server.none_match('"x" "y", "v1"', '"v1"'))
+  assert(Server.none_match('*, "v1"', '"v1"'))
+  assert(not Server.none_match('*, "v2"', '"v1"'))
 end
 
 local function test_an_etag_that_is_no_entity_tag_raises()
   for _, etag in ipairs({ "v1", "", '"v1', 'W/v1', '"v 1"', '"v1" ' }) do
-    local ok, why = pcall(Http.none_match, '"v1"', etag)
+    local ok, why = pcall(Server.none_match, '"v1"', etag)
     assert(not ok and tostring(why):find("entity tag", 1, true), etag)
   end
 end

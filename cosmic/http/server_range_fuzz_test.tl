@@ -1,5 +1,5 @@
---- Fuzz properties for [`Http.range`] and [`Http.none_match`], which
---- read headers any client sends a handler of [`Http.serve`]: each is
+--- Fuzz properties for [`Server.range`] and [`Server.none_match`], which
+--- read headers any client sends a handler of [`Server.serve`]: each is
 --- total; a span always lies within the representation, and a range is
 --- read as a span or unsatisfiable only where it is one well-formed
 --- range, as a reading of the grammar written apart from the module's
@@ -8,7 +8,7 @@
 --- (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local Http = require("cosmic.http")
+local Server = require("cosmic.http.server")
 
 local UNITS <const> = { "bytes", "bytes", "bytes", "Bytes", "BYTES", "items", "", "bytes " }
 local SPACES <const> = { "", "", "", " ", "\t", "  " }
@@ -109,7 +109,7 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local header, size = fields[1], math.tointeger(tonumber(fields[2])) as integer
-      local r = Http.range(header, size)
+      local r = Server.range(header, size)
       local first, last = well_formed(header)
       Fuzz.label(r.kind)
       if r.kind == "whole" then
@@ -216,13 +216,13 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
       local own = fields[1]
       if not opaque_ok(own:sub(2)) then
         Fuzz.label("no tag")
-        local ok = pcall(Http.none_match, "*", tag_of(own))
+        local ok = pcall(Server.none_match, "*", tag_of(own))
         if ok then return false, "an etag that is no entity tag was taken" end
         return true, ""
       end
       local etag = tag_of(own)
       for _, weak in ipairs({ "W", "S" }) do
-        if not Http.none_match(tag_of(weak .. own:sub(2)), etag) then
+        if not Server.none_match(tag_of(weak .. own:sub(2)), etag) then
           return false, "a tag did not match itself, weak or strong"
         end
       end
@@ -237,7 +237,7 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
         parts[#parts + 1] = tag_of(tag) .. separator
       end
       local header = table.concat(parts)
-      local got = Http.none_match(header, etag)
+      local got = Server.none_match(header, etag)
       if #parts == 0 then
         if got then return false, "an empty header matched" end
       elseif every_ok then
@@ -264,7 +264,7 @@ local function test_none_match_is_total_over_any_header(tmp: string)
       return src:int(0, 1) == 0 and Fuzz.mutate(src, base, 6) or Fuzz.bytes(src, 24)
     end,
     check = function(input: string): boolean, string
-      local got = Http.none_match(input, '"v1"')
+      local got = Server.none_match(input, '"v1"')
       Fuzz.label(got and "matched" or "unmatched")
       return true, ""
     end,
