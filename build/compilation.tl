@@ -174,6 +174,13 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
       if source == nil then
         return nil, source_trouble
       end
+      -- TODO: every compile parses each standard-library module its
+      -- project reaches, again in every fixture a test compiles: about
+      -- half of one that requires cosmic.json, on the checked core. Read
+      -- the binary's own edges ([`Store.requires`]) instead, once its
+      -- `imports` also keeps a module's edge to a declaration, which
+      -- build/writer.tl's `insert_imports` drops (cosmic.json's to
+      -- cosmic.internal.json).
       local parsed, parse_trouble = ast.parse(built, source, name)
       if parsed == nil then
         return nil, parse_trouble

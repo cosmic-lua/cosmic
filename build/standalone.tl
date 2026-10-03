@@ -91,6 +91,11 @@ end
 --- `file`'s Teal, checked and compiled to Lua: nil and every complaint
 --- the checker has when it is not clean.
 local function generate(file: string, source: string): string | nil, string
+  -- TODO: a test pays the coverage hook on every line of a compiler
+  -- loaded with its lines, so build/standalone_test.tl's tests that type
+  -- cosmic.json take about 15 s on the checked core: let a caller ask for
+  -- one loaded stripped (`teal.load(true)`), as build/shape_specs_test.tl
+  -- loads its own.
   local built, load_trouble = teal.load()
   if built == nil then
     return nil, load_trouble
