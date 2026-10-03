@@ -220,21 +220,12 @@ local function literal_function(c: Ctx, n: Node)
   local closing = n.yend or body.y
   local inline = closing <= c.em.line
   local xend = n.xend
-  -- A comment before the `end` that is not lined up with it moves as
-  -- the literal's own line moved, not as the statement around it did.
-  -- TODO: move it as the body's last statement moved instead, here and
-  -- before a block's closing keyword in build.fix.stmt: a body read at
-  -- other than two columns past its line moves by a different amount
-  -- than the line, and a comment lined up with the body is left out of
-  -- line with it (`f(function()\n        g()\n        -- c\n    end)`).
-  local shift = c.shift
-  -- Spaces alone, as the buffer counts a line's indentation.
+  -- With an empty body, a comment before the `end` moves as the
+  -- literal's own line moved, not as the statement around it did. The
+  -- line's indentation is counted in spaces alone, as the buffer counts.
   local read = (c.source:sub(c.starts[n.y] or 1):match("^ *") or "")
-  c.shift = base - #read
-  c.em.shift = c.shift
-  ctx_mod.lead_to(c, closing, xend ~= nil and xend - #"end" + 1 or 1, base, " ")
-  c.shift = shift
-  c.em.shift = shift
+  ctx_mod.lead_to_closer(c, closing, xend ~= nil and xend - #"end" + 1 or 1, base,
+    base - #read)
   emit.put(c.em, "end")
   ctx_mod.ended(c, n, inline)
   c.margin = outer

@@ -105,3 +105,20 @@ local function test_comments_before_a_literals_end_move_with_it()
   writes("f(a,\n      function()\n        g()\n      -- c\n      end)\n",
     "f(a,\n  function()\n    g()\n  -- c\n  end)\n")
 end
+
+--- A comment before a block's closing keyword moves as the body's last
+--- statement moved, so one lined up with the body stays lined up with
+--- it, whatever column the body was read at.
+local function test_a_comment_before_a_closer_moves_with_the_body()
+  writes("f(function()\n        g()\n        -- c\n    end)\n", "f(function()\n  g()\n  -- c\nend)\n")
+  writes("local function f()\n    g()\n    -- c\nend\n", "local function f()\n  g()\n  -- c\nend\n")
+  writes("if a then\n      g()\n      -- c\nelse\n      h()\n      -- d\nend\n",
+    "if a then\n  g()\n  -- c\nelse\n  h()\n  -- d\nend\n")
+  writes("repeat\n    g()\n    -- c\nuntil x\n", "repeat\n  g()\n  -- c\nuntil x\n")
+end
+
+--- An `elseif`'s comment moves with the branch before it, as an `else`'s.
+local function test_a_comment_before_an_elseif_moves_with_its_branch()
+  writes("if a then\n      g()\n      -- c\nelseif b then\n      h()\nend\n",
+    "if a then\n  g()\n  -- c\nelseif b then\n  h()\nend\n")
+end
