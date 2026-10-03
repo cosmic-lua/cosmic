@@ -82,6 +82,16 @@ local record Archive
     --- Fails once more than this many entries would be written.
     --- Unlimited by default; a negative limit raises.
     max_entries: integer
+    --- Fails once the files written would hold more than this many bytes
+    --- in all, counted as they are written and not from the sizes the
+    --- archive records, so a body that expands far past its header's
+    --- claim stops at the cap. 8 GiB by default; `math.maxinteger`
+    --- lifts it. A negative or fractional limit raises.
+    max_bytes: integer
+    --- Fails once one file would hold more than this many bytes, counted
+    --- as `max_bytes` is. 1 GiB by default; `math.maxinteger` lifts it.
+    --- A negative or fractional limit raises.
+    max_entry_bytes: integer
     --- A directory whose real directories a symlink's target may also
     --- pass through, for entries unpacked apart from where they will
     --- be put: a staging directory that is later moved into this one.
@@ -400,6 +410,28 @@ local function safe_mode(mode: integer): integer
   return mode & 0x1FF
 end
 
+--- What `extract` caps a file's bytes, and all of them, at when
+--- [`ExtractOptions`] names no limit: past any tree a person unpacks on
+--- purpose, well short of what a few kilobytes of deflate can ask for.
+local DEFAULT_MAX_ENTRY_BYTES <const> = 1 << 30
+local DEFAULT_MAX_BYTES <const> = 8 << 30
+
+--- The limit `value` names for the option `name`, or `default` when
+--- there is none; raises, blaming the caller of [`extract_from`]'s
+--- caller, for one that is no whole number of at least 0.
+local function byte_limit(name: string, value: number | nil, default: integer): integer
+  if value == nil then return default end
+  local whole = math.tointeger(value)
+  if whole == nil then
+    error("archive: " .. name .. " is not a whole number of bytes", 3)
+  elseif whole < 0 then
+    error("archive: " .. name .. " is negative", 3)
+  end
+  return whole
+end
+
+local CHUNK <const> = 1 << 16
+
 local function join(parts: {string}, n: integer): string
   return table.concat(parts, "/", 1, n)
 end
@@ -419,6 +451,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   if opts.max_entries ~= nil and opts.max_entries < 0 then
     error("archive: max_entries is negative", 2)
   end
+  local entry_limit = byte_limit("max_entry_bytes", opts.max_entry_bytes, DEFAULT_MAX_ENTRY_BYTES)
+  local total_limit = byte_limit("max_bytes", opts.max_bytes, DEFAULT_MAX_BYTES)
   local count = opts.strip_components
   if count ~= nil and math.tointeger(count) == nil then
     error("archive: strip_components is not a whole number of components", 2)
@@ -442,6 +476,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   end
 
   local written: {string} = {}
+  -- The bytes of the files written so far, against `total_limit`.
+  local bytes_written = 0
   -- Directories under `dest` known to be real directories (not
   -- symlinks), by dest-relative path: checked with lstat, or made here.
   local real_dirs: {string:boolean} = {}
@@ -491,19 +527,53 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   end
 
   local function extract_file(dest_path: string, entry: Archive.Entry): boolean, string
+    -- A recorded size past a limit is refused before a byte is read, but
+    -- a header's claim is the archive's to make: the bytes counted as
+    -- they are read are what hold when a body outgrows it.
+    local function over_entry(): boolean, string
+      return false, "archive: " .. entry.path .. " is larger than max_entry_bytes (" ..
+        String.counted(entry_limit, "byte") .. ")"
+    end
+    local function over_total(): boolean, string
+      return false, "archive: extracting " .. entry.path .. " would write more than max_bytes (" ..
+        String.counted(total_limit, "byte") .. ")"
+    end
+    if entry.size > entry_limit then return over_entry() end
+    if entry.size > total_limit - bytes_written then return over_total() end
     local body, otrouble = entry:open()
     if body == nil then return false, otrouble end
     local mode = safe_mode(entry.mode)
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
     if w == nil then return false, ctrouble end
-    local copied, rtrouble = Stream.copy(body, w)
-    if copied == nil then
-      local _, _ = w:abort()
-      return false, rtrouble
+    local size = 0
+    while true do
+      -- One byte past the room is read, to tell a body that ends at a
+      -- limit from one that goes on; the sum cannot overflow.
+      local want = CHUNK
+      local left = math.min(entry_limit - size, total_limit - bytes_written - size)
+      if left < want then want = left + 1 end
+      local chunk, rtrouble = body:read(want)
+      if chunk == nil then
+        if rtrouble == "" then break end
+        local _, _ = w:abort()
+        return false, rtrouble
+      end
+      size = size + #chunk
+      if size > entry_limit or bytes_written + size > total_limit then
+        local _, _ = w:abort()
+        if size > entry_limit then return over_entry() end
+        return over_total()
+      end
+      local ok, wtrouble = w:write(chunk)
+      if not ok then
+        local _, _ = w:abort()
+        return false, wtrouble
+      end
     end
     local ok, wtrouble = w:close()
     if not ok then return false, wtrouble end
+    bytes_written = bytes_written + size
     local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true, ""
   end
@@ -672,7 +742,9 @@ end
 --- file, directory and symlink gets its archived modification time.
 --- Returns the destination-relative paths actually written. A failure
 --- partway leaves whatever was already written; a file that fails its
---- own checks (a CRC32, a size) is never put in place.
+--- own checks (a CRC32, a size) or passes `max_entry_bytes` or
+--- `max_bytes` is never put in place, and none of it is written past
+--- the limit.
 function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
   -- A tail call: [`extract_from`]'s argument errors, raised at level 2,

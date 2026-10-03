@@ -310,7 +310,8 @@ local record Cli
   --- member is a path in the archive and takes what is under it. The
   --- format -- zip, tar, or tar under gzip, xz or bzip2 -- is read from
   --- the file's first bytes, not its name. An absolute path, a `..`,
-  --- or a symlink out of the target is refused ([`Archive.extract`]), and
+  --- or a symlink out of the target is refused ([`Archive.extract`], whose
+  --- default size limits apply: a file past 1 GiB, or 8 GiB in all), and
   --- so is replacing an existing path unless `--force` is given. Only
   --- that refusal and a member not in the archive write nothing: an
   --- unsafe entry stops the extraction after the entries before it,

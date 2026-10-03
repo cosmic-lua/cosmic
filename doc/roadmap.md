@@ -43,11 +43,6 @@ curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
 rather than fuzzing them here. [`core/json.c`]'s own walk into Lua values and
 its encoder are fuzzed here, in [`cosmic/json_fuzz_test.tl`].
 
-- cap what [`Archive.extract`] writes. `ExtractOptions.max_bytes` was the only
-  bound on extracted bytes and went with the removal of options no caller
-  used; without one, a zip entry that records 4 GiB and deflates from a few
-  kilobytes writes all 4 GiB. a size cap (total, and per entry) would refuse
-  it, as `max_entries` bounds the entries.
 - fuzz the portable launch. [`build/locator_fuzz_test.tl`] covers a host
   program's trailer and manifest, which share `decode_blocks` with a portable
   artifact, but not the launcher's own reading of the shell header or the core
@@ -295,7 +290,6 @@ four-producer provenance join.
   and consequences; amend a record when the decision changes.
 
 [`Archive.create`]: ../cosmic/archive.tl
-[`Archive.extract`]: ../cosmic/archive.tl
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
