@@ -527,29 +527,20 @@ end
 --- The shared cache for one build, as [`importer.derive`] and
 --- [`importer.compile`] take it, or nil where there is none: turned off,
 --- or not to be opened. That is reported once, as is any later failure
---- to read or write it, and the build goes on without the cache. A
---- corrupt file is moved aside ([`shared_sqlite.set_aside`]), so the next build starts a
---- fresh one.
+--- to read or write it, and the build goes on without the cache.
 function shared_compiles.for_build(environment?: {string:string}): importer.Shared | nil
   local path, trouble = location(environment)
   local cache: shared_compiles.Cache | nil = nil
   if path ~= nil then cache, trouble = shared_compiles.open(path) end
   local function drop(why: string)
-    local aside = ""
-    if path ~= nil and shared_sqlite.corrupt(why) then
-      if cache ~= nil then
-        shared_compiles.close(cache)
-        cache = nil
-      end
-      local moved, _ = shared_sqlite.set_aside(path, Time.now_ns())
-      if moved ~= nil then aside = "; moved aside to " .. moved end
-    end
+    -- TODO: retire broken caches automatically once cache-wide lifetime
+    -- ownership and identity checks can exclude concurrent users and replacements.
     if cache ~= nil then
       shared_compiles.close(cache)
       cache = nil
     end
     local _, _ = log:complain("build: shared compiles: " .. why ..
-      "; building without them (" .. variable .. "=0 turns them off)" .. aside)
+      "; building without them (" .. variable .. "=0 turns them off)")
   end
   if cache == nil then
     if trouble ~= "" then drop(trouble) end

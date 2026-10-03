@@ -1,8 +1,7 @@
 --- What the caches every checkout shares -- the compiles and parses
 --- ([`build.shared_compiles`]) and the verdicts ([`build.shared_verdicts`])
 --- -- do alike with their SQLite file: open it in write-ahead mode with a
---- busy timeout, tell a busy answer from a broken file, and move a
---- broken file aside so the next run starts a fresh one.
+--- busy timeout and retry a busy answer within a bounded wait.
 ---
 --- It is a module of the test harness, through build.shared_verdicts:
 --- an edit to it is acknowledged in build/harness_epoch.tl, and a
@@ -10,10 +9,8 @@
 --- which is what sharing it with the compile cache costs. Its clock is the raw binding's,
 --- since the harness reaches no cosmic.time.
 
-local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local String = require("cosmic.string")
 
 local record shared_sqlite
 end
@@ -30,43 +27,10 @@ local busy_ns <const> = 10000 * MS
 --- Whether `trouble`, from a statement on a cache, says another
 --- connection holds a lock the statement needs, rather than anything
 --- of the file. Query failures carry only their reason, as text.
---- TODO: classify busy and corrupt failures by code once SQLite query
+--- TODO: classify busy failures by code once SQLite query
 --- and open operations expose captured result codes.
 local function busy(trouble: string): boolean
   return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
-end
-
---- Whether `trouble`, from a query of a cache, says the file itself is
---- broken, rather than, say, busy.
-function shared_sqlite.corrupt(trouble: string): boolean
-  return trouble:find("malformed", 1, true) ~= nil or
-    trouble:find("not a database", 1, true) ~= nil
-end
-
---- Moves a broken cache aside, write-ahead log and all, to
---- `<path>.corrupt-<now_ns>`, so the next run starts a fresh cache
---- rather than meeting it again. The log and its index move first, so
---- no one opening the path meanwhile finds the old log beside a new
---- file. Any earlier set-aside file is removed, so at most one is kept.
---- Answers where it went, or nil and why.
-function shared_sqlite.set_aside(path: string, now_ns: integer): string | nil, string
-  local dir, name = Fs.dirname(path), Fs.basename(path)
-  local listed, _ = Fs.list(dir)
-  for _, entry in ipairs(listed or {}) do
-    if String.starts_with(entry, name .. ".corrupt-") then
-      local _, _ = Fs.remove(dir .. "/" .. entry)
-    end
-  end
-  local aside = path .. ".corrupt-" .. tostring(now_ns)
-  for _, suffix in ipairs({ "-wal", "-shm" }) do
-    local there, _ = Fs.stat(path .. suffix)
-    if there ~= nil then
-      local _, _ = Fs.rename(path .. suffix, aside .. suffix)
-    end
-  end
-  local moved_file, trouble = Fs.rename(path, aside)
-  if not moved_file then return nil, trouble end
-  return aside, ""
 end
 
 --- Puts `db` in write-ahead mode, so a run's reads never wait on
