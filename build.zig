@@ -980,6 +980,10 @@ fn patchedTrees(b: *std.Build) []const u8 {
         std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
         std.process.exit(1);
     };
+    if (std.fs.path.isAbsolute(manifest)) {
+        std.debug.print("build.zig: -Dpatched={s} is absolute; name it under the build root, as bin/zig does\n", .{manifest});
+        std.process.exit(1);
+    }
     // The manifest's path is the same from build to build while the trees
     // it names move with every patch, so its contents key the configuration.
     b.dependOnFileContents(b.path(manifest));
