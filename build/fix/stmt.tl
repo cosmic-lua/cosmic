@@ -113,11 +113,19 @@ local function block(c: Ctx, body: Node)
   if body.tk == ";" then
     -- A `;` in front of the first statement flags none: the block's own
     -- node opens on it, and keeps it only as its first token.
+    ctx_mod.owns(c, body.y, body.x)
     ctx_mod.lead_at(c, body.y, body.x, " ")
     emit.put(c.em, ";")
   end
   for i, s in ipairs(body) do
     local y, x = begins_at(c, s)
+    if y <= c.em.line then
+      if i == 1 then
+        c.continues[body] = true
+      else
+        c.parted[#c.parted + 1] = s
+      end
+    end
     -- A statement moves by the distance its line moves, which differs
     -- from its first keyword's when a comment precedes it on that line.
     local opening = emit.opening_column(c.em, y, x)
@@ -181,14 +189,20 @@ end
 --- parser recorded for it, so a one-line block stays on one line, and
 --- lined up with the statement that opened the block rather than with
 --- whatever column the source left it in.
-local function closes(c: Ctx, n: Node, word: string)
+--- @return boolean Whether it was written on the line already open
+local function closes(c: Ctx, n: Node, word: string): boolean
   local y = n.yend
   if y == nil then
     ctx_mod.refuse(c, "a block with no recorded end")
-    return
+    return false
   end
+  local inline = y <= c.em.line
   ctx_mod.lead_to(c, y, n.xend or 1, c.margin, " ")
   emit.put(c.em, word)
+  if word == "end" then
+    ctx_mod.ended(c, n, inline)
+  end
+  return inline
 end
 
 --- A function's signature and body, from its type parameters onward:
@@ -354,6 +368,9 @@ local function conditional(c: Ctx, n: Node)
   end
   for i, b in ipairs(blocks) do
     if i > 1 then
+      if b.y <= c.em.line then
+        c.continues[b] = true
+      end
       ctx_mod.lead_to(c, b.y, b.x, c.margin, " ")
     end
     emit.text(c.em, b.tk or "if")
@@ -462,6 +479,7 @@ statement = function(c: Ctx, n: Node)
     elseif exps ~= nil and exps.tk == ";" then
       -- `return;` with no values: the empty list opens on the `;`, and
       -- keeps it only as its first token.
+      ctx_mod.owns(c, exps.y, exps.x)
       emit.put(c.em, ";")
     end
   elseif kind == "break" then
@@ -482,7 +500,7 @@ statement = function(c: Ctx, n: Node)
     block(c, body)
     -- The body's recorded end is the `until` keyword's line; the repeat
     -- node's end reaches past it, to the end of the condition.
-    closes(c, body, "until")
+    local inline = closes(c, body, "until")
     local condition = n.exp
     if condition == nil then
       ctx_mod.refuse(c, "a repeat with no condition")
@@ -490,6 +508,7 @@ statement = function(c: Ctx, n: Node)
     end
     ctx_mod.lead(c, condition, " ")
     expr.expression(c, condition)
+    ctx_mod.ended(c, n, inline)
   elseif kind == "do" then
     local body = n.body
     emit.text(c.em, "do")
@@ -538,12 +557,20 @@ statement = function(c: Ctx, n: Node)
   end
 end
 
+--- Where statement `s`'s first character really is ([`begins_at`]).
+local function start(c: Ctx, s: Node): ast.Position
+  local y, x = begins_at(c, s)
+  return { y = y, x = x }
+end
+
 local record StmtModule
+  start: function(c: Ctx, s: Node): ast.Position
   block: function(c: Ctx, body: Node)
   statement: function(c: Ctx, n: Node)
 end
 
 local M: StmtModule = {
+  start = start,
   block = block,
   statement = statement,
 }
