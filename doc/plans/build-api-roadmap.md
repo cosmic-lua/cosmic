@@ -33,7 +33,8 @@ siblings by prefix alone, encompassing names it never created.
 | Step | Separate production PR | Dependency and acceptance |
 | --- | --- | --- |
 | E1 | Capture SQLite open, prepare, bind and step outcomes; expose the query helpers actual consumers need | Existing APIs preserve their exact two-result contract and allocation behavior. New operations capture codes, reason and cancellation before cleanup can change them. |
-| E2 | Stop online whole-file retirement; use captured outcomes for WAL retry decisions | E1. Optional caches close and fall back without renaming active files. No message parsing, retry after cancellation, or new per-hit filesystem scan. |
+| E2a | Stop online whole-file retirement | Independent correctness fix. Optional caches close and fall back without renaming active files; no new per-hit work. |
+| E2b | Use captured outcomes for WAL retry decisions and correct retirement prerequisites | E1 and E2a. No message parsing or retry after captured cancellation; retirement also needs lifetime ownership/identity. |
 | E3 | Restrict cleanup to recognized retired regular files | Independent of E1/E2; may land first. Exact numeric historical names, optional WAL/SHM suffix, lstat without following symlinks; all other siblings retained. |
 | E4 | Integrate release-dependent consumers if required and audit the final tree | Verify and execute a published release before any standalone consumer uses new APIs. Compare warm reuse and artifacts between fresh checkouts; record native branch and queue results. |
 
@@ -93,6 +94,24 @@ pending E1. E3 is PR #2619, source-reviewed tree
 `acc1ede353a611eed83c468929c22898f630daf5`, head `e1656450`; native CI is running
 and auto-merge remains off pending validation. E4 awaits these changes.
 No follow-up PR has merged yet.
+
+Review separated E2a's independent removal of unsafe mutation from E2b's
+new-API consumption. E2a may land before E1; its success-path behavior,
+test keys, worker constraints and verdict criteria are unchanged, so
+the reviewed harness update acknowledges source digests without an epoch
+bump. Its queue still runs the full suite when the harness file changes.
+
+E3 branch CI `37131539984` passed all five platform jobs and aggregate.
+Native suite logs plus base-verdict lineage establish the new regression
+cases executed; the checked-named branch job performed formatting and
+tree checks, not a checked-core suite. Independent review approved queue
+`a1dd0d43`, tree `5ab1027a`, over incoming #2592 and #2616 with an identical
+patch and unchanged shared-cache formats. Local recovered boot, formatter
+and all 26 focused tests passed; changed-path TODO inventory found one
+existing entry and none added. Local whole-check hit the journal issue,
+and full30 exited124 with read-only child-start failures before cancellation.
+These are explicit local limits, not passing full checks. Queue CI
+`37132247460` remains the merge gate.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
