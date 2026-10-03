@@ -117,10 +117,10 @@ local function gen(src: Fuzz.Source): string
     if flags == 2 then
       text = Fuzz.pick(src, HASHED)
     else
-      text = Fuzz.pick(src, src:int(0, 2) == 0 and BROKEN or EXTENDED)
+      text = Fuzz.pick(src, src:int(0, 4) < 2 and BROKEN or EXTENDED)
     end
-    local edits = src:int(0, 3)
-    if edits > 1 then text = Fuzz.mutate(src, text, edits == 2 and 1 or 6) end
+    local edits = src:int(0, 5)
+    if edits > 3 then text = Fuzz.mutate(src, text, edits == 4 and 1 or 6) end
   else
     text = Fuzz.pick(src, SAMPLES)
     local edits = src:int(0, 2)
@@ -131,11 +131,14 @@ end
 
 --- The tokens of `text` read `size` bytes at a time, one to a line, and
 --- the failure that ended them; nil and why when the reader raised.
-local function token_lines(text: string, size: integer, opts: Json.ReaderOptions): string | nil, string
+local function token_lines(text: string, size: integer, opts: Json.ReaderOptions,
+                           peeks?: integer): string | nil, string
   local ok, result, err = pcall(function(): string, string
     local r = Json.reader(chunked(text, size), opts)
     local out: {string} = {}
     while true do
+      -- A caller that peeks before it reads gets the same tokens.
+      for _ = 1, peeks or 0 do r:peek() end
       local t, why = r:next()
       if t == nil then return table.concat(out, "\n"), why end
       out[#out + 1] = t.kind .. "=" .. Json.quote(tostring(t.value)) .. "@" .. assert(Json.pointer(r:steps()))
@@ -261,6 +264,13 @@ local function holds(input: string): boolean, string
   if split ~= whole then
     return false, "split in " .. size .. "s:\n" .. split .. "\nwhole:\n" .. whole
   end
+  for peeks = 1, 2 do
+    local peeked, peek_raised = token_lines(text, size, opts, peeks)
+    if peeked == nil then return false, peek_raised end
+    if peeked ~= whole then
+      return false, "peeking " .. peeks .. " times:\n" .. peeked .. "\nnot:\n" .. whole
+    end
+  end
   local decoded, err = Json.decode(text, dopts)
   local values, why = token_values(text, size, opts)
   if err == "" then
@@ -294,13 +304,17 @@ local function holds(input: string): boolean, string
     local at_line, at_column = why:match("^json: invalid JSON at line (%d+), column (%d+): ")
     if at_line ~= nil then
       Fuzz.label("placed")
-      if flags & 1 == 1 and (text:find("['/*#]") or text:find("0[xX]") or text:find("[Ii]nf") or
-          text:find("[Nn]a") or text:find("\xe2") or text:find("\xc2") or text:find("[+.]")) then
+      -- JSON5-specific: without json5 the same text is refused otherwise.
+      local _, plain_err = Json.decode(text, { hash_comments = flags & 2 == 2 })
+      if flags & 1 == 1 and plain_err ~= err then
         Fuzz.label("placed_json5")
       end
       local want_line, want_column = err:match("^json: invalid JSON at line (%d+), column (%d+): ")
-      -- A second value, which the reader reads on, is `decode`'s refusal
-      -- at its start; a text cut short, which it places at the end.
+      -- Not compared: a second value (`'a'+`), which `decode` refuses
+      -- at its start and the reader, reading a stream of values, reads
+      -- on into -- it cannot know the text is to be one value, so it
+      -- places the second value's own refusal; and a text cut short
+      -- (`[Infinityn`), which `decode` places at the end of the text.
       if err:find("unexpected content after document", 1, true) == nil and
           err:find("unexpected end of data", 1, true) == nil and
           (want_line ~= at_line or want_column ~= at_column) then

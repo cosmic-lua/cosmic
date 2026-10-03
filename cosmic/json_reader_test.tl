@@ -4,6 +4,7 @@
 
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
 
 --- A Reader that answers `text` in chunks of `size` bytes, then `last`
 --- (nil for the end) on every read after.
@@ -563,8 +564,12 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
   for _, size in ipairs({ 1000000, 65536, 100 }) do
     for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
       local many = "[" .. string.rep("1, " .. comment, 50000) .. "2]"
+      local started = Time.now_ns()
       local got, err = tokens(many, size, BOTH)
       assert(err == "" and #got == 50003, err)
+      -- Linear takes a fraction of a second; a scan of the rest of the
+      -- chunk for each comment takes a minute.
+      assert(Time.now_ns() - started < Time.seconds(10), "many short comments take linear time")
     end
   end
   local text = "[" .. string.rep("1, /* c */ ", 20000) .. "2]"
@@ -588,8 +593,29 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
         local _, got = tokens(text, size, JSON5)
         assert(got:find(("at line %s, column %s "):format(line, column), 1, true),
           ("%q in chunks of %d: %s, decode %s"):format(text, size, got, want))
+        -- However often a caller peeks before it reads, it is the same.
+        for _, peeks in ipairs({ 1, 2 }) do
+          local r = Json.reader(chunked(text, size), JSON5)
+          local failure = ""
+          while true do
+            for _ = 1, peeks do r:peek() end
+            local t, err = r:next()
+            if t == nil then
+              failure = err
+              break
+            end
+          end
+          assert(failure == got, ("%q peeking %d times: %s, not %s"):format(text, peeks, failure, got))
+        end
       end
     end
+  end
+  -- Read with a peek before each token, an empty key and a refusal stand.
+  for _, text in ipairs({ "{a:1,\u{a0}:2}", "{\u{a0}:2}" }) do
+    local r = Json.reader(Stream.from_string(text), JSON5)
+    local kinds: {string} = {}
+    while r:peek() ~= nil do kinds[#kinds + 1] = assert(r:next()).kind end
+    assert(#kinds >= 4 and assert(Json.decode(text, { json5 = true })), text)
   end
   -- Whitespace after a comment, or anywhere else, is read.
   for _, text in ipairs({ "{/**/\u{a0}a:1}", "{a:1,// c\n\u{a0}b:2}", "{a\u{a0}:\u{a0}1\u{a0}, 'b':2\u{a0}}",
@@ -634,4 +660,14 @@ local function test_an_n_waits_for_its_next_byte()
   local r = Json.reader(source, JSON5)
   assert(assert(r:next()).kind == "array")
   assert(r:peek() == "number", "nan is a number")
+end
+
+--- A number that stops early inside an array or object is refused in
+--- the container's own words, as `decode` says it, not as a second document.
+local function test_a_token_that_stops_early_inside_a_container()
+  for _, text in ipairs({ "[1.5.5, +]", "{a: [0x1.5, 1_0]}", "{a: 1.5.5}" }) do
+    local _, want = Json.decode(text, { json5 = true })
+    local _, got = tokens(text, 2, JSON5)
+    assert(want:find("expected ',' or", 1, true) and got == want, ("%q: %s, decode %s"):format(text, got, want))
+  end
 end

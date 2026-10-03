@@ -1563,7 +1563,7 @@ end
 local function arrive(self: TokenReader): integer | nil, string
   if self.failed ~= "" then return nil, self.failed end
   local f = self.frames[#self.frames]
-  local ok, why = skip_space(self, f ~= nil and f.object and f.state == "first")
+  local ok, why = skip_space(self, f ~= nil and f.object and (f.state == "first" or f.state == "key"))
   if not ok then return nil, why end
   if f ~= nil and (f.state == "after" or f.state == "colon") then
     local c = self.buf:byte(self.at)
@@ -1703,9 +1703,15 @@ end
 --- One scalar token's text, starting at `column`, read as `decode`
 --- reads it; a failure is placed where the token is. It names no path:
 --- only a key twice or nesting does, which a scalar cannot hold.
-local function scalar(self: TokenReader, text: string, column: integer): any | nil, string
+local function scalar(self: TokenReader, text: string, column: integer, closer?: string): any | nil, string
   local value, err = raw.decode(text, nil, nil, self.json5, self.big, self.lone, nil, false, false,
     self.line, column)
+  if err ~= "" and closer ~= nil then
+    -- Inside an array or object a token that stops early is followed by
+    -- more of the text, not by a second document.
+    err = err:gsub("unexpected content after document",
+      "unexpected character, expected ',' or '" .. closer .. "'")
+  end
   if err ~= "" then return stop(self, "json: " .. err) end
   return value, ""
 end
@@ -1909,7 +1915,9 @@ function TokenReader:next(): Json.Token | nil, string
     -- truncated one is then refused where it starts, as `decode` does,
     -- and at the text's end where the text ends.
     local ended = token == "string" or self.buf:byte(self.at) == nil
-    value, err = scalar(self, ended and text or text .. " ", column)
+    local closer: string
+    if f ~= nil then closer = f.object and "}" or "]" end
+    value, err = scalar(self, ended and text or text .. " ", column, closer)
     if err ~= "" then return nil, err end
     if token == "string" and self.json5 then pass_lines(self, text, start) end
   end
