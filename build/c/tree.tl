@@ -58,7 +58,7 @@ local record tree
     text: string
     children: {tree.Node}
     parent: tree.Node
-    --- What `referent`, `callee`, [`canonical_type`], and `operator`
+    --- What [`referent`], [`callee`], [`canonical_type`] and [`operator`]
     --- answered the first time, so a rule that asks again reads it.
     --- Each has a flag saying it was asked, since nil is an answer.
     referent_cache: tree.Referent
@@ -236,12 +236,13 @@ function tree.parse(dump: string, root?: string): {tree.Node}
     local from = pos
     pos = stop + 1
     if stop > from then
-      -- The prefix, `|-` or `\`-` after the bars and spaces that nest
-      -- the line, is everything up to the first `-`.
+      -- The prefix, the bars, spaces and backticks that nest the line
+      -- and the `-` ending them, is everything up to the line's first `-`.
       local first = from
       local lead = dump:byte(from)
       if lead == 124 or lead == 32 or lead == 96 then
-        first = (dump:find("-", from, true) or stop) + 1
+        local dash = dump:find("-", from, true)
+        if dash ~= nil and dash < stop then first = dash + 1 end
       end
       local depth = (first - from) // 2
       -- A line of a dropped declaration only has to move the cursor, and
@@ -254,13 +255,12 @@ function tree.parse(dump: string, root?: string): {tree.Node}
         local _, range_end = dump:find("^ 0x%x+ <col:%d+, col:%d+>", kind_end)
         if range_end == nil then _, range_end = dump:find("^ 0x%x+ <col:%d+>", kind_end) end
         if range_end ~= nil then
-          quiet = dump:find("^ col:%d+", range_end + 1) ~= nil or dump:byte(range_end + 2) == 39
+          quiet = dump:find("^ col:%d+%f[^%d:]", range_end + 1) ~= nil or
+            dump:byte(range_end + 2) == 39
         end
       end
-      if quiet then
-        -- Nothing on it can move the cursor.
-      elseif depth >= 2 and not keeping then
-        moved(at, dump, kind_end, stop)
+      if depth >= 2 and not keeping then
+        if not quiet then moved(at, dump, kind_end, stop) end
       else
         kind_end = dump:find("%s", first) or stop
         local kind = dump:sub(first, kind_end - 1)

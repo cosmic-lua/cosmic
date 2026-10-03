@@ -312,9 +312,9 @@ local record Function
   inline: boolean
   --- A declaration of it in a header, or nil when no header declares it.
   prototype: Node
-  --- The nodes of its body that a pass reads, children first (`after`'s
-  --- order), kept in kinds `indexed` names: a pass visits these, not the
-  --- whole body.
+  --- The nodes of its body of a kind `indexed` names, children first
+  --- (`after`'s order): a pass visits these, not the whole body, so a
+  --- pass that reads another kind adds it to `indexed`.
   nodes: {Node}
   --- Every `return` in its body, in the same order.
   returns: {Node}
@@ -865,9 +865,9 @@ local function collect(node: Node, nodes: {Node}, returns: {Node})
   end
 end
 
---- The functions of the last translation unit read, by its declarations:
---- `check` and `unit` read each one's functions, and the second reuses
---- what the first indexed.
+--- The functions of each translation unit read, by its declarations,
+--- while they are held: `check` and `unit` read each one's functions,
+--- and the second reuses what the first indexed.
 local read: {{Node}: {Function}} = setmetatable({}, { __mode = "k" })
 
 local function functions(decls: {Node}): {Function}
@@ -1279,19 +1279,19 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
         taker .. ", which passes the artifact's retained descriptor: take it through " ..
         "cosmic_checkfd (core/check.h)")
   end
-  -- Any function but the checks themselves.
-  for _, n in ipairs(fn.nodes) do
-    if descriptor_checks[fn.name] then break end
-    if n.kind == "VarDecl" then
-      local name = name_of(n) or ""
-      local taker = bare_taker(n.children[#n.children])
-      if descriptor_name(name) and taker ~= nil then flag(n, name, taker) end
-    elseif n.kind == "BinaryOperator" and #n.children == 2 and tree.operator(n) == "=" then
-      local target = tree.bare(n.children[1])
-      local r = target ~= nil and tree.referent(target) or nil
-      local taker = bare_taker(n.children[2])
-      if r ~= nil and r.name ~= nil and descriptor_name(r.name) and taker ~= nil then
-        flag(n, r.name, taker)
+  if not descriptor_checks[fn.name] then
+    for _, n in ipairs(fn.nodes) do
+      if n.kind == "VarDecl" then
+        local name = name_of(n) or ""
+        local taker = bare_taker(n.children[#n.children])
+        if descriptor_name(name) and taker ~= nil then flag(n, name, taker) end
+      elseif n.kind == "BinaryOperator" and #n.children == 2 and tree.operator(n) == "=" then
+        local target = tree.bare(n.children[1])
+        local r = target ~= nil and tree.referent(target) or nil
+        local taker = bare_taker(n.children[2])
+        if r ~= nil and r.name ~= nil and descriptor_name(r.name) and taker ~= nil then
+          flag(n, r.name, taker)
+        end
       end
     end
   end
