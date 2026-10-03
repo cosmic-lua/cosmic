@@ -33,6 +33,33 @@ function Example.guidance()
   assert(Errors.guidance("nothing whatever like any message") == nil)
 end
 
+--- What to do about an error Lua itself raised, read from its message:
+--- here a method called on a record's value made as a table literal,
+--- which never gets the record's methods without a metatable. An error
+--- nothing caught prints this beneath it, and a failed test under its
+--- failure line.
+function Example.hint()
+  local record Counter
+    n: integer
+  end
+  function Counter:bump()
+    self.n = self.n + 1
+  end
+  local bare: Counter = { n = 0 }
+  local ok, err = pcall(function() bare:bump() end)
+  assert(not ok)
+  local text = Errors.hint(tostring(err))
+  print(text)
+  assert(text == "'bump' is not on that value: a method defined as `function R:bump` is " ..
+      "a field of R, which a table literal does not get; make the value with " ..
+      "`setmetatable({ ... }, { __index = R })`", tostring(text))
+  assert(Errors.guidance(tostring(err)) == "cosmic: hint: " .. text .. "\n")
+  local made = setmetatable({ n = 0 } as Counter, { __index = Counter })
+  made:bump()
+  assert(made.n == 1)
+  assert(Errors.hint("nothing whatever like any message") == nil)
+end
+
 --- What one database's error catalog says of a message, asked of that
 --- database alone: here a project's own catalog, one row whose words a
 --- failure shares, indexed as a projection's is.

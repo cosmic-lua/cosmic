@@ -2,6 +2,7 @@
 --- and counts; no job, verdict, database or cache is handed to this module.
 --- The runner decides outcomes and exit codes independently of these strings.
 
+local Errors = require("cosmic.errors")
 local String = require("cosmic.string")
 local plural = require("build.plural")
 
@@ -52,7 +53,8 @@ function test_report.skips(skips: {string}): {string}
   return lines
 end
 
---- Each failure with its rerun selector and the tail of what it printed.
+--- Each failure with the hint its message earns ([`Errors.hint`]), its
+--- rerun selector and the tail of what it printed.
 --- The `<module> <name>: <message>` line keeps the shape CI reads.
 function test_report.failures(failures: {test_report.Failure}, prefix: string): {string}
   table.sort(failures, function(a: test_report.Failure, b: test_report.Failure): boolean
@@ -61,6 +63,10 @@ function test_report.failures(failures: {test_report.Failure}, prefix: string): 
   local lines: {string} = {}
   for _, failure in ipairs(failures) do
     lines[#lines + 1] = "test: FAIL  " .. failure.message
+    local hint = Errors.hint(failure.message)
+    if hint ~= nil then
+      lines[#lines + 1] = "  hint: " .. hint
+    end
     if failure.rerun ~= nil then
       lines[#lines + 1] = "  rerun: " .. prefix .. "cosmic test " ..
         shell_word(failure.rerun)

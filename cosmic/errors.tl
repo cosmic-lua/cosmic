@@ -155,13 +155,37 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | ni
   return guidance_lines(head, text)
 end
 
+--- What to do about a runtime error whose `message` Lua itself wrote,
+--- read from the message alone, as one line: nil for any other.
+---
+--- `attempt to call a nil value (method 'set')`, in a Teal program the
+--- checker passed, calls a method the value's type declares and the
+--- value lacks: a record's value made as a table literal, where the
+--- method (`function R:set`) is a field of the record's own table,
+--- which the value reaches only as its metatable's `__index`.
+function Errors.hint(message: string): string | nil
+  local method = message:match("attempt to call a nil value %(method '([%a_][%w_]*)'%)")
+  if method == nil then
+    return nil
+  end
+  return "'" .. method .. "' is not on that value: a method defined as `function R:" ..
+    method .. "` is a field of R, which a table literal does not get; make the value " ..
+    "with `setmetatable({ ... }, { __index = R })`"
+end
+
 --- What cosmic says beneath an uncaught error's `message`, one
---- `cosmic: ` line per line: the guidance the first database in search
---- order (a project's own ahead of the binary's) holds for the error it
---- matches, the doc comment of the function the message came from, or
---- nil when none matches it. The core prints it for an error nothing
---- caught.
+--- `cosmic: ` line per line: the [`hint`] a message Lua wrote earns,
+--- which no catalog row speaks to (one sharing its common words with
+--- it, "call" and "value", would only mislead); else the guidance the
+--- first database in search order (a project's own ahead of the
+--- binary's) holds for the error it matches, the doc comment of the
+--- function the message came from; or nil when none matches it. The
+--- core prints it for an error nothing caught.
 function Errors.guidance(message: string): string | nil
+  local hint = Errors.hint(message)
+  if hint ~= nil then
+    return "cosmic: hint: " .. hint .. "\n"
+  end
   for _, handle in ipairs(Store.databases()) do
     local found = Errors.guidance_in(handle, message)
     if found ~= nil then
