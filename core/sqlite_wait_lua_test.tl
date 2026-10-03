@@ -185,3 +185,22 @@ local function test_one_exec_shares_a_budget_across_separate_database_locks(tmp:
   assert(assert(Sqlite.text_rows(db, "SELECT count(*) FROM other.t"))[1][1] == "0")
   assert(db:close())
 end
+
+local function test_typed_step_captures_cancellation_before_finalize(tmp: string)
+  local held <close> = holder(tmp .. "/db")
+  local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
+  db:busy_timeout(Time.seconds(5))
+  local guard <close> = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  local cancelled = Sqlite.run_result(db, "INSERT INTO t VALUES (1)")
+  local signal = guard:take()
+  guard:release()
+  assert(cancelled.code == Sqlite.BUSY and cancelled.cancelled and signal == sys.SIGTERM)
+  db:busy_timeout(0)
+  local busy = Sqlite.run_result(db, "INSERT INTO t VALUES (2)")
+  assert(busy.code == Sqlite.BUSY and not busy.cancelled)
+  assert(cancelled.cancelled and cancelled.reason ~= "")
+  assert(db:close())
+  assert(assert(held.stdin_stream):close())
+  finish(held)
+end

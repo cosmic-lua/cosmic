@@ -725,3 +725,56 @@ local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
   assert(next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
   assert(testing.c_heap() == heap, "credential refusal leaked native allocations")
 end
+
+local function test_sqlite_captured_operations_release_every_refused_allocation(tmp: string)
+  if not checked then return end
+  local db = assert(Sqlite.memory())
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local statements = testing.open_statements()
+  local before = next_descriptor(tmp)
+  for _, present in ipairs({ true, false }) do
+    local ended = under_every_failure(function()
+      local opened = Sqlite.open_result(present and ":memory:" or tmp .. "/absent")
+      if present then
+        assert(opened.handle ~= nil and opened.code == Sqlite.OK)
+        assert(opened.handle:close())
+      else
+        assert(opened.handle == nil and opened.code ~= Sqlite.OK)
+      end
+    end)
+    assert(ended > 0)
+    assert(next_descriptor(tmp) == before)
+    assert_c_heap(bytes, blocks, "captured SQLite open")
+  end
+  for _, sql in ipairs({ "SELECT ?1", "SELECT 1; SELECT * FROM missing" }) do
+    local ended = under_every_failure(function()
+      local prepared = db:prepare_result(sql)
+      if prepared.statement ~= nil then
+        local statement = prepared.statement
+        assert(statement:bind_values_result({ { text = "hello" } }).code == Sqlite.OK)
+        assert(statement:step_result() == "row")
+        statement:finalize()
+      else
+        assert(prepared.code ~= Sqlite.OK)
+      end
+    end)
+    assert(ended > 0)
+    assert(testing.open_statements() == statements)
+    assert_c_heap(bytes, blocks, "captured SQLite preparation/binding")
+  end
+  local ended = under_every_failure(function()
+    local statement = assert(db:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
+    assert(statement:bind_integer(1, 1))
+    assert(statement:step_result() == "row")
+    assert(statement:reset())
+    assert(statement:bind_integer(1, 0))
+    local failed = statement:step_result()
+    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "")
+    statement:finalize()
+  end)
+  assert(ended > 0)
+  assert(testing.open_statements() == statements)
+  assert_c_heap(bytes, blocks, "captured SQLite step")
+  assert(db:close())
+end
