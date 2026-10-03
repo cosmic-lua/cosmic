@@ -58,8 +58,10 @@ function Example.open()
 end
 
 --- A key-value store over HTTP: PUT stores a body under its path, GET
---- (and HEAD) answers it, 404 when there is none. The server writes
---- each reply's Content-Length, Date and Connection itself. A real one
+--- (and HEAD) answers it, 404 when there is none. A HEAD is answered as
+--- the GET is: the server sends its head, Content-Length included, and
+--- drops the body. The server writes each reply's Content-Length, Date
+--- and Connection itself. A real one
 --- listens at `Net.tcp("127.0.0.1", 8080)` for any client; here it
 --- listens on a socket file, and the client writes raw HTTP over
 --- [`Net.connect`], two requests pipelined, since [`Http.get`] holds the

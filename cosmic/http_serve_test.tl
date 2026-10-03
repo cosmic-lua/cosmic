@@ -320,13 +320,16 @@ end
 local function test_a_failing_handler_is_answered_500(tmp: string)
   local bad: {string: any} = {
     ["/nil"] = nil,
-    ["/owned"] = { status = 200, headers = { ["Content-Length"] = "3" } },
+    ["/owned"] = { status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } },
+    ["/unsent"] = { status = 200, headers = { ["Content-Length"] = "3" } },
+    ["/mismatch"] = { status = 200, headers = { ["content-length"] = "4" }, body = "hello" },
     ["/cr"] = { status = 200, headers = { ["X-Bad"] = "a\r\nb" } },
     ["/nocontent"] = { status = 204, body = "not empty" },
     ["/interim"] = { status = 101 },
     ["/typo"] = { status = 200, header = {} },
   }
-  local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo" }
+  local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo", "/unsent",
+    "/mismatch" }
   local troubles = serving(tmp, function(req: Http.Request): Http.Reply
     if req.path == "/raise" then error("the handler failed") end
     local answer: any = bad[req.path]
@@ -345,11 +348,49 @@ local function test_a_failing_handler_is_answered_500(tmp: string)
   assert(troubles[1]:find("http: GET /raise: .*the handler failed") ~= nil, troubles[1])
   assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
   assert(troubles[2]:find("not an Http.Reply", 1, true) ~= nil, troubles[2])
-  assert(troubles[3]:find("Content-Length: the server writes it itself", 1, true) ~= nil, troubles[3])
+  assert(troubles[3]:find("Date: the server writes it itself", 1, true) ~= nil, troubles[3])
   assert(troubles[4]:find("CR, LF or NUL", 1, true) ~= nil, troubles[4])
   assert(troubles[5]:find("no body goes with status 204", 1, true) ~= nil, troubles[5])
   assert(troubles[6]:find("from 200 to 999", 1, true) ~= nil, troubles[6])
   assert(troubles[7]:find("no field header", 1, true) ~= nil, troubles[7])
+  assert(troubles[8]:find("Content-Length is 3, but the reply has no body", 1, true) ~= nil, troubles[8])
+  assert(troubles[9]:find("Content-Length is 4, but the body is 5 bytes", 1, true) ~= nil, troubles[9])
+end
+
+--- A handler may give a reply's Content-Length, under any case of its
+--- name, as the body's size: it is sent once, the body framed by it. A
+--- HEAD may be answered with the size alone, as a Content-Length or a
+--- `length` and no body: the size is sent, and no bytes, so the next
+--- reply on the connection follows at once.
+local function test_a_handler_may_give_the_content_length(tmp: string)
+  local troubles = serving(tmp, function(req: Http.Request): Http.Reply
+    if req.path == "/match" then
+      return { status = 200, headers = { ["content-length"] = "5" }, body = "hello" }
+    elseif req.path == "/reader" then
+      return { status = 200, headers = { ["CONTENT-LENGTH"] = "3" }, body = Stream.from_string("abc") }
+    elseif req.path == "/length" then
+      return { status = 200, length = 99 }
+    end
+    return { status = 200, headers = { ["Content-Type"] = "text/plain", ["Content-Length"] = "1234" } }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, "HEAD /size HTTP/1.1\r\nHost: test\r\n\r\n" .. "HEAD /length HTTP/1.1\r\nHost: test\r\n\r\n" ..
+      "HEAD /match HTTP/1.1\r\nHost: test\r\n\r\n" .. get("/match") .. get("/reader"))
+    local size = reply(p, "HEAD")
+    assert(size.status == 200 and size.headers["content-length"] == "1234", size.headers["content-length"])
+    assert(size.headers["content-type"] == "text/plain")
+    local length = reply(p, "HEAD")
+    assert(length.status == 200 and length.headers["content-length"] == "99", length.headers["content-length"])
+    local head = reply(p, "HEAD")
+    assert(head.status == 200 and head.headers["content-length"] == "5", head.headers["content-length"])
+    local match = reply(p)
+    assert(match.status == 200 and match.body == "hello", match.body)
+    local reader = reply(p)
+    assert(reader.status == 200 and reader.body == "abc" and reader.headers["content-length"] == "3")
+    assert(reader.headers["transfer-encoding"] == nil)
+    assert(p.buf == "", p.buf)
+  end)
+  assert(#troubles == 0, troubles[1])
 end
 
 --- A head sent slower than head_ns is answered 408 and closed, however
@@ -474,16 +515,20 @@ local function test_a_reader_body_short_of_its_length_closes_the_connection(tmp:
   assert(#troubles == 1 and troubles[1]:find("ended 7 bytes short", 1, true) ~= nil, troubles[1])
 end
 
---- A 304 carries neither a body nor a Content-Length.
-local function test_a_304_carries_no_length(tmp: string)
-  serving(tmp, function(_req: Http.Request): Http.Reply
+--- A 304 carries no body, and a Content-Length only where the handler
+--- gives one, the size of a 200's body, which is passed on.
+local function test_a_304_carries_no_length_but_one_given(tmp: string)
+  serving(tmp, function(req: Http.Request): Http.Reply
+    if req.path == "/sized" then return { status = 304, headers = { ["Content-Length"] = "10" } } end
     return { status = 304, headers = { ETag = '"v1"' } }
   end, function(address: Net.Address)
     local p <close> = peer(address)
-    send(p, get("/") .. get("/"))
+    send(p, get("/") .. get("/sized") .. get("/"))
     local first = reply(p)
     assert(first.status == 304 and first.headers["content-length"] == nil)
     assert(first.headers["etag"] == '"v1"')
+    local sized = reply(p)
+    assert(sized.status == 304 and sized.headers["content-length"] == "10")
     assert(reply(p).status == 304)
   end)
 end

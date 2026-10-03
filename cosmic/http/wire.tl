@@ -126,17 +126,20 @@ local record wire
   record Reply
     --- The status, from 100 to 999.
     status: integer
-    --- Name to value, written as given, in name order.
+    --- Name to value, written as given, in name order, but for a
+    --- Content-Length (any case of the name), which is the body's size
+    --- as `length` is, and is written as the server frames the body.
     headers: {string:string}
     --- nil for none, a string, or a Reader, which [`wire.send`] closes.
     body: string | Stream.Reader
-    --- A Reader body's size; without it, the body goes chunked to an
-    --- HTTP/1.1 client, and to an HTTP/1.0 one until the connection
-    --- closes.
+    --- The body's size: a string's own, a Reader's, the size a GET's
+    --- body would have for a HEAD or a 304 with none. A Reader without
+    --- it goes chunked to an HTTP/1.1 client, and to an HTTP/1.0 one
+    --- until the connection closes.
     length: integer
     --- Whether the connection closes after the reply.
     close: boolean
-    --- The request's method.
+    --- The request's method; nil is taken for one that is not HEAD.
     method: string
     --- The request's version.
     version: string
@@ -172,9 +175,11 @@ local REASONS <const>: {integer:string} = {
   [503] = "Service Unavailable", [504] = "Gateway Timeout", [505] = "HTTP Version Not Supported",
 }
 
---- The headers the server writes itself, by lowercased name.
+--- The headers the server writes itself, by lowercased name. It writes
+--- Content-Length too, but a reply may give one, which [`wire.check`]
+--- holds to the body.
 local OWNED <const>: {string:boolean} = {
-  date = true, ["content-length"] = true, ["transfer-encoding"] = true, connection = true,
+  date = true, ["transfer-encoding"] = true, connection = true,
 }
 
 --- `status`'s reason phrase, "" for one this server does not name.
@@ -693,21 +698,73 @@ local function bodiless(status: integer): boolean
   return status < 200 or status == 204 or status == 304
 end
 
+--- The size a reply's Content-Length header gives, under any case of
+--- its name, nil for none; or nil and why it cannot be sent: no digits,
+--- a size past 18 of them, or the name given twice in different cases.
+local function given_length(headers: {string:string}): integer | nil, string
+  local found: string = nil
+  local size: integer = nil
+  for name, value in pairs(headers) do
+    if name:lower() == "content-length" then
+      if found ~= nil then
+        return nil, ("headers %s and %s: Content-Length is given twice"):format(found, name)
+      end
+      found = name
+      size = decimal(value)
+      if size == nil then return nil, ("header %s: %q is not digits"):format(name, value) end
+      if size == math.maxinteger then return nil, ("header %s: %s is too large"):format(name, value) end
+    end
+  end
+  return size, ""
+end
+
+--- The size `reply`, which [`wire.check`] passed, declares: its
+--- Content-Length header's or its `length`, nil for neither.
+local function declared(reply: wire.Reply): integer | nil
+  local size, _ = given_length(reply.headers or {})
+  return size or reply.length
+end
+
 --- Why `reply` cannot be sent, or "": a status outside 100 to 999, a
 --- header [`headers_trouble`] refuses, a body given to a 1xx, 204 or
---- 304, or a `length` with no Reader body or below 0.
+--- 304, or a size it declares, by Content-Length or `length`, that is
+--- below 0, that the two give differently, that a 1xx or 204 is given
+--- (RFC 9110 8.6), or that is not the body's: a string's own length, or
+--- 0 where there is no body, but to HEAD, whose size is the GET's. A
+--- 304's is the size of a 200's body, as RFC 9110 8.6 asks, which no
+--- body here shows, and is passed on as given.
 function wire.check(reply: wire.Reply): string
   local status = reply.status
   if status < 100 or status > 999 then return "the status is not from 100 to 999" end
-  local trouble = headers_trouble(reply.headers or {})
+  local headers = reply.headers or {}
+  local trouble = headers_trouble(headers)
   if trouble ~= "" then return trouble end
-  local body = reply.body
-  if bodiless(status) and body ~= nil and not (body is string and body == "") then
-    return ("no body goes with status %d"):format(status)
+  local given, why = given_length(headers)
+  if why ~= "" then return why end
+  local length = reply.length
+  if length ~= nil and length < 0 then return "the length is below 0" end
+  if given ~= nil and length ~= nil and given ~= length then
+    return ("the Content-Length header is %d, but the length is %d"):format(given, length)
   end
-  if reply.length ~= nil then
-    if body is string or body == nil then return "a length is for a Reader body" end
-    if reply.length < 0 then return "the length is below 0" end
+  local size = given or length
+  local body = reply.body
+  if bodiless(status) then
+    if body ~= nil and not (body is string and body == "") then
+      return ("no body goes with status %d"):format(status)
+    end
+    if size ~= nil and status ~= 304 then
+      return ("no Content-Length goes with status %d"):format(status)
+    end
+    return ""
+  end
+  if size == nil then return "" end
+  if body is string then
+    if size ~= #body then
+      return ("the Content-Length is %d, but the body is %s"):format(size, String.counted(#body, "byte"))
+    end
+  elseif body == nil and size ~= 0 and reply.method ~= "HEAD" then
+    return ("the Content-Length is %d, but the reply has no body: only a reply to HEAD gives a size"
+      .. " without its bytes"):format(size)
   end
   return ""
 end
@@ -716,11 +773,12 @@ end
 --- whether it goes chunked, and whether the connection closes after it.
 local function framing(reply: wire.Reply): integer | nil, boolean, boolean
   local close = reply.close == true
-  if bodiless(reply.status) then return nil, false, close end
+  local size = declared(reply)
+  if bodiless(reply.status) then return reply.status == 304 and size or nil, false, close end
   local body = reply.body
-  if body == nil then return 0, false, close end
+  if body == nil then return size or 0, false, close end
   if body is string then return #body, false, close end
-  if reply.length ~= nil then return reply.length, false, close end
+  if size ~= nil then return size, false, close end
   if reply.version == "HTTP/1.1" then return nil, true, close end
   -- An HTTP/1.0 client reads no chunks: the body ends where the
   -- connection does.
@@ -735,7 +793,9 @@ local function head_text(reply: wire.Reply, length: integer | nil, chunked: bool
     "Date: " .. reply.date,
   }
   local names: {string} = {}
-  for name in pairs(reply.headers or {}) do names[#names + 1] = name end
+  for name in pairs(reply.headers or {}) do
+    if name:lower() ~= "content-length" then names[#names + 1] = name end
+  end
   table.sort(names)
   for _, name in ipairs(names) do lines[#lines + 1] = name .. ": " .. reply.headers[name] end
   if length ~= nil then lines[#lines + 1] = "Content-Length: " .. length end
@@ -786,7 +846,8 @@ end
 
 --- Writes `reply`, which [`wire.check`] passed, to `w`, and closes its
 --- Reader body, if any. A HEAD's reply has the head a GET's would and
---- no body; a 1xx, 204 or 304 has neither a body nor a Content-Length.
+--- no body; a 1xx, 204 or 304 has no body, and a Content-Length only
+--- where a 304 gives one.
 --- A reply cut short, by the writer or the Reader body failing, closes
 --- the connection.
 function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
