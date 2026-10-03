@@ -118,7 +118,9 @@ end
 --- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
 --- fresh checkout's boot, the product rebuilding itself) is what a
 --- fixture checks compiles, and work another child or fixture left in
---- that file would stand in for it (fixed_point_test, self_rebuild_test).
+--- that file would stand in for it (fixed_point_test, self_rebuild_test's
+--- docs verb). A case that checks a rebuild's way and not its compile
+--- names a file of its own (self_rebuild_test's `seeded_compiles`).
 ---
 --- Nor does a `cosmic test` the child runs sandbox its workers
 --- (COSMIC_TEST_SANDBOX=0): what a fixture asserts of such a run is its
