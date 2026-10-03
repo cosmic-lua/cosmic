@@ -101,8 +101,8 @@ end
 --- Reads one position against `at`, moves `at` to it, and returns it.
 --- Anything that is not a position (`invalid sloc`) leaves `at` alone.
 local function located(at: Cursor, s: string): string, integer, integer
-  -- Most positions are the two short forms; the first byte says which
-  -- one a position could be before any pattern is tried.
+  -- Most positions are one of the two short forms, and the first byte
+  -- says which one a position could be.
   local first = s:byte(1)
   if first == 99 then -- c
     local col = s:match("^col:(%d+)$")
