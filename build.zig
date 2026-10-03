@@ -453,6 +453,7 @@ const core_sources = [_][]const u8{
     "vfs.c",
     "main.c",
     "portable.c",
+    "promises.c",
     "startup.c",
 };
 

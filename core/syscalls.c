@@ -1386,6 +1386,10 @@ struct spawn_plan {
 #if defined(PLEDGE_ARCH)
   const struct sock_fprog *pledge;
 #endif
+  /* Whether the child is held to the promises filter (core/promises.c),
+   * and to which promises: COSMIC_PROMISE_ bits. */
+  int promising;
+  unsigned promises;
   int unveiling;
   int offline;
   int noexec_scratch;
@@ -1533,6 +1537,19 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   /* Lowered last, once every descriptor is moved above `top`, which a
    * lower limit can refuse; what is open above it stays open. */
   if (!failure) restore_descriptor_limit(0);
+  /* The promises filter goes last, so no step above is refused by it,
+   * and just before exec, which it allows. It is built here because it
+   * holds signals to the process's own pid, which only the child has;
+   * it follows Landlock so the ruleset is made with calls the filter has
+   * not yet limited.
+   * PR_SET_MDWE is not set for a child with no `jit`: it is a property
+   * of the address space, which this child shares with its parent until
+   * exec, so it would hold the parent too.
+   * TODO: set PR_SET_MDWE here for a child with no `jit`, once spawn
+   * starts it on an address space of its own instead of
+   * clone(CLONE_VM). The filter then drops the PROT_EXEC | PROT_BTI
+   * mprotect it allows on aarch64 for glibc's loader. */
+  if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises);
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -2015,7 +2032,7 @@ _Noreturn void cosmic_sandbox_init (void) {
  * pid, or -1 and the errno in `error`. */
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
-  if (plan->confine >= 0 || plan->pledged) {
+  if (plan->confine >= 0 || plan->pledged || plan->promising) {
     *error = ENOSYS;
     return -1;
   }
@@ -2377,6 +2394,8 @@ COSMIC_SYSCALL(spawn, 11) {
   }
   int confine = -1;
   int pledged = 0, unix_ok = 0, inet_ok = 0;
+  int promising = 0;
+  unsigned promise_bits = 0;
   const char *unveiled[UNVEIL_MAX];
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
@@ -2411,6 +2430,21 @@ COSMIC_SYSCALL(spawn, 11) {
         if (strcmp(promise, "unix") == 0) unix_ok = 1;
         else if (strcmp(promise, "inet") == 0) inet_ok = 1;
         else return luaL_argerror(L, 10, "a promise is \"unix\" or \"inet\"");
+        lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
+    lua_pushliteral(L, "promises");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "promises must be a list");
+      promising = 1;
+      lua_Integer promised = (lua_Integer)lua_rawlen(L, -1);
+      for (lua_Integer i = 1; i <= promised; i++) {
+        lua_rawgeti(L, -1, i);
+        unsigned bit = lua_type(L, -1) == LUA_TSTRING ? cosmic_promise_named(lua_tostring(L, -1)) : 0;
+        if (bit == 0) return luaL_argerror(L, 10, "a promise is \"fork\", \"jit\" or \"fattr\"");
+        promise_bits |= bit;
         lua_pop(L, 1);
       }
     }
@@ -2771,6 +2805,7 @@ COSMIC_SYSCALL(spawn, 11) {
 #if defined(PLEDGE_ARCH)
     .pledge = &pledge,
 #endif
+    .promising = promising, .promises = promise_bits,
     .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
     .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,

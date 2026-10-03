@@ -57,7 +57,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "27"
+local version <const> = "28"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -133,7 +133,9 @@ local version <const> = "27"
 --- staged file, keyed by the file's content hash like `parsed`: staging
 --- scans a file in the same moment it reads it, so an unchanged file
 --- costs nothing, and a row is a function of the bytes and the scan's
---- rule alone -- a change to the rule bumps `version`. A row no
+--- rule alone -- a change to the rule bumps `version`, and so does one
+--- to what [`build.patch`]'s [`Patch.parse`] takes as a record, whose
+--- TODOs the rule reads apart. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
 --- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
 --- external-content mode over `todos` -- which is why `todos` has a
@@ -697,22 +699,32 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
   return once(put)
 end
 
---- Whether a file's TODOs are the tree's own: a patch record's context
---- lines and a vendored pin are upstream's.
+--- Whether a file is a patch record ([`build/patch.tl`]): a `.txt` in
+--- `patch/<name>/`.
+local function is_record(file: string): boolean
+  return file:match("^patch/[^/]+/[^/]+%.txt$") ~= nil
+end
+
+--- Whether a file holds TODOs of the tree's own: a vendored tree and
+--- its pin are upstream's, and so is everything under `patch/` but a
+--- record, whose find blocks are too ([`build.todo_scan.scan_record`]).
 local function holds_own_todos(file: string): boolean
   local first = identity.first_of(file)
-  return first ~= "patch" and first ~= "vendor"
+  return first ~= "vendor" and (first ~= "patch" or is_record(file))
 end
 
 --- Records the TODOs in one file's bytes under their hash, unless a
---- file with the same bytes already has. Text holding no `TODO:`, or
---- holding a NUL, is not scanned.
+--- file with the same bytes already has: text that parses as a patch
+--- record is scanned as one wherever it sits, since the rows are keyed
+--- by the bytes alone. Text holding no `TODO:`, or holding a NUL,
+--- is not scanned.
 local function put_todos(put: Sqlite.Statement, data: string,
                          sha256: string): boolean, string
   if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
     return true, ""
   end
-  for _, found in ipairs(todo_scan.scan(data)) do
+  local scanned = todo_scan.scan_record(data) or todo_scan.scan(data)
+  for _, found in ipairs(scanned) do
     local ok, trouble = put:bind_text(1, sha256)
     if ok then ok, trouble = put:bind_integer(2, found.line) end
     if ok then ok, trouble = put:bind_integer(3, found.last) end

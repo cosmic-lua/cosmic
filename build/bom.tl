@@ -15,11 +15,12 @@
 --- of what the core is built from ([`build.identity.record_fingerprint`]'s image
 --- hash), so correcting one of these lines reboots the core as a
 --- version bump does. What cosmic's build links in without vendoring it
---- -- zig's own runtime, and the musl libc the Linux cores are static
---- against -- has a record of the same grammar at `build/bom/<name>.pin`,
---- its notices beside it. A tree's patches under `patch/<name>/` are
---- listed with it, so a reader knows the code is not upstream's as
---- published.
+--- -- zig's own runtime, the musl libc the Linux cores are static
+--- against, and the system call tables Cosmopolitan libc's
+--- pledge-linux.c is ported into core/promises.c from -- has a record of
+--- the same grammar at `build/bom/<name>.pin`, its notices beside it. A
+--- tree's patches under `patch/<name>/` are listed with it, so a reader
+--- knows the code is not upstream's as published.
 ---
 --- The tool's database carries two tables built from these (see
 --- [`build.schema`]): `components`, a row each, and `notices`, each
