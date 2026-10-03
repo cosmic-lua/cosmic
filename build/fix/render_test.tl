@@ -607,9 +607,8 @@ local function test_a_misplaced_digit_separator_is_refused()
     "fix should refuse 1__0, but: " .. tostring(trouble))
 end
 
---- A `>>` closing two type argument lists at once is written whole:
---- tl's parser reads it as two `>` and leaves one in the token stream,
---- which once lost the second from every type it ended.
+--- A `>>` closing two type argument lists at once is written whole,
+--- as the source spelled it, though tl's parser reads it as two `>`.
 local function test_a_double_angle_closing_two_type_argument_lists_is_kept()
   for _, source in ipairs({
       "local m: metatable<R<K>> = {}\n",

@@ -269,16 +269,16 @@ local function parse(built: compiler, source: string, name: string): Parsed | ni
   -- (`metatable<R<K>>`) to `>` in place, and reads that one token
   -- twice: put the lexer's spelling back, which is the source's, so a
   -- token still spans what the source wrote.
-  local shifts: {integer} = {}
-  for i, t in ipairs(tokens) do
+  local shifts: {compiler.Token} = {}
+  for _, t in ipairs(tokens) do
     if t.tk == ">>" then
-      shifts[#shifts + 1] = i
+      shifts[#shifts + 1] = t
     end
   end
   local parse_errs: {compiler.Error} = {}
   local ast = built.parse_program(tokens, parse_errs, name)
-  for _, i in ipairs(shifts) do
-    tokens[i].tk = ">>"
+  for _, t in ipairs(shifts) do
+    t.tk = ">>"
   end
   if #parse_errs > 0 then
     local e = parse_errs[1]
