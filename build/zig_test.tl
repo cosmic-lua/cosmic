@@ -64,12 +64,13 @@ end
 
 local function test_build_args_adds_cache_flags_only_for_build()
   local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-Doptimize=ReleaseFast" }, 4)
-  assert(#got == 7)
+  assert(#got == 8)
   assert(got[1] == "build")
   assert(got[2] == "--cache-dir" and got[3] == "/cache/zig-project")
   assert(got[4] == "--prefix" and got[5] == "/repo/o")
-  assert(got[6] == "-j8")
-  assert(got[7] == "-Doptimize=ReleaseFast")
+  assert(got[6] == "--cache-poison=disallowed")
+  assert(got[7] == "-j8")
+  assert(got[8] == "-Doptimize=ReleaseFast")
 end
 
 -- Twice the processors, at least 8: under zig's default the three targets'
@@ -79,13 +80,13 @@ local function test_build_args_run_steps_past_the_processor_count()
   assert(Zig.build_jobs(4) == 8)
   assert(Zig.build_jobs(16) == 32)
   local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "boot" }, 16)
-  assert(got[6] == "-j32" and got[7] == "boot")
+  assert(got[7] == "-j32" and got[8] == "boot")
 end
 
 local function test_build_args_keep_the_callers_jobs()
   local got = Zig.build_args("/repo", "/cache/zig-project", { "build", "-j2", "boot" }, 16)
-  assert(#got == 7)
-  assert(got[6] == "-j2" and got[7] == "boot")
+  assert(#got == 8)
+  assert(got[7] == "-j2" and got[8] == "boot")
 end
 
 local function test_build_args_passes_other_subcommands_through()

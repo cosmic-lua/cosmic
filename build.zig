@@ -515,7 +515,7 @@ const Own = struct {
             std.process.exit(1);
         }) |entry| {
             if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".h"))
-                names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+                names.append(b.allocator, b.graph.dupeString(entry.name)) catch @panic("OOM");
         }
         std.mem.sort([]const u8, names.items, {}, struct {
             fn lessThan(_: void, x: []const u8, y: []const u8) bool {
@@ -545,7 +545,7 @@ const Own = struct {
         const files = b.addWriteFiles();
         _ = files.addCopyFile(b.path(path), path);
         const copied = own.copyHeaders(files);
-        own.roots.put(b.allocator, b.dupe(path), copied) catch @panic("OOM");
+        own.roots.put(b.allocator, b.graph.dupeString(path), copied) catch @panic("OOM");
         return copied;
     }
 
@@ -778,10 +778,10 @@ pub fn build(b: *std.Build) void {
         if (std.mem.eql(u8, t.name, hostName(b))) {
             const bridge = b.addRunArtifact(exe);
             bridge.addArg("--boot");
-            bridge.addDirectoryArg(b.path("."));
-            bridge.addDirectoryArg(tl);
+            bridge.addDirectoryArg2(b.path("."), .{});
+            bridge.addDirectoryArg2(tl, .{});
             bridge.addArg(t.name);
-            bridge.addFileArg(target_records);
+            bridge.addFileArg2(target_records, .{});
             // The bridge reads every raw core and writes the database
             // beside them, so it runs after both.
             bridge.step.dependOn(cores);
@@ -855,16 +855,16 @@ pub fn build(b: *std.Build) void {
     );
     const checked_boot = b.addRunArtifact(checked);
     checked_boot.addArg("--boot");
-    checked_boot.addDirectoryArg(b.path("."));
-    checked_boot.addDirectoryArg(tl);
+    checked_boot.addDirectoryArg2(b.path("."), .{});
+    checked_boot.addDirectoryArg2(tl, .{});
     checked_boot.addArg(checked_target.name);
-    checked_boot.addFileArg(target_records);
+    checked_boot.addFileArg2(target_records, .{});
     checked_boot.addDirectoryArg2(
         .{ .relative = .{ .base = .install_prefix, .sub_path = "sanitized" } },
         .{ .make_absolute = true },
     );
-    checked_boot.addFileArg(checked.getEmittedBin());
-    checked_boot.addFileArg(checked_records);
+    checked_boot.addFileArg2(checked.getEmittedBin(), .{});
+    checked_boot.addFileArg2(checked_records, .{});
     checked_boot.step.dependOn(cores);
     checked_boot.step.dependOn(vendored);
     checked_boot.has_side_effects = true;
@@ -997,7 +997,7 @@ fn patched(b: *std.Build, trees: []const u8, name: []const u8) std.Build.LazyPat
     while (lines.next()) |line| {
         const tab = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
         if (std.mem.eql(u8, line[0..tab], name)) {
-            return .{ .cwd_relative = b.dupe(line[tab + 1 ..]) };
+            return b.graph.cwdRelativePath(line[tab + 1 ..]);
         }
     }
     std.debug.print("build.zig: the patched trees' manifest names no {s}\n", .{name});
@@ -1035,25 +1035,25 @@ fn analyze(
             b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
             b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
         });
-        run.addPrefixedDirectoryArg("-I", sources.own.include());
-        run.addPrefixedDirectoryArg("-I", sources.lua.path(b, "src"));
-        run.addPrefixedDirectoryArg("-I", sources.sqlite);
-        run.addPrefixedDirectoryArg("-I", sources.miniz);
+        run.addDirectoryArg2(sources.own.include(), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.lua.path(b, "src"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.sqlite, .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.miniz, .{ .prefix = "-I" });
         for (crypto_include_dirs) |dir| {
-            run.addPrefixedDirectoryArg("-I", crypto.path(b, dir));
+            run.addDirectoryArg2(crypto.path(b, dir), .{ .prefix = "-I" });
         }
-        run.addPrefixedDirectoryArg("-I", sources.mbedtls.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", sources.bzip2);
-        run.addPrefixedDirectoryArg("-I", sources.xz.path(b, "src/liblzma/api"));
-        run.addPrefixedDirectoryArg("-I", sources.cares.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", sources.curl.path(b, "include"));
-        run.addPrefixedDirectoryArg("-I", sources.yyjson.path(b, "src"));
+        run.addDirectoryArg2(sources.mbedtls.path(b, "include"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.bzip2, .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.xz.path(b, "src/liblzma/api"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.cares.path(b, "include"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.curl.path(b, "include"), .{ .prefix = "-I" });
+        run.addDirectoryArg2(sources.yyjson.path(b, "src"), .{ .prefix = "-I" });
         run.addArg("-o");
-        _ = run.addOutputFileArg(b.fmt("{s}.analysis", .{file}));
+        _ = run.addOutputFileArg2(b.fmt("{s}.analysis", .{file}), .{});
         // The tree's own file, so a finding names it: a file argument's
         // key is its path under the build root and its contents, the same
         // from every checkout, where a compile's is its absolute path.
-        run.addFileArg(b.path(b.fmt("core/{s}", .{file})));
+        run.addFileArg2(b.path(b.fmt("core/{s}", .{file})), .{});
         step.dependOn(&run.step);
     }
 }
@@ -1094,19 +1094,19 @@ fn observedCore(
     const first = core(b, target_record, configuration, target, sources, vendor, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
     write_map.addArg("write");
-    write_map.addFileArg(first.getEmittedBin());
-    const map = write_map.addOutputFileArg("coverage_map.c");
+    write_map.addFileArg2(first.getEmittedBin(), .{});
+    const map = write_map.addOutputFileArg2("coverage_map.c", .{});
     // Where each file the core observes was compiled from, and the
     // headers' copy a file outside core/ reads.
     for (ownCoreFiles(b, configuration, false)) |path| {
-        write_map.addDirectoryArg(sources.own.root(path));
+        write_map.addDirectoryArg2(sources.own.root(path), .{});
     }
-    write_map.addDirectoryArg(sources.own.header_root);
+    write_map.addDirectoryArg2(sources.own.header_root, .{});
     const second = core(b, target_record, configuration, target, sources, vendor, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
-    check_map.addFileArg(first.getEmittedBin());
-    check_map.addFileArg(second.getEmittedBin());
+    check_map.addFileArg2(first.getEmittedBin(), .{});
+    check_map.addFileArg2(second.getEmittedBin(), .{});
     checks.dependOn(&check_map.step);
     return second;
 }

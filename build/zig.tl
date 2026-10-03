@@ -169,7 +169,12 @@ end
 --- `project`, and running [`build_jobs`] steps at once for `cpus`
 --- processors unless the caller passes `-j`; anything else passes
 --- through unchanged. `zig build` takes no flag for its global cache,
---- only ZIG_GLOBAL_CACHE_DIR ([`Zig.build_environment`]).
+--- only ZIG_GLOBAL_CACHE_DIR ([`Zig.build_environment`]). zig keeps
+--- build.zig's configuration until what build.zig declared it read
+--- changes; `--cache-poison=disallowed` makes build.zig fail rather
+--- than quietly configure again on every build (it calls `findProgram`,
+--- say). A read build.zig does not declare, it cannot catch: build.zig
+--- declares each (`dependOn*`).
 function Zig.build_args(root: string, project: string,
     argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
@@ -178,6 +183,7 @@ function Zig.build_args(root: string, project: string,
       "build",
       "--cache-dir", project,
       "--prefix", root .. "/o",
+      "--cache-poison=disallowed",
     }
     for _, define in ipairs(defines or {}) do
       out[#out + 1] = define
