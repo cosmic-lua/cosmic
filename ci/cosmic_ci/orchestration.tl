@@ -1329,7 +1329,8 @@ end
 --- fixture's rebuilds write are never saved with the leg's. A row's
 --- bytecode runs, so the file is held to what build/shared_compiles.tl
 --- holds it to before a build reads it: an absolute path, a file and
---- no link, this user's, and writable by no one else. False and why
+--- no link, it and its directory this user's and writable by no one
+--- else. False and why
 --- when the leg keeps no such file; a leg whose COSMIC_BUILD_CACHE is
 --- `0` keeps none, and is refused rather than left to compile every
 --- case cold.
@@ -1348,12 +1349,18 @@ function Orchestration.seed_compiles(env: {string:string},
   if source:sub(1, 1) ~= "/" then
     return false, "COSMIC_BUILD_CACHE names no absolute path: " .. source
   end
-  local st, stat_trouble = sys.lstat(source)
-  if st == nil then return false, source .. ": " .. stat_trouble end
-  if st.kind ~= "file" then return false, source .. ": not a file" end
-  if st.uid ~= sys.getuid() then return false, source .. ": owned by another user" end
-  if st.mode & 0x12 ~= 0 then
-    return false, source .. ": writable by its group or others"
+  for _, held in ipairs({ { Fs.dirname(source), "dir" }, { source, "file" } }) do
+    local path, kind = held[1], held[2]
+    -- A link to the directory is followed, as shared_compiles' `private`
+    -- follows it; one to the file is not.
+    local st, stat_trouble: sys.Stat, string = nil, ""
+    if kind == "file" then st, stat_trouble = sys.lstat(path) else st, stat_trouble = sys.stat(path) end
+    if st == nil then return false, path .. ": " .. stat_trouble end
+    if st.kind ~= kind then return false, path .. ": not a " .. (kind == "dir" and "directory" or kind) end
+    if st.uid ~= sys.getuid() then return false, path .. ": owned by another user" end
+    if st.mode & 0x12 ~= 0 then
+      return false, path .. ": writable by its group or others"
+    end
   end
   if Fs.exists(destination) then
     return false, destination .. ": already exists"

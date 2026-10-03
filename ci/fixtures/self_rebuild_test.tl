@@ -23,11 +23,12 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 -- they check is the rebuild's way through the lock, the artifact and the
 -- re-entry, which a compile of every module only slows. The docs verb's
 -- compiles the whole tree cold, as the product rebuilding itself on a
--- fresh checkout does: 55 to 60 s of one core for the tree's 512 modules,
--- on a runner or under ci/run-local on a four-core host, which this bound
--- holds 1.5 times over. Five cold compiles at once on four cores would
--- take 86 to 90 s each, past it. The driver bounds each test here at
--- 120 s (orchestration.tl), which this leaves room inside.
+-- fresh checkout does: 55 to 60 s of one core for the tree's modules
+-- (some 500 in October 2026), on a runner or under ci/run-local on a
+-- four-core host, which this bound holds 1.5 times over. Five cold
+-- compiles at once on four cores would take 86 to 90 s each, past it.
+-- The driver bounds each test here at 120 s (orchestration.tl), which
+-- this leaves room inside.
 local rebuild_timeout_ns <const> = Time.seconds(90)
 
 --- A copy of the leg's compiles (COSMIC_FIXTURE_COMPILES, orchestration.tl's
@@ -50,7 +51,7 @@ local function compiles_in(path: string, since_ns: integer): integer, integer
   local total, used = 0, 0
   local ok, failure = pcall(function(): boolean
     local tables = assert(Sqlite.text_rows(db,
-      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'compiled_v%'"))
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
     for _, row in ipairs(tables) do
       local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
         "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row[1] .. "\"",
@@ -79,7 +80,9 @@ end
 --- `seed`'s compiles than they compiled: a rebuild that could not open the
 --- copy, or whose keys no longer match the boot's, compiles every module
 --- and passes, slowly, until it meets the bound this file exists to keep
---- it under. `err` is what the rebuilding run said.
+--- it under. A row a build evicts or drops as damaged counts as one it
+--- took, which only loosens the check. `err` is what the rebuilding run
+--- said.
 local function took_compiles(label: string, seed: Seed, since_ns: integer, err: string)
   assert(not err:find("build: shared compiles:", 1, true),
     label .. ": the rebuild could not take back its compiles; it said:\n" .. err)
