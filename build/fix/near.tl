@@ -47,17 +47,23 @@ local record near
 
   --- What the notes read of the library's functions, made once for
   --- every module compared ([`near.index`]).
+  --- Each field but `named` and `named_in` is by a function's place in
+  --- the `known` the index was made of, which [`near.notes`] is given
+  --- with it.
   record Index
-    known: {Known}
-    --- How many public symbols are called each (lowercased) name, a raw
-    --- binding's not counted, in all and in each module.
+    --- How many public symbols are called each name, a raw binding's
+    --- not counted: in all (`named`) and in each module (`named_in`).
     named: {string: integer}
     named_in: {string: {string: integer}}
+    --- How many distinct words each function's doc comment has.
     their_counts: {integer: integer}
-    --- The library functions that use each word, in order.
+    --- The functions that use each word, in order.
     using: {string: {integer}}
+    --- The patterns that find a function's name in a doc comment:
+    --- qualified, and as code.
     qualified: {integer: string}
     coded: {integer: string}
+    --- Whether a function is compared at all.
     comparable: {integer: boolean}
   end
 
@@ -191,7 +197,7 @@ function near.index(known: {near.Known}): near.Index
       coded[index] = "`" .. last_name(other.symbol) .. "`"
     end
   end
-  return { known = known, named = named, named_in = named_in, their_counts = their_counts,
+  return { named = named, named_in = named_in, their_counts = their_counts,
     using = using, qualified = qualified, coded = coded, comparable = comparable }
 end
 
