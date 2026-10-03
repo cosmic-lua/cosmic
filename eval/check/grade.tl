@@ -338,7 +338,9 @@ function Grader.api_failures(output: string): {string}
 end
 
 --- The project's files a copy for the hidden API test takes: all but
---- what a build of it wrote, under `o/`.
+--- what a build of it wrote, under `o/`. Only regular files are
+--- copied, as [`Fs.walk`] lists them: a link could reach outside the
+--- project, and a task's sources have no need of one.
 local function copy_project(project: string, copy: string): boolean, string
   local files, trouble = Fs.walk(project, function(rel: string): boolean
     return rel == "o"
@@ -382,11 +384,15 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
   local output = ""
   if ready then
     -- A failing test's directory is kept under TMPDIR, which goes with
-    -- the copy.
+    -- the copy; no shared cache keeps the test's compile or verdict
+    -- where a solver run by hand, with this HOME, could read it. A test
+    -- that hangs is cut short well within the grading's own budget.
     local env = Env.all()
     env.TMPDIR = scratch .. "/tmp"
-    local result, rtrouble = Child.run({ cosmic, "test", name }, { cwd = copy, env = env,
-      stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(120) })
+    env.COSMIC_BUILD_CACHE = "0"
+    env.COSMIC_VERDICT_CACHE = "0"
+    local result, rtrouble = Child.run({ cosmic, "test", "--timeout", "5", name }, { cwd = copy,
+      env = env, stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(20) })
     if result == nil then
       ready, why = false, rtrouble
     else
@@ -1993,9 +1999,13 @@ local function relay_refused(g: Grade)
   end
   stops(g, server, "relay to a refusing target")
   local said, _ = Fs.read(g.dir .. "/check-relay-refused.out")
+  -- stdout and stderr share the log: a line that is neither stdout's
+  -- `listening` nor its `relayed` is stderr's.
   local lines = 0
-  for _ in (said or ""):gmatch("[^\n]+") do lines = lines + 1 end
-  check(g, lines >= 2, "a refused target is a line on stderr",
+  for line in (said or ""):gmatch("[^\n]+") do
+    if not line:find("^listening on ") and not line:find("^relayed ") then lines = lines + 1 end
+  end
+  check(g, lines >= 1, "a refused target is a line on stderr",
     "printed '" .. trimmed(said or "") .. "'")
 end
 

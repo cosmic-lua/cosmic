@@ -85,6 +85,8 @@ local function test_a_plan_refuses_a_cycle_naming_a_job_in_it()
   assert(why == "job x: needs form a cycle" or why == "job y: needs form a cycle", why)
 end
 
+-- Every member must type-check as a `jobs.Status`; nothing a test can
+-- compile tells an enum from an alias of string, which would pass too.
 local function test_status_holds_the_five_words()
   local all: {jobs.Status} = { "ok", "failed", "timeout", "skipped", "interrupted" }
   local seen: {jobs.Status: boolean} = {}

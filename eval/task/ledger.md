@@ -76,8 +76,9 @@ which is checked through these names and types:
   order, and `rows: integer`.
 - `ledger.summarize(transactions: {ledger.Transaction}, options:
   ledger.Options): ledger.Report | nil, string`: the months and rows
-  `report` prints for those transactions, or nil and why for an
-  unknown zone or a malformed date.
+  `report` prints for those transactions, reading only the fields of
+  `ledger.Transaction` named above, or nil and why for an unknown zone
+  or a malformed date.
 
 The project must have all four of these:
 

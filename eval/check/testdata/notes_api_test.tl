@@ -44,6 +44,6 @@ local function test_notes_outlive_a_store_closed_by_its_scope(dir: string)
 end
 
 local function test_open_refuses_what_is_no_database(dir: string)
-  local store, why = notes.open(dir .. "/missing/dir/notes.db")
-  assert(store == nil and why ~= nil and why ~= "", "opened a database in a missing directory")
+  local store, why = notes.open(dir)
+  assert(store == nil and why ~= nil and why ~= "", "opened a directory as a database")
 end

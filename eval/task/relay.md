@@ -30,8 +30,9 @@ forwarder:
   client's connection is closed with nothing sent to it, a line on
   stderr says why, and `relay` goes on serving.
 - When one side ends what it sends (it closes, or shuts down its
-  sending half), `relay` ends what it sends to the other side the same
-  way, after everything that side sent before its end, and goes on
+  sending half), `relay` shuts down its own sending half toward the
+  other side, after everything the first side sent before its end, and
+  goes on
   copying the other way until that ends too; then it closes both
   connections. A connection that fails (reset, refused write) closes
   both at once.
