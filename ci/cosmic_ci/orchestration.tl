@@ -450,6 +450,13 @@ local fixed_point_test_timeout_ns <const> = Time.seconds(300)
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes.
 local checked_suite_timeout_ns <const> = Time.seconds(1200)
+-- Each test's bound on the checked core: the release suites' (below)
+-- scaled by how much slower the checked core runs a test, about 2.9
+-- times over the suite and 5.5 times for a compile-heavy module
+-- (build/shape_specs_test.tl, about 3 s a test on the release core, past
+-- the runner's default 30 s on CI's checked job when no verdict stood),
+-- and doubled for a loaded runner.
+local checked_suite_test_timeout_s <const> = "120"
 local fixed_point_per_test_timeout_s <const> = "240"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
@@ -804,7 +811,8 @@ local function checked_suite(c: Context, target: string, work: string,
   -- every test then, whatever o/ holds.
   local checked_argv: {string} = { cosmic }
   local checked_words, checked_environment = Orchestration.suite_run({
-    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked") })
+    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
+    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s })
   table.insert(checked_words, 2, "--census")
   for _, word in ipairs(checked_words) do
     checked_argv[#checked_argv + 1] = word
