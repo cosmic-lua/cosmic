@@ -82,6 +82,16 @@
 ---                      making it
 ---     mode P           P's permission bits in octal and a newline, to
 ---                      stdout, as `stat -c %a` prints them
+---     create F T       T and a newline, as the whole of the new file F,
+---                      made as `open` with O_EXCL makes one: where F is
+---                      there already, or F cannot be made, it fails
+---     truncate F       empties file F in place, as `: > F` does, but
+---                      never makes it
+---     rm F             removes file F
+---     rmdir D          removes the empty directory D
+---     rename A B       moves A to B, as `mv A B` does
+---     chmod P M        sets P's permission bits to M, in octal, as
+---                      `chmod M P` does
 ---     find-writable D  each regular file beneath D that opens to write,
 ---                      as `writable` opens one, a line each: a link is
 ---                      neither listed nor walked into, as `find D -type

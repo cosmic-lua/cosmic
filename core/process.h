@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "lua.h"
+#include "promises.h"
 #include "syscalls.h"
 
 /* The most paths a sandbox unveils (`Unveil`): a test worker's
@@ -145,14 +146,23 @@ COSMIC_SYSCALL(user, 1);
  */
 
 /*
+ * --- One path a child is granted, and what it may do there (`Sandbox`'s `grants`).
+ * ---@class Grant
+ * ---@field path string the file or directory, as this process sees it: a relative one from its working directory, resolved once, through links, when the child starts; it must exist, or the start fails naming it
+ * ---@field access string letters of "rwxcu", in any order: `r` reads files and lists directories; `w` writes and truncates files (truncating needs Landlock ABI 3); `x` runs files; `c` creates and removes files, directories, links, fifos and sockets (never a device node), and renames and links between granted paths (Landlock ABI 2 and up; EXDEV where no grant allows the move); `u` connects to the unix socket at the path (Landlock ABI 9: below it the start fails, EOPNOTSUPP, naming the ABI the kernel gives). A grant on a directory reaches what is beneath it; on a file, what a file takes -- `c` on one grants nothing
+ */
+
+/*
  * --- What `spawn` holds a child to from its exec on, with every process it starts.
  * ---@class Sandbox
  * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none. It is built in this process, from paths as this process sees them, before the child has a root of its own, and holds the files those paths are, and nothing of the network, which `offline` holds: with `unveil`, a rule on a path the child is given reaches it, but none reaches what the child's root is built of -- its own /tmp, the directories above an unveiled path, / itself, and its own /proc -- which no path here names, so a child held to one cannot write its own /tmp, list /, or read its own /proc -- though, where the kernel gives it the host's (see `unveil`), a ruleset naming /proc reaches that. With `unveil` and `offline` it holds nothing more that matters of the filesystem, the network or signals -- a narrower ruleset is a narrower unveiling, the network namespace reaches nothing past the child's own loopback, nor shares an abstract unix socket with any process outside it, and the pid namespace holds no process outside it to signal. And a child it holds cannot confine one of its own, since Landlock refuses a mount or pivot_root to a process it holds
+ * ---@field grants {Grant} the paths the child may reach and how, or nil for no such hold: a Landlock ruleset built in this process, from each path opened once with O_PATH, that handles every filesystem right the kernel's ABI knows, up to ABI 9's (a newer kernel's rights are left allowed), so anything no grant gives is refused with EACCES (or EXDEV, for a rename or link REFER does not allow) -- the child's own program too, which needs `rx` -- and device files' ioctls are never given. Where the kernel has them it holds the child further: ABI 6 scopes it, so it reaches no abstract unix socket and signals no process outside its own domain, and ABI 4 refuses it TCP, bind and connect alike, there being no way to grant either. A kernel below an ABI loses that part and the start goes on, except for a `u` grant. `grants = {}` grants nothing, which is a start that fails unless the program itself is granted: a child needs `rx` on its program and on the loader or interpreter it names (EACCES, the message says so). Not with `ruleset`, which it is built to replace; it holds as a ruleset does, last before the promises filter, and the same limits (stat and the like are not held, a descriptor handed in is as open as it was). Linux; ENOSYS elsewhere, and, where there is no Landlock (not built in, turned off, or refused by a filter) the start fails with the reason and what to enable
  * ---@field unveil Unveil what alone the child has of the filesystem, or nil for all of it: a root of its own, in namespaces of its own -- a pid namespace among them, of which it is pid 2, beneath an init of its own at pid 1 that ends when it does, ending whatever it left running there, and ends when this process does, so it sees and signals only the processes it starts, while its pid, status and signals here are any child's; and a session of its own, and so a process group of its own whatever `process_group` says, with no controlling terminal -- and System V IPC of its own, holding those paths at the names they resolve to, or each at the name `at` gives it, and, for each given through a link, that link there too -- and, with /proc among them and no /dev given whole, /dev/fd and /dev/stdin, /dev/stdout and /dev/stderr as links into it, and, unless /tmp or / is among them, a /tmp of its own that its own children share, empty but for the paths given beneath the host's -- and nothing else, so a path outside them is not there to stat any more than to open. A ruleset with it reaches the unveiled paths alone (see `ruleset`): a rule on a directory above one does not reach into it, since each is a mount of its own, so name the unveiled paths themselves. /proc given is a procfs of its pid namespace, holding that namespace's processes and nothing of the host's (no /proc/sys and the like; a path beneath /proc given besides it is not there), and writable, so the child can map its own child's ids and confine one of its own in turn: what it can write there is its own processes' and its own session's. Where the kernel refuses one -- a container's runtime masking parts of its /proc, as Docker's does without --security-opt systempaths=unconfined, where a user namespace may not mount a procfs -- it is the host's, read-only like any path given to read, so the child cannot confine one of its own (EROFS); it shows the host's processes and state, and its pids are the host's, not the ones the child is in: /proc/self and /proc/thread-self are the child's own, /proc/<its getpid()> another process's. A child confined from inside another sandbox -- one whose root user has given up the CAP_SETFCAP that mapping root into a user namespace takes -- runs as root unmapped: the kernel's overflow id (65534) inside, owning what root owns but with no capability to override a file's permissions, on a root and a /tmp built in a directory of its TMPDIR, which is left there; unmapped, it cannot confine one of its own again. Linux, where unprivileged user namespaces are allowed; ENOSYS elsewhere, and EPERM or the like where they are not
  * ---@field noexec_scratch boolean with `unveil`, a fresh writable tmpfs at /noexec whose files cannot execute. No unveiled path or alias may occupy /, /noexec or beneath /noexec. This option does not change ordinary /tmp policy. Reading, interpreting or copying its bytes elsewhere is allowed. Linux only; creation failure is reported without a host-directory fallback
  * ---@field offline boolean a network namespace of its own, with nothing but a loopback, which is up: a connection to 127.0.0.1 reaches a listener of the child's own processes, or is refused
  * ---@field user integer with `unveil` and `group`, the user the child runs as in place of this process's root, which must hold CAP_SETUID, CAP_SETGID and CAP_SETFCAP where that user and group are mapped (root, most often), or nil to run as this process's own: its namespace maps root and that user beside it, written from outside by a process of this one's, and its root is built by root there, with what it makes owned by that user, as an unprivileged caller's child's is; then it gives root up for that user and group, with no supplementary group, and, where its /proc is its own, makes a user namespace mapping that user and group alone, as such a caller's child has -- so, as that one can, it confines one of its own at any depth. Neither 0 nor -1. EPERM where this process may not map them
  * ---@field group integer the group the child runs as with `user`, which needs one
+ * ---@field promises {string} the promises the child is held to, or nil for no filter: a seccomp allow list (core/promises.c), which answers EPERM to every call the basics and these do not name. The basics are what every program has: memory, time, signals to itself, threads, descriptors, the file calls Landlock holds the paths of, executable mappings of files, execve, a unix socketpair and read-only terminal queries. `"fork"` adds fork, vfork and clone without a namespace flag; `"jit"` adds executable memory that is not a file's; `"fattr"` adds changing a file's mode, times, owner and extended attributes (never with a setuid, setgid or sticky bit). `clone3` and `openat2` answer ENOSYS, a refused ioctl ENOTTY, and socket() of any family is refused. It is built in the child, after Landlock and just before exec, and holds every process the child starts. The signal calls (kill, tkill, tgkill and the queueing ones) take only the pid the child had when it was built, so a process it forks, which has another, cannot signal itself, and its abort() ends by SIGSEGV rather than SIGABRT, until Landlock's signal scope (ABI 6) holds signals instead. `jit` is no boundary against a program that can write a file it can also map (one file mapped shared writable and executable) or against a write through /proc/self/mem. On aarch64 an mprotect adding PROT_EXEC is allowed only with PROT_BTI and without PROT_WRITE, as glibc's loader makes it Beside `pledge`, whose filter it adds to. Linux on x86_64 and aarch64; ENOSYS elsewhere
  * ---@field pledge {string} the promises the child may keep, or nil for no filter: with one, a socket may be only of a family promised -- "unix" for AF_UNIX, "inet" for AF_INET and AF_INET6 -- and the calls that reach past the process (ptrace, pidfd_getfd, mounting, bpf, loading modules, io_uring and the like) fail with EPERM; keeping a child from another process's /proc/<pid>/mem takes a ruleset too. Linux on x86_64 and aarch64; ENOSYS elsewhere
  */
 
@@ -192,6 +202,14 @@ COSMIC_SYSCALL(spawn, 11);
  * ---@return integer errno the error number, when ruleset is nil
  */
 COSMIC_SYSCALL(landlock_ruleset, 2);
+
+/*
+ * --- The Landlock ABI version this kernel gives, 1 and up, which says which rights a ruleset can hold (`spawn`'s `grants` needs 9 for `u`).
+ * ---@return integer|nil abi the version, or nil where there is no Landlock to be had: not built in, turned off, or refused by a filter
+ * ---@return string error what went wrong, when abi is nil
+ * ---@return integer errno the error number, when abi is nil: ENOSYS where there is none at all
+ */
+COSMIC_SYSCALL(landlock_abi, 0);
 
 /*
  * --- Holds this process, and every process it starts from here on, to running only the files beneath each of `paths`: an exec of any other file -- or of a program whose interpreter is another -- is refused with EACCES; and to moving or linking a file into another directory only beneath them, EXDEV elsewhere. Nothing else is held: it reads, writes and connects as before. EOPNOTSUPP where the kernel's Landlock is older than its second ABI, whose rulesets refuse every such move. For good: no_new_privs is set, so a setuid program runs with no more privilege than its caller, and, as Landlock holds any process it holds, it may not mount or pivot_root, so it cannot confine a process of its own in a root of its own (`spawn`'s `unveil`). ENOSYS, EOPNOTSUPP or EPERM where there is no Landlock to be had: not built in, turned off, or refused by a filter.
@@ -359,12 +377,32 @@ COSMIC_SYSCALL(child_signal_read, 1);
 COSMIC_SYSCALL(child_signal_fd, 0);
 
 /*
+ * --- How `promise_filter` builds the program.
+ * ---@class PromiseOptions
+ * ---@field pid integer the process id the program is for, which the calls that signal or ask about a process hold it to (default 1)
+ * ---@field unix boolean whether a unix socket may be made with socket(), which a socketpair always may (default false)
+ */
+
+/*
+ * --- The seccomp program `spawn`'s `promises` hold a child to, as the instructions of classic BPF a kernel would be handed, eight bytes each, little-endian (`struct sock_filter`: a 16-bit code, two 8-bit jumps, a 32-bit operand), for either architecture whatever this host is. A test runs it against a call it makes up, as the kernel would (core/promises_test.tl).
+ * ---@param promises {string} the promises, as `spawn`'s `promises` takes them
+ * ---@param arch string "x86_64" or "aarch64"
+ * ---@param options? PromiseOptions what the program is for
+ * ---@return string program the instructions
+ */
+COSMIC_SYSCALL(promise_filter, 3);
+
+/*
  * --- The numbers this table's calls take, from this build.
  * ---@class Constants
  * ---@field UNVEIL_MAX integer the most paths a sandbox unveils, its reads and writes together
  * ---@field SIGNAL_STAMP_UNIT integer what a stamp counts each caught signal as, above the last one's number
  * ---@field SPAWN_PLACED_ABOVE integer how many descriptors `spawn` places above the highest it hands a child, besides a copy of each it hands
+ * ---@field PROMISE_CALLS_REVIEWED integer one past the highest system call number the promises' tables have been reviewed to: a call above it answers ENOSYS
+ * ---@field PROMISE_CALLS_HEADERS integer one past the highest number the headers this core was built with name, or 0 where they name no count: past PROMISE_CALLS_REVIEWED, they name calls no one has judged
  */
 COSMIC_CONSTANT(UNVEIL_MAX)
 COSMIC_CONSTANT(SIGNAL_STAMP_UNIT)
 COSMIC_CONSTANT(SPAWN_PLACED_ABOVE)
+COSMIC_CONSTANT(PROMISE_CALLS_REVIEWED)
+COSMIC_CONSTANT(PROMISE_CALLS_HEADERS)

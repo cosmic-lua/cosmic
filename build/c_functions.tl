@@ -101,6 +101,9 @@ local exempt_on: {string: {string: string}} = {
     ["core/strnlen.c:strnlen"] = "libSystem's printf measures a `%s` with its own strnlen, never the core's, " ..
       "leaving the core's to c-ares's ares_strnlen, which no test need reach; bin/zig build boot's strnlen " ..
       "check covers it",
+    ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
+      "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
+      "(core/promises_child_test.tl)",
   },
 }
 

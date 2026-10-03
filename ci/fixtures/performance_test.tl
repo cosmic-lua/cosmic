@@ -23,8 +23,11 @@ local function run(tmp: string, source: string): Child.Result
   local script = tmp .. "/controller.tl"
   assert(Fs.write(script, source))
   local binary = Fixture.required("COSMIC_FIXTURE_PERFORMANCE") .. "/program"
+  -- The sandbox exposes the shared core cache read-only; this candidate may
+  -- carry a core the CI driver has never extracted.
+  local env = Fixture.environment({ COSMIC_PORTABLE_CACHE = tmp .. "/cores" })
   return (assert(Child.run({ binary, "--standalone", script, binary, binary, tmp .. "/results", "30", "uses" },
-    { cwd = tmp, env = Fixture.environment(), stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
+    { cwd = tmp, env = env, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) })))
 end
 
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)
