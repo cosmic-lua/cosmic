@@ -43,6 +43,13 @@ local String = require("cosmic.string")
 local type Node = ast.Node
 
 local record tree_checks
+  --- What [`plurals`] finds in one text of a file, read off a parse made
+  --- before the checks ran ([`plurals_in`]).
+  record Plurals
+    --- The text the sites were found in.
+    source: string
+    sites: {{string}}
+  end
 end
 
 --- The exports kept although nothing outside their module but a test
@@ -1194,10 +1201,7 @@ end
 --- string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`,
 --- `(a - b) .. " rows"`, any name, field or call), or after a `%d` in a
 --- literal.
-local function plural_sites(built: compiler, source: string, file: string):
-    {{string}} | nil, string
-  local parsed, trouble = ast.parse(built, source, file)
-  if parsed == nil then return nil, trouble end
+local function sites_in(parsed: ast.Parsed): {{string}}
   local sites: {{string}} = {}
   ast.walk(parsed.node, function(node: Node)
     local left, right = node.e1, node.e2
@@ -1220,6 +1224,27 @@ local function plural_sites(built: compiler, source: string, file: string):
   return sites
 end
 
+--- [`sites_in`] of `source`, parsed by `built`.
+local function plural_sites(built: compiler, source: string, file: string):
+    {{string}} | nil, string
+  local parsed, trouble = ast.parse(built, source, file)
+  if parsed == nil then return nil, trouble end
+  return sites_in(parsed)
+end
+
+--- What [`plurals`] finds in `source`, the text of `file` (its path from
+--- the tree's root), read off `parsed`, a parse of it already made, so
+--- the checks need not parse it again; nil for a file they do not read.
+function tree_checks.plurals_in(file: string, source: string, parsed: ast.Parsed):
+    tree_checks.Plurals | nil
+  if not file:match("%.tl$") or file:match("_test%.tl$") or file:match("%.d%.tl$") or
+      not (file:match("^build/") or file:match("^cmd/") or file:match("^cosmic/") or
+          file:match("^ci/cosmic_ci/")) then
+    return nil
+  end
+  return { source = source, sites = sites_in(parsed) }
+end
+
 --- Every place in the Teal sources under `build/`, `cmd/` and
 --- `cosmic/` of `db` (a test's excepted), and in `extra` (`{file,
 --- source}` pairs, [`ci_sources`]'s), that puts a literal plural noun
@@ -1238,8 +1263,11 @@ end
 --- (`name .. " needs"`) is passed over, and a count spelled by a name
 --- in front of a plural that is right for it (a count that cannot be 1)
 --- goes in `plural_exempt` with the reason.
+--- @param read what [`plurals_in`] found before the checks, by file: a
+---   file whose text is the one read there is not parsed again
 function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{string}},
-                             excused?: {string: string}): {string}
+                             excused?: {string: string}, read?: {string: tree_checks.Plurals}):
+    {string}
   excused = excused or plural_exempt
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules WHERE kind <> 'test' " ..
@@ -1254,7 +1282,13 @@ function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{strin
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(sources) do
-    local sites, parse_trouble = plural_sites(built, row[2], row[1])
+    local known = read ~= nil and read[row[1]] or nil
+    local sites, parse_trouble: {{string}}, string
+    if known ~= nil and known.source == row[2] then
+      sites = known.sites
+    else
+      sites, parse_trouble = plural_sites(built, row[2], row[1])
+    end
     if sites == nil then
       out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. parse_trouble
     else
@@ -1306,11 +1340,14 @@ end
 ---   docs` shows read; `db` itself when not given
 --- @param help what `cosmic help` prints ([`build.help_source`]' `texts`),
 ---   whose references are checked with the docs'; none when not given
+--- @param read the plurals already found in files' texts, as [`plurals`]
+---   takes them
 function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: compiler,
-                         extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string}): {string}
+                         extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string},
+                         read?: {string: tree_checks.Plurals}): {string}
   local out: {string} = {}
   local plurals: {string} = {}
-  if built ~= nil then plurals = tree_checks.plurals(db, built, extra) end
+  if built ~= nil then plurals = tree_checks.plurals(db, built, extra, nil, read) end
   for _, check in ipairs({
       { name = "exports", lines = tree_checks.exports(db) },
       { name = "doc anchors", lines = tree_checks.anchors(db) },

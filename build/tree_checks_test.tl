@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local ast = require("build.ast")
 local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
 
@@ -520,6 +521,34 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
     ["build/fine.tl:tests"] = "unneeded" })
   assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil and
       found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+end
+
+--- The plurals a parse already found stand for a file's only while its
+--- text is the one parsed: a file whose text has moved since is parsed
+--- again, and a file the check does not read is found nothing in.
+local function test_plurals_found_before_stand_for_the_same_text(dir: string)
+  local text = source("local n = 2", "return n .. \" tests\"")
+  local db = fixture.database(dir, {
+    ["build/count.tl"] = text,
+    ["build/moved.tl"] = source("local n = 2", "return n .. \" rows\""),
+  })
+  local built = assert(teal.load())
+  local parsed = assert(ast.parse(built, text, "build/count.tl"))
+  assert(tree_checks.plurals_in("build/count_test.tl", text, parsed) == nil)
+  assert(tree_checks.plurals_in("examples/count.tl", text, parsed) == nil)
+  local read: {string: tree_checks.Plurals} = {
+    ["build/count.tl"] = assert(tree_checks.plurals_in("build/count.tl", text, parsed)),
+    -- What was found in an older text of the file, which no longer stands.
+    ["build/moved.tl"] = { source = "return 1\n", sites = {} },
+  }
+  assert(#read["build/count.tl"].sites == 1)
+  -- A site the parse did not find is reported, so the check took it.
+  read["build/count.tl"].sites[1][2] = "kept"
+  local found = tree_checks.plurals(db, built, {}, {}, read)
+  local all = table.concat(found, "\n")
+  assert(#found == 2, all)
+  assert(found[1]:find("^build/count%.tl:2: .*`kept`") ~= nil, all)
+  assert(found[2]:find("^build/moved%.tl:2: .*`rows`") ~= nil, all)
 end
 
 --- The `ci/` sources the plural check reads are the modules of
