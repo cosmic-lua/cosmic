@@ -198,14 +198,14 @@ function schema.last_name(symbol: string): string
 end
 
 --- The indexes of the `docs` table, each as its name and what follows
---- `ON docs` in its statement. A lookup by name finds a symbol by its
---- last name, its source spelling or its module instead of scanning
---- every row, a module by the end of its name in the narrow one that
---- holds the modules' own rows alone, and a public source's filter ([`symbols.shown_docs`])
---- finds the module's `local` declarations in the narrow one. A query
---- answers the same rows with or without them: a database written
---- before they existed is only slower to read, so none of them is
---- ever required.
+--- `ON docs` in its statement. A lookup by name reads a symbol by its
+--- last name, its source spelling or its module rather than scanning
+--- every row. A module is found by the end of its name in the index of
+--- the modules' own rows. A public source's filter
+--- ([`symbols.shown_docs`]) finds a module's `local` declarations in
+--- the index of those alone. A query answers the same rows with them or
+--- without them, so a database written before they existed is only
+--- slower to read.
 local docs_indexes: {{string}} = {
   { "docs_by_last_name", "(" .. schema.last_name("symbol") .. ")" },
   { "docs_by_source_symbol", "(source_symbol)" },

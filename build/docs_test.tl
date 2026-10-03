@@ -1657,6 +1657,11 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
   assert(#assert(docs.lookup(everything, "read")) == 3)
   assert(#assert(docs.uses(everything, "read")) == 2)
 
+  -- A module's own row, whose source spelling is empty, is among what
+  -- its name matches.
+  local own = assert(Sqlite.text_rows(db, "SELECT d.kind FROM docs d WHERE " ..
+      symbols.named_where("d"), { { text = "cosmic.fs" } }))
+  assert(#own == 1 and own[1][1] == "module", tostring(#own))
   local public = assert(docs.view({ db }, { true }))
   local found = assert(docs.lookup(public, "read"))
   assert(#found == 1 and found[1].module == "cosmic.fs", tostring(#found))
@@ -2356,7 +2361,9 @@ end
 --- A lookup finds the same rows through the indexes of `docs` as with
 --- none, as in a database written before they existed, a public view's
 --- hiding of a module's `local` declarations included; and finding a
---- name reads its candidates through the index of last names.
+--- name reads its candidates through the index of last names. A local
+--- declaration hides only its own module's symbols (cosmic.box's `Fs`
+--- leaves [`Fs.read`] shown), and a module's own name answers its page.
 local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/box.tl"] = source(
@@ -2372,9 +2379,14 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
       "  return \"\"",
       "end",
       "",
+      "--- Named as another module's record is.",
+      "local function Fs(): string",
+      "  return \"\"",
+      "end",
+      "",
       "--- Reads it.",
       "function Box.read(): string",
-      "  return read()",
+      "  return read() .. Fs()",
       "end",
       "",
       "return Box"),
@@ -2396,10 +2408,22 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     end
     return out
   end
+  local public = assert(docs.view({ db }, { true }))
+  local read = assert(docs.lookup(public, "Fs.read"))
+  assert(read.exact and #read == 1 and read[1].module == "cosmic.fs", listed(read))
+  local page = assert(docs.lookup(public, "cosmic.fs"))
+  assert(page.exact and #page == 1 and page[1].kind == "module", listed(page))
   local indexed_public, indexed_private = every(true), every(false)
   local names = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
-  assert(#names == 5, tostring(#names))
+  local present: {string: boolean} = {}
+  for _, row in ipairs(names) do present[row[1]] = true end
+  assert(present["docs_by_last_name"] and present[schema.local_index], table.concat(
+    (function(): {string}
+      local all: {string} = {}
+      for name in pairs(present) do all[#all + 1] = name end
+      return all
+    end)(), " "))
   -- The fixture's handle is read-only; a writable one on its file drops
   -- them, which the read-only handle reads on its next query.
   local files = assert(Fs.list(dir))

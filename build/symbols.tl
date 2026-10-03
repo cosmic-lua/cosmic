@@ -143,6 +143,8 @@ function symbols.shown_in(db: Sqlite.Handle, alias: string, public: boolean): st
   if not public then
     return "1"
   end
+  -- A probe that fails takes the form that needs no index, which
+  -- answers the same rows.
   local rows, _ = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?1",
     { { text = schema.local_index } })
