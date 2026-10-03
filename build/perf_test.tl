@@ -143,3 +143,28 @@ local function test_overflowing_derived_bounds_are_refused()
   end
   assert(not pcall(Perf.compare, samples, samples))
 end
+
+local function test_build_history_transitions_cover_queries_docs_and_leaf_edits()
+  local before = { "0", "6", "0", "PASS", "4", "4" }
+  local next_run = { "0", "6", "0", "PASS", "5", "5" }
+  Perf.check_transition(before, before, false, false)
+  Perf.check_transition(before, next_run, true, false)
+  Perf.check_transition(before, { "1", "5", "1", "PASS", "5", "5" }, true, true)
+  assert(not pcall(Perf.check_transition, before, before, true, false))
+  assert(not pcall(Perf.check_transition, before, next_run, false, false))
+  for _, invalid in ipairs({
+      { "0", "6", "0", "PASS", "6", "6" },
+      { "0", "6", "0", "PASS", "5", "4" },
+      { "0", "6", "1", "PASS", "5", "5" },
+      { "1", "5", "0", "PASS", "5", "5" },
+      { "0", "5", "0", "PASS", "5", "5" },
+  }) do assert(not pcall(Perf.check_transition, before, invalid, true, false)) end
+  assert(not pcall(Perf.check_transition, before, next_run, true, true))
+end
+
+local function test_shared_fixture_history_cannot_pass_pair_checks()
+  local fresh = { "0", "6", "0", "PASS", "4", "4" }
+  Perf.check_history(fresh, fresh)
+  assert(not pcall(Perf.check_history, fresh, { "0", "6", "0", "PASS", "37", "37" }))
+  assert(not pcall(Perf.check_history, fresh, { "0", "6", "0", "PASS", "4", "5" }))
+end
