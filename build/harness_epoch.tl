@@ -103,11 +103,11 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
-  ["build.shared_sqlite"] = "59af0c02d7e7d5360b32af0dd1c188ba9dbf91d949561fc8c2df59106fecef73",
+  ["build.shared_sqlite"] = "0bb1d96aae218f075348f4616f96d4c9d423f70db62eb3344d77c8077b1f5144",
 
-  ["build.shared_verdicts"] = "487a85fad390fba8d80b891feb9f3f74976b9b8d9fde404c0495f66be30e6373",
+  ["build.shared_verdicts"] = "499c0437c13bf5ba76a1d37a92ff51868fa2f99a9d105b99b1a575767e8a9dee",
 
-  ["build.test"] = "8b12f1d0ec500c32c3fda5d8c482c00b1776601a0b54217d6ee915d7ddddf0bc",
+  ["build.test"] = "4c6b622278b575131e4484cd6e941da6df5f5575064fc2af09e1578b84657e7a",
 
   ["build.test_inputs"] = "7ba0aca1f094189995ea5600f91b46e6c1314e825fab2f913da1fd31f03c91ee",
 
@@ -127,11 +127,11 @@ harness_epoch.acknowledged = {
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
-  ["cosmic.fs"] = "31b569c0a50fc6143be2128f3e39c4318dbdb5e8e561480aa5915037e54358ec",
+  ["cosmic.fs"] = "5719d64863f97715702750d4ccc225cad7cb7958515094696d7c45e3d720e028",
 
   ["cosmic.proc"] = "bbafb94bfa1671115f839c6fe57c921893d31d0e5baa1c4b1692e802b9c06212",
 
-  ["cosmic.sqlite"] = "bfad72d1737420ba29cdd042649b4a8d47bd8d74449583c389078573bd21ee4a",
+  ["cosmic.sqlite"] = "d5293d78083e114814f9e7cd77b99f617d043202d5bc54ac42428293d2be9abb",
 
   ["cosmic.string"] = "bf0e5e828de84f23aa818887e0280a3ebc844c9ca5e384c33227cb42715b8655",
 
@@ -160,7 +160,7 @@ harness_epoch.library = {
   ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
     "it: the launcher's template (`build.launcher`), the runtime identity " ..
     "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
-    "header (`build.artifact`), cache set-aside names (`build.shared_sqlite`) and " ..
+    "header (`build.artifact`) and " ..
     "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",

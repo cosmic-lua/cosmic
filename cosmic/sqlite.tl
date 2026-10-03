@@ -65,26 +65,53 @@ local record Sqlite
   --- false and a reason for SQL containing a NUL.
   type ExecResult = raw_sqlite.ExecResult
 
+  --- An open attempt, with `handle` only on success. Outcome fields follow [`ExecResult`].
+  type OpenResult = raw_sqlite.OpenResult
+  --- A prepared statement, with `statement` only on success.
+  type PrepareResult = raw_sqlite.PrepareResult
+  --- All typed rows, or no rows on a captured failure.
+  record RowsResult is raw_sqlite.Outcome
+    --- Every row on success; nil on failure, including a failed later step.
+    rows: Rows
+    --- The primary SQLite code; [`Sqlite.OK`] on success.
+    code: integer
+    --- The extended SQLite code, captured before cleanup; zero on success.
+    extended_code: integer
+    --- A diagnostic for a person; empty on success, never parsed for a decision.
+    reason: string
+    --- A busy wait stopped for an unread guard signal; see [`ExecResult`].
+    cancelled: boolean
+  end
+  --- All text rows, or no rows on a captured failure.
+  record TextRowsResult is raw_sqlite.Outcome
+    --- Every row on success; nil on failure, including a failed later step.
+    rows: {{string}}
+    --- The primary SQLite code; [`Sqlite.OK`] on success.
+    code: integer
+    --- The extended SQLite code, captured before cleanup; zero on success.
+    extended_code: integer
+    --- A diagnostic for a person; empty on success, never parsed for a decision.
+    reason: string
+    --- A busy wait stopped for an unread guard signal; see [`ExecResult`].
+    cancelled: boolean
+  end
   --- Successful execution.
   OK: integer
   --- Another connection prevents the operation; extended_code can
   --- distinguish cases such as a stale WAL snapshot requiring rollback.
   BUSY: integer
+  --- This connection, or one sharing its cache, prevents the operation.
+  LOCKED: integer
+  --- SQLite found a malformed database structure.
+  CORRUPT: integer
+  --- SQLite did not recognize a database file.
+  NOTADB: integer
 
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
   --- allowed; an empty table explicitly binds SQL NULL. A value of
   --- another shape raises where it is bound.
-  record Value
-    --- Bound as an SQLite integer.
-    integer: integer
-    --- Bound as a floating-point number.
-    number: number
-    --- Bound as text.
-    text: string
-    --- Bound as a blob: bytes, never text.
-    blob: string
-  end
+  type Value = raw_sqlite.Value
 
   --- The SQLite storage class of a result cell: the field of a [`Cell`]
   --- that holds its value is the one of the same name, and a `"null"`
@@ -185,6 +212,17 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | n
       type(given), 2)
   end
   return sqlite.open(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
+end
+
+--- Opens with [`Sqlite.open`]'s options and captures SQLite's codes before
+--- cleanup. A failed open has no `handle`; a successful one has code zero.
+--- A path containing NUL raises, as do invalid options.
+function Sqlite.open_result(path: string, opts?: Sqlite.OpenOptions): Sqlite.OpenResult
+  local given: any = opts
+  if given ~= nil and type(given) ~= "table" then
+    error("sqlite: open_result: options is a table", 2)
+  end
+  return sqlite.open_result(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end
 
 --- A writable database held in memory: it is gone when the handle
@@ -492,6 +530,96 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
   return each_row(statement, texts_of)
 end
 
+local type Outcome = raw_sqlite.Outcome
+
+local function copy_outcome(from: Outcome, to: Outcome)
+  to.code, to.extended_code = from.code, from.extended_code
+  to.reason, to.cancelled = from.reason, from.cancelled
+end
+
+--- A typed helper owns preparation and binding failures alike. A bad
+--- parameter shape raises, but must not leave a statement holding its handle.
+local function prepared_result(handle: Sqlite.Handle, sql: string,
+    values: {Sqlite.Value}): Sqlite.PrepareResult
+  local opened = handle:prepare_result(sql)
+  if opened.statement == nil then return opened end
+  local statement = opened.statement
+  if values == nil and statement:parameters() == 0 then return opened end
+  if values == nil then values = {} end
+  local called, bound = pcall(statement.bind_values_result, statement, values)
+  if not called then
+    statement:finalize()
+    error(bound, 0)
+  end
+  if bound.code ~= Sqlite.OK then
+    statement:finalize()
+    opened.statement = nil
+    copy_outcome(bound, opened)
+  end
+  return opened
+end
+
+--- Runs once with a captured outcome, including preparation, binding and
+--- stepping. Parameters have [`Sqlite.run`]'s shape; missing, extra or wrongly
+--- typed parameters raise. No statement is retried or transaction rolled back.
+function Sqlite.run_result(handle: Sqlite.Handle, sql: string,
+    values?: {Sqlite.Value}): Sqlite.ExecResult
+  local opened = prepared_result(handle, sql, values)
+  local result: Sqlite.ExecResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
+  copy_outcome(opened, result)
+  if opened.statement == nil then return result end
+  local state = opened.statement:step_result()
+  opened.statement:finalize()
+  if state is Sqlite.ExecResult then return state end
+  return result
+end
+
+--- The typed step surface allocates a guard once per statement, reusing it
+--- for successful rows. Only a failure makes a result record for a step.
+local function collect_result<T>(statement: Sqlite.Statement,
+    project: function(Sqlite.Statement): T, outcome: Outcome): {T} | nil
+  local rows: {T} = {}
+  while true do
+    local state = statement:step_result()
+    if state is Sqlite.ExecResult then
+      statement:finalize()
+      copy_outcome(state, outcome)
+      return nil
+    end
+    if state == "done" then
+      statement:finalize()
+      return rows
+    end
+    rows[#rows + 1] = project(statement)
+  end
+end
+
+--- [`Sqlite.rows`] with captured SQLite codes. Any failed step discards the
+--- partial rows and finalizes the statement. Parameters follow [`run_result`].
+function Sqlite.rows_result(handle: Sqlite.Handle, sql: string,
+    values?: {Sqlite.Value}): Sqlite.RowsResult
+  local opened = prepared_result(handle, sql, values)
+  local result: Sqlite.RowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
+  copy_outcome(opened, result)
+  if opened.statement ~= nil then
+    result.rows = collect_result(opened.statement, cells_of, result)
+  end
+  return result
+end
+
+--- [`Sqlite.text_rows`] with captured SQLite codes; otherwise follows
+--- [`Sqlite.rows_result`], including discarding partial rows on failure.
+function Sqlite.text_rows_result(handle: Sqlite.Handle, sql: string,
+    values?: {Sqlite.Value}): Sqlite.TextRowsResult
+  local opened = prepared_result(handle, sql, values)
+  local result: Sqlite.TextRowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
+  copy_outcome(opened, result)
+  if opened.statement ~= nil then
+    result.rows = collect_result(opened.statement, texts_of, result)
+  end
+  return result
+end
+
 --- Runs `work` inside a transaction and commits when it answers `true`.
 --- When `work` answers `false` and why, or the commit fails, the
 --- transaction rolls back and this answers `false` and that reason. When
@@ -532,6 +660,9 @@ end
 
 Sqlite.OK = 0
 Sqlite.BUSY = 5
+Sqlite.LOCKED = 6
+Sqlite.CORRUPT = 11
+Sqlite.NOTADB = 26
 Sqlite.version = sqlite.version
 
 return Sqlite

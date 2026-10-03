@@ -493,7 +493,14 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   local shared, shared_trouble = Orchestration.seed_compiles(
     { COSMIC_BUILD_CACHE = default }, tmp .. "/six.db")
   assert(not shared and shared_trouble:find("writable by its group", 1, true), shared_trouble)
-  for _, name in ipairs({ "three", "four", "five", "six" }) do
+  local a_dir, a_dir_trouble = Orchestration.seed_compiles(
+    { COSMIC_BUILD_CACHE = tmp .. "/named" }, tmp .. "/seven.db")
+  assert(not a_dir and a_dir_trouble:find("/named: not a file", 1, true), a_dir_trouble)
+  local under_file, under_file_trouble = Orchestration.seed_compiles(
+    { COSMIC_BUILD_CACHE = default .. "/cache.db" }, tmp .. "/eight.db")
+  assert(not under_file and under_file_trouble:find("cache.db: not a directory", 1, true),
+    under_file_trouble)
+  for _, name in ipairs({ "three", "four", "five", "six", "seven", "eight" }) do
     assert(not Fs.exists(tmp .. "/" .. name .. ".db"), name)
   end
 end

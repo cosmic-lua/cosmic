@@ -1,0 +1,52 @@
+file: tl.tl
+note: a function literal that omits its return types returns what its context expects (37d): its `return` statements are checked against those types, and they are its type's returns. One that can reach its end without returning, where at least one value is expected, is refused, as the omitted list was before when compared with the expected one (`incompatible number of returns`): Teal lets a function declaring its returns fall through, so declaring them is how a literal ends without a value still
+--- find
+         before_statements = function(self: TypeChecker, node: Node, children: {Type})
+            local args = children[1]
+            assert(args is TupleType)
+
+            self:add_internal_function_variables(node, args)
+         end,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            local args = children[1]
+            assert(args is TupleType)
+            local rets = children[2]
+            assert(rets is TupleType)
+
+            self:end_function_scope(node)
+
+            return wrap_generic_if_typeargs(node.typeargs, a_function(node, {
+--- replace
+         before_statements = function(self: TypeChecker, node: Node, children: {Type})
+            local args = children[1]
+            assert(args is TupleType)
+
+            self:add_internal_function_variables(node, args)
+            if node.context_rets then
+               self:add_var(nil, "@return", node.context_rets)
+            end
+         end,
+         after = function(self: TypeChecker, node: Node, children: {Type}): Type
+            local args = children[1]
+            assert(args is TupleType)
+            local rets = children[2]
+            assert(rets is TupleType)
+
+            self:end_function_scope(node)
+
+            if node.context_rets then
+               -- TODO: a body ending in a `do` block that returns, or in
+               -- a loop no `break` leaves (`while true do ... end`),
+               -- cannot reach its end either, and is refused here; it
+               -- waits on those ending a block as 22 through 25 make
+               -- `break`, `goto` and `error` end one.
+               rets = node.context_rets
+               local required = #rets.tuple - (rets.is_va and 1 or 0)
+               local body = node.body
+               if required > 0 and not (#body > 0 and body[#body].block_returns) then
+                  self.errs:add(node, "missing return: this function can reach its end, where %s is expected of it: return a value there, or declare its return types", rets)
+               end
+            end
+
+            return wrap_generic_if_typeargs(node.typeargs, a_function(node, {
+--- end

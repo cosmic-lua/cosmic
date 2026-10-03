@@ -1,0 +1,43 @@
+file: tl.tl
+note: a function literal checked where a function type is expected -- a call's argument, a declared local, an assignment, a table field, a return -- reads that type (37c): each parameter it leaves untyped takes the expected parameter type at its position, which is the type the callee calls it with, and an omitted return list takes the expected returns. Teal set only a `self` parameter's type so, and gave every other untyped parameter `any` and an omitted list no values, so `each(function(k) return k == "dir" end)` checked nothing of k and refused the return. A parameter past the expected ones, a `...` not at the expected vararg's position, a `self` type, and a type or return list holding a type variable not yet bound stay as before. Not in lax mode, which gives untyped parameters `unknown` for .lua files
+--- find
+            local expected = node.expected
+            if expected and expected is FunctionType then
+               for i, t in ipairs(expected.args.tuple) do
+                  if node.args[i] then
+                     node.args[i].expected = t
+                  end
+               end
+            end
+--- replace
+            local expected = node.expected
+            if expected and expected is FunctionType then
+               for i, t in ipairs(expected.args.tuple) do
+                  if node.args[i] then
+                     node.args[i].expected = t
+                  end
+               end
+            end
+
+            local context = not self.feat_lax and context_function_type(self, expected)
+            if context then
+               local cargs = context.args.tuple
+               for i, arg in ipairs(node.args) do
+                  local t = cargs[i]
+                  if arg.tk == "..." and not (context.args.is_va and i == #cargs) then
+                     t = nil
+                  end
+                  if t and not (t is SelfType or t is InvalidType) and not has_unbound_typevars(self, t) then
+                     arg.context_type = t
+                  end
+               end
+               if node.rets_omitted and not has_unbound_typevars(self, context.rets) then
+                  local rets = a_tuple(node, {})
+                  for i, r in ipairs(context.rets.tuple) do
+                     rets.tuple[i] = r
+                  end
+                  rets.is_va = context.rets.is_va
+                  node.context_rets = rets
+               end
+            end
+--- end

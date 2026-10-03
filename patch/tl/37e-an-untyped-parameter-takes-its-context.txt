@@ -1,0 +1,13 @@
+file: tl.tl
+note: an untyped parameter of a function literal is given the type its context expects there (37d) in place of `any`; a `...` given it is a vararg of it
+--- find
+               if node.expected and node.tk == "self" then
+                  t = node.expected
+               else
+--- replace
+               if node.expected and node.tk == "self" then
+                  t = node.expected
+               elseif node.context_type then
+                  t = node.context_type
+               else
+--- end
