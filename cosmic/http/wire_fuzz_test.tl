@@ -372,7 +372,11 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       -- What a given size may not be: other than `length`, given a 1xx
       -- or 204, or not the body's, which is 0 for none but to HEAD.
       local own: integer = nil
-      if kind == "string" then own = #text elseif kind == "none" and method ~= "HEAD" then own = 0 end
+      if kind == "string" and text ~= "" then
+        own = #text
+      elseif (kind == "none" or kind == "string") and method ~= "HEAD" then
+        own = 0
+      end
       if declared ~= nil and ((reply.length ~= nil and declared ~= reply.length) or
           (bodiless and status ~= 304) or (not bodiless and own ~= nil and declared ~= own)) then
         if why == "" then return false, "a Content-Length of " .. declared .. " was taken" end

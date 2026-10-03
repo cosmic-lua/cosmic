@@ -132,10 +132,10 @@ local record wire
     headers: {string:string}
     --- nil for none, a string, or a Reader, which [`wire.send`] closes.
     body: string | Stream.Reader
-    --- The body's size: a string's own, a Reader's, the size a GET's
-    --- body would have for a HEAD or a 304 with none. A Reader without
-    --- it goes chunked to an HTTP/1.1 client, and to an HTTP/1.0 one
-    --- until the connection closes.
+    --- The body's size: a string's own, a Reader's, or, with no body,
+    --- 0, but for a HEAD the size of a GET's body, and for a 304 a
+    --- 200's. A Reader without it goes chunked to an HTTP/1.1 client,
+    --- and to an HTTP/1.0 one until the connection closes.
     length: integer
     --- Whether the connection closes after the reply.
     close: boolean
@@ -702,19 +702,19 @@ end
 --- its name, nil for none; or nil and why it cannot be sent: no digits,
 --- a size past 18 of them, or the name given twice in different cases.
 local function given_length(headers: {string:string}): integer | nil, string
-  local found: string = nil
-  local size: integer = nil
-  for name, value in pairs(headers) do
-    if name:lower() == "content-length" then
-      if found ~= nil then
-        return nil, ("headers %s and %s: Content-Length is given twice"):format(found, name)
-      end
-      found = name
-      size = decimal(value)
-      if size == nil then return nil, ("header %s: %q is not digits"):format(name, value) end
-      if size == math.maxinteger then return nil, ("header %s: %s is too large"):format(name, value) end
-    end
+  local names: {string} = {}
+  for name in pairs(headers) do
+    if name:lower() == "content-length" then names[#names + 1] = name end
   end
+  if #names == 0 then return nil, "" end
+  if #names > 1 then
+    table.sort(names)
+    return nil, ("headers %s: Content-Length is given twice"):format(table.concat(names, " and "))
+  end
+  local name, value = names[1], headers[names[1]]
+  local size = decimal(value)
+  if size == nil then return nil, ("header %s: %q is not digits"):format(name, value) end
+  if size == math.maxinteger then return nil, ("header %s: %s is too large"):format(name, value) end
   return size, ""
 end
 
@@ -730,9 +730,9 @@ end
 --- 304, or a size it declares, by Content-Length or `length`, that is
 --- below 0, that the two give differently, that a 1xx or 204 is given
 --- (RFC 9110 8.6), or that is not the body's: a string's own length, or
---- 0 where there is no body, but to HEAD, whose size is the GET's. A
---- 304's is the size of a 200's body, as RFC 9110 8.6 asks, which no
---- body here shows, and is passed on as given.
+--- 0 where there is no body (nil or ""), but to HEAD, whose size is the
+--- GET's. A 304's is the size of a 200's body, as RFC 9110 8.6 asks,
+--- which no body here shows, and is passed on as given.
 function wire.check(reply: wire.Reply): string
   local status = reply.status
   if status < 100 or status > 999 then return "the status is not from 100 to 999" end
@@ -748,10 +748,9 @@ function wire.check(reply: wire.Reply): string
   end
   local size = given or length
   local body = reply.body
+  if body == "" then body = nil end
   if bodiless(status) then
-    if body ~= nil and not (body is string and body == "") then
-      return ("no body goes with status %d"):format(status)
-    end
+    if body ~= nil then return ("no body goes with status %d"):format(status) end
     if size ~= nil and status ~= 304 then
       return ("no Content-Length goes with status %d"):format(status)
     end
@@ -776,7 +775,7 @@ local function framing(reply: wire.Reply): integer | nil, boolean, boolean
   local size = declared(reply)
   if bodiless(reply.status) then return reply.status == 304 and size or nil, false, close end
   local body = reply.body
-  if body == nil then return size or 0, false, close end
+  if body == nil or body == "" then return size or 0, false, close end
   if body is string then return #body, false, close end
   if size ~= nil then return size, false, close end
   if reply.version == "HTTP/1.1" then return nil, true, close end

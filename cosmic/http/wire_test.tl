@@ -233,6 +233,7 @@ local function test_a_given_content_length_is_held_to_the_body()
     { { status = 200, length = 1234, method = "HEAD" }, "1234", "" },
     { { status = 200, headers = { ["Content-Length"] = "0" }, method = "GET" }, "0", "" },
     { { status = 304, headers = { ["Content-Length"] = "10" }, method = "GET" }, "10", "" },
+    { { status = 200, headers = { ["Content-Length"] = "10" }, body = "", method = "HEAD" }, "10", "" },
   }
   for i, case in ipairs(cases) do
     local head, count, rest = framed(sent_bytes(case[1] as wire.Reply))
@@ -246,11 +247,13 @@ local function test_a_given_content_length_is_held_to_the_body()
     { { status = 200, headers = { ["Content-Length"] = "4" }, body = "hello", method = "HEAD" }, "is 4" },
     { { status = 200, headers = { ["Content-Length"] = "5" }, method = "GET" }, "no body" },
     { { status = 200, length = 5 }, "no body" },
+    { { status = 200, length = 5, body = "" }, "no body" },
     { { status = 200, headers = { ["Content-Length"] = "3" }, body = Stream.from_string("abc"), length = 4 },
       "header is 3, but the length is 4" },
     { { status = 204, headers = { ["Content-Length"] = "0" } }, "status 204" },
     { { status = 101, length = 0 }, "status 101" },
-    { { status = 200, headers = { ["Content-Length"] = "5", ["content-length"] = "5" }, body = "hello" }, "twice" },
+    { { status = 200, headers = { ["Content-Length"] = "5", ["content-length"] = "5" }, body = "hello" },
+      "headers Content-Length and content-length: Content-Length is given twice" },
     { { status = 200, headers = { ["Content-Length"] = "5 " }, body = "hello" }, "not digits" },
     { { status = 200, headers = { ["Content-Length"] = "+5" }, body = "hello" }, "not digits" },
     { { status = 200, headers = { ["Content-Length"] = "5, 5" }, body = "hello" }, "not digits" },
