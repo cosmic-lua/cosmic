@@ -218,7 +218,12 @@ local record Http
   --- One request [`Http.serve`] hands its handler. Its head is read
   --- whole; its body is not read yet.
   record Request
-    --- The method, case-sensitive: "GET", "PUT".
+    --- The method, case-sensitive: "GET", "PUT". A HEAD is passed on as
+    --- itself: answer it as GET, and the server sends the head the GET's
+    --- reply has, its Content-Length (or `Transfer-Encoding: chunked`)
+    --- included, and no body; or, without the bytes, give the size alone,
+    --- with no body: `{ status = 200, headers = { ["Content-Length"] =
+    --- tostring(size) } }`.
     method: string
     --- The request target as sent: "/items/a%20b?full=1".
     target: string
@@ -252,22 +257,35 @@ local record Http
 
   --- What a handler answers. The server writes `Date`,
   --- `Content-Length` (or `Transfer-Encoding: chunked`) and
-  --- `Connection` itself; a reply naming one of them, a header holding
-  --- CR, LF or NUL, a body for a 204 or 304, or anything but such a
+  --- `Connection` itself. A handler may give `Content-Length` too, as
+  --- `length` or a header: it must be the body's size, and the server
+  --- writes it once. A reply naming `Date`, `Connection` or
+  --- `Transfer-Encoding`, a header holding CR, LF or NUL, a
+  --- Content-Length that is no digits, past 18 of them, named twice in
+  --- different cases, other than `length`, given a 204, or not the
+  --- body's size, a body for a 204 or 304, or anything but such a
   --- record, is answered 500 instead and reported to
   --- [`Http.ServeSpec.on_error`].
   record Reply
     --- The status, from 200 to 999: the server sends `100 Continue`
     --- itself, and no other 1xx.
     status: integer
-    --- Headers, name to value, written as given.
+    --- Headers, name to value, written as given, but for a
+    --- `Content-Length` (any case of the name), which is the body's size
+    --- as `length` is: digits, equal to a string body's length, and
+    --- naming the size of a Reader body. Without a body (nil or "") it
+    --- is 0, but in a reply to HEAD, where it is the size of the body a
+    --- GET would get, sent with no bytes; and in a 304, where RFC 9110
+    --- 8.6 has it the size of a 200's body, and it is passed on
+    --- unchecked. A 204 has none.
     headers: {string:string}
     --- nil for none, the bytes, or a Reader, which the server reads to
     --- its end (or to `length`) as it writes and then closes, read or
     --- not.
     body: string | Stream.Reader
-    --- A Reader body's size in bytes. A Reader without it goes chunked,
-    --- or, to an HTTP/1.0 client, until the connection closes.
+    --- The body's size in bytes, as a `Content-Length` header gives it:
+    --- the two, given both, must agree. A Reader without either goes
+    --- chunked, or, to an HTTP/1.0 client, until the connection closes.
     length: integer
     --- Close the connection after this reply.
     close: boolean
@@ -945,7 +963,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local trouble = reply_trouble(reply)
   if trouble == "" then
     trouble = wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
-      length = reply.length })
+      length = reply.length, method = head.method })
   end
   if trouble ~= "" then
     drop_body(reply)
@@ -1077,8 +1095,10 @@ end
 --- A handler that raises, or answers what [`Reply`] refuses, is
 --- answered 500, and what it raised, with its stack, or why its reply
 --- was refused, goes to [`Http.ServeSpec.on_error`]. A HEAD's reply is the
---- GET's head, `Content-Length` with it, and no body: a handler answers
---- HEAD as it would GET, and a Reader body is closed unread.
+--- GET's head, its framing headers with it, and no body: a handler
+--- answers HEAD as it would GET, and a Reader body is closed unread; or
+--- it gives the size alone, as a `Content-Length` header and no body (see
+--- [`Http.Request.method`]).
 ---
 --- Every handler runs in the task of its connection, and the server
 --- serves the next only while one waits on the run: a read of
