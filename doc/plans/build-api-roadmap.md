@@ -94,6 +94,7 @@ green branch `37132821965` and queue `37133600063`. Independent review
 confirmed identical patch content over incoming E3 and fuzzer #2618.
 E1 #2624 reviewed head `c4dd34b1`, tree `dbc9011b`, passed corrected
 branch `37134207777` and entered queue `096c6baf`, run `37134615585`.
+That queue is blocked by the analyzer finding below; no E1 merge occurred.
 E2b is implemented and locally
 validated, awaiting integration of actual merged parents before publication.
 E4 will pin a verified published release containing all four changes,
@@ -143,6 +144,16 @@ the corrected native branch passed. Both x86 shards, ARM and Darwin ran
 all native cases (3602 total; only three Darwin Linux-noexec skips).
 The light branch's checked-named job only formatted and checked the tree;
 actual checked-core allocation-failure execution remains a queue gate.
+
+Full queue `37134615585` caught a static-analyzer failure on Linux and
+Darwin at `core/sqlite.c:103`: the new void error-capture helper calls
+`luaL_error` after allocation failure without an explicit return, so the
+analyzer follows a possible null destination into memcpy. Regular native
+suites passed first (3617 cases on the integrated tree), but checked tests
+did not execute because sanitized construction failed. Author and reviewer
+are correcting the control flow without suppressing the analyzer. A new
+reviewed head, analyzer proof and native branch/queue gates are required;
+E2b publication stays on hold until the actual corrected E1 merge.
 
 E2a boot, formatting, whole-tree checks and focused validation passed. The
 final integrated focused run executed all 53 cases; 17 pre-existing nested
