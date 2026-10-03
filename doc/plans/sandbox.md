@@ -32,7 +32,7 @@ Seatbelt; Anthropic's sandbox-runtime.
   (/tree), a worker mapped to uid 65532, a noexec scratch, a closure store
   handed by descriptor, and an exec-only hold of itself, which no policy
   needs yet. Harness and policy share one conformance matrix.
-- `Child.Sandbox`'s public fields today (`unveil`, `offline`, `user`,
+- [`Child.Sandbox`]'s public fields today (`unveil`, `offline`, `user`,
   `group`, `noexec_scratch`) move off the public surface; the harness
   reaches them through the raw table, as it already does for most.
 
@@ -197,7 +197,7 @@ start rather than running at `/`.
 - **Strict by default.** A denial the host cannot enforce refuses the
   start, naming it. `--best-effort` accepts less, but never drops
   `no_new_privs`, the floor, the scoping of signals and abstract
-  sockets, or a denied network; what it drops is in `Child.start`'s
+  sockets, or a denied network; what it drops is in [`Child.start`]'s
   result, not only on stderr, and a policy file cannot ask for it.
 - **`Sandbox.check`** reports each section -- paths, show, net, unix,
   promises, terminal -- `full`, `degraded` or `none`, with why, from a
@@ -298,3 +298,6 @@ program's preflight; no builder; the harness kept on the primitives.
 - Whether `x` should also refuse running a granted file through a
   granted loader (noexec mounts in a root of its own; nothing under
   Landlock alone).
+
+[`Child.Sandbox`]: ../../cosmic/child.tl
+[`Child.start`]: ../../cosmic/child.tl
