@@ -2,8 +2,18 @@
 
 #include "vfs.h"
 #include "portable.h"
+#include "memory.h"
 
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+
+struct cosmic_inspection {
+  size_t references;
+  int fd;
+  sqlite3_int64 offset;
+  sqlite3_int64 length;
+};
 
 /* The retained descriptor does the reading; this VFS shifts its database
  * range and refuses every write. */
@@ -312,4 +322,160 @@ bool cosmic_vfs_uri (char *into, size_t room, const char *path) {
   }
   memcpy(into + at, tail, written + 1);
   return true;
+}
+
+#define INSPECTION_VFS "cosmic-inspection"
+
+struct inspection_file {
+  struct cosmic_file range;
+  struct cosmic_inspection *owner;
+};
+
+static int inspection_close (sqlite3_file *file) {
+  struct inspection_file *f = (struct inspection_file *)file;
+  cosmic_inspection_release(f->owner);
+  f->owner = NULL;
+  return SQLITE_OK;
+}
+
+static const sqlite3_io_methods inspection_io_methods = {
+  .iVersion = 1,
+  .xClose = inspection_close,
+  .xRead = file_read,
+  .xWrite = file_write,
+  .xTruncate = file_truncate,
+  .xSync = file_sync,
+  .xFileSize = file_size,
+  .xLock = file_lock,
+  .xUnlock = file_unlock,
+  .xCheckReservedLock = file_check_reserved,
+  .xFileControl = file_control,
+  .xSectorSize = file_sector_size,
+  .xDeviceCharacteristics = file_characteristics,
+};
+
+/* SQLite and Lua run on one thread. The permit is armed only around a
+ * synchronous SQLite call that invokes no Lua, and cleared before any
+ * Lua allocation or error reporting. A successful xOpen consumes it. */
+static struct cosmic_inspection *inspection_permit;
+static char inspection_name[64];
+static uint64_t inspection_sequence;
+
+struct cosmic_inspection *cosmic_inspection_create (int fd, int64_t offset,
+                                                     int64_t length) {
+  struct cosmic_inspection *backing = cosmic_malloc(sizeof *backing);
+  if (backing == NULL) return NULL;
+  *backing = (struct cosmic_inspection){1, fd, offset, length};
+  return backing;
+}
+
+void cosmic_inspection_release (struct cosmic_inspection *backing) {
+  if (backing != NULL && --backing->references == 0) {
+    close(backing->fd);
+    cosmic_free(backing);
+  }
+}
+
+static int inspection_open (sqlite3_vfs *vfs, sqlite3_filename name,
+                             sqlite3_file *file, int flags, int *out_flags) {
+  struct inspection_file *f = (struct inspection_file *)file;
+  memset(f, 0, sizeof *f);
+  if ((flags & SQLITE_OPEN_MAIN_DB) == 0)
+    return base_vfs(vfs)->xOpen(base_vfs(vfs), name, file, flags, out_flags);
+  if (inspection_permit == NULL || name == NULL ||
+      strcmp(name, inspection_name) != 0 ||
+      (flags & SQLITE_OPEN_READWRITE) != 0 ||
+      sqlite3_uri_parameter(name, "off") != NULL ||
+      sqlite3_uri_parameter(name, "len") != NULL)
+    return SQLITE_CANTOPEN;
+  struct cosmic_inspection *backing = inspection_permit;
+  if (backing->references == SIZE_MAX) return SQLITE_FULL;
+  inspection_permit = NULL;
+  backing->references++;
+  f->owner = backing;
+  f->range.fd = backing->fd;
+  f->range.offset = backing->offset;
+  f->range.length = backing->length;
+  f->range.base.pMethods = &inspection_io_methods;
+  if (out_flags != NULL) *out_flags = SQLITE_OPEN_READONLY;
+  return SQLITE_OK;
+}
+
+static int inspection_path (sqlite3_vfs *vfs, const char *name, int room,
+                             char *out) {
+  (void)vfs;
+  if (inspection_permit == NULL || strcmp(name, inspection_name) != 0 ||
+      strlen(name) + 1 > (size_t)room)
+    return SQLITE_CANTOPEN;
+  memcpy(out, name, strlen(name) + 1);
+  return SQLITE_OK;
+}
+
+static int inspection_register (void) {
+  if (sqlite3_vfs_find(INSPECTION_VFS) != NULL) return SQLITE_OK;
+  sqlite3_vfs *base = sqlite3_vfs_find(NULL);
+  if (base == NULL || base->iVersion < 2 || base->xCurrentTimeInt64 == NULL)
+    return SQLITE_ERROR;
+  static sqlite3_vfs vfs;
+  vfs = (sqlite3_vfs){
+    .iVersion = 2,
+    .szOsFile = (int)sizeof(struct inspection_file) + base->szOsFile,
+    .mxPathname = base->mxPathname,
+    .zName = INSPECTION_VFS,
+    .pAppData = base,
+    .xOpen = inspection_open,
+    .xFullPathname = inspection_path,
+    .xDelete = vfs_delete,
+    .xAccess = vfs_access,
+    .xRandomness = vfs_randomness,
+    .xSleep = vfs_sleep,
+    .xGetLastError = vfs_last_error,
+    .xCurrentTimeInt64 = vfs_current_time,
+  };
+  return sqlite3_vfs_register(&vfs, 0);
+}
+
+static int inspection_begin (struct cosmic_inspection *backing, char uri[160]) {
+  int rc = inspection_register();
+  if (rc != SQLITE_OK) return rc;
+  if (inspection_permit != NULL) return SQLITE_MISUSE;
+  if (inspection_sequence == UINT64_MAX) return SQLITE_FULL;
+  inspection_sequence++;
+  (void)snprintf(inspection_name, sizeof inspection_name, "cosmic-inspection-%llu",
+                (unsigned long long)inspection_sequence);
+  (void)snprintf(uri, 160, "file:%s?vfs=" INSPECTION_VFS "&mode=ro&immutable=1",
+                inspection_name);
+  inspection_permit = backing;
+  return SQLITE_OK;
+}
+
+int cosmic_inspection_open (struct cosmic_inspection *backing, sqlite3 **db) {
+  char uri[160];
+  int rc = inspection_begin(backing, uri);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_open_v2(uri, db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
+                       INSPECTION_VFS);
+  inspection_permit = NULL;
+  inspection_name[0] = '\0';
+  return rc;
+}
+
+int cosmic_inspection_attach (struct cosmic_inspection *backing, sqlite3 *db,
+                               const char *schema) {
+  char *sql = sqlite3_mprintf("ATTACH DATABASE ?1 AS \"%w\"", schema);
+  if (sql == NULL) return SQLITE_NOMEM;
+  char uri[160];
+  int rc = inspection_begin(backing, uri);
+  sqlite3_stmt *stmt = NULL;
+  if (rc == SQLITE_OK) rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+  if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 1, uri, -1, SQLITE_STATIC);
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_DONE) rc = SQLITE_OK;
+  }
+  sqlite3_finalize(stmt);
+  sqlite3_free(sql);
+  inspection_permit = NULL;
+  inspection_name[0] = '\0';
+  return rc;
 }

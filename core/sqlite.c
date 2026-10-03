@@ -1,6 +1,11 @@
+#define _XOPEN_SOURCE 700
+
 #include "sqlite.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <string.h>
@@ -13,9 +18,13 @@
 #include "crypto.h"
 #include "memory.h"
 #include "process.h"
+#include "portable.h"
+#include "store.h"
+#include "vfs.h"
 #include "sqlite3.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
+#define ARTIFACT_TYPE "cosmic.sqlite.artifact"
 #define STATEMENT_TYPE "cosmic.sqlite.statement"
 
 struct handle {
@@ -23,6 +32,8 @@ struct handle {
   /* Set when the connection belongs to someone else (the store): this
    * handle reads through it and never closes it. */
   int borrowed;
+  bool inspection;
+  bool attaching;
   int64_t busy_ms;
   int64_t deadline_ms;
   int64_t pause_ms;
@@ -329,6 +340,8 @@ static int sqlite_open (lua_State *L) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = NULL;
   h->borrowed = 0;
+  h->inspection = false;
+  h->attaching = false;
   h->busy_ms = -1;
   h->deadline_ms = -1;
   h->pause_ms = 1;
@@ -355,6 +368,155 @@ static int sqlite_open (lua_State *L) {
     return result;
   }
   return cosmic_succeeded(L);
+}
+
+
+struct artifact_handle {
+  struct cosmic_inspection *backing;
+  /* Held here during validation, before backing owns it. */
+  int fd;
+};
+
+static void artifact_release (struct artifact_handle *a) {
+  if (a->fd >= 0) close(a->fd);
+  a->fd = -1;
+  cosmic_inspection_release(a->backing);
+  a->backing = NULL;
+}
+
+static int artifact_gc (lua_State *L) {
+  artifact_release(luaL_checkudata(L, 1, ARTIFACT_TYPE));
+  return 0;
+}
+
+static int artifact_close (lua_State *L) {
+  artifact_release(luaL_checkudata(L, 1, ARTIFACT_TYPE));
+  return cosmic_done(L);
+}
+
+static struct artifact_handle *checked_artifact (lua_State *L, int index) {
+  struct artifact_handle *a = luaL_checkudata(L, index, ARTIFACT_TYPE);
+  luaL_argcheck(L, a->backing != NULL, index, "artifact handle is closed");
+  return a;
+}
+
+static int artifact_failed (lua_State *L, struct artifact_handle *a,
+                             const char *reason) {
+  artifact_release(a);
+  lua_pushnil(L);
+  lua_pushstring(L, reason);
+  return 2;
+}
+
+static void artifact_type (lua_State *L);
+
+static int sqlite_artifact (lua_State *L) {
+  artifact_type(L);
+  size_t length;
+  const char *path = luaL_checklstring(L, 1, &length);
+  struct artifact_handle *a = lua_newuserdatauv(L, sizeof *a, 0);
+  a->fd = -1;
+  a->backing = NULL;
+  luaL_setmetatable(L, ARTIFACT_TYPE);
+  if (memchr(path, '\0', length) != NULL)
+    return artifact_failed(L, a, "artifact path contains an embedded NUL");
+  /* O_NONBLOCK makes opening a FIFO return before fstat rejects it. */
+  a->fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+  if (a->fd < 0) return artifact_failed(L, a, cosmic_errno_describe(errno, NULL));
+  struct stat st;
+  if (fstat(a->fd, &st) != 0)
+    return artifact_failed(L, a, cosmic_errno_describe(errno, NULL));
+  if (!S_ISREG(st.st_mode)) return artifact_failed(L, a, "artifact is not a regular file");
+  const struct cosmic_artifact *running = cosmic_store_artifact(L);
+  if (running != NULL && running->fd >= 0 &&
+      running->device == (uint64_t)st.st_dev && running->inode == (uint64_t)st.st_ino)
+    return artifact_failed(L, a, "cannot inspect the running artifact; use the runtime store");
+  struct cosmic_portable decoded;
+  const char *reason = NULL;
+  enum cosmic_artifact_format format = cosmic_host_trailer(a->fd) ?
+    COSMIC_ARTIFACT_HOST : COSMIC_ARTIFACT_PORTABLE;
+  if (!cosmic_artifact_decode(a->fd, format, &decoded, &reason))
+    return artifact_failed(L, a, reason == NULL ? "invalid artifact" : reason);
+  if (decoded.database_offset > INT64_MAX || decoded.database_length > INT64_MAX ||
+      decoded.database_length > INT64_MAX - decoded.database_offset)
+    return artifact_failed(L, a, "artifact database range exceeds SQLite's offsets");
+  a->backing = cosmic_inspection_create(a->fd, (int64_t)decoded.database_offset,
+                                        (int64_t)decoded.database_length);
+  if (a->backing == NULL) return artifact_failed(L, a, "not enough memory");
+  a->fd = -1;
+  return cosmic_succeeded(L);
+}
+
+/* Inspection connections never become workspaces. In particular, a raw
+ * ATTACH cannot turn their VFS into a path reader, and PRAGMA assignments
+ * cannot undo read-only access. Table-valued PRAGMAs reach this same check. */
+static int inspection_authorize (void *context, int action, const char *one,
+                                  const char *two, const char *database,
+                                  const char *trigger) {
+  struct handle *h = context;
+  (void)database;
+  (void)trigger;
+  if (action == SQLITE_ATTACH) return h->attaching ? SQLITE_OK : SQLITE_DENY;
+  if (action == SQLITE_READ || action == SQLITE_SELECT || action == SQLITE_FUNCTION ||
+      action == SQLITE_RECURSIVE || action == SQLITE_DETACH ||
+      action == SQLITE_TRANSACTION || action == SQLITE_SAVEPOINT)
+    return SQLITE_OK;
+  if (action != SQLITE_PRAGMA || one == NULL) return SQLITE_DENY;
+  static const char *const parameterized[] = {
+    "table_info", "table_xinfo", "table_list", "index_info", "index_xinfo",
+    "index_list", "foreign_key_list", "foreign_key_check", "integrity_check", "quick_check"
+  };
+  for (size_t i = 0; i < sizeof parameterized / sizeof *parameterized; i++)
+    if (sqlite3_stricmp(one, parameterized[i]) == 0) return SQLITE_OK;
+  static const char *const queries[] = {
+    "application_id", "user_version", "schema_version", "data_version", "database_list",
+    "page_count", "page_size", "freelist_count", "encoding", "compile_options", "query_only"
+  };
+  if (two == NULL)
+    for (size_t i = 0; i < sizeof queries / sizeof *queries; i++)
+      if (sqlite3_stricmp(one, queries[i]) == 0) return SQLITE_OK;
+  return SQLITE_DENY;
+}
+
+static int artifact_open (lua_State *L) {
+  (void)checked_artifact(L, 1);
+  struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
+  *h = (struct handle){.busy_ms = -1, .deadline_ms = -1, .pause_ms = 1,
+    .inspection = true};
+  luaL_setmetatable(L, HANDLE_TYPE);
+  struct artifact_handle *a = checked_artifact(L, 1);
+  int rc = cosmic_inspection_open(a->backing, &h->db);
+  if (rc == SQLITE_OK)
+    rc = sqlite3_db_config(h->db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, NULL);
+  if (rc == SQLITE_OK)
+    rc = sqlite3_db_config(h->db, SQLITE_DBCONFIG_DEFENSIVE, 1, NULL);
+  if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
+  if (rc == SQLITE_OK) rc = sqlite3_set_authorizer(h->db, inspection_authorize, h);
+  if (rc != SQLITE_OK) {
+    int result = failed(L, h->db, rc);
+    sqlite3_close_v2(h->db);
+    h->db = NULL;
+    return result;
+  }
+  return cosmic_succeeded(L);
+}
+
+static int handle_attach_artifact (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  luaL_argcheck(L, h->inspection && !h->borrowed, 1,
+                "attach_artifact requires an owned inspection connection");
+  (void)checked_artifact(L, 2);
+  size_t length;
+  const char *schema = luaL_checklstring(L, 3, &length);
+  luaL_argcheck(L, length > 0 && memchr(schema, '\0', length) == NULL, 3,
+                "schema name must be nonempty and contain no NUL");
+  h = checked_handle(L);
+  struct artifact_handle *a = checked_artifact(L, 2);
+  h->attaching = true;
+  int rc = cosmic_inspection_attach(a->backing, h->db, schema);
+  h->attaching = false;
+  if (rc != SQLITE_OK) return failed_effect(L, h->db, rc);
+  return cosmic_done(L);
 }
 
 /* Both surfaces execute each statement once. SQLite stops at the first
@@ -528,6 +690,8 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;
   h->borrowed = 1;
+  h->inspection = false;
+  h->attaching = false;
   h->busy_ms = -1;
   h->deadline_ms = -1;
   h->pause_ms = 1;
@@ -755,6 +919,7 @@ static int statement_finalize (lua_State *L) {
 
 static const luaL_Reg handle_methods[] = {
   {"exec", handle_exec}, {"exec_result", handle_exec_result},     {"prepare", handle_prepare},
+  {"attach_artifact", handle_attach_artifact},
   {"close", handle_close},   {"changes", handle_changes},
   {"last_insert_rowid", handle_last_insert_rowid},
   {"limit", handle_limit},
@@ -782,25 +947,63 @@ static const luaL_Reg statement_methods[] = {
 };
 
 static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
-                       lua_CFunction collect) {
+                       lua_CFunction collect, int method_count) {
   luaL_newmetatable(L, name);
   lua_pushcfunction(L, collect);
   lua_setfield(L, -2, "__gc");
-  lua_newtable(L);
+  lua_createtable(L, 0, method_count);
   luaL_setfuncs(L, methods, 0);
   lua_setfield(L, -2, "__index");
   lua_pop(L, 1);
 }
 
+static const luaL_Reg artifact_methods[] = {
+  {"open", artifact_open}, {"close", artifact_close}, {NULL, NULL},
+};
+
+static void artifact_type (lua_State *L) {
+  const char *name = ARTIFACT_TYPE;
+  const luaL_Reg *methods = artifact_methods;
+  lua_CFunction collect = artifact_gc;
+  if (luaL_getmetatable(L, name) != LUA_TNIL) {
+    lua_pop(L, 1);
+    return;
+  }
+  lua_pop(L, 1);
+  lua_newtable(L);
+  lua_pushstring(L, name);
+  lua_setfield(L, -2, "__name");
+  lua_pushcfunction(L, collect);
+  lua_setfield(L, -2, "__gc");
+  lua_newtable(L);
+  luaL_setfuncs(L, methods, 0);
+  lua_setfield(L, -2, "__index");
+  /* A finalizer may have reentered the constructor while the table was
+   * built. Its completed metatable is canonical for objects it returned.
+   * These final registry operations do not run normal GC finalizers. */
+  if (luaL_getmetatable(L, name) != LUA_TNIL) {
+    lua_pop(L, 2);
+    return;
+  }
+  lua_pop(L, 1);
+  lua_pushvalue(L, -1);
+  lua_setfield(L, LUA_REGISTRYINDEX, name);
+  lua_pop(L, 1);
+}
+
+
 static const luaL_Reg module[] = {
+  {"artifact", sqlite_artifact},
   {"open", sqlite_open},
   {NULL, NULL},
 };
 
 int cosmic_open_sqlite (lua_State *L) {
   sqlite3_initialize();
-  make_type(L, HANDLE_TYPE, handle_methods, handle_gc);
-  make_type(L, STATEMENT_TYPE, statement_methods, statement_finalize);
+  make_type(L, HANDLE_TYPE, handle_methods, handle_gc,
+            sizeof handle_methods / sizeof *handle_methods - 1);
+  make_type(L, STATEMENT_TYPE, statement_methods, statement_finalize,
+            sizeof statement_methods / sizeof *statement_methods - 1);
   luaL_newlib(L, module);
   lua_pushstring(L, sqlite3_libversion());
   lua_setfield(L, -2, "version");

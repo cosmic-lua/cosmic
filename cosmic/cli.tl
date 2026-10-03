@@ -584,6 +584,8 @@ local module: Module = {
       usage = "<statement>",
       spec = {
         ["--db"] = { value = "path", about = "run against this file" },
+        ["--artifact"] = { value = "path", about = "inspect a host or portable artifact as main" },
+        ["--attach-artifact"] = { value = "name=path", about = "attach another artifact for a join; repeat with --artifact" },
         ["--build"] = { about = "run against o/build.db" },
         ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
         ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
