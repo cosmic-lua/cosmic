@@ -12,6 +12,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Time = require("cosmic.time")
+local Url = require("cosmic.url")
 
 --- A server on the worker's own loopback, and the program itself,
 --- started to run a script `--standalone`.
@@ -73,6 +74,57 @@ end
   }, "\n")
   assert(result.stdout == expected, result.stdout)
   assert(items.a == nil)
+end
+
+--- A name with a space or a byte past ASCII, joined into a URL as
+--- written, reaches the server escaped and names the file it was;
+--- an escaped URL and a reserved byte reach it as written.
+local function test_a_name_joined_unescaped_reaches_the_server_escaped(tmp: string)
+  local root = tmp .. "/files"
+  assert(Fs.mkdirs(root))
+  for _, name in ipairs({ "two words.txt", "caf\xc3\xa9.txt" }) do
+    assert(Fs.write(root .. "/" .. name, "this is " .. name))
+  end
+  local script = tmp .. "/client.tl"
+  assert(Fs.write(script, [[
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+return function(argv: {string}): integer
+  local said: {string} = {}
+  for _, name in ipairs({ "two words.txt", "caf\xc3\xa9.txt", "two%20words.txt", "a=b&c;d?e=f" }) do
+    local got = assert(Http.get(argv[1] .. "/" .. name))
+    said[#said + 1] = got.status .. " " .. got.body
+  end
+  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  return 0
+end
+]]))
+  local targets: {string} = {}
+  local result: Child.Result = nil
+  assert(Http.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    handle = function(req: Http.Request): Http.Reply
+      targets[#targets + 1] = req.target
+      local names = assert(Url.segments(req.path))
+      local body = Fs.read(root .. "/" .. table.concat(names, "/"))
+      if body == nil then return { status = 404 } end
+      return { status = 200, body = body }
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local base = "http://127.0.0.1:" .. addresses[1].port
+      local started = this_program.program({ "--standalone", script, base },
+        { stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(60) })
+      result = assert(Child.run(started.argv, started.options))
+      server:stop()
+    end,
+  })
+  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  assert(table.concat(targets, " ") == "/two%20words.txt /caf%C3%A9.txt /two%20words.txt /a=b&c;d?e=f",
+    table.concat(targets, " "))
+  local expected = table.concat({
+    "200 this is two words.txt", "200 this is caf\xc3\xa9.txt", "200 this is two words.txt", "404 ",
+  }, "\n")
+  assert(result.stdout == expected, result.stdout)
 end
 
 --- SIGTERM stops a server in a process of its own, which exits 0: an
