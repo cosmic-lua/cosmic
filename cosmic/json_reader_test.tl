@@ -448,7 +448,7 @@ local function test_a_comment_split_across_chunks()
     "[1, /* a * b ** c */ 2]", "[1, /***/ 2]", "[1, /**/ 2]", "[1, /*/ */ 2]", "[1,//c\n2]", "[1,//c\r\n2]",
     "[1,//c\u{2028}2]", "[1,//c\u{2029}2]", "[1,/*\u{2028}*/\n2]", "[1,#c\u{2028}2]", "[1, //\u{2028}\u{2028}\n 2]",
     "// head\n{\"a\": /* ] */ 1, // }\n \"b\": '/*', 'c': \"//\"} // end", "[1 /* \xe2\x80 */ ]", "[1, // \xe2\x80\n 2]", "[1, # \xe2\n 2]",
-    "[1,\u{2028}\u{2029}\u{a0}\u{feff}\u{3000}2]", "{ab\u{2028}: 1,\u{a0}cd /*x*/ : 2,\u{3000}}",
+    "[1,\u{2028}\u{2029}\u{a0}\u{feff}\u{3000}2]", "{ab\u{2028}: 1, cd /*x*/ \u{a0}: 2 \u{3000}}",
   }
   for _, text in ipairs(texts) do
     local want = read_all(text, BOTH)
@@ -559,7 +559,79 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
       assert(#got >= 4)
     end
   end
+  -- Many short line comments in one chunk, or a few: each costs its own length.
+  for _, size in ipairs({ 1000000, 65536, 100 }) do
+    for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
+      local many = "[" .. string.rep("1, " .. comment, 50000) .. "2]"
+      local got, err = tokens(many, size, BOTH)
+      assert(err == "" and #got == 50003, err)
+    end
+  end
   local text = "[" .. string.rep("1, /* c */ ", 20000) .. "2]"
   local r = Json.reader(chunked("[" .. text .. "]", 1), JSON5)
   assert(assert(r:next()).kind == "array" and #(assert(r:value()) as {integer}) == 20001)
+end
+
+--- yyjson reads JSON5's extra whitespace right after an object's `{` or
+--- `,` as the start of a key, and refuses the object: the reader does,
+--- where `decode` says, but not after a comment, nor elsewhere.
+local function test_extended_whitespace_where_an_object_key_starts_is_refused()
+  for _, space in ipairs({ "\u{a0}", "\u{2028}", "\u{2029}", "\u{feff}", "\u{3000}", "\u{1680}", "\u{2000}",
+      "\u{200a}", "\u{202f}", "\u{205f}", " \u{a0}", "\n\u{a0}" }) do
+    for _, shape in ipairs({ "{%sa:1}", "{%s'a':1}", '{%s"a":1}', "{a:1,%sb:2}", "{%s}", "{a:1,%s}",
+        "{a:1,%s'b':2}", '{%s/**/"a":1}', "[{%sa:1}]" }) do
+      local text = shape:format(space)
+      local _, want = Json.decode(text, { json5 = true })
+      assert(want ~= "", ("decode reads %q"):format(text))
+      local line, column = want:match("at line (%d+), column (%d+)")
+      for _, size in ipairs({ 1, 2, 3, 100 }) do
+        local _, got = tokens(text, size, JSON5)
+        assert(got:find(("at line %s, column %s "):format(line, column), 1, true),
+          ("%q in chunks of %d: %s, decode %s"):format(text, size, got, want))
+      end
+    end
+  end
+  -- Whitespace after a comment, or anywhere else, is read.
+  for _, text in ipairs({ "{/**/\u{a0}a:1}", "{a:1,// c\n\u{a0}b:2}", "{a\u{a0}:\u{a0}1\u{a0}, 'b':2\u{a0}}",
+      "{\u{a0}:1}", "[\u{a0}1,\u{a0}2]" }) do
+    local decoded, why = Json.decode(text, { json5 = true })
+    assert(decoded ~= nil, why)
+    local _, err = tokens(text, 2, JSON5)
+    assert(err == "", ("%q: %s"):format(text, err))
+  end
+  -- yyjson reads the whitespace at a key as an empty key: `{<space>:1}`.
+  local got = tokens("{\u{a0}:1}", nil, JSON5)
+  assert(table.concat(got, " ") == "object@ key=@/ number=1@/ end_object@", table.concat(got, " "))
+end
+
+--- A word or number cut short is refused where it starts, as `decode`
+--- places it, in chunks however small.
+local function test_a_truncated_word_is_placed_where_it_starts()
+  for _, text in ipairs({ "[na]", "[I]", "[in]", "[infi]", "[Infin]", "[Infinit]", "[+n]", "[-I]", "[-N]", "[nul]",
+      "[1e]", "[0x]", "[+]", "[-]", "[.]" }) do
+    local _, want = Json.decode(text, { json5 = true })
+    for _, size in ipairs({ 1, 100 }) do
+      local _, got = tokens(text, size, JSON5)
+      local line, column = want:match("at line (%d+), column (%d+)")
+      assert(got:find(("at line %s, column %s"):format(line, column), 1, true),
+        ("%q in chunks of %d: %s, decode %s"):format(text, size, got, want))
+    end
+  end
+end
+
+--- An `n` that ends a chunk waits for the byte after it, through empty
+--- chunks, to tell `nan` from `null`.
+local function test_an_n_waits_for_its_next_byte()
+  local chunks = { "[", "n", "", "", "an", "]" }
+  local at = 0
+  local source: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+      at = at + 1
+      return chunks[at], ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
+  local r = Json.reader(source, JSON5)
+  assert(assert(r:next()).kind == "array")
+  assert(r:peek() == "number", "nan is a number")
 end

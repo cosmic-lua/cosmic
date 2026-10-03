@@ -1465,10 +1465,25 @@ local function pass_comment(self: TokenReader, parts?: {string}): boolean, strin
       end
       if not self.ended and last >= at and buf:byte(last) == 42 then hold = 1 end
     else
-      local i = buf:find("[\r\n]", at)
-      if self.json5 then
-        local k = buf:find("\226\128[\168\169]", at)
-        if k ~= nil and (i == nil or k < i) then i = k end
+      -- One pass finds the line end: a U+2028 or U+2029 is searched for
+      -- only from where a byte E2 is, so no scan reaches past the end.
+      local i: integer
+      local from = at
+      while true do
+        local k = buf:find(self.json5 and "[\r\n\226]" or "[\r\n]", from)
+        if k == nil then break end
+        if buf:byte(k) ~= 226 then
+          i = k
+          break
+        end
+        local b2, b3 = buf:byte(k + 1, k + 2)
+        if b2 == 0x80 and (b3 == 0xA8 or b3 == 0xA9) then
+          i = k
+          break
+        end
+        -- The bytes of a U+2028 the buffer ends in are held, below.
+        if k == last or (k + 1 == last and b2 == 0x80) then break end
+        from = k + 1
       end
       if i ~= nil then
         take(i - at)
@@ -1496,8 +1511,15 @@ local function pass_comment(self: TokenReader, parts?: {string}): boolean, strin
 end
 
 --- Passes whitespace and, as `json5` and `hash_comments` allow, comments,
---- reading as it must. false and why when the stream failed.
-local function skip_space(self: TokenReader): boolean, string
+--- reading as it must. false and why when the stream failed. At an
+--- object's key (`key_start`) JSON5's extra whitespace is not passed
+--- unless a comment came before it in the run: yyjson reads it there as
+--- the start of an unquoted key.
+-- TODO: pass JSON5's whitespace at an object's key too, once yyjson's
+-- JSON5 reader accepts it there (a patch under patch/ would do it); the
+-- reader refuses it as `decode` does, as an empty key with no `:` after.
+local function skip_space(self: TokenReader, key_start: boolean): boolean, string
+  local ext_ok = not key_start
   local plain = self.json5 and "^[ \t\r\n\v\f]*" or "^[ \t\r\n]*"
   while true do
     local _, last = self.buf:find(plain, self.at)
@@ -1522,13 +1544,14 @@ local function skip_space(self: TokenReader): boolean, string
       return true, ""
     elseif self.json5 and c >= 0x80 then
       local n = ext_space_len(self.buf, self.at)
-      if n == 0 then return true, "" end
+      if n == 0 or not ext_ok then return true, "" end
       pass_lines(self, self.buf:sub(self.at, self.at + n - 1), self.before + self.at - 1)
       self.at = self.at + n
     elseif (self.json5 and c == 47 and (self.buf:byte(self.at + 1) == 47 or self.buf:byte(self.at + 1) == 42)) or
         (self.hash and c == 35) then
       local ok, why = pass_comment(self)
       if not ok then return false, why end
+      ext_ok = true
     else
       return true, ""
     end
@@ -1539,9 +1562,9 @@ end
 --- place takes, or nil at the end of the stream; or nil and why.
 local function arrive(self: TokenReader): integer | nil, string
   if self.failed ~= "" then return nil, self.failed end
-  local ok, why = skip_space(self)
-  if not ok then return nil, why end
   local f = self.frames[#self.frames]
+  local ok, why = skip_space(self, f ~= nil and f.object and f.state == "first")
+  if not ok then return nil, why end
   if f ~= nil and (f.state == "after" or f.state == "colon") then
     local c = self.buf:byte(self.at)
     local close = f.object and 125 or 93
@@ -1561,7 +1584,7 @@ local function arrive(self: TokenReader): integer | nil, string
           (f.object and "object" or "array") or "expected `,` or " .. closer)
     end
     pass(self, 1)
-    ok, why = skip_space(self)
+    ok, why = skip_space(self, f.object and f.state == "key")
     if not ok then return nil, why end
   end
   local c = self.buf:byte(self.at)
@@ -1728,8 +1751,18 @@ end
 -- decode an identifier by itself: this wraps it in an object and moves
 -- the column back in the message.
 local function key_value(self: TokenReader, text: string, column: integer): any | nil, string
+  -- JSON5's whitespace where a key starts is an empty key, as yyjson reads it.
+  if text == "" then return "", "" end
   local value, err = raw.decode("{" .. text .. ":0}", nil, nil, true, false, self.lone, nil, false,
     false, self.line, column)
+  if err ~= "" and self.buf:byte(self.at) == nil then
+    -- A key cut short by the text's end (a `\`, an escape, a character)
+    -- is refused as the end of the text, not at its own start: read
+    -- without the `:0}`.
+    local _, cut = raw.decode("{" .. text, nil, nil, true, false, self.lone, nil, false, false,
+      self.line, column)
+    if cut ~= "" then err = cut end
+  end
   if err ~= "" then
     local back = err:gsub("(column )(%d+)", function(label: string, n: string): string
       return label .. tostring(tonumber(n) - 1)
@@ -1782,7 +1815,7 @@ function TokenReader:peek(): Json.TokenKind | nil, string
   local c, why = arrive(self)
   if c == nil then return nil, why end
   local f = self.frames[#self.frames]
-  if self.json5 and c == 110 and self.at == #self.buf and not self.ended then
+  while self.json5 and c == 110 and self.at == #self.buf and not self.ended do
     -- `n` is `null` or `nan`: the byte after it says which.
     local ok, trouble = fill(self)
     if not ok then return nil, trouble end
@@ -1872,7 +1905,11 @@ function TokenReader:next(): Json.Token | nil, string
     if token == "null" then value = nil end
   else
     local err: string
-    value, err = scalar(self, text, column)
+    -- A number is read with the byte that ends it, as in the text: a
+    -- truncated one is then refused where it starts, as `decode` does,
+    -- and at the text's end where the text ends.
+    local ended = token == "string" or self.buf:byte(self.at) == nil
+    value, err = scalar(self, ended and text or text .. " ", column)
     if err ~= "" then return nil, err end
     if token == "string" and self.json5 then pass_lines(self, text, start) end
   end

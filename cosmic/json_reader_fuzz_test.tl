@@ -63,6 +63,17 @@ local EXTENDED <const> = {
   "[Infinity, -Infinity, +NaN, -.5e1, 0XA, 1e+2, nan, -inf]",
   "{true: 1, null: 2, \\u0041: 3, é\u{2028}: 4, $: 5}",
   "'\\0\\v\\b\\f\\z\\x7e\\\r\nq'",
+  "{\u{a0}a:1, \u{2028}'b':2,\u{feff}\"c\":3,\u{3000}}",
+  "{/**/\u{a0}a:1, // c\n\u{2029}b:2 \u{a0}, c\u{a0}: \u{a0}3}",
+  "{\u{a0}:1} [\u{1680}1,\u{2000}2\u{202f}]",
+  "[na, I, in, infi, +n, -N, nu]",
+  "{\u{a0}'a'\u{2028}:1}",
+}
+
+-- JSON5 texts with a refusal in a token, which `decode` places.
+local BROKEN <const> = {
+  "[1, 0x, 2]", "{a\\x: 1, b: 2}", "['a\\xZZ', .]", "[1.5.5, +]", "{a: [0x1.5, 1_0]}",
+  "// c\n{k: 'v\\q\\u00zz', 'w': -}", "[1,\u{2028}Infinit,\n.e1]", "[na, I, in, +n, -N]",
 }
 
 -- Texts that read with `hash_comments` alone.
@@ -96,16 +107,20 @@ local function gen(src: Fuzz.Source): string
     local parts: {string} = {}
     while Fuzz.more(src, #parts, 30) do parts[#parts + 1] = Fuzz.pick(src, TOKENS) end
     text = table.concat(parts)
-  elseif shape < 4 then
+  elseif shape < 3 then
     local parts: {string} = {}
     while Fuzz.more(src, #parts, 30) do
       parts[#parts + 1] = src:int(0, 1) == 0 and Fuzz.pick(src, EXTENDED_TOKENS) or Fuzz.pick(src, TOKENS)
     end
     text = table.concat(parts)
-  elseif shape < 7 then
-    text = Fuzz.pick(src, flags == 2 and HASHED or EXTENDED)
-    local edits = src:int(0, 2)
-    if edits > 0 then text = Fuzz.mutate(src, text, edits == 1 and 1 or 6) end
+  elseif shape < 9 then
+    if flags == 2 then
+      text = Fuzz.pick(src, HASHED)
+    else
+      text = Fuzz.pick(src, src:int(0, 2) == 0 and BROKEN or EXTENDED)
+    end
+    local edits = src:int(0, 3)
+    if edits > 1 then text = Fuzz.mutate(src, text, edits == 2 and 1 or 6) end
   else
     text = Fuzz.pick(src, SAMPLES)
     local edits = src:int(0, 2)
@@ -251,7 +266,9 @@ local function holds(input: string): boolean, string
   if err == "" then
     Fuzz.label("decoded")
     if flags & 1 == 1 and not Json.check(text) then Fuzz.label("json5") end
-    if flags == 2 and not Json.check(text) then Fuzz.label("hash") end
+    if flags & 2 == 2 and not Json.check(text, { json5 = flags & 1 == 1 }) then
+      Fuzz.label("hash")
+    end
     if values == nil then return false, "decode read it, the reader refused: " .. why end
     if #values ~= 1 or not same(values[1], decoded) then
       return false, "the tokens built another value"
@@ -272,15 +289,37 @@ local function holds(input: string): boolean, string
     if Json.check(text, { json5 = true, hash_comments = true }) then
       Fuzz.label("refused_extended")
     end
+    -- A refusal that is `decode`'s own, of a token's text, is placed
+    -- where `decode` places it.
+    local at_line, at_column = why:match("^json: invalid JSON at line (%d+), column (%d+): ")
+    if at_line ~= nil then
+      Fuzz.label("placed")
+      if flags & 1 == 1 and (text:find("['/*#]") or text:find("0[xX]") or text:find("[Ii]nf") or
+          text:find("[Nn]a") or text:find("\xe2") or text:find("\xc2") or text:find("[+.]")) then
+        Fuzz.label("placed_json5")
+      end
+      local want_line, want_column = err:match("^json: invalid JSON at line (%d+), column (%d+): ")
+      -- A second value, which the reader reads on, is `decode`'s refusal
+      -- at its start; a text cut short, which it places at the end.
+      if err:find("unexpected content after document", 1, true) == nil and
+          err:find("unexpected end of data", 1, true) == nil and
+          (want_line ~= at_line or want_column ~= at_column) then
+        return false, "refused at " .. at_line .. ":" .. at_column .. ", decode at " ..
+          tostring(want_line) .. ":" .. tostring(want_column) .. ": " .. err
+      end
+    end
   end
   return true, ""
 end
 
--- About half the drawn texts decode; a share well under it fails the run.
--- The JSON5 and comment forms are a share of those, and each is read
--- by the reader or refused by it as decode does.
+-- About a sixth of the drawn texts decode; a share well under it fails
+-- the run. `json5` and `hash` count those that use a form only that
+-- option reads, `refused_extended` those another combination of the
+-- options reads, `placed` the refusals that are `decode`'s own message,
+-- held to its line and column, and `placed_json5` those under `json5`.
 local function test_the_reader_agrees_with_decode(tmp: string)
   Fuzz.run({ name = "json reader", dir = tmp, gen = gen, check = holds,
-    requires = { "decoded", "refused", "json5", "hash", "refused_extended" },
-    shares = { decoded = 0.2, json5 = 0.03, hash = 0.01, refused_extended = 0.01 } })
+    requires = { "decoded", "refused", "json5", "hash", "refused_extended", "placed", "placed_json5" },
+    shares = { decoded = 0.06, json5 = 0.015, hash = 0.01, refused_extended = 0.01, placed = 0.015,
+      placed_json5 = 0.015 } })
 end
