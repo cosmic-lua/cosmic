@@ -71,7 +71,7 @@ local function arg_type(c: Ctx, list: Node, args: {Node}, i: integer)
   end
   local by, bx = arg_bound(list, args, i)
   if not ctx_mod.annotation(c, colon + 1,
-                            typescan.bounded_end(c.scan, by, bx)) then
+      typescan.bounded_end(c.scan, by, bx)) then
     refuse(c, "an argument type with no tokens of its own")
   end
 end
@@ -97,10 +97,17 @@ local function arguments(c: Ctx, list: Node)
   local args = written(list)
   local close_y = list.yend or list.y
   local close_x = list.xend or list.x
+  -- A list whose first parameter follows its `(` lines the rest up
+  -- under that one; one opening on a line of its own is a bracket like
+  -- any other.
+  local first = args[1]
+  local inline = first ~= nil and ctx_mod.start_of(c, first).y <= c.em.line
+  ctx_mod.opens(c, inline and emit.column(c.em) or nil)
   for i, a in ipairs(args) do
     if i > 1 then
       emit.put(c.em, ",")
     end
+    c.starting = true
     ctx_mod.lead(c, a, i > 1 and " " or "")
     emit.text(c.em, a.tk or "")
     if a.opt and a.tk ~= "..." then
@@ -108,8 +115,10 @@ local function arguments(c: Ctx, list: Node)
     end
     arg_type(c, list, args, i)
   end
+  c.closing = true
   ctx_mod.lead_at(c, close_y, close_x, "")
   emit.put(c.em, ")")
+  ctx_mod.closes(c)
 end
 
 --- Write a function's return types, when it declares any. The region
@@ -135,7 +144,7 @@ local function returns(c: Ctx, rets: TypeNode, list: Node, by: integer,
     return
   end
   if not ctx_mod.annotation(c, close + 2,
-                            typescan.bounded_end(c.scan, by, bx)) then
+      typescan.bounded_end(c.scan, by, bx)) then
     refuse(c, "a return type with no tokens of its own")
   end
 end
