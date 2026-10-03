@@ -10,11 +10,13 @@
 ---
 --- A failing input is shrunk before it is reported: the draws that built
 --- it are cut and lowered for as long as the input they build still
---- fails, so the report names a small case rather than the first one
+--- fails with the same identity, so the report names a small case rather than the first one
 --- found. The report gives the seed, the iteration, the input's own
 --- case (`FUZZ_CASE`, which checks that one input alone), and the input
 --- in hex, and keeps the input in a file. A check that fails an input
---- and then holds for it is reported flaky rather than shrunk.
+--- and then holds or fails differently is reported flaky rather than shrunk.
+--- The original input and up to four other failure identities found while
+--- shrinking are kept beside the minimized input.
 ---
 --- Crash containment is the test runner's: every test runs in a worker
 --- process of its own under a deadline. Before each check `run` writes
@@ -102,6 +104,11 @@ local record Fuzz
     --- True when the property holds for `input`, or false and what
     --- failed. A raise fails it the same way.
     check: function(input: string): boolean, string
+    --- A stable identity for a failing check, independent of input values
+    --- in its diagnostic. Without this callback the complete diagnostic
+    --- is its identity: conservative, though it may prevent shrinking.
+    --- Raises and budget failures keep their own identities.
+    failure_id: function(input: string, why: string): string
     --- The directory the input under test is kept in: a test's own
     --- temporary directory. Nothing is kept without one.
     dir: string
@@ -202,23 +209,71 @@ function Fuzz.label(name: string)
   if reached ~= nil then reached[name] = true end
 end
 
---- Runs `check` on `input` once, under the budget.
-local function attempt(check: function(string): boolean, string, input: string,
-    budget: integer): boolean, string
-  if arm then arm(budget) end
-  local ok, held, why = pcall(check, input)
-  if arm then arm() end
+local checking = false
+local spent = false
+local active_path: string
+local active_input: string
+
+local record Outcome
+  held: boolean
+  why: string
+  identity: string
+end
+
+--- Persistence is part of executing a case: no check may run with an
+--- older input masquerading as its crash evidence.
+local function save(p: Fuzz.Property, path: string, input: string)
+  if path == nil then return end
+  local ok, why = Fs.write(path, input)
+  if not ok then
+    error(("fuzz %s: cannot save evidence at %s: %s"):format(p.name, path, why), 0)
+  end
+end
+
+--- Every check passes here, including confirmation and shrinking.
+--- Nested checks inherit the enclosing budget and cannot disarm it.
+local function attempt(p: Fuzz.Property, input: string, budget: integer,
+    kept: string): Outcome
+  save(p, kept, input)
+  local nested = checking
+  local outer_path, outer_input = active_path, active_input
+  active_path, active_input = kept, input
+  -- TODO: enforce a nested property's smaller budget once the core can
+  -- save and restore the remaining instruction count. Rearming here
+  -- would replenish the enclosing budget on every nested check.
+  if not nested then
+    spent = false
+  end
+  checking = true
+  local ok, held, why = pcall(function(): boolean, string
+    if not nested and arm then arm(budget) end
+    local ok, held, why = pcall(p.check, input)
+    if not nested and arm then arm() end
+    if not ok then error(held, 0) end
+    return held, why
+  end)
+  checking = nested
+  active_path, active_input = outer_path, outer_input
+  if nested then save(p, outer_path, outer_input) end
+  if not nested and arm then arm() end
+  if not ok and String.ends_with(tostring(held), BUDGET_MESSAGE) then spent = true end
+  if spent then
+    if nested then error(BUDGET_MESSAGE, 0) end
+    return { held = false, why = ("spent its budget of %d VM instructions"):format(budget),
+      identity = "budget" }
+  end
   if not ok then
     local raised = tostring(held)
-    if String.ends_with(raised, BUDGET_MESSAGE) then
-      return false, ("spent its budget of %d VM instructions"):format(budget)
-    end
-    return false, "raised: " .. raised
+    return { held = false, why = "raised: " .. raised, identity = "raised:" .. raised }
   end
-  if held ~= true then
-    return false, why ~= nil and why ~= "" and tostring(why) or "check returned false"
+  if held == true then return { held = true, why = "", identity = "" } end
+  local message = why ~= nil and why ~= "" and tostring(why) or "check returned false"
+  local identity = message
+  if p.failure_id ~= nil then identity = p.failure_id(input, message) end
+  if type(identity) ~= "string" or identity == "" then
+    error(("fuzz %s: failure_id must return a nonempty string"):format(p.name), 0)
   end
-  return true, ""
+  return { held = false, why = message, identity = "check:" .. identity }
 end
 
 --- A file name for the property, from its name.
@@ -266,11 +321,10 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): in
     if input == nil then
       error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
     end
-    if kept ~= nil then local _, _ = Fs.write(kept, input) end
-    local held, why = attempt(p.check, input, budget)
-    if not held then
+    local outcome = attempt(p, input, budget, kept)
+    if not outcome.held then
       error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
-        format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
+        format(p.name, path, outcome.why, plural.count(#input, "byte"), shown(input)), 0)
     end
     checked = checked + 1
     ::continue::
@@ -345,7 +399,7 @@ local function run(p: Fuzz.Property): integer
   local kept: string
   if p.dir ~= nil then
     kept = p.dir .. "/" .. slug(p.name) .. ".input"
-    print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
+    print(("fuzz %s: seed=%d iters=%d; checkpoint before each check: %s"):
        format(p.name, seed, iters, kept))
   end
   if case_name == nil then check_corpus(p, budget, kept) end
@@ -365,55 +419,94 @@ local function run(p: Fuzz.Property): integer
     local ok, input = pcall(p.gen, recording(Rand.new(case), draws))
     if not ok then
       reached = nil
-      error(input, 0)
+      local choices: {string} = {}
+      for j, draw in ipairs(draws) do choices[j] = tostring(draw.value) end
+      save(p, kept ~= nil and (kept .. ".generation") or nil,
+        reproduce .. "\ndraws: " .. table.concat(choices, ",") .. "\n" .. tostring(input))
+      error(("fuzz %s: %s: generator raised: %s\n  reproduce: %s"):
+        format(p.name, where, tostring(input), reproduce), 0)
     end
-    if kept ~= nil then local _, _ = Fs.write(kept, input) end
-    local held, why = attempt(p.check, input, budget)
+    local outcome = attempt(p, input, budget, kept)
     reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
-    if not held then
-      -- A check that fails an input once and holds for it the next time
-      -- depends on something beside the input: shrinking would chase
-      -- noise, so the report says so and stops.
-      local again, _ = attempt(p.check, input, budget)
-      if again then
-        error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
-          "checked again; it depends on something beside its input\n" ..
-          "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-           format(p.name, where, why, plural.count(#input, "byte"), shown(input),
-            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
-            reproduce), 0)
+    if not outcome.held then
+      local original = kept ~= nil and (kept .. ".original") or nil
+      save(p, original, input)
+      local secondary: {string: boolean} = {}
+      local other_count = 0
+      local others: {string} = {}
+      local function remember(candidate: string, result: Outcome)
+        if result.held or result.identity == outcome.identity or secondary[result.identity] then return end
+        if other_count >= 4 then return end
+        secondary[result.identity] = true
+        other_count = other_count + 1
+        local path = kept ~= nil and (kept .. ".secondary-" .. other_count) or nil
+        save(p, path, candidate)
+        others[#others + 1] = ("\n  secondary failure %d: %s; %s"):
+          format(other_count, result.why, path ~= nil and ("kept at " .. path) or ("input (hex): " .. shown(candidate)))
       end
+      local again = attempt(p, input, budget, kept)
+      remember(input, again)
+      if again.held or again.identity ~= outcome.identity then
+        error(("fuzz %s: %s: flaky: failed (%s), then %s when the same input was " ..
+          "checked again; it depends on something beside its input\n" ..
+          "  input (%s, hex): %s\n  %s\n  reproduce: %s%s"):
+           format(p.name, where, outcome.why,
+            again.held and "held" or ("failed differently (" .. again.why .. ")"),
+            plural.count(#input, "byte"), shown(input),
+            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+            reproduce, table.concat(others)), 0)
+      end
+      local best_outcome = outcome
+      local generator_fault: string
       local function fails(values: {integer}): boolean, {Draw}
-        local candidate, used = build(p.gen, values)
-        local still, _ = attempt(p.check, candidate, budget)
-        return not still, used
+        local ok_build, candidate, used = pcall(build, p.gen, values)
+        if not ok_build then
+          generator_fault = tostring(candidate)
+          return false, {}
+        end
+        local result = attempt(p, candidate, budget, kept)
+        remember(candidate, result)
+        if not result.held and result.identity == outcome.identity then
+          best_outcome = result
+          return true, used
+        end
+        return false, used
       end
       local shrunk = shrink.shrink(draws, fails, SHRINK_TRIES)
       local smallest, tries = shrunk.draws, shrunk.tries
-      local small = build(p.gen, shrink.values_of(smallest))
-      local small_held, small_why = attempt(p.check, small, budget)
+      local ok_build, small = pcall(build, p.gen, shrink.values_of(smallest))
       local flaky = ""
-      if not small_held then
-        why = small_why
-      else
-        -- The shrunk input failed while shrinking and held just now:
-        -- report the input that first failed, and say why.
-        small, smallest = input, draws
-        flaky = "\n  flaky: the shrunk input held when checked again, so this is the input that first failed"
+      local result: Outcome
+      if ok_build then
+        result = attempt(p, small, budget, kept)
+        remember(small, result)
       end
-      if kept ~= nil then local _, _ = Fs.write(kept, small) end
+      if not ok_build then generator_fault = tostring(small) end
+      if not ok_build or result.held or result.identity ~= outcome.identity then
+        small, smallest = input, draws
+        flaky = not ok_build and "\n  generator failed to rebuild the shrunk input; this is the input that first failed" or
+          "\n  flaky: the shrunk input held when checked again or failed differently, so this is the input that first failed"
+      else
+        best_outcome = result
+      end
+      if generator_fault ~= nil then
+        flaky = flaky .. "\n  generator raised while replaying shrink choices: " .. generator_fault
+      end
+      save(p, kept, small)
       local keep = corpus_of(p) .. "/" .. corpus_name(small)
       error(("fuzz %s: %s: %s\n" ..
         "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
-        "  once fixed, keep it as a regression case: %s"):
-         format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
+        "  once fixed, keep it as a regression case: %s%s%s"):
+         format(p.name, where, small == input and outcome.why or best_outcome.why,
+          plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
           plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
           reproduce,
           kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
-            or ("write the input above to " .. keep)), 0)
+            or ("write the input above to " .. keep),
+          original ~= nil and ("\n  original kept at " .. original) or "", table.concat(others)), 0)
     end
   end
   local named: {string} = {}
@@ -474,8 +567,15 @@ end
 --- @param input string The input to check
 --- @return boolean True when the property held
 --- @return string What failed, when it did not
-function Fuzz.replay(p: Fuzz.Property, input: string): boolean, string
-  return attempt(p.check, input, p.budget or DEFAULT_BUDGET)
+--- @return string The stable failure identity, or empty when it held
+function Fuzz.replay(p: Fuzz.Property, input: string): boolean, string, string
+  local enclosing = reached
+  reached = nil
+  local kept = p.dir ~= nil and (p.dir .. "/" .. slug(p.name) .. ".input") or nil
+  local ok, outcome = pcall(attempt, p, input, p.budget or DEFAULT_BUDGET, kept)
+  reached = enclosing
+  if not ok then error(outcome, 0) end
+  return outcome.held, outcome.why, outcome.identity
 end
 
 --- Draws one of `choices`, which must not be empty.

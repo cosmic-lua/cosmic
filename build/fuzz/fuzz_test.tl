@@ -406,3 +406,200 @@ local function test_shrinking_cuts_elements_from_the_middle()
     end })
   assert(err:find("input (hex): 62306430\n", 1, true), err)
 end
+
+local function test_every_attempt_checkpoints_its_exact_input(tmp: string)
+  local seen = 0
+  local p: Fuzz.Property = { name = "checkpoint", dir = tmp, iters = 1,
+    gen = function(src: Fuzz.Source): string return tostring(src:int(0, 1000)) end,
+    check = function(input: string): boolean, string
+      assert(Fs.read(tmp .. "/checkpoint.input") == input, "stale checkpoint")
+      seen = seen + 1
+      return false, "same bug"
+    end }
+  local err = report(p)
+  assert(not err:find("stale checkpoint", 1, true), err)
+  assert(seen > 3, "must include shrinking and confirmation")
+  assert(Fs.read(tmp .. "/checkpoint.input.original") ~= nil)
+  local held, why = Fuzz.replay(p, "replayed")
+  assert(not held and why == "same bug")
+  assert(Fs.read(tmp .. "/checkpoint.input") == "replayed")
+  local corpus = tmp .. "/corpus"
+  assert(Fs.mkdirs(corpus))
+  assert(Fs.write(corpus .. "/one.input", "corpus"))
+  p.corpus = corpus
+  err = report(p)
+  assert(err:find("corpus input", 1, true), err)
+  assert(not err:find("stale checkpoint", 1, true), err)
+end
+
+local function test_an_unsavable_checkpoint_prevents_the_check(tmp: string)
+  local checked = false
+  local p: Fuzz.Property = { name = "unsaved", dir = tmp .. "/absent", iters = 1,
+    gen = any_bytes,
+    check = function(_input: string): boolean, string
+      checked = true
+      return false, "bug"
+    end }
+  local err = report(p)
+  assert(err:find("cannot save evidence", 1, true), err)
+  assert(not checked)
+  local ok, why = pcall(Fuzz.replay, p, "replay")
+  assert(not ok and tostring(why):find("cannot save evidence", 1, true))
+  assert(not checked)
+end
+
+local function test_shrinking_preserves_failure_identity_and_secondary_evidence(tmp: string)
+  local first: string
+  local err = report({ name = "identity", dir = tmp, iters = 1,
+    gen = function(src: Fuzz.Source): string return tostring(src:int(1, 1000000)) end,
+    check = function(input: string): boolean, string
+      if first == nil then first = input end
+      return false, input == first and "original bug" or "other bug"
+    end })
+  assert(err:find("iteration=1: original bug", 1, true), err)
+  assert(Fs.read(tmp .. "/identity.input") == first)
+  assert(Fs.read(tmp .. "/identity.input.original") == first)
+  local secondary = Fs.read(tmp .. "/identity.input.secondary-1")
+  assert(secondary ~= nil and secondary ~= first)
+  assert(err:find("secondary failure 1: other bug", 1, true), err)
+end
+
+local function test_explicit_identity_allows_varying_diagnostics_to_shrink(tmp: string)
+  local err = report({ name = "stable identity", dir = tmp, iters = 1,
+    gen = function(src: Fuzz.Source): string return tostring(src:int(1, 1000000)) end,
+    check = function(input: string): boolean, string return false, "bad value " .. input end,
+    failure_id = function(_input: string, _why: string): string return "bad-value" end })
+  assert(Fs.read(tmp .. "/stable-identity.input") == "1", err)
+  assert(err:find("bad value 1", 1, true), err)
+end
+
+local function test_confirmation_requires_the_same_failure_identity()
+  local checks = 0
+  local err = report({ name = "changes bug", iters = 1, gen = any_bytes,
+    check = function(_input: string): boolean, string
+      checks = checks + 1
+      return false, checks == 1 and "one" or "two"
+    end })
+  assert(checks == 2, err)
+  assert(err:find("flaky: failed (one), then failed differently (two)", 1, true), err)
+end
+
+local function test_generator_errors_are_attributed_to_the_seed(tmp: string)
+  local err = report({ name = "generator", dir = tmp, iters = 1,
+    gen = function(src: Fuzz.Source): string
+      local _ = src:int(0, 9)
+      error("cannot generate", 0)
+    end,
+    check = function(_input: string): boolean, string error("must not check") end })
+  assert(err:find("fuzz generator: seed=1 iteration=1: generator raised: cannot generate", 1, true), err)
+  assert(err:find("reproduce: FUZZ_CASE=generator:", 1, true), err)
+  local saved = assert(Fs.read(tmp .. "/generator.input.generation"))
+  assert(saved:find("draws: ", 1, true), saved)
+end
+
+local function test_generator_fault_while_shrinking_does_not_replace_the_check_failure()
+  local first = true
+  local err = report({ name = "generator replay", iters = 1,
+    gen = function(src: Fuzz.Source): string
+      local n = src:int(1, 1000)
+      if not first then error("replay generator fault", 0) end
+      first = false
+      return tostring(n)
+    end,
+    check = function(_input: string): boolean, string return false, "original check failure" end })
+  assert(err:find("iteration=1: original check failure", 1, true), err)
+  assert(err:find("generator raised while replaying shrink choices:", 1, true), err)
+end
+
+local function test_nested_checks_restore_the_checkpoint_and_inherit_the_budget(tmp: string)
+  local p: Fuzz.Property = { name = "nested", dir = tmp, iters = 1, budget = 100000,
+    gen = function(_src: Fuzz.Source): string return "outer" end,
+    check = function(input: string): boolean, string
+      local inner: Fuzz.Property = { name = "nested", dir = tmp,
+        check = function(_input: string): boolean, string return true, "" end }
+      assert(Fuzz.replay(inner, "inner"))
+      assert(Fs.read(tmp .. "/nested.input") == input, "inner stole checkpoint")
+      while true do end
+    end }
+  local err = report(p)
+  assert(err:find("spent its budget of 100000 VM instructions", 1, true), err)
+  assert(not err:find("inner stole checkpoint", 1, true), err)
+end
+
+local function test_nested_budget_exhaustion_cannot_be_swallowed()
+  local err = report({ name = "outer budget", iters = 1, budget = 100000,
+    gen = any_bytes,
+    check = function(_input: string): boolean, string
+      local _ = pcall(Fuzz.replay, { name = "inner budget",
+        check = function(_s: string): boolean, string while true do end end }, "")
+      return true, ""
+    end })
+  assert(err:find("spent its budget of 100000 VM instructions", 1, true), err)
+end
+
+local function test_an_invalid_explicit_failure_identity_is_refused()
+  for _, bad in ipairs({ "", "nil" }) do
+    local err = report({ name = "invalid identity", iters = 1, gen = any_bytes,
+      check = function(_s: string): boolean, string return false, "bug" end,
+      failure_id = function(_input: string, _why: string): string
+        if bad == "nil" then return nil end
+        return ""
+      end })
+    assert(err:find("failure_id must return a nonempty string", 1, true), err)
+  end
+end
+
+local function test_a_tiny_budget_does_not_leak_into_later_checks()
+  local held, why = Fuzz.replay({ name = "tiny", budget = 1,
+    check = function(_s: string): boolean, string return true, "" end }, "")
+  assert(not held and why:find("budget", 1, true), why)
+  assert(Fuzz.replay({ name = "after tiny",
+    check = function(_s: string): boolean, string return true, "" end }, ""))
+end
+
+local function test_budget_boundaries_return_outcomes_and_restore_state()
+  for budget = 1, 100 do
+    for _, raises in ipairs({ false, true }) do
+      local ok, held, why = pcall(Fuzz.replay, { name = "boundary", budget = budget,
+        check = function(_s: string): boolean, string
+          if raises then error("ordinary failure", 0) end
+          return true, ""
+        end }, "")
+      assert(ok, ("budget %d escaped: %s"):format(budget, tostring(held)))
+      assert(held or why:find("budget", 1, true) or why == "raised: ordinary failure", why)
+    end
+  end
+  assert(Fuzz.replay({ name = "after boundaries",
+    check = function(_s: string): boolean, string return true, "" end }, ""))
+end
+
+local function test_secondary_evidence_is_bounded(tmp: string)
+  local first: string
+  local others = 0
+  local err = report({ name = "many failures", dir = tmp, iters = 1,
+    gen = any_bytes,
+    check = function(input: string): boolean, string
+      if first == nil then first = input end
+      if input == first then return false, "original" end
+      others = others + 1
+      return false, "other " .. others
+    end })
+  assert(others > 4, err)
+  assert(err:find("secondary failure 4:", 1, true), err)
+  assert(not err:find("secondary failure 5:", 1, true), err)
+  assert(not Fs.exists(tmp .. "/many-failures.input.secondary-5"))
+end
+
+local function test_returned_and_raised_failures_have_distinct_identities()
+  local function key(raises: boolean): string
+    local held, _, identity = Fuzz.replay({ name = "kinds",
+      failure_id = function(_input: string, _why: string): string return "raised: boom" end,
+      check = function(_input: string): boolean, string
+        if raises then error("boom", 0) end
+        return false, "raised: boom"
+      end }, "")
+    assert(not held)
+    return identity
+  end
+  assert(key(false) ~= key(true))
+end
