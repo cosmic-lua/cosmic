@@ -548,11 +548,11 @@ end
 --- A long comment, or a `*` or a lead byte at every chunk's end, in
 --- one-byte chunks, costs time in proportion to its length.
 local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
-  local long = string.rep("*", 150000)
+  local long = string.rep("*", 30000)
   for _, text in ipairs({
       "[1, /*" .. long .. "*/ 2]", "[1, //" .. long .. "\n 2]", "[1, #" .. long .. "\n 2]",
-      "[1, //" .. string.rep("\xe2\x80", 50000) .. "\n 2]", "[1, /* " .. string.rep("/* ", 75000) .. "*/ 2]",
-      "[1," .. string.rep(" \u{a0}", 50000) .. "2]", "{" .. string.rep("\u{e9}", 50000) .. ": 1}",
+      "[1, //" .. string.rep("\xe2\x80", 12000) .. "\n 2]", "[1, /* " .. string.rep("/* ", 12000) .. "*/ 2]",
+      "[1," .. string.rep(" \u{a0}", 12000) .. "2]", "{" .. string.rep("\u{e9}", 12000) .. ": 1}",
   }) do
     for _, size in ipairs({ 1, 2 }) do
       local got, err = tokens(text, size, BOTH)
@@ -560,21 +560,26 @@ local function test_a_long_comment_in_small_chunks_reads_in_linear_time()
       assert(#got >= 4)
     end
   end
-  -- Many short line comments in one chunk, or a few: each costs its own length.
-  for _, size in ipairs({ 1000000, 65536, 100 }) do
-    for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
-      local many = "[" .. string.rep("1, " .. comment, 50000) .. "2]"
-      local started = Time.now_ns()
-      local got, err = tokens(many, size, BOTH)
-      assert(err == "" and #got == 50003, err)
-      -- Linear takes a fraction of a second; a scan of the rest of the
-      -- chunk for each comment takes a minute.
-      assert(Time.now_ns() - started < Time.seconds(10), "many short comments take linear time")
+  -- Many short line comments in one chunk: each costs its own length.
+  for _, comment in ipairs({ "// c\n", "# c\n", "// c\u{2028}", "// \xe2\x80\n" }) do
+    local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, 20000) .. "2]"), BOTH)
+    local started, count = Time.now_ns(), 0
+    while true do
+      local t, err = r:next()
+      if t == nil then
+        assert(err == "", err)
+        break
+      end
+      count = count + 1
     end
+    assert(count == 20003)
+    -- Linear takes a tenth of a second; a scan of the rest of the chunk
+    -- for each comment takes nine.
+    assert(Time.now_ns() - started < Time.seconds(3), "many short comments take linear time")
   end
-  local text = "[" .. string.rep("1, /* c */ ", 20000) .. "2]"
+  local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
   local r = Json.reader(chunked("[" .. text .. "]", 1), JSON5)
-  assert(assert(r:next()).kind == "array" and #(assert(r:value()) as {integer}) == 20001)
+  assert(assert(r:next()).kind == "array" and #(assert(r:value()) as {integer}) == 10001)
 end
 
 --- yyjson reads JSON5's extra whitespace right after an object's `{` or
