@@ -90,7 +90,9 @@ local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): stri
   local items: {string} = {}
   while Fuzz.more(src, #items, 6) do
     local item = gen_value(src, depth - 1, json5)
-    if kind == 5 then item = leaf(src, KEYS, json5) .. leaf(src, GAPS, json5) .. ":" .. leaf(src, GAPS, json5) .. item end
+    if kind == 5 then
+      item = leaf(src, KEYS, json5) .. leaf(src, GAPS, json5) .. ":" .. leaf(src, GAPS, json5) .. item
+    end
     items[#items + 1] = leaf(src, GAPS, json5) .. item .. leaf(src, GAPS, json5)
   end
   local trailing = json5 and #items > 0 and src:int(0, 3) == 0 and "," or ""
@@ -202,7 +204,9 @@ local function decode_holds(input: string): boolean, string
         big_numbers_as_strings = big, lone_surrogates = true }, where .. " lone_surrogates")
       if not lone_ok then return false, lone_err end
       if err == "" then
-        if lone_err ~= "" then return false, where .. ": lone_surrogates refused what read: " .. lone_err end
+        if lone_err ~= "" then
+          return false, where .. ": lone_surrogates refused what read: " .. lone_err
+        end
         local a, b = canonical(value, where), canonical(lone_value, where)
         if a ~= b then return false, where .. ": lone_surrogates read it differently" end
       elseif lone_err == "" then
@@ -215,7 +219,9 @@ local function decode_holds(input: string): boolean, string
         big_numbers_as_strings = big, hash_comments = true }, where .. " hash_comments")
       if not hash_ok then return false, hash_err end
       if err == "" then
-        if hash_err ~= "" then return false, where .. ": hash_comments refused what read: " .. hash_err end
+        if hash_err ~= "" then
+          return false, where .. ": hash_comments refused what read: " .. hash_err
+        end
         if canonical(value, where) ~= canonical(hash_value, where) then
           return false, where .. ": hash_comments read it differently"
         end
@@ -429,7 +435,9 @@ local function test_the_depth_limits_are_exact(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local opens: {string} = {}
-      while Fuzz.more(src, #opens, 1200) do opens[#opens + 1] = src:int(0, 1) == 0 and "[" or '{"k":' end
+      while Fuzz.more(src, #opens, 1200) do
+        opens[#opens + 1] = src:int(0, 1) == 0 and "[" or '{"k":'
+      end
       return Fuzz.pack({ table.concat(opens), tostring(src:int(1, 1000)) })
     end,
     check = function(input: string): boolean, string
@@ -439,7 +447,9 @@ local function test_the_depth_limits_are_exact(tmp: string)
       local _, n = opens:gsub("[%[{]", "")
       local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
       if n <= limit then
-        if err ~= "" then return false, ("%d levels under a limit of %d: %s"):format(n, limit, err) end
+        if err ~= "" then
+          return false, ("%d levels under a limit of %d: %s"):format(n, limit, err)
+        end
       elseif value ~= nil or err ~= ("json: JSON nests deeper than %d levels at line 1, column %d"):
            format(limit, deepest(opens, limit + 1)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
@@ -485,7 +495,9 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
       local back, berr = Json.decode_lines(text, { null_value = Json.null })
       if back == nil then return false, "encoded lines are what decode_lines refuses: " .. berr end
       local a, b = Json.encode(finite(values), CANONICAL), Json.encode(finite(back), CANONICAL)
-      if a ~= b then return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b) end
+      if a ~= b then
+        return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b)
+      end
       return true, ""
     end,
   })

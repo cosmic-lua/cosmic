@@ -50,7 +50,9 @@ function Compiles.command(argv: {string}, env: {string:string}): integer, string
   end
   local out, err = CacheTrim.run({ family = "compiles", paths = paths,
     since_ns = since, whole = false, restored = restored }, env)
-  if #paths == 0 then out = "compiles-trim: COSMIC_BUILD_CACHE names no file; nothing to trim\n" .. out end
+  if #paths == 0 then
+    out = "compiles-trim: COSMIC_BUILD_CACHE names no file; nothing to trim\n" .. out
+  end
   return 0, out, err
 end
 

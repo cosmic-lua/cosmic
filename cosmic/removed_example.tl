@@ -109,12 +109,18 @@ function Example.table_operations()
   local empty: {string} = {}
   assert(table.remove(empty) == nil and table.remove(xs, #xs + 1) == nil)
   assert(not pcall(function() table.remove(xs, 0) end))
-  table.insert(xs, "z"); assert(table.remove(xs) == "z")
-  table.insert(xs, 2, "x"); assert(table.remove(xs, 2) == "x")
-  table.sort(xs); assert(table.concat(xs, ":", 1, 3) == "a:b:c")
-  table.move(xs, 1, 2, 2, xs); assert(table.concat(xs) == "aab")
-  local packed = table.pack("a", nil, "c"); assert(packed.n == 3)
-  local a, b = table.unpack({ "a", "b" }); assert(a == "a" and b == "b")
+  table.insert(xs, "z")
+  assert(table.remove(xs) == "z")
+  table.insert(xs, 2, "x")
+  assert(table.remove(xs, 2) == "x")
+  table.sort(xs)
+  assert(table.concat(xs, ":", 1, 3) == "a:b:c")
+  table.move(xs, 1, 2, 2, xs)
+  assert(table.concat(xs) == "aab")
+  local packed = table.pack("a", nil, "c")
+  assert(packed.n == 3)
+  local a, b = table.unpack({ "a", "b" })
+  assert(a == "a" and b == "b")
 end
 
 --- string.byte/string.char convert bytes; string.len counts bytes; string.sub
@@ -158,7 +164,8 @@ end
 --- requires a fixed-size format. string.dump produces a binary function chunk.
 function Example.string_binary()
   assert(string.format("%04d", 7) == "0007")
-  local data = string.pack(">I2", 513); assert(string.packsize(">I2") == 2)
+  local data = string.pack(">I2", 513)
+  assert(string.packsize(">I2") == 2)
   local n, next_position = string.unpack(">I2", data)
   assert(n == 513 and next_position == 3)
 end
@@ -189,7 +196,8 @@ function Example.math_functions()
   assert(math.sin(0) == 0 and math.cos(0) == 1 and math.tan(0) == 0)
   assert(math.sqrt(9) == 3 and math.exp(0) == 1 and math.log(8, 2) == 3)
   assert(math.deg(math.rad(180)) == 180 and math.pi > 3)
-  local f, e = math.frexp(8); assert(math.ldexp(f, e) == 8)
+  local f, e = math.frexp(8)
+  assert(math.ldexp(f, e) == 8)
 end
 
 --- utf8.char encodes code points and rejects values outside Unicode's range;
@@ -205,7 +213,8 @@ function Example.utf8_operations()
   local text = utf8.char(0x03bb, 0x61)
   assert(utf8.len(text) == 2 and utf8.codepoint(text) == 0x03bb)
   assert(utf8.offset(text, 1) == 1 and utf8.offset(text, 2) == 3)
-  local count = 0; for _ in utf8.codes(text) do count = count + 1 end
+  local count = 0
+  for _ in utf8.codes(text) do count = count + 1 end
   assert(count == 2 and string.match(text, utf8.charpattern) ~= nil)
 end
 
@@ -217,10 +226,15 @@ end
 --- no pending to-be-closed variable fails, or false plus that close error;
 --- closing the running or a normal coroutine raises.
 function Example.coroutines()
-  local co = coroutine.create(function(): string coroutine.yield("paused"); return "done" end)
+  local co = coroutine.create(function(): string
+    coroutine.yield("paused")
+    return "done"
+  end)
   assert(coroutine.status(co) == "suspended")
-  local ok, state = coroutine.resume(co); assert(ok and state == "paused")
-  ok, state = coroutine.resume(co); assert(ok and state == "done" and coroutine.status(co) == "dead")
+  local ok, state = coroutine.resume(co)
+  assert(ok and state == "paused")
+  ok, state = coroutine.resume(co)
+  assert(ok and state == "done" and coroutine.status(co) == "dead")
   local abandoned = coroutine.create(function() coroutine.yield() end)
   assert(coroutine.close(abandoned))
 end
@@ -253,8 +267,10 @@ function Example.enums_arrays_maps_tuples()
     "red"
     "blue"
   end
-  local color: Color = "red"; local array: {integer} = { 2, 3 }
-  local map: {string:integer} = { answer = 42 }; local tuple: {string,integer} = { "age", 9 }
+  local color: Color = "red"
+  local array: {integer} = { 2, 3 }
+  local map: {string:integer} = { answer = 42 }
+  local tuple: {string,integer} = { "age", 9 }
   assert(color == "red" and array[2] == 3 and map.answer == 42 and tuple[1] == "age")
 end
 
@@ -328,8 +344,11 @@ end
 --- and nil are falsey; and/or return operands. Operators include //, %, ^, ..,
 --- #, shifts and bitwise operations with Lua precedence.
 function Example.scoping_control_operators()
-  local limit <const>: integer = 4; local total = 0
-  for i = 1, limit do if i % 2 == 0 then total = total + i end end
+  local limit <const>: integer = 4
+  local total = 0
+  for i = 1, limit do
+    if i % 2 == 0 then total = total + i end
+  end
   assert(total == 6 and (nil or "fallback") == "fallback" and #"abc" == 3)
 end
 

@@ -185,7 +185,8 @@ function SuiteOutput.markdown(rows: {State.SuiteRun}): string
   local align: {string} = { "---", "---", "---", "---", "---:", "---:", "---:",
     "---:", "---:", "---:", "---:" }
   for _, part in ipairs(shown_parts) do
-    headings[#headings + 1] = part[1]; align[#align + 1] = "---"
+    headings[#headings + 1] = part[1]
+    align[#align + 1] = "---"
   end
   local lines: {string} = { "| " .. table.concat(headings, " | ") .. " |\n",
     "|" .. table.concat(align, "|") .. "|\n" }

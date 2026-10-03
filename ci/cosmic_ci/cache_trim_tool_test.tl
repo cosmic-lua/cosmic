@@ -13,7 +13,9 @@ local function test_cancellation_cleans_snapshot_before_driver_redelivery(tmp: s
   local here = assert(Fs.absolute("."))
   assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project })).ok)
   local restored, ready, output = tmp .. "/restored.db", tmp .. "/ready", tmp .. "/output"
-  for _, suffix in ipairs({ "", "-wal", "-shm" }) do assert(Fs.write(restored .. suffix, "owned")) end
+  for _, suffix in ipairs({ "", "-wal", "-shm" }) do
+    assert(Fs.write(restored .. suffix, "owned"))
+  end
   local script = ([=[
 local Child = require("cosmic.child")
 local Compiles = require("cosmic_ci.compiles")

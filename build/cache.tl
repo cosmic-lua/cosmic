@@ -82,9 +82,15 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local lines: {string} = {}
     for _, file in ipairs(report.files) do
       local line = file.path .. ": " .. file.state
-      if file.kept ~= nil then line = line .. "; kept " .. file.kept .. ", removed " .. file.removed end
-      if #file.unknown_tables > 0 then line = line .. "; unknown tables kept: " .. table.concat(file.unknown_tables, ", ") end
-      if #file.removed_set_aside > 0 then line = line .. "; retired files removed: " .. table.concat(file.removed_set_aside, ", ") end
+      if file.kept ~= nil then
+        line = line .. "; kept " .. file.kept .. ", removed " .. file.removed
+      end
+      if #file.unknown_tables > 0 then
+        line = line .. "; unknown tables kept: " .. table.concat(file.unknown_tables, ", ")
+      end
+      if #file.removed_set_aside > 0 then
+        line = line .. "; retired files removed: " .. table.concat(file.removed_set_aside, ", ")
+      end
       lines[#lines + 1] = line
     end
     if report.digest ~= nil then lines[#lines + 1] = "digest " .. report.digest end

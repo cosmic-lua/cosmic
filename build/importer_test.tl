@@ -1582,7 +1582,9 @@ local function test_the_writer_modules_are_closed_under_require()
     assert(not covered[name], name .. " is left out of the writer's identity, but is in it")
   end
   local compiler: {string:boolean} = {}
-  for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do compiler[name] = true end
+  for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do
+    compiler[name] = true
+  end
   --- What build.writer's closure reaches that neither identity holds,
   --- and why no projection's bytes turn on it.
   local neither: {string:string} = {

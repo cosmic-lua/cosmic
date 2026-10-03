@@ -62,7 +62,10 @@ local function invoke(root: string, env: {string:string}, phases: {string}, uid?
   -- development host. It is not credential-transition evidence.
   sys.getuid = function(): integer return uid or 1000 end
   Fs.put = function(fd: integer, bytes: string): boolean, string
-    if fd == Fs.stderr then messages[#messages + 1] = bytes; return true, "" end
+    if fd == Fs.stderr then
+      messages[#messages + 1] = bytes
+      return true, ""
+    end
     return put(fd, bytes)
   end
   local argv: {integer:string} = { [0] = root .. "/ci/run_local.tl" }
@@ -195,7 +198,9 @@ end
 local function test_credential_setup_refusal_precedes_state_and_phase(tmp: string)
   local root, env = checkout(tmp)
   local user, run = Proc.user, Child.run
-  Proc.user = function(_name: string): Proc.User | nil, string return { uid = 65532, gid = 65532 }, "" end
+  Proc.user = function(_name: string): Proc.User | nil, string
+    return { uid = 65532, gid = 65532 }, ""
+  end
   Child.run = function(argv: {string}, options?: Child.Options): Child.Result | nil, string
     if options and options.credentials then return nil, "injected credential refusal" end
     return run(argv, options)
@@ -277,7 +282,9 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
   assert(sys.lseek(borrowed, 13, sys.SEEK_SET))
   local user, run = Proc.user, Child.run
   local scratch, handed, entered = "", -1, 0
-  Proc.user = function(_name: string): Proc.User | nil, string return { uid = 65532, gid = 65532 }, "" end
+  Proc.user = function(_name: string): Proc.User | nil, string
+    return { uid = 65532, gid = 65532 }, ""
+  end
   Child.run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
     if not options or not options.credentials then return run(words, options) end
     entered = entered + 1
@@ -287,13 +294,15 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
     assert(file.uid == owner and file.mode & 0x1ff == 0x16d and file.size == original.size)
     assert(Hash.hex_sha256((assert(Fs.read(words[1])))) == digest)
     local given = options.fds[slot]
-    assert(type(given) == "number"); handed = given as integer
+    assert(type(given) == "number")
+    handed = given as integer
     assert(handed ~= borrowed and assert(sys.fstat(handed)).ino == file.ino)
     for number, fd in pairs(launched.fds) do
       assert(options.fds[number] == (number == slot and handed or fd), "another runtime grant changed")
     end
     for name, value in pairs(launched.env) do assert(options.env[name] == value) end
-    local probe: {string} = {}; for _, word in ipairs(words) do probe[#probe + 1] = word end
+    local probe: {string} = {}
+    for _, word in ipairs(words) do probe[#probe + 1] = word end
     probe[#probe] = "assert(require('cosmic.proc').executable()==" ..
       string.format("%q", tostring((assert(Proc.executable())))) .. "); print('copied runtime identity')"
     local result = assert(run(probe, { env = options.env, fds = options.fds, cwd = "/",
@@ -320,7 +329,9 @@ local function test_runtime_copy_failure_cleans_up_before_any_credential_child(t
   local root, env = checkout(tmp)
   local user, pread, mkdtemp = Proc.user, sys.pread, sys.mkdtemp
   local scratch = ""
-  Proc.user = function(_name: string): Proc.User | nil, string return { uid = 65532, gid = 65532 }, "" end
+  Proc.user = function(_name: string): Proc.User | nil, string
+    return { uid = 65532, gid = 65532 }, ""
+  end
   sys.mkdtemp = function(template: string): string | nil, string, integer
     local path, why, errno = mkdtemp(template)
     if template:find("cosmic-local-runtime", 1, true) then scratch = path or "" end
@@ -354,7 +365,9 @@ local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: st
   local outer <close> = assert(Child.guard())
   local user, run = Proc.user, Child.run
   local scratch = ""
-  Proc.user = function(_name: string): Proc.User | nil, string return { uid = 65532, gid = 65532 }, "" end
+  Proc.user = function(_name: string): Proc.User | nil, string
+    return { uid = 65532, gid = 65532 }, ""
+  end
   Child.run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
     if not options or not options.credentials then return run(words, options) end
     scratch = Fs.dirname(words[1])

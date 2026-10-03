@@ -467,7 +467,9 @@ local function test_in_a_run_a_server_serves_connections_at_once(tmp: string)
       end
     end)
     local clients: {Net.Conn} = {}
-    for i = 1, 3 do clients[i] = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) })) end
+    for i = 1, 3 do
+      clients[i] = assert(Net.connect(server.address, { timeout_ns = Time.seconds(5) }))
+    end
     for i = 3, 1, -1 do
       assert(clients[i]:write("c" .. i .. "\n"))
       answered[#answered + 1] = assert(Stream.lines(clients[i]):read())

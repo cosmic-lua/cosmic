@@ -980,7 +980,11 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   if head.continue and not continued and body.state == "open" then
     local given = reply.body
     local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
-    if given ~= nil and not given is string and sends_body and not close then go_on() else close = true end
+    if given ~= nil and not given is string and sends_body and not close then
+      go_on()
+    else
+      close = true
+    end
   end
   replied = true
   conn:set_timeout(s.timeout_ns)

@@ -56,7 +56,9 @@ local function report(text: string, request: CacheTrim.Request): Report | nil, s
   if value == nil then return nil, why end
   if value.version ~= 1 then return nil, "unsupported cache report version" end
   if #value.files ~= #paths then return nil, "cache report names another file set" end
-  if #value.warnings > 0 then return nil, "cache report says maintenance was incomplete: " .. table.concat(value.warnings, "; ") end
+  if #value.warnings > 0 then
+    return nil, "cache report says maintenance was incomplete: " .. table.concat(value.warnings, "; ")
+  end
   local present = false
   for i, file in ipairs(value.files) do
     if file.path ~= paths[i] then return nil, "cache report names another file set" end
@@ -66,11 +68,15 @@ local function report(text: string, request: CacheTrim.Request): Report | nil, s
       if n < 0 then return nil, "cache report has a negative count" end
     end
   end
-  if value.digest ~= nil and not present then return nil, "cache report digests no existing file" end
+  if value.digest ~= nil and not present then
+    return nil, "cache report digests no existing file"
+  end
   if value.fresh ~= nil and (value.digest == nil or request.family ~= "compiles" or request.restored == nil) then
     return nil, "cache report has an unexpected fresh count"
   end
-  if value.fresh ~= nil and value.fresh < 0 then return nil, "cache report has a negative fresh count" end
+  if value.fresh ~= nil and value.fresh < 0 then
+    return nil, "cache report has a negative fresh count"
+  end
   if value.digest ~= nil and (#value.digest ~= 64 or not value.digest:match("^[0-9a-f]+$")) then
     return nil, "cache report has an invalid digest"
   end
@@ -87,8 +93,11 @@ local function spelling(path: string): string | nil, string
   if parent == nil then return nil, parent_trouble end
   local parts: {string} = {}
   for part in (parent .. "/" .. Fs.basename(path)):gmatch("[^/]+") do
-    if part == ".." then table.remove(parts)
-    elseif part ~= "." then parts[#parts + 1] = part end
+    if part == ".." then
+      table.remove(parts)
+    elseif part ~= "." then
+      parts[#parts + 1] = part
+    end
   end
   return "/" .. table.concat(parts, "/"), ""
 end
@@ -122,7 +131,8 @@ local function remove_snapshot(path: string): string
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
     local name = path .. suffix
     local exists, trouble = Fs.exists(name)
-    if exists == nil then failures[#failures + 1] = name .. ": " .. trouble
+    if exists == nil then
+      failures[#failures + 1] = name .. ": " .. trouble
     elseif exists then
       local ok, why = Fs.remove(name)
       if not ok then failures[#failures + 1] = name .. ": " .. why end
@@ -145,7 +155,8 @@ local function invoke(request: CacheTrim.Request): Report | nil, string
   for i, word in ipairs(start.argv) do argv[i] = word end
   for _, word in ipairs({ "cache", "trim", request.family }) do argv[#argv + 1] = word end
   for _, path in ipairs(request.paths) do argv[#argv + 1] = path end
-  if request.whole then argv[#argv + 1] = "--whole"
+  if request.whole then
+    argv[#argv + 1] = "--whole"
   else
     argv[#argv + 1] = "--since-ns"
     argv[#argv + 1] = tostring(request.since_ns)
@@ -189,7 +200,10 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
   end
   if request.restored ~= nil then
     local why = remove_snapshot(request.restored)
-    if why ~= "" then value = nil; trouble = trouble .. "\n" .. why end
+    if why ~= "" then
+      value = nil
+      trouble = trouble .. "\n" .. why
+    end
   end
   if guard:cancelled() ~= 0 then return "", verb .. ": maintenance cancelled\n" end
   if value == nil then return "", trouble == "" and "" or verb .. ": " .. trouble .. "\n" end
@@ -206,10 +220,14 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
       lines[#lines + 1] = verb .. ": removed set aside files: " .. table.concat(file.removed_set_aside, ", ") .. "\n"
     end
     for _, names in ipairs({ file.unknown_tables, file.unstamped_tables }) do
-      if #names > 0 then trouble = trouble .. verb .. ": " .. file.path .. ": kept tables: " .. table.concat(names, ", ") .. "\n" end
+      if #names > 0 then
+        trouble = trouble .. verb .. ": " .. file.path .. ": kept tables: " .. table.concat(names, ", ") .. "\n"
+      end
     end
   end
-  for _, warning in ipairs(value.warnings) do trouble = trouble .. verb .. ": " .. warning .. "\n" end
+  for _, warning in ipairs(value.warnings) do
+    trouble = trouble .. verb .. ": " .. warning .. "\n"
+  end
   local values = ""
   if value.digest ~= nil then
     values = "digest=" .. value.digest .. "\n"

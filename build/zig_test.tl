@@ -423,7 +423,9 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
       }
       return fake as Sqlite.Handle, ""
     end
-    statuses[i] = Zig.with_lock(tmp .. "/" .. i, {}, function(_env: {string:string}): integer return 7 end)
+    statuses[i] = Zig.with_lock(tmp .. "/" .. i, {}, function(_env: {string:string}): integer
+      return 7
+    end)
     attempts[i], closures[i] = calls, closes
   end
   Sqlite.open, sys.flock_kind = real_open, real_kind

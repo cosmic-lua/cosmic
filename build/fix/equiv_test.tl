@@ -76,6 +76,16 @@ local function test_spacing_alone_is_not_a_difference()
   assert(kept, "spacing counted as a comment change: " .. difference)
 end
 
+--- A `;` that only parts two statements is no difference, since a line
+--- break can take its place; one that decides how a `(` after it reads
+--- is, in the tree itself.
+local function test_a_separating_semicolon_is_no_difference()
+  local same, _, difference = compare("f(); g()\n", "f()\ng()\n")
+  assert(same, "a separating ';' counted as a difference: " .. difference)
+  assert(not compare("local x = f; (g)()\n", "local x = f(g)()\n"),
+    "a ';' deciding a call was not noticed")
+end
+
 --- tl's parser output is not a tree: one table can sit at two places,
 --- as `local record Node is {Node}` in [`build/ast/node.tl`] produces. A
 --- comparison that stopped at a before-side table it had already

@@ -256,7 +256,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
       orphans = orphans + 1
       local superseded = #files[output] > 0
       for _, under in ipairs(files[output]) do
-        if not vouched_files[under] then superseded = false; break end
+        if not vouched_files[under] then
+          superseded = false
+          break
+        end
       end
       if superseded then removed[output] = true else orphans_kept = orphans_kept + 1 end
     end
@@ -296,9 +299,15 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
       if not removed[output] then
         local all = true
         for _, path in ipairs(list) do
-          if not gone[path] then all = false; break end
+          if not gone[path] then
+            all = false
+            break
+          end
         end
-        if all then removed[output] = true; moved = true end
+        if all then
+          removed[output] = true
+          moved = true
+        end
       end
     end
   end

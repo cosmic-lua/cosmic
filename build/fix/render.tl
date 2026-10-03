@@ -27,7 +27,10 @@
 --- five, and an operator at the end of a line stays there. Wrapping is
 --- a judgement about a whole line that no rule here can make, so it is
 --- left to the author. A line that continues a statement keeps its
---- column relative to that statement.
+--- column relative to that statement. The breaks [`build.fix`] does add
+--- -- a statement to a line, a block opened up -- are noted as the file
+--- is rendered, written into its source by [`build.fix.breaks`], and
+--- rendered again.
 ---
 --- One thing is added rather than decided or carried: where tl's parser
 --- inserted a `;` to settle which of two readings a `f()` followed by
@@ -42,6 +45,7 @@
 --- something.
 
 local ast = require("build.ast")
+local breaks = require("build.fix.breaks")
 local ctx_mod = require("build.fix.ctx")
 local emit = require("build.fix.emit")
 local stmt = require("build.fix.stmt")
@@ -50,12 +54,22 @@ local type compiler = require("build.compiler")
 
 local type Ctx = ctx_mod.Ctx
 
---- Write an already-parsed file back out.
+--- A rendered file, and the source with the line breaks it lacks
+--- written in ([`build.fix.breaks`]).
+local record Layout
+  text: string
+  --- `source` with a line break in front of each statement or closing
+  --- keyword that must start a line, or nil when none is due.
+  opened: string | nil
+end
+
+--- Write an already-parsed file back out, and say which line breaks
+--- it is still due.
 --- @param parsed ast.Parsed The AST and the token stream it came from
 --- @param source string The source that parse read
---- @return string|nil The rendered source, or nil when a construct is refused
+--- @return Layout|nil The rendered source and the breaks it lacks, or nil when a construct is refused
 --- @return string What was refused, on failure
-local function rendered(parsed: ast.Parsed, source: string): string | nil, string
+local function laid_out(parsed: ast.Parsed, source: string): Layout | nil, string
   local c: Ctx = {
     em = emit.new(source, parsed.tokens),
     source = source,
@@ -67,6 +81,11 @@ local function rendered(parsed: ast.Parsed, source: string): string | nil, strin
     memo = {},
     refused = {},
     block = stmt.block,
+    parted = {},
+    continues = {},
+    constructs = {},
+    ends = {},
+    owned = {},
   }
   local hashbang = parsed.node.hashbang
   if hashbang ~= nil then
@@ -87,7 +106,21 @@ local function rendered(parsed: ast.Parsed, source: string): string | nil, strin
     end
     return nil, "this renderer has no spelling for " .. table.concat(named, ", ")
   end
-  return emit.done(c.em)
+  local opened = breaks.broken(c)
+  return { text = emit.done(c.em), opened = opened ~= source and opened or nil }
+end
+
+--- Write an already-parsed file back out.
+--- @param parsed ast.Parsed The AST and the token stream it came from
+--- @param source string The source that parse read
+--- @return string|nil The rendered source, or nil when a construct is refused
+--- @return string What was refused, on failure
+local function rendered(parsed: ast.Parsed, source: string): string | nil, string
+  local layout, trouble = laid_out(parsed, source)
+  if layout == nil then
+    return nil, trouble
+  end
+  return layout.text
 end
 
 --- Parse `source` and write it back out.
@@ -106,11 +139,14 @@ local function render(built: compiler, source: string,
 end
 
 local record RenderModule
+  type Layout = Layout
+  laid_out: function(parsed: ast.Parsed, source: string): Layout | nil, string
   render: function(built: compiler, source: string, name: string): string | nil, string
   rendered: function(parsed: ast.Parsed, source: string): string | nil, string
 end
 
 local M: RenderModule = {
+  laid_out = laid_out,
   render = render,
   rendered = rendered,
 }

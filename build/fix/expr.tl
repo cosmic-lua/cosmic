@@ -202,8 +202,11 @@ local function literal_function(c: Ctx, n: Node)
   sig.returns(c, rets, args, body.y, body.x)
   c.margin = base
   c.block(c, body)
-  ctx_mod.lead_to(c, n.yend or body.y, n.xend or 1, base, " ")
+  local closing = n.yend or body.y
+  local inline = closing <= c.em.line
+  ctx_mod.lead_to(c, closing, n.xend or 1, base, " ")
   emit.put(c.em, "end")
+  ctx_mod.ended(c, n, inline)
   c.margin = outer
 end
 
