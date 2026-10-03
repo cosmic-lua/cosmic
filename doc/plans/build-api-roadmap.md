@@ -96,7 +96,9 @@ E1 #2624 merged corrected queue `4926dbe1`, tree `2e78c672`, at
 16:26:14 UTC after green branch `37135224719` and full queue `37135708678`.
 E2b is now PR #2631, head `2dc12e57`, tree `14ba1237`, based on that exact
 actual merge. Independent review and narrow integration checks are complete;
-native branch and queue gates remain. Three follow-up production PRs merged.
+branch `37136925817` passed every required job. Queue `a97110b3`, tree
+`0107330c`, run `37137232275`, is independently approved and running.
+Three follow-up production PRs merged.
 E4 will pin a verified published release containing all four changes,
 so standalone CI maintenance executes the corrected code, then audit reuse.
 
@@ -208,6 +210,17 @@ patch. Own boot and all 55 cache/harness/Zig integration tests passed,
 zero stood or skipped. No additional broad full-suite attempt was needed.
 Published #2631 uses this exact tree on the actual E1 merge; native CI
 and normal queue remain mandatory before auto-merge.
+
+E2b branch native logs establish the four new WAL cases executed: both ARM
+and Darwin restored the actual E1 verdict base, where those keys did not
+exist, and passed with no new-case skips. ARM ran791/stood2830; Darwin
+ran972/stood2649 with only three Linux-noexec skips. Queue `a97110b3`
+preserves the identical five-file patch over incoming #2630, whose older
+published driver pin and typed cache-seeding checks are compatible. E4
+must preserve that cleanup and advance from its pin to an actual published
+release containing all four follow-ups. Incoming compiler #2632 is separately
+queued afterwards; any final audit compares the same final source and pin,
+never artifact bytes across an intentional compiler change.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
