@@ -1,303 +1,256 @@
 # Sandbox: a default-deny policy, its command line and its primitives
 
-Status: draft for discussion, revision 2; not to merge. Revision 1 and
-its review are summarized at the end.
+Status: draft for discussion, revision 3; not to merge. Revisions 1 and
+2, their reviews and the decisions that followed are summarized at the
+end.
 
 ## Goal
 
 A simple, powerful command line and standard library that run a program
 held, with everything it starts, to nothing at all, and let the caller
 build up from there to what the program needs: the paths it reads,
-writes, runs and creates, the names it can see, the network it reaches,
-the processes it starts, the terminal it uses, the environment it sees,
-the resources it spends. What the host cannot enforce refuses the start,
-or, asked, is reported -- never silently dropped.
+writes, runs and creates, the hosts it reaches, the system calls it
+makes, the terminal it uses, the environment it sees, the resources it
+spends, and how far it is isolated from the rest of the host.
+
+One rule over all of it: a policy is met, or the program does not
+start. There is no strict mode and no best-effort mode; what the host
+cannot enforce refuses the start and names what is missing.
 
 Prior art: OpenBSD's pledge(2) and unveil(2); Cosmopolitan libc's port
-of both to Linux (seccomp-bpf, Landlock) and its `pledge` command;
-bubblewrap; landrun and landlock-rs (strict by default, a report of what
-was enforced); Deno's permission flags; systemd's sandboxing; macOS
+of both to Linux and its `pledge` command; bubblewrap; landrun and
+landlock-rs; Deno's permission flags; systemd's sandboxing; macOS
 Seatbelt; Anthropic's sandbox-runtime.
 
 ## Layers
 
 - **Public: one policy, `cosmic.sandbox`**, plain typed records and pure
-  functions over them. `Child.start(argv, { sandbox = policy })` runs a
-  child under it; `cosmic sandbox` is its command line. Later,
-  `Sandbox.restrict(policy)` holds the running process.
-- **Internal: the primitives.** The raw `spawn` sandbox in core/process.h
-  (namespaces, Landlock, the seccomp filter), unchanged in shape. The
-  policy compiles to it through new bindings beside the old ones. The
-  test harness stays on the primitives: it needs binds under another name
-  (/tree), a worker mapped to uid 65532, a noexec scratch, a closure store
-  handed by descriptor, and an exec-only hold of itself, which no policy
-  needs yet. Harness and policy share one conformance matrix.
-- [`Child.Sandbox`]'s public fields today (`unveil`, `offline`, `user`,
-  `group`, `noexec_scratch`) move off the public surface; the harness
-  reaches them through the raw table, as it already does for most.
+  functions over them; no builder. `Child.start(argv, { sandbox =
+  policy })` runs a child under it; `cosmic sandbox` is its command line.
+- **Internal: the primitives** -- namespaces, Landlock, the seccomp
+  filter -- through the raw `spawn` sandbox in core/process.h, which the
+  policy compiles to through new bindings beside the old ones.
+- **The test harness stays on the primitives.** It needs what no policy
+  needs yet (a tree bound at /tree, a worker mapped to uid 65532, a
+  noexec scratch, a store handed by descriptor). Harness and policy share
+  one conformance matrix. [`Child.Sandbox`]'s public fields move off the
+  public surface.
 
 ## The policy
 
 ```teal
 local policy: Sandbox.Policy = {
-  paths = { ["/usr"] = "rx", ["/etc/ssl"] = "r", ["."] = "rwc" },
-  show = { "/" },                      -- the default: every name visible
+  paths = { ["/usr"] = "rx", ["."] = "rwc", ["/run/user/1000/bus"] = "u" },
+  isolate = { "file", "proc", "net" },
   promises = { "proc", "tty" },
-  net = { connect = { 443 }, loopback = { "127.0.0.1" } },
-  unix = { "/run/user/1000/bus" },
-  env = { pass = { "PATH", "HOME" }, set = { LANG = "C.UTF-8" } },
+  net = { connect = { "github.com:443", "pypi.org:443" }, dns = true },
+  env = { PATH = true, LANG = "C.UTF-8" },  -- true passes, a string sets
   fds = { [3] = log_fd },
   tmp = true,
-  limits = { cpu_s = 60, memory_bytes = 2 << 30, procs = 64 },
+  limits = { cpu_s = 60, memory_bytes = 2 << 30 },
 }
 ```
 
-Nothing is granted that the policy does not name. The pure functions:
-
-- `Sandbox.validate(p)`: a reason for a policy that cannot be, or nil.
-- `Sandbox.merge(a, b)`: the union, for one sandbox built from a profile,
-  a file and flags. Two different values for one `env.set` name refuse.
-- `Sandbox.meet(a, b)` and `Sandbox.within(outer, inner)`: a sandbox
-  started inside another is held to both, and `within` says, before the
-  start, what of the inner one the outer already denies.
-- `Sandbox.check(p)`: what this host enforces of each section (below).
-- `Sandbox.encode(p)` and `Sandbox.digest(p)`: one canonical JSON, and
-  its hash, for a key.
-
-No builder: a policy is a value to print, diff, merge, hash and check,
-and the command line is already the way to build one up.
+Nothing is granted that the policy does not name. Functions:
+`Sandbox.decode`/`encode` (one canonical JSON, unknown keys refused),
+`Sandbox.merge` (a profile, a file, the flags), `Sandbox.check` (what
+this host can meet, from a probe). `meet`, `within` and `digest` wait on
+a caller: nested sandboxes, `restrict`, a key.
 
 ### paths
 
-OpenBSD unveil's letters, each a set of Landlock rights:
+Letters, each a set of rights:
 
 - `r`: read files, list directories.
 - `w`: write and truncate files.
-- `x`: execve. Only that: a granted, readable file can still be run by
-  a granted loader (`ld.so ./file`).
-- `c`: create and remove files, directories and special files; rename
-  and link between granted paths.
+- `x`: execve. Only that: a granted, readable file can still be run by a
+  granted loader.
+- `c`: create and remove; rename and link between granted paths.
+- `u`: connect to the unix socket at this path. A socket grant delegates
+  to the program whatever that service does for its callers -- a
+  session bus, an agent, a container daemon -- which is the point of
+  granting it.
 
-Each grant is opened once, with `O_NOFOLLOW`, at the start; that one
-descriptor makes the Landlock rule and, in a root of its own, the bind.
-A symlink is refused unless the grant says `follow`. A relative path is
-read from the working directory; in a policy file, from the file's own
-directory. A grant must exist: to let a program create `./out`, grant
-`.` the letter `c`, or create `out` first.
+Each grant resolves once, links included, at the start, by descriptor;
+that one resolution makes the Landlock rule, the bind under `isolate
+file` and the report. A grant whose target differs from its name is
+said at the start (`grant rwc: out -> /home/you`) and in the printed
+policy. A grant must exist.
 
-### show
+What is not granted cannot be opened, run, written, created or listed,
+on every host. Its metadata -- whether it exists, its size, times and
+owner, through `stat`, `access`, `readlink`, `chdir` -- is undefined
+unless `file` is isolated: Landlock cannot hold those calls, a root of
+the program's own can.
 
-The names the program can see. The default, `{ "/" }`, shows every name:
-a path not granted is there to `stat` and list, and refused to open
-(EACCES). Anything narrower builds the program a root of its own
-holding only what `show` and `paths` name, so the rest does not exist
-(ENOENT, as on OpenBSD) -- which needs user namespaces; where the host
-refuses them, a strict start refuses. `show = {}` shows the grants and
-nothing else.
+### isolate
+
+Isolation by effect, each a request a host meets or the start fails:
+
+- `file`: a root of the program's own, holding only what `paths` grant;
+  anything else does not exist (ENOENT). Linux: a mount namespace.
+  macOS: refused.
+- `proc`: a process space of its own: it sees and signals only what it
+  started, and gets a /proc of its own. Linux: a pid namespace.
+- `net`: a network of its own, a loopback and nothing else; the outside
+  only through the relay. Linux: a network namespace. Implied by any
+  `net` grant.
+
+Without `proc`, the program still never sees the host's processes: the
+host's /proc is never granted, and signals and abstract sockets are
+scoped to the sandbox (Landlock ABI 6). A host that can give neither
+that scoping nor `proc` and `net` isolation refuses every start.
 
 ### promises
 
-- `proc`: fork, and clone without namespace flags. Threads are not
-  `proc`: every program may make them.
-- `tty`: the program's terminal (below) is a pty it may drive: termios,
-  job control, window size. TIOCSTI and TIOCLINUX are never allowed.
-- `inet`: IPv4 and IPv6 TCP to any address. `net` narrows it.
-- `dns`: names resolved through a stub the supervisor serves inside the
-  sandbox's own network; no other datagrams.
-- `jit`: anonymous executable memory. File-backed executable mappings
-  -- what a dynamic loader makes -- are always allowed.
-- `fattr`, `chown`: change a file's mode, times, owner, which Landlock
-  does not gate.
+The system-call filter is an allow list: what the always-allowed basics
+and the granted promises do not cover is refused, and a call it does not
+know answers ENOSYS, so libc falls back.
+
+- Always allowed (OpenBSD's `stdio`): memory, time, signals to itself,
+  threads, the descriptors it was handed, read-only terminal queries,
+  file-backed executable mappings (a dynamic loader's).
+- `proc`: fork, and clone without namespace flags.
+- `tty`: drive its terminal (termios, job control, window size).
+- `jit`: anonymous executable memory.
+- `fattr`: change a file's mode, times, owner, extended attributes.
 - `id`: setuid and its kin.
 
-There is no `exec` promise: the filter is installed before the program's
-own exec, and exec is held by `x` on paths. OpenBSD's `rpath`, `wpath`
-and `cpath` are left out: `paths` gates both the call and the path.
+Never allowed: ptrace, process_vm_*, mounts, pivot_root, bpf,
+perf_event_open, kexec, modules, keyctl, io_uring, userfaultfd, setns,
+open_by_handle_at, pidfd_getfd, process_madvise, unshare and clone with
+namespace flags; sockets but unix and, inside `isolate net`, TCP to the
+relay; TIOCSTI and TIOCLINUX. `landlock_*` and `seccomp` stay allowed,
+so a program that sandboxes itself still can.
 
-Always allowed (OpenBSD's `stdio`): memory, time, signals to itself,
-threads, the descriptors it was handed, and read-only terminal queries
-(TCGETS, TIOCGWINSZ). Never allowed, whatever is promised:
-
-- ptrace, process_vm_*, mount and the new mount calls, pivot_root, bpf,
-  perf_event_open, kexec, kernel modules, keyctl, io_uring, userfaultfd,
-  setns, open_by_handle_at, pidfd_getfd, process_madvise (today's floor);
-- `unshare`, and `clone` with any CLONE_NEW* flag; `clone3` answers
-  ENOSYS, so libc falls back to `clone`, which the filter can read;
-- sockets but `AF_UNIX` (with `unix`) and TCP over `AF_INET`/`AF_INET6`
-  (with `inet` or `net`): no MPTCP, SCTP, ping, raw or packet sockets, no
-  TCP fast open;
-- `personality` outside the safe set, `memfd_create` with `MFD_EXEC`.
+Ported by hand from Cosmopolitan's pledge-linux.c (ISC) for x86_64 and
+aarch64, reviewed against each new kernel.
 
 ### net
 
-Nothing by default; no network but a loopback of the sandbox's own when
-anything below is asked. `loopback` names 127/8 addresses served inside
-it. `connect` and `bind` take TCP ports (Landlock ABI 4), to any host:
-the flag says so (`--connect-any-host`), since port 443 is every host's
-443, cloud metadata's included. UDP waits on Landlock's UDP rules (not
-merged as of June 2026). Per-host rules need a proxy -- the kernel knows
-ports, not hosts -- and wait on a caller.
+Only through the relay. Any network grant implies `isolate net`; the
+program's only way out is the supervisor's relay on its loopback: an
+HTTP CONNECT and SOCKS proxy, named in `HTTPS_PROXY`, `HTTP_PROXY` and
+`ALL_PROXY`, and a DNS stub named in the program's resolv.conf.
 
-### unix
+- `connect`: `host:port` the relay will open, by name or address; `*`
+  for any host.
+- `dns`: names resolved through the stub, answering A and AAAA only.
+  Every lookup leaves the sandbox: it is a channel out, said so.
 
-Each unix socket path the program may connect to. Landlock holds that
-from ABI 9; below it a strict start refuses `unix` unless `show` hides
-the rest. Abstract sockets and signals never reach outside the sandbox:
-Landlock ABI 6 scoping, or a network and a pid namespace; neither, and a
-strict start refuses.
+A program that ignores proxy variables reaches nothing; that is said,
+not worked around. The relay works alike on macOS.
 
 ### the terminal
 
-The program never holds the caller's terminal. Where stdin, stdout or
-stderr is one, the supervisor opens a pty for the program and relays
-it: bytes both ways, window size, and the signals the terminal would
-send. Without `tty` the program may only read and write it. The
-caller's terminal reads what the relay writes, so escape sequences that
-reach outside the session (OSC 52 clipboard writes, queries whose
-replies land in the caller's input) are dropped by the relay. When the
-program exits, everything it started is ended (pid namespace, or a
-subreaper and kill-all), so nothing stays to read later keystrokes.
+Only `cosmic sandbox` gives a program a terminal: a pty it relays. The
+relay passes text and an allow list of control sequences (colour,
+cursor movement, a few modes), drops OSC, DCS, APC, PM and SOS but a
+window title, answers terminal queries itself, forwards window size and
+signals, and on the program's exit restores the caller's terminal and
+flushes its pending input. The program always starts a session of its
+own. [`Child.start`] with a policy and a terminal on stdin, stdout or
+stderr refuses, naming the fix.
 
-### descriptors
+### descriptors, env, tmp, limits
 
-The program gets 0, 1 and 2 (relayed, for a terminal) and the
-descriptors `fds` names; every other is closed before it runs.
-
-### env
-
-Nothing by default. `pass` names variables passed on, `set` sets them.
-A name that runs code in what the program starts (`LD_PRELOAD`,
-`LD_AUDIT`, `BASH_ENV`, `PYTHONPATH`, `GIT_SSH_COMMAND` and the like) is
-refused unless marked deliberate.
-
-### tmp, limits
-
-`tmp`: a fresh `/tmp` of the program's own -- a tmpfs in a root of its
-own, or a scratch directory on the host, granted `rwc`, with `TMPDIR`
-naming it, `check` saying `/tmp` itself stays refused. `limits`: CPU
-seconds, memory, processes, descriptors, file size, as rlimits (per
-process, said so); the exit reports which one fired, and peak memory
-and CPU time.
+- **fds**: the program gets 0, 1, 2 and what `fds` names; everything
+  else is closed.
+- **env**: nothing by default; `true` passes a variable, a string sets
+  it.
+- **tmp**: a fresh `/tmp` of its own -- a tmpfs under `isolate file`, or
+  a scratch directory granted `rwc` with `TMPDIR` naming it.
+- **limits**: rlimits, per process, said so (`RLIMIT_NPROC` counts the
+  user's processes, `RLIMIT_AS` breaks programs that reserve address
+  space); a wall-clock limit; the exit says which fired, with peak
+  memory and CPU time.
 
 ### the program
 
-Found on the caller's PATH, resolved once, its file granted `rx` and run
-by descriptor. Before the start the sandbox reads its ELF interpreter
-and libraries, or its `#!` line, and refuses naming whatever of them the
-policy does not grant. A working directory not granted refuses the
-start rather than running at `/`.
+Found on the caller's PATH, resolved to its real path once, granted
+`rx`, run by that path. Before the start its ELF interpreter, or its
+`#!` line, is read in a confined helper, and a missing grant is named in
+the refusal; libraries are a hint, not a check.
 
-## Enforcement
+## Policy files
 
-- **One errno.** Every denial the sandbox makes answers EACCES -- what
-  Landlock answers, and what the filter answers too -- but ENOENT for a
-  name `show` hides, and ENOSYS for a call libc is meant to fall back
-  from. (Open: a socket family refused may answer EAFNOSUPPORT, which
-  programs read as "try another family".)
-- **Strict by default.** A denial the host cannot enforce refuses the
-  start, naming it. `--best-effort` accepts less, but never drops
-  `no_new_privs`, the floor, the scoping of signals and abstract
-  sockets, or a denied network; what it drops is in [`Child.start`]'s
-  result, not only on stderr, and a policy file cannot ask for it.
-- **`Sandbox.check`** reports each section -- paths, show, net, unix,
-  promises, terminal -- `full`, `degraded` or `none`, with why, from a
-  throwaway start that applies every layer and tries one denied
-  operation in each: never from an ABI number, which hosts misreport
-  (Ubuntu 24.04 grants a user namespace and then refuses its mounts). A
-  Landlock newer than this code knows makes paths `degraded`, naming the
-  rights it cannot hold.
-- **Denials explained.** Phase 2: `cosmic sandbox` takes refused calls
-  through seccomp's user notification, deny-only, and prints them in its
-  own flags' words, once each, with a summary at exit (`rerun with:
-  --tls --dns --connect-any-host 443`). A refused path or port is
-  Landlock's and invisible there; `--explain` says so rather than guess.
-  Where a listener is already held (a sandbox in a sandbox), it falls
-  back to nothing, said.
+JSON, unknown keys refused, paths relative to the file. A file can only
+narrow what the command line grants, never add to it: a cloned project's
+policy cannot reach outside what its user typed.
+
+## Errors
+
+Each denial answers what its mechanism answers, documented per kind:
+EACCES for a path Landlock refuses, EXDEV for a refused rename across
+grants, ENOENT for a name `isolate file` hides, EACCES for a call the
+filter refuses, ENOSYS for a call it does not know. A refused start
+exits 125 and is reported on a descriptor of the supervisor's, so the
+program's own 125 is never taken for one.
 
 ## The command line
 
 ```
 cosmic sandbox [options] [--] program [args...]
-  --read PATH         grant r          --run PATH       grant rx
-  --write PATH        grant rwc        --grant LETTERS:PATH
-  --show PATH         show a name (repeat; --show none for grants only)
-  --promise NAME      proc, tty, inet, dns, jit, fattr, chown, id
-  --connect-any-host PORT   --bind PORT   --loopback ADDR
-  --unix PATH         --fd N          --env NAME[=VALUE]
-  --tmp               --limit cpu=60,memory=2G,procs=64
-  --system            the system's programs, libraries and configuration
-  --policy FILE       --print-policy   --check   --best-effort
+  --read PATH  --run PATH  --write PATH (rwc)  --grant LETTERS:PATH
+  --isolate file|proc|net
+  --promise NAME            proc, tty, jit, fattr, id
+  --connect HOST:PORT       --dns
+  --env NAME[=VALUE]        --fd N     --tmp     --limit k=v,...
+  --system                  the system's programs, libraries, configuration
+  --policy FILE             narrows; repeatable
+  --print-policy  --check
 ```
 
 ```
 cosmic sandbox --system --read . -- ls -l
-cosmic sandbox --system --tls --promise dns --write out --connect-any-host 443 \
-  -- curl -o out/page https://example.com
-cosmic sandbox --policy build.json --tmp --show none -- make
+cosmic sandbox --system --tls --write y --dns --connect github.com:443 \
+  -- git clone https://github.com/x/y y
+cosmic sandbox --system --write . --tmp --promise proc --isolate file -- make
 ```
 
-`--system` grants, read-only and runnable, exactly the paths it lists in
-`cosmic help sandbox` (/usr, /lib*, /bin, the loader's configuration, the
-locale), and passes PATH, LANG and TERM. Policy files are JSON, unknown
-keys refused. `--print-policy` writes the merged policy, so a command
-line becomes a file. Exit: the program's status (128+n for a signal);
-125 when the sandbox refused, 126 when the program could not start in
-it, 127 when it was not found.
-
-## Seccomp
-
-Phase 1 extends today's deny-list filter: the floor above, socket types,
-ioctl numbers (compared on their low 32 bits), errno. Phase 2 makes it an
-allow list driven by the promises, hand-ported from Cosmopolitan's
-pledge-linux.c (ISC, about 2,400 lines; not vendorable as is), new calls
-answering ENOSYS so libc falls back.
+Profiles (`--system`, `--tls`, more as callers need them) are policies
+shipped in the binary, listing exactly what they grant in `cosmic help
+sandbox`.
 
 ## macOS
 
-The same policy compiles to a Seatbelt profile, applied by a trampoline
--- cosmic relaunched, calling `sandbox_init`, then `execve` -- since
-`posix_spawn` has no hook. `show` narrower than `/` and per-port rules
-are refused there.
-
-## Where this departs from doc/design.md
-
-Default-deny is the contract; the policy has promises, the environment
-and descriptors; strict by default. Kept from it: grading from checks
-that ran, one errno, the conformance matrix.
+The same policy compiles to a Seatbelt profile applied by a trampoline
+(cosmic relaunched, `sandbox_init`, `execve`), paths escaped or passed
+as parameters. `isolate file` is refused; `proc` maps to Seatbelt's
+process rules; the relay works as on Linux.
 
 ## Phases
 
-1. The policy, its functions, `check`, the command line, and Linux
-   enforcement: per-path Landlock rights opened once with `O_NOFOLLOW`,
-   `show` through namespaces, TCP ports, loopback, unix paths (ABI 9 or
-   hidden), the extended floor, one errno, the pty relay, descriptors,
-   env, tmp, limits, the program's preflight. Strict by default.
-2. Promises as a seccomp allow list; denials explained.
-3. Seatbelt.
-4. `Sandbox.restrict`; an egress proxy for per-host rules; `--learn`, a
-   plainly unconfined run that writes the policy it would have needed.
+1. Policy, functions, command line; the allow-list filter; paths with
+   one resolution; `isolate`; the relay (proxy and DNS stub); the pty
+   relay; descriptors, env, tmp, limits; the program's preflight.
+   Split, in order: the filter; grants and `isolate`; the policy and the
+   verb; the relay; the pty relay.
+2. Seatbelt.
+3. `Sandbox.restrict`, nested sandboxes (`meet`, `within`), `--learn`.
 
-## Revision 1's review, in brief
+## History
 
-Four reviews (security, usability, alternatives, feasibility) of
-revision 1 changed: grants opened once without following links (they
-were followed); `unix` scoped to paths (it reached docker.sock below
-ABI 9); the floor refusing namespaces, `clone3` and every socket but
-TCP and unix; abstract-socket scoping (a pid namespace does not scope
-it); `check` from a probe, not an ABI; `--best-effort` never dropping
-the floor; no `exec` promise; `jit` anonymous only; UDP unconfirmed;
-descriptors closed; hiding made a request (`show`); composition
-(`meet`, `within`); loopback; long flags; JSON policy files; the
-program's preflight; no builder; the harness kept on the primitives.
+- **Revision 1** proposed the policy and the layering. Its review found
+  grants that followed links, unix sockets reaching docker.sock, a thin
+  seccomp floor, a wrong claim about abstract sockets, terminal leaks
+  and an ABI-based `check`.
+- **Revision 2** fixed those and added `show`. Its review found
+  promises unenforced in phase 1, DNS and outbound connections unable to
+  coexist, policy files as attacker input, relay escape-sequence gaps,
+  about fourteen concepts where eight would do, and a phase 1 too large.
+- **Decisions since**: `show` split into access, listing, metadata and
+  processes, with metadata undefined unless `file` is isolated;
+  isolation by effect; no strict mode; network through the relay only;
+  an allow-list filter from the start; grants resolved and reported;
+  policy files narrow only; the pty relay in the command line alone;
+  unix sockets a path letter, with no list of "escape" sockets.
 
 ## Open questions
 
-- Errno for a refused socket family: EACCES, or EAFNOSUPPORT.
-- Escape filtering in the relay: a deny list of sequences, or a
-  stricter allow list.
-- Whether `x` should also refuse running a granted file through a
-  granted loader (noexec mounts in a root of its own; nothing under
-  Landlock alone).
+- Profiles beyond `--system` and `--tls`, and exactly what each grants.
+- Limits beyond rlimits (cgroups where delegated).
+- Whether `--learn` belongs at all.
 
 [`Child.Sandbox`]: ../../cosmic/child.tl
 [`Child.start`]: ../../cosmic/child.tl
