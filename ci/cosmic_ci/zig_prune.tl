@@ -87,6 +87,9 @@ end
 --- SipHash128-1-3 of `message` under the 16-byte `k`: zig's
 --- `crypto.auth.siphash.SipHash128(1, 3)`, 16 raw bytes.
 function ZigPrune.siphash128(k: string, message: string): string
+  -- TODO: answer [`Hash.siphash`]'s SipHash128-1-3 (compression 1,
+  -- finalization 3, size 16) rather than hashing in Lua, once
+  -- ci/cosmic-driver.pin names a release that carries it.
   local k0, k1 = string.unpack("<i8<i8", k)
   local v0 = k0 ~ 0x736f6d6570736575
   local v1 = k1 ~ 0x646f72616e646f6d
