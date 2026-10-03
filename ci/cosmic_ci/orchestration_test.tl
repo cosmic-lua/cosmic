@@ -438,6 +438,54 @@ local function test_an_unsandboxed_fixture_neither_reads_nor_writes_shared_verdi
   assert(fixture.COSMIC_FIXTURE_SOURCE == tmp .. "/source")
 end
 
+--- The self-rebuild fixture's seed is a copy of the leg's compiles,
+--- where COSMIC_BUILD_CACHE names them or, unnamed, in the cache
+--- directory, rows still in the WAL among them; a leg that keeps none
+--- (`0`, or no file) is refused rather than seeded with nothing, and a
+--- seed already there is never written over.
+local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local function cache_at(path: string): Sqlite.Handle
+    assert(Fs.mkdirs(Fs.dirname(path)))
+    local db = assert(Sqlite.open(path, { writable = true }))
+    assert(db:exec("PRAGMA journal_mode = WAL"))
+    assert(db:exec("CREATE TABLE compiles (key TEXT); INSERT INTO compiles VALUES ('" ..
+      path .. "')"))
+    return db
+  end
+  local function seeded_from(path: string): string
+    local db = assert(Sqlite.open(path))
+    local rows = assert(Sqlite.text_rows(db, "SELECT key FROM compiles"))
+    assert(db:close())
+    assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
+    return rows[1][1]
+  end
+
+  local named = tmp .. "/named/cache.db"
+  -- Left open while it is copied, so its row is in the WAL alone.
+  local named_db = cache_at(named)
+  assert(Fs.exists(named .. "-wal"), "the cache's row is not in its WAL")
+  assert(Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named }, tmp .. "/one.db"))
+  assert(seeded_from(tmp .. "/one.db") == named)
+  local again, again_trouble = Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named },
+    tmp .. "/one.db")
+  assert(not again and again_trouble:find("already exists", 1, true), again_trouble)
+  assert(named_db:close())
+
+  local default = tmp .. "/xdg/cosmic/build/cache.db"
+  assert(cache_at(default):close())
+  assert(Orchestration.seed_compiles({ XDG_CACHE_HOME = tmp .. "/xdg" }, tmp .. "/two.db"))
+  assert(seeded_from(tmp .. "/two.db") == default)
+
+  local off, off_trouble = Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = "0" },
+    tmp .. "/three.db")
+  assert(not off and off_trouble:find("COSMIC_BUILD_CACHE=0", 1, true), off_trouble)
+  local missing, missing_trouble = Orchestration.seed_compiles(
+    { COSMIC_BUILD_CACHE = tmp .. "/missing.db" }, tmp .. "/four.db")
+  assert(not missing and missing_trouble:find(tmp .. "/missing.db", 1, true), missing_trouble)
+  assert(not Fs.exists(tmp .. "/three.db") and not Fs.exists(tmp .. "/four.db"))
+end
+
 --- A fixture of `sandboxed_fixtures` runs as the leg's suites do: its
 --- workers sandboxed where the leg's are, and its verdicts kept in
 --- `fixtures.db` beside the leg's `verdicts.db`, which it stands on

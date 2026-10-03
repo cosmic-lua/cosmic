@@ -16,12 +16,35 @@ Test.needs{ env = { "*" } }
 local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
--- A call that finds the tool stale rebuilds it from the tree first: a
--- whole cold compile, about 20 s on a runner while the file's other
--- rebuilds run beside it, and past fixture.tl's 30 s default for a child
--- on a loaded one. The driver bounds each test here at 120 s
--- (orchestration.tl), which this leaves room inside.
+-- A call that finds the tool stale rebuilds it from the tree first. Every
+-- case but the docs verb's takes back the compiles the leg's boot made of
+-- the tree ([`seeded_compiles`]), so it compiles only what it edited: what
+-- they check is the rebuild's way through the lock, the artifact and the
+-- re-entry, which a compile of every module only slows. The docs verb's
+-- compiles the whole tree cold, as the product rebuilding itself on a
+-- fresh checkout does: 50 to 60 s of one core on a runner, 60 s here on
+-- four. Five of them at once, as every case once did, took 86 to 90 s
+-- each on a four-core runner, and ran past this bound. The driver bounds
+-- each test here at 120 s (orchestration.tl), which this leaves room
+-- inside.
 local rebuild_timeout_ns <const> = Time.seconds(90)
+
+-- The compiles a rebuild case takes back (COSMIC_BUILD_CACHE): a copy of
+-- the leg's (COSMIC_FIXTURE_COMPILES, orchestration.tl's
+-- `seed_compiles`) of its own, so one case's rows never stand in
+-- another's.
+local function seeded_compiles(case_root: string): string
+  local path = case_root .. "/compiles.db"
+  Fixture.copy(Fixture.required("COSMIC_FIXTURE_COMPILES"), path, 0x180)
+  return path
+end
+
+-- A rebuild that could not use its compiles says so and compiles them all,
+-- slowly but successfully: fails `label` on that rather than on a timeout.
+local function took_compiles(label: string, err: string)
+  assert(not err:find("build: shared compiles:", 1, true),
+    label .. ": the rebuild could not take back its compiles; it said:\n" .. err)
+end
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
 -- which must itself be exactly `length` bytes. A length mismatch on either
@@ -185,6 +208,7 @@ local function run_rebuild_case(fixture_dir: string,
 
   supervised(function(active: {Running})
     local values = Fixture.environment({
+      COSMIC_BUILD_CACHE = seeded_compiles(case_root),
       COSMIC_PORTABLE_CACHE = cache,
       COSMIC_PORTABLE_STARTUP_TEST_READY = ready,
       COSMIC_PORTABLE_STARTUP_TEST_GO = go,
@@ -222,6 +246,7 @@ local function run_rebuild_case(fixture_dir: string,
       "test: PASS %([^;]+; [1-9][0-9]* ran, 0 stood"),
       action .. ": self-rebuild output did not match the expected pattern")
     local err = Fixture.read(child.err)
+    took_compiles(action, err)
     local stale_lines = count_occurrences(err,
       "the tool is stale; rebuilding it from the tree")
     assert(stale_lines == 1, action .. ": self-rebuild reported " ..
@@ -361,7 +386,8 @@ end
 -- promise that a tool older than the tree rebuilds itself depends on for
 -- a verb other than `test`. A first call against an edited tree rebuilds
 -- once and shows the edit; a second, now-fresh call shows it again without
--- rebuilding again.
+-- rebuilding again. It alone takes back no compiles, so the product
+-- compiles every module of the tree itself.
 local function test_self_rebuild_docs_verb(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-docs"
@@ -416,7 +442,8 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
 
-  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
+    COSMIC_BUILD_CACHE = seeded_compiles(case_root) })
   supervised(function(active: {Running})
     for n = 1, 3 do
       active[#active + 1] = start("concurrent-" .. tostring(n),
@@ -428,6 +455,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
       local err = Fixture.read(child.err)
       assert(result.ok, child.label .. ": exit status " ..
         tostring(result.code) .. ", want 0; it said:\n" .. err)
+      took_compiles(child.label, err)
       Fixture.contains(child.out, "step8-docs-marker")
       -- Started together, before any rebuild could land, each run meets
       -- the tool stale: it rebuilds, waits for the run that does (or for
@@ -512,13 +540,15 @@ local function test_self_rebuild_fix_verb(tmp: string)
   local before_hash = Fixture.hash(program)
   apply_fix_marker_edit(tree)
 
-  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
+    COSMIC_BUILD_CACHE = seeded_compiles(case_root) })
   local outcome = Fixture.call_with_environment("fix-rebuild",
     { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values,
     rebuild_timeout_ns)
   assert(outcome.result.code == 0, "fix: exit status was " ..
     tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-fix-marker")
+  took_compiles("fix", Fixture.read(outcome.err))
   local stale_lines = count_occurrences(Fixture.read(outcome.err),
     "the tool is stale; rebuilding it from the tree")
   assert(stale_lines == 1, "fix: reported " .. tostring(stale_lines) ..

@@ -7,6 +7,7 @@ local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local Archive = require("cosmic.archive")
+local Sqlite = require("cosmic.sqlite")
 local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
@@ -430,8 +431,10 @@ local format_test_timeout_ns <const> = Time.seconds(300)
 local launcher_test_timeout_ns <const> = Time.seconds(60)
 local launcher_noexec_test_timeout_ns <const> = Time.seconds(60)
 local self_rebuild_test_timeout_ns <const> = Time.seconds(180)
--- Each self-rebuild test rebuilds the tool (about 20 s, several at once),
--- past the runner's default 30 s per test on a loaded machine.
+-- A self-rebuild test rebuilds the tool: the docs verb's from a cold
+-- compile of the whole tree, 50 to 60 s of one core on a runner, past the
+-- runner's default 30 s per test; the rest from the leg's compiles
+-- ([`seed_compiles`]), in seconds.
 local self_rebuild_per_test_timeout_s <const> = "120"
 -- Each fixed-point test rebuilds the product twice from a fresh tree, and
 -- the compiler's cases -- the compiler's own, its identity redefined, and
@@ -585,7 +588,8 @@ end
 --- to the next, nor the boot's work taken back. A child a fixture starts
 --- takes none ([`Fixture.environment`]): what a fresh tree compiles, and
 --- what the tool built from it compiles again (fixed_point_test,
---- self_rebuild_test), it must compile and parse.
+--- self_rebuild_test's docs verb), it must compile and parse. The other
+--- self-rebuild cases take a copy of the leg's ([`seed_compiles`]).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
     compiles: string, verdicts?: string): {string:string}
   env.TMPDIR = tmpdir
@@ -1314,6 +1318,39 @@ local function fixture_source(p: PlatformContext, destination: string): integer
   end)
 end
 
+--- Copies the leg's compiles and parses -- `env`'s COSMIC_BUILD_CACHE, or
+--- the default file build/shared_compiles.tl names where it names none --
+--- to `destination`, which must not exist: the self-rebuild fixture's
+--- seed (COSMIC_FIXTURE_COMPILES). The leg's boot compiled the candidate
+--- into that file, so a tool it built rebuilding itself from the
+--- candidate's tree takes back every module it has not edited. A copy,
+--- taken through SQLite since the file is in WAL mode, so the rows the
+--- fixture's rebuilds write are never saved with the leg's. False and
+--- why when the leg keeps no such file.
+function Orchestration.seed_compiles(env: {string:string},
+    destination: string): boolean, string
+  local source = env.COSMIC_BUILD_CACHE or ""
+  if source == "0" then
+    return false, "COSMIC_BUILD_CACHE=0: the leg keeps no compiles to seed " ..
+      "the self-rebuild fixture with"
+  end
+  if source == "" then
+    local dir, trouble = Fs.cache_dir("build", { environment = env, make = false })
+    if dir == nil then return false, trouble end
+    source = dir .. "/cache.db"
+  end
+  if Fs.exists(destination) then
+    return false, destination .. ": already exists"
+  end
+  local db, open_trouble = Sqlite.open(source)
+  if db == nil then return false, source .. ": " .. open_trouble end
+  local quoted = (destination:gsub("'", "''"))
+  local copied, copy_trouble = db:exec("VACUUM INTO '" .. quoted .. "'")
+  local _, _ = db:close()
+  if not copied then return false, source .. ": " .. copy_trouble end
+  return true, ""
+end
+
 local function phase_fixtures(p: PlatformContext): integer
   local c = p.operation
   local target = p.target
@@ -1333,10 +1370,16 @@ local function phase_fixtures(p: PlatformContext): integer
     Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
       "(COSMIC_CI_SELF_REBUILD=skip)\n")
   else
+    local compiles = work .. "/self-rebuild-compiles.db"
+    s = step(c, "self-rebuild compiles seed", function(): boolean, string
+      if Fs.exists(compiles) then assert(Fs.remove(compiles)) end
+      return Orchestration.seed_compiles(Env.all(), compiles)
+    end); if s ~= 0 then return s end
     s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
       self_rebuild_test_timeout_ns, {
       COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_RUNTIME = runtime,
+      COSMIC_FIXTURE_COMPILES = compiles,
       COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
     }); if s ~= 0 then return s end
   end
