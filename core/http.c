@@ -4,7 +4,7 @@
 #define _DARWIN_C_SOURCE
 
 /* An HTTP/HTTPS client over curl easy handles, all driven by one curl
- * multi handle per process -- see cosmic/http.tl for the typed API this
+ * multi handle per process -- see cosmic/http/init.tl for the typed API this
  * backs and the doc comment there for the shape callers see. Sharing
  * the multi handle shares its connection pool, DNS cache and TLS
  * session cache, so a second request to the same host reuses the first

@@ -183,6 +183,14 @@ promises lean on come first:
   following a `Location` or a crawler needs and [`Url.parse`] refuses;
   and an IPv6 host with a zone (`[fe80::1%25eth0]`, RFC 6874), which
   [`Url.parse`] refuses.
+- [`Http.serve`] past HTTP/1.1 over plain sockets, each once a caller
+  needs it: TLS, for a server reached past the loopback (a certificate
+  and key handed to the listener, over the TLS stack curl already
+  carries); HTTP/2; a reply compressed for an `Accept-Encoding` the
+  client sent, the server choosing the coding and writing `Vary`;
+  routing, a table of methods and path patterns to handlers in place
+  of one handler's `if`s; and static files, a directory served by
+  [`Url.segments`] with types, ranges and conditional requests.
 - an `Archive.add_tree(writer, dir, opts?)` that walks a directory into an
   [`Archive.create`] writer, once a caller needs one. `cosmic archive
   create` ([`build/archive.tl`]) is the only walk today, and it gathers and
@@ -303,7 +311,7 @@ four-producer provenance join.
 [`Child.end_strays`]: ../cosmic/child.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
-[`cosmic.http`]: ../cosmic/http.tl
+[`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.test`]: ../cosmic/test.tl
@@ -311,6 +319,7 @@ four-producer provenance join.
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
+[`Http.serve`]: ../cosmic/http/init.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`receivers.record_named`]: ../build/receivers.tl
@@ -322,4 +331,5 @@ four-producer provenance join.
 [`Typed.spec`]: ../cosmic/shape.tl
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
+[`Url.segments`]: ../cosmic/url.tl
 [`Url.unescape`]: ../cosmic/url.tl
