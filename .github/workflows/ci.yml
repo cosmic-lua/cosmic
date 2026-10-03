@@ -301,6 +301,14 @@
         # (22 MB, in the project cache, beside its configuration under
         # `c/`); a step listing what the build wrote under zig-build
         # (find -newer a stamp made after the restore) would say.
+        # TODO: an entry restored here recompiles every C file the build
+        # compiles (a boot of 100 s locally, where zig 0.16 took 8 s):
+        # zig's std/Build/Cache.zig `checkInputPath` compares a direct
+        # input whose stat moved, re-hashed, against a digest nothing
+        # computed rather than the one its manifest holds, so the new
+        # inode a restore gives each vendored source is a miss. Nothing
+        # here can keep the inodes; drop this once zig compares against
+        # the manifest's digest (unreported upstream as of 0.17.0).
         {
           name: "name the zig build cache, and the run's start",
           id: "names",
