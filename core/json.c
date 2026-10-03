@@ -159,15 +159,101 @@ struct decoding {
   /* Whether a number no Lua number holds exactly as an integer, or at
    * all, decodes as its text rather than the nearest float. */
   int big_as_string;
+  /* Whether an object may hold a key twice, the last member standing. */
+  bool duplicate_keys;
+  /* Where the value decode refuses is, once it refuses one, and, for a
+   * key twice, the second. */
+  struct path path;
+  yyjson_val *repeated;
 };
 
-/* Pushes `val` as a Lua value. A `null` without a stand-in pushes nil,
- * which leaves a hole in an array and, set into an object, leaves the
- * key out -- after an earlier member of the key too, which
- * `duplicate_keys` lets through: the last value of a key stands. It
- * recurses once per level, so `val` must nest no deeper than
- * [`first_problem`] allows. */
-static void push_value (struct decoding *d, yyjson_val *val) {
+/* What makes a document that read cleanly one decode refuses. */
+enum problem { NO_PROBLEM, REPEATED_KEY, TOO_DEEP };
+
+/* What a member read as `null` holds while its object is built, when
+ * `null` decodes to nil and keys are checked: a nil would leave the key
+ * out, and a key twice after it unseen. */
+static const char null_member = 0;
+
+/* The most members an object may have for its keys to be compared
+ * pair by pair, and through a set of them on the C stack, twice as many
+ * slots as members. A larger object's keys are looked up in the table
+ * as they go in: Lua's string hash is seeded, where the set's is not, so
+ * keys chosen to collide make only a small set's search slow. */
+#define FEW_MEMBERS 8
+#define SET_MEMBERS 64
+
+/* FNV-1a over a key's bytes, for the set of an object's keys below. */
+static uint32_t key_hash (const char *s, size_t n) {
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < n; i++) {
+    h = (h ^ (unsigned char)s[i]) * 16777619u;
+  }
+  return h;
+}
+
+/* The index of the first member of `obj`, of SET_MEMBERS at most, whose
+ * key an earlier member has, or its size when none does, found through
+ * a set of its keys. Never inlined: the set would sit in each frame of
+ * the recursive walk that calls it, a kilobyte a level. */
+__attribute__((noinline)) static size_t repeated_in_set (yyjson_val *obj) {
+  size_t count = yyjson_obj_size(obj);
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_val *set[2 * SET_MEMBERS];
+  size_t slots = 4;
+  while (slots < 2 * count) slots *= 2;
+  memset(set, 0, slots * sizeof *set);
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    const char *s = yyjson_get_str(key);
+    size_t n = yyjson_get_len(key);
+    size_t at = key_hash(s, n) & (slots - 1);
+    while (set[at] != NULL) {
+      if (yyjson_get_len(set[at]) == n &&
+          memcmp(yyjson_get_str(set[at]), s, n) == 0) {
+        return idx;
+      }
+      at = (at + 1) & (slots - 1);
+    }
+    set[at] = key;
+  }
+  return count;
+}
+
+/* The index of the first member of `obj`, of SET_MEMBERS at most, whose
+ * key an earlier member has, or its size when none does. */
+static size_t repeated_member (yyjson_val *obj) {
+  size_t count = yyjson_obj_size(obj);
+  if (count > FEW_MEMBERS) return repeated_in_set(obj);
+  const char *s[FEW_MEMBERS];
+  size_t n[FEW_MEMBERS];
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    s[idx] = yyjson_get_str(key);
+    n[idx] = yyjson_get_len(key);
+    for (size_t k = 0; k < idx; k++) {
+      if (n[k] == n[idx] && memcmp(s[k], s[idx], n[idx]) == 0) return idx;
+    }
+  }
+  return count;
+}
+
+/* Pushes `val` as a Lua value, or answers what decode refuses in it --
+ * an array or object nested `max_depth` deep, a key twice unless
+ * `duplicate_keys` -- having pushed nothing, with the path to it in
+ * `d->path`. It finds the first such in the order the text holds them:
+ * a member's key is checked before its value is read. `depth` counts the
+ * arrays and objects open around `val`. A `null` without a stand-in is
+ * nil, which leaves a hole in an array and, set into an object, leaves
+ * the key out -- after an earlier member of the key too, which
+ * `duplicate_keys` lets through: the last value of a key stands. */
+static enum problem push_value (struct decoding *d, yyjson_val *val,
+                                int depth) {
   lua_State *L = d->L;
   size_t idx;
   size_t max;
@@ -176,7 +262,7 @@ static void push_value (struct decoding *d, yyjson_val *val) {
   switch (yyjson_get_type(val)) {
     case YYJSON_TYPE_BOOL:
     lua_pushboolean(L, yyjson_get_bool(val));
-    return;
+    return NO_PROBLEM;
     case YYJSON_TYPE_NUM:
     switch (yyjson_get_subtype(val)) {
       case YYJSON_SUBTYPE_SINT:
@@ -202,37 +288,94 @@ static void push_value (struct decoding *d, yyjson_val *val) {
       lua_pushnumber(L, (lua_Number)yyjson_get_real(val));
       break;
     }
-    return;
+    return NO_PROBLEM;
     /* TODO: a big number read this way encodes back as a JSON string.
      * A marker the encoder writes verbatim (Json.number(text), checked
      * to be a JSON number) would let it round-trip as a number. */
     case YYJSON_TYPE_RAW: /* only a big number, and only when asked */
     lua_pushlstring(L, yyjson_get_raw(val), yyjson_get_len(val));
-    return;
+    return NO_PROBLEM;
     case YYJSON_TYPE_STR:
     lua_pushlstring(L, yyjson_get_str(val), yyjson_get_len(val));
-    return;
+    return NO_PROBLEM;
     case YYJSON_TYPE_ARR: {
+      if (depth >= d->max_depth) return TOO_DEEP;
       luaL_checkstack(L, 3, "JSON nests too deeply");
       size_t count = yyjson_arr_size(val);
       lua_createtable(L, count > INT32_MAX ? INT32_MAX : (int)count, 0);
       luaL_setmetatable(L, ARRAY_TYPE);
       yyjson_arr_foreach(val, idx, max, item) {
-        push_value(d, item);
+        enum problem found = push_value(d, item, depth + 1);
+        if (found != NO_PROBLEM) {
+          lua_pop(L, 1);
+          prepend_index(&d->path, (lua_Integer)idx + 1);
+          return found;
+        }
         lua_rawseti(L, -2, (lua_Integer)idx + 1);
       }
-      return;
+      return NO_PROBLEM;
     }
     case YYJSON_TYPE_OBJ: {
+      if (depth >= d->max_depth) return TOO_DEEP;
       luaL_checkstack(L, 4, "JSON nests too deeply");
       size_t count = yyjson_obj_size(val);
+      /* A small object's keys are compared with each other before it
+       * is built, which costs less than a lookup of each in the table;
+       * a large one's are looked up as they go in. */
+      size_t repeat = count;
+      bool check = false;
+      if (!d->duplicate_keys) {
+        if (count <= SET_MEMBERS) {
+          repeat = repeated_member(val);
+        } else {
+          check = true;
+        }
+      }
       lua_createtable(L, 0, count > INT32_MAX ? INT32_MAX : (int)count);
+      bool held = false;
       yyjson_obj_foreach(val, idx, max, key, item) {
+        if (idx == repeat) {
+          lua_pop(L, 1);
+          d->repeated = key;
+          prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+          return REPEATED_KEY;
+        }
         lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
-        push_value(d, item);
+        /* The key, pushed to be set, is looked up first in the table it
+         * goes into: one lookup more for each member. */
+        if (check) {
+          lua_pushvalue(L, -1);
+          if (lua_rawget(L, -3) != LUA_TNIL) {
+            lua_pop(L, 3);
+            d->repeated = key;
+            prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+            return REPEATED_KEY;
+          }
+          lua_pop(L, 1);
+        }
+        enum problem found = push_value(d, item, depth + 1);
+        if (found != NO_PROBLEM) {
+          lua_pop(L, 2);
+          prepend_key(&d->path, yyjson_get_str(key), yyjson_get_len(key));
+          return found;
+        }
+        if (check && lua_isnil(L, -1)) {
+          lua_pop(L, 1);
+          lua_pushlightuserdata(L, (void *)&null_member);
+          held = true;
+        }
         lua_rawset(L, -3);
       }
-      return;
+      if (held) {
+        yyjson_obj_foreach(val, idx, max, key, item) {
+          if (yyjson_is_null(item)) {
+            lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
+            lua_pushnil(L);
+            lua_rawset(L, -3);
+          }
+        }
+      }
+      return NO_PROBLEM;
     }
     default: /* YYJSON_TYPE_NULL: nothing else reads without a flag */
     if (d->null_index == 0) {
@@ -240,141 +383,8 @@ static void push_value (struct decoding *d, yyjson_val *val) {
     } else {
       lua_pushvalue(L, d->null_index);
     }
-    return;
-  }
-}
-
-/* One key of an object, and where in the object it is. */
-struct indexed_key {
-  const char *s;
-  size_t n;
-  size_t index;
-};
-
-static int compare_keys (const char *a, size_t an, const char *b, size_t bn) {
-  int c = memcmp(a, b, an < bn ? an : bn);
-  if (c != 0) return c;
-  return (an > bn) - (an < bn);
-}
-
-/* By key, then by place in the object, so each run of one key lists its
- * members in the order the text holds them. */
-static int compare_indexed (const void *a, const void *b) {
-  const struct indexed_key *x = a;
-  const struct indexed_key *y = b;
-  int c = compare_keys(x->s, x->n, y->s, y->n);
-  if (c != 0) return c;
-  return (x->index > y->index) - (x->index < y->index);
-}
-
-/* FNV-1a over a key's bytes, for the set of an object's keys below. */
-static uint32_t key_hash (const char *s, size_t n) {
-  uint32_t h = 2166136261u;
-  for (size_t i = 0; i < n; i++) {
-    h = (h ^ (unsigned char)s[i]) * 16777619u;
-  }
-  return h;
-}
-
-/* The most members an object may have to be searched through a set of
- * its keys on the C stack, twice as many slots as members. A larger one
- * is sorted instead: keys chosen to collide in an unseeded hash would
- * make a set's search quadratic, which only this bound keeps small. */
-#define SET_MEMBERS 64
-
-/* The index of the first member of `obj` whose key an earlier member
- * already has, or the object's size when no key repeats. A large
- * object's keys are sorted in a userdata pushed and popped here. Never
- * inlined: its set would sit in each frame of the recursive walk that
- * calls it, a kilobyte a level. */
-__attribute__((noinline)) static size_t first_repeat (lua_State *L, yyjson_val *obj) {
-  size_t count = yyjson_obj_size(obj);
-  size_t idx;
-  size_t max;
-  yyjson_val *key;
-  yyjson_val *item;
-  if (count < 2) return count;
-  if (count <= SET_MEMBERS) {
-    yyjson_val *set[2 * SET_MEMBERS];
-    size_t slots = 4;
-    while (slots < 2 * count) slots *= 2;
-    memset(set, 0, slots * sizeof *set);
-    yyjson_obj_foreach(obj, idx, max, key, item) {
-      const char *s = yyjson_get_str(key);
-      size_t n = yyjson_get_len(key);
-      size_t at = key_hash(s, n) & (slots - 1);
-      while (set[at] != NULL) {
-        if (yyjson_get_len(set[at]) == n &&
-            memcmp(yyjson_get_str(set[at]), s, n) == 0) {
-          return idx;
-        }
-        at = (at + 1) & (slots - 1);
-      }
-      set[at] = key;
-    }
-    return count;
-  }
-  struct indexed_key *keys = lua_newuserdatauv(L, count * sizeof *keys, 0);
-  yyjson_obj_foreach(obj, idx, max, key, item) {
-    keys[idx].s = yyjson_get_str(key);
-    keys[idx].n = yyjson_get_len(key);
-    keys[idx].index = idx;
-  }
-  qsort(keys, count, sizeof *keys, compare_indexed);
-  size_t first = count;
-  for (size_t k = 1; k < count; k++) {
-    if (keys[k].index < first &&
-        compare_keys(keys[k - 1].s, keys[k - 1].n, keys[k].s, keys[k].n) == 0) {
-      first = keys[k].index;
-    }
-  }
-  lua_pop(L, 1);
-  return first;
-}
-
-/* What makes a document that read cleanly one decode refuses. */
-enum problem { NO_PROBLEM, REPEATED_KEY, TOO_DEEP };
-
-/* The first problem in `val`, in the order the text holds it, with the
- * path to it in `path`: an array or object nested `max_depth` deep, or,
- * unless `duplicate_keys`, a member whose object already has a member
- * of its key, that key in `*key`. `depth` counts the arrays and objects
- * open around `val`. It recurses once per level, no deeper than
- * `max_depth`. */
-static enum problem first_problem (lua_State *L, yyjson_val *val, int depth,
-                                   int max_depth, bool duplicate_keys,
-                                   struct path *path, yyjson_val **key) {
-  size_t idx;
-  size_t max;
-  yyjson_val *name;
-  yyjson_val *item;
-  if (!yyjson_is_ctn(val)) return NO_PROBLEM;
-  if (depth >= max_depth) return TOO_DEEP;
-  if (yyjson_is_arr(val)) {
-    yyjson_arr_foreach(val, idx, max, item) {
-      enum problem found =
-          first_problem(L, item, depth + 1, max_depth, duplicate_keys, path, key);
-      if (found != NO_PROBLEM) {
-        prepend_index(path, (lua_Integer)idx + 1);
-        return found;
-      }
-    }
     return NO_PROBLEM;
   }
-  size_t repeat = duplicate_keys ? yyjson_obj_size(val) : first_repeat(L, val);
-  yyjson_obj_foreach(val, idx, max, name, item) {
-    enum problem found = REPEATED_KEY;
-    if (idx == repeat) {
-      *key = name;
-    } else {
-      found = first_problem(L, item, depth + 1, max_depth, duplicate_keys, path, key);
-    }
-    if (found != NO_PROBLEM) {
-      prepend_key(path, yyjson_get_str(name), yyjson_get_len(name));
-      return found;
-    }
-  }
-  return NO_PROBLEM;
 }
 
 /* How a decoded text is laid out in lines, for a failure to say where
@@ -628,7 +638,9 @@ static int json_decode (lua_State *L) {
   if (d.big_as_string) flags |= YYJSON_READ_BIGNUM_AS_RAW;
   int lone_surrogates = lua_toboolean(L, 6);
   if (lua_toboolean(L, 8)) flags |= READ_ALLOW_HASH_COMMENTS;
-  bool duplicate_keys = lua_toboolean(L, 9);
+  d.duplicate_keys = lua_toboolean(L, 9);
+  memset(&d.path, 0, sizeof d.path);
+  d.repeated = NULL;
   lua_settop(L, 9);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
@@ -650,17 +662,12 @@ static int json_decode (lua_State *L) {
   }
   if (doc == NULL) return read_failure(L, text, len, &layout, &err);
   guard->resource = doc;
-  struct path path;
-  memset(&path, 0, sizeof path);
-  yyjson_val *key = NULL;
-  switch (first_problem(L, yyjson_doc_get_root(doc), 0, d.max_depth,
-                        duplicate_keys, &path, &key)) {
+  switch (push_value(&d, yyjson_doc_get_root(doc), 0)) {
     case REPEATED_KEY:
-    return repeat_failure(L, text, len, &layout, doc, key, &path);
+    return repeat_failure(L, text, len, &layout, doc, d.repeated, &d.path);
     case TOO_DEEP:
-    return deep_failure(L, text, len, &layout, d.max_depth, &path);
+    return deep_failure(L, text, len, &layout, d.max_depth, &d.path);
     default:
-    push_value(&d, yyjson_doc_get_root(doc));
     return cosmic_succeeded(L);
   }
 }

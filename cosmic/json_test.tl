@@ -255,16 +255,47 @@ local function test_duplicate_keys_are_refused()
   local wide = "{" .. table.concat(many, ", ") .. "}"
   local _, at = wide:find('"k7": 0', 1, true)
   assert(decode_failure(wide) == ("json: duplicate key at line 1, column %d ($.k7)"):format(at - 6),
-    "an object too large to search pair by pair is sorted, and the first repeat in the text named")
-  for _, size in ipairs({ 64, 65 }) do
+    "an object too large to compare pair by pair names the first repeat in the text")
+  for _, size in ipairs({ 8, 9, 64, 65 }) do
     local members: {string} = {}
     for i = 1, size - 1 do members[#members + 1] = ('"k%d": {"x": %d}'):format(i, i) end
     members[2] = '"k2": {"x": 1, "x": 2}'
     members[#members + 1] = '"k1": 0'
     assert(decode_failure("{" .. table.concat(members, ", ") .. "}") ==
       "json: duplicate key at line 1, column 33 ($.k2.x)",
-      size .. " members, a set of keys or a sort: a repeat inside an earlier member comes first")
+      size .. " members, compared in pairs, in a set or in the table: a repeat inside an earlier member comes first")
+    -- Scalars but for one value nested too deep, after a null and
+    -- before the repeated key: the nesting is named, and nothing held
+    -- for the null is left behind.
+    local flat: {string} = {}
+    for i = 1, size - 2 do
+      flat[#flat + 1] = ('"k%d": %s'):format(i, i == 3 and "null" or tostring(i))
+    end
+    flat[#flat + 1] = '"deep": [[1]]'
+    flat[#flat + 1] = '"k1": 0'
+    assert(decode_failure("{" .. table.concat(flat, ", ") .. "}", { max_depth = 2 }) ==
+      ("json: JSON nests deeper than 2 levels at line 1, column %d ($.deep[1])"):format(
+        #("{" .. table.concat(flat, ", ", 1, size - 2) .. ', "deep": [') + 1),
+      size .. " members: nesting too deep before the repeat is named first")
   end
+  -- An object looked up as it is built holds a null member's key until
+  -- it is whole, so a key twice after a null is found, and the null's
+  -- key is absent after.
+  local large: {string} = {}
+  for i = 1, 70 do large[#large + 1] = ('"k%d": %d'):format(i, i) end
+  large[5] = '"k5": null'
+  local whole = decoded("{" .. table.concat(large, ", ") .. "}") as {string: any}
+  assert(whole.k5 == nil and whole.k6 == 6, "a null member is absent")
+  large[#large + 1] = '"k5": 0'
+  assert(decode_failure("{" .. table.concat(large, ", ") .. "}"):match("^json: duplicate key .* %(%$%.k5%)$"),
+    "a key twice after a null member")
+  -- Large objects holding nulls inside large objects, decoded whole.
+  local inner = "{" .. table.concat(large, ", ", 1, 70) .. "}"
+  local outer: {string} = {}
+  for i = 1, 70 do outer[#outer + 1] = ('"o%d": %s'):format(i, i % 2 == 0 and "null" or inner) end
+  local within = decoded("{" .. table.concat(outer, ", ") .. "}") as {string: {string: any}}
+  assert(within.o2 == nil and within.o1.k5 == nil and within.o1.k6 == 6, "every held null let go")
+  for _, v in pairs(within.o1) do assert(type(v) == "number", "only the values the text holds") end
   local _, lines = Json.decode_lines('1\n{"a": 1, "a": 2}')
   assert(lines == "json: duplicate key at line 2, column 10 ($.a)", lines)
   assert(decode_failure('{"a": [[{"x": 1, "x": 1}]]}', { max_depth = 2 }):match("^json: JSON nests deeper"),
