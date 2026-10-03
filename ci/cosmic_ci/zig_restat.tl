@@ -22,6 +22,11 @@
 --- trusted as unchanged without reading it, as zig trusts a restored
 --- output it never reads at all.
 
+-- TODO: remove this module, and its call in cosmic_ci/orchestration.tl's
+-- boot, once the pinned zig's `checkInputPath` compares a re-hashed
+-- direct input against the digest its manifest holds (zig 0.17.0 and
+-- master compare one never computed; unreported upstream as of 0.17.0).
+
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
