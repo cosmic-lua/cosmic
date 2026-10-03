@@ -1,0 +1,13 @@
+file: tl.tl
+note: the fields contextual typing of a function literal keeps on its nodes: whether the literal omits its return types (37b), the type an untyped parameter takes from the function type the literal is expected to have (37d, 37e), the returns an omitted list takes from it (37f), and an argument whose type is to bind a generic call's type variables before a later function literal reads them (37g)
+--- find
+   block_returns: boolean
+   type_of: Node
+--- replace
+   block_returns: boolean
+   type_of: Node
+   rets_omitted: boolean
+   context_type: Type
+   context_rets: TupleType
+   binds_context: boolean
+--- end

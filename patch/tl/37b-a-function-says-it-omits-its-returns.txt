@@ -1,0 +1,12 @@
+file: tl.tl
+note: a function whose header has no `:` after its parameters is marked, so 37f can tell an omitted return list from a declared empty one (`: ()`), which the parser gives the same empty tuple
+--- find
+   i, node.args, node.min_arity = parse_argument_list(ps, i)
+   i, node.rets = parse_return_types(ps, i)
+   i, node.body = parse_statements(ps, i)
+--- replace
+   i, node.args, node.min_arity = parse_argument_list(ps, i)
+   node.rets_omitted = ps.tokens[i].tk ~= ":"
+   i, node.rets = parse_return_types(ps, i)
+   i, node.body = parse_statements(ps, i)
+--- end
