@@ -1,11 +1,13 @@
 --- The SQLite file the shared caches keep (build/shared_sqlite.tl):
 --- opened in write-ahead mode, with a bounded wait on other writers.
 
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local shared_sqlite = require("build.shared_sqlite")
 local String = require("cosmic.string")
+local sys = require("cosmic.sys")
 
 --- A `prepare` that makes one table, as each cache makes its own.
 local function prepare(db: Sqlite.Handle): boolean, string
@@ -113,4 +115,26 @@ local function test_a_wal_cache_opens_while_another_writes(tmp: string)
   assert(#rows == 1 and rows[1][1] == "k")
   second:close()
   first:close()
+end
+
+--- The zero-wait handler still captures an unread guard signal when
+--- SQLite invokes it; a captured cancellation must not restart the wait.
+local function test_a_captured_cancellation_stops_the_wal_retry(tmp: string)
+  local path = tmp .. "/cache.db"
+  local holder = assert(Sqlite.open(path, { writable = true }))
+  assert(holder:exec("CREATE TABLE held (x); BEGIN EXCLUSIVE"))
+  local guard <close> = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  local started = Time.monotonic_ns()
+  local db, trouble = shared_sqlite.open(path, prepare, Time.seconds(2))
+  local waited = Time.monotonic_ns() - started
+  local signal = guard:take()
+  guard:release()
+  assert(holder:exec("COMMIT"))
+  assert(holder:close())
+  assert(db == nil and trouble ~= "", trouble)
+  assert(signal == sys.SIGTERM, "the cache consumed the guard's signal")
+  assert(waited < Time.seconds(1), "cancelled after " .. waited .. " ns")
+  local opened = assert(shared_sqlite.open(path, prepare))
+  assert(opened:close())
 end
