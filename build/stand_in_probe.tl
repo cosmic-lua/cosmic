@@ -312,6 +312,13 @@ local verbs: {string:function(string, string): integer} = {
     if not opened then return failed(path, trouble) end
     return nil
   end,
+  chmod = function(path: string, word: string): integer
+    local bits = math.tointeger(tonumber(word, 8))
+    if bits == nil then return failed("chmod", "no mode " .. word) end
+    local ok, trouble = Fs.chmod(path, bits)
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
   mode = function(path: string): integer
     local st, trouble = sys.stat(path)
     if st == nil then return failed(path, trouble) end

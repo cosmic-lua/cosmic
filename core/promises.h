@@ -1,0 +1,43 @@
+/*
+ * The promises filter: the seccomp program a sandboxed program is held
+ * to beside its Landlock ruleset, as an allow list of system calls. What
+ * the basics and the promises asked for do not name is refused with
+ * EPERM; a call numbered above the reviewed table, `clone3` and
+ * `openat2` answer ENOSYS, so a libc falls back; a refused ioctl answers
+ * ENOTTY; a call of another architecture ends the process.
+ *
+ * The program is a pure function of the promises, the architecture and
+ * the process's own pid, so core/syscalls.c has the child build and
+ * install it ([`cosmic_promises_apply`]), and `promise_filter` builds it
+ * for either architecture, whatever the host, for core/promises_test.tl's
+ * interpreter. The tables are core/promises.c's.
+ */
+
+#ifndef COSMIC_PROMISES_H
+#define COSMIC_PROMISES_H
+
+/* One past the highest call number the tables are reviewed to: a call
+ * above it is answered ENOSYS. */
+#define PROMISE_CALLS_REVIEWED 472
+
+/* One past the highest call number the headers this core was built with
+ * name, or 0 where they name no count (Linux's generic table, aarch64's,
+ * does; x86_64's does not): a header past the reviewed number names
+ * calls no one has judged. A value, not a function, so core/syscalls.c's
+ * table of constants hands it to Lua. */
+extern const int cosmic_promise_headers_end;
+#define PROMISE_CALLS_HEADERS cosmic_promise_headers_end
+
+/* The promise `name` names, as one bit of the set [`cosmic_promises_apply`]
+ * takes, or 0 for a name that is none: "fork", "jit" or "fattr". */
+unsigned cosmic_promise_named (const char *name);
+
+/* Holds the calling process, for good, to `promises`: no_new_privs, and
+ * the program for this architecture and the process's own pid, installed.
+ * 0, or an errno; ENOSYS off Linux, and on any architecture but x86_64
+ * and aarch64. The pid is the one the kill and scheduling rules hold a
+ * call to, which stays the process's across exec: a child calls this
+ * once it is the child, as the last step before it execs. */
+int cosmic_promises_apply (unsigned promises);
+
+#endif
