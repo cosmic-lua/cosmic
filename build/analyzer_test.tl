@@ -1,5 +1,6 @@
 local teal = require("build.teal")
 local analyzer = require("build.analyzer")
+local ast = require("build.ast")
 local Test = require("cosmic.test")
 
 local built, load_trouble = teal.load()
@@ -1781,4 +1782,18 @@ end
 local function test_standalone_is_refused_without_lua()
   local why = refusal_of("{ standalone = true }")
   assert(why:find("standalone is refused without lua", 1, true), why)
+end
+
+--- A chunk's docs alone are the docs its whole analysis gives.
+local function test_docs_alone_are_the_analysis_docs()
+  local source = "local M = {}\n--- Adds one.\nfunction M.inc(n: integer): integer\n  return n + 1\nend\nreturn M\n"
+  local parsed = assert(ast.parse(built, source, "fixture.tl"))
+  local whole = assert(analyzer.analysis_of(built, parsed, source))
+  local alone = analyzer.docs(parsed, source)
+  assert(#alone == #whole.docs and #alone > 0, "docs alone differ in count")
+  for i, entry in ipairs(alone) do
+    local other = whole.docs[i]
+    assert(entry.source_symbol == other.source_symbol and entry.text == other.text and
+        entry.exported == other.exported and entry.line == other.line, "doc " .. i .. " differs")
+  end
 end

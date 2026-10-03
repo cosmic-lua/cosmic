@@ -66,6 +66,16 @@
 --- the last of the key's members stands. Encoded objects list their keys
 --- in byte order, so the same value always encodes to the same text.
 ---
+--- Text can be handled as text, without building a value:
+--- [`Json.check`] says whether `decode` would read it, [`Json.format`]
+--- writes it again compact or laid out, its members in their order and
+--- its numbers as they were written, and [`Json.canonical`] writes the
+--- one text RFC 8785 makes of it, for a digest or a signature that two
+--- programs must agree on.
+---
+---     assert(Json.format('{ "b": 1.50, "a": [ ] }') == '{"b":1.50,"a":[]}')
+---     assert(Json.canonical('{"b": 1.50, "a": []}') == '{"a":[],"b":1.5}')
+---
 --- A failure that is not in the text's syntax -- a key twice, nesting
 --- past `max_depth` -- also names where it is in the value, as a path
 --- [`Json.encode`] spells one: `json: duplicate key at line 3, column 5
@@ -96,6 +106,38 @@ local record Json
     --- (1000; default [`Json.default_depth`], 64). A table that contains
     --- itself fails here.
     max_depth: integer
+  end
+
+  --- What [`Json.format`] may be told. Every field is optional, and those
+  --- that say how to read the text mean what they mean to `decode`.
+  record FormatOptions
+    --- Lay the text out as `encode`'s `pretty` does (default false).
+    pretty: boolean
+    --- How many arrays and objects may nest, as `decode` takes it.
+    max_depth: integer
+    --- Read JSON5, as `decode` does; what is written is RFC 8259.
+    json5: boolean
+    --- Read `#` line comments, as `decode` does.
+    hash_comments: boolean
+    --- Read a lone surrogate escape as U+FFFD, as `decode` does.
+    lone_surrogates: boolean
+    --- Read an object that holds a key twice rather than refusing it
+    --- (default false); each member is written, in its place.
+    duplicate_keys: boolean
+  end
+
+  --- What [`Json.canonical`] may be told: how to read the text, as
+  --- `decode` reads it. Every field is optional. A key twice is always
+  --- refused: RFC 8785 has no form for it.
+  record CanonicalOptions
+    --- How many arrays and objects may nest, as `decode` takes it.
+    max_depth: integer
+    --- Read JSON5, as `decode` does.
+    json5: boolean
+    --- Read `#` line comments, as `decode` does.
+    hash_comments: boolean
+    --- Read a lone surrogate escape as U+FFFD, as `decode` does.
+    lone_surrogates: boolean
   end
 
   --- What `decode` may be told. Every field is optional.
@@ -256,6 +298,56 @@ function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, strin
   end
   if text == nil then return refuse(err) end
   return text, ""
+end
+
+--- true and "" when `decode(text, opts)` would read the text; else
+--- false and the message it would fail with. It builds no value, so it
+--- costs a fraction of a decode. `null_value` changes nothing here.
+function Json.check(text: string, opts?: Json.DecodeOptions): boolean, string
+  local o: Json.DecodeOptions = opts or {}
+  local ok, err = raw.check(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
+    o.duplicate_keys, o.big_numbers_as_strings)
+  if not ok then return false, "json: " .. err end
+  return true, ""
+end
+
+--- The JSON value `text` holds, written again as RFC 8259 text, and "":
+--- with no space, or laid out as `encode`'s `pretty` lays a value out.
+--- What `decode` would refuse is refused, with its message. Nothing
+--- else changes: members keep their order, strings their characters
+--- (escaped only where JSON must escape them) and numbers their text,
+--- `1.50` and thirty digits too -- but for JSON5's own forms, written as
+--- RFC 8259 writes the same number: `+1` as `1`, `.5` as `0.5`, `5.` as
+--- `5.0`, `0x1F` as `31`.
+--- nil and a message, naming where, for NaN or an infinity, which JSON
+--- has no text for.
+function Json.format(text: string, opts?: Json.FormatOptions): string | nil, string
+  local o: Json.FormatOptions = opts or {}
+  local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
+    o.duplicate_keys, o.pretty, false)
+  if out == nil then return refuse(err) end
+  return out, ""
+end
+
+--- The JSON value `text` holds in the canonical form of RFC 8785 (the
+--- JSON Canonicalization Scheme), and "": no space, members sorted by
+--- their keys' UTF-16 code units, strings escaped only where JSON must,
+--- and every number the double it reads as, written as ECMAScript
+--- writes one -- so `1.0`, `1` and `1e0` are all `1`. Two texts of one
+--- value give the same bytes, for a digest or a signature. An integer
+--- past 2^53 becomes the double nearest it, as the scheme says: keep an
+--- identifier that large in a string. nil and a message when `decode`
+--- would refuse the text, it holds a key twice, or a number is NaN or
+--- an infinity, or past a double's range.
+---
+---     local text = '{"b": [1.0, 2e2], "a": "\\u00e9"}'
+---     assert(Json.canonical(text) == '{"a":"\u{e9}","b":[1,200]}')
+function Json.canonical(text: string, opts?: Json.CanonicalOptions): string | nil, string
+  local o: Json.CanonicalOptions = opts or {}
+  local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
+    false, false, true)
+  if out == nil then return refuse(err) end
+  return out, ""
 end
 
 --- The values of JSON Lines text (NDJSON): one JSON value to a line,

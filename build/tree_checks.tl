@@ -57,6 +57,8 @@ allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
+allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
+  "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"

@@ -23,6 +23,22 @@ local record json
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
                    duplicate_keys?: boolean): any | nil, string
+  -- true and "" when `decode` would read `text` under the same
+  -- options; else false and the message it would fail with. It builds
+  -- no value.
+  check: function(text: string, max_depth?: integer, json5?: boolean,
+                  lone_surrogates?: boolean, hash_comments?: boolean,
+                  duplicate_keys?: boolean, big_as_string?: boolean): boolean, string
+  -- The value `text` holds, read as `check` reads it, written again as
+  -- RFC 8259 text: its members in the text's order and its numbers as
+  -- written (a JSON5 form as RFC 8259 writes the number), laid out
+  -- two spaces a level with `pretty`; or, with `canonical`, in RFC
+  -- 8785's form. nil and a message when the text does not read, or
+  -- holds NaN or an infinity.
+  format: function(text: string, max_depth?: integer, json5?: boolean,
+                   lone_surrogates?: boolean, hash_comments?: boolean,
+                   duplicate_keys?: boolean, pretty?: boolean,
+                   canonical?: boolean): string | nil, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at $.users[3].name`. Keys are
   -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
