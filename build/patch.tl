@@ -4,7 +4,7 @@
 ---     cosmic --standalone build/patch.tl <root> <cache>
 ---     cosmic --standalone build/patch.tl --zig-lib <root> <lib> <out>
 ---
---- The second writes zig's library directory with `patch/zig/`'s records
+--- The second writes zig's library directory with `patch/zig-lib/`'s records
 --- applied ([`Patch.zig_lib`]).
 ---
 --- For every `vendor/<name>/PIN` under `root` it prints `<name>`, a tab,
@@ -558,14 +558,14 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
 end
 
 --- Writes zig's library directory `lib` into `out`, which must not
---- exist, with every record under `root/patch/zig/` applied in name
+--- exist, with every record under `root/patch/zig-lib/` applied in name
 --- order, each `file:` a path under `lib`: what bin/zig points zig at
 --- (build/zig.tl's `patched_lib`). The copy is `cp -Rp`'s
 --- ([`Fs.copy_tree`]), made under a scratch directory beside `out` and
 --- renamed into place whole, so a directory at that name is always a
 --- whole patched library. One another build put there first is kept.
 function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
-  local dir = root .. "/patch/zig"
+  local dir = root .. "/patch/zig-lib"
   local names, list_trouble = Fs.list(dir)
   if names == nil then
     return false, list_trouble
@@ -581,7 +581,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   end
   for _, entry in ipairs(names) do
     if #entry > 4 and entry:sub(-4) == ".txt" then
-      local name = "patch/zig/" .. entry
+      local name = "patch/zig-lib/" .. entry
       local text, text_trouble = Fs.read(dir .. "/" .. entry)
       if text == nil then
         return false, text_trouble

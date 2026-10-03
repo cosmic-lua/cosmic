@@ -17,7 +17,8 @@
 --- - the scripts and pins that name the one zig [`bin/zig`] runs;
 --- - the bootstrap cosmic that runs build/zig.tl, and the cores its
 ---   launcher runs it on;
---- - that zig's own install;
+--- - that zig's own install, its library unpatched: a confined bin/zig
+---   is not given patch/zig-lib/, whose records touch only `zig build`;
 --- - the include directories and each file's own;
 --- - a directory of the check's own for caches and dependency files.
 ---

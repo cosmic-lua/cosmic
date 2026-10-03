@@ -176,12 +176,23 @@ end
 --- than quietly configure again on every build (it calls `findProgram`,
 --- say). A read build.zig does not declare, it cannot catch: build.zig
 --- declares each (`dependOn*`).
+---
+--- `--build-file` names build.zig by its absolute path, so `bin/zig build`
+--- runs from any working directory, and its build root has a path: one
+--- found in the working directory has none in zig 0.17's own library
+--- (compiler/Maker.zig's `findBuildRoot`), whose cache then keys every
+--- file of the tree by its absolute path, and a checkout elsewhere (CI's
+--- Linux legs move the tree with every commit) compiles the vendored
+--- libraries again. patch/zig-lib/05 fixes that for a bare `zig build`;
+--- this keeps it fixed where zig runs without that library (`COSMIC_ZIG`,
+--- a `ZIG_LIB_DIR` of the caller's).
 function Zig.build_args(root: string, project: string,
     argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
+      "--build-file", root .. "/build.zig",
       "--cache-dir", project,
       "--prefix", root .. "/o",
       "--cache-poison=disallowed",
@@ -363,7 +374,7 @@ function Zig.lib_key(records: {string:string}): string
 end
 
 --- zig's library directory as the pinned release installed at `install`
---- ships it, with every record under `root/patch/zig/` applied:
+--- ships it, with every record under `root/patch/zig-lib/` applied:
 --- `install/lib-<key>` ([`Zig.lib_key`]), written by build/patch.tl
 --- run standalone when it is not there yet, so nothing that copies a
 --- tree or applies a record is this file's to load. zig compiles `zig
@@ -371,9 +382,18 @@ end
 --- time, so a record there fixes what `zig build` does without a zig of
 --- our own; the compiler's own copy of that code is fixed only in a
 --- rebuilt zig. Nil and "" when there are no records, nil and why when
---- the library cannot be written.
+--- the library cannot be written: every zig command then fails, `cc` and
+--- `env` among them, rather than run on a library the tree did not ask
+--- for. Builds that start at once before it exists each copy it, and all
+--- but the first to finish discard theirs.
+-- TODO: remove the `lib-<key>` libraries no record set names any more:
+-- each record edit leaves the one before beside the install (234 MB for
+-- zig 0.17), as Zig.install_name's TODO says of whole installs.
+-- TODO: drop patch/zig-lib/ and this function's call once bin/zig.pin
+-- names a zig whose library carries its fixes (cosmic-lua/zig's branches
+-- cache-same-contents-hit and build-root-path, not yet sent upstream).
 local function patched_lib(root: string, install: string): string | nil, string
-  local dir = root .. "/patch/zig"
+  local dir = root .. "/patch/zig-lib"
   local present, present_trouble = Fs.exists(dir)
   if present == nil then
     return nil, present_trouble
@@ -1006,7 +1026,7 @@ function Zig.main(argv: {integer:string}): integer
     return 1
   end
   local zig = found.zig
-  -- The pinned release runs on its library with patch/zig/'s records
+  -- The pinned release runs on its library with patch/zig-lib/'s records
   -- applied, unless the caller names a library of their own.
   local environment = Env.all()
   if found.install ~= nil and (environment.ZIG_LIB_DIR or "") == "" then
