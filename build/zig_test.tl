@@ -113,6 +113,12 @@ local function test_build_names_its_global_cache_in_the_environment()
   assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.PATH == "/bin")
 end
 
+--- `zig build` compiles its maker in Debug, which a cache restored on
+--- another CPU model compiles again in seconds rather than minutes.
+local function test_build_compiles_its_maker_in_debug()
+  assert(Zig.build_environment("/g", {}).ZIG_DEBUG_CMD == "1")
+end
+
 -- The global cache is shared: named outright, else in this user's cache
 -- directory, and in the checkout only when there is no cache directory.
 local function test_global_cache_is_named_then_shared_then_local(tmp: string)
