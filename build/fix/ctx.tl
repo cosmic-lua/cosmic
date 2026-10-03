@@ -79,6 +79,10 @@ local record Ctx
   --- The `;` tokens, by index, that a node opens on (a block's, an
   --- empty `return` list's): one is the node's own and stays.
   owned: {integer:boolean}
+  --- The tokens, by index, of each binary operator written at the
+  --- start of a line, which [`build.fix.breaks`] moves to the end of
+  --- the line before.
+  leading: {integer}
 end
 
 --- Where `node`'s own subtree starts, remembered across calls.
