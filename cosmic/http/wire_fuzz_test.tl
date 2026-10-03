@@ -407,7 +407,9 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       local head, rest = out:sub(1, stop + 1), out:sub(stop + 4)
       local headers: {string:string} = {}
       for name, value in head:gmatch("\r\n([^:]+): ([^\r]*)") do
-        if headers[name:lower()] ~= nil then return false, "header " .. name .. " is written twice" end
+        if headers[name:lower()] ~= nil then
+          return false, "header " .. name .. " is written twice"
+        end
         headers[name:lower()] = value
       end
       if declared ~= nil and headers["content-length"] ~= tostring(declared) then
