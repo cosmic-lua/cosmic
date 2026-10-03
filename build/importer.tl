@@ -837,10 +837,10 @@ end
 --- `file`'s own complaints, one line each. A removed name's replacement
 --- ([`teal.replacement`]) comes straight after the checker's own words,
 --- ahead of any pointer at the docs: it is the answer, they are more.
---- A hint repeated word for word (one variable's every field read, each
---- unused name's) is printed on the first line that earns it, with how
---- many more lines it holds for, and those lines carry the checker's
---- words alone.
+--- A hint repeated word for word in one file (one variable's every
+--- field read, each unused name's) is printed on the first line that
+--- earns it, with how many more lines it holds for, and those lines
+--- carry the checker's words alone.
 local function complain(file: string, source: string, result: compiler.Result,
                         hints: Hints): string
   local lines: {string} = {}
@@ -855,12 +855,13 @@ local function complain(file: string, source: string, result: compiler.Result,
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
       end
       local hint = said:sub(#e.msg + 1)
-      local first = hint ~= "" and hinted[hint] or nil
+      local seen = where .. "\0" .. hint
+      local first = hint ~= "" and hinted[seen] or nil
       if first ~= nil then
         repeats[first] = (repeats[first] or 0) + 1
         said = e.msg
       elseif hint ~= "" then
-        hinted[hint] = #lines + 1
+        hinted[seen] = #lines + 1
       end
       lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. said
     end

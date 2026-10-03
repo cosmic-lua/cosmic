@@ -847,36 +847,72 @@ local function same_named(msg: string): string | nil
     name .. " = Kv." .. name .. "' for one declared in a module required as Kv"
 end
 
---- A type the checker printed, less where it inferred it from
---- (`string | nil (inferred at :3:9)`), and whether it admits nil as
---- its last member.
-local function bare_type(t: string): string, boolean
+--- The members of a type the checker printed, less where it inferred
+--- it from (`string | nil (inferred at :3:9)`): split at each top-level
+--- ` | `, so the one inside `{string | integer}` or a function's
+--- parameters splits nothing.
+local function type_members(t: string): {string}
   local bare = t:gsub(" %(inferred at [^)]*%)$", "")
-  return bare, bare:match(" | nil$") ~= nil
+  local masked = bare:gsub("%b{}", function(m: string): string return ("x"):rep(#m) end):
+    gsub("%b()", function(m: string): string return ("x"):rep(#m) end)
+  local found: {string} = {}
+  local start = 1
+  while true do
+    local at = masked:find(" | ", start, true)
+    if at == nil then
+      found[#found + 1] = bare:sub(start)
+      return found
+    end
+    found[#found + 1] = bare:sub(start, at - 1)
+    start = at + 3
+  end
+end
+
+--- Whether a type the checker printed is one type or nil (`R | nil`):
+--- the only kind of union a nil check alone makes usable.
+local function one_or_nil(t: string): boolean
+  local of = type_members(t)
+  return #of == 2 and of[2] == "nil" and of[1] ~= "<any type>"
+end
+
+--- Whether a type the checker printed is `any`, or `any` or nil.
+local function untyped(t: string): boolean
+  local of = type_members(t)
+  return of[1] == "<any type>" and (#of == 1 or (#of == 2 and of[2] == "nil"))
 end
 
 --- What to write for a value of `any`, which is what [`Json.decode`]
 --- answers, and what a field of one reads as: check it against a record
 --- with [`Shape.record_of`], or cast it unchecked. `value` is what the
 --- code names it; `wanted` the type expected of it, when the message
---- says: a primitive is narrowed with `is`, a capitalized name
---- (`Spec`, `Ledger.Month`) is taken for a record of the program's own
---- and named, and any other type is only cast.
-local function untyped_answer(who: string, value: string, wanted?: string): string
+--- says. A primitive is narrowed with `is`. A capitalized name may be a
+--- record, or an enum or a function type, which `record_of` refuses, so
+--- the check is offered only for a record; a qualified one (`L.Month`)
+--- is named for `record_of` by the module `source` binds `L` to, which
+--- is what it reads, and only cast where `source` binds none or a
+--- `cosmic.*` one. Any other type is only cast.
+local function untyped_answer(who: string, value: string, source: string, wanted?: string): string
+  if wanted == nil then
+    return who .. " is any (untyped, as Json.decode answers): check it against a record with " ..
+      "`local spec, err = Shape.record_of(\"Spec\"):into(" .. value .. ")` " ..
+      "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `" .. value .. " as Spec`"
+  end
   if wanted == "string" or wanted == "number" or wanted == "integer" or wanted == "boolean" then
     return who .. " is any (untyped): narrow it with `if " .. value .. " is " .. wanted ..
       " then ... end`, or cast it unchecked: `" .. value .. " as " .. wanted .. "`"
   end
-  local record_name = wanted ~= nil and (wanted:match("^%u[%w_]*$") or
-    wanted:match("^%u[%w_]*%.%u[%w_]*$")) or nil
-  if wanted ~= nil and record_name == nil then
-    return who .. " is any (untyped): cast it unchecked: `" .. value .. " as " .. wanted .. "`"
+  local cast = who .. " is any (untyped): cast it unchecked: `" .. value .. " as " .. wanted .. "`"
+  local named = wanted:match("^%u[%w_]*$")
+  local alias, record_name = wanted:match("^([%a_][%w_]*)%.(%u[%w_]*)$")
+  if alias ~= nil then
+    local module = module_bound(source, alias)
+    named = module ~= nil and module:match("^cosmic%.") == nil and module .. "." .. record_name or nil
   end
-  local name = record_name or "Spec"
-  return who .. " is any (untyped, as Json.decode answers): check it against a record with " ..
-    "`local spec, err = Shape.record_of(\"" .. name .. "\"):into(" .. value .. ")` " ..
-    "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `" .. value ..
-    " as " .. name .. "`"
+  if named == nil then
+    return cast
+  end
+  return cast .. "; if " .. wanted .. " is a record, `Shape.record_of(\"" .. named ..
+    "\"):into(" .. value .. ")` checks it (local Shape = require(\"cosmic.shape\"))"
 end
 
 --- What to write for a value that may be nil where none is taken:
@@ -884,14 +920,14 @@ end
 --- with the nil gone and raises the message that came with a nil.
 local function nil_answer(who: string, value: string): string
   return who .. " may be nil: check it first (`if " .. value ..
-    " == nil then return nil, err end`) or take it with `local " .. value ..
-    " = assert(<the call>)`"
+    " == nil then return nil, err end`), or, where a call answers it, take it with `local " ..
+    value .. " = assert(<the call>)`"
 end
 
 --- The hint for a value the checker refused because it is `any` or may
 --- be nil (see [`teal.replacement`]), whose fix is a line every such
 --- refusal shares: nil for any other message.
-local function narrowing_hint(msg: string): string | nil
+local function narrowing_hint(msg: string, source: string): string | nil
   local variable, seen = msg:match("^cannot index key '[^']*' in variable '([%a_][%w_]*)' of type (.+)$")
   local who = variable ~= nil and "'" .. variable .. "'" or "the value"
   local value = variable or "value"
@@ -900,18 +936,16 @@ local function narrowing_hint(msg: string): string | nil
       msg:match("^cannot index object of type (.+) with %a+$")
   end
   if seen ~= nil then
-    local bare, nilable = bare_type(seen)
-    if bare:match("^<any type>") ~= nil then
-      return untyped_answer(who, value)
-    elseif nilable then
+    if untyped(seen) then
+      return untyped_answer(who, value, source)
+    elseif one_or_nil(seen) then
       return nil_answer(who, value)
     end
     return nil
   end
   local closed, closing = msg:match("^to%-be%-closed variable ([%a_][%w_]*) has a non%-closable type (.+)$")
   if closed ~= nil then
-    local _, nilable = bare_type(closing)
-    if nilable then
+    if one_or_nil(closing) then
       return "the call may answer nil: `local " .. closed .. " <close> = assert(<the call>)` " ..
         "closes what it answers, and raises its error in place of the nil"
     end
@@ -923,8 +957,7 @@ local function narrowing_hint(msg: string): string | nil
     iterated, iterator = msg:match("^cannot apply pairs on values of type: (.+)$"), "pairs"
   end
   if iterated ~= nil then
-    local _, nilable = bare_type(iterated)
-    if nilable then
+    if one_or_nil(iterated) then
       return "the table may be nil: check it first (`if t == nil then return nil, err end`) " ..
         "or loop over `" .. iterator .. "(t or {})`"
     end
@@ -939,11 +972,16 @@ local function narrowing_hint(msg: string): string | nil
   end
   -- A value that may be nil is handed on where nil is not taken
   -- without a refusal, so only `any` is answered here.
-  if given ~= nil and wanted ~= nil and given:match("^<any type>") ~= nil then
-    return untyped_answer("the value", "value", (bare_type(wanted)))
+  if given ~= nil and wanted ~= nil and untyped(given) then
+    local expected = type_members(wanted)
+    return untyped_answer("the value", "value", source,
+      #expected == 1 and expected[1] or table.concat(expected, " | "))
   end
-  local operator = msg:match("^cannot use operator '(.-)' for types ")
-  if operator ~= nil and msg:find(" | ", 1, true) ~= nil then
+  -- The first " and " parts the operands: only a string literal's type
+  -- (`string "a and b"`) holds one, and parting there at worst says
+  -- nothing of a union it misses.
+  local left, right = msg:match("^cannot use operator '.-' for types (.-) and (.+)$")
+  if left ~= nil and (#type_members(left) > 1 or #type_members(right) > 1) then
     return "an operand is a union: narrow it first, as `if v is string then ... end` " ..
       "or `type(v) == \"string\"` does"
   end
@@ -1245,7 +1283,7 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
     return "'" .. hidden .. "' here is a local that hides the standard library's " ..
       hidden .. ": rename it"
   end
-  local narrowed = narrowing_hint(msg)
+  local narrowed = narrowing_hint(msg, source)
   if narrowed ~= nil then
     return narrowed
   end
@@ -1297,10 +1335,10 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
   -- (`in local declaration: r: unknown field alpah`) the same way: it
   -- waits on a patch/tl record giving that error the record's fields too.
   -- TODO: hint a key a union's records lack (`cannot index key 'type'
-  -- in type sys.Stat | nil`, an unchecked `Fs.stat(p).type`): the
-  -- checker gives fields only for a single record (patch/tl/33d); the
-  -- fix is fields for each record member, and for one holding nil a
-  -- hint to check for nil before naming any field.
+  -- in type A | B`): the checker gives fields only for a single record
+  -- (patch/tl/33d); the fix is fields for each record member. One
+  -- record or nil is told to check for nil ([`narrowing_hint`]) even
+  -- where the record lacks the key too, which its fields would tell.
   local missing = missing_key(msg)
   if missing ~= nil and fields ~= nil then
     return field_hint(missing.key, missing.owner, fields)

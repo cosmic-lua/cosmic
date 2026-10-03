@@ -780,7 +780,7 @@ end
 
 --- Holds the checker to reporting `msg` for `source`, and
 --- [`teal.replacement`] to answering it `want`.
-local function answers(source: string, msg: string, want: string)
+local function answers(source: string, msg: string, want: string | nil)
   local got = replacement_for(source, msg)
   if got == "no such diagnostic" then
     local seen: {string} = {}
@@ -812,9 +812,17 @@ local function test_an_untyped_value_is_told_the_check_and_the_cast()
     "local function run(s: Spec) print(s) end\n"
   answers(decoded .. record_spec .. "local cfg = decode('')\nrun(cfg)\n",
     "argument 1: got <any type> | nil, expected Spec",
-    "the value is any (untyped, as Json.decode answers): check it against a record with " ..
-      "`local spec, err = Shape.record_of(\"Spec\"):into(value)` " ..
-      "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `value as Spec`")
+    "the value is any (untyped): cast it unchecked: `value as Spec`; if Spec is a record, " ..
+      "`Shape.record_of(\"Spec\"):into(value)` checks it (local Shape = require(\"cosmic.shape\"))")
+  -- A qualified record is named for `record_of` by its module's path,
+  -- which the alias is bound to; an unbound alias is only cast.
+  assert(teal.replacement("argument 1: got <any type>, expected L.Month",
+    'local L = require("app.ledger")\n', 1, 1) ==
+      "the value is any (untyped): cast it unchecked: `value as L.Month`; if L.Month is a record, " ..
+      "`Shape.record_of(\"app.ledger.Month\"):into(value)` checks it " ..
+      "(local Shape = require(\"cosmic.shape\"))")
+  assert(teal.replacement("argument 1: got <any type>, expected L.Month", "", 1, 1) ==
+      "the value is any (untyped): cast it unchecked: `value as L.Month`")
   answers(decoded .. "local n: integer = decode('')\nprint(n)\n",
     "in local declaration: n: got <any type> | nil, expected integer",
     "the value is any (untyped): narrow it with `if value is integer then ... end`, " ..
@@ -832,16 +840,20 @@ local function test_a_value_that_may_be_nil_is_told_the_check()
     "local function list(): {string} | nil, string return nil, 'none' end\n"
   answers(record_r .. "local r = find()\nprint(r.n)\n",
     "cannot index key 'n' in variable 'r' of type R | nil",
-    "'r' may be nil: check it first (`if r == nil then return nil, err end`) " ..
-      "or take it with `local r = assert(<the call>)`")
+    "'r' may be nil: check it first (`if r == nil then return nil, err end`), " ..
+      "or, where a call answers it, take it with `local r = assert(<the call>)`")
   answers(record_r .. "print(find().n)\n",
     "cannot index key 'n' in type R | nil",
-    "the value may be nil: check it first (`if value == nil then return nil, err end`) " ..
-      "or take it with `local value = assert(<the call>)`")
+    "the value may be nil: check it first (`if value == nil then return nil, err end`), " ..
+      "or, where a call answers it, take it with `local value = assert(<the call>)`")
   answers(record_r .. "for _, s in ipairs(list()) do print(s) end\n",
     "attempting ipairs on something that's not an array: {string} | nil",
     "the table may be nil: check it first (`if t == nil then return nil, err end`) " ..
       "or loop over `ipairs(t or {})`")
+  -- Checking for nil leaves `string | R` unusable still: no nil hint.
+  local both = record_r .. "local function both(): string | R | nil return nil end\n"
+  answers(both .. "local b = both()\nprint(b.n)\n",
+    "cannot index key 'n' in variable 'b' of type string | R | nil", nil)
   -- The checker's target here is 5.3, which has no `<close>`: the
   -- message is the one a cosmic compile reports.
   assert(teal.replacement("to-be-closed variable g has a non-closable type R | nil", "", 1, 1) ==
@@ -855,4 +867,6 @@ local function test_a_union_operand_is_told_to_narrow_it()
     "cannot use operator '+' for types string | integer and integer",
     "an operand is a union: narrow it first, as `if v is string then ... end` " ..
       "or `type(v) == \"string\"` does")
+  answers("local function f(g: function(string | nil): integer): integer\n  return g + 1\nend\nprint(f)\n",
+    "cannot use operator '+' for types function(string | nil): integer and integer", nil)
 end
