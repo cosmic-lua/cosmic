@@ -1,0 +1,48 @@
+file: tl.tl
+note: a function literal passed to an overloaded function reads the parameter type every one of its functions declares at that position, when they all declare the same one (37d), since whichever is chosen calls it with that type; where any differs, lacks the position or is generic, the literal has no context, as every argument of an overloaded call had before
+--- find
+                  for k, arg in ipairs(node.e2) do
+                     if arg.kind == "function" and arg.expected and has_unbound_typevars(self, arg.expected) then
+                        for j = 1, k - 1 do
+                           node.e2[j].binds_context = true
+                        end
+                     end
+                  end
+               end
+            elseif node.op.op == "@index" then
+--- replace
+                  for k, arg in ipairs(node.e2) do
+                     if arg.kind == "function" and arg.expected and has_unbound_typevars(self, arg.expected) then
+                        for j = 1, k - 1 do
+                           node.e2[j].binds_context = true
+                        end
+                     end
+                  end
+               elseif e1type is PolyType then
+                  local argdelta = (node.e1.op and node.e1.op.op == ":") and -1 or 0
+                  for k, arg in ipairs(node.e2) do
+                     if arg.kind == "function" then
+                        local agreed: Type
+                        for _, f in ipairs(e1type.types) do
+                           local p: Type
+                           if f is FunctionType then
+                              local fargs = f.args.tuple
+                              p = fargs[k - argdelta]
+                              if not p and f.args.is_va then
+                                 p = fargs[#fargs]
+                              end
+                           end
+                           if not p or (agreed and not self:same_type(p, agreed)) then
+                              agreed = nil
+                              break
+                           end
+                           agreed = p
+                        end
+                        if agreed then
+                           arg.expected = self:infer_at(arg, agreed)
+                        end
+                     end
+                  end
+               end
+            elseif node.op.op == "@index" then
+--- end
