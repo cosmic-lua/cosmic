@@ -403,20 +403,32 @@ local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_n
   assert(not also)
 end
 
+--- The tree is built and taken down a level at a time from inside it:
+--- its deepest path is past macOS's PATH_MAX of 1024, which no call
+--- taking a whole path accepts there.
 local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(tmp: string)
   local levels = 1100
-  local parts: {string} = {}
-  for i = 1, levels do parts[i] = "d" end
   local deep = tmp .. "/deep"
-  assert(Fs.mkdirs(deep .. "/" .. table.concat(parts, "/")))
+  local here = assert(sys.getcwd())
+  assert(sys.mkdir(deep, 448))
+  assert(sys.chdir(deep))
+  for _ = 1, levels do
+    assert(sys.mkdir("d", 448))
+    assert(sys.chdir("d"))
+  end
+  assert(sys.chdir(here))
   local removed, why = Fs.remove_tree(deep)
   assert(not removed and why ~= "", "a tree past the bound was removed")
   assert(Fs.exists(deep) == true, "what failed to go is left")
-  -- A tree the walk can take goes, and what is left of this one is
-  -- taken from the bottom for the test's own directory to be removable.
-  for i = levels, 1, -1 do
-    assert(sys.rmdir(deep .. "/" .. table.concat(parts, "/", 1, i)))
+  -- What is left is taken from the bottom for the test's own directory
+  -- to be removable.
+  assert(sys.chdir(deep))
+  for _ = 1, levels do assert(sys.chdir("d")) end
+  for _ = 1, levels do
+    assert(sys.chdir(".."))
+    assert(sys.rmdir("d"))
   end
+  assert(sys.chdir(here))
   assert(Fs.remove_tree(deep))
   assert(Fs.exists(deep) == false)
   -- No descriptor was left open by the failed walk.
