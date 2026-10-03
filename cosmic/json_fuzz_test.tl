@@ -347,6 +347,74 @@ local function test_decode_is_total_on_mutated_json(tmp: string)
     shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2, ["refused a key twice"] = 0.005 } })
 end
 
+--- What the text-to-text functions hold to on `input`, read as RFC
+--- 8259 and as JSON5: `check` answers what `decode` does; `format`
+--- reads what `decode` reads and a number past a double's range,
+--- refusing beyond it only NaN and the infinities, writes text that decodes to the same value and formats
+--- to itself, compact or laid out; `canonical` is a fixed point, the
+--- same through `format` and through `decode` and `encode`.
+local function text_holds(input: string): boolean, string
+  for _, json5 in ipairs({ false, true }) do
+    local where = json5 and "JSON5" or "RFC 8259"
+    local value, err = Json.decode(input, { null_value = Json.null, json5 = json5 })
+    local ok, check_err = Json.check(input, { json5 = json5 })
+    if ok ~= (err == "") or (not ok and check_err ~= err) then
+      return false, where .. ": check said " .. check_err .. ", decode " .. err
+    end
+    local compact, ferr = Json.format(input, { json5 = json5 })
+    if compact == nil then
+      if err == "" and not ferr:match("^json: cannot format ") then
+        return false, where .. ": format refused what decode read: " .. ferr
+      end
+    else
+      -- A number past a double's range is the one thing decode refuses
+      -- that format keeps: its text is JSON.
+      if err ~= "" and not err:match("is infinity when parsed as double$") then
+        return false, where .. ": format read what decode refused: " .. err
+      end
+      if err ~= "" then goto next end
+      Fuzz.label(json5 and "formatted JSON5" or "formatted")
+      -- JSON5 reads a number past a double's range, as an infinity; RFC
+      -- 8259 refuses it, so the text is read back as the input was.
+      local back, berr = Json.decode(compact, { null_value = Json.null, max_depth = 1000, json5 = json5 })
+      if berr ~= "" then return false, where .. ": format wrote what decode refuses: " .. berr end
+      if canonical(back, where) ~= canonical(value, where) then
+        return false, where .. ": format changed the value: " .. compact
+      end
+      if Json.format(compact) ~= compact then
+        return false, where .. ": format is no fixed point: " .. compact
+      end
+      local pretty = Json.format(input, { json5 = json5, pretty = true })
+      if pretty == nil or Json.format(pretty) ~= compact then
+        return false, where .. ": laid out, it is not the same text: " .. tostring(pretty)
+      end
+    end
+    local jcs, cerr = Json.canonical(input, { json5 = json5 })
+    if jcs ~= nil then
+      Fuzz.label("canonical")
+      if Json.canonical(jcs) ~= jcs then
+        return false, where .. ": canonical is no fixed point: " .. jcs
+      end
+      if compact == nil or Json.canonical(compact) ~= jcs then
+        return false, where .. ": canonical differs through format: " .. jcs
+      end
+      local encoded = Json.encode(finite(value), CANONICAL)
+      if encoded == nil or Json.canonical(encoded) ~= jcs then
+        return false, where .. ": canonical differs through decode and encode: " .. jcs
+      end
+    elseif compact ~= nil and not (cerr:match("^json: cannot format ") or cerr:match("infinity")) then
+      return false, where .. ": canonical refused what format wrote: " .. cerr
+    end
+    ::next::
+  end
+  return true, ""
+end
+
+local function test_text_to_text_holds_on_mutated_json(tmp: string)
+  Fuzz.run({ name = "json text to text", dir = tmp, gen = gen_text, check = text_holds,
+    shares = { formatted = 0.15, ["formatted JSON5"] = 0.15, canonical = 0.1 } })
+end
+
 local function test_decode_is_total_on_arbitrary_bytes(tmp: string)
   Fuzz.run({
     name = "json decode total on bytes",

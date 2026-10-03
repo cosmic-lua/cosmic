@@ -723,3 +723,94 @@ local function test_members_lists_what_a_walk_visits()
   local far = Json.members(Json.array({ [1 << 40] = 7 } as {any}) as {any: any}, true)
   assert(far.layout == "array" and far.extent == 1 << 40 and #far.keys == 1)
 end
+
+--- `check` answers what `decode` would, building nothing.
+local function test_check_answers_as_decode_would()
+  assert(Json.check('{"a": [1, 2]}') == true)
+  local ok, err = Json.check('{"a": 1, "a": 2}')
+  assert(not ok and err == "json: duplicate key at line 1, column 10 ($.a)", err)
+  assert(Json.check('{"a": 1, "a": 2}', { duplicate_keys = true }))
+  local _, deep = Json.check("[[1]]", { max_depth = 1 })
+  assert(deep == "json: JSON nests deeper than 1 levels at line 1, column 2 ($[1])", deep)
+  local _, big = Json.check("1e400")
+  assert(big:match("infinity"), big)
+  assert(Json.check("1e400", { big_numbers_as_strings = true }), "the options are decode's")
+  assert(Json.check("{a: 1}", { json5 = true }) and not Json.check("{a: 1}"))
+  local _, bad = Json.check("[1,]")
+  assert(bad == select(2, Json.decode("[1,]")), "the message is decode's")
+end
+
+--- `format` writes the text again, keeping its order and its numbers'
+--- text, and refuses what `decode` refuses.
+local function test_format_keeps_order_and_numbers()
+  local text = '{ "b" : 1.50, "a": [ ], "c": {"x": [1e400, -0, "\\u00e9\\/"], "e": {}} }'
+  assert(Json.format(text) == '{"b":1.50,"a":[],"c":{"x":[1e400,-0,"\u{e9}/"],"e":{}}}', Json.format(text))
+  assert(Json.format(text, { pretty = true }) == [[
+{
+  "b": 1.50,
+  "a": [],
+  "c": {
+    "x": [
+      1e400,
+      -0,
+      "]] .. "\u{e9}" .. [[/"
+    ],
+    "e": {}
+  }
+}]], "laid out as encode lays out a value")
+  assert(Json.format('"x"') == '"x"' and Json.format(" null ") == "null", "a scalar")
+  assert(Json.format('{"a": 1, "a": 2}', { duplicate_keys = true }) == '{"a":1,"a":2}',
+    "each member of a key twice, in its place")
+  assert(select(2, Json.format('{"a": 1, "a": 2}')) == "json: duplicate key at line 1, column 10 ($.a)")
+  local _, deep = Json.format("[[1]]", { max_depth = 1 })
+  assert(deep:match("^json: JSON nests deeper"), deep)
+  local five = "// c\n{a: 0x1F, 'b': +1, c: .5, d: 5., e: -0x10, f: 1.50, # h\n}"
+  assert(Json.format(five, { json5 = true, hash_comments = true }) == '{"a":31,"b":1,"c":0.5,"d":5.0,"e":-16,"f":1.50}',
+    "JSON5's own number forms become the shortest text for their number")
+  assert(select(2, Json.format("{a: [1, NaN]}", { json5 = true })) == "json: cannot format NaN at $.a[2]")
+  assert(select(2, Json.format("[-Infinity]", { json5 = true })) == "json: cannot format an infinite number at $[1]")
+  assert(Json.format('["\\ud83d"]', { lone_surrogates = true }) == '["\u{fffd}"]')
+end
+
+--- RFC 8785's own example, its number samples (appendix B) and its key
+--- order (section 3.2.3).
+local function test_canonical_is_rfc_8785()
+  local example = '{"numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001], ' ..
+    '"string": "\\u20ac$\\u000F\\u000aA\'\\u0042\\u0022\\u005c\\\\\\"\\/", "literals": [null, true, false]}'
+  assert(Json.canonical(example) == '{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],' ..
+    '"string":"\u{20ac}$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}', Json.canonical(example))
+  local samples: {{string}} = {
+    { "0000000000000000", "0" }, { "8000000000000000", "0" }, { "0000000000000001", "5e-324" },
+    { "8000000000000001", "-5e-324" }, { "7fefffffffffffff", "1.7976931348623157e+308" },
+    { "ffefffffffffffff", "-1.7976931348623157e+308" }, { "4340000000000000", "9007199254740992" },
+    { "c340000000000000", "-9007199254740992" }, { "4430000000000000", "295147905179352830000" },
+    { "44b52d02c7e14af5", "9.999999999999997e+22" }, { "44b52d02c7e14af6", "1e+23" },
+    { "44b52d02c7e14af7", "1.0000000000000001e+23" }, { "444b1ae4d6e2ef4e", "999999999999999700000" },
+    { "444b1ae4d6e2ef4f", "999999999999999900000" }, { "444b1ae4d6e2ef50", "1e+21" },
+    { "3eb0c6f7a0b5ed8c", "9.999999999999997e-7" }, { "3eb0c6f7a0b5ed8d", "0.000001" },
+    { "41b3de4355555553", "333333333.3333332" }, { "41b3de4355555554", "333333333.33333325" },
+    { "41b3de4355555555", "333333333.3333333" }, { "41b3de4355555556", "333333333.3333334" },
+    { "41b3de4355555557", "333333333.33333343" }, { "becbf647612f3696", "-0.0000033333333333333333" },
+    { "43143ff3c1cb0959", "1424953923781206.2" },
+  }
+  for _, sample in ipairs(samples) do
+    local bits = (math.tointeger(tonumber(sample[1]:sub(1, 8), 16)) as integer) << 32 |
+      math.tointeger(tonumber(sample[1]:sub(9), 16)) as integer
+    local f = string.unpack("<d", string.pack("<i8", bits)) as number
+    local got = Json.canonical(("%.17g"):format(f))
+    assert(got == sample[2], sample[1] .. ": " .. tostring(got))
+  end
+  local keys = '{"\\u20ac": 1, "\\r": 2, "\\ufb33": 3, "1": 4, "\\ud83d\\ude00": 5, "\\u0080": 6, "\\u00f6": 7}'
+  assert(Json.canonical(keys) ==
+    '{"\\r":2,"1":4,"\u{80}":6,"\u{f6}":7,"\u{20ac}":1,"\u{1f600}":5,"\u{fb33}":3}',
+    "by UTF-16 code units: a pair sorts before U+FB33")
+  assert(Json.canonical("[1, 1.0, 1e0, 10E-1, 9007199254740993]") == "[1,1,1,1,9007199254740992]",
+    "every number is the double it reads as")
+  assert(Json.canonical('{"b": {"d": 1, "c": 2}, "a": []}') == '{"a":[],"b":{"c":2,"d":1}}', "nested objects sort")
+  assert(select(2, Json.canonical('{"a": 1, "a": 2}')) == "json: duplicate key at line 1, column 10 ($.a)",
+    "a key twice has no canonical form")
+  local _, big = Json.canonical("1e400")
+  assert(big:match("infinity"), "nor a number past a double's range")
+  assert(Json.canonical("{a: 0x10, b: [.5]}", { json5 = true }) == '{"a":16,"b":[0.5]}')
+  assert(select(2, Json.canonical("NaN", { json5 = true })) == "json: cannot format NaN")
+end
