@@ -45,7 +45,7 @@ local errors = require("cosmic.internal.errors")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace and arrives as the second argument
---- `require` passes this chunk's loader, as cosmic/http.tl's does.
+--- `require` passes this chunk's loader, as cosmic/http/init.tl's does.
 local type raw_socket = require("cosmic.internal.socket")
 
 local extra: any = select(2, ...)
@@ -147,7 +147,7 @@ local record Net
     listeners: {Address}
     --- The protocol: run once for each connection accepted, in a task of
     --- its own, which closes the connection once it returns or raises.
-    --- What it raises goes to [`ServeSpec.on_error`], and the server goes
+    --- What it raises goes to [`Net.ServeSpec.on_error`], and the server goes
     --- on.
     serve: function(conn: Conn)
     --- What a server takes on at most.
@@ -187,7 +187,7 @@ local record Net
     --- signal cancels its wait ([`Poll.Task.cancel`]) as it ends the
     --- grace, though not the wait of a task it spawned, which
     --- [`Net.serve`] waits for too. What it raises goes to
-    --- [`ServeSpec.on_error`], with its stack, and the server stops all
+    --- [`Net.ServeSpec.on_error`], with its stack, and the server stops all
     --- the same.
     on_stop: function(server: Server)
     --- Given what the protocol raised for a connection, with its stack,
@@ -197,13 +197,13 @@ local record Net
     on_error: function(trouble: string)
   end
 
-  --- A server [`Net.serve`] runs, handed to its [`ServeSpec.on_ready`]
-  --- and [`ServeSpec.on_stop`].
+  --- A server [`Net.serve`] runs, handed to its [`Net.ServeSpec.on_ready`]
+  --- and [`Net.ServeSpec.on_stop`].
   record Server
-    --- Where each listener listens, as [`ServeSpec.on_ready`] was given.
+    --- Where each listener listens, as [`Net.ServeSpec.on_ready`] was given.
     addresses: {Address}
     --- Stops the server, from any task of its run: every listener is
-    --- closed at once, [`ServeSpec.on_stop`] is called in a task of its
+    --- closed at once, [`Net.ServeSpec.on_stop`] is called in a task of its
     --- own, and [`Net.serve`] returns once every task of its run has
     --- ended, the connections still open after `grace_ns` closed and
     --- their tasks killed. Stopping a server that is stopping does
@@ -731,7 +731,7 @@ local serving_mt: metatable<Serving> = {
 --- not retried, and reported, without pause.
 local ACCEPT_PAUSE_NS <const> = Time.ms(100)
 
---- Gives `trouble` to the spec's [`ServeSpec.on_error`], or stderr.
+--- Gives `trouble` to the spec's [`Net.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
   if s.spec.on_error ~= nil then
     s.spec.on_error(trouble)
@@ -928,16 +928,16 @@ end
 --- task of its own, in a [`Poll.run`] of its own: so it cannot be called
 --- in a task of another. It returns true once [`Server.stop`] has been
 --- called, or a signal has stopped it, and every task of the run has
---- ended -- each connection's, and any [`ServeSpec.on_ready`] or
---- [`ServeSpec.on_stop`] spawned -- and false and why, having called
+--- ended -- each connection's, and any [`Net.ServeSpec.on_ready`] or
+--- [`Net.ServeSpec.on_stop`] spawned -- and false and why, having called
 --- nothing, where a listener cannot listen or its signal guard cannot
 --- be opened, or, having served, where the guard cannot restore the
 --- dispositions it found. What
---- [`ServeSpec.on_ready`] or [`ServeSpec.on_error`] raises, it raises,
+--- [`Net.ServeSpec.on_ready`] or [`Net.ServeSpec.on_error`] raises, it raises,
 --- having closed every listener and connection.
 ---
 --- One connection's failure is its own: what its protocol raises is
---- given to [`ServeSpec.on_error`], the connection is closed, and the
+--- given to [`Net.ServeSpec.on_error`], the connection is closed, and the
 --- rest are served on. A connection still open `grace_ns` after the
 --- stop is closed, and its task killed where it waits
 --- ([`Poll.Task.kill`]): the protocol is not resumed, but its `<close>`
@@ -959,7 +959,7 @@ end
 --- which sees it too. A signal the server did not stop on, one in a
 --- drain [`Server.stop`] began, is delivered again as the guard closes,
 --- as it would be without it; so is any signal caught where a listener
---- cannot listen or [`ServeSpec.on_ready`] or [`ServeSpec.on_error`]
+--- cannot listen or [`Net.ServeSpec.on_ready`] or [`Net.ServeSpec.on_error`]
 --- raises. A
 --- [`Child.run`] in a protocol holds a guard inside the server's, so a
 --- signal ends its child as it would anywhere, and a run begun after

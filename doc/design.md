@@ -1126,7 +1126,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.fs.walk`]: ../cosmic/fs.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.hash`]: ../cosmic/hash.tl
-[`cosmic.http`]: ../cosmic/http.tl
+[`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.internal.errors`]: ../cosmic/internal/errors.d.tl
 [`cosmic.internal.hash`]: ../cosmic/internal/hash.d.tl
 [`cosmic.internal.process`]: ../core/process.h
