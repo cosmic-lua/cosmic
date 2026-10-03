@@ -39,6 +39,7 @@
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Plural = require("cosmic_ci.plural")
 local Predicate = require("cosmic_ci.fs_predicate")
 
@@ -97,45 +98,10 @@ ZigPrune.zig_version = "0.17.0"
 ZigPrune.key = string.char(0x02, 0xe9, 0xfa, 0xfe, 0xe0, 0x95, 0x81, 0x55,
   0xf5, 0x5a, 0x15, 0xcb, 0x4a, 0xf4, 0x00, 0x09)
 
-local function rotl(x: integer, b: integer): integer
-  return (x << b) | (x >> (64 - b))
-end
-
 --- SipHash128-1-3 of `message` under the 16-byte `k`: zig's
 --- `crypto.auth.siphash.SipHash128(1, 3)`, 16 raw bytes.
 function ZigPrune.siphash128(k: string, message: string): string
-  -- TODO: answer [`Hash.siphash`]'s SipHash128-1-3 (compression 1,
-  -- finalization 3, size 16) rather than hashing in Lua, once
-  -- ci/cosmic-driver.pin names a release that carries it.
-  local k0, k1 = string.unpack("<i8<i8", k)
-  local v0 = k0 ~ 0x736f6d6570736575
-  local v1 = k1 ~ 0x646f72616e646f6d
-  local v2 = k0 ~ 0x6c7967656e657261
-  local v3 = k1 ~ 0x7465646279746573
-  v1 = v1 ~ 0xee
-  local function round()
-    v0 = v0 + v1; v1 = rotl(v1, 13); v1 = v1 ~ v0; v0 = rotl(v0, 32)
-    v2 = v2 + v3; v3 = rotl(v3, 16); v3 = v3 ~ v2
-    v0 = v0 + v3; v3 = rotl(v3, 21); v3 = v3 ~ v0
-    v2 = v2 + v1; v1 = rotl(v1, 17); v1 = v1 ~ v2; v2 = rotl(v2, 32)
-  end
-  local n = #message
-  local whole = n - n % 8
-  local at = 1
-  while at <= whole do
-    local m = string.unpack("<i8", message, at)
-    v3 = v3 ~ m; round(); v0 = v0 ~ m
-    at = at + 8
-  end
-  local tail = message:sub(whole + 1) .. string.rep("\0", 8 - (n - whole))
-  local b = string.unpack("<i8", tail) | ((n & 0xff) << 56)
-  v3 = v3 ~ b; round(); v0 = v0 ~ b
-  v2 = v2 ~ 0xee
-  round(); round(); round()
-  local first = v0 ~ v1 ~ v2 ~ v3
-  v1 = v1 ~ 0xdd
-  round(); round(); round()
-  return string.pack("<i8<i8", first, v0 ~ v1 ~ v2 ~ v3)
+  return Hash.siphash(k, message, { compression = 1, finalization = 3, size = 16 })
 end
 
 --- A manifest, as `read` finds it: the output it vouches for and the
