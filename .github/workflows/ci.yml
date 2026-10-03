@@ -295,11 +295,20 @@
         # linux-x86_64's grew 323 -> 347 -> 369 -> 388 MB over runs
         # 36317996933 to 36325134876, all with one input hash, where a
         # checkout at a new path, built from the same entry (even through
-        # a tar round trip), writes nothing. zig's build runner, compiled
-        # for the runner's detected CPU, is the likeliest (40 MB, and
-        # about 3 s to compile here); a step listing what the build wrote
-        # under zig-build (find -newer a stamp made after the restore)
-        # would say.
+        # a tar round trip), writes nothing. What zig builds for the
+        # runner's detected CPU is the likeliest: its maker (11 MB, in
+        # the global cache) and the configurer compiled from build.zig
+        # (22 MB, in the project cache, beside its configuration under
+        # `c/`); a step listing what the build wrote under zig-build
+        # (find -newer a stamp made after the restore) would say.
+        # TODO: an entry restored here recompiles every C file the build
+        # compiles (a boot of 100 s locally, where zig 0.16 took 8 s):
+        # zig's std/Build/Cache.zig `checkInputPath` compares a direct
+        # input whose stat moved, re-hashed, against a digest nothing
+        # computed rather than the one its manifest holds, so the new
+        # inode a restore gives each vendored source is a miss. Nothing
+        # here can keep the inodes; drop this once zig compares against
+        # the manifest's digest (unreported upstream as of 0.17.0).
         {
           name: "name the zig build cache, and the run's start",
           id: "names",

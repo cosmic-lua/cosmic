@@ -7,6 +7,8 @@
 ---   or a stream; [`cosmic.stream`]'s `hashing` feeds one as data passes.
 --- - [`Hash.sha256`] and [`Hash.hex_sha256`] are the common case in one
 ---   call.
+--- - [`Hash.siphash`] is SipHash, a keyed hash for short inputs: a hash
+---   table's, or a cache key a format defines by it.
 ---
 ---     local hex = Hash.hex_sha256("cosmic")
 ---     local code = Hash.hmac("sha256", "key", "message")
@@ -55,6 +57,19 @@ local record Hash
   --- closeable: `local h <close> = ...` abandons an unfinished one at the
   --- end of the scope.
   type Hasher = raw_hash.Hasher
+
+  --- The variant [`Hash.siphash`] computes, SipHash-c-d; each field is
+  --- its default when absent.
+  record SipHashOptions
+    --- Rounds per 8-byte word of the message (`c`): 1 to 64, 2 by
+    --- default.
+    compression: integer
+    --- Rounds once the message is in (`d`): 1 to 64, 4 by default.
+    finalization: integer
+    --- The tag's length in bytes: 8 (SipHash-64, the default) or 16
+    --- (SipHash-128).
+    size: integer
+  end
 end
 
 --- The raw digest of some bytes under an algorithm: 16 bytes for MD5,
@@ -99,6 +114,20 @@ end
 --- algorithm.
 function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher | nil, string
   return raw.hmac_hasher(algorithm, key)
+end
+
+--- The raw SipHash tag of `data` under a 16-byte `key`: SipHash-2-4's
+--- 8 bytes by default, another variant through `options`
+--- ([`Hash.SipHashOptions`]), as the reference implementation computes
+--- it. Raises on a key of another length, or options out of range.
+---
+---     local tag = Hash.siphash(string.rep("k", 16), "message")
+---     -- zig's build cache keys its manifests by SipHash128-1-3.
+---     local wide = Hash.siphash(string.rep("k", 16), "message",
+---       { compression = 1, finalization = 3, size = 16 })
+function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions): string
+  local o = options or {}
+  return raw.siphash(key, data, o.compression, o.finalization, o.size)
 end
 
 --- The sum of the unsigned bytes of `data` from `first` through `last`
