@@ -113,9 +113,13 @@ local record Json
   record FormatOptions
     --- Lay the text out as `encode`'s `pretty` does (default false).
     pretty: boolean
+    --- How many arrays and objects may nest, as `decode` takes it.
     max_depth: integer
+    --- Read JSON5, as `decode` does; what is written is RFC 8259.
     json5: boolean
+    --- Read `#` line comments, as `decode` does.
     hash_comments: boolean
+    --- Read a lone surrogate escape as U+FFFD, as `decode` does.
     lone_surrogates: boolean
     --- Read an object that holds a key twice rather than refusing it
     --- (default false); each member is written, in its place.
@@ -126,9 +130,13 @@ local record Json
   --- `decode` reads it. Every field is optional. A key twice is always
   --- refused: RFC 8785 has no form for it.
   record CanonicalOptions
+    --- How many arrays and objects may nest, as `decode` takes it.
     max_depth: integer
+    --- Read JSON5, as `decode` does.
     json5: boolean
+    --- Read `#` line comments, as `decode` does.
     hash_comments: boolean
+    --- Read a lone surrogate escape as U+FFFD, as `decode` does.
     lone_surrogates: boolean
   end
 
@@ -305,12 +313,12 @@ end
 
 --- The JSON value `text` holds, written again as RFC 8259 text, and "":
 --- with no space, or laid out as `encode`'s `pretty` lays a value out.
---- What `decode` would refuse is refused, with its message, but for a
---- number past a double's range, which is JSON all the same. Nothing
+--- What `decode` would refuse is refused, with its message. Nothing
 --- else changes: members keep their order, strings their characters
 --- (escaped only where JSON must escape them) and numbers their text,
---- `1.50` and `1e400` too -- but for JSON5's own forms (`0x1F`, `+1`,
---- `.5`, `5.`), written as the shortest text for the number each names.
+--- `1.50` and thirty digits too -- but for JSON5's own forms, written as
+--- RFC 8259 writes the same number: `+1` as `1`, `.5` as `0.5`, `5.` as
+--- `5.0`, `0x1F` as `31`.
 --- nil and a message, naming where, for NaN or an infinity, which JSON
 --- has no text for.
 function Json.format(text: string, opts?: Json.FormatOptions): string | nil, string

@@ -743,15 +743,16 @@ end
 --- `format` writes the text again, keeping its order and its numbers'
 --- text, and refuses what `decode` refuses.
 local function test_format_keeps_order_and_numbers()
-  local text = '{ "b" : 1.50, "a": [ ], "c": {"x": [1e400, -0, "\\u00e9\\/"], "e": {}} }'
-  assert(Json.format(text) == '{"b":1.50,"a":[],"c":{"x":[1e400,-0,"\u{e9}/"],"e":{}}}', Json.format(text))
+  local text = '{ "b" : 1.50, "a": [ ], "c": {"x": [123456789012345678901234567890, -0, "\\u00e9\\/"], "e": {}} }'
+  assert(Json.format(text) == '{"b":1.50,"a":[],"c":{"x":[123456789012345678901234567890,-0,"\u{e9}/"],"e":{}}}',
+    Json.format(text))
   assert(Json.format(text, { pretty = true }) == [[
 {
   "b": 1.50,
   "a": [],
   "c": {
     "x": [
-      1e400,
+      123456789012345678901234567890,
       -0,
       "]] .. "\u{e9}" .. [[/"
     ],
@@ -764,9 +765,16 @@ local function test_format_keeps_order_and_numbers()
   assert(select(2, Json.format('{"a": 1, "a": 2}')) == "json: duplicate key at line 1, column 10 ($.a)")
   local _, deep = Json.format("[[1]]", { max_depth = 1 })
   assert(deep:match("^json: JSON nests deeper"), deep)
-  local five = "// c\n{a: 0x1F, 'b': +1, c: .5, d: 5., e: -0x10, f: 1.50, # h\n}"
-  assert(Json.format(five, { json5 = true, hash_comments = true }) == '{"a":31,"b":1,"c":0.5,"d":5.0,"e":-16,"f":1.50}',
-    "JSON5's own number forms become the shortest text for their number")
+  local five = "// c\n{a: 0x1F, 'b': +1, c: .5, d: 5., e: -0x10, f: 1.50, g: -.5e3, h: +1e400, i: 5.E2, # h\n}"
+  assert(Json.format(five, { json5 = true, hash_comments = true }) ==
+      '{"a":31,"b":1,"c":0.5,"d":5.0,"e":-16,"f":1.50,"g":-0.5e3,"h":1e400,"i":5.0E2}', Json.format(five, { json5 = true,
+        hash_comments = true }))
+  for _, number in ipairs({ "1e400", "0x", "[0x]", "1E+-1", "1ee1", "[1.e]", "0x10000000000000000" }) do
+    local five_too = number:match("x") ~= nil
+    local _, refused = Json.format(number, { json5 = five_too })
+    local _, decoded_err = Json.decode(number, { json5 = five_too })
+    assert(refused ~= "" and refused == decoded_err, number .. ": " .. refused .. " vs " .. decoded_err)
+  end
   assert(select(2, Json.format("{a: [1, NaN]}", { json5 = true })) == "json: cannot format NaN at $.a[2]")
   assert(select(2, Json.format("[-Infinity]", { json5 = true })) == "json: cannot format an infinite number at $[1]")
   assert(Json.format('["\\ud83d"]', { lone_surrogates = true }) == '["\u{fffd}"]')
@@ -778,7 +786,7 @@ local function test_canonical_is_rfc_8785()
   local example = '{"numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001], ' ..
     '"string": "\\u20ac$\\u000F\\u000aA\'\\u0042\\u0022\\u005c\\\\\\"\\/", "literals": [null, true, false]}'
   assert(Json.canonical(example) == '{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],' ..
-    '"string":"\u{20ac}$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}', Json.canonical(example))
+      '"string":"\u{20ac}$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}', Json.canonical(example))
   local samples: {{string}} = {
     { "0000000000000000", "0" }, { "8000000000000000", "0" }, { "0000000000000001", "5e-324" },
     { "8000000000000001", "-5e-324" }, { "7fefffffffffffff", "1.7976931348623157e+308" },
@@ -802,7 +810,7 @@ local function test_canonical_is_rfc_8785()
   end
   local keys = '{"\\u20ac": 1, "\\r": 2, "\\ufb33": 3, "1": 4, "\\ud83d\\ude00": 5, "\\u0080": 6, "\\u00f6": 7}'
   assert(Json.canonical(keys) ==
-    '{"\\r":2,"1":4,"\u{80}":6,"\u{f6}":7,"\u{20ac}":1,"\u{1f600}":5,"\u{fb33}":3}',
+      '{"\\r":2,"1":4,"\u{80}":6,"\u{f6}":7,"\u{20ac}":1,"\u{1f600}":5,"\u{fb33}":3}',
     "by UTF-16 code units: a pair sorts before U+FB33")
   assert(Json.canonical("[1, 1.0, 1e0, 10E-1, 9007199254740993]") == "[1,1,1,1,9007199254740992]",
     "every number is the double it reads as")

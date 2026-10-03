@@ -349,8 +349,8 @@ end
 
 --- What the text-to-text functions hold to on `input`, read as RFC
 --- 8259 and as JSON5: `check` answers what `decode` does; `format`
---- reads what `decode` reads and a number past a double's range,
---- refusing beyond it only NaN and the infinities, writes text that decodes to the same value and formats
+--- reads what `decode` reads, with its messages, refusing beyond it only
+--- NaN and the infinities, writes text that decodes to the same value and formats
 --- to itself, compact or laid out; `canonical` is a fixed point, the
 --- same through `format` and through `decode` and `encode`.
 local function text_holds(input: string): boolean, string
@@ -366,13 +366,11 @@ local function text_holds(input: string): boolean, string
       if err == "" and not ferr:match("^json: cannot format ") then
         return false, where .. ": format refused what decode read: " .. ferr
       end
-    else
-      -- A number past a double's range is the one thing decode refuses
-      -- that format keeps: its text is JSON.
-      if err ~= "" and not err:match("is infinity when parsed as double$") then
-        return false, where .. ": format read what decode refused: " .. err
+      if err ~= "" and ferr ~= err then
+        return false, where .. ": format refused otherwise than decode: " .. ferr .. " vs " .. err
       end
-      if err ~= "" then goto next end
+    else
+      if err ~= "" then return false, where .. ": format read what decode refused: " .. err end
       Fuzz.label(json5 and "formatted JSON5" or "formatted")
       -- JSON5 reads a number past a double's range, as an infinity; RFC
       -- 8259 refuses it, so the text is read back as the input was.
@@ -381,11 +379,11 @@ local function text_holds(input: string): boolean, string
       if canonical(back, where) ~= canonical(value, where) then
         return false, where .. ": format changed the value: " .. compact
       end
-      if Json.format(compact) ~= compact then
+      if Json.format(compact, { json5 = json5 }) ~= compact then
         return false, where .. ": format is no fixed point: " .. compact
       end
       local pretty = Json.format(input, { json5 = json5, pretty = true })
-      if pretty == nil or Json.format(pretty) ~= compact then
+      if pretty == nil or Json.format(pretty, { json5 = json5 }) ~= compact then
         return false, where .. ": laid out, it is not the same text: " .. tostring(pretty)
       end
     end
@@ -405,7 +403,6 @@ local function text_holds(input: string): boolean, string
     elseif compact ~= nil and not (cerr:match("^json: cannot format ") or cerr:match("infinity")) then
       return false, where .. ": canonical refused what format wrote: " .. cerr
     end
-    ::next::
   end
   return true, ""
 end

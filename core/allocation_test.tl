@@ -506,8 +506,8 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
   local wide: {string: any} = {}
   for i = 1, 80 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
-  -- An object too large for a set of its keys on the C stack, which
-  -- sorts them in a userdata, holding a key twice.
+  -- An object too large for a set of its keys on the C stack, whose
+  -- keys go through a Lua table, holding a key twice.
   local wide_text = assert(Json.encode(wide)):gsub("}$", ',"key1":0}')
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
@@ -552,11 +552,20 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
   end
   assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"],
     "each record's refusal names its line")
-  -- format reads a JSON5 number again, as a document of its own.
-  testing.fail_at("json_malloc", 1)
-  local _, number = Json.format("[0x1F]", { json5 = true })
-  assert(not testing.fail_at(), "format never read the number again")
-  assert(number == "json: out of memory", number)
+  -- format reads a hexadecimal number again, as a document of its own,
+  -- after every read of the text: the last allocation it makes.
+  local last = -1
+  for skip = 0, 16 do
+    testing.fail_at("json_malloc", skip)
+    local formatted, why = Json.format("[0x1F]", { json5 = true })
+    if testing.fail_at() then
+      assert(formatted == '[31]', why)
+      break
+    end
+    assert(formatted == nil and why == "json: out of memory", tostring(why))
+    last = skip
+  end
+  assert(last >= 4, "format read the text twice and the number once: " .. last)
 end
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.

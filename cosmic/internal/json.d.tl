@@ -31,7 +31,7 @@ local record json
                   duplicate_keys?: boolean, big_as_string?: boolean): boolean, string
   -- The value `text` holds, read as `check` reads it, written again as
   -- RFC 8259 text: its members in the text's order and its numbers as
-  -- written (a JSON5 form the shortest text for its number), laid out
+  -- written (a JSON5 form as RFC 8259 writes the number), laid out
   -- two spaces a level with `pretty`; or, with `canonical`, in RFC
   -- 8785's form. nil and a message when the text does not read, or
   -- holds NaN or an infinity.

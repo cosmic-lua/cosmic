@@ -197,6 +197,9 @@ static uint32_t key_hash (const char *s, size_t n) {
  * a set of its keys. Never inlined: the set would sit in each frame of
  * the recursive walk that calls it, a kilobyte a level. */
 __attribute__((noinline)) static size_t repeated_in_set (yyjson_val *obj) {
+  /* No caller passes NULL, but yyjson's iteration reads a NULL object as
+   * empty only by arithmetic on a null pointer. */
+  if (obj == NULL) return 0;
   size_t count = yyjson_obj_size(obj);
   size_t idx;
   size_t max;
@@ -414,7 +417,7 @@ static size_t repeated_key_index (lua_State *L, yyjson_val *obj) {
   return count;
 }
 
-/* The first problem in `val` that `push_value` would find, in the same
+/* The first problem in `val` that [`push_value`] would find, in the same
  * order, without building anything: for `check` and `format`. */
 static enum problem first_problem (lua_State *L, yyjson_val *val, int depth,
                                    int max_depth, bool duplicate_keys,
@@ -1231,11 +1234,37 @@ static bool is_json_number (const char *s, size_t n) {
 }
 
 /* A number read as its text, `s[0..n)`: as written when RFC 8259 writes
- * it so, and else -- JSON5's hexadecimal, `+1`, `.5` and `5.` -- the
- * shortest text that reads back to the number it names. NaN and the
- * infinities are refused: JSON has no text for them. */
+ * it so. JSON5's decimal forms differ from RFC 8259's only in a leading
+ * `+`, a point with no digit before it (`.5`) or none after it (`5.`),
+ * so they are written with the same digits, whatever the number's size:
+ * `5.0`, `0.5`, a float still. Hexadecimal is written as the shortest text for the
+ * integer it names. NaN and the infinities are refused: JSON has no
+ * text for them. */
 static int put_raw_number (struct encoding *e, const char *s, size_t n) {
   if (is_json_number(s, n)) return put(e, s, n);
+  size_t start = e->len;
+  size_t i = 0;
+  int status = 0;
+  if (i < n && s[i] == '+') {
+    i++;
+  } else if (i < n && s[i] == '-') {
+    status = PUT_LITERAL(e, "-");
+    i++;
+  }
+  if (status == 0 && i < n && s[i] == '.') status = PUT_LITERAL(e, "0");
+  size_t point = i;
+  while (point < n && s[point] != '.') point++;
+  if (status == 0 && point < n &&
+      (point + 1 == n || s[point + 1] == 'e' || s[point + 1] == 'E')) {
+    status = put(e, s + i, point - i);
+    if (status == 0) status = PUT_LITERAL(e, ".0");
+    if (status == 0) status = put(e, s + point + 1, n - point - 1);
+  } else if (status == 0) {
+    status = put(e, s + i, n - i);
+  }
+  if (status < 0) return -1;
+  if (is_json_number(e->p + start, e->len - start)) return 0;
+  e->len = start;
   yyjson_read_err err;
   yyjson_doc *doc =
       yyjson_read_opts((char *)s, n, YYJSON_READ_JSON5, &allocator, &err);
@@ -1478,7 +1507,7 @@ static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
  * duplicate_keys?, pretty?, canonical?): the value `text` holds, read as
  * `check` reads it, written again as RFC 8259 text, and "". Its members
  * keep the text's order, a key twice too, and its numbers their text,
- * unless JSON5 wrote one RFC 8259 cannot; with `pretty`, laid out as
+ * in RFC 8259's form where JSON5 wrote another; with `pretty`, laid out as
  * `encode` lays a value out. With `canonical`, RFC 8785's form instead:
  * members sorted by their keys' UTF-16 code units, numbers as
  * ECMAScript writes the double each reads as, and no space. nil and a
@@ -1488,7 +1517,6 @@ static int json_format (lua_State *L) {
   r.text = luaL_checklstring(L, 1, &r.len);
   read_options(L, 2, &r);
   bool canonical = lua_toboolean(L, 8);
-  if (!canonical) r.flags |= YYJSON_READ_NUMBER_AS_RAW;
   struct encoding e;
   memset(&e, 0, sizeof e);
   e.L = L;
@@ -1497,6 +1525,19 @@ static int json_format (lua_State *L) {
   struct cosmic_guard *doc_guard = cosmic_guard_push(L, release_doc);
   yyjson_doc *doc = read_text(L, &r, doc_guard, true);
   if (doc == NULL) return refused(L);
+  if (!canonical) {
+    /* What decode refuses is refused with its message: yyjson reads a
+     * number as its text with checks of its own, which word a failure
+     * and place it otherwise and pass a hexadecimal number too large
+     * for any integer. So the text is read as decode reads it first,
+     * then again keeping each number's text: the same values, which
+     * the first read's walk found nothing in. */
+    yyjson_doc_free(doc);
+    doc_guard->resource = NULL;
+    r.flags |= YYJSON_READ_NUMBER_AS_RAW;
+    doc = read_text(L, &r, doc_guard, false);
+    if (doc == NULL) return refused(L);
+  }
   e.guard = cosmic_guard_push(L, cosmic_free);
   if (put_text_value(&e, yyjson_doc_get_root(doc), 0, canonical) < 0) {
     lua_pushnil(L);
