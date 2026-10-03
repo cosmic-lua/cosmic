@@ -159,8 +159,13 @@ Correction `3bbb6ec4`, tree `17757401`, explicitly returns after the
 allocation-error raise. Independent review found only four added/one removed
 C lines, no ownership or successful-path change and no analyzer suppression.
 The pinned `bin/zig build analyze` passed locally. Corrected branch run
-`37135224719` is underway, and the author is checking the allocation-failure
-matrix on the actual sanitized core. E2b absorbed the same reviewed C fix;
+`37135224719` passed all required jobs. The author and reviewer verified
+four unchanged SQLite allocation test bodies on actual sanitized core
+`76adc02b`: ten exhaustive walks and 67 forced allocation refusals, exit0,
+with leak assertions retained. Local sanitized packaging still failed on
+the generated database, so this is bounded checked evidence, not a full
+suite. New queue `4926dbe1`, run `37135708678`, includes incoming Zig #2628
+and must execute all native gates. E2b absorbed the same reviewed C fix;
 its separately approved five-file consumer delta remains unchanged.
 
 E2a boot, formatting, whole-tree checks and focused validation passed. The
