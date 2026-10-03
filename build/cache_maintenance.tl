@@ -212,17 +212,19 @@ local function clean_aside(file: maintenance.File): boolean, string
   if names == nil then return false, list_why end
   local prefix = base .. ".corrupt-"
   for _, name in ipairs(names) do
-    local tail = name:sub(#prefix + 1)
-    local retired = tail:match("^%d+$") or tail:match("^%d+%-wal$") or tail:match("^%d+%-shm$")
-    if name:sub(1, #prefix) == prefix and retired then
-      local path = dir .. "/" .. name
-      local entry, entry_why, entry_errno = sys.lstat(path)
-      if entry == nil then
-        if entry_errno ~= sys.ENOENT then return false, entry_why end
-      elseif entry.kind == "file" then
-        local ok, remove_why = Fs.remove(path)
-        if not ok then return false, remove_why end
-        file.removed_set_aside[#file.removed_set_aside + 1] = path
+    if name:sub(1, #prefix) == prefix then
+      local tail = name:sub(#prefix + 1)
+      local retired = tail:match("^%d+$") or tail:match("^%d+%-wal$") or tail:match("^%d+%-shm$")
+      if retired then
+        local path = dir .. "/" .. name
+        local entry, entry_why, entry_errno = sys.lstat(path)
+        if entry == nil then
+          if entry_errno ~= sys.ENOENT then return false, entry_why end
+        elseif entry.kind == "file" then
+          local ok, remove_why = Fs.remove(path)
+          if not ok then return false, remove_why end
+          file.removed_set_aside[#file.removed_set_aside + 1] = path
+        end
       end
     end
   end
