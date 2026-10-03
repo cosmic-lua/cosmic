@@ -677,3 +677,98 @@ local function test_a_loop_control_variable_is_read_only()
     assert(#errors == 0, source .. (errors[1] and errors[1].msg or ""))
   end
 end
+
+local short = "wrong number of arguments (given 1, expects 2)"
+
+--- A call short of parameters its callee's declaration lets be nil is
+--- told to declare them optional, spelled as written less their nil,
+--- for a local, a module's or a method's function and one bound to a
+--- name; one short of a parameter that cannot be nil is told nothing,
+--- since the call is what is short.
+local function test_a_short_call_names_the_optional_parameter()
+  assert(replacement_for("local function f(a: string, b: string | nil) print(a, b) end\nf('x')\n", short)
+    == "a parameter a caller may leave out is written 'b?: string'")
+  assert(replacement_for("local M = {}\n" ..
+    "function M.g(a: string, b: string | nil,\n  c: {string: integer} | nil) print(a, b, c) end\nM.g('x')\n",
+    "wrong number of arguments (given 1, expects 3)")
+    == "parameters a caller may leave out are written 'b?: string, c?: {string: integer}'")
+  assert(replacement_for("local record R\n  n: integer\nend\n" ..
+    "function R:m(b: nil | function(string, integer): string) print(self, b) end\n" ..
+    "local r: R = {n = 1}\nr:m()\n", "wrong number of arguments (given 1, expects 2)")
+    == "a parameter a caller may leave out is written 'b?: function(string, integer): string'")
+  assert(replacement_for("local h = function(a: string, b: string | nil) print(a, b) end\nh('x')\n", short)
+    == "a parameter a caller may leave out is written 'b?: string'")
+  assert(replacement_for("local M = {}\nM.h = function(a: string, b: string | nil) print(a, b) end\nM.h('x')\n",
+    short) == "a parameter a caller may leave out is written 'b?: string'")
+  assert(replacement_for("local function f(a: string, -- what\n  b: string | nil -- why, if any\n) " ..
+    "print(a, b) end\nf('x')\n", short) == "a parameter a caller may leave out is written 'b?: string'")
+  assert(replacement_for("local function f(a: string, b: nil) print(a, b) end\nf('x')\n", short) == nil)
+  assert(replacement_for("local function f(a: string, b: nil | string --[[x]], c: string | nil)\n" ..
+    "  print(a, b, c)\nend\nf('x', 'y')\n", "wrong number of arguments (given 2, expects 3)")
+    == "a parameter a caller may leave out is written 'c?: string'")
+  assert(replacement_for("local function f(a: string, b: string) print(a, b) end\nf('x')\n", short) == nil)
+  assert(replacement_for("local function f(a: string, b: string | nil) print(a, b) end\nf()\n",
+    "wrong number of arguments (given 0, expects 2)") == nil)
+end
+
+--- A callee the file declares no function for in the call's form --
+--- a record field's type, a standard library's, a module's, a local
+--- of the name called as a member -- is told nothing, as is a call
+--- given too many or one whose declarations disagree.
+local function test_a_short_call_to_an_unseen_callee()
+  assert(replacement_for("local record C\n  run: function(a: string, b: string)\nend\n" ..
+    "local c: C = {run = function(a: string, b: string) print(a, b) end}\nc.run('x')\n", short) == nil)
+  assert(replacement_for("print(setmetatable({}))\n", short) == nil)
+  assert(teal.replacement(short, 'local Fs = require("cosmic.fs")\nFs.put("x")\n', 2, 7) == nil)
+  assert(replacement_for("local record File\n  open: function(path: string, mode: string)\nend\n" ..
+    "local function open(a: string, b: string | nil) print(a, b) end\nprint(open)\n" ..
+    "local f: File = {open = function(p: string, m: string) print(p, m) end}\nf.open('x')\n", short) == nil)
+  assert(replacement_for("local M = {}\nfunction M.put(path: string, data: string | nil) print(path, data) end\n" ..
+    "local N = {}\nN.put = function(path: string, data: string) print(path, data) end\nN.put('x')\n", short)
+    == nil)
+  assert(replacement_for("local function cb(a: string, b: string | nil) print(a, b) end\nprint(cb)\n" ..
+    "local function apply(cb: function(string, string)) cb('x') end\nprint(apply)\n", short) == nil)
+  assert(replacement_for("local function f(a: string) print(a) end\nf('x', 'y')\n",
+    "wrong number of arguments (given 2, expects 1)") == nil)
+  assert(replacement_for("global function g(a: string, b: string | nil) print(a, b) end\n" ..
+    "global function g(a: string, b: integer | nil) print(a, b) end\ng('x')\n", short) == nil)
+end
+
+--- The callee is the function in scope at the call: a local of a
+--- closed block is not, and a method is found through the type its
+--- receiver was declared of, a local's, a parameter's or `self`'s.
+local function test_a_short_call_reads_the_callee_in_scope()
+  assert(replacement_for("do\n  local function f(a: string, b: string | nil) print(a, b) end\n" ..
+    "  print(f)\nend\nlocal function f(a: string, b: integer | nil) print(a, b) end\nf('x')\n", short)
+    == "a parameter a caller may leave out is written 'b?: integer'")
+  assert(replacement_for("local record R\n  n: integer\nend\n" ..
+    "function R:m(b: string | nil) print(self, b) end\nlocal r: R = {n = 1}\nr:m()\n",
+    "wrong number of arguments (given 1, expects 2)")
+    == "a parameter a caller may leave out is written 'b?: string'")
+  local record_r = "local record R\n  n: integer\nend\nfunction R:b(x: string | nil) print(self, x) end\n"
+  assert(replacement_for(record_r .. "function R:a() self:b() end\n",
+    "wrong number of arguments (given 1, expects 2)")
+    == "a parameter a caller may leave out is written 'x?: string'")
+  assert(replacement_for(record_r .. "local function g(r: R) r:b() end\nprint(g)\n",
+    "wrong number of arguments (given 1, expects 2)")
+    == "a parameter a caller may leave out is written 'x?: string'")
+end
+
+--- A key no field is near by spelling is told the fields that hold it
+--- or that it holds as whole words, shortest first, ahead of the
+--- alphabetical list that may stop before them; a key of fewer than
+--- three letters is not.
+local function test_a_missing_field_names_one_that_holds_it()
+  local fields = { "collect", "copy", "from_fd", "from_string", "lines", "open" }
+  local listed = "Stream's fields: collect, copy, from_fd, from_string, lines, open"
+  assert(teal.replacement("invalid key 'string' in record 'Stream' of type Stream", "", 1, 1, fields)
+    == "did you mean 'from_string'? " .. listed)
+  assert(teal.replacement("invalid key 'from' in record 'Stream' of type Stream", "", 1, 1, fields)
+    == "did you mean 'from_fd' or 'from_string'? " .. listed)
+  assert(teal.replacement("invalid key 'read_lines' in record 'Stream' of type Stream", "", 1, 1, fields)
+    == "did you mean 'lines'? " .. listed)
+  assert(teal.replacement("invalid key 'pe' in record 'Stream' of type Stream", "", 1, 1, fields)
+    == listed)
+  assert(teal.replacement("invalid key 'get' in record 'T' of type T", "", 1, 1, { "target", "set_get" })
+    == "did you mean 'set_get'? T's fields: set_get, target")
+end
