@@ -4,7 +4,9 @@
 --- The index is built by the build itself: [`build.work.stage`] scans each
 --- file it stages ([`build.todo_scan`]) as it reads it, into `todos` in
 --- `o/build.db`. That covers what the build consumes (Teal and, in
---- cosmic's own tree, the C core, build.zig and bin/zig) and, through
+--- cosmic's own tree, the C core, build.zig, bin/zig and the patch
+--- records, whose notes and replace blocks alone are the tree's own:
+--- [`build.todo_scan.scan_record`]) and, through
 --- `scanned`, everything else the walk passes: scripts and, in cosmic's
 --- own tree, `bin/`, `eval/`, `ci/` and `.github/` (workflows, actions
 --- and scripts). `scanned` fingerprints those files, which are read only

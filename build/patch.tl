@@ -61,12 +61,16 @@ local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
 local record Patch
-  --- One record, parsed.
+  --- One record, parsed: `note` is its `note:` line's value, and
+  --- `find_at` and `replace_at` are where in the record's text the find
+  --- and replace blocks start (the byte after each fence's line).
   record Record
     file: string
     note: string
     find: string
     replace: string
+    find_at: integer
+    replace_at: integer
   end
 end
 
@@ -117,7 +121,9 @@ local function fence_line(text: string, at: integer, fence: string,
   return nil
 end
 
---- Parses the record `text`, named `name` in what it says of it.
+--- Parses the record `text`, named `name` in what it says of it. What
+--- it takes as a record decides the TODOs build.todo_scan keeps of one,
+--- so a change to that bumps build/work.tl's `version`.
 function Patch.parse(text: string, name: string): Patch.Record | nil, string
   local at = 1
   local fence = "---"
@@ -162,7 +168,7 @@ function Patch.parse(text: string, name: string): Patch.Record | nil, string
   end
   return { file = file.value, note = note.value,
     find = text:sub(find.after, replace.start - 2),
-    replace = replaced }, ""
+    replace = replaced, find_at = find.after, replace_at = replace.after }, ""
 end
 
 --- `source` with the record's one match replaced, or nil and why when it
