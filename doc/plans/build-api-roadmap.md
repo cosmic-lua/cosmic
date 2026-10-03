@@ -97,8 +97,8 @@ E1 #2624 merged corrected queue `4926dbe1`, tree `2e78c672`, at
 E2b is now PR #2631, head `2dc12e57`, tree `14ba1237`, based on that exact
 actual merge. Independent review and narrow integration checks are complete;
 branch `37136925817` passed every required job. Queue `a97110b3`, tree
-`0107330c`, run `37137232275`, is independently approved and running.
-Three follow-up production PRs merged.
+`0107330c`, run `37137232275`, passed every required job and merged at
+16:44:25 UTC. Four follow-up production PRs merged. E4 is in progress.
 E4 will pin a verified published release containing all four changes,
 so standalone CI maintenance executes the corrected code, then audit reuse.
 
@@ -221,6 +221,17 @@ must preserve that cleanup and advance from its pin to an actual published
 release containing all four follow-ups. Incoming compiler #2632 is separately
 queued afterwards; any final audit compares the same final source and pin,
 never artifact bytes across an intentional compiler change.
+
+E2b merged as `a97110b3a61111fdbd825a41b1f2d927ba3b063b`, exact reviewed
+queue tree `0107330c6340bb5018ab55cfc7b1119af2412404`. Independent logs
+verified checked Linux and ARM each ran all3621 tests with zero stood/skipped;
+Darwin ran all with only three Linux-noexec skips. All four new contention/
+cancellation cases therefore executed. Every remaining native and fixture
+job passed, including Alpine. Incoming #2632 then merged as `b8a3da18`.
+E4 starts from that actual main, preserving the compiler and prior pin
+consumer changes. It will choose an actually published immutable release
+containing all four follow-up merge commits, with two independent asset,
+provenance and execution checks before moving the pin.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
