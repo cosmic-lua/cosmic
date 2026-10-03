@@ -698,6 +698,10 @@ local function test_a_short_call_names_the_optional_parameter()
     == "a parameter a caller may leave out is written 'b?: function(string, integer): string'")
   assert(replacement_for("local h = function(a: string, b: string | nil) print(a, b) end\nh('x')\n", short)
     == "a parameter a caller may leave out is written 'b?: string'")
+  assert(replacement_for("local function f(a: string, -- what\n  b: string | nil -- why, if any\n) " ..
+    "print(a, b) end\nf('x')\n", short) == "a parameter a caller may leave out is written 'b?: string'")
+  assert(replacement_for("local function f(a: string, b: nil) print(a, b) end\nf('x')\n", short)
+    == "a parameter a caller may leave out is written 'b?: T'")
   assert(replacement_for("local function f(a: string, b: string) print(a, b) end\nf('x')\n", short) == nil)
   assert(replacement_for("local function f(a: string, b: string | nil) print(a, b) end\nf()\n",
     "wrong number of arguments (given 0, expects 2)") == nil)

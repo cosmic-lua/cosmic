@@ -592,23 +592,33 @@ local function optional_spelling(source: string, starts: {integer}, argument: as
   if not (colon is integer) then
     return nil
   end
+  -- The type's text, a comment after it (`b: string | nil -- why`)
+  -- left out to its line's end.
+  local kept: {string} = {}
   local depth = 0
-  local stop: integer | nil = nil
-  for i = colon + 1, #source do
+  local i = colon + 1
+  while true do
     local c = source:sub(i, i)
-    if c == "(" or c == "{" or c == "<" or c == "[" then
+    if c == "" then
+      return nil
+    elseif source:sub(i, i + 1) == "--" then
+      local newline = source:find("\n", i, true)
+      if newline == nil then
+        return nil
+      end
+      i = newline
+      c = "\n"
+    elseif c == "(" or c == "{" or c == "<" or c == "[" then
       depth = depth + 1
     elseif depth > 0 and (c == ")" or c == "}" or c == ">" or c == "]") then
       depth = depth - 1
     elseif depth == 0 and (c == "," or c == ")") then
-      stop = i
       break
     end
+    kept[#kept + 1] = c
+    i = i + 1
   end
-  if stop == nil then
-    return nil
-  end
-  local spelled = source:sub(colon + 1, stop - 1):gsub("%s+", " "):match("^ ?(.-) ?$")
+  local spelled = table.concat(kept):gsub("%s+", " "):match("^ ?(.-) ?$")
   spelled = spelled:gsub(" ?| ?nil$", ""):gsub("^nil ?| ?", "")
   if spelled == "" or spelled:match("%f[%w_]nil%f[^%w_]") ~= nil then
     return nil
@@ -682,12 +692,12 @@ local function arity_hint(source: string, y: integer, x: integer, given: integer
       -- missing parameters to nil, or the call is what is short.
       local these: {string} = {}
       for i = given + 1, expected do
-        local optional = admits_nil(arguments[i].argtype) and
-          optional_spelling(source, starts, arguments[i]) or nil
-        if optional == nil then
+        local argument = arguments[i]
+        if not admits_nil(argument.argtype) then
           return nil
         end
-        these[#these + 1] = optional
+        these[#these + 1] = optional_spelling(source, starts, argument) or
+          (argument.tk or "name") .. "?: T"
       end
       if spelled == nil then
         spelled = these
@@ -987,7 +997,8 @@ end
 --- A call given fewer arguments than its callee takes exactly
 --- (`wrong number of arguments (given 1, expects 2)`, the checker's
 --- position the call's `(`) is told how to declare the parameters it
---- leaves out optional (`b?: string`), when each declaration of the
+--- leaves out optional (`b?: string`, or `b?: T` where its type's
+--- text is not plain to read), when each declaration of the
 --- callee's name in `source` taking that many admits nil for each of
 --- them ([`arity_hint`]); nothing when one does not, since then the
 --- call is short. With no such declaration it is told the form
