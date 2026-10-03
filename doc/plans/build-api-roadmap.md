@@ -14,6 +14,83 @@ No standalone bootstrap or CI consumer may call a new API until ci/cosmic-driver
 
 ## Sequence
 
+### Follow-up approved 2026-10-03: SQLite failures and cache cleanup
+
+The original A–D series below is complete. This follow-up was approved after
+D1; it does not reopen C3's deferred syncfs experiment. Starting source is
+`e9c56475d7dbbcf2a5574514c85ef9ea90a72878` on current main. Preserve incoming
+work, including #2614's Zig maker pruning, and coordinate with the separate
+artifact/schema PRs rather than duplicating them.
+
+Two independent source reviews found that typed errors alone do not make
+cache retirement safe. Online recovery currently renames the database and
+its WAL/SHM without owning every connection's lifetime; even a genuine
+CORRUPT result cannot establish that no other checkout still uses those
+paths. Diagnostic matching is worse: a path or SQL error containing
+"malformed" can authorize a rename. Maintenance also recognizes retired
+siblings by prefix alone, encompassing names it never created.
+
+| Step | Separate production PR | Dependency and acceptance |
+| --- | --- | --- |
+| E1 | Capture SQLite open, prepare, bind and step outcomes; expose the query helpers actual consumers need | Existing APIs preserve their exact two-result contract and allocation behavior. New operations capture codes, reason and cancellation before cleanup can change them. |
+| E2 | Stop online whole-file retirement; use captured outcomes for WAL retry decisions | E1. Optional caches close and fall back without renaming active files. No message parsing, retry after cancellation, or new per-hit filesystem scan. |
+| E3 | Restrict cleanup to recognized retired regular files | Independent of E1/E2; may land first. Exact numeric historical names, optional WAL/SHM suffix, lstat without following symlinks; all other siblings retained. |
+| E4 | Integrate release-dependent consumers if required and audit the final tree | Verify and execute a published release before any standalone consumer uses new APIs. Compare warm reuse and artifacts between fresh checkouts; record native branch and queue results. |
+
+E1 uses concrete operation records, following ExecResult, rather than a
+generic result framework or a third return value. Successful low-level steps
+must not allocate a record for every row. Existing wrappers share mechanics
+without routing their success paths through new record allocation. Capture
+primary and extended codes and owned diagnostic text before another SQLite
+operation, Lua allocation/finalizer, rollback or close; retain busy-handler
+cancellation independently. Programmer errors raise on the new surface;
+existing argument behavior remains compatible. Add only named codes used
+by real callers or runnable examples. Review prepared-statement tail checks,
+parameter validation, partial query failures and allocation-failure cleanup.
+
+E2 removes the now-unused corruption-text and set-aside wrappers throughout
+compile and verdict cache consumers. Preserve one diagnostic, close-once
+ownership, uncached progress and all successful cache behavior. Use BUSY and
+LOCKED codes explicitly in the WAL transition, retain its total monotonic
+budget, and stop when cancellation is captured. Add the missing recovery
+prerequisite at the code site: safe automatic retirement requires a
+cache-wide lifetime/identity protocol. Maintenance continues retaining
+unreadable active databases and omitting their save digest. Existing
+writer-quiescence requirements do not establish that all readers are gone.
+Harness changes receive acknowledgements and an epoch bump whenever their
+semantics can affect a verdict; the merge queue must execute the full suite.
+
+E3 recognizes only `<basename>.corrupt-<digits>` and the same name with
+`-wal` or `-shm`. It unlinks only regular files, never directories, symlinks,
+special nodes, other basenames or active sidecars. Preserve unrelated
+`.corrupt-notes`, empty/nonnumeric stamps and trailing extensions. Report
+genuine cleanup failures as incomplete and issue no digest; disappearance
+by a concurrent remover is harmless. Tests cover actual files and node
+types, retained target bytes and meaningful failure paths. Existing unknown
+schema, rollback, cancellation, checkpoint and digest tests continue to gate.
+
+Do not prune old patch trees or Zig installations automatically in this
+phase: neither records the lifetime of readers in other checkouts. An age
+cutoff, newest-entry rule or reference from this checkout is insufficient.
+Their existing TODOs remain, naming the ownership work needed. No new lock,
+retention policy, cache format or scanning work belongs on a healthy hot path.
+
+Each step has a separate implementation agent and adversarial reviewer.
+Review the exact tested tree, update for incoming main changes, and enable
+auto-merge only after review and required green branch checks; the normal
+merge queue remains mandatory. Keep #2521 draft, open and never merged.
+For each production PR record the changed-path TODO inventory, actual test
+execution/standing/skips, failure corrections and merge receipt here.
+Use the repository's 30-second full-suite command without silently raising
+its deadline; a timeout is not a passing suite. Native CI supplies platform
+evidence unavailable locally. Performance acceptance is preservation of
+successful legacy allocations, warm cache reuse and deterministic artifacts,
+not an unsupported speedup claim.
+
+Execution status: E1 implementation started; E2 pending E1; E3 independent
+implementation started; E4 pending the production changes. No follow-up PR
+has merged yet.
+
 The execution ledger below is the sole status record.
 
 | PR | Scope | Dependency / release boundary |
