@@ -98,7 +98,9 @@ E2b is now PR #2631, head `2dc12e57`, tree `14ba1237`, based on that exact
 actual merge. Independent review and narrow integration checks are complete;
 branch `37136925817` passed every required job. Queue `a97110b3`, tree
 `0107330c`, run `37137232275`, passed every required job and merged at
-16:44:25 UTC. Four follow-up production PRs merged. E4 is in progress.
+16:44:25 UTC. Four follow-up production PRs merged. E4 is PR #2633,
+head `8a7a84ea`, exact independently approved tree `2002e09a`; release
+verification and fresh preservation audit passed, native CI remains.
 E4 will pin a verified published release containing all four changes,
 so standalone CI maintenance executes the corrected code, then audit reuse.
 
@@ -232,6 +234,40 @@ E4 starts from that actual main, preserving the compiler and prior pin
 consumer changes. It will choose an actually published immutable release
 containing all four follow-up merge commits, with two independent asset,
 provenance and execution checks before moving the pin.
+
+E4 #2633 changes only the three driver-pin lines. Author and adversarial
+reviewer independently downloaded all three assets of immutable release
+`402600530`, tag `next-a97110b3a61111fdbd825a41b1f2d927ba3b063b`, binary
+15495216 bytes and SHA256
+`93eba231467fbbbe73a8d696564fce0b9c0c8a95e4612cadf955e781a9a2ef59`.
+Both verified the actual tag, ancestry of all four merges, asset metadata,
+source.json, source CI `37137961591`, its exact queue relay `37137232275`,
+and publisher `37138023180`/job `111246440651`. Four downloaded product
+ZIPs and executed-byte attestations match the release. Both executed the
+downloaded SQLite APIs and bare maintenance from a broken project.
+
+Exact E4 source `68761d04`, tree `2002e09a`, passed one unseeded two-checkout
+audit. Both boots reused541 parses/527 compiles with zero new; both forced
+focused runs passed32/32, and both warm repeats stood all32 with zero
+compilation or staged source reads. Declared-key hashing still read6/5
+inputs; no zero-I/O or speedup claim. Executable and both shipping database
+hashes match across all six snapshots, independently rehashed (18 files).
+All18 readonly database quick_checks passed. Warm artifact and watched
+shared-cache bytes/stat metadata were unchanged. Local workers were
+unsandboxed; native CI supplies the confinement/platform gates.
+
+Initial E4 author-checkout boot passed, but that checkout's generated
+working database later became malformed. Root format and initial TODO
+checks failed, and the required single full30 exited1 immediately, not a
+timeout or a suite pass. The actual pin's forced CI-consumer run initially
+had two child-start PermissionDenied failures; its scheduled warm run
+passed28 (2ran/26stood), and CI format passed65 files. These failures stay
+explicit; no database was repaired or seeded, and no full-suite retry was
+added. Required TODO queries subsequently passed in the healthy unseeded
+audit checkout: zero TODOs in the pin and one unchanged deferred syncfs
+prerequisite at `build/patch.tl:272`. No new TODO is added. Final native
+branch and queue CI are still required for #2633; release CI does not
+replace them.
 
 Local validation found the same generated working-database failure in fresh
 unchanged main and independent changed checkouts. A successful boot leaves a
