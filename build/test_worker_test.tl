@@ -67,7 +67,7 @@ local function test_a_worker_without_a_report_fails_its_test()
   local crashed = worker.judge({ result = { ok = false, signal = 9, timed_out = false,
     truncated = false, captured = {} }, trouble = "", timeout_ns = Time.seconds(1), sandboxed = false })
   assert(crashed.message == "the test process was killed by signal 9 before it reported " ..
-    "(no report)", crashed.message)
+      "(no report)", crashed.message)
   -- A pass whose processes outlived it is not one.
   local outlived = worker.judge({ result = ended(passing({})), trouble = "a process outlived it",
     timeout_ns = Time.seconds(1), sandboxed = false })

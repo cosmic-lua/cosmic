@@ -200,7 +200,7 @@ end
 --- file from a binary without it lacks.
 local function has_parts(db: Sqlite.Handle): boolean | nil, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM pragma_table_info('" ..
-    declared .. "') WHERE name = 'parts'")
+      declared .. "') WHERE name = 'parts'")
   if rows == nil then return nil, trouble end
   return #rows > 0, ""
 end
@@ -216,7 +216,7 @@ end
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('" .. declared ..
-    "', '" .. stores .. "')")
+      "', '" .. stores .. "')")
   if rows == nil then return false, trouble end
   if #rows > 1 then
     local named, named_trouble = has_parts(db)
@@ -337,7 +337,7 @@ end
 --- stood on or kept anything (`cosmic test --census`).
 function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held} | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db, "SELECT parts, COUNT(*) FROM " ..
-    declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
+      declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
   if rows == nil then return nil, trouble end
   local out: {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
@@ -376,7 +376,7 @@ function shared_verdicts.unmatched(path: string, looked: integer,
   local why = census.of_tests > 0 and "none under the keys this run reached" or
     "no other run reached them"
   return string.format("test: shared verdicts: none of %s looked up stood, " ..
-    "though %s holds %s, %d of them of those tests: %s (%s)",
+      "though %s holds %s, %d of them of those tests: %s (%s)",
     plural.count(looked, "test"), path, plural.count(census.rows, "row"), census.of_tests,
     why, shared_verdicts.named(parts))
 end
@@ -403,7 +403,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for _, kept in ipairs(owed.kept) do
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
-        "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
+          "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
         { text(kept.key), text(kept.test), text(packed(kept.hits)),
           { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin), text(parts) })
       if not ok then return false, trouble end
@@ -411,7 +411,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for _, key in ipairs(owed.used) do
       for _, name in ipairs(tables) do
         local ok, trouble = Sqlite.run(db, "UPDATE " .. name .. " SET used_ns = ?1, " ..
-          "parts = CASE WHEN parts = '' THEN ?3 ELSE parts END WHERE key = ?2",
+            "parts = CASE WHEN parts = '' THEN ?3 ELSE parts END WHERE key = ?2",
           { { integer = now_ns }, text(key), text(parts) })
         if not ok then return false, trouble end
       end
@@ -424,7 +424,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     -- `mismatched`), which says the run's replaces it.
     for _, address in ipairs(addresses) do
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
-        " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
+          " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
         { text(address), text(owed.stores[address]), { integer = now_ns } })
       if not ok then return false, trouble end
     end
@@ -434,8 +434,8 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
         { { integer = now_ns - kept_ns } })
       if not aged then return false, age_trouble end
       local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
-        " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
-        "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+          " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
+          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
       if not bounded then return false, bound_trouble end
     end
     return true, ""

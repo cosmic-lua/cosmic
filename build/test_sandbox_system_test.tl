@@ -178,8 +178,8 @@ end
     true), script)
   local read = failure("suite.undeclared_test test_read")
   assert(read:find("/etc/passwd is not in this test's sandbox, which has " ..
-    "nothing of /etc: a test that reads the system's own files declares Test.needs " ..
-    "{ system = true }", 1, true), read)
+      "nothing of /etc: a test that reads the system's own files declares Test.needs " ..
+      "{ system = true }", 1, true), read)
   -- Neither the tail of a relative path nor a URL's is a path the
   -- sandbox left out.
   for _, test in ipairs({ "test_relative", "test_url" }) do

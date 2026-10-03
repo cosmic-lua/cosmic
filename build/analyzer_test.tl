@@ -431,7 +431,7 @@ local function test_documents_a_function()
   assert(entry.kind == "function", entry.kind)
   assert(entry.text == "Opens a thing.\n\nReturns nil when it is not there.", entry.text)
   assert(entry.signature ==
-    "local function open_thing(path: string, mode: string): boolean, string",
+      "local function open_thing(path: string, mode: string): boolean, string",
     entry.signature)
   assert(entry.line == 4, tostring(entry.line))
 end
@@ -459,10 +459,10 @@ local function test_a_body_comment_is_not_part_of_the_signature()
     "end",
   }))
   assert(by_symbol["tail"].signature ==
-    "local function tail(path: string, mode?: string): string | nil, string",
+      "local function tail(path: string, mode?: string): string | nil, string",
     by_symbol["tail"].signature)
   assert(by_symbol["wrapped"].signature ==
-    "local function wrapped(_opts: Options, _mode: Mode): Inner",
+      "local function wrapped(_opts: Options, _mode: Mode): Inner",
     by_symbol["wrapped"].signature)
   assert(by_symbol["bare"].signature == "local function bare(): string",
     by_symbol["bare"].signature)
@@ -746,7 +746,7 @@ local function test_documents_a_records_metamethods()
   assert(call.text == "Calls the thing.", call.text)
   assert(by_symbol["__close"].text == "", by_symbol["__close"].text)
   assert(by_symbol["__index"].signature ==
-    "metamethod __index: function(Thing, string): any", by_symbol["__index"].signature)
+      "metamethod __index: function(Thing, string): any", by_symbol["__index"].signature)
   assert(by_symbol["__index"].text == "Looks a member up.")
   local order: {string} = {}
   for _, entry in ipairs(all) do
@@ -785,7 +785,7 @@ local function test_a_multi_line_field_keeps_its_whole_signature()
     "return Calls",
   }))
   assert(by_symbol["gen"].signature ==
-    "gen: function(input: string, env: string, options: any): string | nil, string",
+      "gen: function(input: string, env: string, options: any): string | nil, string",
     by_symbol["gen"].signature)
   assert(by_symbol["exists"].signature == "exists: function(path: string): boolean")
   assert(by_symbol["name"].signature == "name: string")
@@ -806,7 +806,7 @@ local function test_a_generic_field_keeps_its_own_signature()
     "return Calls",
   }))
   assert(by_symbol["map"].signature ==
-    "map: function<T, U>(items: {T}, each: function(item: T): U): {U}",
+      "map: function<T, U>(items: {T}, each: function(item: T): U): {U}",
     by_symbol["map"].signature)
   assert(by_symbol["map"].line == 2, by_symbol["map"].line)
   assert(by_symbol["wide"].signature == "wide: function< T>(item: T): T",
@@ -884,7 +884,7 @@ local function test_documents_a_record_and_its_fields()
   end
   -- The opening comment sits on the record, so it is the module's row too.
   assert(table.concat(order, " ") ==
-    " Thing path Options Options.create Kind Kind.dir Kind.file read",
+      " Thing path Options Options.create Kind Kind.dir Kind.file read",
     table.concat(order, " "))
 end
 
@@ -929,7 +929,7 @@ local function test_finds_the_export_and_the_references()
     seen[#seen + 1] = r.module .. " " .. r.member .. " " .. r.line
   end
   assert(table.concat(seen, ", ") ==
-    "cosmic.fs read 6, cosmic.fs read 7, cosmic.hash hex 7, cosmic.hash sha256 7",
+      "cosmic.fs read 6, cosmic.fs read 7, cosmic.hash hex 7, cosmic.hash sha256 7",
     table.concat(seen, ", "))
 end
 
@@ -989,7 +989,7 @@ local function test_a_member_of_an_inline_require_is_a_reference()
   assert(#found.references == 1, tostring(#found.references))
   local reference = found.references[1]
   assert(reference.module == "build.test" and reference.member == "run" and
-    reference.line == 2, reference.module .. " " .. reference.member)
+      reference.line == 2, reference.module .. " " .. reference.member)
 end
 
 --- Local import spellings are not target identity: two aliases of the same
@@ -1138,7 +1138,7 @@ local function test_final_unknown_member_write_removes_stale_callable_export()
       assert(entry.kind == "field", entry.kind)
       assert(entry.line == 2, tostring(entry.line))
     elseif not entry.exported and entry.source_symbol == "Public.run" and
-           entry.kind == "function" then
+        entry.kind == "function" then
       private_callable = private_callable + 1
     end
   end
@@ -1327,7 +1327,7 @@ local function test_a_needs_call_is_read_as_data()
     'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$_P1/x", "/proc/", "/proc/self/" } }',
   })))
   assert(#named.host == 4 and named.host[1] == "$FIXTURE_ROOT/o/bin/cosmic" and
-    named.host[2] == "$_P1/x" and named.host[3] == "/proc/" and named.host[4] == "/proc/self/")
+      named.host[2] == "$_P1/x" and named.host[3] == "/proc/" and named.host[4] == "/proc/self/")
   local hosts = assert(declared(lines({
     'local t = require("cosmic.test")',
     't.needs({ network = { "127.0.0.1" } })',
@@ -1360,7 +1360,7 @@ local function test_a_cache_is_declared_by_a_known_name()
     'Test.needs { caches = { "zig", "ccache" } }',
   }))
   assert(none == nil and refused:find("fixture_test.tl:2: test.needs: caches: no cache " ..
-    "ccache; the caches are bootstrap, zig", 1, true), refused)
+      "ccache; the caches are bootstrap, zig", 1, true), refused)
   local flagged, flag_trouble = declared(lines({
     'local Test = require("cosmic.test")',
     'Test.needs { caches = true }',
@@ -1376,9 +1376,9 @@ local function test_a_malformed_needs_call_is_refused()
     { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, lua, nests, network" },
     -- No test reaches beyond loopback, which is 127/8.
     { 'Test.needs { network = true }', "fixture_test.tl:3: test.needs: network = true: " ..
-      "network takes loopback addresses 127.a.b.c only: no test reaches another host" },
+        "network takes loopback addresses 127.a.b.c only: no test reaches another host" },
     { 'Test.needs { network = { "127.0.0.1", "example.com" } }', 'test.needs: network ' ..
-      '"example.com": network takes loopback addresses 127.a.b.c only' },
+        '"example.com": network takes loopback addresses 127.a.b.c only' },
     { 'Test.needs { network = { "::1" } }', 'network "::1": network takes loopback addresses' },
     { 'Test.needs { network = { "localhost" } }',
       'network "localhost": network takes loopback addresses' },
@@ -1391,9 +1391,9 @@ local function test_a_malformed_needs_call_is_refused()
     { 'Test.needs { standalone = true }', "standalone is refused without lua" },
     -- A host path names a file, or /proc.
     { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
-      "files, or /proc: declare the files the tests read" },
+        "files, or /proc: declare the files the tests read" },
     { 'Test.needs { host = { "$PRODUCT" } }', 'host: "$PRODUCT" names all PRODUCT holds, a ' ..
-      "directory; host names files, or /proc" },
+        "directory; host names files, or /proc" },
     { 'Test.needs { host = { "$PRODUCT/" } }', 'names all PRODUCT holds, a directory' },
     { 'Test.needs { host = { "$PRODUCT/o/bin/" } }', '"$PRODUCT/o/bin/" names a directory' },
     { 'Test.needs { reads = { "x\\ty" } }',
@@ -1433,7 +1433,7 @@ local function test_a_malformed_needs_call_is_refused()
   }
   for _, case in ipairs(cases) do
     local got, trouble = declared('local name = "x"\nlocal Test = require("cosmic.test")\n' ..
-      case[1] .. "\n")
+        case[1] .. "\n")
     assert(got == nil, case[1] .. " was read")
     assert(trouble:find(case[2], 1, true) ~= nil, case[1] .. ": " .. trouble)
     local line = case[2]:match("^fixture_test.tl:%d+: ") or "fixture_test.tl:3: "
@@ -1749,16 +1749,16 @@ local function test_network_takes_loopback_addresses_alone()
     assert(refusal_of('{ network = { "' .. host .. '" } }') == "", host)
   end
   for _, host in ipairs({ "*", "0.0.0.0", "128.0.0.1", "10.0.0.1", "127.1", "127.0.1",
-    "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
-    "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::", "::1",
-    "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "localhost", "LOCALHOST",
-    "localhost.", "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
+      "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
+      "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::", "::1",
+      "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "localhost", "LOCALHOST",
+      "localhost.", "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
     local refused = refusal_of('{ network = { "' .. host .. '" } }')
     assert(refused:find(string.format("network %q: network takes loopback addresses " ..
-      "127.a.b.c only", host), 1, true) ~= nil, host .. ": " .. refused)
+        "127.a.b.c only", host), 1, true) ~= nil, host .. ": " .. refused)
   end
   assert(refusal_of("{ network = true }"):find("network = true: network takes loopback " ..
-    "addresses", 1, true))
+      "addresses", 1, true))
 end
 
 --- `lua` stands alone or beside what cannot start the program past its
@@ -1770,7 +1770,7 @@ local function test_lua_is_refused_beside_what_starts_the_program_unheld()
   assert(refusal_of("{ lua = true, standalone = true }") == "")
   assert(refusal_of('{ tool = true, store = true, system = true, caches = { "zig" } }') == "")
   for name, field in pairs({ tool = "tool = true", store = "store = true",
-    system = "system = true", caches = 'caches = { "zig" }' }) do
+      system = "system = true", caches = 'caches = { "zig" }' }) do
     local why = refusal_of("{ lua = true, " .. field .. " }")
     assert(why:find("lua is refused beside " .. name, 1, true), why)
   end

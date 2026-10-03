@@ -66,9 +66,9 @@ local function test_a_restored_file_takes_its_new_inode(tmp: string)
   local result = assert(ZigRestat.restat({ { path = project, prefix = 2 },
     { path = shared, prefix = 3 } }, { [0] = tree, [3] = shared, [4] = tree }))
   assert(result.records == 5 and result.adopted == 1 and result.rehashed == 1 and
-    result.left == 3 and result.manifests == 1,
+      result.left == 3 and result.manifests == 1,
     result.records .. " " .. result.adopted .. " " .. result.rehashed .. " " ..
-    result.left .. " " .. result.manifests)
+      result.left .. " " .. result.manifests)
   local after = assert(Fs.read(project .. "/h/" .. name))
   assert(#after == #text)
   assert(ZigPrune.vouches(name, after) == before)
@@ -76,7 +76,7 @@ local function test_a_restored_file_takes_its_new_inode(tmp: string)
   for i, path in ipairs({ project .. "/o/1/a.c", tree .. "/b.c" }) do
     local stat = assert(sys.stat(path))
     assert(records[i].inode == stat.ino and records[i].size == stat.size and
-      records[i].mtime == stat.mtime * 1000000000 + stat.mtime_ns, path)
+        records[i].mtime == stat.mtime * 1000000000 + stat.mtime_ns, path)
   end
   local old = assert(ZigPrune.records(text))
   for i = 3, 5 do
@@ -128,7 +128,7 @@ local function test_the_command_says_what_it_did(tmp: string)
   code, out, err = ZigRestat.command(project, shared, tree)
   assert(code == 0 and err == "", err)
   assert(out == "zig-restat: 1 file listed: 1 given their new inode, 0 re-hashed and " ..
-    "taken, 0 left; 1 manifest rewritten\n", out)
+      "taken, 0 left; 1 manifest rewritten\n", out)
   restored(project .. "/o/1/a.c")
   code, out, err = ZigRestat.command(project, nil, tree)
   assert(code == 0 and err == "" and out:find("1 given their new inode", 1, true), out .. err)

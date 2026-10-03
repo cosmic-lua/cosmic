@@ -175,7 +175,7 @@ end
 --- would ever end them.
 local function read_stdin(): string | nil, string
   return bare.stdin_text("no file given and standard input is a terminal; give a file " ..
-    "(written ./name, or after --, when its name begins with . $ or [), or pipe JSON in")
+      "(written ./name, or after --, when its name begins with . $ or [), or pipe JSON in")
 end
 
 local standard: verb.Io = {
@@ -263,7 +263,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local covered: string | nil
     for _, match in ipairs(matches) do
       if covered ~= nil and String.starts_with(match.path, covered) and
-        match.path:find("^[.%[]", #covered + 1) then
+          match.path:find("^[.%[]", #covered + 1) then
         goto next_match
       end
       covered = match.path

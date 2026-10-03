@@ -202,7 +202,7 @@ end
 
 --- [`verb.parse_input`] less the forms' names in its failures.
 local function read_input(text: string, zone: Time.Zone | nil,
-    how: Time.Disambiguation): Time.Zoned | nil, string
+                          how: Time.Disambiguation): Time.Zoned | nil, string
   if text:sub(1, 1) == "@" then
     local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
     if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then

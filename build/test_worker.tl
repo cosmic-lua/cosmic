@@ -358,13 +358,13 @@ end
 -- by its bytecode in the store of a closure that holds build.teal, the
 -- one module that loads it ([`build.closure_store`]'s `loaded_beside`).
 local function refusal(name: string, module_path: string, closure: {string:boolean},
-                        tree: {string:boolean}): string | nil
+                       tree: {string:boolean}): string | nil
   if closure[name] or not tree[name] then return nil end
   return string.format("module '%s' is outside the import closure of %s: the build " ..
-    "follows a require only when it is called directly on a literal name, so neither a " ..
-    "computed name nor pcall(require, ...) is followed, and a change to %s would not run " ..
-    "%s's tests again. Require it so at the top level of the module this is raised in, " ..
-    "or of %s itself: local _ = require(%q)",
+      "follows a require only when it is called directly on a literal name, so neither a " ..
+      "computed name nor pcall(require, ...) is followed, and a change to %s would not run " ..
+      "%s's tests again. Require it so at the top level of the module this is raised in, " ..
+      "or of %s itself: local _ = require(%q)",
     name, module_path, name, module_path, module_path, name)
 end
 
@@ -518,20 +518,20 @@ local function hold_store(module_path: string, closure: {string:boolean},
     end
   end
   store.hold(names, string.format("%s's verdict is keyed by what the " ..
-    "store holds of its import closure alone. Require a module at the top level of %s " ..
-    "to read that module, or declare store = true in its Test.needs to read the whole " ..
-    "projection, at the cost of running its tests again on every edit to the tree",
+      "store holds of its import closure alone. Require a module at the top level of %s " ..
+      "to read that module, or declare store = true in its Test.needs to read the whole " ..
+      "projection, at the cost of running its tests again on every edit to the tree",
     module_path, module_path), string.format("a handle reads every module's rows, and " ..
-    "%s's verdict is keyed by what the store holds of its import closure alone. " ..
-    "Declare store = true in its Test.needs to read them, at the cost of running its " ..
-    "tests again on every edit to the tree", module_path), meta_keys(closure, lua),
+        "%s's verdict is keyed by what the store holds of its import closure alone. " ..
+        "Declare store = true in its Test.needs to read them, at the cost of running its " ..
+        "tests again on every edit to the tree", module_path), meta_keys(closure, lua),
     string.format("%s's verdict is keyed by what the store holds of its import closure " ..
-    "alone and by the runtime, and neither holds that row -- nor the compiler's " ..
-    "identity, unless the closure holds a module build/key_parts.tl's " ..
-    "`compiler_readers` names beyond what lua adds, nor the writer's, unless it holds " ..
-    "build.writer. " ..
-    "Declare store = true in its Test.needs to read it, at the cost of running its " ..
-    "tests again on every edit to the tree", module_path))
+        "alone and by the runtime, and neither holds that row -- nor the compiler's " ..
+        "identity, unless the closure holds a module build/key_parts.tl's " ..
+        "`compiler_readers` names beyond what lua adds, nor the writer's, unless it holds " ..
+        "build.writer. " ..
+        "Declare store = true in its Test.needs to read it, at the cost of running its " ..
+        "tests again on every edit to the tree", module_path))
 end
 
 --- Holds every process the tests of `module_path`, a module that declares
@@ -567,7 +567,7 @@ local function hold_children(module_path: string, closure: {string:boolean})
   for key in pairs(meta_keys(closure, true)) do keys[#keys + 1] = key end
   table.sort(keys)
   store.hold_children(module_path .. " " .. table.concat(keys, ",") .. " " ..
-    table.concat(names, " "))
+      table.concat(names, " "))
 end
 
 --- How a worker is started: this exact program again -- the same core,
@@ -616,8 +616,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[3] = given.program
   end
   for _, value in ipairs({ "test", hold_flag[given.hold] or "--worker",
-                           given.root, given.module_path, given.name, given.scratch .. "/tmp",
-                           given.scratch .. "/children", given.needs }) do
+      given.root, given.module_path, given.name, given.scratch .. "/tmp",
+      given.scratch .. "/children", given.needs }) do
     argv[#argv + 1] = value
   end
   if given.sandbox ~= nil then argv[#argv + 1] = "--sandboxed" end
@@ -686,13 +686,13 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   end
   if result.timed_out then
     return { passed = false, skipped = "", message = "timed out after " ..
-      tostring(judging.timeout_ns // SECOND_NS) .. " s; " ..
-      (judging.sandboxed and "its pid namespace" or "its process group") .. " was ended" }
+        tostring(judging.timeout_ns // SECOND_NS) .. " s; " ..
+        (judging.sandboxed and "its pid namespace" or "its process group") .. " was ended" }
   end
   local report, decode_trouble = worker.decode(result.captured[worker.report_fd])
   if report == nil then
     return { passed = false, skipped = "", message = "the test process " .. ending(result) ..
-      " before it reported (" .. decode_trouble .. ")" }
+        " before it reported (" .. decode_trouble .. ")" }
   end
   local judgement: worker.Judgement = { report = report, passed = report.passed,
     message = report.message }
@@ -746,7 +746,7 @@ local function unseen_note(message: string, heard: {string}): string
   -- A path starts the message or follows a space, a quote or a
   -- parenthesis: the tail of a relative path or a URL is none.
   for path in ("\n" .. message):gmatch("[%s'\"(](/[^%s:'\"]+): " ..
-      not_found:gsub("%p", "%%%0")) do
+        not_found:gsub("%p", "%%%0")) do
     local why = unseen(path, "reads")
     if why ~= nil then add(why) end
   end
@@ -812,7 +812,7 @@ function worker.run(argv: {integer:string}): integer
     local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {})
     if not forbidden then
       complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " ..
-        "ruleset: " .. forbid_trouble)
+          "ruleset: " .. forbid_trouble)
       return 2
     end
   end

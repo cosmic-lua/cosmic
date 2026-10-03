@@ -58,7 +58,7 @@ local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp
   local path = tmp .. "/project.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, " ..
-    "source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
+      "source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
   assert(db:close())
   local before = next_descriptor(tmp)
   local searched = #Store.databases()
@@ -73,5 +73,5 @@ local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp
   assert(held >= 1, "the last run attached")
   local after = next_descriptor(tmp)
   assert(after == before + held, "descriptors from " .. before .. " to " .. after ..
-    " for " .. held .. " attached: a refused attach left a connection open")
+      " for " .. held .. " attached: a refused attach left a connection open")
 end

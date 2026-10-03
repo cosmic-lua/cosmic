@@ -160,7 +160,7 @@ local function test_the_store_finalizes_its_statement_whenever_an_allocation_fai
   collectgarbage("collect")
   assert(testing.open_statements() == before,
     "a refused allocation left " .. (testing.open_statements() - before) ..
-    " statements open")
+      " statements open")
 end
 
 --- print builds its line in a buffer that moves to the heap past 1 KB;
@@ -290,7 +290,7 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   local bytes, blocks = testing.c_heap()
   assert(bytes == before_bytes and blocks == before_blocks,
     what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
-    (bytes - before_bytes) .. " bytes) on the C heap")
+      (bytes - before_bytes) .. " bytes) on the C heap")
 end
 
 --- `children` reads its list into a block of the core's C heap, and
@@ -563,7 +563,7 @@ local exchanges: {Exchange} = {
   { name = "a Content-Length body", options = { script = { reply("200 OK", "", hello) } } },
   { name = "a chunked body", options = { script = {
     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
-    "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
+      "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
   { name = "a redirect", options = { script = {
     reply("302 Found", "Location: /next\r\n", "moved"), reply("200 OK", "", hello) } } },
   { name = "a 100 Continue", options = { script = {

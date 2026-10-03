@@ -20,15 +20,15 @@ local vectors: {{string}} = {
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
   { "sha384", "abc",
     "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed" ..
-    "8086072ba1e7cc2358baeca134c825a7" },
+      "8086072ba1e7cc2358baeca134c825a7" },
   { "sha512", "abc",
     "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a" ..
-    "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f" },
+      "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f" },
   { "sha3-256", "abc",
     "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532" },
   { "sha3-512", "abc",
     "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e" ..
-    "10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0" },
+      "10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0" },
 }
 
 local macs: {{string}} = {
@@ -36,7 +36,7 @@ local macs: {{string}} = {
   { "sha256", "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8" },
   { "sha512",
     "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb" ..
-    "82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a" },
+      "82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a" },
 }
 
 local function test_digests_match_published_vectors()
@@ -237,19 +237,19 @@ local function test_hmac_takes_a_key_of_any_length()
       "ec6e8734d2a5ac3ffe12eb18377f17850fbd8999a7e77a9882c7385da477055f" },
     { "sha512", "", fox,
       "1de78322e11d7f8f1035c12740f2b902353f6f4ac4233ae455baccdf9f377915" ..
-      "66e790d5c7682aad5d3ceca2feff4d3f3fdfd9a140c82a66324e9442b8af71b6" },
+        "66e790d5c7682aad5d3ceca2feff4d3f3fdfd9a140c82a66324e9442b8af71b6" },
     { "sha512", string.rep("\xaa", 131), rfc4231,
       "80b24263c7c1a3ebb71493c1dd7be8b49b46d1f41b4aeec1121b013783f8f352" ..
-      "6b56d037e05f2598bd0fd2215d6a1e5295e64f73f63f0aec8b915a985d786598" },
+        "6b56d037e05f2598bd0fd2215d6a1e5295e64f73f63f0aec8b915a985d786598" },
     { "sha512", string.rep("k", 128), fox,
       "d4835efaf497c0d1fe88eb16df0e805fd68ae5adb623d08b5cea86fd57d7df59" ..
-      "cdfe1c7092c4c3629d5a63c0d13a6e1b25cd24c937b10013dd059f05e7a639f9" },
+        "cdfe1c7092c4c3629d5a63c0d13a6e1b25cd24c937b10013dd059f05e7a639f9" },
     { "sha512", string.rep("k", 200), fox,
       "2ec850d56a434619da67d65f350b4a2caad666d274cf844ee9ac03f73e14d201" ..
-      "2bc00387fc44ee2404aa91155181ae98ee75b0497788ca045997ef2462e82f91" },
+        "2bc00387fc44ee2404aa91155181ae98ee75b0497788ca045997ef2462e82f91" },
     { "sha512", string.rep("k", 10000), fox,
       "2acc5c34c7fc0fa0b8e483f1155219f42af8a7d6448e51d520f30d1a48d100da" ..
-      "1929cd07ba7629453a50c03a915ea3bae7d0aa41ffdf3922a04f1c9614b3f5eb" },
+        "1929cd07ba7629453a50c03a915ea3bae7d0aa41ffdf3922a04f1c9614b3f5eb" },
   }
   local db = assert(Sqlite.memory())
   for _, case in ipairs(cases) do
@@ -388,7 +388,7 @@ local function test_byte_sum_adds_unsigned_bytes_over_a_range()
   -- eight counted as spaces.
   local block = ("x"):rep(148) .. ("\255"):rep(8) .. ("\0"):rep(356)
   assert(Hash.byte_sum(block, 1, 148) + 8 * 32 + Hash.byte_sum(block, 157, 512) ==
-    148 * 120 + 8 * 32)
+      148 * 120 + 8 * 32)
   assert(Hash.byte_sum(block) == 148 * 120 + 8 * 255)
 end
 

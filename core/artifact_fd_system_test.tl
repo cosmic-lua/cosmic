@@ -53,7 +53,7 @@ local function test_a_host_program_cannot_reach_the_artifact_through_the_worker_
       'exec cat "/proc/$PPID/fd/$2"',
       'exec readlink "/proc/$1/fd/$2"',
       'exec cat "/proc/$1/map_files/"*',
-    }) do
+  }) do
     local result = shell(script, pid, own)
     assert(result.code ~= 0 and result.stdout == "",
       script .. " reached the artifact: " .. result.code .. " " .. #result.stdout .. " bytes")

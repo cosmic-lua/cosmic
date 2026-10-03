@@ -123,10 +123,10 @@ local function test_invalid_bounds_and_sink_mapping_consume_nothing()
   local h <close> = start('assert(require("cosmic.fs").put(1, "safe"))')
   local out = Stream.collect()
   for _, bad in ipairs({
-    { stdout = out, max_bytes = 0, timeout_ns = 0 },
-    { stdout = out, max_bytes = 4, timeout_ns = -1 },
-    { stderr = out, max_bytes = 4, timeout_ns = 0 },
-    { stdout = out, stderr = out, max_bytes = 4, timeout_ns = 0 },
+      { stdout = out, max_bytes = 0, timeout_ns = 0 },
+      { stdout = out, max_bytes = 4, timeout_ns = -1 },
+      { stderr = out, max_bytes = 4, timeout_ns = 0 },
+      { stdout = out, stderr = out, max_bytes = 4, timeout_ns = 0 },
   }) do
     assert(not pcall(function() h:drain(bad) end))
   end

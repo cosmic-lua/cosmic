@@ -206,7 +206,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
             local cell = got[index][1]
             Fuzz.label("read")
             if cell.kind ~= want.kind or cell.integer ~= want.integer or cell.number ~= want.number or
-              cell.text ~= want.text then
+                cell.text ~= want.text then
               return false, "key " .. Json.quote(key) .. " row " .. index .. " read as " .. cell.kind
             end
           end

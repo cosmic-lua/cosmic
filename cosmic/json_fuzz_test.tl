@@ -238,7 +238,7 @@ end
 --- `a` and `b`'s decodes under `a_opts` and `b_opts` agree: both fail,
 --- or both read the same value. Whether they read.
 local function same_reading(a: string, a_opts: Json.DecodeOptions, b: string,
-    b_opts: Json.DecodeOptions, where: string): boolean, boolean, string
+                            b_opts: Json.DecodeOptions, where: string): boolean, boolean, string
   local va, ea = Json.decode(a, a_opts)
   local vb, eb = Json.decode(b, b_opts)
   if (ea == "") ~= (eb == "") then
@@ -451,7 +451,7 @@ local function test_the_depth_limits_are_exact(tmp: string)
           return false, ("%d levels under a limit of %d: %s"):format(n, limit, err)
         end
       elseif value ~= nil or err ~= ("json: JSON nests deeper than %d levels at line 1, column %d"):
-           format(limit, deepest(opens, limit + 1)) then
+          format(limit, deepest(opens, limit + 1)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then

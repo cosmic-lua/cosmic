@@ -169,8 +169,8 @@ local function rest_capture_name(node: any): string | nil
     local args = node["e2"]
     local name = e1 is {any: any} and e1["tk"] or nil
     if op is {any: any} and e1 is {any: any} and op["op"] == "@funcall" and
-    e1["kind"] == "variable" and name is string and is_rest_capture(name) and
-    args is {any: any} and #arr(args) == 0 then
+        e1["kind"] == "variable" and name is string and is_rest_capture(name) and
+        args is {any: any} and #arr(args) == 0 then
       return name
     end
   end
@@ -215,7 +215,7 @@ local match_value: function(pv: any, nv: any, caps: {string: Node},
 --- @param seen {any: boolean} Identity-keyed cycle guard
 --- @return boolean
 local function match_list(pa: {any}, na: {any}, caps: {string: Node},
-    seen: {any: boolean}): boolean
+                          seen: {any: boolean}): boolean
   if #pa > 0 then
     local last_raw = pa[#pa]
     local rest_name = rest_capture_name(last_raw)
@@ -258,7 +258,7 @@ end
 --- @param seen {any: boolean} Identity-keyed cycle guard, own to this matcher
 --- @return boolean
 match_value = function(pv: any, nv: any, caps: {string: Node},
-    seen: {any: boolean}): boolean
+                       seen: {any: boolean}): boolean
   if pv == nil then
     return nv == nil
   end
@@ -269,7 +269,7 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
   -- (`f($X)`) and as "identifier" where it names a field
   -- (`cosmo.$X(...)`).
   if (pv["kind"] == "variable" or pv["kind"] == "identifier") and
-  is_capture(pv["tk"]) then
+      is_capture(pv["tk"]) then
     if not (nv is {any: any}) then
       return false
     end

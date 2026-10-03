@@ -35,13 +35,13 @@ local function catalog(rows: {Row}, docs?: {string:string}): Sqlite.Handle
       text = { text = row.text }
     end
     assert(Sqlite.run(db, "INSERT INTO catalog (kind, module, symbol, message, " ..
-      "text, file, line) VALUES ('extracted', ?1, ?2, ?3, ?4, ?5, ?6)",
+        "text, file, line) VALUES ('extracted', ?1, ?2, ?3, ?4, ?5, ?6)",
       { { text = row.module }, { text = row.symbol }, { text = row.message }, text,
         { text = row.file }, { integer = row.line } }))
   end
   for symbol, doc in pairs(docs or {}) do
     assert(Sqlite.run(db, "INSERT INTO docs (module, source_symbol, text) " ..
-      "VALUES ('zorb', ?1, ?2)", { { text = symbol }, { text = doc } }))
+        "VALUES ('zorb', ?1, ?2)", { { text = symbol }, { text = doc } }))
   end
   assert(db:exec("INSERT INTO catalog_fts(catalog_fts) VALUES ('rebuild')"))
   return db
@@ -49,7 +49,7 @@ end
 
 local function row(message: string, text?: string, line?: integer): Row
   return { message = message, text = text, module = "zorb",
-           symbol = "Zorb.frob", file = "zorb.tl", line = line or 12 }
+    symbol = "Zorb.frob", file = "zorb.tl", line = line or 12 }
 end
 
 local function test_a_message_sharing_two_words_gets_the_rows_guidance()
@@ -57,7 +57,7 @@ local function test_a_message_sharing_two_words_gets_the_rows_guidance()
     "Frobs a zorblax.\nA second line.\n@param x ignored\nA third.") })
   local text = Errors.guidance_in(db, "frob: the quuxifier refused the zorblax at 3")
   assert(text == "cosmic: Zorb.frob (zorb.tl:12): Frobs a zorblax.\n" ..
-    "cosmic:   A second line.\ncosmic:   A third.\n", tostring(text))
+      "cosmic:   A second line.\ncosmic:   A third.\n", tostring(text))
 end
 
 --- One shared word is not enough, and a function word shared counts
@@ -88,7 +88,7 @@ local function test_a_row_without_text_takes_its_functions_doc()
   local db = catalog({ row("quuxifier zorblax", nil, 0) },
     { ["Zorb.frob"] = "Frobs the zorblax." })
   assert(Errors.guidance_in(db, "quuxifier zorblax") ==
-    "cosmic: Zorb.frob (zorb.tl): Frobs the zorblax.\n")
+      "cosmic: Zorb.frob (zorb.tl): Frobs the zorblax.\n")
 end
 
 --- A message with only function words asks nothing.

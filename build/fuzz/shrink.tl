@@ -57,7 +57,7 @@ end
 --- @return Shrunk The simplest failing draws found, and how many
 --- candidates were checked
 function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
-    max_tries: integer): Shrink.Shrunk
+                       max_tries: integer): Shrink.Shrunk
   local best = draws
   local tries = 0
 

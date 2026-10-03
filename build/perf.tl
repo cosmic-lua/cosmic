@@ -263,7 +263,7 @@ end
 
 local function leaf(fixture: Fixture, value: integer)
   assert(Fs.write(fixture.root .. "/leaf.tl", "local record Leaf end\n" ..
-    "function Leaf.value(): integer return " .. value .. " end\nreturn Leaf\n"))
+      "function Leaf.value(): integer return " .. value .. " end\nreturn Leaf\n"))
   assert(Fs.set_mtime(fixture.root .. "/leaf.tl", 1000000000, value))
 end
 
@@ -359,7 +359,7 @@ local function workloads(): {Workload}
     { name = "native_tool_startup", args = { "-e", "" }, batch = 5, executable = "host_tool" },
     { name = "first_require", args = { "-e", "assert(require('cosmic.sqlite'))" }, batch = 5 },
     { name = "require_closure", args = { "-e", "assert(require('cosmic.sqlite')); " ..
-      "assert(require('cosmic.json')); assert(require('cosmic.child'))" }, batch = 5 },
+        "assert(require('cosmic.json')); assert(require('cosmic.child'))" }, batch = 5 },
     { name = "exact_docs", args = { "docs", "Fs.read" }, batch = 1 },
     { name = "uses", args = { "uses", "Fs.read" }, batch = 1 },
     { name = "reverse_imports", args = { "sql", "--store",

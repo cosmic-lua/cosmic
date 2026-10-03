@@ -211,16 +211,16 @@ local insert_catalog_extracted =
 local function signature_sql(): string
   local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'receivers')"
   return "SELECT lower(hex(sha256(" ..
-  "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
-  "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
-  "WHERE i.kind <> 'decl'), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
-  "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
-  "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
-  "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || ?1 || " ..
-  "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
+    "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
+    "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
+    "WHERE i.kind <> 'decl'), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
+    "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
+    "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
+    "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
+    "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || ?1 || " ..
+    "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
 end
 
 --- The signature of the projection of `result`, whose links are
@@ -240,7 +240,7 @@ end
 --- standard library itself; in a project, `given`, or the standard
 --- library of the binary running.
 local function library_for(root: string, given: link_index.Library | nil):
-                           link_index.Library | nil, string
+    link_index.Library | nil, string
   local own, trouble = tree.is_own(root)
   if own == nil then
     return nil, trouble
@@ -257,7 +257,7 @@ end
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
 local function pending_links(handle: work.Handle, given: link_index.Library | nil):
-                             link_index.Pending | nil, string
+    link_index.Pending | nil, string
   local library, trouble = library_for(handle.root, given)
   if library == nil and trouble ~= "" then
     return nil, trouble
@@ -317,12 +317,12 @@ local function project(handle: work.Handle, path: string,
     local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'writer')"
     local carried, meta_trouble = db:exec(
       "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
-      "WHERE key IN " .. metadata)
+        "WHERE key IN " .. metadata)
     if not carried then
       return false, meta_trouble
     end
     for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
-                                 insert_uses, insert_typed_uses, insert_examples }) do
+        insert_uses, insert_typed_uses, insert_examples }) do
       local ok, failure = db:exec(statement)
       if not ok then
         return false, failure
@@ -366,7 +366,7 @@ local function project(handle: work.Handle, path: string,
     end
     return Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('projected', ?1), " ..
-      "('written_by', ?2), ('compiled_by', ?3)",
+        "('written_by', ?2), ('compiled_by', ?3)",
       { text(signature), text(by), text(result.tool) })
   end)
   if not made then

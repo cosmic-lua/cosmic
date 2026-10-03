@@ -72,7 +72,7 @@ end
 --- bytes so that a line of any length takes no more than that. Stops
 --- when `next_chunk` answers "" or `each` answers true.
 local function each_line(next_chunk: function(): string,
-    each: function(string): boolean)
+                         each: function(string): boolean)
   local line: {string} = {}
   local length = 0
   local function add(piece: string)
@@ -206,7 +206,7 @@ end
 --- one deadline bounds inherited writers; an incomplete drain is a driver
 --- failure, while any known child status remains available to be saved.
 local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
-    env: {string:string}, out: string, log: integer): integer | nil, string
+                        env: {string:string}, out: string, log: integer): integer | nil, string
   local out_fd = assert(Fs.open_write(out))
   local status: integer = nil
   local called, failure = pcall(function(): string

@@ -129,7 +129,7 @@ local function declarations(kind: string, source: string, built: compiler, name:
     if parsed == nil then
       local nothing: link_text.Declared = { names = {}, aliases = {} }
       return { at = function(_: integer): link_text.Declared return nothing end, module_level = {},
-               parsed = false }
+        parsed = false }
     end
     local found = link_text.declarations(parsed)
     return { at = found.at, module_level = found.module_level, parsed = true }
@@ -465,8 +465,8 @@ local function index_of(view: docs.View): symbol_index.Index | nil, string
       -- module, answer a name.
       local rows, trouble = Sqlite.text_rows(db,
         "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
-        "d.id, " .. symbols.shown_docs("d", view.public[index] == true) .. " FROM docs d " ..
-        "ORDER BY d.module, d.id")
+          "d.id, " .. symbols.shown_docs("d", view.public[index] == true) .. " FROM docs d " ..
+          "ORDER BY d.module, d.id")
       if rows == nil then return nil, trouble end
       for _, row in ipairs(rows) do
         symbol_index.add(out, { module = row[1], symbol = row[2], source_symbol = row[3],

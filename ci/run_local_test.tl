@@ -92,7 +92,7 @@ local function test_snapshot_keeps_working_changes_and_the_real_index(tmp: strin
   assert(Fs.exists(root .. "/ci/o") == false, "source CI database was created")
   local environment = assert(Fs.read(env.TRACE .. ".env"))
   assert(environment:find(candidate, 1, true) and environment:find(env.COSMIC_ZIG_CACHE, 1, true) and
-    environment:find(env.COSMIC_ZIG_GLOBAL_CACHE, 1, true), "spaced paths or cache inputs changed")
+      environment:find(env.COSMIC_ZIG_GLOBAL_CACHE, 1, true), "spaced paths or cache inputs changed")
 end
 
 local function test_snapshot_keeps_tracked_and_force_added_ignored_files(tmp: string)
@@ -130,7 +130,7 @@ local function test_default_phases_keep_the_workflow_order(tmp: string)
   local root, env = checkout(tmp)
   assert(invoke(root, env, {}) == 0)
   assert(Fs.read(env.TRACE) ==
-    "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nportable\nportable-boundary\nfixtures\n")
+      "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nportable\nportable-boundary\nfixtures\n")
 end
 
 local function test_phase_failure_stops_and_preserves_its_status(tmp: string)
@@ -261,7 +261,7 @@ exit 31
 ]], 0x1ed))
   local code, diagnostic = invoke(root, env, { "build" })
   assert(code == 31 and diagnostic:find("error: line 20\n", 1, true) and
-    not diagnostic:find("error: line 21\n", 1, true))
+      not diagnostic:find("error: line 21\n", 1, true))
   assert(assert(Fs.read(env.COSMIC_CI_LOCAL .. "/logs/build.log")):find("error: line 30\n", 1, true),
     "bounded diagnostics truncated the retained log")
 end
@@ -319,7 +319,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
   assert(after_offset == 13 and table.concat(launched.argv, "\0") == argv_before and launched.fds[slot] == borrowed)
   local after = assert(Fs.stat(launched.argv[1]))
   assert(after.ino == original.ino and after.mode == original.mode and
-    Hash.hex_sha256((assert(Fs.read(launched.argv[1])))) == digest)
+      Hash.hex_sha256((assert(Fs.read(launched.argv[1])))) == digest)
   assert(scratch ~= "" and Fs.exists(scratch) == false and sys.fstat(handed) == nil,
     "refusal leaked the runtime scratch or descriptor")
   assert(Fs.exists(env.COSMIC_CI_LOCAL) == false and Fs.exists(env.TRACE) == false)

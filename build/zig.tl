@@ -176,7 +176,7 @@ end
 --- say). A read build.zig does not declare, it cannot catch: build.zig
 --- declares each (`dependOn*`).
 function Zig.build_args(root: string, project: string,
-    argv: {string}, cpus: integer, defines?: {string}): {string}
+                        argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
@@ -682,7 +682,7 @@ end
 --- leaves the build unwatched rather than stopped. zig runs in `env`,
 --- this process's environment unless given.
 local function watched_build(root: string, env: {string:string} | nil,
-    command: function(): {string} | nil): integer
+                             command: function(): {string} | nil): integer
   local before, _ = Zig.snapshot(root)
   local argv = command()
   if argv == nil then
@@ -852,7 +852,7 @@ end
 --- Takes the boot's lock, or accepts a parent's handoff only when it
 --- names the held descriptor's inode. One wait budget covers both halves.
 function Zig.with_lock(root: string, environment: {string:string},
-    run: function({string:string}): integer): integer
+                       run: function({string:string}): integer): integer
   local made, made_trouble = Fs.mkdirs(root .. "/o")
   if not made then
     log:complain(root .. "/o: " .. made_trouble)
@@ -884,8 +884,8 @@ function Zig.with_lock(root: string, environment: {string:string},
           waited_ns = waited_ns + reminder_ns
           local minutes = waited_ns // Time.minutes(1)
           log:complain("still waiting, " .. tostring(minutes) ..
-            (minutes == 1 and " minute" or " minutes") .. " on: " ..
-            Zig.holder(root) .. " (one run at a time holds " .. path .. ")")
+              (minutes == 1 and " minute" or " minutes") .. " on: " ..
+              Zig.holder(root) .. " (one run at a time holds " .. path .. ")")
         end
       end
     end

@@ -87,5 +87,5 @@ local function test_boot_refuses_a_tree_without_a_bridge(tmp: string)
   assert(r.code == 1, "exit " .. tostring(r.code))
   local err = assert(r.stderr)
   assert(err:find("cosmic boot: the bridge would not load", 1, true) and
-    err:find("core/bridge.lua", 1, true), err)
+      err:find("core/bridge.lua", 1, true), err)
 end

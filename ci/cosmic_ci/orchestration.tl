@@ -342,8 +342,8 @@ local function named(name: string): string | nil
 end
 
 local function operation(c: Context, phase: string, command: {string},
-    timeout: integer, cwd?: string, env?: {string:string}, output?: string,
-    error_output?: string): integer
+                         timeout: integer, cwd?: string, env?: {string:string}, output?: string,
+                         error_output?: string): integer
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
   local child_environment: {string:string}
@@ -371,19 +371,19 @@ end
 
 -- Work done in this process, recorded as an operation as a command is.
 local function step(c: Context, phase: string,
-    work: function(): boolean, string): integer
+                    work: function(): boolean, string): integer
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
   return Runner.step(runner, phase, work).code
 end
 
 local function checked(c: Context, phase: string, command: {string},
-    timeout?: integer, cwd?: string, env?: {string:string}): integer
+                       timeout?: integer, cwd?: string, env?: {string:string}): integer
   return operation(c, phase, command, timeout or 0, cwd, env)
 end
 
 local function logged(c: Context, phase: string, command: {string}, out: string,
-    err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
+                      err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
   local status = operation(c, phase, command, timeout, cwd, env, out, err)
   local replay_ok = Env.get("COSMIC_CI_SELFTEST_REPLAY_FAILURE") ~= "true"
   if replay_ok then
@@ -420,7 +420,7 @@ local function record_suite(c: Context, name: string, code: integer, out: string
 end
 
 local function capture_small(c: Context, phase: string, command: {string},
-    path: string, timeout: integer, cwd?: string): integer
+                             path: string, timeout: integer, cwd?: string): integer
   return operation(c, phase, command, timeout, cwd, environment(), path)
 end
 
@@ -492,7 +492,7 @@ local function copy_flat_tl_dir(source: string, destination: string)
   local names: {string} = {}
   for _, name in ipairs((assert(Fs.list(source)))) do
     assert(name:match("%.tl$") and
-      assert(Fs.stat(source .. "/" .. name)).kind == "file",
+        assert(Fs.stat(source .. "/" .. name)).kind == "file",
       "invalid fixture source entry: " .. name)
     names[#names + 1] = name
   end
@@ -595,7 +595,7 @@ end
 --- self_rebuild_test's docs verb), it must compile and parse. The other
 --- self-rebuild cases take a copy of the leg's ([`seed_compiles`]).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
-    compiles: string, verdicts?: string): {string:string}
+                               compiles: string, verdicts?: string): {string:string}
   env.TMPDIR = tmpdir
   env.COSMIC_BUILD_CACHE = compiles
   if verdicts ~= nil then
@@ -621,7 +621,7 @@ end
 --- `env` names ([`suite_verdicts`]), and must be given the product its
 --- verdicts are keyed by (COSMIC_FIXTURE_PRODUCT); any other shares none.
 function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
-    compiles: string): {string:string}
+                                   compiles: string): {string:string}
   local sandboxed = Orchestration.sandboxed_fixtures[source] == true
   assert(not sandboxed or (env.COSMIC_FIXTURE_PRODUCT or "") ~= "",
     "a sandboxed fixture is given the product its verdict is keyed by: " .. source)
@@ -631,7 +631,7 @@ function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir:
 end
 
 local function fixture_test(c: Context, work: string, name: string,
-    source: string, timeout_ns: integer, extra: {string:string}): integer
+                            source: string, timeout_ns: integer, extra: {string:string}): integer
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
   local project = fixture_project(c, work)
@@ -655,7 +655,7 @@ end
 --- format-test-<target>), its range, and that the artifact runs it --
 --- and its whole suite run where COSMIC_CI_CHECKED_SUITE is not `skip`.
 local function checked_suite(c: Context, target: string, work: string,
-    decoder: string): integer
+                             decoder: string): integer
   local sanitized = c.root .. "/o/sanitized"
   local targets_path = sanitized .. "/targets.tsv"
   local target_id: string | nil = nil
@@ -697,7 +697,7 @@ local function checked_suite(c: Context, target: string, work: string,
   assert(length == #raw and #digest == 64, "checked core length/digest invalid")
   local extracted = artifact:sub(offset + 1, offset + length)
   assert(#extracted == length and Hash.hex_sha256(extracted) == digest and
-    extracted == raw, "checked core range differs")
+      extracted == raw, "checked core range differs")
   write(work .. "/checked.core", extracted)
   -- The checked core keeps its debug information but names no path of
   -- the run that built it (build.zig's `debug_dir` and the generated
@@ -725,12 +725,12 @@ local function checked_suite(c: Context, target: string, work: string,
     if not leak then break end
     assert(raw:sub(leak, leak + #cache - 1) == cache,
       "the checked core names a path under the tree root " .. c.root ..
-      ": a compile lacks build.zig's -fdebug-compilation-dir=.")
+        ": a compile lacks build.zig's -fdebug-compilation-dir=.")
     at = leak + #cache
   end
   assert(not raw:find("/coverage_map.c", 1, true),
     "the checked core names its generated coverage map's path: " ..
-    "the map compiles without build.zig's -g0")
+      "the map compiles without build.zig's -g0")
   local expected = offset .. "\t" .. length .. "\t" .. digest .. "\n"
   -- That the checked artifact runs the checked core: its runtime
   -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
@@ -738,7 +738,7 @@ local function checked_suite(c: Context, target: string, work: string,
   local context = work .. "/checked-context.txt"
   s = capture_small(c, "checked runtime context", { cosmic, "-e",
     "local Store = require('cosmic.store'); print(Store.meta('runtime_context'), " ..
-    "Store.meta('host'), Store.meta('host_image'))" }, context, Time.seconds(30))
+      "Store.meta('host'), Store.meta('host_image'))" }, context, Time.seconds(30))
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
     "checked artifact did not execute the checked raw core: " .. read(context))
@@ -759,7 +759,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- ci/darwin-tests.txt names them.
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
     Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
-      "(COSMIC_CI_CHECKED_SUITE=skip)\n")
+        "(COSMIC_CI_CHECKED_SUITE=skip)\n")
     -- Such a leg keeps none of the suite's verdicts either, which the job
     -- that runs it keeps in a cache entry of its own. A file left in the
     -- leg's cache, none of whose rows a run reaches, would ride along
@@ -768,7 +768,7 @@ local function checked_suite(c: Context, target: string, work: string,
     if stale ~= "0" and exists(stale) then
       local removed, trouble = Fs.remove(stale)
       Fs.put(Fs.stderr, removed and ("checked suite: removed this leg's " .. stale .. "\n") or
-        ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
+          ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
     end
     return 0
   end
@@ -823,12 +823,12 @@ local function checked_suite(c: Context, target: string, work: string,
 end
 
 local function snapshot(c: Context, diagnostics: string, label: string,
-    cosmic: string): integer
+                        cosmic: string): integer
   assert(label:match("^[%w-]+$"), "invalid snapshot label")
   local candidate = assert(Fs.absolute(c.root))
   local destination = assert(Fs.absolute(diagnostics))
   assert(destination ~= candidate and
-    not String.starts_with(destination, candidate .. "/"),
+      not String.starts_with(destination, candidate .. "/"),
     "snapshot path must be outside candidate checkout")
   local out = destination .. "/" .. label
   assert(not exists(out), "snapshot already exists: " .. out)
@@ -859,7 +859,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local removed, remove_trouble = Fs.remove_tree(inspect)
   assert(removed and not exists(inspect),
     "could not remove disposable integrity directory: " ..
-    tostring(remove_trouble))
+      tostring(remove_trouble))
   if not called then error(answer) end
   return answer
 end
@@ -867,7 +867,7 @@ end
 --- One suite of `c`'s candidate, run by `executable`, `env` added to
 --- its environment.
 local function suite(c: Context, name: string, executable: string,
-    diagnostics: string, env?: {string:string}, shard?: string): integer
+                     diagnostics: string, env?: {string:string}, shard?: string): integer
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
@@ -893,7 +893,7 @@ local function suite(c: Context, name: string, executable: string,
     Fs.put(Fs.stderr, name .. " suite: timed out (status 124)\n")
   elseif status ~= 0 then
     Fs.put(Fs.stderr,
-name .. " suite: failed (status " .. status .. ")\n")
+      name .. " suite: failed (status " .. status .. ")\n")
   end
   if status ~= 0 then return status end
   if snapshot_status ~= 0 then return snapshot_status end
@@ -917,7 +917,7 @@ local function archive(c: Context, destination: string): integer
 end
 
 local targets: {string:boolean} = {
- ["x86_64-linux-musl"] = true, ["aarch64-linux-musl"] = true, ["aarch64-macos"] = true }
+  ["x86_64-linux-musl"] = true, ["aarch64-linux-musl"] = true, ["aarch64-macos"] = true }
 
 local record PlatformContext
   trailing: string | nil
@@ -952,7 +952,7 @@ local function boot(p: PlatformContext): integer
   -- (minutes) and fails nothing, so say so where the log shows it.
   if cache and not is_dir(cache) then
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
-      "; compiling from nothing\n")
+        "; compiling from nothing\n")
   end
   if not seed and from and is_dir(from) then
     mkdir(root .. "/o")
@@ -1029,7 +1029,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
   local listed, trouble = Fs.read(c.root .. "/" .. darwin_list)
   if listed == nil then
     Fs.put(Fs.stderr, "darwin suite: cannot read " .. darwin_list .. ": " ..
-      tostring(trouble) .. "\n")
+        tostring(trouble) .. "\n")
     return 1
   end
   local suite_words, values = Orchestration.suite_run()
@@ -1041,7 +1041,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
     local code = math.tointeger(tonumber((read(native .. ".status"):gsub("%s+$", ""))))
     if code ~= nil and Orchestration.native_ran_every(read(native .. ".out"), code) then
       Fs.put(Fs.stderr, "darwin suite: the native suite ran every test here, none " ..
-        "standing, so the listed modules ran on this leg already\n")
+          "standing, so the listed modules ran on this leg already\n")
       return 0
     end
   end
@@ -1154,7 +1154,7 @@ local function format_command(root: string): {string}
     text = found
     if found == nil then
       Fs.put(Fs.stderr, "format check: the whole tree, since what changed is not known: " ..
-        trouble .. "\n")
+          trouble .. "\n")
     end
   end
   if text == nil then
@@ -1184,7 +1184,7 @@ local function format_check(p: PlatformContext): integer
   end
   if Env.get("COSMIC_CI_FORMAT") == "skip" then
     Fs.put(Fs.stderr, "format check: skipped on this leg " ..
-      "(COSMIC_CI_FORMAT=skip)\n")
+        "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
   return checked(p.operation, "format check", format_command(p.root))
@@ -1212,10 +1212,10 @@ local function phase_assemble(p: PlatformContext): integer
   write(work .. "/product.before.sha256", read(product .. "/hashes.sha256"))
   s = fixture_test(c, work, "format-contract", "format",
     format_test_timeout_ns, {
-    COSMIC_FIXTURE_ROOT = root,
-    COSMIC_FIXTURE_FORMAT = contract .. "/format",
-    COSMIC_FIXTURE_TARGET = target,
-  })
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_FORMAT = contract .. "/format",
+      COSMIC_FIXTURE_TARGET = target,
+    })
   if s ~= 0 then return s end
   assert(LauncherSetup.build(root, contract .. "/launcher", target,
     work .. "/launcher-setup") == contract .. "/launcher",
@@ -1233,11 +1233,11 @@ local function phase_assemble(p: PlatformContext): integer
     "runtime setup returned the wrong output")
   s = fixture_test(c, work, "product-verification", "product",
     product_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_TARGET = target,
-    COSMIC_FIXTURE_FORMAT = contract .. "/format",
-    COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
-  })
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_TARGET = target,
+      COSMIC_FIXTURE_FORMAT = contract .. "/format",
+      COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
+    })
   if s ~= 0 then return s end
   s = checked(c, "selected format mutation", { contract .. "/format/format-test-" .. target, contract .. "/format/program" })
   if s ~= 0 then return s end
@@ -1275,7 +1275,7 @@ local function phase_portable(p: PlatformContext): integer
   -- none of it (cosmic_ci/verdicts.tl).
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
-      "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
+        "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
   else
     -- Where the other suites stand on verdicts (`stands`), it stands on
     -- its own ([`suite_verdicts`]), never on the local suite's;
@@ -1287,7 +1287,7 @@ local function phase_portable(p: PlatformContext): integer
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
     assert(read(portable_d .. "/portable-artifact.before.sha256") ==
-      read(portable_d .. "/portable-artifact.after.sha256"),
+        read(portable_d .. "/portable-artifact.after.sha256"),
       "portable artifact changed")
     return true
   end)
@@ -1307,7 +1307,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
   -- to hold across the boundary.
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     Fs.put(Fs.stderr, "portable boundary: skipped on this leg " ..
-      "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
+        "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
     return 0
   end
   local s = snapshot(portable_context, portable_d, "portable-boundary",
@@ -1362,7 +1362,7 @@ end
 --- `0` keeps none, and is refused rather than left to compile every
 --- case cold.
 function Orchestration.seed_compiles(env: {string:string},
-    destination: string): boolean, string
+                                     destination: string): boolean, string
   local source = env.COSMIC_BUILD_CACHE or ""
   if source == "0" then
     return false, "COSMIC_BUILD_CACHE=0: the leg keeps no compiles to seed " ..
@@ -1429,7 +1429,7 @@ local function phase_fixtures(p: PlatformContext): integer
   -- it on every leg (ci.yml).
   if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
     Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
-      "(COSMIC_CI_SELF_REBUILD=skip)\n")
+        "(COSMIC_CI_SELF_REBUILD=skip)\n")
   else
     local compiles = work .. "/self-rebuild-compiles.db"
     s = step(c, "self-rebuild compiles seed", function(): boolean, string
@@ -1439,11 +1439,11 @@ local function phase_fixtures(p: PlatformContext): integer
     if s ~= 0 then return s end
     s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
       self_rebuild_test_timeout_ns, {
-      COSMIC_FIXTURE_SOURCE = source,
-      COSMIC_FIXTURE_RUNTIME = runtime,
-      COSMIC_FIXTURE_COMPILES = compiles,
-      COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
-    })
+        COSMIC_FIXTURE_SOURCE = source,
+        COSMIC_FIXTURE_RUNTIME = runtime,
+        COSMIC_FIXTURE_COMPILES = compiles,
+        COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
+      })
     if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
@@ -1455,51 +1455,51 @@ local function phase_fixtures(p: PlatformContext): integer
   -- every leg (ci.yml).
   if Env.get("COSMIC_CI_FIXED_POINT") == "skip" then
     Fs.put(Fs.stderr, "fixture: fixed-point-regression: skipped on this leg " ..
-      "(COSMIC_CI_FIXED_POINT=skip)\n")
+        "(COSMIC_CI_FIXED_POINT=skip)\n")
   else
     s = fixture_test(c, work, "fixed-point-regression", "fixed_point",
       fixed_point_test_timeout_ns, {
-      COSMIC_FIXTURE_SOURCE = source,
-      COSMIC_FIXTURE_PRODUCT = product,
-      COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
-    })
+        COSMIC_FIXTURE_SOURCE = source,
+        COSMIC_FIXTURE_PRODUCT = product,
+        COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
+      })
     if s ~= 0 then return s end
   end
   s = fixture_test(c, work, "self-driven-regression", "self_driven",
     self_driven_test_timeout_ns, {
-    COSMIC_FIXTURE_SOURCE = source,
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
-  })
+      COSMIC_FIXTURE_SOURCE = source,
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
+    })
   if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
     runtime_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_RUNTIME = runtime,
-  })
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_RUNTIME = runtime,
+    })
   if s ~= 0 then return s end
   s = fixture_test(c, work, "launcher-regression", "launcher",
     launcher_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
-    COSMIC_FIXTURE_TARGET = target,
-  })
-  if s ~= 0 then return s end
-  if Orchestration.noexec_fixture(target) then
-    s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
-      launcher_noexec_test_timeout_ns, {
       COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
       COSMIC_FIXTURE_TARGET = target,
     })
+  if s ~= 0 then return s end
+  if Orchestration.noexec_fixture(target) then
+    s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
+      launcher_noexec_test_timeout_ns, {
+        COSMIC_FIXTURE_PRODUCT = product,
+        COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
+        COSMIC_FIXTURE_TARGET = target,
+      })
     if s ~= 0 then return s end
   end
   s = fixture_test(c, work, "identity-regression", "identity",
     identity_test_timeout_ns, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_RUNTIME = runtime,
-    COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
-  })
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_RUNTIME = runtime,
+      COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
+    })
   if s ~= 0 then return s end
   -- The product fixture ran on these bytes in assemble
   -- (product-verification); run again on the same bytes and inputs, it

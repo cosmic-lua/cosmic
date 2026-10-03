@@ -231,7 +231,7 @@ function test.nearest(name: string, names: {string}): {string}
   local function shared(other: string): integer
     local length = 0
     while length < #name and length < #other and
-      name:byte(length + 1) == other:byte(length + 1) do
+        name:byte(length + 1) == other:byte(length + 1) do
       length = length + 1
     end
     return length
@@ -313,7 +313,7 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           key: string, run_at_ns: integer, elapsed: integer): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
-    "key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+      "key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
       { integer = ran_at_ns }, text(key), { integer = run_at_ns }, { integer = elapsed } })
 end
@@ -354,7 +354,7 @@ local function record_verdict(handle: Sqlite.Handle, key: string, passed: boolea
                               elapsed: integer): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen, elapsed_ns) " ..
-    "VALUES (?1, ?2, ?3, ?4, ?5)",
+      "VALUES (?1, ?2, ?3, ?4, ?5)",
     { text(key), { integer = passed and 1 or 0 }, { integer = run_at_ns },
       { integer = run }, { integer = elapsed } })
 end
@@ -379,20 +379,20 @@ local function prune_history(handle: Sqlite.Handle, run: integer): boolean, stri
   end
   local pruned_credits, credits_trouble = handle:exec(
     "DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
-    "(SELECT run_at_ns FROM verdicts)")
+      "(SELECT run_at_ns FROM verdicts)")
   if not pruned_credits then
     return false, credits_trouble
   end
   local pruned_snapshots, snapshots_trouble = handle:exec(
     "DELETE FROM coverage WHERE ran_at_ns NOT IN " ..
-    "(SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
-    kept_snapshots .. ")")
+      "(SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
+      kept_snapshots .. ")")
   if not pruned_snapshots then
     return false, snapshots_trouble
   end
   return handle:exec(
     "DELETE FROM test_runs WHERE ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage) " ..
-    "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
+      "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
 end
 
 --- The environment every worker this process starts has
@@ -453,7 +453,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
     end
     local rows, trouble = Sqlite.text_rows(handle,
       "SELECT hits FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
-      "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
+        "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
     if rows == nil then
       return trouble
     end
@@ -467,8 +467,8 @@ end
 --- Reuses `coverage`'s statement for the many rows in a snapshot,
 --- checking every operation.
 local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
-                              path: string, line: integer,
-                              last: integer | string): boolean, string
+                               path: string, line: integer,
+                               last: integer | string): boolean, string
   local ok, trouble = statement:bind_integer(1, run_at_ns)
   if not ok then
     return false, trouble
@@ -528,13 +528,13 @@ local function batch_for(handle: Sqlite.Handle, single: Sqlite.Statement,
                          run_at_ns: integer, into: string,
                          last_column: string): Batch | nil, string
   local whole, trouble = handle:prepare("INSERT INTO " .. into ..
-    " (ran_at_ns, path, line, " .. last_column .. ") VALUES " ..
-    batch_values(run_at_ns, insert_batch))
+      " (ran_at_ns, path, line, " .. last_column .. ") VALUES " ..
+      batch_values(run_at_ns, insert_batch))
   if whole == nil then
     return nil, trouble
   end
   return { whole = whole, single = single, run_at_ns = run_at_ns,
-           paths = {}, lines = {}, lasts = {}, pending = 0 }
+    paths = {}, lines = {}, lasts = {}, pending = 0 }
 end
 
 --- Steps `whole` once over a full batch, then empties it.
@@ -936,7 +936,7 @@ local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 --- requires, directly or not, by `imports` (the names each module
 --- requires), and each of `own` alone.
 local function closure_of(roots: {string}, own: {string},
-    imports: {string:{string}}): {string}
+                          imports: {string:{string}}): {string}
   local seen: {string:boolean} = {}
   local names: {string} = {}
   local stack: {string} = {}
@@ -968,8 +968,8 @@ end
 function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " ..
-    "(SELECT 1 FROM modules m WHERE m.path = i.path AND m.kind IN ('module', 'main') " ..
-    "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)")
+      "(SELECT 1 FROM modules m WHERE m.path = i.path AND m.kind IN ('module', 'main') " ..
+      "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)")
   if rows == nil then return nil, trouble end
   local out: {string:{string}} = {}
   for _, row in ipairs(rows) do
@@ -1010,7 +1010,7 @@ end
 function test.harness(db: Sqlite.Handle): Harness | nil, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash, lower(hex(sha256(bytecode))) FROM modules " ..
-    "WHERE kind IN ('module', 'main')")
+      "WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if imported == nil then return nil, imports_trouble end
@@ -1090,7 +1090,7 @@ local function harness_epoch_of(): string | nil, string
   if named == "" then return harness_epoch.epoch, "" end
   if not named:match("^%d+%-%x+$") then
     return nil, string.format("COSMIC_TEST_HARNESS_EPOCH is %q, not a count, a dash and " ..
-      "hex digits, as build/harness_epoch.tl's `epoch` is", named)
+        "hex digits, as build/harness_epoch.tl's `epoch` is", named)
   end
   return named, ""
 end
@@ -1312,7 +1312,7 @@ local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer
   local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
   if rows ~= nil and rows[1] ~= nil then return rows[1][1] end
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
-    tostring(Time.monotonic_ns()) .. "\0" .. tostring({}))
+      tostring(Time.monotonic_ns()) .. "\0" .. tostring({}))
   local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
     { text(made) })
   return made
@@ -1332,7 +1332,7 @@ local function drop_shared(rec: Recording, trouble: string)
     if moved ~= nil then aside = "; moved aside to " .. moved end
   end
   log:complain("test: shared verdicts: " .. path .. ": " .. trouble ..
-    "; running without them" .. aside)
+      "; running without them" .. aside)
 end
 
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
@@ -1545,10 +1545,10 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     judged = { passed = true, skipped = unavailable, message = "" }
   else
     judged = worker.judge({
-    result = result, trouble = trouble, timeout_ns = limits.timeout_ns,
-    sandboxed = rec.sandbox, refused = refused == true,
-    carried = rec.carried,
-    closure = closure_set(rec, job.m),
+      result = result, trouble = trouble, timeout_ns = limits.timeout_ns,
+      sandboxed = rec.sandbox, refused = refused == true,
+      carried = rec.carried,
+      closure = closure_set(rec, job.m),
     })
   end
   local reported, passed, message = judged.report, judged.passed, judged.message
@@ -1890,7 +1890,7 @@ local function mismatched(rec: Recording, address: string, path: string, digest:
     "with bytes whose digest is " .. digest .. ", but " .. where .. " has " .. kept ..
     ": a store's bytes must follow from its address alone (build.closure_store's " ..
     "`address`), and these do not. " .. (saved and ("This run's is kept at " .. aside) or
-    ("This run's could not be kept aside (" .. trouble .. ")")) .. "; report it with the " ..
+      ("This run's could not be kept aside (" .. trouble .. ")")) .. "; report it with the " ..
     "other, and both digests, and remove it once reported. The next run keeps " .. digest ..
     " for the address in the shared verdicts, in place of " .. kept .. "."
 end
@@ -2006,7 +2006,7 @@ local function verify_sample(rec: Recording)
         base_name(address) or (address .. ".db"))
       local there, _ = sys.stat(other)
       mismatched(rec, address, path, digest, kept, there ~= nil and other or
-        "the store this run keyed its tests by", true)
+          "the store this run keyed its tests by", true)
     end
   end
   local _, _ = Fs.remove(path)
@@ -2075,7 +2075,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       store)
     if plan.over > 0 then
       finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
-        " more than the most one holds", limits)
+          " more than the most one holds", limits)
       return false
     end
     if plan.trouble ~= "" then
@@ -2531,9 +2531,9 @@ local function run(argv: {integer:string}): integer
   if sandbox_mode ~= "off" and holder ~= nil and holder ~= "" then
     local _, _ = work.close(handle)
     log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
-      "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
-      "worker's sandbox: declare nests = true in its Test.needs, or start the run with " ..
-      test_sandbox.switch .. "=0")
+        "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
+        "worker's sandbox: declare nests = true in its Test.needs, or start the run with " ..
+        test_sandbox.switch .. "=0")
     return 1
   end
   if sandbox_mode ~= "off" then
@@ -2545,21 +2545,21 @@ local function run(argv: {integer:string}): integer
       runtime = runtime .. " sandboxed" .. (must and " must" or "")
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
-        test_sandbox.tree)
+          test_sandbox.tree)
     elseif sandbox_mode == "on" then
       local _, _ = work.close(handle)
       log:complain("test: " .. test_sandbox.switch .. "=1, but no worker can be sandboxed " ..
-        "here: " .. why)
+          "here: " .. why)
       return 1
     else
       sandbox_summary = "; unsandboxed, as no worker can be sandboxed here"
       log:say("test: no worker can be sandboxed here: " .. why .. "; " .. unenforced ..
-        "; " .. test_sandbox.switch .. "=0 runs them unsandboxed without asking")
+          "; " .. test_sandbox.switch .. "=0 runs them unsandboxed without asking")
     end
   else
     sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0)"
     log:say("test: declared: workers run unsandboxed (" .. test_sandbox.switch .. "=0); " ..
-      unenforced)
+        unenforced)
   end
   local shares = sandboxed or shared_verdicts.chosen()
   if not sandboxed then
@@ -2649,7 +2649,7 @@ local function run(argv: {integer:string}): integer
       local _, name = split(selector)
       local near = test.nearest(name, m.tests)
       log:complain("no test in " .. m.path .. " is named " .. name .. "; it has " ..
-        table.concat(near, ", ") .. (#m.tests > #near and ", ..." or ""))
+          table.concat(near, ", ") .. (#m.tests > #near and ", ..." or ""))
     end
     return 1
   end
@@ -2998,7 +2998,7 @@ local function run(argv: {integer:string}): integer
   table.sort(unkeyed)
   for _, path in ipairs(unkeyed) do
     log:say(keying .. path .. " has no key, so its tests run every time: " ..
-      rec.unkeyed[path])
+        rec.unkeyed[path])
   end
   if #jobs > 0 then
     -- Nil only where the guard cannot be had (no descriptor left for
@@ -3066,7 +3066,7 @@ local function run(argv: {integer:string}): integer
     -- A share's tests enter only some of them; a whole run, which CI's
     -- merge queue makes on every leg, holds the core to all of them.
     function_lines[1] = string.format("test: C functions not checked: shard %d of %d " ..
-      "runs part of the suite, and only a whole run enters every one", shard.index, shard.count)
+        "runs part of the suite, and only a whole run enters every one", shard.index, shard.count)
   end
 
   local cov_hit, cov_total, cov_trouble =
@@ -3128,8 +3128,8 @@ local function run(argv: {integer:string}): integer
   if #failures == 0 and #errors == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
-        "test_*` of a *_test.tl file, or a function of the `Example` " ..
-        "record a *_example.tl file returns")
+          "test_*` of a *_test.tl file, or a function of the `Example` " ..
+          "record a *_example.tl file returns")
     end
     say_skips(rec)
     log:say(cov_line)

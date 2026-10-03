@@ -86,16 +86,16 @@ end
 local function test_a_resolved_link_is_a_row(dir: string)
   local db = linking_tree(dir)
   same(rows(db, "SELECT from_file, line, column, kind, module, symbol, path, anchor, " ..
-    "form, source, text FROM links ORDER BY from_file, line, column"), {
-    "build/boot.tl 3 15 symbol cosmic.fs read   shortcut comment `Fs.read`",
-    "build/boot.tl 3 31 symbol cosmic.fs    shortcut comment `cosmic.fs`",
-    "build/boot.tl 3 55 file   doc/meta.md  reference comment the notes",
-    "build/boot.tl 8 21 symbol cosmic.fs write   shortcut comment `Fs.write`",
-    "build/boot.tl 8 35 symbol cosmic.fs write   inline comment again",
-    "cosmic/fs.tl 6 26 symbol cosmic.fs write   shortcut doc `Fs.write`",
-    "cosmic/fs.tl 7 5 anchor   doc/meta.md every-example-runs inline doc the rule",
-    "cosmic/raw.d.tl 1 22 symbol cosmic.fs read   shortcut doc `cosmic.fs.read`",
-  })
+      "form, source, text FROM links ORDER BY from_file, line, column"), {
+        "build/boot.tl 3 15 symbol cosmic.fs read   shortcut comment `Fs.read`",
+        "build/boot.tl 3 31 symbol cosmic.fs    shortcut comment `cosmic.fs`",
+        "build/boot.tl 3 55 file   doc/meta.md  reference comment the notes",
+        "build/boot.tl 8 21 symbol cosmic.fs write   shortcut comment `Fs.write`",
+        "build/boot.tl 8 35 symbol cosmic.fs write   inline comment again",
+        "cosmic/fs.tl 6 26 symbol cosmic.fs write   shortcut doc `Fs.write`",
+        "cosmic/fs.tl 7 5 anchor   doc/meta.md every-example-runs inline doc the rule",
+        "cosmic/raw.d.tl 1 22 symbol cosmic.fs read   shortcut doc `cosmic.fs.read`",
+      })
   same(rows(db, "SELECT DISTINCT from_module FROM links WHERE from_file = 'cosmic/raw.d.tl'"),
     { "cosmic.raw" })
   assert(db:close())
@@ -197,7 +197,7 @@ local function build_links(handle: work.Handle, out: string): {string}
   assert(writer.write_result(handle, out, result, nil, link_index.none))
   local db = assert(Sqlite.open(out))
   local found = rows(db, "SELECT from_file || ':' || line, kind, symbol, path || '#' || anchor " ..
-    "FROM links ORDER BY from_file, line, column")
+      "FROM links ORDER BY from_file, line, column")
   assert(db:close())
   return found
 end
@@ -281,12 +281,12 @@ local function test_a_member_through_an_alias_or_a_typed_value_is_a_row(dir: str
       "return Thing"),
   })
   same(rows(db, "SELECT from_file, line, column, module, symbol FROM links " ..
-    "WHERE from_file = 'build/boot.tl' ORDER BY line, column"), {
-    "build/boot.tl 4 4 cosmic.thing Box.grow",
-    "build/boot.tl 4 24 cosmic.thing Box.grow",
-    "build/boot.tl 5 4 cosmic.verbs Module.order",
-    "build/boot.tl 5 21 cosmic.verbs Module.order",
-  })
+      "WHERE from_file = 'build/boot.tl' ORDER BY line, column"), {
+        "build/boot.tl 4 4 cosmic.thing Box.grow",
+        "build/boot.tl 4 24 cosmic.thing Box.grow",
+        "build/boot.tl 5 4 cosmic.verbs Module.order",
+        "build/boot.tl 5 21 cosmic.verbs Module.order",
+      })
   assert(db:close())
 end
 
@@ -325,10 +325,10 @@ local function test_a_member_through_a_required_modules_type_is_a_row(dir: strin
       "return User"),
   })
   same(rows(db, "SELECT from_file, line, column, module, symbol FROM links " ..
-    "WHERE from_file = 'build/boot.tl' ORDER BY line, column"), {
-    "build/boot.tl 3 4 cosmic.user Entry.path",
-    "build/boot.tl 3 25 cosmic.user Item.path",
-  })
+      "WHERE from_file = 'build/boot.tl' ORDER BY line, column"), {
+        "build/boot.tl 3 4 cosmic.user Entry.path",
+        "build/boot.tl 3 25 cosmic.user Item.path",
+      })
   assert(db:close())
 end
 
@@ -337,8 +337,8 @@ end
 local function file_links(out: string): {string}
   local db = assert(Sqlite.open(out))
   local found = rows(db, "SELECT from_file || ':' || line || ':' || column, source, kind, " ..
-    "symbol, path || '#' || anchor FROM links WHERE from_module = '' " ..
-    "ORDER BY from_file, line, column")
+      "symbol, path || '#' || anchor FROM links WHERE from_module = '' " ..
+      "ORDER BY from_file, line, column")
   assert(db:close())
   return found
 end
@@ -592,11 +592,11 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
   assert(work.close(handle))
   local db = assert(Sqlite.open(out))
   same(rows(db, "SELECT from_file, line, column, from_module, module, symbol FROM links " ..
-    "ORDER BY from_file, line, column"), {
-    "README.md 1 11  cosmic.fs read",
-    "greet.tl 1 24 greet cosmic.fs read",
-    "greet.tl 1 47 greet cosmic.fs write",
-  })
+      "ORDER BY from_file, line, column"), {
+        "README.md 1 11  cosmic.fs read",
+        "greet.tl 1 24 greet cosmic.fs read",
+        "greet.tl 1 47 greet cosmic.fs write",
+      })
   local handles = assert(stdlib.databases())
   local view = assert(docs.view({ db, handles[1] }, { false, true }))
   local listed: {string} = {}
@@ -661,10 +661,10 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
   assert(work.close(handle))
   local db = assert(Sqlite.open(out))
   same(rows(db, "SELECT from_file, line, column, module, symbol FROM links " ..
-    "ORDER BY from_file, line, column"), {
-    "greet.tl 1 17 greet Entry.path",
-    "greet.tl 1 43 cosmic.archive Entry.path",
-  })
+      "ORDER BY from_file, line, column"), {
+        "greet.tl 1 17 greet Entry.path",
+        "greet.tl 1 43 cosmic.archive Entry.path",
+      })
   assert(db:close())
   assert(stdlib:close())
 end
@@ -691,7 +691,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
     assert(writer.write_result(handle, out, result, nil, stdlib))
     local db = assert(Sqlite.open(out))
     local found = rows(db, "SELECT from_file || ':' || line, symbol FROM links " ..
-      "UNION ALL SELECT 'kept', value FROM meta WHERE key = 'kept' ORDER BY 1, 2")
+        "UNION ALL SELECT 'kept', value FROM meta WHERE key = 'kept' ORDER BY 1, 2")
     assert(db:close())
     return found
   end
@@ -711,7 +711,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   local refusing: link_index.Library = { identity = "docs three",
     databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
   assert(writer.signature(handle, plain, "a writer", refusing) ==
-    writer.signature(handle, plain, "a writer", one))
+      writer.signature(handle, plain, "a writer", one))
   assert(writer.write_result(handle, out, plain, nil, refusing))
   assert(work.close(handle))
 end
@@ -731,7 +731,7 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
   local refusing: link_index.Library = { identity = "docs three",
     databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
   assert(writer.signature(handle, result, "a writer", refusing) ==
-    writer.signature(handle, result, "a writer", library(tmp, "docs one", true)))
+      writer.signature(handle, result, "a writer", library(tmp, "docs one", true)))
   local out = root .. "/o/cosmic.db"
   assert(writer.write_result(handle, out, result, nil, refusing))
   assert(work.close(handle))
@@ -767,11 +767,11 @@ local function test_a_projects_own_links_read_no_library(tmp: string)
   assert(writer.write_result(handle, out, result))
   local db = assert(Sqlite.open(out))
   same(rows(db, "SELECT from_file || ':' || line, module, symbol FROM links " ..
-    "ORDER BY from_file, line, column"), {
-    "README.md:1 other fn",
-    "greet.tl:1 greet hello",
-    "wave.tl:2 greet bye",
-  })
+      "ORDER BY from_file, line, column"), {
+        "README.md:1 other fn",
+        "greet.tl:1 greet hello",
+        "wave.tl:2 greet bye",
+      })
   assert(db:close())
   assert(Fs.write(root .. "/README.md", source("See [`cosmic.fs.read`].")))
   assert(work.stage(handle, false))
@@ -779,6 +779,6 @@ local function test_a_projects_own_links_read_no_library(tmp: string)
   local ok, trouble = writer.write_result(handle, out, linked)
   assert(not ok, "a link to the standard library reads the store")
   assert(trouble:find("standard library", 1, true) ~= nil and
-    trouble:find("store = true", 1, true) ~= nil, trouble)
+      trouble:find("store = true", 1, true) ~= nil, trouble)
   assert(work.close(handle))
 end

@@ -683,7 +683,7 @@ end
 --- caller reads it: no byte is taken from the connection before the
 --- first read, which calls `on_first_read` (nil for none).
 function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
-    on_first_read?: function()): wire.Body
+                   on_first_read?: function()): wire.Body
   local r: BodyReader = setmetatable({
     input = input, limits = limits, head = head, left = head.length or 0,
     phase = "size", total = 0, failure = "", closed = false, touched = false,
@@ -800,7 +800,7 @@ end
 
 --- The head of `reply`, framed by `length` and `chunked`.
 local function head_text(reply: wire.Reply, length: integer | nil, chunked: boolean,
-    close: boolean): string
+                         close: boolean): string
   local lines: {string} = {
     ("HTTP/1.1 %d %s"):format(reply.status, wire.reason(reply.status)),
     "Date: " .. reply.date,
@@ -822,7 +822,7 @@ end
 --- Reader's second, where one failed. A Reader that ends short of
 --- `length`, or fails, cuts the reply short.
 local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer | nil,
-    chunked: boolean): string, string
+                         chunked: boolean): string, string
   local left = length
   while left == nil or left > 0 do
     local piece, why = body:read(left ~= nil and math.min(left, CHUNK) or CHUNK)

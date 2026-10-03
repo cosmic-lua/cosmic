@@ -546,15 +546,15 @@ local module: Module = {
       usage = "[selector...]",
       spec = {
         ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
-          "checkout or another (COSMIC_TEST_ALL=1)" },
+            "checkout or another (COSMIC_TEST_ALL=1)" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
-          "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
+            "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
         ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
-          "stood on the shared cache, how many rows it holds, even in a checkout " ..
-          "that ran before" },
+            "stood on the shared cache, how many rows it holds, even in a checkout " ..
+            "that ran before" },
         ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
-          "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
+            "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
         ["--timeout"] = { value = "seconds",
           about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
       },
@@ -565,7 +565,7 @@ local module: Module = {
       spec = {
         ["--check"] = { about = "write nothing; name what a fix would change, and fail if any" },
         ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
-          "changed since the whole tree passed; what spans files still covers it all" },
+            "changed since the whole tree passed; what spans files still covers it all" },
       },
     },
     build = {
@@ -587,13 +587,13 @@ local module: Module = {
         ["--build"] = { about = "run against o/build.db" },
         ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
         ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
-          "named for its stem, or `name=file`; repeat for a join" },
+            "named for its stem, or `name=file`; repeat for a join" },
         ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
-          "or tsv, rather than by its extension" },
+            "or tsv, rather than by its extension" },
         ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
-          "no number is read, an empty cell is '' not NULL" },
+            "no number is read, an empty cell is '' not NULL" },
         ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
-          "path ($.rows), not the document" },
+            "path ($.rows), not the document" },
       },
     },
     cache = {
@@ -685,7 +685,7 @@ local module: Module = {
         ["--seconds"] = { about = "between: whole seconds" },
         ["--clamp"] = { about = "add: a day the month lacks takes its last day, not an error" },
         ["--disambiguate"] = { value = "how", about = "a local time in a gap or overlap: " ..
-          "compatible (default), earlier, later or reject" },
+            "compatible (default), earlier, later or reject" },
         ["--json"] = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" },
       },
     },

@@ -245,8 +245,8 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
       local runner = Poll.spawn(function()
         local r, why = module.run(lua(
           'local Fs = require("cosmic.fs") local sys = require("cosmic.sys") ' ..
-          'assert(Fs.write(' .. string.format("%q", report) .. ', tostring(sys.getpid()))) ' ..
-          sleep(100000)))
+            'assert(Fs.write(' .. string.format("%q", report) .. ', tostring(sys.getpid()))) ' ..
+            sleep(100000)))
         assert(r == nil)
         ran = why
       end)
@@ -436,7 +436,7 @@ local function test_a_run_killed_in_its_cleanup_ends_its_child_and_guard(tmp: st
   assert(sys.kill(pid, 0) == false, "the killed run left its child running")
   local after = caught_signals()
   assert(after == before, "caught " .. tostring(before) .. " before the run, " ..
-    tostring(after) .. " after")
+      tostring(after) .. " after")
 end
 
 --- A child's streams read and written in a task let the others run:
@@ -450,7 +450,7 @@ local function test_streams_in_a_task_let_the_others_run()
     local ticks = ticking(function()
       local h <close> = assert(module.start(lua(
         'local Fs = require("cosmic.fs") assert(Fs.put(1, "a")) ' .. sleep(200) ..
-        'assert(Fs.put(1, "b"))', { stdout = "stream" })))
+          'assert(Fs.put(1, "b"))', { stdout = "stream" })))
       local reader = assert(h.stdout_stream)
       while true do
         local chunk, why = reader:read()
@@ -463,8 +463,8 @@ local function test_streams_in_a_task_let_the_others_run()
       assert(assert(h:wait()).ok)
       fed = assert(module.run(lua(
         'local Fs = require("cosmic.fs") ' .. sleep(100) ..
-        'while true do local s = assert(Fs.take(0, 65536)) if s == "" then break end ' ..
-        'assert(Fs.put(1, s)) end', { input = input, stdout = "capture" })))
+          'while true do local s = assert(Fs.take(0, 65536)) if s == "" then break end ' ..
+          'assert(Fs.put(1, s)) end', { input = input, stdout = "capture" })))
     end)
     assert(table.concat(got) == "ab", table.concat(got, "|"))
     assert(fed.ok and fed.stdout == input, "fed " .. #tostring(fed.stdout) .. " bytes back")
@@ -537,7 +537,7 @@ assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
 ]], report }, { stderr = "capture", timeout_ns = Time.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
-    " " .. tostring(r.stderr))
+      " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == "nil child: cancelled by signal " .. term .. "|" .. term .. "|true|true", tostring(got))

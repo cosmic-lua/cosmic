@@ -4,7 +4,7 @@ local function test_rows_preserve_sqlite_values()
   local db = assert(Sqlite.memory())
   local rows = assert(Sqlite.rows(db,
     "SELECT NULL, '', CAST('' AS BLOB), 9007199254740993, 1.25, " ..
-    "CAST(x'610062' AS TEXT), x'610062'"))
+      "CAST(x'610062' AS TEXT), x'610062'"))
   local row = rows[1]
   assert(#row == 7)
   assert(row[1].kind == "null")

@@ -93,7 +93,7 @@ local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
   assert(holds(unveil.reads, root .. "/data") and unveil.at[root .. "/data"] == "/tree/data")
   assert(not holds(unveil.reads, root .. "/data/x.tl") and unveil.at[root .. "/data/x.tl"] == nil)
   assert(holds(unveil.reads, root .. "/data/y.tl") and
-    unveil.at[root .. "/data/y.tl"] == "/tree/data/y.tl")
+      unveil.at[root .. "/data/y.tl"] == "/tree/data/y.tl")
   assert(holds(unveil.reads, dir) and not holds(unveil.reads, dir .. "/given"))
 end
 
@@ -164,7 +164,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local unveil = plan.sandbox.unveil
   assert(plan.over == 0 and plan.sandbox.offline == true)
   assert(holds(unveil.reads, root .. "/o/cosmic.db") and
-    unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db")
+      unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db")
   assert(holds(unveil.reads, root .. "/a/x.tl") and unveil.at[root .. "/a/x.tl"] == "/tree/a/x.tl")
   assert(holds(unveil.reads, root .. "/data") and unveil.at[root .. "/data"] == "/tree/data")
   assert(not holds(unveil.reads, root .. "/a/missing.tl"))
@@ -173,7 +173,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   end
   assert(holds(unveil.reads, host) and unveil.at[host] == nil)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and
-    unveil.at[scratch] == test_sandbox.scratch)
+      unveil.at[scratch] == test_sandbox.scratch)
   -- The plan hands a worker it runs as a user of its own (a root
   -- runner's) the scratch directory and its `real`.
   assert(plan.trouble == "", plan.trouble)
@@ -197,11 +197,11 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(Fs.write(closure_store, "c"))
   local closed = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
   assert(closed.sandbox.unveil.at[closure_store] == "/tree/o/cosmic.db" and
-    not holds(closed.sandbox.unveil.reads, root .. "/o/cosmic.db"))
+      not holds(closed.sandbox.unveil.reads, root .. "/o/cosmic.db"))
   inputs.store = true
   local whole = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
   assert(whole.sandbox.unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db" and
-    not holds(whole.sandbox.unveil.reads, closure_store))
+      not holds(whole.sandbox.unveil.reads, closure_store))
   inputs.store = false
   -- A declared path not there yet is given nothing.
   inputs.reads = { "data/", "later/x" }
@@ -213,7 +213,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local cached = test_sandbox.plan(root, scratch, inputs, {})
   assert(cached.trouble == "", cached.trouble)
   assert(holds(cached.sandbox.unveil.writes, tmp .. "/caches/zig-global") and
-    cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
+      cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
   assert(Fs.exists(tmp .. "/caches/zig-global"))
   -- A file a declared cache holds is given through the cache alone, not
   -- bound again on top of it: there its mount point would be the host's
@@ -228,21 +228,21 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   local nested = test_sandbox.plan(root, scratch, inputs, {})
   assert(nested.trouble == "", nested.trouble)
   assert(holds(nested.sandbox.unveil.writes, tmp .. "/caches/cores") and
-    not holds(nested.sandbox.unveil.reads, stamp))
+      not holds(nested.sandbox.unveil.reads, stamp))
   -- The `bootstrap` cache: cores of its own, made in its scratch
   -- directory before it starts -- a ruleset that holds it walks what is
   -- there then -- and named to it, not the host's, which the cores
   -- directory this program's core is in stays.
   inputs.caches, inputs.cache_paths = { "bootstrap" }, { tmp .. "/caches/cores" }
   local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
-    tmp .. "/caches/cores" })
+      tmp .. "/caches/cores" })
   assert(own_cores.trouble == "", own_cores.trouble)
   assert(own_cores.env.COSMIC_PORTABLE_CACHE == test_sandbox.scratch .. "/cores",
     tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
   local cores = assert(sys.stat(scratch .. "/cores"))
   assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
   assert(not holds(own_cores.sandbox.unveil.writes, tmp .. "/caches/cores") and
-    holds(own_cores.sandbox.unveil.reads, stamp))
+      holds(own_cores.sandbox.unveil.reads, stamp))
   inputs.caches, inputs.cache_paths = {}, {}
   local alone = test_sandbox.plan(root, scratch, inputs, {})
   assert(holds(alone.sandbox.unveil.reads, stamp))
@@ -255,7 +255,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
     inputs.spelled = { [test_inputs.plain(own)] = "$OWN" }
     local refused = test_sandbox.plan(root, scratch, inputs, {})
     assert(refused.trouble:find('Test.needs host "$OWN": ', 1, true) and
-      refused.trouble:find("is where its sandbox has", 1, true), own .. ": " .. refused.trouble)
+        refused.trouble:find("is where its sandbox has", 1, true), own .. ": " .. refused.trouble)
   end
   -- And by where it resolves: a link to the scratch directory.
   assert(Fs.symlink(scratch, tmp .. "/to-scratch"))
@@ -369,7 +369,7 @@ end
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
   assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
-    "sharing no verdicts)", 1, true), text)
+      "sharing no verdicts)", 1, true), text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   local seen = text:match("seen|([^\n]*)|end")
@@ -377,14 +377,14 @@ end
   local fields: {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
-    fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
-    fields[8] == "declaredundeclared/d/", seen)
+      fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
+      fields[8] == "declaredundeclared/d/", seen)
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
   if unsandboxed(text) then
     assert(text:find("; unsandboxed, as no worker can be sandboxed here, keyed by declared " ..
-      "inputs, sharing no verdicts)", 1, true), text)
+        "inputs, sharing no verdicts)", 1, true), text)
     -- Required, the run fails instead.
     env.COSMIC_TEST_SANDBOX = "1"
     text, ok = run(root, tmp .. "/required", env)
@@ -398,8 +398,8 @@ end
   fields = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == "/tree" and fields[2] == test_sandbox.scratch .. "/tmp" and fields[3] == "declared" and
-    fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and
-    fields[8] == "declared/d/", seen)
+      fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and
+      fields[8] == "declared/d/", seen)
   -- Its failure is its own, and says how to run it again as it ran.
   assert(not text:find("does not declare", 1, true), text)
   assert(text:find("rerun: cosmic test suite/view_test.tl:test_view", 1, true), text)
@@ -489,7 +489,7 @@ end
     env.PRODUCT_DIR = nil
     local unset, unset_ok = run(root, tmp .. "/unset" .. mode, env)
     assert(not unset_ok and unset:find('Test.needs host "$PRODUCT_DIR/given.txt": ' ..
-      "PRODUCT_DIR is unset", 1, true) and not unset:find("read|", 1, true), unset)
+        "PRODUCT_DIR is unset", 1, true) and not unset:find("read|", 1, true), unset)
     assert(not unset:find("could not be supervised", 1, true), unset)
     env.PRODUCT_DIR = root .. "/suite"
     local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)

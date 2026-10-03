@@ -38,7 +38,7 @@ local function test_a_key_part_is_the_kind_then_path_and_answer_in_hex()
   assert(key_parts.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
   for _, case in ipairs({ { "i", "build.a_test test_b", "" }, { "r", "/tree/x", "ok 12" } }) do
     assert(key_parts.key_part(case[1], case[2], case[3]) ==
-      case[1] .. " " .. Codec.hex(case[2]) .. " " .. Codec.hex(case[3]))
+        case[1] .. " " .. Codec.hex(case[2]) .. " " .. Codec.hex(case[3]))
   end
 end
 

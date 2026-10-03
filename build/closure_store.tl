@@ -112,7 +112,7 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 function closure_store.required_by(source: string): {string}
   local out: {string} = {}
   for _, pattern in ipairs({ "require%s*%(?%s*[\"']([%w_%.]+)[\"']",
-                             "require%s*%(?%s*%[(=*)%[([%w_%.]+)%]%1%]" }) do
+      "require%s*%(?%s*%[(=*)%[([%w_%.]+)%]%1%]" }) do
     for first, second in source:gmatch(pattern) do
       out[#out + 1] = second or first
     end
@@ -135,8 +135,8 @@ local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: s
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. of .. ", lower(hex(sha256(group_concat(" ..
-    table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
-    "FROM " .. from .. " GROUP BY " .. of)
+      table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
+      "FROM " .. from .. " GROUP BY " .. of)
   if rows == nil then return nil, trouble end
   local out: {string:string} = {}
   for _, row in ipairs(rows) do out[row[1]] = row[2] end
@@ -151,9 +151,9 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
   local function read(): closure_store.Basis | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
-      "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
-      "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
-      "FROM modules ORDER BY path")
+        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
+        "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
+        "FROM modules ORDER BY path")
     if rows == nil then return nil, rows_trouble end
     -- The rows `closed` carries of each module, as it carries them: by
     -- its path, or, for its examples, by its file.
@@ -164,14 +164,14 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     local linked: {string:string} = {}
     local bound: {string:string} = {}
     for _, group in ipairs({
-      { "path", "requires", "imports", "requires" },
-      { "path", "name requires", "bound", "name" },
-      { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
-      { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
-      { "module", "kind symbol message text file line", "catalog", "id" },
-      { "file", "module name text line source", "examples", "id" },
-      { "from_module", "module symbol path anchor from_file line column kind form source text",
-        "links", "module, symbol, path, anchor, from_file, line, column" },
+        { "path", "requires", "imports", "requires" },
+        { "path", "name requires", "bound", "name" },
+        { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
+        { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
+        { "module", "kind symbol message text file line", "catalog", "id" },
+        { "file", "module name text line source", "examples", "id" },
+        { "from_module", "module symbol path anchor from_file line column kind form source text",
+            "links", "module, symbol, path, anchor, from_file, line, column" },
     }) do
       local columns: {string} = {}
       for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
@@ -184,11 +184,11 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
-      "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
+        "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, shared_trouble end
     local decl_rows, decl_trouble = Sqlite.text_rows(db,
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
-      "ORDER BY path")
+        "ORDER BY path")
     if decl_rows == nil then return nil, decl_trouble end
     local declared, declared_trouble = grouped(db, "module",
       { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },

@@ -33,7 +33,7 @@ end
 --- @return LineHits | nil Every executable line, hit (true) or not (false)
 --- @return string Error message on a parse failure
 function coverage.lines_of(db: Sqlite.Handle, built: compiler, m: Module,
-                         hits: Coverage.Hits): coverage.LineHits | nil, string
+                           hits: Coverage.Hits): coverage.LineHits | nil, string
   local executable, trouble =
     lines.executable_cached(db, built, m.source_hash, m.source, m.file)
   if executable == nil then

@@ -74,8 +74,8 @@ local function test_split_is_total(tmp: string)
       end
       Fuzz.label("split")
       if not String.starts_with(input, parts.head) or
-         input:sub(#parts.head + 1, #parts.head + #parts.database) ~= parts.database or
-         #parts.head + #parts.database + 48 ~= #input then
+          input:sub(#parts.head + 1, #parts.head + #parts.database) ~= parts.database or
+          #parts.head + #parts.database + 48 ~= #input then
         return false, "the parts are not the file's own bytes"
       end
       if artifact.rejoin(parts, parts.database) ~= input then

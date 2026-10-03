@@ -44,7 +44,7 @@ local function test_a_host_s_own_exemption_holds_on_that_host_alone()
   assert(darwin.exempted == 1 and #darwin.unentered == 0)
   local linux = c_functions.tally({ only }, {}, nil, "Linux")
   assert(linux.exempted == 0 and #linux.unentered == 1 and
-    linux.unentered[1] == "core/strnlen.c:strnlen")
+      linux.unentered[1] == "core/strnlen.c:strnlen")
   local unknown = c_functions.tally({ only }, {})
   assert(unknown.exempted == 0 and #unknown.unentered == 1)
   local entered = c_functions.tally({ only }, { ["core/strnlen.c"] = { [1] = true } }, nil, "Darwin")

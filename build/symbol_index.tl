@@ -100,7 +100,7 @@ end
 function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
                                 qualifier: string): boolean, string
   local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
-    "sqlite_schema WHERE type = 'table' AND name = 'bound'")
+      "sqlite_schema WHERE type = 'table' AND name = 'bound'")
   if held == nil then
     return false, held_trouble
   end

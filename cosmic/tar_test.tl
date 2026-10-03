@@ -109,8 +109,8 @@ local function test_a_size_below_zero_or_no_integer_raises()
   end
   -- Whatever the body, and before any other refusal of the call.
   for _, call in ipairs({
-    function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
-    function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
+      function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
+      function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
     local ok, why: boolean, any = pcall(call)
     assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true),
@@ -225,8 +225,8 @@ end
 local function test_a_base256_mtime_past_64_bits_either_way_is_refused()
   -- 2^63, and -2^63 - 1: each one past an end of the integer range.
   for _, field in ipairs({
-    "\x80\0\0\0\x80" .. string.rep("\0", 7),
-    "\xff\xff\xff\xff\x7f" .. string.rep("\xff", 7),
+      "\x80\0\0\0\x80" .. string.rep("\0", 7),
+      "\xff\xff\xff\xff\x7f" .. string.rep("\xff", 7),
   }) do
     local entry, trouble = Tar.reader(Stream.from_string(with_field_12(137, field))):next()
     assert(entry == nil and trouble:find("mtime field", 1, true) ~= nil, trouble)
@@ -285,7 +285,7 @@ local function test_gnu_long_name_archive_from_system_tar()
   assert(joined:find("symlink adir/alink -> short.txt", 1, true) ~= nil, joined)
   assert(joined:find(
     "thisisaveryveryverylongdirectorynametotesttheustarprefixsplitlogicwhichneedstobelong" ..
-    "/anotherlongsubdirectorynametopushthepathpastonehundredcharacters/deep.txt [deep file\n]",
+      "/anotherlongsubdirectorynametopushthepathpastonehundredcharacters/deep.txt [deep file\n]",
     1, true) ~= nil, joined)
 end
 
@@ -299,7 +299,7 @@ local function test_pax_archive_from_system_tar()
   assert(joined:find("symlink adir/alink -> short.txt", 1, true) ~= nil, joined)
   assert(joined:find(
     "thisisaveryveryverylongdirectorynametotesttheustarprefixsplitlogicwhichneedstobelong" ..
-    "/anotherlongsubdirectorynametopushthepathpastonehundredcharacters/deep.txt [deep file\n]",
+      "/anotherlongsubdirectorynametopushthepathpastonehundredcharacters/deep.txt [deep file\n]",
     1, true) ~= nil, joined)
 end
 
@@ -411,7 +411,7 @@ local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
     last = e
   end
   assert(table.concat(kinds, ",") ==
-    "contig=file,gnu-sparse=other,pax-sparse=other,fifo=other,after=file", table.concat(kinds, ","))
+      "contig=file,gnu-sparse=other,pax-sparse=other,fifo=other,after=file", table.concat(kinds, ","))
   assert(last.typeflag == "0")
 end
 
@@ -482,7 +482,7 @@ local function test_a_file_backed_reader_skips_bodies_and_notices_truncation(tmp
   assert(rc:next())
   local none, trouble = rc:next()
   assert(none == nil and
-    trouble == "tar: cannot skip to the next entry: stream: skip past the end of the file",
+      trouble == "tar: cannot skip to the next entry: stream: skip past the end of the file",
     trouble)
   rc:close()
 end

@@ -920,7 +920,7 @@ local function test_a_shielded_wait_outlasts_a_cancel()
     ticker:cancel()
   end)
   assert(table.concat(seen, ", ") ==
-    "delay true, nested true, after nested true, after false " .. Poll.CANCELLED,
+      "delay true, nested true, after nested true, after false " .. Poll.CANCELLED,
     table.concat(seen, ", "))
 end
 

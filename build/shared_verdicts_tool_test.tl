@@ -114,7 +114,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.needs { host = { "]] .. Fs.dirname(root) ..
-    [[/outside/f" }, env = { "OUTSIDE" } }
+      [[/outside/f" }, env = { "OUTSIDE" } }
 
 local function test_reads_outside()
   local f = assert(Env.get("OUTSIDE")) .. "/f"
@@ -211,18 +211,18 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   assert(Fs.write(tmp .. "/first/suite/data.txt", "five\n"))
   local asked = said("asked", tmp .. "/first", "4 ran, 1 stood", { "--census" })
   assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and
-    asked:find("runtime %x+, compiler %x+, harness %x+") and
-    asked:find("launcher %x+") ~= nil and asked:find(", store " .. ("%x"):rep(12)) ~= nil,
+      asked:find("runtime %x+, compiler %x+, harness %x+") and
+      asked:find("launcher %x+") ~= nil and asked:find(", store " .. ("%x"):rep(12)) ~= nil,
     asked)
   -- With nothing looked up, it says the parts alone.
   local parts = said("parts", tmp .. "/first", "0 ran, 5 stood", { "--census" })
   assert(parts:find("test: key parts: host features %x+, host %x+, system %x+, runtime %x+") and
-    not parts:find("shared verdicts: none of", 1, true), parts)
+      not parts:find("shared verdicts: none of", 1, true), parts)
   -- And what the cache held: rows under the parts the runs keeping
   -- them said, these among them.
   local said_parts = parts:match("test: key parts: ([^\n]*)")
   assert(parts:find("test: census: %d+ rows? under ") and
-    parts:find("under " .. said_parts, 1, true) ~= nil, parts)
+      parts:find("under " .. said_parts, 1, true) ~= nil, parts)
 end
 
 --- A run that chooses only an edited module runs its tests and says
@@ -391,7 +391,7 @@ local function test_a_database_attached_through_the_store_is_keyed_by_its_conten
     assert(Fs.mkdirs(root .. "/suite"))
     local db = assert(Sqlite.open(root .. "/suite/data.db", { writable = true }))
     assert(db:exec("CREATE TABLE meta (key TEXT, value TEXT); " ..
-      "INSERT INTO meta VALUES ('v', '" .. value .. "')"))
+        "INSERT INTO meta VALUES ('v', '" .. value .. "')"))
     assert(db:close())
     assert(Fs.write(root .. "/suite/attached_test.tl", [[
 local Store = require("cosmic.store")
@@ -538,7 +538,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   -- And says why: the cache held these very tests, under keys it no
   -- longer reaches.
   assert(second:find("none of 4 tests looked up stood, though " .. cache ..
-    " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
+      " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
   assert(second:find("host features %x+, host %x+, system %x+, runtime %x+") ~= nil, second)
 end
 

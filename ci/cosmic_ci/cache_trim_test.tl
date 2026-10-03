@@ -21,7 +21,7 @@ local function encoded(path: string): Payload
 end
 
 local function mocked(request: CacheTrim.Request, env: {string:string}, payload: string,
-    code?: integer, truncated?: boolean): string, string
+                      code?: integer, truncated?: boolean): string, string
   local original = Child.run
   Child.run = function(_argv: {string}, _options?: Child.Options): Child.Result | nil, string
     return { ok = code == nil or code == 0, code = code or 0, stdout = payload, stderr = "diagnostic",

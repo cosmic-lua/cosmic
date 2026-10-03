@@ -205,7 +205,7 @@ local function test_a_project_without_a_journal_fails(dir: string)
   local status, said = graded_with_journal(dir, nil)
   assert(status == 1, said)
   assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: no " ..
-    dir .. "/project/JOURNAL.md\n", 1, true), said)
+      dir .. "/project/JOURNAL.md\n", 1, true), said)
   assert(said:sub(-12) == "check: FAIL\n", said)
 end
 
@@ -213,7 +213,7 @@ local function test_a_project_with_an_empty_journal_fails(dir: string)
   local status, said = graded_with_journal(dir, "\n  \n")
   assert(status == 1, said)
   assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: " ..
-    dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
+      dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
   assert(Fs.read(dir .. "/project/JOURNAL.md") == "\n  \n")
 end
 

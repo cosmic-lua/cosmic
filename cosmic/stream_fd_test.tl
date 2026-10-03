@@ -173,7 +173,7 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   local calls, asked = 0, 0
   local fail: string = nil
   local w = Stream.to_fd(writer, { nonblocking = true, wait = function(fd: integer,
-      events: integer, left: integer | nil): boolean, string
+                                                                       events: integer, left: integer | nil): boolean, string
     calls = calls + 1
     assert(fd == writer and events == sys.POLLOUT and left == nil)
     if fail ~= nil then return false, fail end
@@ -206,7 +206,7 @@ local function test_the_options_are_checked()
   raises(function() local _ = Stream.to_fd(1, { timeout_ns = Time.ms(5) }) end, "nonblocking")
   raises(function()
     local _ = Stream.to_fd(1, { wait = function(_: integer, _: integer, _: integer | nil):
-      boolean, string return true, "" end })
+        boolean, string return true, "" end })
   end, "nonblocking")
   raises(function() local _ = Stream.from_fd(0, { nonblocking = true, timeout_ns = -1 }) end,
     "timeout_ns")

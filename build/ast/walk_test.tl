@@ -70,12 +70,12 @@ end
 --- would land on `end`.
 local function test_span_end_return_lands_on_last_operand_not_the_block_end()
   local source = table.concat({
-      "local function f(a: integer, b: integer): integer",
-      "  return a --[[ keep this ]] + b",
-      "",
-      "",
-      "end",
-    }, "\n")
+    "local function f(a: integer, b: integer): integer",
+    "  return a --[[ keep this ]] + b",
+    "",
+    "",
+    "end",
+  }, "\n")
   local parsed = parse_ok(source, "return_span.tl")
   local fn = parsed.node[1]
   local body = fn.body
@@ -129,7 +129,7 @@ local function test_span_end_if_recovers_end_through_its_block_body()
       ey, ex))
   assert(source:sub(ex - 2, ex) == "end",
     "columns " .. (ex - 2) .. "-" .. ex .. " are not 'end': " ..
-    source:sub(ex - 2, ex))
+      source:sub(ex - 2, ex))
 end
 
 --- `walk` must never call `visit` on an "op" node's `OpInfo` payload
@@ -145,7 +145,7 @@ local function test_walk_never_visits_an_op_payload_as_a_node()
     local kind: any = n.kind
     assert(kind is string,
       "visited a value with no string kind (likely an OpInfo payload): " ..
-      tostring(kind))
+        tostring(kind))
   end)
   assert(visits > 0, "walk visited nothing")
 end

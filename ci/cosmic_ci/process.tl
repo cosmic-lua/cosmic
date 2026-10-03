@@ -37,7 +37,7 @@ end
 
 -- One field of this host's `uname`.
 function Process.host_uname(work: string, diagnostics: string, flag: string,
-    label: string): string
+                            label: string): string
   local answer = Fixture.run("uname-" .. label,
     { "/usr/bin/env", "uname", flag }, work, diagnostics)
   return (assert(Fixture.small(answer.out, 256):match("^(%S+)"),
@@ -47,8 +47,8 @@ end
 -- Starts `argv`, its streams in files under `diagnostics` named for
 -- `label`, and its stdin read from the file `input` when one is given.
 function Process.start(label: string, argv: {string}, cwd: string,
-    values: {string:string}, diagnostics: string,
-    input?: string): Process.Running
+                       values: {string:string}, diagnostics: string,
+                       input?: string): Process.Running
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
   local out_fd = assert(Fs.open_write(out))
@@ -137,7 +137,7 @@ end
 -- A child that exits first fails the wait then, rather than when the
 -- bound passes.
 function Process.await_ready(work: string, diagnostics: string, label: string,
-    path: string, child: Process.Running, timeout_ns?: integer)
+                             path: string, child: Process.Running, timeout_ns?: integer)
   local bound = timeout_ns or handshake_timeout_ns
   local deadline = Time.monotonic_ns() + bound
   local reader = Process.start("ready-" .. label,
@@ -172,15 +172,15 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   if answer == "" and exited then
     local ended = assert(child.handle:wait())
     error(label .. ": " .. child.label .. " exited before it was ready (code=" ..
-      tostring(ended.code) .. "; signal=" .. tostring(ended.signal) ..
-      "); stdout=" .. child.out .. "; stderr=" .. child.err, 0)
+        tostring(ended.code) .. "; signal=" .. tostring(ended.signal) ..
+        "); stdout=" .. child.out .. "; stderr=" .. child.err, 0)
   end
   assert(answer == "ready\n", label .. ": startup hook readiness differs")
 end
 
 -- Lets a paused child go on.
 function Process.release(work: string, diagnostics: string, label: string,
-    path: string)
+                         path: string)
   local input = work .. "/release-" .. label
   Fixture.write(input, "go\n")
   Fixture.run("release-" .. label, { "/usr/bin/env", "tee", path }, work,

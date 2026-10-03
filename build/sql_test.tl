@@ -7,8 +7,8 @@ local function project(): string
   assert(Fs.mkdirs(root .. "/o"))
   local db = assert(Sqlite.open(root .. "/o/cosmic.db", { writable = true }))
   assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
-    "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
-    "(3, char(27) || '[31m' || char(127) || '\\N')"))
+      "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
+      "(3, char(27) || '[31m' || char(127) || '\\N')"))
   assert(db:close())
   return root
 end
@@ -75,7 +75,7 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   local code, written = run(root, { "SELECT a FROM t WHERE a > 1 AND a < 3 ORDER BY a" })
   assert(code == 0)
   assert(#written.out == 3 and written.out[1] == "a" and written.out[2] == "1.5" and
-    written.out[3] == "2.0", table.concat(written.out, "|"))
+      written.out[3] == "2.0", table.concat(written.out, "|"))
   assert(#written.err == 0, table.concat(written.err, "|"))
   assert(written.verdict:find("^sql: PASS %(2 rows from o/cosmic.db, ") ~= nil, written.verdict)
   code, written = run(root, { "SELECT a FROM t WHERE 0" })
@@ -84,7 +84,7 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   -- A parameter is refused rather than read as NULL.
   local unbound, unbound_trouble = query(path, "SELECT a FROM t WHERE a = ?")
   assert(unbound == nil and unbound_trouble ==
-    "the statement takes 1 parameter; cosmic sql binds none", unbound_trouble)
+      "the statement takes 1 parameter; cosmic sql binds none", unbound_trouble)
   code, written = run(root, { "SELECT ?1, ?2" })
   assert(code == 1 and #written.out == 0)
   assert(written.err[1]:find("takes 2 parameters", 1, true) ~= nil, written.err[1])
@@ -100,19 +100,19 @@ local function test_sqlite_refuses_every_write()
   local path = root .. "/o/cosmic.db"
   local before = assert(Fs.read(path))
   for _, statement in ipairs({
-    "INSERT INTO t VALUES (3, 'three')",
-    "UPDATE t SET a = 0",
-    "DELETE FROM t",
-    "DROP TABLE t",
-    "CREATE TABLE u (a)",
-    "CREATE TEMP TABLE u (a)",
-    "PRAGMA user_version = 7",
-    "VACUUM",
-    "VACUUM INTO '" .. root .. "/copy.db'",
-    "ATTACH '" .. root .. "/new.db' AS n",
-    "ATTACH ':memory:' AS m",
-    "ANALYZE",
-    "SELECT 1; DELETE FROM t",
+      "INSERT INTO t VALUES (3, 'three')",
+      "UPDATE t SET a = 0",
+      "DELETE FROM t",
+      "DROP TABLE t",
+      "CREATE TABLE u (a)",
+      "CREATE TEMP TABLE u (a)",
+      "PRAGMA user_version = 7",
+      "VACUUM",
+      "VACUUM INTO '" .. root .. "/copy.db'",
+      "ATTACH '" .. root .. "/new.db' AS n",
+      "ATTACH ':memory:' AS m",
+      "ANALYZE",
+      "SELECT 1; DELETE FROM t",
   }) do
     local lines, trouble = query(path, statement)
     assert(lines == nil, statement .. " ran")
@@ -122,8 +122,8 @@ local function test_sqlite_refuses_every_write()
   -- These run, but alone they change nothing: the statement is the only
   -- one its connection ever prepares.
   for _, statement in ipairs({
-    "PRAGMA query_only = 0",
-    "PRAGMA writable_schema = 1",
+      "PRAGMA query_only = 0",
+      "PRAGMA writable_schema = 1",
   }) do
     assert(run(root, { statement }) == 0, statement)
   end
@@ -161,7 +161,7 @@ local function test_a_query_sees_commits_that_live_only_in_the_wal()
   local path = root .. "/wal.db"
   local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; " ..
-    "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
+      "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
   assert(writer:exec("PRAGMA wal_checkpoint(TRUNCATE); INSERT INTO t VALUES (2)"))
   local wal = assert(Fs.stat(path .. "-wal"))
   assert(wal.size > 0, "the commit is not in the -wal")
@@ -181,7 +181,7 @@ local function test_a_commit_that_reaches_the_wal_during_the_open_is_seen()
   local path = root .. "/wal.db"
   local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; " ..
-    "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
+      "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
   assert(writer:exec("PRAGMA wal_checkpoint(TRUNCATE)"))
   assert(assert(Fs.stat(path .. "-wal")).size == 0)
   local opened = assert(sql.open({ name = path, path = path }, function()
@@ -229,7 +229,7 @@ local function test_rows_are_written_before_the_statement_finishes()
   local code, written = run(root, { failing })
   assert(code == 1)
   assert(#written.out == 3 and written.out[1] == "x\ty" and written.out[2] == "1\t0" and
-    written.out[3] == "2\t0", table.concat(written.out, "|"))
+      written.out[3] == "2\t0", table.concat(written.out, "|"))
   assert(#written.err == 1 and written.verdict:find("^sql: FAIL") ~= nil)
   assert(Fs.remove_tree(root))
 end
@@ -244,7 +244,7 @@ local function test_a_missing_database_and_bad_sql_fail()
   local code, written = run(root, { "--build", "SELECT 1" })
   assert(code == 1 and #written.out == 0)
   assert(written.err[1] == "cosmic: sql: o/build.db: no such database: " .. root ..
-    "/o/build.db; o/ is looked for only in the working directory, never above it",
+      "/o/build.db; o/ is looked for only in the working directory, never above it",
     written.err[1])
   assert(written.verdict:find("^sql: FAIL %(o/build.db, ") ~= nil, written.verdict)
   assert(Fs.exists(missing) == false, "opening made the file")
@@ -289,8 +289,8 @@ local function data(): string
   local dir = assert(Fs.mkdtemp("cosmic-sql-from-test-"))
   assert(Fs.write(dir .. "/accounts.json",
     '[{"id": 1, "type": "checking", "balance": 100.5, "tags": ["a", "b"], "active": true},' ..
-    ' {"id": 2, "type": "savings", "balance": 50, "active": false},' ..
-    ' {"id": 3, "type": "checking", "balance": 20, "note": null}]'))
+      ' {"id": 2, "type": "savings", "balance": 50, "active": false},' ..
+      ' {"id": 3, "type": "checking", "balance": 20, "note": null}]'))
   assert(Fs.write(dir .. "/owners.jsonl", '{"id": 1, "who": "ann"}\n\n{"id": 2, "who": "bob"}\n'))
   assert(Fs.write(dir .. "/nested.json", '{"a": {"rows": [{"n": 1}, {"n": 2}, {"n": 4}]}}'))
   assert(Fs.write(dir .. "/notes.txt", "hello"))
@@ -306,7 +306,7 @@ local function test_from_answers_a_statement_in_the_rows_format()
   assert(table.concat(written.out, "\n") == "type\ttotal\tcount(*)\nchecking\t120.5\t2\nsavings\t50\t1",
     table.concat(written.out, "|"))
   assert(written.verdict:find("^sql: PASS %(2 rows from " .. dir:gsub("%p", "%%%0") ..
-    "/accounts.json, %d+ ms%)$") ~= nil, written.verdict)
+      "/accounts.json, %d+ ms%)$") ~= nil, written.verdict)
   -- json_extract reaches a nested value; a boolean is 0 or 1.
   code, written = run(dir, { "--from", dir .. "/accounts.json",
     "SELECT json_extract(tags, '$[1]'), active FROM accounts WHERE id = 1" })
@@ -411,14 +411,14 @@ local function test_a_missing_name_is_answered_with_the_names_there_are()
   local code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT balanse FROM accounts" })
   assert(code == 1 and #written.out == 0)
   assert(written.err[1] == "cosmic: sql: " .. dir .. "/accounts.json: no such column: balanse; " ..
-    "columns: active, balance, id, note, tags, type, _json", written.err[1])
+      "columns: active, balance, id, note, tags, type, _json", written.err[1])
   assert(written.verdict:find("^sql: FAIL %(") ~= nil, written.verdict)
   code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT * FROM account" })
   assert(code == 1 and written.err[1]:find("no such table: account; tables: accounts$") ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--from", dir .. "/owners.jsonl",
     "SELECT nope FROM accounts, owners" })
   assert(code == 1 and written.err[1]:find("no such column: nope; columns: accounts: active, " ..
-    "balance, id, note, tags, type, _json; owners: id, who, _json$") ~= nil, written.err[1])
+      "balance, id, note, tags, type, _json; owners: id, who, _json$") ~= nil, written.err[1])
   -- Another failure gets no hint.
   code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT FROM" })
   assert(code == 1 and not written.err[1]:find("columns:", 1, true), written.err[1])
@@ -429,15 +429,15 @@ local function test_from_refuses_every_write_and_leaves_the_file_alone()
   local dir = data()
   local before = assert(Fs.read(dir .. "/accounts.json"))
   for _, statement in ipairs({
-    "INSERT INTO accounts (id) VALUES (9)",
-    "UPDATE accounts SET balance = 0",
-    "DELETE FROM accounts",
-    "DROP TABLE accounts",
-    "CREATE TABLE u (a)",
-    "CREATE TEMP TABLE u (a)",
-    "CREATE VIEW v AS SELECT 1",
-    "VACUUM INTO '" .. dir .. "/copy.db'",
-    "SELECT 1; DELETE FROM accounts",
+      "INSERT INTO accounts (id) VALUES (9)",
+      "UPDATE accounts SET balance = 0",
+      "DELETE FROM accounts",
+      "DROP TABLE accounts",
+      "CREATE TABLE u (a)",
+      "CREATE TEMP TABLE u (a)",
+      "CREATE VIEW v AS SELECT 1",
+      "VACUUM INTO '" .. dir .. "/copy.db'",
+      "SELECT 1; DELETE FROM accounts",
   }) do
     local code, written = run(dir, { "--from", dir .. "/accounts.json", statement })
     assert(code == 1, statement .. " ran")

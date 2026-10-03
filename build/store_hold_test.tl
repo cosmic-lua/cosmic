@@ -18,7 +18,7 @@ local outside <const> = table.concat({ "build", "dispatch" }, ".")
 local function names_the_fix(why: string, name: string)
   assert(why:find("module '" .. name .. "' is held from the store", 1, true), why)
   assert(why:find("build.store_hold_test's verdict is keyed by what the store holds of " ..
-    "its import closure alone", 1, true), why)
+      "its import closure alone", 1, true), why)
   assert(why:find("store = true", 1, true), why)
 end
 

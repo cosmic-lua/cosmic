@@ -74,11 +74,11 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
   assert(key_of(one) == key_of(one))
   assert(key_of(one) == key_of(two))
   assert(key_of(one, spec({ DECLARED = one .. "/suite", TMPDIR = "/tmp" })) ==
-    key_of(two, spec({ DECLARED = two .. "/suite", TMPDIR = "/tmp" })))
+      key_of(two, spec({ DECLARED = two .. "/suite", TMPDIR = "/tmp" })))
   -- Every part of a PATH-like value, not only its first.
   assert(key_of(one, spec({ DECLARED = "/usr/bin:" .. one .. "/o/bin:" .. one .. "/bin",
     TMPDIR = "/tmp" })) == key_of(two, spec({ DECLARED = "/usr/bin:" .. two .. "/o/bin:" ..
-    two .. "/bin", TMPDIR = "/tmp" })))
+        two .. "/bin", TMPDIR = "/tmp" })))
 end
 
 --- A file of the tree nothing declares, and the host's caches, are no
@@ -297,12 +297,12 @@ local function each_field_moves<T>(what: string, fields: {string}, make: functio
     declared[name] = true
     local full = holder(make()) as {string:any}
     assert(populated(full[name]), what .. "." .. name .. " is not populated: set it in " ..
-      "the populated value, to a value other than its default")
+        "the populated value, to a value other than its default")
     local change = changes[name]
     if change == nil then
       assert(unkeyed[name] ~= nil, what .. "." .. name .. " is neither changed nor named " ..
-        "unkeyed: add a change of it that must move the key, or, where a key need not " ..
-        "hold it, say why in `unkeyed`")
+          "unkeyed: add a change of it that must move the key, or, where a key need not " ..
+          "hold it, say why in `unkeyed`")
     else
       assert(unkeyed[name] == nil, what .. "." .. name .. " is both changed and unkeyed")
       local value = make()
@@ -311,7 +311,7 @@ local function each_field_moves<T>(what: string, fields: {string}, make: functio
       assert(key(value) == before, what .. "'s key is not the same twice")
       change.change(value)
       assert(key(value) ~= before, "a change to " .. what .. "." .. name ..
-        " left the key: a field of the record that the key leaves out")
+          " left the key: a field of the record that the key leaves out")
     end
   end
   for name in pairs(changes) do
@@ -523,11 +523,11 @@ local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp:
   local tail = "CapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\n" ..
     "NoNewPrivs:\t0\nSeccomp:\t0\n"
   local root = status("root", "Name:\tx\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n" ..
-    "Groups:\t0 \nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\n" ..
-    "CapEff:\t000001ffffffffff\n" .. tail)
+      "Groups:\t0 \nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\n" ..
+      "CapEff:\t000001ffffffffff\n" .. tail)
   local user = status("user", "Name:\tx\nUid:\t65532\t65532\t65532\t65532\n" ..
-    "Gid:\t65532\t65532\t65532\t65532\nGroups:\t \nCapInh:\t0000000000000000\n" ..
-    "CapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n" .. tail)
+      "Gid:\t65532\t65532\t65532\t65532\nGroups:\t \nCapInh:\t0000000000000000\n" ..
+      "CapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n" .. tail)
   local function host(sources: declared_key.HostSources): string
     sources.system = { "", "", "" }
     sources.cpu_features, sources.machine, sources.own_proc, sources.host_id =
@@ -540,8 +540,8 @@ local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp:
   assert(dropped ~= host({ status = root, uid = 0 }), "keyed as root")
   assert(dropped ~= host({ status = root, uid = 0, worker_uid = 65533, worker_gid = 65533 }))
   local other_root = status("other-root", "Name:\tx\nUid:\t0\t0\t0\t0\n" ..
-    "Gid:\t0\t0\t0\t0\nGroups:\t0 10 \nCapInh:\t0000000000000000\n" ..
-    "CapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\n" .. tail)
+      "Gid:\t0\t0\t0\t0\nGroups:\t0 10 \nCapInh:\t0000000000000000\n" ..
+      "CapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\n" .. tail)
   assert(dropped == host({ status = other_root, uid = 0, worker_uid = 65532,
     worker_gid = 65532 }), "keyed by the groups and capabilities of the root it left")
 end
@@ -554,7 +554,7 @@ end
 --- file's lines alone.
 local function test_the_groups_key_a_host_with_no_status(tmp: string)
   assert(Fs.write(tmp .. "/status", "Name:\tx\nUid:\t1\t1\t1\t1\nGid:\t1\t1\t1\t1\n" ..
-    "Groups:\t1 20 \n"))
+      "Groups:\t1 20 \n"))
   local function host(status: string, gid: integer, groups: {integer},
                       worker?: integer): string
     return declared_key.host_identity(declared_key.digests(tmp), {
@@ -585,7 +585,7 @@ local function test_a_file_hashed_once_is_not_read_again(tmp: string)
   -- rewrite of a newer one could fall within its timestamp's tick and
   -- go unseen.
   for _, file in ipairs({ "suite/t_test.tl", "suite/lib.tl", "suite/data/a.txt",
-                          "suite/data/deeper/b.txt" }) do
+      "suite/data/deeper/b.txt" }) do
     assert(sys.utimensat(tmp .. "/" .. file, 1000000000, 0, 1000000000, 0))
   end
   local digests = declared_key.digests(tmp)
@@ -706,7 +706,7 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
   for _, declared in ipairs({ "$PRODUCT", "$PRODUCT/o" }) do
     local refused = resolved(one, declared).effective.unresolved
     assert(refused:find(string.format("Test.needs host %q: ", declared), 1, true) and
-      refused:find(" is a directory; host names files, or /proc", 1, true), refused)
+        refused:find(" is a directory; host names files, or /proc", 1, true), refused)
   end
   local proc = spec()
   proc.effective.host = { "/proc", "/proc/self" }
@@ -1051,7 +1051,7 @@ local function test_the_program_is_keyed_by_its_contents(tmp: string)
   assert(now ~= before)
   assert(Fs.write(tmp .. "/.verified-core", "stamp"))
   assert(declared_key.program_identity(digests, { tmp .. "/program", tmp .. "/.verified-core" }) ==
-    now, "the stamp moved it")
+      now, "the stamp moved it")
 end
 
 --- A program as an artifact lays it out ([`artifact.host_program`]),
@@ -1062,7 +1062,7 @@ local function program_at(path: string, core: string, meta: {string:string}, byt
   local _, _ = Fs.remove(db_path)
   local db = assert(Sqlite.open(db_path, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
-    "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
+      "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
   local keys: {string} = {}
   for key in pairs(meta) do keys[#keys + 1] = key end
   table.sort(keys)
@@ -1176,7 +1176,7 @@ local function test_an_artifacts_launcher_moves_every_key(tmp: string)
   local second = key_of(root, s)
   assert(first ~= native and second ~= first, "the launcher left a key without `tool`")
   assert(declared_key.launcher_identity(declared_key.digests(root), root .. "/nowhere") ==
-    "missing")
+      "missing")
 end
 
 --- A core that carries DWARF, as the checked core does, is keyed by its
@@ -1217,7 +1217,7 @@ local function test_the_runtime_identity_is_remembered_by_the_core(tmp: string)
   local core = ("cd"):rep(32)
   digests.hashed["runtime-image\0" .. core] = "image 1 2\0" .. image
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") ==
-    core_image.runtime(image, 1, 2, "basis"))
+      core_image.runtime(image, 1, 2, "basis"))
   assert(digests.used["runtime-image\0" .. core])
   digests.hashed["runtime-image\0" .. core] = "whole\0" .. core
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") == "raw")

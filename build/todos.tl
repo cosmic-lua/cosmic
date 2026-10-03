@@ -284,13 +284,13 @@ end
 local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
-    "b.author_time, b.summary, b.boundary, t.id FROM " ..
-    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
-    "UNION SELECT path, sha256 FROM scanned) f " ..
-    "JOIN todos t ON t.sha256 = f.sha256 " ..
-    "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
-    "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
-    "ORDER BY f.path, t.line", { { text = head } })
+      "b.author_time, b.summary, b.boundary, t.id FROM " ..
+      "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
+      "UNION SELECT path, sha256 FROM scanned) f " ..
+      "JOIN todos t ON t.sha256 = f.sha256 " ..
+      "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
+      "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
+      "ORDER BY f.path, t.line", { { text = head } })
   if rows == nil then
     return nil, trouble
   end
@@ -378,10 +378,10 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
                           rows: {Row}): integer | nil, string
   local pruned, prune_trouble = Sqlite.run(db,
     "DELETE FROM blames WHERE head != ?1 OR NOT EXISTS (SELECT 1 FROM " ..
-    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
-    "UNION SELECT path, sha256 FROM scanned) f " ..
-    "JOIN todos t ON t.sha256 = f.sha256 WHERE f.path = blames.path " ..
-    "AND t.line = blames.line AND t.sha256 = blames.sha256)",
+      "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
+      "UNION SELECT path, sha256 FROM scanned) f " ..
+      "JOIN todos t ON t.sha256 = f.sha256 WHERE f.path = blames.path " ..
+      "AND t.line = blames.line AND t.sha256 = blames.sha256)",
     { { text = head } })
   if not pruned then
     return nil, prune_trouble
@@ -421,7 +421,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       todo.boundary = known and line.boundary or false
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO blames (path, line, sha256, head, commit_id, " ..
-        "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+          "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { { text = file }, { integer = todo.line }, { text = row.sha256 },
           { text = head }, { text = todo.commit }, { integer = todo.author_time },
           { text = todo.summary }, { integer = todo.boundary and 1 or 0 } })
@@ -630,7 +630,7 @@ local function run(argv: {integer:string}): integer
   end
   if ranks ~= nil and #listed == 0 then
     log:verdict("todos", false, "no TODO matches '" .. query .. "', " ..
-      clock.took(started))
+        clock.took(started))
     return 1
   end
   if oldest then
@@ -659,7 +659,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   log:verdict("todos", true, plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
-    ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
+      ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
   return 0
 end
 

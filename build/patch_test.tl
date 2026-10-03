@@ -70,13 +70,13 @@ local function test_a_find_must_match_exactly_once(dir: string)
     { ["01-missing.txt"] = record("src/a.h", "xyz", "q") })
   local ok, err = Patch.tree(dir .. "/none", "lib", dir .. "/out-none")
   assert(not ok and err:find("01-missing.txt", 1, true) and
-    err:find("found 0 matches", 1, true), err)
+      err:find("found 0 matches", 1, true), err)
 
   checkout(dir .. "/twice", { ["src/a.h"] = "abc\nabc\n" },
     { ["01-twice.txt"] = record("src/a.h", "abc", "q") })
   ok, err = Patch.tree(dir .. "/twice", "lib", dir .. "/out-twice")
   assert(not ok and err:find("01-twice.txt", 1, true) and
-    err:find("found 2 matches", 1, true), err)
+      err:find("found 2 matches", 1, true), err)
 end
 
 --- Matches may overlap: "aa" occurs twice in "aaa", and is refused.
@@ -91,7 +91,7 @@ local function test_a_fence_header_lets_a_record_hold_the_default_fence(dir: str
   local body = "--- find\nold\n"
   checkout(dir .. "/root", { ["doc.txt"] = body },
     { ["01-fence.txt"] = "fence: +++\nfile: doc.txt\nnote: a test\n+++ find\n" ..
-      "--- find\nold\n+++ replace\n--- find\nnew\n+++ end\n" })
+        "--- find\nold\n+++ replace\n--- find\nnew\n+++ end\n" })
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(Fs.read(dir .. "/out/doc.txt") == "--- find\nnew\n")
 end
@@ -106,17 +106,17 @@ end
 
 local function test_a_malformed_record_is_refused_by_name()
   for _, case in ipairs({
-    { "note: n\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'file: ' line" },
-    { "file: a\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'note: ' line" },
-    { "file: a\nnote: \n--- find\na\n--- replace\nb\n--- end\n", "the note says nothing" },
-    { "file: a\nnote: n\na\n--- replace\nb\n--- end\n", "no '--- find' line" },
-    { "file: a\nnote: n\n--- find\na\nb\n--- end\n", "no '--- replace' line" },
-    { "file: a\nnote: n\n--- find\na\n--- replace\nb\n", "no '--- end' line" },
-    { "file: a\nnote: n\n--- find\n--- replace\nb\n--- end\n", "the find block is empty" },
+      { "note: n\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'file: ' line" },
+      { "file: a\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'note: ' line" },
+      { "file: a\nnote: \n--- find\na\n--- replace\nb\n--- end\n", "the note says nothing" },
+      { "file: a\nnote: n\na\n--- replace\nb\n--- end\n", "no '--- find' line" },
+      { "file: a\nnote: n\n--- find\na\nb\n--- end\n", "no '--- replace' line" },
+      { "file: a\nnote: n\n--- find\na\n--- replace\nb\n", "no '--- end' line" },
+      { "file: a\nnote: n\n--- find\n--- replace\nb\n--- end\n", "the find block is empty" },
   }) do
     local parsed, err = Patch.parse(case[1], "bad.txt")
     assert(parsed == nil and err:find("bad.txt", 1, true) and
-      err:find(case[2], 1, true), case[2] .. ": " .. err)
+        err:find(case[2], 1, true), case[2] .. ": " .. err)
   end
 end
 

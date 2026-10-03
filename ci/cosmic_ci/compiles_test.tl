@@ -7,8 +7,8 @@ local function cache(path: string, used: {integer})
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(Sqlite.text_rows(db, "PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE compiled_v2 (key TEXT PRIMARY KEY, lua BLOB NOT NULL, " ..
-    "bytecode BLOB NOT NULL, refs BLOB NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, " ..
-    "used_ns INTEGER NOT NULL)"))
+      "bytecode BLOB NOT NULL, refs BLOB NOT NULL, digest TEXT NOT NULL, size INTEGER NOT NULL, " ..
+      "used_ns INTEGER NOT NULL)"))
   for i, at in ipairs(used) do
     assert(Sqlite.run(db, "INSERT INTO compiled_v2 VALUES (?1, zeroblob(65536), x'', x'', 'd', 65536, ?2)",
       { { text = "k" .. i }, { integer = at * 1000000000 } }))
@@ -69,7 +69,7 @@ local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplet
   cache(path, { 1, 6 })
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE compiled_v99 (key TEXT PRIMARY KEY, used_ns INTEGER); " ..
-    "INSERT INTO compiled_v99 VALUES ('future', 1)"))
+      "INSERT INTO compiled_v99 VALUES ('future', 1)"))
   assert(db:close())
   local code, _, err = Compiles.command({ "5", tmp .. "/absent.db" },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })

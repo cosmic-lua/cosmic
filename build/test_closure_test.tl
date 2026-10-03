@@ -24,10 +24,10 @@ local function test_a_module_of_the_tree_outside_the_closure_is_refused()
   assert(not ok, "build.flow_test loaded")
   local text = tostring(why)
   assert(text:find("module 'build.flow_test' is outside the import closure of " ..
-    "build.test_closure_test", 1, true), text)
+      "build.test_closure_test", 1, true), text)
   assert(text:find("nor pcall(require, ...) is followed", 1, true), text)
   assert(text:find('or of build.test_closure_test itself: ' ..
-    'local _ = require("build.flow_test")', 1, true), text)
+      'local _ = require("build.flow_test")', 1, true), text)
 end
 
 --- A module the worker loaded for itself is no way around it:

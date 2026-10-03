@@ -20,7 +20,7 @@ local function test_a_module_needs_one_unique_name()
     "a duplicate module path was accepted")
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), tests, " ..
-    "hex(source) FROM modules WHERE path = 'a'"))
+      "hex(source) FROM modules WHERE path = 'a'"))
   assert(#rows == 1 and table.concat(rows[1], "|") == "a|a.tl|module|01|02|03||04")
   assert(db:close())
 end
@@ -33,7 +33,7 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
   local payload = string.rep("bytecode\0", 4096)
   for _, name in ipairs({ "z", "a", "middle" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2, 'module', X'01', X'02', " ..
-      "?3, '', zeroblob(65536))",
+        "?3, '', zeroblob(65536))",
       { { text = name }, { text = name .. ".tl" }, { blob = payload } }))
   end
   local plan = assert(Sqlite.text_rows(db,
@@ -44,7 +44,7 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
   local search = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN " .. lookup,
     { { text = "middle" } }))
   assert(#search == 1 and search[1][4]:find("SEARCH", 1, true) and
-    search[1][4]:find("USING INDEX", 1, true), table.concat(search[1], " "))
+      search[1][4]:find("USING INDEX", 1, true), table.concat(search[1], " "))
   local found = assert(Sqlite.rows(db, lookup, { { text = "middle" } }))
   assert(#found == 1 and found[1][1].blob == payload and found[1][2].text == "module")
   local rows = assert(Sqlite.text_rows(db,

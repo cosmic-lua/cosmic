@@ -290,9 +290,9 @@ local function raw_module(name: string): any
     end
   end
   assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
-    "this test does not know how to reach")
+      "this test does not know how to reach")
   return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
-    "(require it with `local type` at the top so it is in the closure)"))
+      "(require it with `local type` at the top so it is in the closure)"))
 end
 
 --- The raw modules whose declaration the build derives from a header
@@ -338,7 +338,7 @@ local function test_every_declaration_is_what_the_core_registers(tmp: string)
     made.release()
   end
   assert(#problems == 0, "the core and its declarations disagree (" ..
-    testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
+      testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
 end
 
 --- The `raw_modules` table of core/store.c's `source`: the raw module
@@ -377,12 +377,12 @@ local function test_every_raw_module_has_a_declaration()
   local in_c = assert(raw_modules_in((assert(Fs.read("core/store.c")))))
   for wrapper, raw in pairs(in_c) do
     assert(wrappers[wrapper] == raw, wrapper .. " is handed cosmic.internal." .. raw ..
-      ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
+        ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
   end
   for wrapper in pairs(wrappers) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
     assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value " ..
-      "(require it with `local type` at the top so it is in the closure)")
+        "(require it with `local type` at the top so it is in the closure)")
   end
 end
 
@@ -472,7 +472,7 @@ local function test_a_function_declared_as_a_value_is_named()
   local problems = check({ open = "no", version = "1" }, { poke = nothing },
     { __close = nothing })
   assert(#problems == 1 and
-    problems[1] == "m.open is declared as a function but registered as a string",
+      problems[1] == "m.open is declared as a function but registered as a string",
     table.concat(problems, "\n"))
 end
 
@@ -505,7 +505,7 @@ local function test_a_function_index_is_named_rather_than_listed()
   local problems = disagreements("m", declaration, { open = nothing, version = "1" },
     { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
   assert(#problems == 1 and problems[1] ==
-    "m.Thing's __index is a function, whose methods this test cannot list",
+      "m.Thing's __index is a function, whose methods this test cannot list",
     table.concat(problems, "\n"))
 end
 

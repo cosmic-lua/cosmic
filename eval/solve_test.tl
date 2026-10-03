@@ -79,7 +79,7 @@ local function test_the_sandbox_unveils_the_arena_and_the_hosts_runtime_alone()
   local given: {string:boolean} = {}
   for _, path in ipairs(unveil.reads) do given[path] = true end
   for _, path in ipairs({ "/usr", "/etc", "/proc", "/dev/null", "/ca/bundle.crt",
-                          "/home/claude/.claude/remote/.oauth_token", "/opt/c/bin/claude", "/r/bin" }) do
+      "/home/claude/.claude/remote/.oauth_token", "/opt/c/bin/claude", "/r/bin" }) do
     assert(given[path], path)
   end
   for _, path in ipairs({ "/lib64", "relative", "/home", "/root", "/sys", "/tmp", "/r", "/r/project" }) do

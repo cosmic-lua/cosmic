@@ -95,7 +95,7 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
   local db = assert(Sqlite.open(root .. "/o/build.db"))
   local by_run = assert(Sqlite.text_rows(db,
     "SELECT SUM(hit) FROM coverage WHERE path = 'suite.helper' " ..
-    "GROUP BY ran_at_ns ORDER BY ran_at_ns"))
+      "GROUP BY ran_at_ns ORDER BY ran_at_ns"))
   local credits = assert(Sqlite.text_rows(db,
     "SELECT test, hits FROM coverage_by_test"))
   assert(db:close())
@@ -144,7 +144,7 @@ local function test_cli_fails_when_the_named_test_is_not_in_its_module(tmp: stri
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   assert(text:find("no test in suite.selected_test is named test_missing; " ..
-    "it has test_selected\n", 1, true), text)
+      "it has test_selected\n", 1, true), text)
   assert(not text:find("no test module matches", 1, true), text)
 end
 
@@ -194,11 +194,11 @@ end
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   for _, case in ipairs({
-    { module = "suite.unrelated_test", selector = "suite/unrelated_test.tl:test_unrelated",
-      printed = "suite/unrelated_test.tl:test_unrelated" },
-    { module = "suite.two words.spaced_test",
-      selector = "suite/two words/spaced_test.tl:test_unrelated",
-      printed = "'suite/two words/spaced_test.tl:test_unrelated'" },
+      { module = "suite.unrelated_test", selector = "suite/unrelated_test.tl:test_unrelated",
+          printed = "suite/unrelated_test.tl:test_unrelated" },
+      { module = "suite.two words.spaced_test",
+          selector = "suite/two words/spaced_test.tl:test_unrelated",
+          printed = "'suite/two words/spaced_test.tl:test_unrelated'" },
   }) do
     -- The FAIL line keeps its `<module> <name>: <message>` shape, and
     -- the rerun line follows its block: the message, then the kept
@@ -249,7 +249,7 @@ end
   local db = assert(Sqlite.open(root .. "/o/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT elapsed_ns FROM runs WHERE path = 'timing.sleep_test' " ..
-    "AND test = 'test_sleeps_a_known_duration'"))
+      "AND test = 'test_sleeps_a_known_duration'"))
   assert(db:close())
   assert(#rows == 1, "expected exactly one recorded run")
   local elapsed = math.tointeger(tonumber(rows[1][1]))

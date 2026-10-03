@@ -169,7 +169,7 @@ local verbs: {string:function(string, string): integer} = {
     -- user may signal: a script names a group by its number.
     if pid == 0 or pid == -1 then
       return failed("signal", "refusing pid " .. tostring(pid) ..
-        ", which names no one process or group")
+          ", which names no one process or group")
     end
     local ok, trouble = sys.kill(pid, signal)
     if not ok then return failed("signal", trouble) end
@@ -183,7 +183,7 @@ local verbs: {string:function(string, string): integer} = {
     -- Past the bound it ends at once, running no more of the script
     -- and nothing its end would run.
     local _, _ = Fs.put(2, "probe: signal: SIG" .. name .. " sent to itself did not end it in " ..
-      Time.format_duration({ ns = SIGNAL_WAIT_NS }) .. "\n")
+        Time.format_duration({ ns = SIGNAL_WAIT_NS }) .. "\n")
     sys.exit(SIGNAL_MISSED)
     return SIGNAL_MISSED
   end,

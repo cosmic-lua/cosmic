@@ -64,7 +64,7 @@ local function named(checkout: string, base: string, limit?: string): string | n
   local result = assert(Child.run({ "/bin/sh", SCRIPT }, { cwd = checkout, stdin = "null",
     stdout = "capture", stderr = "capture",
     env = { PATH = Env.get("PATH") or "/usr/bin:/bin", HOME = checkout, BASE = base, OUT = out,
-            GITHUB_OUTPUT = said, LIMIT = limit or "400" } }))
+      GITHUB_OUTPUT = said, LIMIT = limit or "400" } }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
   local listed, _ = Fs.read(out)
   return listed, (assert(Fs.read(said)))

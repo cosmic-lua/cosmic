@@ -36,7 +36,7 @@ local function test_fix_wraps_what_the_checker_names(tmp: string)
   local fixed = fix(root, false)
   assert(fixed.ok and assert(fixed.stdout):find("fixed  spill.tl", 1, true), fixed.stdout)
   assert(Fs.read(root .. "/spill.tl") == 'local function read(): string | nil, string ' ..
-    'return "7", "" end\nreturn tonumber((assert(read())))\n')
+      'return "7", "" end\nreturn tonumber((assert(read())))\n')
   local again = fix(root, false)
   assert(again.ok and assert(again.stdout):find("0 fixed", 1, true), again.stdout)
 end
@@ -67,7 +67,7 @@ local function test_a_check_fails_on_a_spill_outside_it(tmp: string)
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", "local x: integer = 1\n\nreturn x\n"))
   assert(Fs.write(root .. "/b.tl", 'local function read(): string | nil, string return "7", "" end\n' ..
-    "return tonumber(assert(read()))\n"))
+      "return tonumber(assert(read()))\n"))
   local started = this_program.program({ "fix", "--check", "a.tl" }, { cwd = root,
     stdout = "capture", stderr = "stdout", timeout_ns = Time.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))

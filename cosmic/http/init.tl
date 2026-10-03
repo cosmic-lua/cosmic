@@ -418,7 +418,7 @@ local CALLER <const> = 5
 --- public entry point (`CALLER`), naming `name` as the raw module's own
 --- refusals do, for what is no integer from 0 to `most_ns`.
 local function counted(ns: integer | nil, unit: integer, most_ns: integer,
-    name: string): integer | nil
+                       name: string): integer | nil
   if ns == nil then return nil end
   if math.type(ns) ~= "integer" then
     error(("http: opts.%s must be an integer"):format(name), CALLER)
@@ -560,7 +560,7 @@ end
 function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   if opts ~= nil and opts.method ~= nil and opts.method ~= "GET" then
     error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
-       format(opts.method), 2)
+        format(opts.method), 2)
   end
   if opts ~= nil and opts.body ~= nil then
     error("http: Http.get sends no body; send one with Http.request(method, url, { body = ... })", 2)
@@ -596,7 +596,7 @@ function Http.request(method: string, url: string, opts?: Http.Options): Http.Bo
   end
   if opts ~= nil and opts.method ~= nil and opts.method ~= method then
     error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
-       format(method, opts.method), 2)
+        format(method, opts.method), 2)
   end
   -- core/http.c's set_method drops a body sent with HEAD, and sends one
   -- with GET as a POST (its TODO says when that changes).
@@ -709,7 +709,7 @@ local function downloading(url: string, path: string,
     local hex = Codec.hex(digest)
     if hex ~= check[2] then
       return { kind = "digest_mismatch", algorithm = check[1], expected = check[2], actual = hex,
-      reason = path .. ": " .. check[1] .. " mismatch: want " .. check[2] .. ", got " .. hex }
+        reason = path .. ": " .. check[1] .. " mismatch: want " .. check[2] .. ", got " .. hex }
     end
   end
   local committed, commit_trouble = file:sync()

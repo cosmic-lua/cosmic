@@ -341,7 +341,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       local b6 = (bytes:byte(7) & 0x0f) | 0x40
       local b8 = (bytes:byte(9) & 0x3f) | 0x80
       return uuid_text(bytes:sub(1, 6) .. string.char(b6) .. bytes:sub(8, 8) ..
-        string.char(b8) .. bytes:sub(10))
+          string.char(b8) .. bytes:sub(10))
     end
     local ns = now_ns()
     local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
@@ -352,7 +352,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local head = string.pack(">I6", stamp >> 12)
     local counter = stamp & 0xfff
     return uuid_text(head .. string.char(0x70 | (counter >> 8), counter & 0xff) ..
-      string.char(b8) .. tail:sub(2))
+        string.char(b8) .. tail:sub(2))
   end
 
   local code = 0
