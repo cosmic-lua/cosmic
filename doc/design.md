@@ -785,7 +785,7 @@ its own error. what a declared key rests on beside the list above:
   one that needs them makes its own files in its temporary directory and sets
   them. nothing enforces it yet: have a worker's hold answer fixed times and
   inode for a stat of the tree, which takes C and a boot.
-- *the binary's data tables* ([`build/test.tl`], in its `run`): a refresh
+- *the binary's data tables* ([`build/test.tl`], in its `read_identities`): a refresh
   changes `zoneinfo` and `ca_roots` without the runtime identity. every verdict
   is keyed on a digest of them ([`schema.tables_digest`]), computed from the
   running binary's own rows as `cosmic test` starts.

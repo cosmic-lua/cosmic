@@ -2360,8 +2360,8 @@ local function say_failures(rec: Recording, failures: {string})
 end
 
 --- What one run of the verb carries from phase to phase: each of
---- [`run`]'s phases fills the fields it owns, in the order the fields
---- are listed, and reads those before it.
+--- [`run`]'s phases fills the fields it owns, and reads only fields the
+--- driver or an earlier phase has set.
 local record Run
   run_at_ns: integer
   --- The command line, which a stale tool re-enters after rebuilding itself.
@@ -2897,7 +2897,7 @@ local function make_recording(ctx: Run)
   -- here, run where another checkout reached it, is not run again.
   -- Without them the run goes on, and says so unless it was asked not
   -- to use them. An unsandboxed run reads and writes them only where
-  -- COSMIC_VERDICT_CACHE names them (see above).
+  -- COSMIC_VERDICT_CACHE names them (see [`choose_sandbox`]).
   local cache_path, cache_trouble: string, string = nil, ""
   if ctx.shares then cache_path, cache_trouble = shared_verdicts.location() end
   if cache_path ~= nil then
