@@ -1,5 +1,8 @@
 #include "hash.h"
 
+#include <stdint.h>
+
+#include "check.h"
 #include "crypto.h"
 #include "fail.h"
 #include "lauxlib.h"
@@ -190,6 +193,83 @@ static int hash_hmac (lua_State *L) {
   return hashed(L, status, mac, mac_len);
 }
 
+static uint64_t load_le64 (const unsigned char *p) {
+  uint64_t x = 0;
+  for (int i = 7; i >= 0; i--) x = (x << 8) | p[i];
+  return x;
+}
+
+static void store_le64 (unsigned char *p, uint64_t x) {
+  for (int i = 0; i < 8; i++) {
+    p[i] = (unsigned char)(x & 0xff);
+    x >>= 8;
+  }
+}
+
+static uint64_t rotl64 (uint64_t x, int b) {
+  return (x << b) | (x >> (64 - b));
+}
+
+static void sip_rounds (uint64_t v[4], int rounds) {
+  for (int i = 0; i < rounds; i++) {
+    v[0] += v[1]; v[1] = rotl64(v[1], 13); v[1] ^= v[0]; v[0] = rotl64(v[0], 32);
+    v[2] += v[3]; v[3] = rotl64(v[3], 16); v[3] ^= v[2];
+    v[0] += v[3]; v[3] = rotl64(v[3], 21); v[3] ^= v[0];
+    v[2] += v[1]; v[1] = rotl64(v[1], 17); v[1] ^= v[2]; v[2] = rotl64(v[2], 32);
+  }
+}
+
+/* SipHash (Aumasson and Bernstein, "SipHash: a fast short-input PRF") as
+ * its reference implementation computes it: `c` compression rounds per
+ * 8-byte word, `d` finalization rounds, and an 8- or 16-byte tag. */
+static int hash_siphash (lua_State *L) {
+  size_t key_len;
+  const unsigned char *key =
+      (const unsigned char *)luaL_checklstring(L, 1, &key_len);
+  size_t len;
+  const unsigned char *data =
+      (const unsigned char *)luaL_checklstring(L, 2, &len);
+  int c = cosmic_optint(L, 3, 2);
+  int d = cosmic_optint(L, 4, 4);
+  int size = cosmic_optint(L, 5, 8);
+  luaL_argcheck(L, key_len == 16, 1, "the key must be 16 bytes");
+  luaL_argcheck(L, c >= 1 && c <= 64, 3, "compression rounds must be 1 to 64");
+  luaL_argcheck(L, d >= 1 && d <= 64, 4, "finalization rounds must be 1 to 64");
+  luaL_argcheck(L, size == 8 || size == 16, 5, "the tag must be 8 or 16 bytes");
+  uint64_t k0 = load_le64(key);
+  uint64_t k1 = load_le64(key + 8);
+  uint64_t v[4] = {
+    k0 ^ UINT64_C(0x736f6d6570736575),
+    k1 ^ UINT64_C(0x646f72616e646f6d),
+    k0 ^ UINT64_C(0x6c7967656e657261),
+    k1 ^ UINT64_C(0x7465646279746573),
+  };
+  if (size == 16) v[1] ^= 0xee;
+  size_t whole = len - len % 8;
+  for (size_t at = 0; at < whole; at += 8) {
+    uint64_t m = load_le64(data + at);
+    v[3] ^= m;
+    sip_rounds(v, c);
+    v[0] ^= m;
+  }
+  uint64_t b = (uint64_t)len << 56;
+  for (size_t i = 0; i < len % 8; i++) b |= (uint64_t)data[whole + i] << (8 * i);
+  v[3] ^= b;
+  sip_rounds(v, c);
+  v[0] ^= b;
+  v[2] ^= size == 16 ? 0xee : 0xff;
+  sip_rounds(v, d);
+  unsigned char tag[16];
+  store_le64(tag, v[0] ^ v[1] ^ v[2] ^ v[3]);
+  if (size == 16) {
+    v[1] ^= 0xdd;
+    sip_rounds(v, d);
+    store_le64(tag + 8, v[0] ^ v[1] ^ v[2] ^ v[3]);
+  }
+  lua_pushlstring(L, (const char *)tag, (size_t)size);
+  return 1;
+}
+
 static const luaL_Reg hasher_methods[] = {
   {"update", hasher_update},
   {"digest", hasher_digest},
@@ -202,6 +282,7 @@ static const luaL_Reg module[] = {
   {"hasher", hash_hasher},
   {"hmac_hasher", hash_hmac_hasher},
   {"byte_sum", hash_byte_sum},
+  {"siphash", hash_siphash},
   {NULL, NULL},
 };
 
