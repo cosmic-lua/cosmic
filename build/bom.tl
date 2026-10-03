@@ -18,9 +18,9 @@
 --- -- zig's own runtime, the musl libc the Linux cores are static
 --- against, and the system call tables Cosmopolitan libc's
 --- pledge-linux.c is ported into core/promises.c from -- has a record of
---- the same grammar at `build/bom/<name>.pin`, its notices beside it. A tree's patches under `patch/<name>/` are
---- listed with it, so a reader knows the code is not upstream's as
---- published.
+--- the same grammar at `build/bom/<name>.pin`, its notices beside it. A
+--- tree's patches under `patch/<name>/` are listed with it, so a reader
+--- knows the code is not upstream's as published.
 ---
 --- The tool's database carries two tables built from these (see
 --- [`build.schema`]): `components`, a row each, and `notices`, each

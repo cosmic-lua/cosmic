@@ -1537,20 +1537,18 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   /* Lowered last, once every descriptor is moved above `top`, which a
    * lower limit can refuse; what is open above it stays open. */
   if (!failure) restore_descriptor_limit(0);
-  /* The promises filter after every step above, which it would refuse
-   * some of (setrlimit), and just before exec, which it allows: it is
-   * built here, since it holds the process to its own pid, which only
-   * the child has. After Landlock, so the ruleset is made with calls the
-   * filter has not yet limited. Not PR_SET_MDWE, where it is
-   * available, as it should be for a child with no `jit`: it is a
-   * property of the memory, which this child shares with its parent
-   * until it execs, and would hold the parent too.
-   * TODO: set PR_SET_MDWE here for a child that has no `jit`, and let a
-   * `mprotect` that gains no executable memory through, once spawn starts
-   * such a child on an address space of its own instead of
-   * clone(CLONE_VM): the filter alone refuses executable memory that is
-   * anonymous or writable, which a loader's PROT_BTI mprotect on aarch64
-   * (glibc's, on a library marked for it) is not. */
+  /* The promises filter goes last, so no step above is refused by it,
+   * and just before exec, which it allows. It is built here because it
+   * holds signals to the process's own pid, which only the child has;
+   * it follows Landlock so the ruleset is made with calls the filter has
+   * not yet limited.
+   * PR_SET_MDWE is not set for a child with no `jit`: it is a property
+   * of the address space, which this child shares with its parent until
+   * exec, so it would hold the parent too.
+   * TODO: set PR_SET_MDWE here for a child with no `jit`, once spawn
+   * starts it on an address space of its own instead of
+   * clone(CLONE_VM). The filter then drops the PROT_EXEC | PROT_BTI
+   * mprotect it allows on aarch64 for glibc's loader. */
   if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises);
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;

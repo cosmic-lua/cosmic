@@ -25,8 +25,17 @@
  * names promises after OpenBSD's pledge(2) and filters by the calls a
  * promise needs, this one is an allow list over three promises (`fork`,
  * `jit`, `fattr`) and the basics every program has, for a sandbox whose
- * paths Landlock holds: a call that only reaches a file is a basic, since
- * what it may reach is not for a filter to say.
+ * paths Landlock holds: a call that opens, creates or changes a file is a
+ * basic, since which files it reaches is Landlock's to say. Landlock does
+ * not cover the calls that only look (stat, access, readlink, getxattr,
+ * statfs, inotify_add_watch); only a root of the program's own that
+ * leaves the files out (`isolate file`) hides what they would report.
+ *
+ * `jit` is not a boundary against a program that can write a file it can
+ * also map: the same file mapped shared and writable at one address and
+ * executable at another is writable executable memory the filter does
+ * not see. Nor does it hold against a write through /proc/self/mem. A
+ * Landlock ruleset that grants no such file or /proc is what holds them.
  *
  * Every table is a list of call names, so a call's number is the
  * architecture's (core/promises_calls.h), and a call an architecture has
@@ -112,8 +121,12 @@ enum { AARCH64_CALLS(NUMBER_OF) };
  * libc make before main -- which the host's headers must number as the
  * tables do: a table of another architecture's, or one shifted, is a
  * build that fails. Not every call: a header older than the tables (the
- * kernel's calls past 451 are only in the newest) leaves the rest of
- * them unchecked, which are numbered from the kernel's own list. */
+ * kernel's calls past 451 are only in the newest) lacks some names, so
+ * the rest are as the kernel's own list numbers them.
+ * TODO: check both lists in full against the pinned zig's
+ * asm/unistd_64.h, once a test can find the pinned zig install (as the
+ * TODO in build/bom_test.tl waits on): only bin/zig's own Teal knows
+ * where it unpacked it. */
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #define HOST_NUMBER(name) \
   _Static_assert(__NR_##name == NUMBER_##name, "core/promises_calls.h and the headers disagree on " #name);
@@ -159,6 +172,8 @@ enum rule {
   RULE_PID_SELF_OR_ZERO,
   RULE_PRLIMIT,
   RULE_PRIORITY,
+  RULE_SCHED_POLICY,
+  RULE_MADVISE,
   RULE_FCNTL,
   RULE_IOCTL,
   RULE_PRCTL,
@@ -182,25 +197,28 @@ struct grant {
 #define A(name) { CALL_##name, RULE_ALLOW }
 #define R(name, rule) { CALL_##name, RULE_##rule }
 
-/* What every program has. Memory, time, signals to itself, threads,
+/* What every program has: memory, time, signals to itself, threads,
  * descriptors, files, a unix socketpair, execve, and what a loader and a
- * libc ask before main. A file call is here, not under a promise,
- * because Landlock holds the paths; what a promise adds is a call that
- * reaches past them.
+ * libc ask before main. The calls that open, create or change a file are
+ * here rather than under a promise, since Landlock holds the paths.
  *
- * Left out on purpose, so every one answers EPERM: tkill, whose thread
- * id says nothing of whose it is (raise and pthread_kill, both musl's,
- * fail, where tgkill with the own pid does not); setrlimit and a
- * prlimit64 that sets, which a sandbox's limits are not the program's to
- * move; SysV IPC; chroot; mount and the namespace calls; pidfd_send_signal,
- * which signals through a descriptor no pid rule sees; vmsplice; and the
- * never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
- * `clone3` and `openat2` answer ENOSYS, since the filter cannot read the
- * structure they take, and a libc falls back to clone and openat. */
+ * Every call left out answers EPERM:
+ * - setrlimit, and a prlimit64 that sets: a sandbox's limits are not the
+ *   program's to move.
+ * - SysV IPC, chroot, mount and the namespace calls.
+ * - pidfd_send_signal, which signals through a descriptor no pid rule sees.
+ * - vmsplice.
+ * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
+ *
+ * `clone3` and `openat2` answer ENOSYS: the filter cannot read the
+ * structure they take, and a libc falls back to clone and openat.
+ *
+ * The signal calls, tkill among them, take the process's own pid; see
+ * RULE_PID_SELF. */
 static const struct grant basics[] = {
   /* Memory. mmap and mprotect refuse executable memory that is anonymous
    * or writable, which `jit` grants. */
-  R(mmap, MMAP), R(mprotect, MPROTECT), A(munmap), A(mremap), A(brk), A(madvise),
+  R(mmap, MMAP), R(mprotect, MPROTECT), A(munmap), A(mremap), A(brk), R(madvise, MADVISE),
   A(mlock), A(mlock2), A(munlock), A(mlockall), A(munlockall), A(mincore),
   A(msync), A(membarrier), A(mseal), A(map_shadow_stack), A(cachestat),
   R(memfd_create, MEMFD),
@@ -213,7 +231,7 @@ static const struct grant basics[] = {
   A(rt_sigaction), A(rt_sigprocmask), A(rt_sigreturn), A(rt_sigpending),
   A(rt_sigsuspend), A(rt_sigtimedwait), A(sigaltstack), A(signalfd),
   A(signalfd4), A(pause), A(restart_syscall), R(kill, PID_SELF),
-  R(tgkill, PID_SELF), R(rt_sigqueueinfo, PID_SELF),
+  R(tgkill, PID_SELF), R(tkill, PID_SELF), R(rt_sigqueueinfo, PID_SELF),
   R(rt_tgsigqueueinfo, PID_SELF),
   /* Threads, and who it is. */
   R(clone, CLONE_THREAD), R(clone3, ENOSYS), A(set_tid_address),
@@ -224,9 +242,9 @@ static const struct grant basics[] = {
   A(exit), A(exit_group), A(sched_yield),
   R(sched_getaffinity, PID_SELF_OR_ZERO), R(sched_setaffinity, PID_SELF_OR_ZERO),
   R(sched_getparam, PID_SELF_OR_ZERO), R(sched_setparam, PID_SELF_OR_ZERO),
-  R(sched_getscheduler, PID_SELF_OR_ZERO), R(sched_setscheduler, PID_SELF_OR_ZERO),
+  R(sched_getscheduler, PID_SELF_OR_ZERO), R(sched_setscheduler, SCHED_POLICY),
   R(sched_rr_get_interval, PID_SELF_OR_ZERO), R(sched_getattr, PID_SELF_OR_ZERO),
-  R(sched_setattr, PID_SELF_OR_ZERO), A(sched_get_priority_max),
+  A(sched_get_priority_max),
   A(sched_get_priority_min), A(getcpu), R(getpriority, PRIORITY),
   R(setpriority, PRIORITY), A(getuid), A(geteuid), A(getgid), A(getegid),
   A(getgroups), A(getresuid), A(getresgid), A(umask), A(uname), A(sysinfo),
@@ -255,8 +273,8 @@ static const struct grant basics[] = {
   A(accept4), A(getsockname), A(getpeername), A(sendto), A(recvfrom),
   A(sendmsg), A(recvmsg), A(sendmmsg), A(recvmmsg), A(shutdown),
   A(setsockopt), A(getsockopt),
-  /* Files: what Landlock holds, but for a mode with a setuid, setgid or
-   * sticky bit, which no call here creates. */
+  /* Files: Landlock holds the paths, and the filter holds a mode to none
+   * with a setuid, setgid or sticky bit. */
   R(open, OPEN), R(openat, OPENAT), R(creat, MODE1), R(openat2, ENOSYS),
   A(stat), A(fstat), A(lstat), A(newfstatat), A(statx), A(statfs), A(fstatfs),
   A(access), A(faccessat), A(faccessat2), A(readlink), A(readlinkat),
@@ -333,6 +351,7 @@ static const struct grant fattr_calls[] = {
  * architectures. */
 #define PROT_WRITE_BIT 0x2u
 #define PROT_EXEC_BIT 0x4u
+#define PROT_BTI_BIT 0x10u
 #define MAP_ANONYMOUS_BIT 0x20u
 #define MFD_NOEXEC_SEAL_BIT 0x8u
 #define O_CREAT_BIT 0x40u
@@ -343,6 +362,7 @@ static const struct grant fattr_calls[] = {
 #define TYPE_FIFO 0x1000u
 #define TYPE_SOCKET 0xc000u
 #define AF_UNIX_FAMILY 1u
+#define SCHED_RESET_ON_FORK_BIT 0x40000000u
 
 /* clone's flags: the namespaces (CLONE_NEWNS, CLONE_NEWCGROUP, UTS, IPC,
  * USER, PID and NET), CLONE_PTRACE and CLONE_PARENT, which a process
@@ -468,10 +488,23 @@ static const uint32_t prctl_options[] = {
   0x53564d41,
 };
 
+/* The scheduling policies a program may set itself to: SCHED_OTHER,
+ * SCHED_BATCH and SCHED_IDLE, none of which is real-time. */
+static const uint32_t sched_policies[] = { 0, 3, 5 };
+
+/* The madvise advice a program may give: normal, random, sequential,
+ * will-need, dont-need, free, and the fork, dump, huge-page, wipe, cold,
+ * page-out and populate hints. Not MADV_REMOVE, which punches a hole in
+ * a file, MADV_MERGEABLE (KSM), nor MADV_HWPOISON, MADV_SOFT_OFFLINE or
+ * the other advice that needs privilege. */
+static const uint32_t madvise_advice[] = {
+  0, 1, 2, 3, 4, 8, 10, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+};
+
 /* The block of `rule`, entered with a call's arguments in the data.
  * `pid` is the process's own, which a rule about who a call is aimed at
  * compares with. */
-static void rule_block (struct builder *b, enum rule rule, uint32_t pid) {
+static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum cosmic_arch arch) {
   struct block k = { .b = b, .patch_count = 0 };
   uint32_t denial = RETURN_ERRNO(LINUX_EPERM);
   switch (rule) {
@@ -486,7 +519,23 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid) {
     break;
     case RULE_MPROTECT:
     load(&k, DATA_ARGUMENT(2) + DATA_LOW);
-    test(&k, OP_ANY_SET, PROT_EXEC_BIT, JUMP_DENY, JUMP_ALLOW);
+    if (arch == COSMIC_ARCH_AARCH64) {
+      /* glibc's loader marks every branch-target-protected library's
+       * text with PROT_EXEC | PROT_BTI, and fails to load it if that
+       * is refused: so an executable protection is allowed with
+       * PROT_BTI and without PROT_WRITE, the loader's shape.
+       * TODO: refuse it again, as x86_64's is, once spawn starts a
+       * child with no `jit` on an address space of its own, where
+       * PR_SET_MDWE (which lets this through, since a mapping that
+       * was executable stays so) can hold the rest. Until then
+       * memory that was mapped writable and written can be made
+       * executable with this protection. */
+      test(&k, OP_ANY_SET, PROT_EXEC_BIT, JUMP_NEXT, JUMP_ALLOW);
+      test(&k, OP_ANY_SET, PROT_WRITE_BIT, JUMP_DENY, JUMP_NEXT);
+      test(&k, OP_ANY_SET, PROT_BTI_BIT, JUMP_ALLOW, JUMP_DENY);
+    } else {
+      test(&k, OP_ANY_SET, PROT_EXEC_BIT, JUMP_DENY, JUMP_ALLOW);
+    }
     break;
     case RULE_MEMFD:
     /* A memfd that can never be executed: MFD_NOEXEC_SEAL. */
@@ -505,7 +554,9 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid) {
     test(&k, OP_ANY_SET, CLONE_FORBIDDEN, JUMP_DENY, JUMP_ALLOW);
     break;
     case RULE_PID_SELF:
-    /* TODO: let a call signal any process once Landlock's signal scope
+    /* A tid equal to the pid is the thread group leader's own, so
+     * tkill takes this rule too.
+     * TODO: let a call signal any process once Landlock's signal scope
      * (ABI 6) holds a sandbox's signals to itself, and drop the pid
      * from this rule: it is the one the program started under, so a
      * process it forks, which has another, cannot signal itself
@@ -529,9 +580,24 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid) {
     test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
     break;
     case RULE_PRIORITY:
-    /* `who` is the calling process's, which 0 names. */
+    /* PRIO_PROCESS (0) of the calling process, which `who` 0 names:
+     * not PRIO_USER, which would renice every process of the user. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, 0, JUMP_NEXT, JUMP_DENY);
     load(&k, DATA_ARGUMENT(1) + DATA_LOW);
     test(&k, OP_EQ, 0, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_SCHED_POLICY:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, 0, JUMP_SKIP, JUMP_NEXT);
+    test(&k, OP_EQ, pid, JUMP_NEXT, JUMP_DENY);
+    load(&k, DATA_ARGUMENT(1) + DATA_LOW);
+    mask(&k, ~SCHED_RESET_ON_FORK_BIT);
+    allow_one_of(&k, sched_policies, sizeof sched_policies / sizeof sched_policies[0]);
+    break;
+    case RULE_MADVISE:
+    load(&k, DATA_ARGUMENT(2) + DATA_LOW);
+    allow_one_of(&k, madvise_advice, sizeof madvise_advice / sizeof madvise_advice[0]);
     break;
     case RULE_FCNTL:
     load(&k, DATA_ARGUMENT(1) + DATA_LOW);
@@ -692,7 +758,7 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
   for (int rule = 0; rule < RULE_COUNT; rule++) {
     if (!needed[rule]) continue;
     blocks[rule] = b.length;
-    rule_block(&b, (enum rule)rule, pid);
+    rule_block(&b, (enum rule)rule, pid, arch);
   }
   for (size_t i = 0; i < pending_count; i++)
     b.code[pending[i].at].k = (uint32_t)(blocks[pending[i].rule] - pending[i].at - 1);

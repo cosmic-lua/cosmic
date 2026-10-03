@@ -5,7 +5,8 @@
 --- architecture -- as seccomp would, so every promise is held to what it
 --- allows and refuses on x86_64 and on aarch64 whatever this host is.
 --- The calls a promise lets a live child make, and what a kernel does
---- with the program, are core/promises_system_test.tl's.
+--- with the program, are core/promises_child_test.tl's, and a dynamic
+--- program's core/promises_system_test.tl's.
 
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
@@ -38,6 +39,8 @@ local ERRNO <const> = 0x00050000
 --- core/promises_calls.h this checks: nil where an architecture has no
 --- such call.
 local numbers: {string: {integer}} = {
+  ["madvise"] = { 28, 233 },
+  ["sched_setattr"] = { 314, 274 },
   ["read"] = { 0, 63 },
   ["write"] = { 1, 64 },
   ["open"] = { 2 },
@@ -321,7 +324,7 @@ local NEVER: {string} = {
   "delete_module", "add_key", "request_key", "keyctl", "io_uring_setup", "io_uring_enter",
   "io_uring_register", "userfaultfd", "setns", "name_to_handle_at", "open_by_handle_at",
   "pidfd_getfd", "process_madvise", "unshare", "vmsplice", "setuid", "setgid", "setresuid",
-  "chroot", "reboot", "tkill", "pidfd_send_signal",
+  "chroot", "reboot", "pidfd_send_signal", "sched_setattr",
 }
 
 local function never(): {Case}
@@ -367,7 +370,7 @@ local function test_a_call_above_the_reviewed_table_answers_ENOSYS()
   for _, arch in ipairs(ARCHES) do
     local insns = decode(process.promise_filter({ "fork", "jit", "fattr" }, arch))
     local reviewed = process.PROMISE_CALLS_REVIEWED
-    for _, number in ipairs({ reviewed, reviewed + 1, 1000, 0x7fffffff }) do
+    for _, number in ipairs({ reviewed, reviewed + 1, 1000, 0x7fffffff, 0xffffffff }) do
       local got = verdict(run(insns, AUDIT[arch], number, {}))
       assert(got == "ENOSYS", arch .. " call " .. number .. " is " .. got)
     end
@@ -567,7 +570,7 @@ local function test_a_signal_goes_to_the_process_itself()
     call("rt_sigqueueinfo", "allow", pid, 10), call("rt_sigqueueinfo", "EPERM", 1, 10),
     call("rt_tgsigqueueinfo", "allow", pid, 4243, 10),
     call("rt_tgsigqueueinfo", "EPERM", 1, 4243, 10),
-    call("tkill", "EPERM", 4243, 6),
+    call("tkill", "allow", pid, 6), call("tkill", "EPERM", pid + 1, 6),
     -- A pid is an int: its low 32 bits are what the kernel reads.
     call("kill", "allow", (1 << 33) | pid, 15),
   }, { pid = pid })
@@ -581,7 +584,17 @@ local function test_a_call_that_asks_after_a_process_is_held_to_the_process_itse
     call("getpgid", "allow", 0), call("getpgid", "EPERM", 1), call("getsid", "EPERM", 1),
     call("setpgid", "allow", 0, 0), call("setpgid", "EPERM", 1, 0),
     call("getpriority", "allow", 0, 0), call("getpriority", "EPERM", 0, 1),
-    call("setpriority", "EPERM", 0, 1, 5),
+    call("setpriority", "EPERM", 0, 1, 5), call("setpriority", "allow", 0, 0, 5),
+    -- Not every process of the user.
+    call("setpriority", "EPERM", 2, 0, 5), call("getpriority", "EPERM", 2, 0),
+    call("sched_setscheduler", "allow", 0, 0), call("sched_setscheduler", "allow", pid, 3),
+    call("sched_setscheduler", "allow", 0, 5 | 0x40000000),
+    call("sched_setscheduler", "EPERM", 0, 1), call("sched_setscheduler", "EPERM", 0, 2),
+    call("sched_setscheduler", "EPERM", 0, 6), call("sched_setscheduler", "EPERM", 1, 0),
+    call("sched_setattr", "EPERM", 0),
+    call("madvise", "allow", 0, 4096, 4), call("madvise", "allow", 0, 4096, 8),
+    call("madvise", "EPERM", 0, 4096, 9), call("madvise", "EPERM", 0, 4096, 100),
+    call("madvise", "EPERM", 0, 4096, 101), call("madvise", "EPERM", 0, 4096, 12),
     call("sched_setscheduler", "EPERM", 1), call("get_robust_list", "EPERM", 1),
     -- prlimit64 reads: a pid of its own, and no new limit.
     call("prlimit64", "allow", 0, 7, 0, 0x7000), call("prlimit64", "allow", pid, 7, 0, 0x7000),
@@ -655,4 +668,21 @@ local function test_the_headers_name_no_call_beyond_the_reviewed_table()
     "the headers name system calls up to " .. (headers - 1) .. ", past the " ..
       (process.PROMISE_CALLS_REVIEWED - 1) .. " core/promises_calls.h is reviewed to: judge them, " ..
       "add them to its tables and core/promises.c's, and raise PROMISE_CALLS_REVIEWED")
+end
+
+--- glibc's loader on aarch64 makes the text of a library marked for
+--- branch-target protection executable with PROT_BTI, so an mprotect that
+--- adds PROT_EXEC is allowed there with it and without PROT_WRITE; x86_64
+--- has no such protection, and refuses every one.
+local function test_aarch64_allows_the_loader_s_protection_with_bti()
+  local rx = PROT_READ | PROT_EXEC
+  local BTI = 0x10
+  holds({}, "aarch64", {
+    call("mprotect", "allow", 0, 4096, rx | BTI),
+    call("mprotect", "EPERM", 0, 4096, rx),
+    call("mprotect", "EPERM", 0, 4096, rx | BTI | PROT_WRITE),
+    call("mprotect", "allow", 0, 4096, PROT_READ | BTI),
+    call("pkey_mprotect", "EPERM", 0, 4096, rx | BTI),
+  })
+  holds({}, "x86_64", { call("mprotect", "EPERM", 0, 4096, rx | BTI) })
 end
