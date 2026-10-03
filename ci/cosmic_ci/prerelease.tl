@@ -112,7 +112,7 @@ end
 --- an earlier one than this: a resumed draft keeps the source.json the
 --- first attempt uploaded.
 function Prerelease.source_valid(text: string, commit: string, digest: string,
-    run_prefix: string): boolean, string
+                                 run_prefix: string): boolean, string
   local source, why = Json.decode_object(text)
   if source == nil then return false, "source.json is no JSON object: " .. why end
   if source.commit ~= commit then return false, "source.json names another commit" end
@@ -217,7 +217,7 @@ end
 function Prerelease.stage(s: Prerelease.Stage)
   local found = product_directories(s.products)
   assert(#found == #Prerelease.lanes, "expected " .. Plural.count(#Prerelease.lanes, "product directory", "product directories") ..
-    ", found " .. #found)
+      ", found " .. #found)
   for i, lane in ipairs(Prerelease.lanes) do
     assert(found[i] == "portable-product-" .. lane,
       "expected portable-product-" .. lane .. ", found " .. found[i])
@@ -299,7 +299,7 @@ local function api_probe(p: Prerelease.Publish, endpoint: string): boolean
   if result.ok then return true end
   local status = Prerelease.http_status(result.stdout or "")
   assert(status == "404", "gh api " .. endpoint .. " failed (HTTP status " ..
-    tostring(status) .. ")")
+      tostring(status) .. ")")
   return false
 end
 
@@ -342,7 +342,7 @@ local function workflows_moved(p: Prerelease.Publish): boolean
   local branch = repo.default_branch
   assert(branch is string, p.repository .. " names no default branch")
   local compare = gh_object(p, { "api", "repos/" .. p.repository .. "/compare/" ..
-    p.commit .. "..." .. branch })
+      p.commit .. "..." .. branch })
   local files = compare.files
   assert(files is {any}, "the compare to " .. branch .. " lists no files")
   for _, file in ipairs(files) do
@@ -379,7 +379,7 @@ local function ensure_tag(p: Prerelease.Publish): boolean
         return false
       end
       error("gh api --method POST repos/" .. p.repository .. "/git/refs -f ref=refs/tags/" ..
-        tag .. " failed (HTTP status " .. tostring(status) .. ")", 0)
+          tag .. " failed (HTTP status " .. tostring(status) .. ")", 0)
     end
   end
   verify_tag(p)

@@ -319,7 +319,7 @@ function Example.unions_narrowing_casts()
   local definitely: string = maybe
   local left: Left = { name = "left" }
   assert(side(left) == "L:left" and definitely == "present" and render(nil) == "missing" and
-    render(1) == "2" and render("ok") == "OK")
+      render(1) == "2" and render("ok") == "OK")
 end
 
 --- A call must supply every required parameter with its declared type; a wrong

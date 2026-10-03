@@ -160,7 +160,7 @@ function refresh.tzdata_release(text: string): refresh.Source | nil, string
   for _, file in ipairs(index.urls) do
     local sha256 = file.digests["sha256"]
     if file.packagetype == "sdist" and sha256 ~= nil and #sha256 == 64 and
-       sha256:match("^%x+$") then
+        sha256:match("^%x+$") then
       return { path = "", url = file.url, version = index.info.version, sha256 = sha256:lower() }, ""
     end
   end
@@ -372,7 +372,7 @@ end
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
 --- records it. Answers one line saying what changed.
 local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refresh.Source,
-                       scratch: string): string | nil, string
+                     scratch: string): string | nil, string
   local bytes, trouble = Fs.read(source.path)
   if bytes == nil then
     return nil, trouble
@@ -497,7 +497,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       return done(cookie_trouble)
     end
     local kept, keep_trouble = db:exec("PRAGMA schema_version = " ..
-      (math.tointeger(tonumber(cookie[1][1])) - 1))
+        (math.tointeger(tonumber(cookie[1][1])) - 1))
     if not kept then
       return done(keep_trouble)
     end

@@ -54,7 +54,7 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   if not found and not start then
     if looks_unbuilt(root) then
       log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
-        "first to include its modules")
+          "first to include its modules")
     end
     return true, ""
   end

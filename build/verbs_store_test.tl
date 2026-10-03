@@ -89,7 +89,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   -- It shows the options under the verb's field too.
   local docs = verbs_fixture.expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout or ""
   assert(docs:find("\n  options:\n", 1, true) and docs:find("\n    --jobs <n> ", 1, true) and
-    docs:find("\n    --all ", 1, true), docs)
+      docs:find("\n    --all ", 1, true), docs)
   -- And a search finds a verb by what one of its options does, though
   -- no doc comment says it: "launcher" is only in `build --host`'s.
   local found = verbs_fixture.expect(tmp, "docs", { "docs", "native", "launcher" }, 0).stdout or ""

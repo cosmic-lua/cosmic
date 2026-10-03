@@ -113,7 +113,7 @@ end
 --- file in `tmp`, running `client` with its address once it listens,
 --- and stops it once `client` returns. Answers what went to on_error.
 local function serving(tmp: string, handle: function(Http.Request): Http.Reply,
-    client: function(Net.Address), spec?: Http.ServeSpec): {string}
+                       client: function(Net.Address), spec?: Http.ServeSpec): {string}
   local troubles: {string} = {}
   local given: Http.ServeSpec = spec or {}
   given.listeners = { Net.unix(tmp .. "/s.sock") }
@@ -145,7 +145,7 @@ local function test_pipelined_requests_are_answered_in_order_on_one_connection(t
   local troubles = serving(tmp, echo, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, get("/a?x=1") .. get("/b") ..
-      "PUT /c HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc")
+        "PUT /c HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc")
     local first, second, third = reply(p), reply(p), reply(p)
     assert(first.status == 200 and first.body == "GET /a x=1 ", first.body)
     assert(second.body == "GET /b  ", second.body)
@@ -205,7 +205,7 @@ local function test_head_is_answered_with_no_body(tmp: string)
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "HEAD / HTTP/1.1\r\nHost: test\r\n\r\n" .. "HEAD /reader HTTP/1.1\r\nHost: test\r\n\r\n" ..
-      get("/"))
+        get("/"))
     local head = reply(p, "HEAD")
     assert(head.status == 200 and head.headers["content-length"] == "5")
     local of_reader = reply(p, "HEAD")
@@ -230,7 +230,7 @@ local function test_chunked_bodies_both_ways(tmp: string)
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "POST / HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
-      "5;name=value\r\nhello\r\n1\r\n \r\n5\r\nworld\r\n0\r\nTrailer: x\r\n\r\n")
+        "5;name=value\r\nhello\r\n1\r\n \r\n5\r\nworld\r\n0\r\nTrailer: x\r\n\r\n")
     local echoed = reply(p)
     assert(echoed.body == "hello world", echoed.body)
     send(p, get("/stream"))
@@ -294,7 +294,7 @@ local function test_each_limit_is_answered(tmp: string)
     assert(reply(big).status == 413)
     local chunked <close> = peer(address)
     send(chunked, "PUT / HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
-      "50\r\n" .. string.rep("x", 80) .. "\r\n50\r\n" .. string.rep("y", 80) .. "\r\n0\r\n\r\n")
+        "50\r\n" .. string.rep("x", 80) .. "\r\n50\r\n" .. string.rep("y", 80) .. "\r\n0\r\n\r\n")
     local over = reply(chunked)
     assert(over.status == 413, tostring(over.status))
     assert(handled == 1, tostring(handled))
@@ -375,7 +375,7 @@ local function test_a_handler_may_give_the_content_length(tmp: string)
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "HEAD /size HTTP/1.1\r\nHost: test\r\n\r\n" .. "HEAD /length HTTP/1.1\r\nHost: test\r\n\r\n" ..
-      "HEAD /match HTTP/1.1\r\nHost: test\r\n\r\n" .. get("/match") .. get("/reader"))
+        "HEAD /match HTTP/1.1\r\nHost: test\r\n\r\n" .. get("/match") .. get("/reader"))
     local size = reply(p, "HEAD")
     assert(size.status == 200 and size.headers["content-length"] == "1234", size.headers["content-length"])
     assert(size.headers["content-type"] == "text/plain")
@@ -471,8 +471,8 @@ local function test_a_body_left_unread_is_dropped_before_the_next_request(tmp: s
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "PUT /part HTTP/1.1\r\nHost: test\r\nContent-Length: 10\r\n\r\n0123456789" ..
-      "PUT /none HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
-      "4\r\nGET \r\n0\r\n\r\n" .. get("/after"))
+        "PUT /none HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
+        "4\r\nGET \r\n0\r\n\r\n" .. get("/after"))
     assert(reply(p).body == "012")
     assert(reply(p).body == "none")
     assert(reply(p).body == "/after")
@@ -483,9 +483,9 @@ end
 local function test_a_malformed_request_is_answered_400(tmp: string)
   serving(tmp, echo, function(address: Net.Address)
     for _, request in ipairs({
-      "GET / HTTP/1.1\r\n\r\n",
-      "POST / HTTP/1.1\r\nHost: t\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n",
-      "GET / HTTP/1.1\r\nHost : t\r\n\r\n",
+        "GET / HTTP/1.1\r\n\r\n",
+        "POST / HTTP/1.1\r\nHost: t\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n",
+        "GET / HTTP/1.1\r\nHost : t\r\n\r\n",
     }) do
       local p <close> = peer(address)
       send(p, request)
@@ -611,7 +611,7 @@ local function test_a_body_failing_under_the_reply_closes_the_connection(tmp: st
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "POST /up HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcX\r\n" ..
-      get("/smuggled"))
+        get("/smuggled"))
     local got = reply(p)
     assert(got.status == 200 and got.body == "abc", got.body)
     while more(p) do end

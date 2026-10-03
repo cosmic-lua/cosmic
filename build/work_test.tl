@@ -26,7 +26,7 @@ local function test_recording_error_rolls_back_every_table(tmp: string)
   assert(work.abort(handle))
   local reopened = assert(Sqlite.open(tmp .. "/o/build.db"))
   for _, table_name in ipairs({
-    "runs", "verdicts", "test_runs", "coverage", "coverage_by_test",
+      "runs", "verdicts", "test_runs", "coverage", "coverage_by_test",
   }) do
     assert(count(reopened, table_name) == 0, table_name .. " must roll back")
   end
@@ -62,7 +62,7 @@ local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
     "INSERT INTO parsed (source_hash, has_return, export) VALUES ('old', 1, 'Old')"))
   assert(Sqlite.run(old.db,
     "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
-    "VALUES ('old', 1, 'cosmic.fs', 'read', 1)"))
+      "VALUES ('old', 1, 'cosmic.fs', 'read', 1)"))
   assert(old.db:close())
 
   local upgraded = assert(work.open(tmp))

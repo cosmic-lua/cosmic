@@ -466,7 +466,7 @@ end
 
 --- The listener over `socket`, at `address`.
 local function new_listener(socket: raw_socket.Socket, address: Net.Address,
-    timeout_ns: integer | nil): Opened
+                            timeout_ns: integer | nil): Opened
   local fd = socket:fd()
   local listener: SocketListener = setmetatable({
     address = address, socket = socket, fd = fd, open = true, limit = timeout_ns },
@@ -546,10 +546,10 @@ end
 --- What [`Net.listen`] opens, with its descriptor; it raises at `level`
 --- above its caller.
 local function listening(address: Net.Address, opts: Net.ListenOptions,
-    level: integer): Opened | nil, string
+                         level: integer): Opened | nil, string
   if sets_reclaim(opts) then
     error("net: ListenOptions.reclaim is gone: remove the socket file a listener left " ..
-      "behind (Fs.remove) once connecting to it is refused, then listen", level + 1)
+        "behind (Fs.remove) once connecting to it is refused, then listen", level + 1)
   end
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, level + 1) end
@@ -632,7 +632,7 @@ local function checked_spec(spec: any)
     if not (key is string and SPEC_FIELDS[key]) then
       local gone = key is string and REMOVED_FIELDS[key] or nil
       error("net: spec has no field " .. tostring(key) ..
-        (gone ~= nil and ": " .. gone or ""), 3)
+          (gone ~= nil and ": " .. gone or ""), 3)
     end
   end
   local listeners = spec.listeners

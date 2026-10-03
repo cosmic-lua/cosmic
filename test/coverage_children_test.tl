@@ -184,6 +184,6 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
     assert(r.ok, tostring(r.stderr))
     local names = assert(Fs.list(dir))
     assert(#names == 0, tostring(index) .. ": a report of another build's core: " ..
-      table.concat(names, ", "))
+        table.concat(names, ", "))
   end
 end

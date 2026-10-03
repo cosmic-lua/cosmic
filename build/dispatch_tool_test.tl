@@ -49,7 +49,7 @@ print(table.concat(names, " "))
     end
   end
   assert(#names > 0 and #names <= allowed, #names .. " build modules, more than " .. allowed ..
-    ": " .. tostring(r.stdout))
+      ": " .. tostring(r.stdout))
   local loaded = " " .. table.concat(names, " ") .. " "
   for _, name in ipairs({ "build.dispatch", "build.exit_status" }) do
     assert(loaded:find(" " .. name .. " ", 1, true), name .. " is not among " .. loaded)

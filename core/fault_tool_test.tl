@@ -49,5 +49,5 @@ end
   local started = this_program.program({ fixture }, { stdout = "capture", stderr = "capture" })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "the fixture exited " .. tostring(result.code) .. ": " ..
-    tostring(result.stderr))
+      tostring(result.stderr))
 end

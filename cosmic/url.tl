@@ -167,7 +167,7 @@ local function unescaped_byte(text: string): string
   local what = byte == 32 and "a space" or byte == 0 and "a NUL" or
     ("control byte 0x%02x"):format(byte)
   return ("url: the URL holds %s at byte %d; escape a path segment or query value with Url.escape"):
-     format(what, at)
+    format(what, at)
 end
 
 --- Whether `text` is an IPv6 address (RFC 4291's text form): eight

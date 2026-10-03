@@ -186,7 +186,7 @@ local BUDGET_NS <const> = 12 * 60 * SECOND
 --- `?source=cosmic`, which zig asks for so mirror operators can tell who
 --- fetches.
 function ZigFetch.sources(version: string, name: string, mirrors: {string},
-    random?: function(integer): integer): {string}
+                          random?: function(integer): integer): {string}
   local pick = random or math.random
   local order: {string} = {}
   for i, mirror in ipairs(mirrors) do
@@ -210,7 +210,7 @@ end
 
 --- Native nanosecond download limits; no rounding changes the budget.
 function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
-    timeout_ns?: integer): Http.Options
+                         timeout_ns?: integer): Http.Options
   return { connect_timeout_ns = connect_ns, low_speed_bytes = low_speed_bytes,
     low_speed_ns = low_speed_ns, timeout_ns = timeout_ns }
 end
@@ -232,7 +232,7 @@ end
 --- that would make it fatal. When every attempt fails, the message names
 --- each source, its last trouble and how long that attempt ran.
 function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
-    via?: ZigFetch.Fetcher): boolean, string
+                        via?: ZigFetch.Fetcher): boolean, string
   local download = via ~= nil and via.download or Http.download_result
   local sleep = via ~= nil and via.sleep or real_sleep
   local now = via ~= nil and via.now or Time.monotonic_ns

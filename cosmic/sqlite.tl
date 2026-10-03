@@ -209,7 +209,7 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | n
   local given: any = opts
   if given ~= nil and type(given) ~= "table" then
     error("sqlite: open: options is a table such as { writable = true }, not a " ..
-      type(given), 2)
+        type(given), 2)
   end
   return sqlite.open(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end
@@ -266,7 +266,7 @@ end
 --- must be 1..N, matching the statement's own placeholders, or the
 --- statement is refused with why.
 local function bind(
-  statement: Sqlite.Statement, values: {Sqlite.Value}, highest: integer
+    statement: Sqlite.Statement, values: {Sqlite.Value}, highest: integer
 ): boolean, string
   local count = statement:parameters()
   if highest > count then
@@ -415,7 +415,7 @@ end
 --- order; SQL NULL is a cell with `kind = "null"`. Answers the rows, or
 --- `nil` and why. `values` follows [`Sqlite.run`]'s contract.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
-                      values?: {Sqlite.Value}): Sqlite.Rows | nil, string
+                     values?: {Sqlite.Value}): Sqlite.Rows | nil, string
   local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
@@ -522,7 +522,7 @@ end
 --- integers and floats use SQLite's text formatting; text and blobs
 --- remain byte strings, including NUL.
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
-                           values?: {Sqlite.Value}): {{string}} | nil, string
+                          values?: {Sqlite.Value}): {{string}} | nil, string
   local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
@@ -540,7 +540,7 @@ end
 --- A typed helper owns preparation and binding failures alike. A bad
 --- parameter shape raises, but must not leave a statement holding its handle.
 local function prepared_result(handle: Sqlite.Handle, sql: string,
-    values: {Sqlite.Value}): Sqlite.PrepareResult
+                               values: {Sqlite.Value}): Sqlite.PrepareResult
   local opened = handle:prepare_result(sql)
   if opened.statement == nil then return opened end
   local statement = opened.statement
@@ -563,7 +563,7 @@ end
 --- stepping. Parameters have [`Sqlite.run`]'s shape; missing, extra or wrongly
 --- typed parameters raise. No statement is retried or transaction rolled back.
 function Sqlite.run_result(handle: Sqlite.Handle, sql: string,
-    values?: {Sqlite.Value}): Sqlite.ExecResult
+                           values?: {Sqlite.Value}): Sqlite.ExecResult
   local opened = prepared_result(handle, sql, values)
   local result: Sqlite.ExecResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
   copy_outcome(opened, result)
@@ -577,7 +577,7 @@ end
 --- The typed step surface allocates a guard once per statement, reusing it
 --- for successful rows. Only a failure makes a result record for a step.
 local function collect_result<T>(statement: Sqlite.Statement,
-    project: function(Sqlite.Statement): T, outcome: Outcome): {T} | nil
+                                 project: function(Sqlite.Statement): T, outcome: Outcome): {T} | nil
   local rows: {T} = {}
   while true do
     local state = statement:step_result()
@@ -597,7 +597,7 @@ end
 --- [`Sqlite.rows`] with captured SQLite codes. Any failed step discards the
 --- partial rows and finalizes the statement. Parameters follow [`run_result`].
 function Sqlite.rows_result(handle: Sqlite.Handle, sql: string,
-    values?: {Sqlite.Value}): Sqlite.RowsResult
+                            values?: {Sqlite.Value}): Sqlite.RowsResult
   local opened = prepared_result(handle, sql, values)
   local result: Sqlite.RowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
   copy_outcome(opened, result)
@@ -610,7 +610,7 @@ end
 --- [`Sqlite.text_rows`] with captured SQLite codes; otherwise follows
 --- [`Sqlite.rows_result`], including discarding partial rows on failure.
 function Sqlite.text_rows_result(handle: Sqlite.Handle, sql: string,
-    values?: {Sqlite.Value}): Sqlite.TextRowsResult
+                                 values?: {Sqlite.Value}): Sqlite.TextRowsResult
   local opened = prepared_result(handle, sql, values)
   local result: Sqlite.TextRowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
   copy_outcome(opened, result)
@@ -636,7 +636,7 @@ end
 ---       return Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "b" } })
 ---     end)
 function Sqlite.transact(handle: Sqlite.Handle,
-                          work: function(): boolean, string): boolean, string
+                         work: function(): boolean, string): boolean, string
   local started, trouble = handle:exec("BEGIN")
   if not started then
     return false, trouble

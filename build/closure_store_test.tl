@@ -115,11 +115,11 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "the code that writes it, writing the same rows, moved its bytes")
   local function extra(field: string)
     assert(Fs.write(root .. "/extra.d.tl", "local type base = require 'base'\n" ..
-      "local record extra\n  " .. field .. ": base\nend\nreturn extra\n"))
+        "local record extra\n  " .. field .. ": base\nend\nreturn extra\n"))
   end
   local function base(field: string)
     assert(Fs.write(root .. "/base.d.tl", "local record base\n  " .. field ..
-      ": integer\nend\nreturn base\n"))
+        ": integer\nend\nreturn base\n"))
   end
   base("x")
   extra("a")
@@ -155,9 +155,9 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local db = assert(Sqlite.open(tmp .. "/first.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
-    "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
-    "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
-    "(SELECT count(*) FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
+      "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
+      "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
+      "(SELECT count(*) FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
   assert(db:close())
   local row = rows[1]
   assert(row[1] == "greet greet_test", row[1])
@@ -238,25 +238,25 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   local doc = "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
     "text, file, line) VALUES "
   moved("a module's bytecode", "UPDATE modules SET bytecode = bytecode || X'00' " ..
-    "WHERE path = 'greet'")
+      "WHERE path = 'greet'")
   moved("a doc", doc .. "('greet', 'greet.x', 'greet.x', 1, 'function', '', 'X.', 'greet.tl', 1)")
   moved("a use", "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
-    "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)")
+      "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)")
   moved("a catalog row", "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
-    "line) VALUES ('error', 'greet', 'greet.hello', 'no', NULL, 'greet.tl', 1)")
+      "line) VALUES ('error', 'greet', 'greet.hello', 'no', NULL, 'greet.tl', 1)")
   moved("an import", "INSERT INTO imports (path, requires) VALUES ('greet', 'greet_test')")
   moved("a name bound", "INSERT INTO bound (path, name, requires) " ..
-    "VALUES ('greet', 'Fs', 'cosmic.fs')")
+      "VALUES ('greet', 'Fs', 'cosmic.fs')")
   held("a name a module outside the closure binds", "INSERT INTO bound (path, name, requires) " ..
-    "VALUES ('other', 'Fs', 'cosmic.fs')")
+      "VALUES ('other', 'Fs', 'cosmic.fs')")
   moved("an example", "INSERT INTO examples (module, name, text, file, line, source) " ..
-    "VALUES ('greet', 'hello', 'Greets.', 'greet.tl', 1, 'greet.hello()')")
+      "VALUES ('greet', 'hello', 'Greets.', 'greet.tl', 1, 'greet.hello()')")
   -- What the projection's writer decides of a row and not the closure's
   -- code: the bytes a module's source is stored as, and the order of
   -- rows of several modules, which the store's ids would follow (each
   -- reordered here across modules, each module's own in its order).
   moved("a module's stored source", "UPDATE modules SET source = source || X'00' " ..
-    "WHERE path = 'greet'")
+      "WHERE path = 'greet'")
   local function reordered(table_name: string, columns: string, rows: string): string, string
     return "INSERT INTO " .. table_name .. " (" .. columns .. ") VALUES " .. rows,
       "CREATE TEMP TABLE kept AS SELECT " .. columns .. " FROM " .. table_name ..
@@ -266,17 +266,17 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   local docs_rows, docs_again = reordered("docs",
     "module, symbol, source_symbol, exported, kind, signature, text, file, line",
     "('greet', 'greet.a', 'greet.a', 1, 'function', '', 'A.', 'greet.tl', 1), " ..
-    "('greet_test', 'b', 'b', 1, 'function', '', 'B.', 'greet_test.tl', 1)")
+      "('greet_test', 'b', 'b', 1, 'function', '', 'B.', 'greet_test.tl', 1)")
   held("the docs' order across modules", docs_again, docs_rows)
   local catalog_rows, catalog_again = reordered("catalog",
     "kind, module, symbol, message, text, file, line",
     "('error', 'greet', 'greet.a', 'a', NULL, 'greet.tl', 1), " ..
-    "('error', 'greet_test', 'b', 'b', NULL, 'greet_test.tl', 1)")
+      "('error', 'greet_test', 'b', 'b', NULL, 'greet_test.tl', 1)")
   held("the catalog's order across modules", catalog_again, catalog_rows)
   local examples_rows, examples_again = reordered("examples",
     "module, name, text, file, line, source",
     "('greet', 'a', 'A.', 'greet.tl', 1, 'a()'), " ..
-    "('greet_test', 'b', 'B.', 'greet_test.tl', 1, 'b()')")
+      "('greet_test', 'b', 'B.', 'greet_test.tl', 1, 'b()')")
   held("the examples' order across modules", examples_again, examples_rows)
   -- A link is its closure's where a module or a declaration of it makes
   -- it, whatever it names.
@@ -304,8 +304,8 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   -- SQLite's quote() ends a text at its first NUL: what follows it moves
   -- the address too.
   moved("a doc's text past a NUL", "UPDATE docs SET text = 'a' || char(0) || 'c' " ..
-    "WHERE symbol = 'greet.z'", doc .. "('greet', 'greet.z', 'greet.z', 1, 'function', '', " ..
-    "'a' || char(0) || 'b', 'greet.tl', 1)")
+      "WHERE symbol = 'greet.z'", doc .. "('greet', 'greet.z', 'greet.z', 1, 'function', '', " ..
+      "'a' || char(0) || 'b', 'greet.tl', 1)")
 end
 
 --- A lookup over a closure store -- `cosmic uses` or `cosmic docs` run
@@ -425,7 +425,7 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
   local root = tmp .. "/a"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet_test.tl", 'local greet = require("greet")\n' ..
-    "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
+      "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
   local names = { "greet", "greet_test" }
   -- The projection of the project, with a doc, a use, a catalog entry
   -- and an example of the closure beside what the build wrote, so the
@@ -435,15 +435,15 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
     assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
     local db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
     assert(db:exec("INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
-      "signature, text, file, line) VALUES ('greet', 'greet.wave', 'greet.wave', 1, " ..
-      "'function', 'function(): string', 'Waves at the world.', 'greet.tl', 2); " ..
-      "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
-      "('greet', 'hello', 'greet_test', 'greet_test.tl', 99); " ..
-      "INSERT INTO catalog (kind, module, symbol, message, text, file, line) VALUES " ..
-      "('error', 'greet', 'greet.hello', 'no world to greet', 'Raised with none.', " ..
-      "'greet.tl', 4); " ..
-      "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
-      "('greet', 'hello', 'Greets the world.', 'greet.tl', 5, 'print(greet.hello())')"))
+        "signature, text, file, line) VALUES ('greet', 'greet.wave', 'greet.wave', 1, " ..
+        "'function', 'function(): string', 'Waves at the world.', 'greet.tl', 2); " ..
+        "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
+        "('greet', 'hello', 'greet_test', 'greet_test.tl', 99); " ..
+        "INSERT INTO catalog (kind, module, symbol, message, text, file, line) VALUES " ..
+        "('error', 'greet', 'greet.hello', 'no world to greet', 'Raised with none.', " ..
+        "'greet.tl', 4); " ..
+        "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
+        "('greet', 'hello', 'Greets the world.', 'greet.tl', 5, 'print(greet.hello())')"))
     assert(db:close())
   end
   projected()
@@ -462,9 +462,9 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
     "a write from the projection written afresh moved the store's bytes")
   local db = assert(Sqlite.open(tmp .. "/one.db"))
   local counts = assert(Sqlite.text_rows(db, "SELECT (SELECT count(*) FROM docs_fts " ..
-    "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
-    "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
-    "(SELECT count(*) FROM uses)"))
+      "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
+      "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
+      "(SELECT count(*) FROM uses)"))
   assert(db:close())
   assert(table.concat(counts[1], " ") == "1 1 1 2", table.concat(counts[1], " "))
 end
@@ -478,7 +478,7 @@ local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
   local root = tmp .. "/a"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet_test.tl", 'local greet = require("greet")\n' ..
-    "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
+      "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
   local names = { "greet", "greet_test" }
   assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
   local digests = declared_key.digests(tmp)

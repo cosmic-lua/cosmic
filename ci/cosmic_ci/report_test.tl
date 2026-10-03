@@ -79,12 +79,12 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
   Report.qualify(runs, 4)
   assert(runs[1].qualifies, runs[1].why)
   assert(runs[1].why == "runtime and harness epoch and timeout among the restored cache's " ..
-    "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", runs[1].why)
+      "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", runs[1].why)
   assert(not runs[2].qualifies and runs[2].why == "linux-x86_64 checked: runtime or harness " ..
-    "not among the restored cache's (12 rows); linux-x86_64 local: runtime or harness not " ..
-    "among the restored cache's (12 rows)", runs[2].why)
+      "not among the restored cache's (12 rows); linux-x86_64 local: runtime or harness not " ..
+      "among the restored cache's (12 rows)", runs[2].why)
   assert(not runs[3].qualifies and
-    runs[3].why:find("linux-x86_64 local: the restored cache held no rows", 1, true), runs[3].why)
+      runs[3].why:find("linux-x86_64 local: the restored cache held no rows", 1, true), runs[3].why)
   assert(not runs[4].qualifies and runs[4].why:find("harness moved", 1, true), runs[4].why)
   -- Restored rows that name no parts (a cache kept from before rows
   -- named them) tell nothing: the earlier run decides, and the reason
@@ -93,9 +93,9 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
   runs = { run("70", "h1", unnamed), run("60", "h1"), run("55", "h1", unnamed), run("50", "h0") }
   Report.qualify(runs, 3)
   assert(runs[1].qualifies and runs[1].why == "restored rows name no parts; runtime and " ..
-    "harness epoch and timeout held since run 60", runs[1].why)
+      "harness epoch and timeout held since run 60", runs[1].why)
   assert(not runs[3].qualifies and runs[3].why:find("linux-x86_64 local: restored rows name " ..
-    "no parts, harness moved", 1, true), runs[3].why)
+      "no parts, harness moved", 1, true), runs[3].why)
 end
 
 --- A fake GitHub: a gh on PATH answering from `state` (testdata/report/gh.tl).
@@ -109,7 +109,7 @@ local function fake(tmp: string): Fake
   assert(Fs.mkdirs(state .. "/api") and Fs.mkdirs(bin))
   local script = assert(Fs.absolute(".")) .. "/testdata/report/gh.tl"
   write(bin .. "/gh", "#!/bin/sh\nexec '" .. assert(Proc.executable()) ..
-    "' --standalone '" .. script .. "' \"$@\"\n")
+      "' --standalone '" .. script .. "' \"$@\"\n")
   assert(Fs.chmod(bin .. "/gh", 0x1ed))
   local env = Env.all()
   env.PATH = bin .. ":/usr/bin:/bin"
@@ -145,7 +145,7 @@ end
 --- and one fixture's suite rows, those two keyed by `runtime` and
 --- `harness`, `stood` of 100 tests standing.
 local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
-    harness: string, stood: integer)
+                            harness: string, stood: integer)
   local database = f.state .. "/db-" .. id
   for _, suite in ipairs({ "local", "checked", "fixture runtime-regression" }) do
     local keyed = not suite:match("^fixture")
@@ -170,7 +170,7 @@ end
 
 --- Run `run`'s one ci-driver artifact, and two it does not read.
 local function artifact(f: Fake, run: string, runtime: string, harness: string,
-    stood: integer)
+                        stood: integer)
   local id = run .. "1"
   artifact_zip(f, id, run, runtime, harness, stood)
   artifacts(f, run, {
@@ -217,10 +217,10 @@ end
 local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/" .. repository .. "/actions/workflows/ci.yml/runs?status=completed" ..
-    "&per_page=14&event=merge_group", { workflow_runs = {
-      run_entry(40, "success", 1), run_entry(30, "success", 1),
-      run_entry(25, "cancelled", 1), run_entry(22, "failure", 1),
-      run_entry(20, "success", 2), run_entry(10, "success", 1) } })
+      "&per_page=14&event=merge_group", { workflow_runs = {
+        run_entry(40, "success", 1), run_entry(30, "success", 1),
+        run_entry(25, "cancelled", 1), run_entry(22, "failure", 1),
+        run_entry(20, "success", 2), run_entry(10, "success", 1) } })
   jobs(f, "40", 13)
   jobs(f, "30", 11)
   jobs(f, "25", 12)
@@ -280,9 +280,9 @@ end
 local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/cosmic-lua/cosmic/actions/workflows/ci.yml/runs?status=completed" ..
-    "&per_page=11&event=push&branch=main", { workflow_runs = {
-      { id = 5, event = "push", head_branch = "main", head_sha = string.rep("5", 40),
-        conclusion = "success", run_attempt = 1 } } })
+      "&per_page=11&event=push&branch=main", { workflow_runs = {
+        { id = 5, event = "push", head_branch = "main", head_sha = string.rep("5", 40),
+          conclusion = "success", run_attempt = 1 } } })
   answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/jobs?per_page=100", { jobs = Json.array() })
   answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/artifacts?per_page=100",
     { artifacts = { { name = "ci-driver-linux-x86_64", id = 9, expired = false } } })
@@ -290,7 +290,7 @@ local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp
   assert(result.ok, said)
   local text = result.stdout or ""
   assert(text:find("- Not read: ci-driver-linux-x86_64: gh api " ..
-    "repos/cosmic-lua/cosmic/actions/artifacts/9/zip failed", 1, true), text)
+      "repos/cosmic-lua/cosmic/actions/artifacts/9/zip failed", 1, true), text)
   assert(text:find("- Wall: -", 1, true), text)
   assert(text:find("None qualifies.", 1, true), text)
 end

@@ -75,7 +75,7 @@ end
 local function flags(source: string, wanted: string)
   local found = problems_in(source)
   assert(#found == 1, "expected one problem, got " .. #found .. ":\n" ..
-    table.concat(found, "\n") .. "\nin:\n" .. source)
+      table.concat(found, "\n") .. "\nin:\n" .. source)
   assert(found[1]:find(wanted, 1, true) ~= nil, found[1])
 end
 
@@ -144,7 +144,7 @@ local function test_a_last_argument_keeps_its_slot_only_where_a_reason_lands()
   flags("maybe(get())", dropped)
   -- A binding's errno, in a third result, lands in a third parameter.
   allows("local triple: function(): integer | nil, string, integer\n" ..
-    "local function take(_v: integer | nil, _why: string, _errno: integer) end\ntake(triple())")
+      "local function take(_v: integer | nil, _why: string, _errno: integer) end\ntake(triple())")
   allows("log:note(get())")
   allows("log.note(log, get())")
 end
@@ -168,23 +168,23 @@ end
 local function test_a_failure_carries_no_value()
   local beside = "beside its reason"
   flags("local function f(): integer | nil, string\n" ..
-    "  local v, err = get()\n  if v == nil then return 0, err end\n" ..
-    "  return v, ''\nend\nuse(f)", beside)
+      "  local v, err = get()\n  if v == nil then return 0, err end\n" ..
+      "  return v, ''\nend\nuse(f)", beside)
   flags("local function f(): boolean, string\n" ..
-    "  local ok, why = put()\n  return ok, why\nend\nuse(f)", beside)
+      "  local ok, why = put()\n  return ok, why\nend\nuse(f)", beside)
   flags("local function f(n: integer): integer | nil, string\n" ..
-    "  if n > 0 then return n, nil end\n  return nil, 'not positive'\nend\nuse(f)", beside)
+      "  if n > 0 then return n, nil end\n  return nil, 'not positive'\nend\nuse(f)", beside)
   allows("local function f(): integer | nil, string\n" ..
-    "  local v, err = get()\n  if v == nil then return nil, err end\n  return v, ''\nend\nuse(f)")
+      "  local v, err = get()\n  if v == nil then return nil, err end\n  return v, ''\nend\nuse(f)")
   allows("local function f(): boolean, string\n" ..
-    "  local ok, why = put()\n  if not ok then return false, why end\n" ..
-    "  return true, ''\nend\nuse(f)")
+      "  local ok, why = put()\n  if not ok then return false, why end\n" ..
+      "  return true, ''\nend\nuse(f)")
 end
 
 local function test_a_function_nested_in_another_answers_for_its_own_returns()
   allows("local function f(): integer | nil, string\n" ..
-    "  local function g(): integer, string return 1, 'two' end\n" ..
-    "  use(g)\n  return get()\nend\nuse(f)")
+      "  local function g(): integer, string return 1, 'two' end\n" ..
+      "  use(g)\n  return get()\nend\nuse(f)")
 end
 
 local function test_a_reason_is_exactly_a_string()
@@ -200,11 +200,11 @@ end
 local function test_a_failure_that_cannot_happen_is_not_declared()
   local never = "the declared failure never happens"
   flags("local function f(n: integer): integer | nil, string\n" ..
-    "  if n > 0 then return n, '' end\n  return 0, ''\nend\nuse(f)", never)
+      "  if n > 0 then return n, '' end\n  return 0, ''\nend\nuse(f)", never)
   allows("local function f(n: integer): integer | nil, string\n" ..
-    "  if n > 0 then return n, '' end\n  return nil, 'not positive'\nend\nuse(f)")
+      "  if n > 0 then return n, '' end\n  return nil, 'not positive'\nend\nuse(f)")
   allows("local function f(): integer | nil, string\n" ..
-    "  local v, err = get()\n  if v == nil then return nil, err end\n  return v, ''\nend\nuse(f)")
+      "  local v, err = get()\n  if v == nil then return nil, err end\n  return v, ''\nend\nuse(f)")
   allows("local function f(): integer | nil, string\n  return get()\nend\nuse(f)")
 end
 
@@ -243,29 +243,29 @@ end
 local function test_a_fallible_function_declares_exactly_two_results()
   local third = "nothing in a third"
   flags("local function f(): integer | nil, string, integer\n" ..
-    "  return nil, 'no', 2\nend\nuse(f)", third)
+      "  return nil, 'no', 2\nend\nuse(f)", third)
   flags("local function f(): boolean, string, integer\n" ..
-    "  return false, 'no', 2\nend\nuse(f)", third)
+      "  return false, 'no', 2\nend\nuse(f)", third)
   -- A third slot beside a failure is refused whatever it holds.
   flags("local function f(): boolean, string, {string}\n" ..
-    "  return true, '', {}\nend\nuse(f)", third)
+      "  return true, '', {}\nend\nuse(f)", third)
   flags("local t = {}\nt.f = function(): integer | nil, string, integer\n" ..
-    "  return nil, 'no', 2\nend\nuse(t)", third)
+      "  return nil, 'no', 2\nend\nuse(t)", third)
   -- A variadic tail is as many slots as a caller binds.
   flags("local function f(): integer | nil, string...\n" ..
-    "  return nil, 'no', 'more'\nend\nuse(f)", third)
+      "  return nil, 'no', 'more'\nend\nuse(f)", third)
   -- A record's function and a method are held the same.
   flags("local record R end\nfunction R.f(): integer | nil, string, integer\n" ..
-    "  return nil, 'no', 2\nend\nuse(R)", third)
+      "  return nil, 'no', 2\nend\nuse(R)", third)
   flags("local record R end\nfunction R:f(): boolean, string, integer\n" ..
-    "  use(self)\n  return false, 'no', 2\nend\nuse(R)", third)
+      "  use(self)\n  return false, 'no', 2\nend\nuse(R)", third)
   -- `any` admits nil, so it is a value that can fail.
   flags("local function f(): any, string, integer\n" ..
-    "  return nil, 'no', 2\nend\nuse(f)", third)
+      "  return nil, 'no', 2\nend\nuse(f)", third)
   allows("local function f(): integer | nil, string\n  return get()\nend\nuse(f)")
   -- Three results that are not a failure's are no failure's shape.
   allows("local function f(): integer, integer, string\n" ..
-    "  return 1, 2, 'x'\nend\nuse(f)")
+      "  return 1, 2, 'x'\nend\nuse(f)")
 end
 
 --- A function stored into a field of [`cosmic.sys`] stands in for a
@@ -274,34 +274,34 @@ local function test_a_stand_in_for_a_sys_binding_keeps_its_errno()
   local sys = "local sys = require('cosmic.sys')\n"
   local stat = "local stat = sys.stat\n"
   allows(sys .. stat .. "sys.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
-    "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend")
+      "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend")
   -- A stand-in is still held to the rules its binding keeps: a
   -- failure of its own answers nil beside the reason.
   flags(sys .. "local mkdir = sys.mkdir\n" ..
-    "sys.mkdir = function(path: string, mode?: integer): boolean, string, integer\n" ..
-    "  if path == '' then return true, 'empty' end\n  return mkdir(path, mode)\nend",
+      "sys.mkdir = function(path: string, mode?: integer): boolean, string, integer\n" ..
+      "  if path == '' then return true, 'empty' end\n  return mkdir(path, mode)\nend",
     "beside its reason")
   -- A local named `sys` that is another table is no stand-in's owner.
   flags("local real = require('cosmic.sys')\n" ..
-    "local record Other\n  stat: function(string): integer | nil, string, integer\nend\n" ..
-    "local sys: Other = {}\n" ..
-    "sys.stat = function(_: string): integer | nil, string, integer\n" ..
-    "  return nil, 'no', 2\nend\nuse(real)", "nothing in a third")
+      "local record Other\n  stat: function(string): integer | nil, string, integer\nend\n" ..
+      "local sys: Other = {}\n" ..
+      "sys.stat = function(_: string): integer | nil, string, integer\n" ..
+      "  return nil, 'no', 2\nend\nuse(real)", "nothing in a third")
   -- Only an answer handed on as the names it was bound to keeps its
   -- errno; a value made up beside a reason is still refused.
   flags(sys .. "sys.mkdtemp = function(_: string): string | nil, string, integer\n" ..
-    "  return 'v', 'oops', 1\nend", "beside its reason")
+      "  return 'v', 'oops', 1\nend", "beside its reason")
   -- The same function stored anywhere else is held to the rules.
   flags(sys .. stat .. "local t = {}\n" ..
-    "t.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
-    "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend\nuse(t)",
+      "t.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
+      "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend\nuse(t)",
     "nothing in a third")
   -- A caller that needs the errno reads it from the binding itself.
   allows(sys .. "local function missing(path: string): boolean | nil, string\n" ..
-    "  local st, trouble, errno = sys.stat(path)\n" ..
-    "  if st ~= nil then return false, '' end\n" ..
-    "  if errno == sys.ENOENT then return true, '' end\n" ..
-    "  return nil, trouble\nend\nuse(missing)")
+      "  local st, trouble, errno = sys.stat(path)\n" ..
+      "  if st ~= nil then return false, '' end\n" ..
+      "  if errno == sys.ENOENT then return true, '' end\n" ..
+      "  return nil, trouble\nend\nuse(missing)")
 end
 
 --- Rule 6: a reason is read for what it says in none of these ways.
@@ -333,8 +333,8 @@ local function test_a_reason_passed_on_or_compared_with_empty_is_allowed()
   allows(bound .. "complain(v, err)")
   allows(bound .. "use(v, err:gsub('\\n', ' '))")
   allows("local function f(): integer | nil, string\n" ..
-    "  local v, err = get()\n  if v == nil then return nil, 'f: ' .. err end\n" ..
-    "  return v, ''\nend\nuse(f)")
+      "  local v, err = get()\n  if v == nil then return nil, 'f: ' .. err end\n" ..
+      "  return v, ''\nend\nuse(f)")
 end
 
 --- Only a reason's name is followed, and only while that binding holds.
@@ -344,15 +344,15 @@ local function test_a_name_that_holds_no_reason_is_not_followed()
   -- not a reason.
   allows("local s = name()\nuse(s:find('x'))")
   allows("local function two(): string, string return 'a', 'b' end\n" ..
-    "local a, b = two()\nuse(a, b:find('b'))")
+      "local a, b = two()\nuse(a, b:find('b'))")
   -- Another binding of the name takes over.
   allows("local v, err = get()\nerr = name()\nuse(v, err:find('x'))")
   allows("local v, err = get()\nuse(v, function(err: string): boolean\n" ..
-    "  return err:find('x') ~= nil\nend)")
+      "  return err:find('x') ~= nil\nend)")
   allows("local v, err = get()\nuse(v)\nfor _, err in ipairs({'a'}) do use(err:find('a')) end")
   -- A declaration in an inner block holds only there.
   flags("local v, err = get()\ndo local err = name() use(err:find('x')) end\n" ..
-    "use(v, err:find('x'))", read)
+      "use(v, err:find('x'))", read)
   allows("local err = name()\ndo local v, err = get() use(v, err) end\nuse(err:find('x'))")
   -- A reason reached without a name drops its slot: rule 1 says so.
   flags("use(select(2, get()) == 'none')", "its error slot is dropped")
@@ -365,10 +365,10 @@ local function test_a_reason_assigned_in_an_inner_block_is_followed_past_it()
   local read = "a failure's reason is read for what it says"
   flags("local v, err = get()\nif v == nil then\n  v, err = get()\nend\nuse(v, err:find('x'))", read)
   flags("local v: integer\nlocal err = ''\nif name() == 'a' then\n  v, err = get()\nend\n" ..
-    "use(v, err:match('x'))", read)
+      "use(v, err:match('x'))", read)
   flags("local v, err = get()\nif v == nil then\n  err = name()\nend\nuse(v, err:find('x'))", read)
   allows("local err = name()\ndo\n  local v, err2 = get()\n  do\n    local err: string\n" ..
-    "    v, err = get()\n    use(err2)\n  end\n  use(v)\nend\nuse(err:find('x'))")
+      "    v, err = get()\n    use(err2)\n  end\n  use(v)\nend\nuse(err:find('x'))")
   allows("local err = name()\nif name() == 'a' then\n  err = name()\nend\nuse(err:find('x'))")
 end
 
@@ -425,7 +425,7 @@ local function test_a_local_reads_its_own_name_from_before_it()
   flags("local v, err = get()\ndo local err = err:sub(1, 2) use(err) end\nuse(v)", read)
   flags("local v, err = get()\ndo local err = err use(err:find('x')) end\nuse(v)", read)
   allows("local err = name()\ndo local v, err = get() use(v, err) end\n" ..
-    "local e = err:find('x')\nuse(e)")
+      "local e = err:find('x')\nuse(e)")
 end
 
 --- A function the `parsing` table names is not held to rule 6.
@@ -445,7 +445,7 @@ local function test_a_cast_is_flagged()
   flags("local t: {any} = {}\nuse(t[1] as string)", "the top level: " .. cast)
   flags("local f = function(v: any): integer return v as integer end\nuse(f)", "f: " .. cast)
   flags("local r: {string: function(any): integer} = {}\n" ..
-    "r.g = function(v: any): integer return v as integer end", "r.g: " .. cast)
+      "r.g = function(v: any): integer return v as integer end", "r.g: " .. cast)
 end
 
 --- A narrowing is no cast.
@@ -493,7 +493,7 @@ local function test_an_exemption_key_names_the_function_as_written()
   local inherited = problems_in(nested, exempting("casts", { "x.tl:g" }))
   local joined = table.concat(inherited, "\n")
   assert(#inherited == 2 and joined:find("f.g: " .. cast, 1, true) ~= nil and
-    joined:find("contracts.casts names x.tl:g,", 1, true) ~= nil, joined)
+      joined:find("contracts.casts names x.tl:g,", 1, true) ~= nil, joined)
   local exempt = problems_in(nested, exempting("casts", { "x.tl:f.g" }))
   assert(#exempt == 0, table.concat(exempt, "\n"))
 end
@@ -559,9 +559,9 @@ end
 --- return are allowed.
 local function test_a_type_of_its_own_name_is_allowed()
   allows("local record Log\n  record Logger\n    n: integer\n  end\n" ..
-    "  record Reader\n    n: integer\n  end\n  LogLevel: integer\nend\nreturn Log")
+      "  record Reader\n    n: integer\n  end\n  LogLevel: integer\nend\nreturn Log")
   allows("local record Zip\n  record ZipReader\n    n: integer\n  end\nend\n" ..
-    "local record Other\nend\nuse(Zip)\nreturn Other")
+      "local record Other\nend\nuse(Zip)\nreturn Other")
 end
 
 local modal = "is a closed set of modes"
@@ -572,14 +572,14 @@ local modal = "is a closed set of modes"
 local function test_a_string_mode_is_flagged()
   local record_source = "local record Options\n  links: string\nend\n"
   flags(record_source .. "local function f(o: Options)\n" ..
-    "  if o.links == 'skip' then use(1) elseif o.links ~= 'create' then use(2) end\nend\nuse(f)",
+      "  if o.links == 'skip' then use(1) elseif o.links ~= 'create' then use(2) end\nend\nuse(f)",
     "Options.links: a string compared with \"create\", \"skip\" " .. modal)
   flags(record_source .. "local function f(o: Options)\n" ..
-    "  local mode = o.links or 'skip'\n  if mode == 'create' then use(1) end\nend\nuse(f)",
+      "  local mode = o.links or 'skip'\n  if mode == 'create' then use(1) end\nend\nuse(f)",
     "Options.links: a string compared with \"create\", \"skip\" " .. modal)
   flags("local record R\n  record WriterOptions\n    method: string\n  end\nend\n" ..
-    "local function g(name: string)\n  if name == 'store' then use(1) elseif name == 'deflate' then use(2) end\nend\n" ..
-    "local function f(o: R.WriterOptions)\n  g(o.method)\nend\nuse(f)",
+      "local function g(name: string)\n  if name == 'store' then use(1) elseif name == 'deflate' then use(2) end\nend\n" ..
+      "local function f(o: R.WriterOptions)\n  g(o.method)\nend\nuse(f)",
     "R.WriterOptions.method: a string compared with \"deflate\", \"store\" " .. modal)
 end
 
@@ -588,16 +588,16 @@ end
 --- another record are allowed.
 local function test_a_string_that_is_no_mode_is_allowed()
   allows("local record Options\n  links: string\nend\n" ..
-    "local function f(o: Options)\n  if o.links == 'create' or o.links == '' then use(1) end\nend\nuse(f)")
+      "local function f(o: Options)\n  if o.links == 'create' or o.links == '' then use(1) end\nend\nuse(f)")
   allows("local enum Links\n  'skip'\n  'create'\nend\nlocal record Options\n  links: Links\nend\n" ..
-    "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)")
+      "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)")
   allows("local record Options\n  path: string\nend\n" ..
-    "local function f(o: Options)\n  use(o.path .. '/x')\nend\nuse(f)")
+      "local function f(o: Options)\n  use(o.path .. '/x')\nend\nuse(f)")
   allows("local record Entry\n  kind: string\nend\n" ..
-    "local function f(e: Entry)\n  if e.kind == 'a' or e.kind == 'b' then use(1) end\nend\nuse(f)")
+      "local function f(e: Entry)\n  if e.kind == 'a' or e.kind == 'b' then use(1) end\nend\nuse(f)")
   allows("local record Options\n  kind: string\nend\nlocal record Other\n  kind: string\nend\n" ..
-    "local function f(o: Options, e: Other)\n" ..
-    "  if e.kind == 'a' or e.kind == 'b' then use(o.kind) end\nend\nuse(f)")
+      "local function f(o: Options, e: Other)\n" ..
+      "  if e.kind == 'a' or e.kind == 'b' then use(o.kind) end\nend\nuse(f)")
 end
 
 --- A field `modes` names may be compared with literals; an entry no
@@ -620,17 +620,17 @@ local function test_a_nested_or_recased_repeat_is_flagged()
   flags("local record Sqlite\n  record SQLiteHandle\n    n: integer\n  end\nend\nreturn Sqlite",
     "Sqlite.SQLiteHandle: " .. stutters)
   flags("local record Layout\n  record LayoutRule\n    n: integer\n  end\nend\n" ..
-    "local layout: Layout = {}\nreturn layout", "layout.LayoutRule: " .. stutters)
+      "local layout: Layout = {}\nreturn layout", "layout.LayoutRule: " .. stutters)
 end
 
 --- Rule 9 reads a `string | nil` field and a value assigned to a local.
 local function test_an_optional_or_assigned_mode_is_flagged()
   flags("local record Options\n  links: string | nil\nend\n" ..
-    "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)",
+      "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)",
     "Options.links: a string compared with \"create\", \"skip\" " .. modal)
   flags("local record Options\n  links: string\nend\n" ..
-    "local function f(o: Options)\n  local m: string\n  m = o.links\n" ..
-    "  if m == 'skip' or m == 'create' then use(1) end\nend\nuse(f)",
+      "local function f(o: Options)\n  local m: string\n  m = o.links\n" ..
+      "  if m == 'skip' or m == 'create' then use(1) end\nend\nuse(f)",
     "Options.links: a string compared with \"create\", \"skip\" " .. modal)
 end
 
@@ -639,48 +639,48 @@ end
 --- not.
 local function test_a_same_named_local_elsewhere_is_not_the_field()
   allows("local record Options\n  links: string\nend\n" ..
-    "local function f(o: Options)\n  local m = o.links\n  if m == 'skip' then use(1) end\nend\n" ..
-    "local function g(m: string)\n  if m == 'a' or m == 'b' then use(2) end\nend\nuse(f, g)")
+      "local function f(o: Options)\n  local m = o.links\n  if m == 'skip' then use(1) end\nend\n" ..
+      "local function g(m: string)\n  if m == 'a' or m == 'b' then use(2) end\nend\nuse(f, g)")
   allows("local record Options\n  links: string\nend\n" ..
-    "local function f(o: Options)\n  local m = o.links\n  if m == 'skip' then use(1) end\n" ..
-    "  local m2 = m\n  local m = 'x'\n  if m == 'a' or m == 'b' then use(m2) end\nend\nuse(f)")
+      "local function f(o: Options)\n  local m = o.links\n  if m == 'skip' then use(1) end\n" ..
+      "  local m2 = m\n  local m = 'x'\n  if m == 'a' or m == 'b' then use(m2) end\nend\nuse(f)")
 end
 
 --- Rule 10: what a module exports answers one result, or a failure pair.
 local function test_an_exported_tuple_is_flagged()
   local tuple = "an exported function answers one result"
   flags("local record M end\nfunction M.split(): string, string\n" ..
-    "  return 'a', 'b'\nend\nreturn M", "M.split: " .. tuple)
+      "  return 'a', 'b'\nend\nreturn M", "M.split: " .. tuple)
   -- Two answers beside each other are a tuple, not a failure.
   flags("local record M end\nfunction M.pair(): boolean, integer\n" ..
-    "  return true, 1\nend\nreturn M", tuple)
+      "  return true, 1\nend\nreturn M", tuple)
   -- A variadic answer is as many results as a caller binds.
   flags("local record M end\nfunction M.all(): string...\n" ..
-    "  return 'a', 'b'\nend\nreturn M", tuple)
+      "  return 'a', 'b'\nend\nreturn M", tuple)
   -- A record declared inside the export exports its methods.
   flags("local record M\n  record R\n    n: integer\n  end\nend\n" ..
-    "function M.R:pair(): integer, integer\n  return self.n, self.n\nend\nreturn M",
+      "function M.R:pair(): integer, integer\n  return self.n, self.n\nend\nreturn M",
     "M.R:pair: " .. tuple)
   -- A field the record declares is exported however it is filled.
   flags("local record M\n  f: function(): string, string\nend\n" ..
-    "local function f(): string, string return 'a', 'b' end\nM.f = f\nreturn M",
+      "local function f(): string, string return 'a', 'b' end\nM.f = f\nreturn M",
     "M.f: " .. tuple)
   -- A generic function is held the same as any other.
   flags("local record M end\nfunction M.twice<T>(x: T): T, T\n" ..
-    "  return x, x\nend\nreturn M", "M.twice: " .. tuple)
+      "  return x, x\nend\nreturn M", "M.twice: " .. tuple)
   -- A module that answers a constructor exports its fields by name.
   flags("local function split(): string, string return 'a', 'b' end\n" ..
-    "return { split = split }", "split: " .. tuple)
+      "return { split = split }", "split: " .. tuple)
 end
 
 local function test_an_exported_single_result_or_failure_pair_is_allowed()
   allows("local record M end\nfunction M.one(): string\n  return 'a'\nend\n" ..
-    "function M.read(): string | nil, string\n  return sget()\nend\n" ..
-    "function M.write(): boolean, string\n  return put()\nend\nreturn M")
+      "function M.read(): string | nil, string\n  return sget()\nend\n" ..
+      "function M.write(): boolean, string\n  return put()\nend\nreturn M")
   -- A local function keeps whatever shape it likes; only an export is held.
   allows("local record M end\nlocal function split(): string, string\n" ..
-    "  return 'a', 'b'\nend\nfunction M.first(): string\n" ..
-    "  local a, _ = split()\n  return a\nend\nreturn M")
+      "  return 'a', 'b'\nend\nfunction M.first(): string\n" ..
+      "  local a, _ = split()\n  return a\nend\nreturn M")
   -- A record another module declares, only named here, is not this
   -- module's to answer for.
   allows("local record M\n  type Logger = Log\nend\nreturn M")
@@ -688,7 +688,7 @@ end
 
 local function test_an_exempt_export_may_answer_a_tuple()
   local found = problems_in("local record M end\nfunction M.split(): string, string\n" ..
-    "  return 'a', 'b'\nend\nreturn M", exempting("exempt", { "x.tl:M.split" }))
+      "  return 'a', 'b'\nend\nreturn M", exempting("exempt", { "x.tl:M.split" }))
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -697,16 +697,16 @@ end
 local function test_the_raw_process_table_is_held_as_bindings_are()
   local process = "local process = require('cosmic.internal.process')\n"
   allows(process .. "local spawn = process.spawn\n" ..
-    "process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,\n" ..
-    "    cwd: string | nil, stdin: integer | nil, stdout: integer | nil,\n" ..
-    "    stderr: integer | nil, process_group: boolean, fds?: {integer:integer},\n" ..
-    "    sandbox?: process.Sandbox, credentials?: process.Credentials): integer | nil, string, integer\n" ..
-    "  local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout,\n" ..
-    "    stderr, process_group, fds, sandbox, credentials)\n" ..
-    "  return pid, trouble, errno\nend")
+      "process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,\n" ..
+      "    cwd: string | nil, stdin: integer | nil, stdout: integer | nil,\n" ..
+      "    stderr: integer | nil, process_group: boolean, fds?: {integer:integer},\n" ..
+      "    sandbox?: process.Sandbox, credentials?: process.Credentials): integer | nil, string, integer\n" ..
+      "  local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout,\n" ..
+      "    stderr, process_group, fds, sandbox, credentials)\n" ..
+      "  return pid, trouble, errno\nend")
   flags(process .. "local record M end\n" ..
-    "function M.adopt(): boolean\n  local ok, _ = process.subreaper()\n  return ok\nend\n" ..
-    "return M", "M.adopt: calls cosmic.internal.process.subreaper itself and answers a bare boolean")
+      "function M.adopt(): boolean\n  local ok, _ = process.subreaper()\n  return ok\nend\n" ..
+      "return M", "M.adopt: calls cosmic.internal.process.subreaper itself and answers a bare boolean")
 end
 
 --- Rule 11: an exported wrapper over a fallible [`cosmic.sys`] binding
@@ -715,33 +715,33 @@ local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
   local sys = "local sys = require('cosmic.sys')\nlocal record M end\n"
   local bare = "calls cosmic.sys.unlink itself and answers a bare boolean"
   flags(sys .. "function M.rm(p: string): boolean\n" ..
-    "  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M", "M.rm: " .. bare)
+      "  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M", "M.rm: " .. bare)
   -- A local function stored into the export is held the same.
   flags(sys .. "local function rm(p: string): boolean\n" ..
-    "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
-    "local record N\n  rm: function(string): boolean\nend\n" ..
-    "local n: N = { rm = rm }\nuse(M)\nreturn n", bare)
+      "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
+      "local record N\n  rm: function(string): boolean\nend\n" ..
+      "local n: N = { rm = rm }\nuse(M)\nreturn n", bare)
   -- A function the record declares, then defines, is the one defined.
   flags("local sys = require('cosmic.sys')\n" ..
-    "local record M\n  rm: function(string): boolean\nend\n" ..
-    "function M.rm(p: string): boolean\n" ..
-    "  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M", "M.rm: " .. bare)
+      "local record M\n  rm: function(string): boolean\nend\n" ..
+      "function M.rm(p: string): boolean\n" ..
+      "  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M", "M.rm: " .. bare)
   -- A literal bound to a local, then stored, is the one stored.
   flags(sys .. "local rm = function(p: string): boolean\n" ..
-    "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
-    "use(M)\nreturn { rm = rm }", "rm: " .. bare)
+      "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
+      "use(M)\nreturn { rm = rm }", "rm: " .. bare)
 end
 
 local function test_a_wrapper_answering_its_failure_is_allowed()
   local sys = "local sys = require('cosmic.sys')\nlocal record M end\n"
   allows(sys .. "function M.rm(p: string): boolean, string\n" ..
-    "  local ok, err = sys.unlink(p)\n  if not ok then return false, err end\n" ..
-    "  return true, ''\nend\nreturn M")
+      "  local ok, err = sys.unlink(p)\n  if not ok then return false, err end\n" ..
+      "  return true, ''\nend\nreturn M")
   -- A binding called from a function nested in it is that function's.
   allows(sys .. "function M.later(p: string): boolean\n" ..
-    "  use(function(): boolean\n    local ok, _ = sys.unlink(p)\n    return ok\n  end)\n" ..
-    "  return true\nend\nreturn M")
+      "  use(function(): boolean\n    local ok, _ = sys.unlink(p)\n    return ok\n  end)\n" ..
+      "  return true\nend\nreturn M")
   -- A local wrapper is not the module's answer.
   allows(sys .. "local function rm(p: string): boolean\n" ..
-    "  local ok, _ = sys.unlink(p)\n  return ok\nend\nuse(rm)\nreturn M")
+      "  local ok, _ = sys.unlink(p)\n  return ok\nend\nuse(rm)\nreturn M")
 end

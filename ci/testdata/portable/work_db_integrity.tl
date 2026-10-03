@@ -55,7 +55,7 @@ return function(argv: {string}): integer
     return 1
   end
   if integrity == nil or #integrity ~= 1 or #integrity[1] ~= 1 or
-     integrity[1][1] ~= "ok" then
+      integrity[1][1] ~= "ok" then
     local findings: {string} = {}
     for _, row in ipairs(integrity or {}) do
       findings[#findings + 1] = table.concat(row, " | ")
@@ -64,7 +64,7 @@ return function(argv: {string}): integer
     return 1
   end
   print("work database integrity: PASS (SQLite " .. Sqlite.version ..
-    ", " .. page_count .. " pages, " .. freelist .. " free, " ..
-    coverage .. " coverage rows, " .. by_test .. " per-test rows)")
+      ", " .. page_count .. " pages, " .. freelist .. " free, " ..
+      coverage .. " coverage rows, " .. by_test .. " per-test rows)")
   return 0
 end

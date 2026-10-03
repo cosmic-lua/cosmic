@@ -107,7 +107,7 @@ function State.open(path: string): Sqlite.Handle
 end
 
 function State.start(path: string, worker: string, run: string, attempt: string,
-    phase: string, at: integer): integer
+                     phase: string, at: integer): integer
   local db = State.open(path)
   assert(Sqlite.run(db, [[INSERT INTO operation_events
     (event,worker,run,attempt,phase,monotonic_ns)
@@ -119,18 +119,18 @@ function State.start(path: string, worker: string, run: string, attempt: string,
 end
 
 function State.complete(path: string, id: integer, worker: string, run: string,
-    attempt: string, phase: string, at: integer, elapsed: integer,
-    status: string, code: integer | nil, signal: integer | nil,
-    timed_out: integer, detail: string | nil)
+                        attempt: string, phase: string, at: integer, elapsed: integer,
+                        status: string, code: integer | nil, signal: integer | nil,
+                        timed_out: integer, detail: string | nil)
   local db = State.open(path)
   assert(Sqlite.run(db, [[INSERT INTO operation_events
     (start_id,event,worker,run,attempt,phase,monotonic_ns,elapsed_ns,status,
      exit_code,signal,timed_out,detail)
     VALUES(?1,'complete',?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)]],
     { integer(id), text(worker), text(run), text(attempt), text(phase), integer(at),
-     integer(elapsed), text(status), code and integer(code) or null(),
-     signal and integer(signal) or null(), integer(timed_out),
-     detail and text(detail) or null() }))
+      integer(elapsed), text(status), code and integer(code) or null(),
+      signal and integer(signal) or null(), integer(timed_out),
+      detail and text(detail) or null() }))
   assert(db:close())
 end
 
@@ -169,7 +169,7 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   end
   selected[#selected + 1] = columns.held and "held IS NULL, COALESCE(held, '')" or "1, ''"
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
-    " FROM suite_runs ORDER BY id"))
+      " FROM suite_runs ORDER BY id"))
   local out: {State.SuiteRun} = {}
   for _, cells in ipairs(rows) do
     local row: {string:any} = {}
@@ -220,7 +220,7 @@ function State.suite(path: string, row: State.SuiteRun)
   for i = 1, #columns do marks[i] = "?" .. i end
   local db = State.open(path)
   assert(Sqlite.run(db, "INSERT INTO suite_runs (" .. table.concat(columns, ",") ..
-    ") VALUES (" .. table.concat(marks, ",") .. ")", values))
+      ") VALUES (" .. table.concat(marks, ",") .. ")", values))
   assert(db:close())
 end
 

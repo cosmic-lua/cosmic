@@ -181,7 +181,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
     for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do
       local r = assert(Child.run({ probe,
         "mkdirs $COSMIC_PORTABLE_CACHE && ls $COSMIC_PORTABLE_CACHE; " ..
-        "print $COSMIC_PORTABLE_CACHE" },
+          "print $COSMIC_PORTABLE_CACHE" },
         { env = { COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
       said[#said + 1] = assert(r.stdout)
     end
@@ -203,11 +203,11 @@ local function refusing_sandboxes(fn: function()): integer
   local spawn = process.spawn
   local refused = 0
   process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
-                       cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
-                       stderr: integer | nil, process_group: boolean,
-                       fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
-                       credentials?: raw_process.Credentials):
-                       integer | nil, string, integer
+                           cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                           stderr: integer | nil, process_group: boolean,
+                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
+                           credentials?: raw_process.Credentials):
+      integer | nil, string, integer
     if sandbox ~= nil then
       refused = refused + 1
       return nil, "Operation not permitted", sys.EPERM

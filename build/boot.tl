@@ -59,7 +59,7 @@ local function boot(root: string, argv: {integer:string},
     local id, configuration_id, configuration, target, uname_os, uname_arch =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
     if id == nil or configuration_id ~= "1" or configuration ~= "release" or
-       target == nil or uname_os == nil or uname_arch == nil then
+        target == nil or uname_os == nil or uname_arch == nil then
       log:verdict("boot", false, "invalid generated release target record")
       return 1
     end
@@ -111,8 +111,8 @@ local function boot(root: string, argv: {integer:string},
       checked_name, checked_os, checked_arch =
       extra:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\n$")
     if checked_id ~= host_id or checked_configuration_id ~= "2" or
-       checked_configuration ~= "sanitized" or checked_name == nil or
-       checked_os ~= host_os or checked_arch ~= host_arch then
+        checked_configuration ~= "sanitized" or checked_name == nil or
+        checked_os ~= host_os or checked_arch ~= host_arch then
       log:verdict("boot", false, "invalid generated checked target record")
       return 1
     end
@@ -232,12 +232,12 @@ local function boot(root: string, argv: {integer:string},
   end
 
   log:verdict("boot", true, plural.count(#targets, "target") .. ", " ..
-    plural.count(staged.files, "file") .. " staged, " ..
-    plural.count(result.parses.parsed, "source") .. " parsed, " ..
-    result.parses.shared .. " taken from another checkout, " ..
-    plural.count(result.compiled, "module") .. " compiled, " ..
-    result.shared .. " taken from another checkout, " ..
-    plural.count(#database, "database byte") .. ", " .. clock.took(started))
+      plural.count(staged.files, "file") .. " staged, " ..
+      plural.count(result.parses.parsed, "source") .. " parsed, " ..
+      result.parses.shared .. " taken from another checkout, " ..
+      plural.count(result.compiled, "module") .. " compiled, " ..
+      result.shared .. " taken from another checkout, " ..
+      plural.count(#database, "database byte") .. ", " .. clock.took(started))
   return 0
 end
 

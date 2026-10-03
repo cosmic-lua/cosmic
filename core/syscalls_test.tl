@@ -272,7 +272,7 @@ local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   assert(sys.utimensat(path, nil, nil, 7, 8))
   st = assert(sys.stat(path))
   assert(st.mtime == 7 and st.ctime >= before and st.ctime_ns >= 0 and
-    st.ctime_ns < 1000000000, st.ctime .. "." .. st.ctime_ns)
+      st.ctime_ns < 1000000000, st.ctime .. "." .. st.ctime_ns)
 end
 
 local function test_mkdir_and_rmdir(tmp: string)
@@ -593,7 +593,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   local output = create(tmp .. "/said")
   local pid = assert(process.spawn(probe, { probe,
     "cat in/f; print; run " .. probe .. " cat out/f || print refused; " ..
-    "append in/g x || print unwritten" },
+      "append in/g x || print unwritten" },
     nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
   sys.close(ruleset)
   local status = assert(process.waitpid(pid, false))
@@ -601,7 +601,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   local said = assert(sys.pread(output, 4096, 0))
   sys.close(output)
   assert(said:find("^in\n") and said:find("refused\n", 1, true) and
-    said:find("unwritten\n", 1, true), said)
+      said:find("unwritten\n", 1, true), said)
   assert(not said:find("\nout\n", 1, true), said)
   local mine = assert(sys.open(outside .. "/f", sys.O_RDONLY))
   assert(sys.read(mine, 16) == "out")
@@ -683,7 +683,7 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   -- Beneath a path given, a file may still move to another directory.
   local given = tmp .. "/given"
   assert(sys.mkdir(given, 0x1c0) and sys.mkdir(given .. "/a", 0x1c0) and
-    sys.mkdir(given .. "/b", 0x1c0))
+      sys.mkdir(given .. "/b", 0x1c0))
   sys.close(create(given .. "/a/f"))
   local held, trouble, errno = process.landlock_restrict_execute({ tmp .. "/bin", given })
   if not held then
@@ -825,7 +825,7 @@ local function test_a_child_is_handed_only_the_descriptors_asked_for(tmp: string
     assert(not closed_on_exec(fd))
   end
   local pid = assert(process.spawn(probe, { probe, "fd-closed " .. below .. "; fd-closed " ..
-    above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
+      above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
     nil, nil, nil, nil, nil, false, { [handed] = report, [kept] = kept }))
   local status = assert(process.waitpid(pid, false))
   assert(status.code == 0, tostring(status.code))
@@ -870,7 +870,7 @@ local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: strin
     assert(sys.dup2(files[fd], fd))
   end
   local pid = assert(process.spawn(probe, { probe, "write-fd " .. first .. " first; write-fd " ..
-    second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+      second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
   assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
@@ -989,7 +989,7 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
   table.sort(expected)
   assert(table.concat(features, " ") == table.concat(expected, " "),
     "cpu_features answers " .. table.concat(features, " ") .. ", /proc/cpuinfo lists " ..
-    table.concat(expected, " "))
+      table.concat(expected, " "))
 end
 
 local function test_cpu_count_is_at_least_one()
@@ -1065,7 +1065,7 @@ local function test_executable_path_refuses_a_room_it_does_not_fit()
   assert(testing.executable_path(#path + 1) == path)
   local short = testing.executable_path(#path)
   assert(short == nil, "a path with no room for its NUL came back as " ..
-    tostring(short))
+      tostring(short))
   assert(testing.executable_path(1) == nil)
 end
 
@@ -1473,7 +1473,7 @@ local function test_poll_watches_past_a_thousand_descriptors()
     events[#events + 1] = sys.POLLIN
   end
   assert(#fds == wanted, #fds .. " copies under a hard limit of " .. limits.hard ..
-    ": " .. tostring(trouble))
+      ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
@@ -1842,7 +1842,7 @@ local function test_an_errno_is_named_as_errno_h_names_it()
     local name, number = pair[1], pair[2]
     if name is string and number is integer then
       assert(sys.errno_name(number) == name, name .. " is named " ..
-        tostring(sys.errno_name(number)))
+          tostring(sys.errno_name(number)))
     end
   end
   assert(sys.errno_name(0) == nil and sys.errno_name(-1) == nil)
@@ -1943,9 +1943,9 @@ end
 --- The raw boundary validates both IDs independently of Child.Options.
 local function test_spawn_credentials_reject_incomplete_and_reserved_ids()
   for index, credentials in ipairs({
-    {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
-    { user = 1, group = -1 }, { user = 4294967295, group = 1 },
-    { user = 1.5, group = 1 } as raw_process.Credentials,
+      {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
+      { user = 1, group = -1 }, { user = 4294967295, group = 1 },
+      { user = 1.5, group = 1 } as raw_process.Credentials,
   } as {raw_process.Credentials}) do
     local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
       nil, nil, nil, nil, nil, false, nil, nil, credentials)

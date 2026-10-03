@@ -112,7 +112,7 @@ local function test_only_a_name_after_the_last_colon_names_a_test()
   -- Anything else after the last `:` leaves the selector a path whole:
   -- each one selects the module it spells, and not another's.
   for _, whole in ipairs({ "C:\\dir\\x_test.tl", "a:b/c_test.tl", ":test_a",
-                           "x_test.tl:", "x_test.tl:Other.a", "x_test.tl:1a" }) do
+      "x_test.tl:", "x_test.tl:Other.a", "x_test.tl:1a" }) do
     assert(test.selects(whole, "x_test", whole, "test_a"), whole)
     assert(not test.matches(whole, "x_test", "x_test.tl"), whole)
   end
@@ -149,7 +149,7 @@ end
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
-    "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
+      "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
   local key_code = { "build.test", "build.declared_key", "build.shared_verdicts",
     "build.artifact", "build.bind", "build.harness_epoch" }
   local imports: {{string}} = {
@@ -211,18 +211,18 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local commented = "-- a comment, and a blank line after it\n\nreturn 'a key'\n"
   local function edited(name: string): string return moves(name, commented, "bytecode") end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-                          "build.artifact", "build.test_worker", "build.test_sandbox",
-                          "cmd.cosmic.main", "build.confine",
-                          "build.test_inputs", "cosmic.test",
-                          "build.caches", "build.zig_caches" }) do
+      "build.artifact", "build.test_worker", "build.test_sandbox",
+      "cmd.cosmic.main", "build.confine",
+      "build.test_inputs", "cosmic.test",
+      "build.caches", "build.zig_caches" }) do
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer",
-                          "build.harness_epoch", "build.test_report", "cosmic.removed" }) do
+      "build.harness_epoch", "build.test_report", "cosmic.removed" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",
-                          "cosmic.flags" }) do
+      "cosmic.flags" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))
   end
   -- The writer's closure, what cosmic.sqlite requires among it: an
@@ -250,7 +250,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local named: {string:boolean} = {}
   for _, name in ipairs(before.names) do named[name] = true end
   assert(named["build.caches"] and named["build.zig_caches"] and named["build.test"] and
-    not named["build.harness_epoch"] and not named["build.test_report"])
+      not named["build.harness_epoch"] and not named["build.test_report"])
   local runs: {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
   assert(runs["build.test_sandbox"] and runs["build.test_worker"] and not runs["build.test"])
@@ -275,7 +275,7 @@ end
 local function test_the_harness_walks_the_key_code_by_value()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
-    "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
+      "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
   local sources: {string:string} = {
     ["build.declared_key"] = 'local function later() return require("build.artifact") end\n' ..
       'return later\n',
@@ -291,16 +291,16 @@ local function test_the_harness_walks_the_key_code_by_value()
   end
   for _, name in ipairs(worker.loads) do add(name) end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
-                          "build.artifact", "build.test_sandbox", "build.caches",
-                          "build.zig_caches", "build.closure_store", "build.schema",
-                          "cosmic.child", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
+      "build.artifact", "build.test_sandbox", "build.caches",
+      "build.zig_caches", "build.closure_store", "build.schema",
+      "cosmic.child", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)
   end
   -- build.declared_key's edge to cosmic.stream is a `local type` one.
   for _, row in ipairs({ { "build.declared_key", "cosmic.stream" },
-                         { "build.declared_key", "build.artifact" },
-                         { "build.shared_verdicts", "cosmic.sqlite" },
-                         { "cosmic.child", "cosmic.time" } }) do
+      { "build.declared_key", "build.artifact" },
+      { "build.shared_verdicts", "cosmic.sqlite" },
+      { "cosmic.child", "cosmic.time" } }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)",
       { { text = row[1] }, { text = row[2] } }))
   end

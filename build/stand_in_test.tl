@@ -40,8 +40,8 @@ local function test_a_placed_copy_runs_its_script_with_its_words(tmp: string)
   assert(Fs.mkdirs(tmp .. "/bin"))
   assert(stand_in.place(probe, tool,
     "print args $@ in $DIR; eprint to  stderr $NAME$UNSET.\n" ..
-    "[build] print building; [build] exit 3\n" ..
-    "[other] print never\nprint done"))
+      "[build] print building; [build] exit 3\n" ..
+      "[other] print never\nprint done"))
   local st = assert(Fs.stat(tool))
   assert(st.mode & 0x1ff == 0x1ed, tostring(st.mode))
   local dir = assert(Fs.absolute(tmp .. "/bin"))
@@ -113,7 +113,7 @@ local function test_the_file_verbs(tmp: string)
   assert(r.code == 6, tostring(r.stderr))
   local here = assert(sys.getcwd())
   assert(r.stdout == "one two\nthree\nfirst\nf\ng\nlog\npipe\nsub\n2\n1\n" .. here ..
-    "\nstill here\n", r.stdout)
+      "\nstill here\n", r.stdout)
   assert(Fs.read(d .. "/where") == here .. "\n")
   assert(assert(Fs.stat(d .. "/pipe")).kind == "fifo", assert(Fs.stat(d .. "/pipe")).kind)
   assert(assert(Fs.stat(d .. "/sub")).kind == "dir")
@@ -152,7 +152,7 @@ local function test_the_signal_verbs(tmp: string)
   -- starts it in a process group of its own, which it leads.
   local group = tmp .. "/group"
   local grouped = assert(Child.start({ probe, "trap 0; wait-for " .. group ..
-    "; signal INT @" .. group .. "; exit 3" }, { env = {} }))
+      "; signal INT @" .. group .. "; exit 3" }, { env = {} }))
   assert(Fs.write(group .. ".writing", "-" .. tostring(grouped.pid) .. "\n"))
   assert(Fs.rename(group .. ".writing", group))
   local grouped_ended = assert(grouped:wait(Time.seconds(30)))
@@ -162,7 +162,7 @@ local function test_the_signal_verbs(tmp: string)
   -- One sleeping, then waiting, under a trap that the signal ends.
   local ready = tmp .. "/ready"
   local sleeper = assert(Child.start({ probe, "trap 9; sleep 20; write " .. ready ..
-    " ready; wait-for " .. tmp .. "/never; sleep-forever" }, { env = {} }))
+      " ready; wait-for " .. tmp .. "/never; sleep-forever" }, { env = {} }))
   await(ready)
   local started = Time.monotonic_ns()
   local other = run({ probe, "signal TERM " .. tostring(sleeper.pid) .. "; print sent" })
@@ -188,7 +188,7 @@ local function test_it_sleeps_and_waits(tmp: string)
   assert(Time.monotonic_ns() - started >= Time.ms(60))
   local flag = tmp .. "/flag"
   local waiting = assert(Child.start({ probe, "write " .. tmp .. "/waiting w; wait-for " ..
-    flag .. "; print seen" }, { env = {}, stdout = "capture" }))
+      flag .. "; print seen" }, { env = {}, stdout = "capture" }))
   await(tmp .. "/waiting")
   assert(Fs.write(flag, ""))
   local seen = assert(waiting:wait(Time.seconds(30)))
@@ -284,7 +284,7 @@ local function test_the_verbs_that_ask_of_a_path(tmp: string)
   }, "\n") })
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "there\nabsent\nopens\na-directory-does-not\nnor-a-missing-file\n750\n" ..
-    d .. "/sub/deeper/f\n", r.stdout)
+      d .. "/sub/deeper/f\n", r.stdout)
   assert(not Fs.exists(d .. "/missing"), "writable made the file")
   assert(Fs.read(d .. "/sub/deeper/f") == "x", "writable wrote to the file")
   local absent = run({ probe, "present " .. d .. "/missing" })
@@ -301,7 +301,7 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
   local late = tmp .. "/bin/late"
   assert(stand_in.place(probe, late, "wait-for $DIR/go-$@\nwrite $DIR/done-$@ done"))
   for _, how in ipairs({ "start " .. late .. " started", "run " .. probe .. " start " .. late ..
-      " ran" }) do
+        " ran" }) do
     local word = how:match("(%S+)$")
     -- In no group of its own, which a wait would end with it.
     local r = assert(Child.run({ probe, how .. "; print gone on" },
@@ -401,7 +401,7 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")
   assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")
   assert(one("SELECT count(*) FROM modules WHERE path IN " ..
-    "('cosmic.errors', 'cosmic.child')") == "2")
+      "('cosmic.errors', 'cosmic.child')") == "2")
   assert(one("SELECT count(*) FROM modules WHERE path = 'cosmic.removed'") == "0")
   assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
   assert(db:close())

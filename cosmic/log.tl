@@ -39,7 +39,7 @@ local function complain(self: Log.Logger, line: string): boolean, string
 end
 
 local function verdict(self: Log.Logger, verb: string, passed: boolean,
-    detail?: string): boolean, string
+                       detail?: string): boolean, string
   local line = verb .. (passed and ": PASS" or ": FAIL")
   if detail ~= nil and detail ~= "" then
     line = line .. " (" .. detail .. ")"

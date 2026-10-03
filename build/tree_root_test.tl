@@ -10,7 +10,7 @@ local tree_root = require("build.tree_root")
 
 --- The move a command line gets, or nil.
 local function moved_by(argv: {integer:string}, options: {string:boolean | Flags.Option},
-    home: string | nil, named?: string): tree_root.Move | nil
+                        home: string | nil, named?: string): tree_root.Move | nil
   return tree_root.move(argv, options, home, named).move
 end
 
@@ -24,7 +24,7 @@ local function project(dir: string): string
   -- What the last build staged: one source under a/b.
   local db = assert(Sqlite.open(tmp .. "/proj/o/build.db", { writable = true }))
   assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
-    "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
+      "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
   assert(Sqlite.run(db, "INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))
   assert(db:close())
   return tmp .. "/proj"

@@ -280,5 +280,5 @@ local function test_reads_a_needs_line_outside_a_fence()
   assert(blocks[2].lang == "teal" and blocks[2].content == "<!-- needs: tool = true -->")
   local old, old_trouble = markdown.parse_blocks(doc({ "# a guide", "<!-- inputs: tool = true -->" }))
   assert(old == nil and old_trouble ==
-    "line 2: a doc declares what its examples read with <!-- needs: ... --> now", old_trouble)
+      "line 2: a doc declares what its examples read with <!-- needs: ... --> now", old_trouble)
 end

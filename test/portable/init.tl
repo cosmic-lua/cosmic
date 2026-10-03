@@ -36,8 +36,8 @@ function fixture.read(path: string): fixture.Artifact | nil, string
     prefix_length, database_length = string.unpack(">I4I4I8I8I8I8", bytes,
       #bytes - 39)
   if version ~= 1 or trailer_length ~= 48 or manifest_length ~= 4096 or
-     prefix_length + database_length + trailer_length ~= #bytes or
-     manifest_offset + manifest_length ~= prefix_length then
+      prefix_length + database_length + trailer_length ~= #bytes or
+      manifest_offset + manifest_length ~= prefix_length then
     return nil, path .. ": portable trailer fields differ"
   end
   local manifest_at = manifest_offset + 1
@@ -47,8 +47,8 @@ function fixture.read(path: string): fixture.Artifact | nil, string
   local manifest_version, encoded_length, encoded_prefix, count, entry_length,
     at = string.unpack(">I4I4I8I4I4", bytes, manifest_at + 8)
   if manifest_version ~= 1 or encoded_length ~= manifest_length or
-     encoded_prefix ~= prefix_length or entry_length ~= 56 or count < 1 or
-     32 + count * entry_length > manifest_length then
+      encoded_prefix ~= prefix_length or entry_length ~= 56 or count < 1 or
+      32 + count * entry_length > manifest_length then
     return nil, path .. ": portable manifest fields differ"
   end
   local entries: {fixture.Entry} = {}
@@ -112,7 +112,7 @@ end
 --- or a flat native payload file), so they share this loop.
 function fixture.load_by_target(records_path: string,
                                 make_path: function(string): string):
-                                fixture.Targets
+    fixture.Targets
   local records = assert(Fs.read(records_path))
   local blobs: {string:string} = {}
   for line in records:gmatch("[^\n]+") do

@@ -46,16 +46,16 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   local path = tmp .. "/cache/verdicts.db"
   local cache = assert(shared_verdicts.open(path))
   assert(shared_verdicts.census_line((assert(shared_verdicts.held(cache)))) ==
-    "test: census: no rows")
+      "test: census: no rows")
   shared_verdicts.close(cache)
   -- As a cache from before the column, holding one row.
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("DROP TABLE declared_v1"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
-    "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
-    "origin TEXT NOT NULL)"))
+      "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
+      "origin TEXT NOT NULL)"))
   assert(db:exec("INSERT INTO declared_v1 VALUES ('old', 'a_test.tl test_a', " ..
-    "deflate(''), 1, " .. Time.now_ns() .. ", 'before')"))
+      "deflate(''), 1, " .. Time.now_ns() .. ", 'before')"))
   assert(db:close())
   cache = assert(shared_verdicts.open(path))
   assert(shared_verdicts.declared(cache, "old") ~= nil, "the earlier row went")
@@ -68,7 +68,7 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(shared_verdicts.settle(cache, "first", { parts = now, kept = kept, used = {},
     failed = {} }, Time.now_ns()))
   assert(shared_verdicts.census_line((assert(shared_verdicts.held(cache)))) ==
-    "test: census: 2 rows under runtime r1, harness e1-00000000-t60000; 1 row under no parts named")
+      "test: census: 2 rows under runtime r1, harness e1-00000000-t60000; 1 row under no parts named")
   -- Stood on, the earlier row is stamped; a named one keeps its parts.
   assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2-00000000-t60000",
     kept = {}, used = { "old", "k1" }, failed = {} }, Time.now_ns()))
@@ -96,7 +96,7 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
   assert(#tables == 3 and tables[1][1] == "declared_v1" and tables[2][1] == "stores_v1" and
-    tables[3][1] == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
+      tables[3][1] == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",

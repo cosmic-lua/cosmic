@@ -135,12 +135,12 @@ local function test_a_second_checkout_compiles_nothing_the_first_compiled(tmp: s
   -- bytecode, and the record-field use `b` makes of `c.Box` with it.
   local queries: {{string}} = {
     { "o/cosmic.db", "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), " ..
-      "tests FROM modules ORDER BY path" },
+        "tests FROM modules ORDER BY path" },
     { "o/cosmic.db", "SELECT module, symbol, from_module, from_file, line FROM uses " ..
-      "ORDER BY module, symbol, from_module, line" },
+        "ORDER BY module, symbol, from_module, line" },
     { "o/build.db", "SELECT key, tool, lua, hex(bytecode), seen FROM compiled ORDER BY key" },
     { "o/build.db", "SELECT key, ordinal, module, member, line FROM typed_refs " ..
-      "ORDER BY key, ordinal" },
+        "ORDER BY key, ordinal" },
   }
   for _, query in ipairs(queries) do
     local first = dump(tmp .. "/first/" .. query[1], query[2])
@@ -235,7 +235,7 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = x'deadbeef' WHERE key = ?1",
     { { text = keys.b } }))
   assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = (SELECT lua FROM compiled_v2 " ..
-    "WHERE key = ?2) WHERE key = ?1", { { text = keys.c }, { text = keys.a } }))
+      "WHERE key = ?2) WHERE key = ?1", { { text = keys.c }, { text = keys.a } }))
   assert(cache:close())
   checkout(tmp .. "/second")
   local second = built(tmp .. "/second", env,
@@ -274,7 +274,7 @@ local function test_an_earlier_formats_table_is_dropped(tmp: string)
   assert(Fs.chmod(tmp .. "/cache", 0x1c0))
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE compiled_v1 (key TEXT PRIMARY KEY, lua BLOB NOT NULL, " ..
-    "bytecode BLOB NOT NULL, refs BLOB NOT NULL, size INTEGER NOT NULL, used_ns INTEGER NOT NULL)"))
+      "bytecode BLOB NOT NULL, refs BLOB NOT NULL, size INTEGER NOT NULL, used_ns INTEGER NOT NULL)"))
   assert(db:close())
   assert(Fs.chmod(path, 0x180))
   checkout(tmp .. "/first")

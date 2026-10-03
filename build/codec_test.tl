@@ -158,7 +158,7 @@ end
 
 local function test_a_command_line_it_cannot_read_exits_2()
   for _, words in ipairs({
-    {}, { "base32" }, { "-d" }, { "--bogus", "hex" }, { "hex", "a", "b" }, { "hex", "" },
+      {}, { "base32" }, { "-d" }, { "--bogus", "hex" }, { "hex", "a", "b" }, { "hex", "" },
   } as {{string}}) do
     local ran = run(words, "x")
     assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
@@ -454,7 +454,7 @@ local function test_offsets_are_absolute_across_chunks()
   assert(refused("base64", { "Zm9v", "Z", "=", "g=" }) == "codec: base64 text has misplaced '=' padding at 6")
   assert(refused("base64url", { "Zm9", "vZ", "m+v" }) == "codec: byte 0x2b at 7 is outside the base64url alphabet")
   assert(refused("base64", { "Zm9vZm9v", "Z", "=", "=", "=" }) ==
-    "codec: base64 text has misplaced '=' padding at 10")
+      "codec: base64 text has misplaced '=' padding at 10")
   -- Lengths are of the whole text, not the last chunk.
   assert(refused("hex", { "666f", "6" }) == "codec: hex text of odd length 5")
   assert(refused("base64", { "Zm9v", "Zg" }) == "codec: base64 text of length 6, not a multiple of 4")

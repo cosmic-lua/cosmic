@@ -8,7 +8,7 @@ local record LauncherSetup
 end
 
 function LauncherSetup.build(root: string, output: string,
-    worker_target: string, tmp: string): string
+                             worker_target: string, tmp: string): string
   local output_exists = Predicate.exists(output)
   assert(not output_exists, "launcher output already exists: " .. output)
   local targets = Fixture.targets(root .. "/o/targets.tsv")
@@ -27,7 +27,7 @@ function LauncherSetup.build(root: string, output: string,
         "portable-launcher-payload-" .. target.name },
       root, diagnostics, nil, native_build_timeout_ns)
     Fixture.copy(root .. "/o/portable-fixture/launcher/payload-" ..
-      target.name, output .. "/payloads/payload-" .. target.name)
+        target.name, output .. "/payloads/payload-" .. target.name)
   end
   Fixture.run("socket-" .. worker_target,
     { root .. "/bin/zig", "build",

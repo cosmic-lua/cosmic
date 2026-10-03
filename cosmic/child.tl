@@ -806,7 +806,7 @@ end
 --- shielded from the cancel ([`Poll.shielded`]), as the cleanup it
 --- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(entries: {Entry}, timeout_ns: integer,
-    cancellable?: boolean, signalled?: boolean): boolean, string
+                    cancellable?: boolean, signalled?: boolean): boolean, string
   -- TODO: wait through Poll.delay and Poll.ready alone, here and in
   -- Child.end_strays's sleep, once it is decided how they answer where
   -- no task can wait. (a) They go on, holding the thread, outside a run
@@ -1459,7 +1459,7 @@ local handle_mt: metatable<Handle> = {
 
 --- A handle for `pid`, owning it until it settles.
 local function make_handle(pid: integer, process_group: boolean, limit: integer,
-    deadline: integer | nil): Handle
+                           deadline: integer | nil): Handle
   local h: Handle = setmetatable({
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
     _explicit_close = false, _drain_next = 1, _deadline = deadline,
@@ -1688,7 +1688,7 @@ local function descriptor(value: integer | string, name: string, words: {string:
   if value is integer and value >= 0 and value <= INT_MAX then return value end
   if name == "stdin" and value == "pipe" then
     error("child: stdin = \"pipe\" was removed: use \"stream\" and write through the handle's " ..
-      "stdin_stream, closing it for end of file, or `input` for bytes known in advance", 4)
+        "stdin_stream, closing it for end of file, or `input` for bytes known in advance", 4)
   end
   local allowed: {string} = {}
   for word in pairs(words) do allowed[#allowed + 1] = "'" .. word .. "'" end
@@ -1750,12 +1750,12 @@ local function validate(argv: {string}, opts: Options)
   if opts.credentials ~= nil then
     local user, group = opts.credentials.user, opts.credentials.group
     if not (user is integer) or not (group is integer) or
-      user < 1 or user > 4294967294 or group < 1 or group > 4294967294 then
+        user < 1 or user > 4294967294 or group < 1 or group > 4294967294 then
       error("child: credentials need integer user and group from 1 to 4294967294", 3)
     end
     local sandbox = opts.sandbox
     if sandbox ~= nil and (sandbox.unveil ~= nil or sandbox.offline == true or
-      sandbox.user ~= nil or sandbox.group ~= nil) then
+        sandbox.user ~= nil or sandbox.group ~= nil) then
       error("child: credentials exclude sandbox unveil, offline, user and group", 3)
     end
   end

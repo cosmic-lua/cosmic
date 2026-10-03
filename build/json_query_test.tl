@@ -28,18 +28,18 @@ end
 
 local function test_describe_summarizes_nested_shapes_sorted()
   local doc = decoded('{"today": {"accounts": [{"id": "a", "balance": 1.5}, {"id": "b", "balance": 2}]},' ..
-    ' "plans": [{"x": 1}, {"x": 2}, {"x": 3}], "ok": true, "name": "n"}')
+      ' "plans": [{"x": 1}, {"x": 2}, {"x": 3}], "ok": true, "name": "n"}')
   assert(json_query.describe(doc) == "{name: string, ok: boolean, plans: [3 x {x: number}]," ..
-    " today: {accounts: [2 x {balance: number, id: string}]}}", json_query.describe(doc))
+      " today: {accounts: [2 x {balance: number, id: string}]}}", json_query.describe(doc))
   assert(json_query.describe(doc, { max_depth = 2 }) == "{name: string, ok: boolean, plans: [3 x {...}]," ..
-    " today: {accounts: [2 x ...]}}", json_query.describe(doc, { max_depth = 2 }))
+      " today: {accounts: [2 x ...]}}", json_query.describe(doc, { max_depth = 2 }))
   assert(json_query.describe(doc, { max_depth = 0 }) == "{...}")
 end
 
 local function test_describe_merges_heterogeneous_elements()
   assert(json_query.describe(decoded('[1, "a", 2, null, true]', { null_value = Json.null })) == "[5 x boolean|null|number|string]")
   assert(json_query.describe(decoded('[{"a": 1}, {"a": 2, "b": "x"}, {"a": "s"}]')) ==
-    "[3 x {a: number|string, b?: string}]")
+      "[3 x {a: number|string, b?: string}]")
   assert(json_query.describe(decoded('[[1, 2], [3], []]')) == "[3 x [0..2 x number]]")
   assert(json_query.describe(decoded('[{"a": 1}, 2]')) == "[2 x number|{a: number}]")
 end
@@ -52,7 +52,7 @@ local function test_describe_scalars_empties_and_null()
   assert(json_query.describe(decoded("[]")) == "[0]")
   assert(json_query.describe(decoded("{}")) == "{}")
   assert(json_query.describe(decoded('{"a": {}, "b": [], "c": null}', { null_value = Json.null })) ==
-    "{a: {}, b: [0], c: null}")
+      "{a: {}, b: [0], c: null}")
   assert(json_query.describe(decoded('{"odd key": 1}')) == '{"odd key": number}', json_query.describe(decoded('{"odd key": 1}')))
   assert(not pcall(json_query.describe, {}, { max_depth = -1 }))
   local fraction: any = 1.5
@@ -62,7 +62,7 @@ end
 --- `?` and a depth cut, objects merged across nested arrays, holes.
 local function test_describe_optional_keys_cuts_and_holes()
   assert(json_query.describe(decoded('[{"a": {"x": 1}}, {"b": 1}]'), { max_depth = 2 }) ==
-    "[2 x {a?: {...}, b?: number}]")
+      "[2 x {a?: {...}, b?: number}]")
   assert(json_query.describe(decoded('[[{"a": 1}], [{"b": 1}]]')) == "[2 x [1 x {a?: number, b?: number}]]")
   local holed = decoded('[1, null, 3]', { null_value = Json.null })
   assert(json_query.describe(holed) == "[3 x null|number]")
@@ -416,7 +416,7 @@ end
 local function test_select_descent_finds_a_key_at_any_depth_root_level_included()
   local doc = decoded(SELECT_DOC, { null_value = Json.null })
   assert(selected(doc, "$..id") ==
-    "$.id $.meta.deep.deep.id $.meta.id $.users[1].id $.users[1].kin.id $.users[2].id")
+      "$.id $.meta.deep.deep.id $.meta.id $.users[1].id $.users[1].kin.id $.users[2].id")
   -- At the root's own level and below, and a match before what is inside it.
   assert(selected(decoded('{"a": {"a": 1}, "b": {"a": 2}}'), "$..a") == "$.a $.a.a $.b.a")
   assert(selected(decoded('{"a": 1}'), "..a") == "$.a")

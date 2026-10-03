@@ -214,9 +214,9 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
     -- A query that fails is no match: a hint never fails the compile.
     local rows, _ = Sqlite.text_rows(db,
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
-      symbols.named_where("d") .. " AND " ..
-      public_docs("d.module", public[index] == true) ..
-      " ORDER BY module, symbol",
+        symbols.named_where("d") .. " AND " ..
+        public_docs("d.module", public[index] == true) ..
+        " ORDER BY module, symbol",
       { { text = query } })
     if rows ~= nil then
       for _, row in ipairs(rows) do
@@ -253,15 +253,15 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
   local phrase = '"' .. table.concat(words, " ") .. '"'
   for index, db in ipairs(databases) do
     for _, lookup in ipairs({
-      { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
-          symbols.public_only("e.module", public[index] == true), name },
-      -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
-      -- the GLOB says the name is there whole, as `docs` checks it.
-      { "SELECT e.module FROM examples_fts JOIN examples e " ..
-          "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
-          "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
-          symbols.public_only("e.module", public[index] == true), phrase,
-        "*" .. name .. "[^A-Za-z0-9_]*" },
+        { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
+              symbols.public_only("e.module", public[index] == true), name },
+        -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
+        -- the GLOB says the name is there whole, as `docs` checks it.
+        { "SELECT e.module FROM examples_fts JOIN examples e " ..
+              "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
+              "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
+              symbols.public_only("e.module", public[index] == true), phrase,
+            "*" .. name .. "[^A-Za-z0-9_]*" },
     }) do
       -- A query that fails is no match.
       local binds: {Sqlite.Value} = { { text = lookup[2] } }

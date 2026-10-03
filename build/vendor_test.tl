@@ -178,7 +178,7 @@ end
 local function test_read_pin_takes_the_first_word_and_the_first_line()
   local pin = (Vendor.read_pin(
     "url https://example.com/a.tar  \r\nsha256 abc123\r\nsha256 def456\n" ..
-    "keep a/*.c \r\nkeep b.h\n"))
+      "keep a/*.c \r\nkeep b.h\n"))
   assert(pin.url == "https://example.com/a.tar")
   assert(pin.sha256 == "abc123")
   assert(#pin.keep == 2 and pin.keep[1] == "a/*.c" and pin.keep[2] == "b.h")

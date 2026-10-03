@@ -78,7 +78,7 @@ end
 local function test_a_close_attribute_precedes_the_type_annotation()
   writes("local y <close>: integer = 6\n", "local y <close>: integer = 6\n")
   local parsed, trouble = fix.source(built, "local y: integer <close> = 6\n",
-                                     "wrong_order.tl")
+    "wrong_order.tl")
   assert(parsed == nil, "the reversed order should not parse")
   assert(trouble ~= "", "a parse failure should say something")
 end
@@ -87,7 +87,7 @@ end
 --- after all of them.
 local function test_attributes_on_several_names_in_one_declaration()
   writes("local a <const>, b <close>: integer, string = 1, \"x\"\n",
-         "local a <const>, b <close>: integer, string = 1, \"x\"\n")
+    "local a <const>, b <close>: integer, string = 1, \"x\"\n")
 end
 
 --- Spacing inside a line is the node's own: operators get one space on
@@ -103,14 +103,14 @@ end
 --- one, which needs its space to stay a word.
 local function test_unary_operators()
   writes("local a = -x + not y + #z + ~w\n",
-         "local a = -x + not y + #z + ~w\n")
+    "local a = -x + not y + #z + ~w\n")
 end
 
 --- The three ways a table literal writes a key, its entries standing
 --- off its braces, and an empty one closed up.
 local function test_table_literal_keys_and_brace_gaps()
   writes("local t = { a = 1, [\"b\"] = 2, 3 }\n",
-         "local t = { a = 1, [\"b\"] = 2, 3 }\n")
+    "local t = { a = 1, [\"b\"] = 2, 3 }\n")
   writes("local t = {a = 1, 2}\n", "local t = { a = 1, 2 }\n")
   writes("local t = {}\n", "local t = {}\n")
 end
@@ -122,7 +122,7 @@ end
 local function test_a_trailing_comma_follows_the_closing_brace()
   writes("local t = {\n  1,\n  2\n}\n", "local t = {\n  1,\n  2,\n}\n")
   writes("local t = {\n  1,\n  2,\n}\n", "local t = {\n  1,\n  2,\n}\n")
-  writes("local t = { 1,\n            2 }\n", "local t = { 1,\n            2 }\n")
+  writes("local t = { 1,\n            2 }\n", "local t = { 1,\n  2 }\n")
 end
 
 --- Indentation is the renderer's: two columns for each block a
@@ -130,16 +130,16 @@ end
 --- statement that opened its block, whatever columns the source used.
 local function test_indentation_is_two_columns_a_level()
   writes("local function f()\n      if x then\n            return 1\n" ..
-         "      end\nend\n",
-         "local function f()\n  if x then\n    return 1\n  end\nend\n")
+      "      end\nend\n",
+    "local function f()\n  if x then\n    return 1\n  end\nend\n")
   writes("f(function()\n        return 1\n      end)\n",
-         "f(function()\n  return 1\nend)\n")
+    "f(function()\n  return 1\nend)\n")
 end
 
 --- A call, an index, a method call, and a dotted name.
 local function test_calls_indexes_and_methods()
   writes("local r = t:m(1, 2) + t.k + t[\"k\"] + f()\n",
-         "local r = t:m(1, 2) + t.k + t[\"k\"] + f()\n")
+    "local r = t:m(1, 2) + t.k + t[\"k\"] + f()\n")
 end
 
 --- A cast's type is the source's own bytes, spacing included, because
@@ -155,15 +155,15 @@ end
 --- would take into the cast's return types.
 local function test_a_cast_to_a_function_type_ends_where_tl_ends_it()
   writes("return a as function(integer): string, a:f(1)\n",
-         "return a as function(integer): string, a:f(1)\n")
+    "return a as function(integer): string, a:f(1)\n")
   writes("local t = { k = b as function(): string; (y), z }\n",
-         "local t = { k = b as function(): string; (y), z }\n")
+    "local t = { k = b as function(): string; (y), z }\n")
   writes("local t = { b is function(): string | integer; 1 }\n",
-         "local t = { b is function(): string | integer; 1 }\n")
+    "local t = { b is function(): string | integer; 1 }\n")
   writes("local t = { b as function(): (string); 1; c as function(): string...; 2 }\n",
-         "local t = { b as function(): (string), 1, c as function(): string..., 2 }\n")
+    "local t = { b as function(): (string), 1, c as function(): string..., 2 }\n")
   writes("local t = {\n  k = b as function(): string;\n}\n",
-         "local t = {\n  k = b as function(): string;\n}\n")
+    "local t = {\n  k = b as function(): string;\n}\n")
 end
 
 --- A function type's return types also end before a `,` and a
@@ -171,11 +171,11 @@ end
 --- expression after a cast.
 local function test_function_return_types_end_before_a_parameter()
   writes("local function f(cb: function(): integer, n?: string, ...: any) return cb, n end\n",
-         "local function f(cb: function(): integer, n?: string, ...: any) return cb, n end\n")
+    "local function f(cb: function(): integer, n?: string, ...: any) return cb, n end\n")
   writes("local type F = function(function(): integer, ?string, ...: any)\n",
-         "local type F = function(function(): integer, ?string, ...: any)\n")
+    "local type F = function(function(): integer, ?string, ...: any)\n")
   writes("local function g(...: any): any return a as function(): integer, ... end\n",
-         "local function g(...: any): any return a as function(): integer, ... end\n")
+    "local function g(...: any): any return a as function(): integer, ... end\n")
 end
 
 --- Blocks: the closing keyword goes where the source put it, so a
@@ -183,13 +183,13 @@ end
 local function test_blocks_keep_the_shape_the_source_gave_them()
   writes("if x then return 1 end\n", "if x then return 1 end\n")
   writes("if x then\n  return 1\nelseif y then\n  return 2\nelse\n" ..
-         "  return 3\nend\n",
-         "if x then\n  return 1\nelseif y then\n  return 2\nelse\n" ..
-         "  return 3\nend\n")
+      "  return 3\nend\n",
+    "if x then\n  return 1\nelseif y then\n  return 2\nelse\n" ..
+      "  return 3\nend\n")
   writes("for   i=1,10 ,2 do print(i) end\n",
-         "for i = 1, 10, 2 do print(i) end\n")
+    "for i = 1, 10, 2 do print(i) end\n")
   writes("for k, v in pairs(t) do print(k) end\n",
-         "for k, v in pairs(t) do print(k) end\n")
+    "for k, v in pairs(t) do print(k) end\n")
   writes("while a>0 do a = a-1 end\n", "while a > 0 do a = a - 1 end\n")
   writes("repeat a = 1 until a > 0\n", "repeat a = 1 until a > 0\n")
   writes("do local q = 1 end\n", "do local q = 1 end\n")
@@ -199,13 +199,13 @@ end
 --- and the return list.
 local function test_function_signatures()
   writes("local function f(a:integer,b?:string,...:any)  :  integer, string\n" ..
-         "  return a, b\nend\n",
-         "local function f(a: integer, b?: string, ...: any): integer, string\n" ..
-         "  return a, b\nend\n")
+      "  return a, b\nend\n",
+    "local function f(a: integer, b?: string, ...: any): integer, string\n" ..
+      "  return a, b\nend\n")
   writes("local M = {}\nfunction M.go(self: any)\nend\n" ..
-         "function M:meth(a: integer)\nend\n",
-         "local M = {}\nfunction M.go(self: any)\nend\n" ..
-         "function M:meth(a: integer)\nend\n")
+      "function M:meth(a: integer)\nend\n",
+    "local M = {}\nfunction M.go(self: any)\nend\n" ..
+      "function M:meth(a: integer)\nend\n")
 end
 
 --- A record body is written as the bytes it was read from, comments
@@ -213,7 +213,7 @@ end
 --- types and would not hand those comments back.
 local function test_a_record_body_keeps_its_comments()
   local source = "local record R\n  --- what bar is for\n  bar: string\nend\n" ..
-                 "return R\n"
+    "return R\n"
   writes(source, source)
 end
 
@@ -221,9 +221,9 @@ end
 --- different shape entirely: an expression, not a type.
 local function test_type_aliases_and_type_bound_requires()
   writes("local type T = a.b\nlocal x: T = nil\n",
-         "local type T = a.b\nlocal x: T = nil\n")
+    "local type T = a.b\nlocal x: T = nil\n")
   writes("local type c = require(\"build.compiler\")\nlocal y: c = nil\n",
-         "local type c = require(\"build.compiler\")\nlocal y: c = nil\n")
+    "local type c = require(\"build.compiler\")\nlocal y: c = nil\n")
 end
 
 --- A `;` between two statements on one line gives way to the line
@@ -302,9 +302,9 @@ local function test_literal_functions_nested_through_continuation_lines()
   }))
 end
 
---- A continuation line keeps its column, which need not be even, and a
---- literal opening there still gets a body two columns in from that
---- column and an `end` back at it.
+--- A continuation line written off the two-column grid is put back on
+--- it, and a literal opening there gets a body two columns in from where
+--- the line lands and an `end` back at it.
 local function test_a_literal_function_off_the_two_column_grid()
   writes(lines({
     "local u = { 1,",
@@ -313,9 +313,9 @@ local function test_a_literal_function_off_the_two_column_grid()
     "  end }",
   }), lines({
     "local u = { 1,",
-    "   function()",
-    "     return 2",
-    "   end }",
+    "  function()",
+    "    return 2",
+    "  end }",
   }))
 end
 
@@ -461,19 +461,19 @@ local function test_global_declarations()
   writes("global   x=1\n", "global x = 1\n")
   writes("global y:integer\n", "global y: integer\n")
   writes("global a < const > ,b:integer, string=1,\"x\"\n",
-         "global a <const>, b: integer, string = 1, \"x\"\n")
+    "global a <const>, b: integer, string = 1, \"x\"\n")
 end
 
 --- A `global function` and a bare `function g`, which tl reads as the
 --- same kind of node, each keep the keywords the source gave them.
 local function test_global_functions()
   writes("global  function g(a:integer):integer\n      return a\nend\n",
-         "global function g(a: integer): integer\n  return a\nend\n")
+    "global function g(a: integer): integer\n  return a\nend\n")
   writes("function h() end\n", "function h() end\n")
   writes("global function k<T>(t: T): T return t end\n",
-         "global function k<T>(t: T): T return t end\n")
+    "global function k<T>(t: T): T return t end\n")
   writes("if x then\nglobal function m()\nend\nend\n",
-         "if x then\n  global function m()\n  end\nend\n")
+    "if x then\n  global function m()\n  end\nend\n")
 end
 
 --- `global record`, `global enum` and `global interface` are written
@@ -485,11 +485,11 @@ local function test_global_types()
   writes(record_body, record_body)
   writes("global enum E\n  \"a\"\nend\n", "global enum E\n  \"a\"\nend\n")
   writes("global interface I\n  x: integer\nend\n",
-         "global interface I\n  x: integer\nend\n")
+    "global interface I\n  x: integer\nend\n")
   writes("global  type T=integer\n", "global type T = integer\n")
   writes("global type L<X> = {X}\n", "global type L<X> = {X}\n")
   writes("global type c = require(\"build.compiler\")\n",
-         "global type c = require(\"build.compiler\")\n")
+    "global type c = require(\"build.compiler\")\n")
   writes("global   type   U\n", "global type U\n")
   writes("global type V<X>\n", "global type V<X>\n")
 end
@@ -499,9 +499,9 @@ end
 --- `local`, not from the `record`, or the name would be lost.
 local function test_a_record_bound_by_a_type_declaration()
   writes("local type T = record\n  x: integer\nend\n",
-         "local type T = record\n  x: integer\nend\n")
+    "local type T = record\n  x: integer\nend\n")
   writes("global type G = enum\n  \"a\"\nend\n",
-         "global type G = enum\n  \"a\"\nend\n")
+    "global type G = enum\n  \"a\"\nend\n")
 end
 
 --- A `local macroexp` is a signature and one `return`, laid out as a
@@ -509,13 +509,13 @@ end
 --- up with the `local`.
 local function test_a_local_macroexp()
   writes("local  macroexp m(a:integer):integer\n      return a+1\n   end\n",
-         "local macroexp m(a: integer): integer\n  return a + 1\nend\n")
+    "local macroexp m(a: integer): integer\n  return a + 1\nend\n")
   writes("local macroexp n(): integer return 1 end\n",
-         "local macroexp n(): integer return 1 end\n")
+    "local macroexp n(): integer return 1 end\n")
   writes("do\nlocal macroexp p(a: integer, b: integer): integer\n" ..
-         "return a +\n  b\nend\nend\n",
-         "do\n  local macroexp p(a: integer, b: integer): integer\n" ..
-         "    return a +\n      b\n  end\nend\n")
+      "return a +\n  b\nend\nend\n",
+    "do\n  local macroexp p(a: integer, b: integer): integer\n" ..
+      "    return a +\n      b\n  end\nend\n")
 end
 
 --- A pragma is written as its name and value, indented as any other
@@ -566,11 +566,11 @@ local function test_tokens_that_would_run_together_are_kept_apart()
 end
 
 --- A statement that continues a line, after another or a block's
---- opening keyword, moves to where it is written, and the lines
---- continuing it move with it.
+--- opening keyword, moves to a line of its own, and the lines
+--- continuing it are indented from it.
 local function test_a_statement_continuing_a_line_carries_its_continuation()
-  writes("x = 1;    b = f(1,\n                2)\n", "x = 1\nb = f(1,\n      2)\n")
-  writes("do b =\n      1 end\n", "do\n  b =\n     1\nend\n")
+  writes("x = 1;    b = f(1,\n                2)\n", "x = 1\nb = f(1,\n  2)\n")
+  writes("do b =\n      1 end\n", "do\n  b =\n    1\nend\n")
 end
 
 --- `integer` is a whole type, so the `<` after it in a cast is the
@@ -583,8 +583,8 @@ end
 --- A `goto`'s label, and a label's name and closing `::`, stay on the
 --- lines the source put them on.
 local function test_a_goto_and_a_label_keep_their_line_breaks()
-  writes("goto -- why\ncontinue\n::continue::\n", "goto -- why\ncontinue\n::continue::\n")
-  writes("::\ntop ::\n", "::\ntop::\n")
+  writes("goto -- why\ncontinue\n::continue::\n", "goto -- why\n  continue\n::continue::\n")
+  writes("::\ntop ::\n", "::\n  top::\n")
 end
 
 --- A statement's `;` is written where the source put it, on a line of

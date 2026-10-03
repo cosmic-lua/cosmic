@@ -523,7 +523,7 @@ local function test_workers_is_refused_naming_the_removal(tmp: string)
     assert(text:find("workers = 0 asked for and is now the default, so drop the key", 1, true) ~= nil,
       text)
     assert(text:find("to serve in several, start each " ..
-      "(Proc.relaunch gives the command, Child.start runs it)", 1, true) ~= nil, text)
+        "(Proc.relaunch gives the command, Child.start runs it)", 1, true) ~= nil, text)
   end
   assert(Fs.stat(tmp .. "/s.sock") == nil)
 end
@@ -614,7 +614,7 @@ end
 --- for a line and, where `closing`, closing them in on_stop; and what
 --- the idle client read at the end.
 local function stopped_with_an_idle_client(tmp: string, closing: boolean,
-    grace_ns: integer): integer, string
+                                           grace_ns: integer): integer, string
   local idle: {Net.Conn: boolean} = {}
   local stopped_at = 0
   local idle_client: Client

@@ -74,7 +74,7 @@ local function test_the_macos_leg_is_named_by_its_runner(tmp: string)
   local count = 0
   for line in env:gmatch("[^\n]+") do lines[line], count = true, count + 1 end
   assert(count == 2 and lines["COSMIC_SYSTEM_ID=macos15 20250922.1"] and
-    lines["COSMIC_HOST_ID=macos-15"], env)
+      lines["COSMIC_HOST_ID=macos-15"], env)
   assert(output == outputs("macos-aarch64", "macos-15"), output)
   -- The image's version names no cache of its own: a new one restores
   -- the last and reruns only what is keyed by it.
@@ -92,13 +92,13 @@ local function test_a_leg_named_by_nothing_is_refused(tmp: string)
   local image = { ImageOS = "macos15", ImageVersion = "20250922.1" }
   local mac = { "macos-aarch64", "", "macos-15", "cafe", FEATURES }
   for _, case in ipairs({
-    { args = { "macos-aarch64", "", "", "cafe", FEATURES }, env = image },
-    { args = { "macos-aarch64", "", "macos-15", "cafe", "" }, env = image },
-    { args = { "linux-x86_64", "i", "ubuntu-24.04", "cafe", FEATURES .. "0" }, env = image },
-    { args = { "a", "b", "c", "d" }, env = image },
-    { args = mac, env = {} },
-    { args = mac, env = { ImageOS = "macos15", ImageVersion = "" } },
-    { args = mac, env = { ImageOS = "", ImageVersion = "20250922.1" } },
+      { args = { "macos-aarch64", "", "", "cafe", FEATURES }, env = image },
+      { args = { "macos-aarch64", "", "macos-15", "cafe", "" }, env = image },
+      { args = { "linux-x86_64", "i", "ubuntu-24.04", "cafe", FEATURES .. "0" }, env = image },
+      { args = { "a", "b", "c", "d" }, env = image },
+      { args = mac, env = {} },
+      { args = mac, env = { ImageOS = "macos15", ImageVersion = "" } },
+      { args = mac, env = { ImageOS = "", ImageVersion = "20250922.1" } },
   }) do
     local env, output, code = named(tmp, case.args, case.env)
     assert(code == 2 and env == "" and output == "", table.concat(case.args, " ") .. ": " .. code)

@@ -414,7 +414,7 @@ end
 --- The extraction [`Archive.extract`] and [`Archive.extract_reader`] share:
 --- `from` is a path to open or a Reader to walk to its end.
 local function extract_from(from: string | Archive.Reader, dest: string,
-    given: Archive.ExtractOptions | nil): {string} | nil, string
+                            given: Archive.ExtractOptions | nil): {string} | nil, string
   local opts: Archive.ExtractOptions = given or {}
   if opts.max_entries ~= nil and opts.max_entries < 0 then
     error("archive: max_entries is negative", 2)
@@ -594,13 +594,13 @@ local function extract_from(from: string | Archive.Reader, dest: string,
         (kind == "symlink" and links_mode == "create")
       if not wanted and kind ~= "symlink" then
         return bail("archive: cannot extract " .. entry.path .. ": unsupported entry kind '" ..
-          kind .. "'")
+            kind .. "'")
       end
       if wanted then
         if entries_left ~= nil then
           if entries_left <= 0 then
             return bail("archive: more than " .. String.counted(opts.max_entries, "entry", "entries") ..
-              " to extract")
+                " to extract")
           end
           entries_left = entries_left - 1
         end

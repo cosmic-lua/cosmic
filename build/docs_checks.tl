@@ -169,8 +169,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local modules: {docs.Summary} = index
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.source_symbol, d.kind, d.signature, d.text, d.file, d.line " ..
-    "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
-    "AND " .. symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
+      "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
+      "AND " .. symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
@@ -418,8 +418,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
-    "d.module NOT LIKE '%\\_example' ESCAPE '\\' AND d.text <> '' AND " ..
-    symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
+      "d.module NOT LIKE '%\\_example' ESCAPE '\\' AND d.text <> '' AND " ..
+      symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
   if rows == nil then
     return { "reading the docs: " .. trouble }
   end
@@ -493,7 +493,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   end
   for _, row in ipairs(texts) do
     check(row[4] .. ":" .. row[5] .. ": " .. row[1] ..
-      (row[2] ~= "" and " " .. row[2] or ""), row[3])
+        (row[2] ~= "" and " " .. row[2] or ""), row[3])
   end
   for name, text in pairs(help) do
     check("`cosmic help" .. (name ~= "" and " " .. name or "") .. "`", text)

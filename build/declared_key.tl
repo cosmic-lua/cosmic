@@ -453,8 +453,8 @@ local function carried_digest(database: string): string | nil, string
           local where = row[2] == "meta" and (" WHERE key NOT IN " .. tree_wide_meta) or ""
           local digest, digest_trouble = Sqlite.text_rows(db,
             "SELECT lower(hex(sha256(coalesce(group_concat(r, char(10) ORDER BY r), '')))) " ..
-            "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
-            quoted .. '"' .. where .. ")")
+              "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
+              quoted .. '"' .. where .. ")")
           if digest == nil then
             trouble = digest_trouble
             break
@@ -622,7 +622,7 @@ function declared_key.launcher_identity(digests: declared_key.Digests, path: str
     local split, _ = artifact.split(data)
     if split == nil then return hex_sha256("file\n" .. data) end
     return hex_sha256("head\n" .. tostring(split.host) .. "\n" ..
-      artifact.keyed_head(split.head))
+        artifact.keyed_head(split.head))
   end)
 end
 
@@ -702,7 +702,7 @@ local function leads_out(digests: declared_key.Digests, path: string,
   local target, _ = sys.readlink(path)
   if target == nil then return nil end
   local lexical = test_inputs.plain(target:sub(1, 1) == "/" and target or
-    (directory .. "/" .. target))
+      (directory .. "/" .. target))
   if inside(lexical) then return nil end
   return path .. " leads out of " .. what .. ", to " .. target
 end
@@ -797,7 +797,7 @@ function declared_key.compute(digests: declared_key.Digests,
   digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
   if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
   return hex_sha256(version .. "\n" .. key_part("i", spec.id, "") .. "\n" ..
-    inputs), ""
+      inputs), ""
 end
 
 --- A variable's value as a key holds it: each of its `:`-separated
