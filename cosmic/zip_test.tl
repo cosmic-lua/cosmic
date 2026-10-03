@@ -170,7 +170,9 @@ end
 local function three_entry_zip(): string, integer
   local c = Stream.collect()
   local w = Zip.writer(c)
-  for i = 0, 2 do assert(w:add_file("f" .. tostring(i), "data" .. tostring(i), { method = "store" })) end
+  for i = 0, 2 do
+    assert(w:add_file("f" .. tostring(i), "data" .. tostring(i), { method = "store" }))
+  end
   assert(w:close())
   local raw = c:result()
   local eocd = assert(raw:find("PK\5\6", 1, true))

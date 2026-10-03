@@ -2025,7 +2025,9 @@ end
 --- Raises for a `unit` below 1 or an argument that is no integer.
 function Time.ceil(ns: integer, unit: integer): integer
   if math.type(ns) ~= "integer" then error("time: ns must be an integer", 2) end
-  if math.type(unit) ~= "integer" or unit < 1 then error("time: unit must be an integer above 0", 2) end
+  if math.type(unit) ~= "integer" or unit < 1 then
+    error("time: unit must be an integer above 0", 2)
+  end
   return ns // unit + (ns % unit ~= 0 and 1 or 0)
 end
 

@@ -131,7 +131,9 @@ local function matches(name: string, sql: string, found: {string}, expected: Sha
   if #found ~= #expected.columns and not old_declared then
     return false
   end
-  for i, column in ipairs(found) do if column ~= expected.columns[i] then return false end end
+  for i, column in ipairs(found) do
+    if column ~= expected.columns[i] then return false end
+  end
   local definition = expected.sql
   if old_declared then definition = definition:gsub(",PARTSTEXTNOTNULLDEFAULT''%)$", ")") end
   return normalized(sql) == definition
@@ -160,7 +162,9 @@ local function inspect(db: Sqlite.Handle, family: maintenance.Family,
   if schema == nil then return nil, why end
   local unsafe = false
   for _, row in ipairs(schema) do
-    if row[2] == "trigger" or row[3]:upper():match("^CREATE%s+VIRTUAL%s+TABLE") then unsafe = true end
+    if row[2] == "trigger" or row[3]:upper():match("^CREATE%s+VIRTUAL%s+TABLE") then
+      unsafe = true
+    end
     if row[2] == "table" then
       local foreign, foreign_why = count(db, "SELECT count(*) FROM pragma_foreign_key_list(?1)",
         { { text = row[1] } })
@@ -236,7 +240,10 @@ local function maintain_file(path: string, options: maintenance.Options,
   if not cleaned then return failed(file, clean_why) end
   local before, stat_why, errno = sys.stat(path)
   if before == nil then
-    if errno == sys.ENOENT then file.state = "missing"; return file end
+    if errno == sys.ENOENT then
+      file.state = "missing"
+      return file
+    end
     return failed(file, stat_why)
   end
   if before.kind ~= "file" then return failed(file, "not a regular database file") end
@@ -457,7 +464,10 @@ end
 function maintenance.run(options: maintenance.Options): maintenance.Result
   local report: maintenance.Report = { version = 1, files = {}, warnings = {} }
   local guard, guard_why = Child.guard()
-  if guard == nil then report.warnings[1] = guard_why; return { report = report, complete = false } end
+  if guard == nil then
+    report.warnings[1] = guard_why
+    return { report = report, complete = false }
+  end
   local held <close> = guard
   local expected = shapes()
   local paths: {string} = {}
@@ -470,16 +480,25 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
     end
     local file = maintain_file(path, options, expected)
     report.files[#report.files + 1] = file
-    if file.state == "failed" then complete = false
-    elseif file.state ~= "missing" then paths[#paths + 1] = path end
+    if file.state == "failed" then
+      complete = false
+    elseif file.state ~= "missing" then
+      paths[#paths + 1] = path
+    end
   end
   if complete then
     local why: string
     report.digest, why = digest(paths, held)
-    if why ~= "" then report.warnings[#report.warnings + 1] = why; complete = false end
+    if why ~= "" then
+      report.warnings[#report.warnings + 1] = why
+      complete = false
+    end
     if complete and options.restored ~= nil and #paths > 0 then
       report.fresh, why = fresh_keys(paths[1], options.restored, expected, held)
-      if why ~= "" then report.warnings[#report.warnings + 1] = why; complete = false end
+      if why ~= "" then
+        report.warnings[#report.warnings + 1] = why
+        complete = false
+      end
     end
   end
   local signal, release_why = held:release()

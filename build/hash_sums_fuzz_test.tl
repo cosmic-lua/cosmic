@@ -48,7 +48,9 @@ local function test_a_formatted_line_reads_back(tmp: string)
       local ok, sums = pcall(hash.parse_sums, table.concat(lines, "\n") .. (#lines > 0 and "\n" or ""), size)
       if not ok then return false, "raised: " .. tostring(sums) end
       local got = sums as hash.Sums
-      if #got.bad ~= 0 then return false, "refused line " .. got.bad[1].line .. ": " .. got.bad[1].why end
+      if #got.bad ~= 0 then
+        return false, "refused line " .. got.bad[1].line .. ": " .. got.bad[1].why
+      end
       for i, name in ipairs(names) do
         local entry = got.entries[i]
         if entry == nil then return false, "lost " .. Codec.hex(name) end
@@ -56,7 +58,9 @@ local function test_a_formatted_line_reads_back(tmp: string)
           return false, "read " .. Codec.hex(entry.name) .. " for " .. Codec.hex(name)
         end
       end
-      if #got.entries ~= #names then return false, "read " .. #got.entries .. " entries, wrote " .. #names end
+      if #got.entries ~= #names then
+        return false, "read " .. #got.entries .. " entries, wrote " .. #names
+      end
       return true, ""
     end,
   })

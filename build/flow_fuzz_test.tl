@@ -67,12 +67,16 @@ local function format_holds(input: string): boolean, string
   local before, after = flow.comments(input), flow.comments(out)
   table.sort(before)
   table.sort(after)
-  if table.concat(before, "\n") ~= table.concat(after, "\n") then return false, "a comment lost or changed" end
+  if table.concat(before, "\n") ~= table.concat(after, "\n") then
+    return false, "a comment lost or changed"
+  end
   -- Its own value written back over its tree changes nothing.
   local doc = assert(flow.parse(out))
   local value, _ = Json.decode(out, READ)
   doc.root = flow.update(doc.root, value)
-  if flow.render(doc) ~= out then return false, "written back over itself, it changes:\n" .. flow.render(doc) end
+  if flow.render(doc) ~= out then
+    return false, "written back over itself, it changes:\n" .. flow.render(doc)
+  end
   local again, again_why = flow.format(out)
   if again ~= out then return false, "not a fixed point: " .. tostring(again_why) end
   return true, ""
@@ -94,7 +98,9 @@ local function gen_teal(src: Fuzz.Source, depth: integer): any
   local kind = depth <= 0 and 0 or src:int(0, 2)
   if kind == 0 then
     local pick = src:int(0, 4)
-    if pick == 0 then return Fuzz.pick(src, { "a", "x # y", "\u{2028}", "\u{85}", "\u{e9}", "q\"\\", "" }) end
+    if pick == 0 then
+      return Fuzz.pick(src, { "a", "x # y", "\u{2028}", "\u{85}", "\u{e9}", "q\"\\", "" })
+    end
     if pick == 1 then return src:int(0, 1) == 0 end
     if pick == 2 then return Json.null end
     return src:int(-999, 999)
@@ -124,8 +130,12 @@ local function test_write_makes_a_laid_out_text_of_its_value(tmp: string)
       local value, _ = Json.decode(input, { null_value = Json.null })
       local text = flow.write(value)
       local out, why = flow.format(text)
-      if out ~= text then return false, "written, not laid out: " .. tostring(why) .. "\n" .. text end
-      if value_of(text) ~= value_of(input) then return false, "written as another value:\n" .. text end
+      if out ~= text then
+        return false, "written, not laid out: " .. tostring(why) .. "\n" .. text
+      end
+      if value_of(text) ~= value_of(input) then
+        return false, "written as another value:\n" .. text
+      end
       Fuzz.label("written")
       return true, ""
     end,

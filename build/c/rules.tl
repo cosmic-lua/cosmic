@@ -1055,7 +1055,10 @@ local function returns_true_alone(r: Node): boolean
   if block == nil or block.kind ~= "CompoundStmt" then return false end
   local before: Node = nil
   for i, child in ipairs(block.children) do
-    if child == r then before = block.children[i - 1] break end
+    if child == r then
+      before = block.children[i - 1]
+      break
+    end
   end
   local call = before and tree.bare(before)
   if call == nil or call.kind ~= "CallExpr" or tree.callee(call) ~= "lua_pushboolean" then

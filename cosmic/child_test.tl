@@ -76,7 +76,9 @@ local function test_a_raise_names_the_module()
     function() local _, _ = Child.run({}) end,
     function() local _, _ = Child.wait_any({}) end,
     function() local _, _ = Child.start({ "/bin/sh" }, { capture_limit = 0 } as Child.Options) end,
-    function() local _, _ = Child.start({ "/bin/sh" }, { env = { [""] = "x" } } as Child.Options) end,
+    function()
+      local _, _ = Child.start({ "/bin/sh" }, { env = { [""] = "x" } } as Child.Options)
+    end,
     function() local _, _ = Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end,
   }
   local says = { "argv is empty", "argv is empty", "no handles to wait for", "capture_limit is out of range",

@@ -183,7 +183,10 @@ local function prepare_artifacts(argv: {string}): integer
     if selected.configuration == 1 then
       local other: fixture.Entry | nil = nil
       for _, candidate in ipairs(old.entries) do
-        if candidate.target ~= selected.target then other = candidate; break end
+        if candidate.target ~= selected.target then
+          other = candidate
+          break
+        end
       end
       assert(other ~= nil, "runtime fixture: no nonselected core range")
       local offset = other.offset + math.min(128, other.length - 1)

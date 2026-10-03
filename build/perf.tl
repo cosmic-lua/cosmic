@@ -171,7 +171,9 @@ function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
   local tail_unbiased = ctl ~= nil and cth ~= nil and ctl <= 0 and cth >= 0
   local enough = #samples >= 200 and #calibration >= 200
   if not enough then reasons[#reasons + 1] = "exploratory_sample_count" end
-  if tl == nil or th == nil or tail_resolution == nil then reasons[#reasons + 1] = "unbounded_tail_interval" end
+  if tl == nil or th == nil or tail_resolution == nil then
+    reasons[#reasons + 1] = "unbounded_tail_interval"
+  end
   if not median_unbiased then reasons[#reasons + 1] = "biased_median_calibration" end
   if not tail_unbiased then reasons[#reasons + 1] = "biased_tail_calibration" end
   if delta.low > 0 then reasons[#reasons + 1] = "positive_median_interval" end
@@ -235,7 +237,9 @@ local function json_bounds(value: any): any
   for key, item in pairs(value) do copy[key] = json_bounds(item) end
   if value.lower_bounded == false then copy.low = Json.null end
   if value.upper_bounded == false then copy.high = Json.null end
-  if value.calibration_tail_interval ~= nil and value.tail_noise == nil then copy.tail_noise = Json.null end
+  if value.calibration_tail_interval ~= nil and value.tail_noise == nil then
+    copy.tail_noise = Json.null
+  end
   return copy
 end
 
@@ -373,9 +377,13 @@ end
 local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
                        label: string): Observation
   local executable = f.binary
-  if w.executable == "portable" then executable = f.portable
-  elseif w.executable == "host" then executable = f.host
-  elseif w.executable == "host_tool" then executable = f.host_tool end
+  if w.executable == "portable" then
+    executable = f.portable
+  elseif w.executable == "host" then
+    executable = f.host
+  elseif w.executable == "host_tool" then
+    executable = f.host_tool
+  end
   local argv = { executable }
   for _, word in ipairs(w.args) do argv[#argv + 1] = word end
   if w.change then

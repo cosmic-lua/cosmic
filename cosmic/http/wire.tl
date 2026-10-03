@@ -397,7 +397,9 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     if request_line == nil then return stop end
   until request_line ~= ""
   local method, target, version = request_line:match("^([^ ]+) ([^ ]+) ([^ ]+)$")
-  if method == nil then return refused(400, "the request line is not method, target and version") end
+  if method == nil then
+    return refused(400, "the request line is not method, target and version")
+  end
   if not method:find(TOKEN) then return refused(400, "the method is no token") end
   if not version:find("^HTTP/%d%.%d$") then return refused(400, "the version is not HTTP/d.d") end
   if version ~= "HTTP/1.1" and version ~= "HTTP/1.0" then
@@ -435,8 +437,12 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local te = headers["transfer-encoding"]
   local cl = headers["content-length"]
   if te ~= nil then
-    if cl ~= nil then return refused(400, "a request holds both Content-Length and Transfer-Encoding") end
-    if version == "HTTP/1.0" then return refused(400, "an HTTP/1.0 request holds Transfer-Encoding") end
+    if cl ~= nil then
+      return refused(400, "a request holds both Content-Length and Transfer-Encoding")
+    end
+    if version == "HTTP/1.0" then
+      return refused(400, "an HTTP/1.0 request holds Transfer-Encoding")
+    end
     local codings = members(te:lower())
     if codings[#codings] ~= "chunked" then
       return refused(400, "a request's last transfer coding is not chunked")
@@ -444,7 +450,9 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     for i = 1, #codings - 1 do
       if codings[i] == "chunked" then return refused(400, "a request is chunked twice") end
     end
-    if #codings > 1 then return refused(501, "this server decodes no transfer coding but chunked") end
+    if #codings > 1 then
+      return refused(501, "this server decodes no transfer coding but chunked")
+    end
     chunked, length = true, nil
   elseif cl ~= nil then
     -- Repeated, or a list, its values must agree (RFC 9112 6.3).
@@ -535,7 +543,9 @@ local function meta_line(self: BodyReader): string | nil, string
     end
     return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
   end
-  if text:sub(-1) ~= "\r" then return fail(self, "bad", "http: a chunked body's line ends in a bare LF") end
+  if text:sub(-1) ~= "\r" then
+    return fail(self, "bad", "http: a chunked body's line ends in a bare LF")
+  end
   local bare = without_cr(text)
   if bare == nil then return fail(self, "bad", "http: a chunked body holds a bare CR") end
   return bare, ""
@@ -589,7 +599,9 @@ local function trailers(self: BodyReader): boolean, string
       return stopped(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
     end
     local got, field_why = field(text)
-    if got == nil then return stopped(self, "bad", "http: a trailer is malformed: " .. field_why) end
+    if got == nil then
+      return stopped(self, "bad", "http: a trailer is malformed: " .. field_why)
+    end
   end
 end
 
@@ -682,7 +694,9 @@ end
 local function headers_trouble(headers: {string:string}): string
   for name, value in pairs(headers) do
     if not name:find(TOKEN) then return ("header %q: its name is no token"):format(name) end
-    if value:find("[\r\n%z]") then return ("header %s: its value holds CR, LF or NUL"):format(name) end
+    if value:find("[\r\n%z]") then
+      return ("header %s: its value holds CR, LF or NUL"):format(name)
+    end
     if OWNED[name:lower()] then return ("header %s: the server writes it itself"):format(name) end
   end
   return ""

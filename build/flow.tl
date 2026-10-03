@@ -195,7 +195,9 @@ local function scan(text: string, comments: {string}): {string}
       i = i + 1
     elseif c == "#" then
       local before = i > 1 and text:sub(i - 1, i - 1) or "\n"
-      if before ~= " " and before ~= "\n" then say("a # right after a token: put a space before it") end
+      if before ~= " " and before ~= "\n" then
+        say("a # right after a token: put a space before it")
+      end
       local stop = text:find("\n", i, true) or n + 1
       comments[#comments + 1] = (text:sub(i, stop - 1):gsub("[ \t\r]+$", ""))
       i = stop
@@ -410,7 +412,9 @@ local parse_value: function(r: Reader): flow.Node
 local function read_string(r: Reader): string
   local text = r.text
   local first = r.at
-  if text:sub(first, first) ~= '"' then fail(r.line, "a single-quoted string: write it double-quoted") end
+  if text:sub(first, first) ~= '"' then
+    fail(r.line, "a single-quoted string: write it double-quoted")
+  end
   local i = first + 1
   while i <= #text do
     local c = text:sub(i, i)
@@ -470,7 +474,9 @@ local function parse_container(r: Reader): flow.Node
         item.key = read_word(r)
       end
       while r.text:sub(r.at, r.at) == " " do r.at = r.at + 1 end
-      if r.text:sub(r.at, r.at) ~= ":" then fail(key_line, "a key with no : after it on its line") end
+      if r.text:sub(r.at, r.at) ~= ":" then
+        fail(key_line, "a key with no : after it on its line")
+      end
       r.at = r.at + 1
       for _, entry in ipairs(trivia(r).entries) do
         if entry ~= "" then fail(key_line, "a comment between a key and its value") end
@@ -686,7 +692,9 @@ local function ordered(value: {string: any}, opts: flow.Options): {string}
   for i, key in ipairs(opts.order or WORKFLOW_ORDER) do rank[key] = i end
   local keys: {string} = {}
   for key in pairs(value) do
-    if not key is string then error("flow.from: an object key " .. tostring(key) .. " is no string", 0) end
+    if not key is string then
+      error("flow.from: an object key " .. tostring(key) .. " is no string", 0)
+    end
     if key == "<<" then error("flow.from: the key <<, which YAML 1.1 reads as a merge", 0) end
     keys[#keys + 1] = key
   end

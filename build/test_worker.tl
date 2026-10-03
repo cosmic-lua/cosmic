@@ -934,7 +934,9 @@ function worker.run(argv: {integer:string}): integer
   report.loaded = loaded
   if not loaded then
     report.message = "the module failed to load: " .. tostring(produced)
-    if sandboxed then report.message = report.message .. unseen_note(report.message, loading.unseen) end
+    if sandboxed then
+      report.message = report.message .. unseen_note(report.message, loading.unseen)
+    end
   else
     local fn: any = produced is {string: any} and produced[name] or nil
     if not (fn is function(any...): (any...)) then

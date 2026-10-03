@@ -1057,7 +1057,9 @@ local function test_rest_ends_the_lines_and_closes_the_reader()
   for _, call in ipairs({
     function() lines:read() end,
     function() lines:rest() end,
-    function() for _ in lines:each() do end end,
+    function()
+      for _ in lines:each() do end
+    end,
   }) do
     local ok, trouble = pcall(call) as (boolean, any)
     assert(not ok and tostring(trouble):find("ended at `rest`", 1, true) ~= nil,

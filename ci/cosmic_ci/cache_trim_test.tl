@@ -37,16 +37,37 @@ local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: s
   local path = tmp .. "/cache.db"
   local request: CacheTrim.Request = { family = "compiles", paths = { path }, since_ns = 1, whole = false }
   local cases: {Payload} = {}
-  local bad = encoded(path); bad.version = 2; cases[#cases + 1] = bad
-  bad = encoded(path .. "other"); cases[#cases + 1] = bad
-  bad = encoded(path); bad.files = {}; Json.array(bad.files); cases[#cases + 1] = bad
-  bad = encoded(path); bad.files = { encoded(path).files[1], encoded(path).files[1] }; Json.array(bad.files); cases[#cases + 1] = bad
-  bad = encoded(path); bad.files[1].state = "failed"; cases[#cases + 1] = bad
-  bad = encoded(path); bad.files[1].state = "missing"; cases[#cases + 1] = bad
-  bad = encoded(path); bad.files[1].kept = -1; cases[#cases + 1] = bad
-  bad = encoded(path); bad.digest = "bad"; cases[#cases + 1] = bad
-  bad = encoded(path); bad.fresh = 1; cases[#cases + 1] = bad
-  bad = encoded(path); bad.warnings = Json.array({ "comparison incomplete" }); cases[#cases + 1] = bad
+  local bad = encoded(path)
+  bad.version = 2
+  cases[#cases + 1] = bad
+  bad = encoded(path .. "other")
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.files = {}
+  Json.array(bad.files)
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.files = { encoded(path).files[1], encoded(path).files[1] }
+  Json.array(bad.files)
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.files[1].state = "failed"
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.files[1].state = "missing"
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.files[1].kept = -1
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.digest = "bad"
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.fresh = 1
+  cases[#cases + 1] = bad
+  bad = encoded(path)
+  bad.warnings = Json.array({ "comparison incomplete" })
+  cases[#cases + 1] = bad
   for i, value in ipairs(cases) do
     local output = tmp .. "/output" .. i
     local _, err = mocked(request, { GITHUB_OUTPUT = output }, (assert(Json.encode(value))))
@@ -70,7 +91,9 @@ local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: s
   assert(Fs.write(restored, "owned"))
   local original = Fs.exists
   Fs.exists = function(name: string): boolean | nil, string
-    if name == restored or name == tmp .. "/output" then return nil, "injected inaccessible path" end
+    if name == restored or name == tmp .. "/output" then
+      return nil, "injected inaccessible path"
+    end
     return original(name)
   end
   local request: CacheTrim.Request = { family = "compiles", paths = { path }, since_ns = 1,
@@ -138,7 +161,9 @@ end
 
 local function test_failed_launch_cleans_snapshot_without_publishing(tmp: string)
   local path, restored = tmp .. "/cache.db", tmp .. "/restored.db"
-  for _, suffix in ipairs({ "", "-wal", "-shm" }) do assert(Fs.write(restored .. suffix, "owned")) end
+  for _, suffix in ipairs({ "", "-wal", "-shm" }) do
+    assert(Fs.write(restored .. suffix, "owned"))
+  end
   local original = Child.run
   Child.run = function(_argv: {string}, _options?: Child.Options): Child.Result | nil, string
     return nil, "injected start failure"

@@ -128,7 +128,9 @@ local function expressions(text: string, action: {string: any}): {string}
   if steps is {{string: any}} then
     for _, step in ipairs(steps) do
       local condition = step["if"]
-      if condition is string and not condition:find("${{", 1, true) then out[#out + 1] = condition end
+      if condition is string and not condition:find("${{", 1, true) then
+        out[#out + 1] = condition
+      end
     end
   end
   return out
@@ -434,7 +436,9 @@ local function test_a_branch_push_splits_linux_x86_64s_suite_in_two()
   end
   local needs = jobs.ci.needs as {string}
   local gated = false
-  for _, need in ipairs(needs) do if need == "platform" then gated = true end end
+  for _, need in ipairs(needs) do
+    if need == "platform" then gated = true end
+  end
   assert(gated, "the gate does not need the legs")
 end
 
@@ -1256,7 +1260,9 @@ local function test_a_main_push_reuses_the_queue_run()
     count = count + 1
     assert(ours[name] == runner, "seed's " .. name .. " runs on " .. tostring(ours[name]) .. ", its leg on " .. runner)
   end
-  for name in pairs(ours) do assert(theirs[name] ~= nil, "seed has a leg the platform job has not: " .. name) end
+  for name in pairs(ours) do
+    assert(theirs[name] ~= nil, "seed has a leg the platform job has not: " .. name)
+  end
   assert(count == 5, "legs: " .. count)
   -- Only the checked job's seed relays no product.
   local marked: {string: any} = {}
@@ -1303,7 +1309,9 @@ local function test_a_main_push_reuses_the_queue_run()
   local relayed = 0
   for _, step in ipairs(platform.steps as {{string: any}}) do
     local with = step.with as {string: string}
-    if with ~= nil and with.name == "portable-product-${{ matrix.name }}" then relayed = relayed + 1 end
+    if with ~= nil and with.name == "portable-product-${{ matrix.name }}" then
+      relayed = relayed + 1
+    end
   end
   assert(relayed == 1, "the platform legs upload their product under another name")
 
@@ -1898,7 +1906,9 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
     "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
   assert(table.concat(prune.needs as {string}, ",") == "platform,checked,seed",
     "prune runs before a job that saves")
-  for _, need in ipairs(jobs.ci.needs as {string}) do assert(need ~= "prune", "the join waits on prune") end
+  for _, need in ipairs(jobs.ci.needs as {string}) do
+    assert(need ~= "prune", "the join waits on prune")
+  end
   local psteps = prune.steps as {{string: any}}
   assert(#psteps == 2, "prune runs more than its checkout and its script")
   for _, step in ipairs(psteps) do

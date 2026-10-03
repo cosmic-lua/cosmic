@@ -129,7 +129,9 @@ local function test_what_is_written_parse_reads_back(tmp: string)
       if not same(back, records) then return false, "read back differently from " .. text end
       if #records == 0 then Fuzz.label("no records") end
       if text:find('"', 1, true) then Fuzz.label("quoted") else Fuzz.label("plain") end
-      if text:find("\n.", 1, false) and text:find('"[^"]*\n', 1, false) then Fuzz.label("multiline") end
+      if text:find("\n.", 1, false) and text:find('"[^"]*\n', 1, false) then
+        Fuzz.label("multiline")
+      end
       for _, record in ipairs(records) do
         for _, value in ipairs(record) do
           if value == "" then Fuzz.label("empty field") end
@@ -186,10 +188,14 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
       Fuzz.label("read")
       local text = assert(encode(records, fields[1]))
       local again = Csv.parse(text, options)
-      if again == nil or not same(again, records) then return false, "not a fixed point: " .. text end
+      if again == nil or not same(again, records) then
+        return false, "not a fixed point: " .. text
+      end
       if rows == nil then
         Fuzz.label("ragged")
-        if not rows_why:find("^csv: line %d+, column 1: the record has ") then return false, "table said: " .. rows_why end
+        if not rows_why:find("^csv: line %d+, column 1: the record has ") then
+          return false, "table said: " .. rows_why
+        end
       elseif (records[1] == nil or #records[1] > 1) and #rows ~= math.max(#records - 1, 0) then
         return false, #rows .. " rows for " .. #records .. " records"
       end
@@ -229,9 +235,13 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       for line = 1, lines do
         local text = "k" .. line .. "," .. filler .. "v"
         if line == where then
-          if kind == 1 then text = "k" .. line .. "," .. filler .. 'v"w'
-          elseif kind == 2 then text = "k" .. line .. ',"' .. filler .. "v"
-          else text = "k" .. line .. "," .. filler .. "v,extra" end
+          if kind == 1 then
+            text = "k" .. line .. "," .. filler .. 'v"w'
+          elseif kind == 2 then
+            text = "k" .. line .. ',"' .. filler .. "v"
+          else
+            text = "k" .. line .. "," .. filler .. "v,extra"
+          end
         end
         out[line] = text
       end
@@ -240,9 +250,13 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
         Fuzz.label("ragged")
         local rows, why = rows_of("h1,h2\n" .. text)
         local expected = "csv: line " .. (where + 1) .. ", column 1: the record has 3 fields, the header 2"
-        if rows ~= nil or why ~= expected then return false, "rows said " .. tostring(why) .. ", not " .. expected end
+        if rows ~= nil or why ~= expected then
+          return false, "rows said " .. tostring(why) .. ", not " .. expected
+        end
         local records = Csv.parse("h1,h2\n" .. text)
-        if records == nil or #records ~= lines + 1 then return false, "parse refused a ragged table" end
+        if records == nil or #records ~= lines + 1 then
+          return false, "parse refused a ragged table"
+        end
         return true, ""
       end
       local column = #("k" .. where .. "," .. filler .. "v") - (kind == 1 and 0 or #filler + 1)
@@ -255,7 +269,9 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
         expected = "csv: unclosed quote opened at line " .. where .. ", column " .. (#("k" .. where) + 2)
       end
       local records, why = Csv.parse(text)
-      if records ~= nil or why ~= expected then return false, "parse said " .. tostring(why) .. ", not " .. expected end
+      if records ~= nil or why ~= expected then
+        return false, "parse said " .. tostring(why) .. ", not " .. expected
+      end
       return true, ""
     end,
   })
@@ -325,13 +341,17 @@ local function test_blank_lines_count_by_the_headers_width(tmp: string)
       end
       local text = "h\n" .. table.concat(lines, "\n") .. (#lines > 0 and "\n" or "")
       local rows = rows_of(text)
-      if rows == nil or #rows ~= last then return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. last end
+      if rows == nil or #rows ~= last then
+        return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. last
+      end
       if last > 0 and blanks - (#lines - last) > 0 then Fuzz.label("interior") end
       if #lines > last then Fuzz.label("trailing") end
       local wide: {string} = {}
       for index, line in ipairs(lines) do wide[index] = line == "" and "" or "x,y" end
       local two = rows_of("h,g\n" .. table.concat(wide, "\n") .. (#lines > 0 and "\n" or ""))
-      if two == nil or #two ~= #lines - blanks then return false, "two columns did not skip the blanks" end
+      if two == nil or #two ~= #lines - blanks then
+        return false, "two columns did not skip the blanks"
+      end
       Fuzz.label("wide")
       return true, ""
     end,

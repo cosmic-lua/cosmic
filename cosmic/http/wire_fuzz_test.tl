@@ -75,15 +75,21 @@ local function requests_of(fields: {string}): {Request}
         framing = "none", chunks = {} }
       out[#out + 1] = current
     elseif current ~= nil then
-      if letter == "m" then current.method = text
-      elseif letter == "t" then current.target = math.tointeger(tonumber(text)) or 1
-      elseif letter == "v" then current.version = text
-      elseif letter == "e" then current.eol = text
+      if letter == "m" then
+        current.method = text
+      elseif letter == "t" then
+        current.target = math.tointeger(tonumber(text)) or 1
+      elseif letter == "v" then
+        current.version = text
+      elseif letter == "e" then
+        current.eol = text
       elseif letter == "h" then
         local zero = text:find("\0", 1, true) or #text + 1
         current.headers[#current.headers + 1] = { text:sub(1, zero - 1), text:sub(zero + 1) }
-      elseif letter == "f" then current.framing = text
-      elseif letter == "c" then current.chunks[#current.chunks + 1] = text
+      elseif letter == "f" then
+        current.framing = text
+      elseif letter == "c" then
+        current.chunks[#current.chunks + 1] = text
       end
     end
   end
@@ -206,7 +212,9 @@ end
 local function bytes_and_sizes(input: string): string, {integer}
   local fields = Fuzz.unpack(input)
   local sizes: {integer} = {}
-  for i = 2, #fields do sizes[#sizes + 1] = math.max(1, math.tointeger(tonumber(fields[i])) or 1) end
+  for i = 2, #fields do
+    sizes[#sizes + 1] = math.max(1, math.tointeger(tonumber(fields[i])) or 1)
+  end
   return fields[1] or "", sizes
 end
 
@@ -241,7 +249,9 @@ local function test_any_chunking_reads_the_same(tmp: string)
       local bytewise: {integer} = {}
       for i = 1, #data do bytewise[i] = 1 end
       local single = transcript(data, bytewise)
-      if whole ~= single then return false, "whole:\n" .. whole .. "\na byte at a time:\n" .. single end
+      if whole ~= single then
+        return false, "whole:\n" .. whole .. "\na byte at a time:\n" .. single
+      end
       return true, ""
     end,
     requires = { "head", "second pipelined request" },
@@ -307,7 +317,9 @@ local function test_a_written_request_reads_back(tmp: string)
         if expected[name] == nil then return false, "header " .. name .. " was never sent" end
       end
       local got, why = Stream.read_all(wire.body(in_put, head, LIMITS))
-      if got ~= (framing == "none" and "" or body) then return false, "the body differs: " .. why end
+      if got ~= (framing == "none" and "" or body) then
+        return false, "the body differs: " .. why
+      end
       if head.chunked ~= (framing == "chunked") then return false, "chunked differs" end
       if framing ~= "chunked" and head.length ~= (framing == "length" and #body or 0) then
         return false, "the length differs"

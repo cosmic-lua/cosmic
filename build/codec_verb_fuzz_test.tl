@@ -62,7 +62,9 @@ local function test_decoding_takes_back_what_encoding_writes(tmp: string)
           -- Without its padding, the text still reads.
           local bare = strewn(text:gsub("[=\n]", ""), fields[4])
           local again = codec.decode(name, bare, true)
-          if again ~= bytes then return false, ("%q decoded to %q"):format(bare, tostring(again)) end
+          if again ~= bytes then
+            return false, ("%q decoded to %q"):format(bare, tostring(again))
+          end
         end
         return true, ""
       end,
@@ -98,8 +100,14 @@ local function test_decoding_is_total_and_exact(tmp: string)
             -- but for the padding a lenient read let go and hex's case.
             local squeezed = input:gsub("[ \t\n\r\f\v]", "")
             local again = codec.encode(name, bytes, 0):gsub("\n", "")
-            if name == "hex" then again = again:lower(); squeezed = squeezed:lower() end
-            if lenient then again = again:gsub("=", ""); squeezed = squeezed:gsub("=", "") end
+            if name == "hex" then
+              again = again:lower()
+              squeezed = squeezed:lower()
+            end
+            if lenient then
+              again = again:gsub("=", "")
+              squeezed = squeezed:gsub("=", "")
+            end
             if again ~= squeezed then
               return false, ("%q read as %q, which writes %q"):format(input, bytes, again)
             end

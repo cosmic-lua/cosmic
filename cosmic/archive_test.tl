@@ -891,7 +891,10 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
     local seen: {string} = {}
     while true do
       local e, why = r:next()
-      if e == nil then assert(why == "", name .. ": " .. why); break end
+      if e == nil then
+        assert(why == "", name .. ": " .. why)
+        break
+      end
       seen[#seen + 1] = e.path .. ":" .. e.kind
       if e.path == "d/b.txt" then
         assert(Stream.read_all((assert(e:open()))) == "bravo", name)

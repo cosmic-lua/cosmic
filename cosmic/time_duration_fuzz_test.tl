@@ -26,7 +26,9 @@ local function gen_duration_text(src: Fuzz.Source): string
   while at < 6 and Fuzz.more(src, #parts, 6) do
     at = at + src:int(1, 6 - at)
     local n = tostring(gen_number(src))
-    if units[at] == "s" and src:int(0, 2) == 0 then n = n .. "." .. tostring(src:int(0, 999999999)) end
+    if units[at] == "s" and src:int(0, 2) == 0 then
+      n = n .. "." .. tostring(src:int(0, 999999999))
+    end
     parts[#parts + 1] = n .. units[at]
   end
   return table.concat(parts)

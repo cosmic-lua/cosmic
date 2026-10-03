@@ -119,9 +119,13 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
         end
         return true, ""
       end
-      if first == nil then return false, r.kind .. " for a range that is not one well-formed range" end
+      if first == nil then
+        return false, r.kind .. " for a range that is not one well-formed range"
+      end
       if r.kind == "unsatisfiable" then
-        if r.first ~= nil or r.last ~= nil then return false, "an unsatisfiable range has bounds" end
+        if r.first ~= nil or r.last ~= nil then
+          return false, "an unsatisfiable range has bounds"
+        end
         local a, n = small(first), small(last)
         if first == "" and (n == nil or n > 0) or first ~= "" and a ~= nil and a < size then
           return false, "a range holding a byte is unsatisfiable"

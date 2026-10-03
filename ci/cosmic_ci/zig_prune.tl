@@ -93,27 +93,45 @@ function ZigPrune.siphash128(k: string, message: string): string
   local v3 = k1 ~ 0x7465646279746573
   v1 = v1 ~ 0xee
   local function round()
-    v0 = v0 + v1; v1 = rotl(v1, 13); v1 = v1 ~ v0; v0 = rotl(v0, 32)
-    v2 = v2 + v3; v3 = rotl(v3, 16); v3 = v3 ~ v2
-    v0 = v0 + v3; v3 = rotl(v3, 21); v3 = v3 ~ v0
-    v2 = v2 + v1; v1 = rotl(v1, 17); v1 = v1 ~ v2; v2 = rotl(v2, 32)
+    v0 = v0 + v1
+    v1 = rotl(v1, 13)
+    v1 = v1 ~ v0
+    v0 = rotl(v0, 32)
+    v2 = v2 + v3
+    v3 = rotl(v3, 16)
+    v3 = v3 ~ v2
+    v0 = v0 + v3
+    v3 = rotl(v3, 21)
+    v3 = v3 ~ v0
+    v2 = v2 + v1
+    v1 = rotl(v1, 17)
+    v1 = v1 ~ v2
+    v2 = rotl(v2, 32)
   end
   local n = #message
   local whole = n - n % 8
   local at = 1
   while at <= whole do
     local m = string.unpack("<i8", message, at)
-    v3 = v3 ~ m; round(); v0 = v0 ~ m
+    v3 = v3 ~ m
+    round()
+    v0 = v0 ~ m
     at = at + 8
   end
   local tail = message:sub(whole + 1) .. string.rep("\0", 8 - (n - whole))
   local b = string.unpack("<i8", tail) | ((n & 0xff) << 56)
-  v3 = v3 ~ b; round(); v0 = v0 ~ b
+  v3 = v3 ~ b
+  round()
+  v0 = v0 ~ b
   v2 = v2 ~ 0xee
-  round(); round(); round()
+  round()
+  round()
+  round()
   local first = v0 ~ v1 ~ v2 ~ v3
   v1 = v1 ~ 0xdd
-  round(); round(); round()
+  round()
+  round()
+  round()
   return string.pack("<i8<i8", first, v0 ~ v1 ~ v2 ~ v3)
 end
 
@@ -237,7 +255,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
       orphans = orphans + 1
       local superseded = #files[output] > 0
       for _, under in ipairs(files[output]) do
-        if not vouched_files[under] then superseded = false; break end
+        if not vouched_files[under] then
+          superseded = false
+          break
+        end
       end
       if superseded then removed[output] = true else orphans_kept = orphans_kept + 1 end
     end
@@ -261,9 +282,15 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
       if not removed[output] then
         local all = true
         for _, path in ipairs(list) do
-          if not gone[path] then all = false; break end
+          if not gone[path] then
+            all = false
+            break
+          end
         end
-        if all then removed[output] = true; moved = true end
+        if all then
+          removed[output] = true
+          moved = true
+        end
       end
     end
   end

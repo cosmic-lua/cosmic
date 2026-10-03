@@ -11,7 +11,9 @@ local function population(delta: number, count?: integer): {Perf.Pair}
 end
 
 local function has_reason(reasons: {string}, wanted: string): boolean
-  for _, reason in ipairs(reasons) do if reason == wanted then return true end end
+  for _, reason in ipairs(reasons) do
+    if reason == wanted then return true end
+  end
   return false
 end
 
