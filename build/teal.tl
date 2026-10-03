@@ -556,6 +556,158 @@ local standard_libraries <const> = present({
   "coroutine", "debug", "io", "math", "os", "package", "string", "table", "utf8",
 })
 
+--- What [`teal.replacement`] says of a call short of arguments when no
+--- declaration of its callee in the file can be read.
+local optional_parameter <const> = "a parameter a caller may leave out is written 'name?: T'"
+
+--- Whether the declared type `t` holds nil: nil itself, or a union
+--- with nil among its members.
+local function admits_nil(t: ast.TypeNode | nil): boolean
+  if t == nil then
+    return false
+  end
+  if t.typename == "nil" then
+    return true
+  end
+  for _, member in ipairs(t.typename == "union" and t.types or {}) do
+    if member.typename == "nil" then
+      return true
+    end
+  end
+  return false
+end
+
+--- The parameter `argument` (an "argument" node of a function `source`
+--- declares) made optional: `b: string | nil` is `b?: string`. Its type
+--- is the text from the `:` after its name to the `,` or `)` that ends
+--- it outside brackets, less a first or last `nil` member; nil when no
+--- such text is found, or what is left still names nil.
+local function optional_spelling(source: string, starts: {integer}, argument: ast.Node): string | nil
+  local name = argument.tk
+  if name == nil then
+    return nil
+  end
+  local after = ast.offset_of(starts, argument.y, argument.x) + #name
+  local colon = source:match("^%s*():", after)
+  if not (colon is integer) then
+    return nil
+  end
+  local depth = 0
+  local stop: integer | nil = nil
+  for i = colon + 1, #source do
+    local c = source:sub(i, i)
+    if c == "(" or c == "{" or c == "<" or c == "[" then
+      depth = depth + 1
+    elseif depth > 0 and (c == ")" or c == "}" or c == ">" or c == "]") then
+      depth = depth - 1
+    elseif depth == 0 and (c == "," or c == ")") then
+      stop = i
+      break
+    end
+  end
+  if stop == nil then
+    return nil
+  end
+  local spelled = source:sub(colon + 1, stop - 1):gsub("%s+", " "):match("^ ?(.-) ?$")
+  spelled = spelled:gsub(" ?| ?nil$", ""):gsub("^nil ?| ?", "")
+  if spelled == "" or spelled:match("%f[%w_]nil%f[^%w_]") ~= nil then
+    return nil
+  end
+  return name .. "?: " .. spelled
+end
+
+--- The argument lists of the functions `root` declares as `name` --
+--- `local function name`, `function name`, `function R.name` or
+--- `R:name` (`self` first), and `name = function` with or without
+--- `local` -- wherever they are: scope is not read.
+local function declared_arguments(root: ast.Node, name: string): {ast.Node}
+  local found: {ast.Node} = {}
+  ast.walk(root, function(n: ast.Node)
+    local kind = n.kind
+    if (kind == "local_function" or kind == "global_function" or kind == "record_function")
+        and n.name ~= nil and n.name.tk == name and n.args ~= nil then
+      found[#found + 1] = n.args
+    elseif kind == "local_declaration" or kind == "assignment" then
+      local names, values = n.vars, n.exps
+      for i, target in ipairs(names ~= nil and names or {}) do
+        local value = values ~= nil and values[i] or nil
+        if target.tk == name and value ~= nil and value.kind == "function" and value.args ~= nil then
+          found[#found + 1] = value.args
+        end
+      end
+    end
+  end)
+  return found
+end
+
+--- The hint for the call whose `(` is at `y`:`x` of `source`, given
+--- `given` arguments where its callee takes `expected`: see
+--- [`teal.replacement`].
+local function arity_hint(source: string, y: integer, x: integer, given: integer,
+                          expected: integer): string | nil
+  -- As in [`integer_hint`], only a file that already fails reparses.
+  local built, _ = teal.load()
+  if built == nil then
+    return nil
+  end
+  local parsed, _ = ast.parse(built, source, "hint")
+  if parsed == nil then
+    return nil
+  end
+  local callee: ast.Node | nil = nil
+  ast.walk(parsed.node, function(n: ast.Node)
+    if n.kind == "op" and n.op ~= nil and n.op.op == "@funcall" and n.y == y and n.x == x then
+      callee = n.e1
+    end
+  end)
+  if callee == nil then
+    return nil
+  end
+  local name: string | nil = nil
+  local owner: string | nil = nil
+  if callee.kind == "variable" then
+    name = callee.tk
+  elseif callee.kind == "op" and callee.op ~= nil and (callee.op.op == "." or callee.op.op == ":") then
+    name = callee.e2 ~= nil and callee.e2.tk or nil
+    owner = callee.e1 ~= nil and callee.e1.kind == "variable" and callee.e1.tk or nil
+  end
+  if name == nil then
+    return nil
+  end
+  local spelled: {string} | nil = nil
+  local starts = ast.line_starts(source)
+  for _, arguments in ipairs(declared_arguments(parsed.node, name)) do
+    if #arguments == expected then
+      -- Every declaration that could be the callee must leave its
+      -- missing parameters to nil, or the call is what is short.
+      local these: {string} = {}
+      for i = given + 1, expected do
+        local optional = admits_nil(arguments[i].argtype) and
+          optional_spelling(source, starts, arguments[i]) or nil
+        if optional == nil then
+          return nil
+        end
+        these[#these + 1] = optional
+      end
+      if spelled == nil then
+        spelled = these
+      end
+    end
+  end
+  if spelled == nil then
+    -- A library's function is the library's to declare.
+    local module = owner ~= nil and module_bound(source, owner) or nil
+    if owner ~= nil and (standard_globals[owner] or (module ~= nil and module:match("^cosmic%.") ~= nil)) then
+      return nil
+    end
+    return optional_parameter
+  end
+  if #spelled == 1 then
+    return "a parameter a caller may leave out is written '" .. spelled[1] .. "'"
+  end
+  return "parameters a caller may leave out are written '" .. table.concat(spelled, ", ") .. "'"
+end
+
 --- The hint for the checker refusing one nominal type for another
 --- whose last name is the same (`Store is not a Kv.Store`, or, both
 --- shown alike, `Store (defined in :7) is not a Store (defined in
@@ -680,8 +832,9 @@ end
 --- The hint for `key` refused on the record `owner` names, whose value
 --- fields are `fields`: the fields nearest `key` by [`distance`], case
 --- ignored and then not, within a third of its length and at most 2, or
---- the one [`synonyms`] names for it; then the fields themselves, the
---- first [`listed`] alphabetically.
+--- the one [`synonyms`] names for it, or, with none so near, those
+--- holding a `key` of three letters or more or held by it; then the
+--- fields themselves, the first [`listed`] alphabetically.
 local function field_hint(key: string, owner: string, fields: {string}): string | nil
   if #fields == 0 then
     return nil
@@ -711,6 +864,23 @@ local function field_hint(key: string, owner: string, fields: {string}): string 
       elseif d <= limit and d == best and e == spelled then
         near[#near + 1] = name
       end
+    end
+    -- Failing that, a field holding the key or held by it, case
+    -- ignored (`string` is `from_string`), shortest first: the list
+    -- below is alphabetical and may stop before it.
+    if #near == 0 and #key >= 3 then
+      for _, name in ipairs(sorted) do
+        local folded = name:lower()
+        if (folded:find(lower, 1, true) ~= nil or (#name >= 3 and lower:find(folded, 1, true) ~= nil)) then
+          near[#near + 1] = name
+        end
+      end
+      table.sort(near, function(a: string, b: string): boolean
+        if #a ~= #b then
+          return #a < #b
+        end
+        return a < b
+      end)
     end
   end
   local shown = table.concat(sorted, ", ", 1, math.min(#sorted, listed))
@@ -814,6 +984,16 @@ end
 --- the error, is told the nearest of them and the first few
 --- ([`field_hint`]), after any removed member's answer.
 ---
+--- A call given fewer arguments than its callee takes exactly
+--- (`wrong number of arguments (given 1, expects 2)`, the checker's
+--- position the call's `(`) is told how to declare the parameters it
+--- leaves out optional (`b?: string`), when each declaration of the
+--- callee's name in `source` taking that many admits nil for each of
+--- them ([`arity_hint`]); nothing when one does not, since then the
+--- call is short. With no such declaration it is told the form
+--- (`name?: T`), unless the callee is a field of a standard library or
+--- of a `cosmic.*` module, which the program does not declare.
+---
 --- One nominal type refused for another of the same last name
 --- (`Store is not a Kv.Store`) is told they are two types, and an
 --- `unknown type Kv.Kv` whose `Kv` `source` binds to a `require` that
@@ -830,6 +1010,12 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer,
     local inferred = msg == "in assignment: got number, expected integer" and
       integer_hint(source, y, x) or nil
     return inferred or integer_conversion
+  end
+  local passed, takes = msg:match("^wrong number of arguments %(given (%d+), expects (%d+)%)$")
+  local short = passed ~= nil and math.tointeger(tonumber(passed)) or nil
+  local count = takes ~= nil and math.tointeger(tonumber(takes)) or nil
+  if short ~= nil and count ~= nil and short < count then
+    return arity_hint(source, y, x, short, count)
   end
   local shadowed = msg:match("^%a+ shadows previous declaration of '([%a_][%w_]*)'$")
   if shadowed ~= nil and standard_globals[shadowed] then
