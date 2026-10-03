@@ -304,9 +304,15 @@ source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 (64 by default) choose the inputs, a failure is shrunk and kept in the test's
 directory, and the `FUZZ_CASE=<property>:<case>` its report names checks that
 one input again, run on that test's file (`FUZZ_SEED=<seed>
-FUZZ_ITERS=<iteration>` reruns the way to it). A new generator draws a
-collection's elements with [`Fuzz.more`] rather than a count drawn first, so
-shrinking can cut any one of them. CI's
+FUZZ_ITERS=<iteration>` reruns the way to it). A new generator uses [`build.fuzz_strategy`] for bounded lists, bytes,
+explicit text alphabets, boundary-biased integers and recursive values.
+Generators are ordinary typed functions of a source: compose dependent
+fields in a closure and bracket it with `Strategy.draw(src, "name", gen)`
+for a named record span. `Strategy.list` brackets each element together
+with its continuation draw, so shrinking can remove a whole element.
+An imperative generator can use [`Fuzz.more`] and source
+`begin_span`/`end_span` for the same structure. `Source:int` stays uniform;
+its optional preferred target changes simplification, not sampling. CI's
 runs, which gate a merge, set `FUZZ_ITERS=0` and draw nothing; `fuzz.yml`
 fuzzes every property each night on the checked core with a seed of its own;
 a failure is a red run whose summary lists what failed. Once a failure is fixed, keep its input in
@@ -420,6 +426,7 @@ unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
 [`build.fuzz`]: build/fuzz/init.tl
+[`build.fuzz_strategy`]: build/fuzz_strategy.tl
 [`build.sandbox_skip`]: build/sandbox_skip.tl
 [`build/artifact.tl`]: build/artifact.tl
 [`build/c/layout.tl`]: build/c/layout.tl

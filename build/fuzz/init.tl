@@ -91,7 +91,10 @@ local record Fuzz
   record Source
     --- An integer from `min` through `max`, both included. Raises when
     --- `min` is greater than `max`.
-    int: function(Source, min: integer, max: integer): integer
+    int: function(Source, min: integer, max: integer, target?: integer): integer
+    --- Bracket the draws of one named generated value. Spans may nest.
+    begin_span: function(Source, name: string)
+    end_span: function(Source)
   end
 
   --- One property to fuzz.
@@ -149,35 +152,58 @@ end
 
 local type Draw = shrink.Draw
 
---- A source over `values` that records what it hands out into `draws`.
---- A value outside the range asked for is clamped to its lower end, and
---- a draw past the end of `values` is its lower end, so any list of
---- integers replays to some input.
-local function replaying(values: {integer}, draws: {Draw}): Fuzz.Source
-  local at = 0
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    if min > max then
-      error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
-    end
-    at = at + 1
-    local v = values[at]
-    if v == nil or v < min or v > max then v = min end
-    draws[#draws + 1] = { min = min, max = max, value = v }
-    return v
+--- Give a source balanced spans over the draws it records. A completed
+--- span sits on its last draw, so replay reconstructs the metadata after
+--- any edit changes the shape of the generated input.
+local function spanning(src: Fuzz.Source, draws: {Draw}): Fuzz.Source
+  local stack: {shrink.Span} = {}
+  src.begin_span = function(_self: Fuzz.Source, name: string)
+    stack[#stack + 1] = { name = name, first = #draws + 1 }
+  end
+  src.end_span = function(_self: Fuzz.Source)
+    local span = assert(table.remove(stack), "fuzz: unmatched end_span")
+    span.last = #draws
+    if span.last < span.first then return end
+    local last = draws[span.last]
+    if last.spans == nil then last.spans = {} end
+    last.spans[#last.spans + 1] = span
   end
   return src
 end
 
---- A source drawing from `rng` that records what it hands out.
-local function recording(rng: Rand.Source, draws: {Draw}): Fuzz.Source
+local function valid_range(min: integer, max: integer, target: integer)
+  if min > max then error("fuzz: int: min is greater than max", 3) end
+  if target ~= nil and (target < min or target > max) then
+    error("fuzz: int: target is outside the range", 3)
+  end
+end
+
+--- Replay supplies the preferred target (the low end by default) when a
+--- draw is absent or outside its domain. Source:int without a target
+--- retains its original uniform generation and replay semantics.
+local function replaying(values: {integer}, draws: {Draw}): Fuzz.Source
+  local at = 0
   local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    local v = rng:int(min, max)
-    draws[#draws + 1] = { min = min, max = max, value = v }
+  src.int = function(_self: Fuzz.Source, min: integer, max: integer, target?: integer): integer
+    valid_range(min, max, target)
+    at = at + 1
+    local v = values[at]
+    if v == nil or v < min or v > max then v = target or min end
+    draws[#draws + 1] = { min = min, max = max, value = v, target = target }
     return v
   end
-  return src
+  return spanning(src, draws)
+end
+
+local function recording(rng: Rand.Source, draws: {Draw}): Fuzz.Source
+  local src: Fuzz.Source = {}
+  src.int = function(_self: Fuzz.Source, min: integer, max: integer, target?: integer): integer
+    if target ~= nil then valid_range(min, max, target) end
+    local v = rng:int(min, max)
+    draws[#draws + 1] = { min = min, max = max, value = v, target = target }
+    return v
+  end
+  return spanning(src, draws)
 end
 
 --- An integer from the environment, or `otherwise` when it is unset.
@@ -500,11 +526,13 @@ local function run(p: Fuzz.Property): integer
       local keep = corpus_of(p) .. "/" .. corpus_name(small)
       error(("fuzz %s: %s: %s\n" ..
         "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
+        "  shrink stopped: %s; %s, %s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s%s%s"):
          format(p.name, where, small == input and outcome.why or best_outcome.why,
           plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
           plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
+          shrunk.reason, plural.count(shrunk.cached, "cached proposal"), plural.count(shrunk.improvements, "improvement"),
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
           reproduce,
           kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
