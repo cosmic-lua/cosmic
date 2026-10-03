@@ -1,0 +1,33 @@
+file: tl.tl
+note: `type(x) == "string"`, in either order, carries the fact `x is T` would, T the members of x's type that type() answers "string" for (36e), and `~=` its negation, so the test narrows in a condition, through `and`, `or` and `not`, under `assert` (07) and below an early return; `type(x) ~= "string"` narrows an `any` to string below `then return end`. x must be a variable, as `is` requires, and type() the standard one (36d). "number" answers for integer members too; of an `any` it gives number, never integer, which only math.type tells
+--- find
+               elseif self.feat_lax and (is_unknown(ua) or is_unknown(ub)) then
+                  return an_unknown(node)
+               else
+                  return self.errs:invalid_at(node, "types are not comparable for equality: %s and %s", ua, ub)
+               end
+
+               return a_type(node, "boolean", {})
+--- replace
+               elseif self.feat_lax and (is_unknown(ua) or is_unknown(ub)) then
+                  return an_unknown(node)
+               else
+                  return self.errs:invalid_at(node, "types are not comparable for equality: %s and %s", ua, ub)
+               end
+
+               local call, name = node.e1, node.e2
+               if not call.type_of then
+                  call, name = node.e2, node.e1
+               end
+               local arg = call.type_of
+               if arg and arg.kind == "variable" and name.kind == "string" then
+                  local t = self:find_var_type(arg.tk, "check_only")
+                  local typ = t and type_test_type(self, node, t, name.conststr)
+                  if typ then
+                     local f = IsFact { var = arg.tk, typ = typ, w = node }
+                     node.known = node.op.op == "==" and f as Fact or NotFact { f1 = f, w = node }
+                  end
+               end
+
+               return a_type(node, "boolean", {})
+--- end

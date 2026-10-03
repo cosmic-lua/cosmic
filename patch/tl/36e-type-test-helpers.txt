@@ -1,0 +1,65 @@
+file: tl.tl
+note: the helpers 36f's type() test narrowing uses: the Lua type name type() answers for each kind of Teal type, as type_for_union classifies it for `is`, and the type a variable is narrowed to by `type(x) == name`
+--- find
+   local special_functions <total>: {SpecialFunctionName : function(TypeChecker, Node, Type, TupleType, ? integer):InvalidOrTupleType } = {
+--- replace
+   -- type_for_union's answer for a member, as type() names its values.
+   local lua_type_names: {string:string} = {
+      ["string"] = "string",
+      ["enum"] = "string",
+      ["number"] = "number",
+      ["integer"] = "number",
+      ["boolean"] = "boolean",
+      ["nil"] = "nil",
+      ["table"] = "table",
+      ["userdata"] = "userdata",
+      ["function"] = "function",
+      ["poly"] = "function",
+      ["thread"] = "thread",
+   }
+
+   -- What `type(x) == name` makes x of type t: of a union, the
+   -- members whose values type() answers name for, which is what `is`
+   -- gives for them; of `any`, the one type the name spells, for the
+   -- names that spell exactly one ("table" and "function" spell none).
+   -- nil narrows nothing: a member whose Lua type is not known
+   -- (an interface, which a userdata record may implement, a type
+   -- variable) would make the negation claim what the test never
+   -- checked; and where no member answers to name, or t is no union,
+   -- the test is left a plain runtime check rather than refused as
+   -- `is` would be, since type() is how Lua code checks a value whose
+   -- declared type it does not trust (decoded data, a caller's
+   -- argument).
+   local function type_test_type(self: TypeChecker, w: Where, t: Type, name: string): Type
+      local rt = self:to_structural(t)
+      if rt.typename == "any" then
+         if name == "string" or name == "number" or name == "boolean" or name == "nil" then
+            return a_type(w, name as TypeName, {})
+         end
+         return nil
+      end
+      if not rt is UnionType then
+         return nil
+      end
+      local members: {Type} = {}
+      for _, m in ipairs(rt.types) do
+         local rm = self:to_structural(m)
+         if rm is InterfaceType or rm is TypeDeclType then
+            return nil
+         end
+         local lua_name = lua_type_names[type_for_union(rm)]
+         if not lua_name then
+            return nil
+         end
+         if lua_name == name then
+            table.insert(members, m)
+         end
+      end
+      if #members == 0 then
+         return nil
+      end
+      return #members == 1 and members[1] or unite(w, members)
+   end
+
+   local special_functions <total>: {SpecialFunctionName : function(TypeChecker, Node, Type, TupleType, ? integer):InvalidOrTupleType } = {
+--- end

@@ -1,0 +1,11 @@
+file: tl.tl
+note: type() answers only Lua's eight type names, so comparing its answer with any other literal (`type(x) == "strnig"`, `type(n) == "integer"`) is a test that never passes, and a typo the checker can name rather than one that silently narrows nothing
+--- find
+               local arg = call.type_of
+               if arg and arg.kind == "variable" and name.kind == "string" then
+--- replace
+               local arg = call.type_of
+               if arg and name.kind == "string" and lua_type_names[name.conststr] ~= name.conststr then
+                  self.errs:add(name, "type() never answers \"" .. name.conststr .. "\": it answers nil, boolean, number, string, table, function, thread or userdata, and math.type tells \"integer\" from \"float\"")
+               elseif arg and arg.kind == "variable" and name.kind == "string" then
+--- end
