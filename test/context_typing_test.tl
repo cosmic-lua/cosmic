@@ -12,8 +12,9 @@
 ---
 --- What stays as before has a case each: a declared parameter or return
 --- list keeps its declaration, a type variable no earlier argument
---- binds leaves its parameter `any`, overloads that disagree give no
---- context, and a `...` away from the expected vararg stays `any`.
+--- binds leaves its parameter `any` (a nested generic call's result
+--- binds none early), overloads that disagree give no context, and a
+--- `...` away from the expected vararg stays `any`.
 ---
 --- Each fixture is a single file in its own fresh subdirectory, since
 --- [`build.importer`] compiles every `.tl` file under a root together.
@@ -152,6 +153,23 @@ print(#map(function(x) return x:upper() end, {"a"}))
 ]])
   assert(refused(ok, trouble, "of type <any type>"),
     "no argument before the literal binds A, so x is any, but: " .. tostring(trouble))
+end
+
+local function test_a_nested_generic_call_binds_nothing_early(tmp: string)
+  local ok, trouble = compiles(tmp, "nested", [[
+local function twice<A>(xs: {A}, f: function(A): A): {A}
+   for i, v in ipairs(xs) do xs[i] = f(f(v)) end
+   return xs
+end
+local inner = twice({1}, function(i) return i // 1 end)
+local outer = twice(twice({1}, function(i) return i // 1 end), function(i): integer
+   if i == 1 then return 1 end
+   return 2
+end)
+print(inner, outer)
+]])
+  assert(ok, "the inner call's result binds the outer call's A to no type early, " ..
+    "so the outer literal is checked as before, but: " .. tostring(trouble))
 end
 
 local function test_an_optional_callback_takes_its_function_type(tmp: string)
