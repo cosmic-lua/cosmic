@@ -27,6 +27,10 @@
 --- a pid namespace of its own that ends when it does: nothing it starts
 --- outlives it there.
 ---
+--- A child started with a [`cosmic.sandbox`] policy (`policy`) is held to
+--- nothing but what the policy grants -- paths, system calls, environment,
+--- resources -- or does not start.
+---
 --- Standard streams are inherited unless redirected: to a caller-owned
 --- descriptor, to "null", or to "capture", which collects the stream in
 --- memory -- the last `capture_limit` bytes of it -- into the Result.
@@ -62,7 +66,10 @@
 --- memory, up to `capture_limit` unread bytes of each, after which the
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
+local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
+local Proc = require("cosmic.proc")
+local Rules = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
@@ -255,6 +262,40 @@ local record Options
   timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox: Sandbox
+  --- A [`cosmic.sandbox`] policy the child is held to, met or the start
+  --- fails (nil, and a message naming what is missing and how to give it).
+  --- The policy is merged ([`Sandbox.merge`], which resolves its
+  --- `profiles`), and then:
+  ---
+  --- - `grants` are the only paths the child reaches, by Landlock, a
+  ---   relative one from `cwd`; the child's program, found on this
+  ---   process's PATH when its name has no slash, and the interpreter it
+  ---   names (`#!`, or an ELF's), need `r` and `x` grants: the "system"
+  ---   profile gives them for the host's own programs. `from` and
+  ---   `isolate` file are not yet available, and a start under one
+  ---   fails.
+  --- - `promises` are the system calls it may make beyond its basics
+  ---   (a seccomp filter). `nest` is not yet available.
+  --- - `env` names the variables passed through from this process's
+  ---   environment and `set_env` the ones set: the child's whole
+  ---   environment, so `env` beside `policy` raises. `tmp` makes a fresh
+  ---   directory the child may write, `TMPDIR` naming it (over a
+  ---   variable of the policy's), removed after the child is settled.
+  --- - `limits` are rlimits on every process of the child: 1024 open
+  ---   files unless `open_files` says, and no core dump; `file_bytes` and
+  ---   `cpu_seconds` as given. `processes` is not yet available.
+  --- - `fds` names the only descriptors above 2 the child gets, as it
+  ---   always has.
+  --- - `isolate`, `connect` and `loopback` are not yet available.
+  ---
+  --- A child runs as the user this process is, root included: the design's
+  --- mapped, unprivileged per-sandbox user is not yet made. A policy
+  --- whose `stdio` is a terminal is not refused either.
+  ---
+  --- Not with `sandbox`, whose root of its own it does not build. Where
+  --- the platform has no Landlock or seccomp (anything but Linux) the
+  --- start fails. Nothing is printed about grants.
+  policy: Rules.Policy
   --- The IDs and privilege limits for this launch. Excludes sandbox
   --- unveil, offline, user and group. Child setup errors precede exec;
   --- a parent dumpability restoration error can follow exec and ends
@@ -381,6 +422,9 @@ local record Handle
   --- When the child's own `timeout_ns` passes, on the monotonic clock;
   --- nil for none ([`Options.timeout_ns`]).
   _deadline: integer | nil
+  --- The temporary directory a policy's `tmp` made for the child, removed
+  --- once the child is settled; nil for none.
+  _tmp: string | nil
   --- Waits for the child to exit and answers its Result. With
   --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
   --- passes, whichever is first, a child still running is ended --
@@ -906,6 +950,25 @@ local function group_gone(self: Handle, until_ns: integer): boolean
   end
 end
 
+--- Removes the temporary directory a policy's `tmp` made for the child.
+--- [`Fs.remove_tree`] walks by descriptor and follows no link, which
+--- matters here: a process of the child's that outlived it (one with the
+--- `fork` promise that left its group) may swap a subdirectory for a link
+--- to a host directory while the walk runs, and a walk by path would
+--- delete through it.
+-- TODO: report a removal that failed -- a directory the child made
+-- unreadable (its `fattr` promise lets it chmod), or one a surviving
+-- descendant keeps filling -- on the Result or the Handle, once Result
+-- carries a field beside the exit status for what a settle left behind
+-- (see the TODO at Child.wait_any); until then the tree is left behind and
+-- nothing says so.
+local function remove_tmp(self: Handle)
+  local dir = self._tmp
+  if dir == nil then return end
+  self._tmp = nil
+  local _, _ = Fs.remove_tree(dir)
+end
+
 --- Ends what is left of the child and settles it, answering its Result.
 --- A child still running is sent SIGTERM -- its group's too -- and
 --- SIGKILL once TERM_GRACE_NS has passed, and its Result says
@@ -998,6 +1061,7 @@ local function end_child(self: Handle): Result | nil, string
     r.stderr = r.captured[2]
   end
   self._result, self._closed = r, true
+  remove_tmp(self)
   if not cleared then
     return refuse("process group " .. tostring(self.pid) .. " still has members after SIGKILL")
   end
@@ -1763,6 +1827,16 @@ local function validate(argv: {string}, opts: Options)
     error("child: capture_limit is out of range", 3)
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
+  if opts.policy ~= nil then
+    if type(opts.policy) ~= "table" then
+      error("child: policy must be a cosmic.sandbox Policy", 3)
+    end
+    if opts.env ~= nil then
+      error("child: policy and env exclude each other: the policy's env and set_env are the " ..
+          "child's whole environment", 3)
+    end
+    if opts.sandbox ~= nil then error("child: policy and sandbox exclude each other", 3) end
+  end
   if opts.credentials ~= nil then
     local user, group = opts.credentials.user, opts.credentials.group
     if not (user is integer) or not (group is integer) or
@@ -1956,8 +2030,193 @@ local function descriptor_limit_hint(slots: {integer:integer}): string
     tostring(limits.soft) .. " (hard " .. tostring(limits.hard) .. "): " .. remedy
 end
 
+--- How much a start under a policy lets the child hold open unless the
+--- policy's `open_files` says.
+local DEFAULT_OPEN_FILES <const> = 1024
+
+--- What a policy makes of a start.
+local record Held
+  --- The file to run.
+  path: string
+  --- The child's whole environment.
+  env: {string:string}
+  --- What spawn is handed to hold the child to it.
+  sandbox: raw_process.Sandbox
+  --- The temporary directory made for the child, "" for none: made by
+  --- [`make_tmp`], the last step before the spawn.
+  tmp: string
+  --- Whether the policy asks for one.
+  wants_tmp: boolean
+end
+
+--- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
+--- temporary directory's included.
+local MAX_GRANTS <const> = 256
+
+--- Whether `file` is `grant` or beneath it.
+local function beneath(file: string, grant: string): boolean
+  if grant == "/" or file == grant then return true end
+  return file:sub(1, #grant + 1) == grant .. "/"
+end
+
+--- Why a start under `grants` cannot run the `files` a program needs to
+--- start ([`Rules.loaders`], the program itself first), or "": a file
+--- must be beneath a grant giving `r` and one giving `x`, which may be
+--- one. A grant whose path does not exist is skipped, as spawn names
+--- it.
+local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): string
+  local reals: {{string}} = {}
+  for _, grant in ipairs(grants) do
+    local at = grant.path
+    if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
+    local real, _ = sys.realpath(at)
+    if real ~= nil then reals[#reals + 1] = { real, grant.letters } end
+  end
+  for i, file in ipairs(files) do
+    local missing: {string} = {}
+    for _, letter in ipairs({ "r", "x" }) do
+      local given = false
+      for _, held in ipairs(reals) do
+        if beneath(file, held[1]) and held[2]:find(letter, 1, true) then given = true end
+      end
+      if not given then missing[#missing + 1] = letter end
+    end
+    if #missing > 0 then
+      local what = i == 1 and "the program" or "the interpreter the program starts through"
+      return string.format("%s %s is not granted %s: grant it, { path = %q, letters = \"rx\" }, " ..
+          "or add the \"system\" profile for the host's own programs", what, file,
+        table.concat(missing, " and "), file)
+    end
+  end
+  return ""
+end
+
+--- A policy's fields not yet met, by what each would need.
+-- TODO: run a policy's child as a mapped unprivileged user, never root as
+-- a root caller's is, once the mapped per-sandbox user lands (the
+-- design's phase 2); and refuse a policy whose stdin, stdout or stderr is
+-- a terminal, which only the pty relay (its phase 7) may carry.
+-- TODO: meet `isolate`, `connect`, `loopback`, a grant's `from`, the
+-- `nest` promise and `limits.processes`, and delete this refusal, once a
+-- start can make the user, mount and network namespaces (the design's
+-- phase 2) and the relay (its phase 6) they are made of.
+local function unmet(merged: Rules.Policy): string
+  if #merged.grants + (merged.tmp and 1 or 0) > MAX_GRANTS then
+    return "grants: the policy holds " .. (#merged.grants + (merged.tmp and 1 or 0)) ..
+      ", tmp's included, past the most a start takes, " .. MAX_GRANTS ..
+      "; grant a directory above them instead"
+  end
+  if #merged.isolate > 0 then
+    return "isolate \"" .. merged.isolate[1] .. "\" is not yet available: it needs a user " ..
+      "namespace, which a policy does not yet make"
+  end
+  if #merged.connect > 0 then
+    return "connect \"" .. merged.connect[1] .. "\" is not yet available: it needs the relay"
+  end
+  if #merged.loopback > 0 then
+    return "loopback \"" .. merged.loopback[1] .. "\" is not yet available: it needs a network " ..
+      "namespace"
+  end
+  for _, promise in ipairs(merged.promises) do
+    if promise == "nest" then
+      return "promises \"nest\" is not yet available: it needs isolate file"
+    end
+  end
+  for _, grant in ipairs(merged.grants) do
+    if grant.from ~= nil then
+      return "grant \"" .. grant.path .. "\" has from, which needs isolate file, not yet available"
+    end
+  end
+  if merged.limits.processes ~= nil then
+    return "limits.processes is not yet available: it needs a user namespace"
+  end
+  for name, _ in pairs(merged.set_env_digests) do
+    return "set_env_digests \"" .. name .. "\" holds a digest, not the value to set; the " ..
+      "policy cannot start a program"
+  end
+  return ""
+end
+
+--- Makes a policy's start: merges it, refuses what is not yet available
+--- and a program its grants do not let start, then builds the
+--- environment, the limits and, for `tmp`, the directory. Nil and why when
+--- it cannot. It acquires nothing: `tmp`'s directory is [`make_tmp`]'s.
+local function held_to(argv: {string}, opts: Options): Held | nil, string
+  local merged, why = Rules.merge(opts.policy)
+  if merged == nil then return nil, why end
+  local trouble = unmet(merged)
+  if trouble ~= "" then return nil, "sandbox: " .. trouble end
+  -- A bare name is found on this process's PATH and run by its real path,
+  -- so what is granted is what runs; a name with a slash is run as written
+  -- (a virtual environment's interpreter link keeps its prefix), and its
+  -- grants are the real path's, which is what the kernel opens.
+  local path = argv[1]
+  if not path:find("/", 1, true) then
+    local found, absent = Proc.find(path)
+    if found == nil then return nil, absent end
+    local real, real_trouble = sys.realpath(found)
+    if real == nil then return nil, found .. ": " .. real_trouble end
+    path = real
+  end
+  local files, loader_trouble = Rules.loaders(path, opts.cwd)
+  if files == nil then return nil, loader_trouble end
+  local missing = ungranted(files, merged.grants, opts.cwd)
+  if missing ~= "" then return nil, "sandbox: " .. missing end
+
+  local grants: {raw_process.Grant} = {}
+  for _, grant in ipairs(merged.grants) do
+    local at = grant.path
+    if opts.cwd ~= nil and at:sub(1, 1) ~= "/" then at = opts.cwd .. "/" .. at end
+    grants[#grants + 1] = { path = at, access = grant.letters }
+  end
+  local env: {string:string} = {}
+  for _, name in ipairs(merged.env) do
+    local value = sys.getenv(name)
+    if value ~= nil then env[name] = value end
+  end
+  for name, value in pairs(merged.set_env) do env[name] = value end
+  local open_files = merged.limits.open_files
+  if open_files == nil then
+    open_files = DEFAULT_OPEN_FILES
+    local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
+    -- A default is no reason to fail where this process's own hard limit is lower.
+    if held ~= nil and held.hard < open_files then open_files = held.hard end
+  end
+  local rlimits: {string:integer} = { nofile = open_files, core = 0 }
+  rlimits.fsize = merged.limits.file_bytes
+  rlimits.cpu = merged.limits.cpu_seconds
+  local promises: {string} = {}
+  for _, promise in ipairs(merged.promises) do promises[#promises + 1] = promise end
+  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp,
+    sandbox = { grants = grants, promises = promises, rlimits = rlimits } }, ""
+end
+
+--- Makes the temporary directory a policy's `tmp` asks for, as an absolute
+--- path whatever TMPDIR is (the child may start in another directory),
+--- grants it `rwc` and names it in TMPDIR. "" or why not.
+local function make_tmp(held: Held): string
+  local dir, trouble = Fs.mkdtemp("cosmic-sandbox-")
+  if dir == nil then return "tmp: " .. trouble end
+  local real, real_trouble = sys.realpath(dir)
+  if real == nil then
+    local _, _ = Fs.remove_tree(dir)
+    return "tmp: " .. dir .. ": " .. real_trouble
+  end
+  held.tmp = real
+  local grants = held.sandbox.grants
+  grants[#grants + 1] = { path = real, access = "rwc" }
+  held.env.TMPDIR = real
+  return ""
+end
+
 --- [`Child.start`] on options already validated.
 local function start(argv: {string}, opts: Options): Handle | nil, string
+  local held: Held
+  if opts.policy ~= nil then
+    local made, why = held_to(argv, opts)
+    if made == nil then return refuse("start: " .. why) end
+    held = made
+  end
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
   if grouped and adopting == nil then
@@ -1994,11 +2253,39 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   if opts.credentials ~= nil then
     credentials = { user = opts.credentials.user, group = opts.credentials.group }
   end
-  local pid, trouble, errno = raw.spawn(argv[1], argv, opts.env, opts.cwd,
+  local path, env = argv[1], opts.env
+  if held ~= nil then
+    path, env, sandbox = held.path, held.env, held.sandbox
+    if held.wants_tmp then
+      local why = make_tmp(held)
+      if why ~= "" then
+        unwire(wiring, false)
+        return refuse("start: sandbox: " .. why)
+      end
+    end
+  end
+  -- Nothing but the spawn lies between the directory's making and its
+  -- owner, the handle: a spawn that raises (an argument it refuses) must
+  -- not leave it, nor the descriptors wired, behind.
+  local called, pid, trouble, errno = pcall(raw.spawn, path, argv, env, opts.cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
+  if not called then
+    unwire(wiring, false)
+    if held ~= nil and held.tmp ~= "" then
+      local _, _ = Fs.remove_tree(held.tmp)
+    end
+    error(pid, 0)
+  end
   unwire(wiring, pid ~= nil)
   if not pid then
-    if (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then
+    if held ~= nil and held.tmp ~= "" then
+      local _, _ = Fs.remove_tree(held.tmp)
+    end
+    -- TODO: hold a policy's child by Seatbelt on macOS, where this start
+    -- fails ENOSYS, once the design's phase 8 lands.
+    if held ~= nil and errno == sys.ENOSYS then
+      trouble = trouble .. ": a policy is held by Landlock and seccomp, which only Linux gives"
+    elseif (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then
       trouble = trouble .. ": cwd " .. string.format("%q", opts.cwd) .. " does not exist"
     elseif errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then
       trouble = trouble .. ": " .. string.format("%q", argv[1]) ..
@@ -2012,6 +2299,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local deadline: integer
   if opts.timeout_ns ~= nil then deadline = now() + opts.timeout_ns end
   local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
+  if held ~= nil and held.tmp ~= "" then h._tmp = held.tmp end
   if #wiring.streams > 0 then h._streams = wiring.streams end
   if wiring.input_fd ~= nil then
     h._input_fd, h._input, h._input_at = wiring.input_fd, opts.input, 0
