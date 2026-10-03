@@ -10,7 +10,9 @@ local record json
   -- past `max_depth` (`default_depth` when absent). With
   -- `big_as_string`, an integer past 64 bits, or a number past a
   -- double's range, decodes as its text. With `lone_surrogates`, a lone
-  -- surrogate escape decodes as U+FFFD. Raises when `max_depth` is
+  -- surrogate escape decodes as U+FFFD. An object with a key twice is
+  -- refused, naming where, unless `duplicate_keys`: then the last of its
+  -- members stands. Raises when `max_depth` is
   -- outside 1 to `depth_limit`. With `record`, the text is that line
   -- of a JSON Lines text: a failure names that line, its column
   -- counted from the text's start, whatever line ends the text holds;
@@ -19,7 +21,8 @@ local record json
   decode: function(text: string, null?: any, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
                    lone_surrogates?: boolean, record?: integer,
-                   hash_comments?: boolean): any | nil, string
+                   hash_comments?: boolean,
+                   duplicate_keys?: boolean): any | nil, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at $.users[3].name`. Keys are
   -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises

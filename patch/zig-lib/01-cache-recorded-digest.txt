@@ -1,0 +1,20 @@
+file: std/Build/Cache.zig
+note: std.Build.Cache's checkInputPath re-hashes a direct input whose size, mtime or inode moved, then compares the new hash to the caller's digest of it, which addInputPath never computes unless given one: every such input reads as changed contents, so a fresh checkout or an extracted cache archive, whose files all have new inodes, misses every step reading one. This record keeps the recorded digest before a re-hash overwrites it; the next three compare to it. Upstream: branch cache-same-contents-hit of cosmic-lua/zig, with its tests.
+--- find
+        if (input_path.have_digest) {
+            if (mem.eql(u8, &disk_file.digest, &input_file.digest))
+                return .hit;
+        }
+
+--- replace
+        if (input_path.have_digest) {
+            if (mem.eql(u8, &disk_file.digest, &input_file.digest))
+                return .hit;
+        }
+
+        // Hashing the file below overwrites `disk_file.digest`. Without a
+        // digest from the caller, `input_file.digest` was never computed, so
+        // the contents are compared to the digest the manifest recorded.
+        const expected_digest: BinDigest = if (input_path.have_digest) input_file.digest else disk_file.digest;
+
+--- end

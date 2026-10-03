@@ -152,6 +152,7 @@ local function block(c: Ctx, body: Node)
       emit.put(c.em, ";")
     end
   end
+  c.body_shift = #body > 0 and c.shift or nil
   c.margin = outer
   c.shift = outer_shift
   c.opens, c.header = outer_opens, outer_header
@@ -207,7 +208,7 @@ local function closes(c: Ctx, n: Node, word: string): boolean
   -- The recorded end is the keyword's last column; a comment is placed
   -- against its first.
   local xend = n.xend
-  ctx_mod.lead_to(c, y, xend ~= nil and xend - #word + 1 or 1, c.margin, " ")
+  ctx_mod.lead_to_closer(c, y, xend ~= nil and xend - #word + 1 or 1, c.margin, c.shift)
   emit.put(c.em, word)
   if word == "end" then
     ctx_mod.ended(c, n, inline)
@@ -386,7 +387,7 @@ local function conditional(c: Ctx, n: Node)
       if b.y <= c.em.line then
         c.continues[b] = true
       end
-      ctx_mod.lead_to(c, b.y, b.x, c.margin, " ")
+      ctx_mod.lead_to_closer(c, b.y, b.x, c.margin, c.shift)
     end
     emit.text(c.em, b.tk or "if")
     local condition = b.exp

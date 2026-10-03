@@ -1,0 +1,15 @@
+file: compiler/Maker.zig
+note: zig build's findBuildRoot gives a build root found in the working directory no path, and std.Build.Cache's resolveAppendPath skips a prefix with no path, so the cache keys every file of the project by its absolute path rather than by its path under the root: a checkout at another path (CI's Linux legs move the tree with every commit, .github/scripts/place-tree.sh) misses every step reading one, the vendored libraries' compiles among them. This record gives a root found by searching up from the working directory the working directory's path. Upstream: branch build-root-path of cosmic-lua/zig, with its test.
+--- find
+                .directory = .{
+                    .path = dirname,
+                    .handle = dir,
+                },
+--- replace
+                .directory = .{
+                    // A root with no path is never a cache prefix, so the
+                    // cache would key every file under it by its absolute path.
+                    .path = dirname orelse options.cwd_path,
+                    .handle = dir,
+                },
+--- end

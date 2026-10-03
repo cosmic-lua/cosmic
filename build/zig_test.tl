@@ -90,6 +90,17 @@ local function test_build_args_keep_the_callers_jobs()
   assert(got[9] == "-j2" and got[10] == "boot")
 end
 
+--- A patched zig library is named by its records' names and bytes, in
+--- name order whatever order they are given in, so an edit names a new one.
+local function test_lib_key_names_the_records()
+  local key = Zig.lib_key({ ["01-a.txt"] = "one", ["02-b.txt"] = "two" })
+  assert(#key == 16 and key:match("^%x+$") ~= nil)
+  assert(Zig.lib_key({ ["02-b.txt"] = "two", ["01-a.txt"] = "one" }) == key)
+  assert(Zig.lib_key({ ["01-a.txt"] = "one", ["02-b.txt"] = "two!" }) ~= key)
+  assert(Zig.lib_key({ ["01-a.txt"] = "one", ["03-b.txt"] = "two" }) ~= key)
+  assert(Zig.lib_key({ ["01-a.txt"] = "one" }) ~= key)
+end
+
 local function test_build_args_passes_other_subcommands_through()
   local got = Zig.build_args("/repo", "/cache/zig-project", { "version" }, 4)
   assert(#got == 1 and got[1] == "version")

@@ -121,6 +121,11 @@ local record Ctx
   --- start of a line, which [`build.fix.breaks`] moves to the end of
   --- the line before.
   leading: {integer}
+  --- The `shift` the last statement of the block just written was
+  --- placed with, or nil when it held none: a comment before the
+  --- block's closing keyword moves as that statement moved
+  --- ([`lead_to_closer`]).
+  body_shift: integer | nil
 end
 
 --- Where `node`'s own subtree starts, remembered across calls.
@@ -221,6 +226,26 @@ end
 local function lead_to(ctx: Ctx, y: integer, x: integer, margin: integer,
                        inline: string)
   emit.advance(ctx.em, y, string.rep(" ", margin), inline, x)
+end
+
+--- [`lead_to`] a block's closing keyword (`end`, `else`, `elseif`,
+--- `until`), just after its body is written. A comment before it that is
+--- not lined up with it moves as the body's last statement moved, so
+--- one lined up with the body stays so; with no statement in the body,
+--- it moves by `empty`, the shift of the line that opened the block.
+--- @param ctx Ctx
+--- @param y integer
+--- @param x integer The keyword's first column
+--- @param margin integer The column the keyword is indented to
+--- @param empty integer The shift to move a comment by when the body is empty
+local function lead_to_closer(ctx: Ctx, y: integer, x: integer, margin: integer,
+                              empty: integer)
+  local shift = ctx.em.shift
+  local body = ctx.body_shift
+  ctx.em.shift = body ~= nil and body or empty
+  ctx.body_shift = nil
+  lead_to(ctx, y, x, margin, " ")
+  ctx.em.shift = shift
 end
 
 --- The byte offset of 1-based (`y`, `x`) in the source being rendered.
@@ -393,6 +418,7 @@ local record CtxModule
   closes: function(ctx: Ctx)
   lead: function(ctx: Ctx, node: Node, inline: string)
   lead_at: function(ctx: Ctx, y: integer, x: integer, inline: string)
+  lead_to_closer: function(ctx: Ctx, y: integer, x: integer, margin: integer, empty: integer)
   lead_to: function(ctx: Ctx, y: integer, x: integer, margin: integer,
                     inline: string)
   place: function(ctx: Ctx, margin: integer, x: integer)
@@ -411,6 +437,7 @@ local M: CtxModule = {
   lead = lead,
   lead_at = lead_at,
   lead_to = lead_to,
+  lead_to_closer = lead_to_closer,
   place = place,
   verbatim = verbatim,
   region = region,
