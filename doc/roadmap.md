@@ -190,7 +190,8 @@ promises lean on come first:
   client sent, the server choosing the coding and writing `Vary`;
   routing, a table of methods and path patterns to handlers in place
   of one handler's `if`s; and static files, a directory served by
-  [`Url.segments`] with types, ranges and conditional requests.
+  [`Url.segments`] with types, answering ranges ([`Http.range`]) and
+  conditional requests ([`Http.none_match`]).
 - an `Archive.add_tree(writer, dir, opts?)` that walks a directory into an
   [`Archive.create`] writer, once a caller needs one. `cosmic archive
   create` ([`build/archive.tl`]) is the only walk today, and it gathers and
@@ -319,6 +320,8 @@ four-producer provenance join.
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`Errors.guidance`]: ../cosmic/errors.tl
+[`Http.none_match`]: ../cosmic/http/init.tl
+[`Http.range`]: ../cosmic/http/init.tl
 [`Http.serve`]: ../cosmic/http/init.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
