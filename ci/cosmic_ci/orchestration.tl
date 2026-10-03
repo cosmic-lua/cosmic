@@ -1376,8 +1376,9 @@ function Orchestration.seed_compiles(env: {string:string},
   if source:sub(1, 1) ~= "/" then
     return false, "COSMIC_BUILD_CACHE names no absolute path: " .. source
   end
-  for _, held in ipairs({ { Fs.dirname(source), "dir" }, { source, "file" } }) do
-    local path, kind = held[1], held[2]
+  local held: {{string, sys.Kind}} = { { Fs.dirname(source), "dir" }, { source, "file" } }
+  for _, pair in ipairs(held) do
+    local path, kind = pair[1], pair[2]
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
     local st, stat_trouble: sys.Stat, string = nil, ""
@@ -1387,13 +1388,8 @@ function Orchestration.seed_compiles(env: {string:string},
       st, stat_trouble = sys.stat(path)
     end
     if st == nil then return false, path .. ": " .. stat_trouble end
-    -- TODO: hold `kind` as a sys.Kind and compare `st.kind ~= kind`, as
-    -- shared_compiles' `private` does, once ci/cosmic-driver.pin names a
-    -- release whose cosmic.sys declares Kind: the tree's refuses a
-    -- string, the pinned one has no Kind to name.
-    local wants_dir = kind == "dir"
-    if wants_dir and st.kind ~= "dir" or not wants_dir and st.kind ~= "file" then
-      return false, path .. ": not a " .. (wants_dir and "directory" or kind)
+    if st.kind ~= kind then
+      return false, path .. ": not a " .. (kind == "dir" and "directory" or kind)
     end
     if st.uid ~= sys.getuid() then return false, path .. ": owned by another user" end
     if st.mode & 0x12 ~= 0 then
