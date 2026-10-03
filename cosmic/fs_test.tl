@@ -363,6 +363,26 @@ local function test_remove_tree_removes_everything_but_follows_no_link(tmp: stri
   assert(Fs.exists(outside .. "/keep") == false)
 end
 
+local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree(tmp: string)
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(outside .. "/inner"))
+  assert(Fs.write(outside .. "/inner/keep", "kept"))
+  assert(Fs.symlink(outside, tmp .. "/link"))
+  assert(Fs.remove_tree(tmp .. "/link"))
+  assert(Fs.exists(tmp .. "/link") == false and Fs.read(outside .. "/inner/keep") == "kept")
+  -- A directory of links to directories, and one of wide and deep names.
+  local tree = tmp .. "/deep"
+  local path = tree
+  for i = 1, 40 do path = path .. "/d" .. i end
+  assert(Fs.mkdirs(path))
+  for i = 1, 300 do
+    assert(Fs.write(tree .. "/f" .. i, "x"))
+    assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. i))
+  end
+  assert(Fs.remove_tree(tree))
+  assert(Fs.exists(tree) == false and Fs.read(outside .. "/inner/keep") == "kept")
+end
+
 --- A regular file comes back in the one read its size asks for, and a
 --- file that says nothing true of its size (/proc's) in chunks.
 local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: string)

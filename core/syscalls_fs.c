@@ -649,6 +649,82 @@ COSMIC_SYSCALL(chown, 3) {
 #endif
 }
 
+/* The most directories deep `remove_tree` goes, and the most passes over
+ * one directory it makes before it says the directory will not empty. */
+#define REMOVE_DEPTH_MAX 1000
+#define REMOVE_PASSES_MAX 64
+
+/* Removes `name` in the directory `parent` and, for a directory, all of
+ * it, and answers 0 or an errno. Every step is relative to a descriptor
+ * and never follows a link -- a directory is opened with O_NOFOLLOW from
+ * its parent's descriptor, a link is unlinked as itself -- so a process
+ * that swaps an entry for a link to somewhere else while this walks is
+ * deleted with, not followed. A name already gone is not a failure.
+ * Entries are removed in passes over a rewound directory, so one a pass
+ * misses to a concurrent change is found by the next. */
+static int remove_entry (int parent, const char *name, int depth) {
+  if (depth > REMOVE_DEPTH_MAX) return ENAMETOOLONG;
+  int fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) {
+    int number = errno;
+    if (number == ENOENT) return 0;
+    if (number != ENOTDIR && number != ELOOP) return number;
+    if (unlinkat(parent, name, 0) != 0 && errno != ENOENT) return errno;
+    return 0;
+  }
+  DIR *dir = fdopendir(fd);
+  if (dir == NULL) {
+    int number = errno;
+    close(fd);
+    return number;
+  }
+  int passes = 0;
+  for (;;) {
+    bool found = false;
+    rewinddir(dir);
+    for (;;) {
+      errno = 0;
+      struct dirent *entry = readdir(dir);
+      if (entry == NULL) {
+        if (errno != 0) {
+          int number = errno;
+          closedir(dir);
+          return number;
+        }
+        break;
+      }
+      if (is_dot_entry(entry->d_name)) continue;
+      found = true;
+      int here = dirfd(dir);
+      if (here < 0) {
+        closedir(dir);
+        return EBADF;
+      }
+      int number = remove_entry(here, entry->d_name, depth + 1);
+      if (number != 0) {
+        closedir(dir);
+        return number;
+      }
+    }
+    if (!found) break;
+    if (++passes >= REMOVE_PASSES_MAX) {
+      closedir(dir);
+      return ENOTEMPTY;
+    }
+  }
+  closedir(dir);
+  if (unlinkat(parent, name, AT_REMOVEDIR) != 0 && errno != ENOENT) return errno;
+  return 0;
+}
+
+COSMIC_SYSCALL(remove_tree, 1) {
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  int number = remove_entry(AT_FDCWD, path, 0);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+}
+
 static void release_dir (void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {

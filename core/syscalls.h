@@ -267,6 +267,15 @@ COSMIC_SYSCALL(rmdir, 1);
 COSMIC_SYSCALL(unlink, 1);
 
 /*
+ * --- Removes a path and, for a directory, everything beneath it: `rm -rf`. The walk is relative to descriptors and never follows a link -- a link is removed as itself, and an entry swapped for a link by a process still running while this walks is removed too, not followed -- so nothing outside the path is touched. A path already gone is not a failure. A directory it cannot open or that will not empty (something keeps making entries in it) fails, ENOTEMPTY or the open's errno; what was removed stays removed. The path's own directories above it are resolved as any path's are.
+ * ---@param path string the path to remove
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(remove_tree, 1);
+
+/*
  * --- Moves a name, replacing the destination if it exists.
  * ---@param from string the name to move
  * ---@param to string where to move it
