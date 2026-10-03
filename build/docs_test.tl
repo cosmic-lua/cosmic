@@ -171,7 +171,7 @@ end
 --- A module's listing shows each call with the first sentence of its
 --- doc, cut short past a glance, and the page ends by naming how to see
 --- a member's own page: through a call with an example where one has
---- one, as that page shows it.
+--- one, as that page shows it, though another is used more.
 local function test_a_module_listing_says_what_each_call_does(dir: string)
   local long = string.rep("word ", 30)
   local db = built(dir, fs_tree({
@@ -207,6 +207,23 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
   assert(lines[4] == "  record Fs  (1 example)", lines[4])
   assert(lines[#lines] ==
       "  a symbol's own page has its whole doc and its examples: cosmic docs Fs.write", lines[#lines])
+end
+
+--- A module that lists no call names none to see: its first
+--- declaration, its own record here, answers as the module itself.
+local function test_a_module_page_with_no_call_points_at_nothing(dir: string)
+  local db = built(dir, { ["cosmic/consts.tl"] = source(
+    "--- Constants.",
+    "",
+    "local record consts",
+    "  --- The most.",
+    "  limit: integer",
+    "end",
+    "",
+    "return consts") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.consts"))
+  local text = table.concat(assert(docs.render(view({ db }), found[1])), "\n")
+  assert(not text:find("own page", 1, true), text)
 end
 
 --- A module's listing shows each function's signature, so a reader need

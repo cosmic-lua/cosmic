@@ -1938,6 +1938,16 @@ local function listed(item: docs.Entry): string
     (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
 end
 
+--- Whether a module's page names call `a` rather than `b` as the way
+--- to a member's own page: one with an example over one without, then
+--- the more used.
+local function points_better(a: docs.Entry, b: docs.Entry): boolean
+  if (a.examples > 0) ~= (b.examples > 0) then
+    return a.examples > 0
+  end
+  return a.uses > b.uses
+end
+
 --- The first row `sql` finds in any of `view`'s databases: the databases
 --- are read whole, whatever they are public for, because a name a public
 --- page hands out (an alias, a base) stands for the record it points at
@@ -2190,9 +2200,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   -- of the long prose: a reader scanning for a call wants the shapes
   -- first, and the prose that follows explains their shared contract.
   local index: {string} = {}
-  -- The member a module's page ends by naming, as the way to see any
-  -- member's own page: the first call it lists with an example, else
-  -- the first call, else the first declaration.
+  -- The call a module's page ends by naming, as the way to see any
+  -- member's own page: the most used of those with an example, else
+  -- the most used. None where the module lists no call, whose first
+  -- declaration may be its own record, which answers as the module.
   local pointed: string
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
@@ -2225,12 +2236,9 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, item in ipairs(declared) do
       listed_symbols[item.symbol] = true
     end
-    local first_call, first_shown: string, string
+    local best: docs.Entry
     for _, item in ipairs(declared) do
-      if is_call(item) then
-        first_call = first_call or item.source_symbol
-        if item.examples > 0 then first_shown = first_shown or item.source_symbol end
-      end
+      if is_call(item) and (best == nil or points_better(item, best)) then best = item end
       index[#index + 1] = "  " .. listed(item)
       for _, member in ipairs(under[item.source_symbol] or {}) do
         if not listed_symbols[member.symbol] then
@@ -2238,7 +2246,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
         end
       end
     end
-    pointed = first_shown or first_call or (declared[1] ~= nil and declared[1].source_symbol or nil)
+    pointed = best ~= nil and best.source_symbol or nil
   end
   -- The listing goes after the first paragraph, or, when that ends in
   -- a colon, after the run of indented or fenced blocks it introduces
