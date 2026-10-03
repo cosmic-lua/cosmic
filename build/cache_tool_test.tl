@@ -44,7 +44,8 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   local started = this_program.program({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(0.2) })
   local result = assert(Child.run(started.argv, started.options))
-  assert(db:exec("ROLLBACK")); assert(db:close())
+  assert(db:exec("ROLLBACK"))
+  assert(db:close())
   assert(result.timed_out, "the live writer must block maintenance")
   assert(Fs.stat(path) ~= nil)
   db = assert(Sqlite.open(path))
@@ -105,6 +106,7 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   assert(result.code == 1 and not result.timed_out and elapsed < Time.seconds(2), result.stderr)
   assert(Json.decode(report) ~= nil and report:find('"state":"failed"', 1, true), report)
   assert(not report:find('"digest"', 1, true) and not report:find('"fresh"', 1, true), report)
-  assert(db:exec("ROLLBACK")); assert(db:close())
+  assert(db:exec("ROLLBACK"))
+  assert(db:close())
   assert(Fs.stat(path) ~= nil)
 end

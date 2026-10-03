@@ -385,7 +385,11 @@ function artifact.keyed_head(head: string): string
     if offset < was_end or length <= 0 or offset > manifest_offset - length then
       return head
     end
-    if shell_end < 0 then shell_end = offset else gaps[#gaps + 1] = head:sub(was_end + 1, offset) end
+    if shell_end < 0 then
+      shell_end = offset
+    else
+      gaps[#gaps + 1] = head:sub(was_end + 1, offset)
+    end
     local core = head:sub(offset + 1, offset + length)
     local image = core_image.digest(core)
     if image ~= nil then imaged = true end

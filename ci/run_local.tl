@@ -19,7 +19,10 @@ end
 
 local descriptor_mt: metatable<Descriptor> = {
   __close = function(self: Descriptor)
-    if self.fd >= 0 then local _, _ = Fs.close(self.fd); self.fd = -1 end
+    if self.fd >= 0 then
+      local _, _ = Fs.close(self.fd)
+      self.fd = -1
+    end
   end,
 }
 
@@ -31,8 +34,14 @@ end
 
 local runtime_mt: metatable<Runtime> = {
   __close = function(self: Runtime)
-    if self.fd >= 0 then local _, _ = Fs.close(self.fd); self.fd = -1 end
-    if self.path ~= "" then local _, _ = Fs.remove_tree(self.path); self.path = "" end
+    if self.fd >= 0 then
+      local _, _ = Fs.close(self.fd)
+      self.fd = -1
+    end
+    if self.path ~= "" then
+      local _, _ = Fs.remove_tree(self.path)
+      self.path = ""
+    end
   end,
 }
 
@@ -153,7 +162,8 @@ local function execute(argv: {integer:string}): integer
       core_slot = assert(math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_CORE_FD)))
       from = assert(relaunch.fds[core_slot], "relaunch names no core descriptor")
     else
-      source.fd = assert(Fs.open_read(relaunch.argv[1])); from = source.fd
+      source.fd = assert(Fs.open_read(relaunch.argv[1]))
+      from = source.fd
     end
     local native = runtime.path .. "/core"
     local output <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
@@ -162,10 +172,13 @@ local function execute(argv: {integer:string}): integer
     while true do
       local bytes = assert(sys.pread(from, 65536, offset))
       if #bytes == 0 then break end
-      assert(Fs.put(output.fd, bytes)); offset = offset + #bytes
+      assert(Fs.put(output.fd, bytes))
+      offset = offset + #bytes
     end
     assert(Fs.chmod(native, 0x16d))
-    local written = output.fd; output.fd = -1; assert(Fs.close(written))
+    local written = output.fd
+    output.fd = -1
+    assert(Fs.close(written))
     runtime.fd = assert(Fs.open_read(native))
     assert(Fs.chmod(runtime.path, 0x1c9))
   end
@@ -174,7 +187,8 @@ local function execute(argv: {integer:string}): integer
     local words: {string} = {}
     for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
     if runtime.fd >= 0 then words[1] = runtime.path .. "/core" end
-    words[#words + 1] = "-e"; words[#words + 1] = code
+    words[#words + 1] = "-e"
+    words[#words + 1] = code
     local child_env = copy(values or env)
     for name, value in pairs(relaunch.env) do child_env[name] = value end
     local fds: {integer:integer} = {}
@@ -210,10 +224,14 @@ local function execute(argv: {integer:string}): integer
   end
   assert(Fs.mkdirs(state))
   if credentials then
-    if env.COSMIC_CI_LOCAL == nil or env.COSMIC_CI_LOCAL == "" then assert(Fs.chmod(base, 0x1ed)) end
+    if env.COSMIC_CI_LOCAL == nil or env.COSMIC_CI_LOCAL == "" then
+      assert(Fs.chmod(base, 0x1ed))
+    end
     if assert(Fs.stat(state)).uid ~= credentials.user then reown(state, true) end
     for _, path in ipairs({ state .. "/home", state .. "/tmp" }) do
-      owned_root(path); assert(Fs.mkdirs(path)); reown(path, false)
+      owned_root(path)
+      assert(Fs.mkdirs(path))
+      reown(path, false)
     end
     env.HOME, env.TMPDIR = state .. "/home", state .. "/tmp"
     for _, name in ipairs({ "SSL_CERT_FILE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO" }) do
@@ -222,7 +240,8 @@ local function execute(argv: {integer:string}): integer
         local readable = probe("assert(require('cosmic.fs').open_read(" .. string.format("%q", path) .. "))")
         if not readable.ok then
           local ca = state .. "/ca"
-          owned_root(ca); assert(Fs.mkdirs(ca))
+          owned_root(ca)
+          assert(Fs.mkdirs(ca))
           assert(Fs.chmod(ca, 0x1ed))
           local to = ca .. "/" .. name .. ".pem"
           assert(Fs.write(to, assert(Fs.read(path)), 0x1a4))
@@ -248,20 +267,26 @@ local function execute(argv: {integer:string}): integer
     end
     zig_global = env.COSMIC_CI_LOCAL and env.COSMIC_CI_LOCAL ~= "" and state .. "/zig-global" or
       base .. "/zig-global-" .. tostring(credentials.user)
-    owned_root(zig_global); assert(Fs.mkdirs(zig_global))
+    owned_root(zig_global)
+    assert(Fs.mkdirs(zig_global))
     if assert(Fs.stat(zig_global)).uid ~= credentials.user then reown(zig_global, true) end
   end
 
   -- The phase project belongs to the driver, including its persistent
   -- database. Refresh every other entry, even on named-phase reruns.
-  owned_root(project); assert(Fs.mkdirs(project)); reown(project, false)
+  owned_root(project)
+  assert(Fs.mkdirs(project))
+  reown(project, false)
   successful(probe("local F=require('cosmic.fs'); local p=" .. string.format("%q", project) ..
     "; for _,n in ipairs(assert(F.list(p))) do if n~='o' then assert(F.remove_tree(p..'/'..n)) end end; " ..
     "local s=" .. string.format("%q", root .. "/ci") ..
     "; for _,n in ipairs(assert(F.list(s))) do if n~='o' then assert(F.copy_tree(s..'/'..n,p..'/'..n)) end end", env), "CI copy")
   local phases: {string} = {}
   local at = 1
-  while argv[at] ~= nil do phases[#phases + 1] = argv[at]; at = at + 1 end
+  while argv[at] ~= nil do
+    phases[#phases + 1] = argv[at]
+    at = at + 1
+  end
   if #phases == 0 then
     phases = { "build", "local-boundary", "darwin-suite", "sandbox", "assemble",
       "portable", "portable-boundary", "fixtures" }
@@ -278,12 +303,15 @@ local function execute(argv: {integer:string}): integer
     if phase == "build" then
       local index_dir = assert(sys.mkdtemp(fallback_value(caller_env, "TMPDIR", "/tmp") .. "/cosmic-ci-local-index.XXXXXX"))
       local worked, snapshot = pcall(function(): string
-        local values = copy(caller_env); values.GIT_INDEX_FILE = index_dir .. "/index"
+        local values = copy(caller_env)
+        values.GIT_INDEX_FILE = index_dir .. "/index"
         -- Keep the caller's tracked set, including force-added ignored files.
         -- A blank index would silently drop them when add applies ignores.
         local original = git_run({ "rev-parse", "--git-path", "index" })
         if original:sub(1, 1) ~= "/" then original = root .. "/" .. original end
-        if present(original) then assert(Fs.write(values.GIT_INDEX_FILE, assert(Fs.read(original)), 0x180)) end
+        if present(original) then
+          assert(Fs.write(values.GIT_INDEX_FILE, assert(Fs.read(original)), 0x180))
+        end
         git_run({ "add", "-A" }, values)
         local tree = git_run({ "write-tree" }, values)
         return git_run({ "commit-tree", tree, "-p", "HEAD" }, nil, "ci/run-local snapshot\n")
@@ -304,7 +332,8 @@ local function execute(argv: {integer:string}): integer
       say("candidate " .. snapshot .. " at " .. candidate)
     end
     assert(present(candidate), "no candidate; run the build phase first")
-    owned_root(state .. "/runner"); owned_root(state .. "/logs")
+    owned_root(state .. "/runner")
+    owned_root(state .. "/logs")
     successful(probe("local F=require('cosmic.fs'); assert(F.mkdirs(" ..
       string.format("%q", state .. "/runner") .. ")); assert(F.mkdirs(" ..
       string.format("%q", state .. "/logs") .. "))", env), "phase directories")
@@ -320,9 +349,11 @@ local function execute(argv: {integer:string}): integer
     local start = Time.monotonic_ns()
     local result, why = Child.run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
       { cwd = project, env = values, credentials = credentials, stdout = file.fd, stderr = file.fd })
-    local log = file.fd; file.fd = -1
+    local log = file.fd
+    file.fd = -1
     local closed, close_why = Fs.close(log)
-    assert(result, why); assert(closed, close_why)
+    assert(result, why)
+    assert(closed, close_why)
     local status = result.signal and 128 + result.signal or result.code or 1
     say(phase .. ": status " .. tostring(status) .. ", " ..
       tostring((Time.monotonic_ns() - start) // Time.seconds(1)) .. " s, log " .. path)
@@ -343,7 +374,8 @@ local function execute(argv: {integer:string}): integer
           end
           if line:match("^FAIL") or line:find(" FAIL", 1, true) or
             line:find("timed out", 1, true) or line:find("error", 1, true) then
-            Fs.put(Fs.stderr, line .. "\n"); lines = lines + 1
+            Fs.put(Fs.stderr, line .. "\n")
+            lines = lines + 1
           end
         end
       else
@@ -359,7 +391,10 @@ function Local.main(argv: {integer:string}): integer
   -- Keep cancellation caught until private-index/log cleanup completes.
   local _guard <close> = assert(Child.guard())
   local ok, answer = pcall(execute, argv)
-  if not ok then say(tostring(answer)); return 2 end
+  if not ok then
+    say(tostring(answer))
+    return 2
+  end
   return answer
 end
 

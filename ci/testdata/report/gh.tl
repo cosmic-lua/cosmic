@@ -36,7 +36,10 @@ end
 return function(argv: {integer:string}): integer
   local words: {string} = {}
   local i = 1
-  while argv[i] do words[#words + 1] = argv[i]; i = i + 1 end
+  while argv[i] do
+    words[#words + 1] = argv[i]
+    i = i + 1
+  end
   local calls = state .. "/calls"
   local logged = exists(calls) and read(calls) or ""
   write(calls, logged .. table.concat(words, " ") .. "\n")

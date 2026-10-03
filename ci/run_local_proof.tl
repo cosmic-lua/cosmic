@@ -33,7 +33,8 @@ function Proof.main(argv: {integer:string}): integer
     for _, name in ipairs((assert(Fs.list("/tmp")))) do
       if name:match("^cosmic%-local%-runtime%.") then names[#names + 1] = name end
     end
-    table.sort(names); return table.concat(names, "\n")
+    table.sort(names)
+    return table.concat(names, "\n")
   end
   local initial_scratch = runtime_scratch()
   local account = assert(Proc.user("nobody"))
@@ -96,11 +97,15 @@ printf 'error: fixture phase\n'
     local function git_run(args: {string}): string
       local words = { git, "-C", root }
       for _, word in ipairs(args) do words[#words + 1] = word end
-      local answer = command(words, env); good(answer)
+      local answer = command(words, env)
+      good(answer)
       return answer.stdout or ""
     end
-    git_run({ "init", "-q" }); git_run({ "add", "." }); git_run({ "commit", "-qm", "initial" })
-    assert(Fs.write(root .. "/tracked", "staged")); git_run({ "add", "tracked" })
+    git_run({ "init", "-q" })
+    git_run({ "add", "." })
+    git_run({ "commit", "-qm", "initial" })
+    assert(Fs.write(root .. "/tracked", "staged"))
+    git_run({ "add", "tracked" })
     local index = git_run({ "write-tree" })
     assert(Fs.write(root .. "/tracked", "working") and Fs.write(root .. "/untracked", "included"))
     assert(Fs.write(root .. "/ignored", "excluded"))
@@ -125,7 +130,8 @@ printf 'error: fixture phase\n'
     assert(Fs.read(outside .. "/keep") == "sentinel")
     for _, path in ipairs({ state .. "/external-link", candidate .. "/file-link",
         candidate .. "/dir-link", candidate .. "/dangling" }) do
-      local st = assert(sys.lstat(path)); assert(st.kind == "link" and st.uid == account.uid)
+      local st = assert(sys.lstat(path))
+      assert(st.kind == "link" and st.uid == account.uid)
     end
     assert(Fs.mkdirs(state .. "/ci/o") and Fs.write(state .. "/ci/o/keep", "kept"))
     assert(Fs.write(root .. "/ci/.hidden", "edited") and Fs.write(root .. "/tracked", "later"))

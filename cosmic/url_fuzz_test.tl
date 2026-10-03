@@ -153,7 +153,9 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
       local segs, why = Url.segments(path)
       if segs == nil then
         if not why:find("^url: ") then return false, "refused with " .. why end
-        if only_names then return false, ("refused %q, built of escaped names: %s"):format(path, why) end
+        if only_names then
+          return false, ("refused %q, built of escaped names: %s"):format(path, why)
+        end
         if why:find("'..'", 1, true) then Fuzz.label("climb refused") end
         Fuzz.label("refused")
         return true, ""
@@ -165,9 +167,13 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
         end
       end
       if only_names then
-        if #segs ~= #names then return false, ("%q answered %d segments, not %d"):format(path, #segs, #names) end
+        if #segs ~= #names then
+          return false, ("%q answered %d segments, not %d"):format(path, #segs, #names)
+        end
         for i, name in ipairs(names) do
-          if segs[i] ~= name then return false, ("%q answered %q for %q"):format(path, segs[i], name) end
+          if segs[i] ~= name then
+            return false, ("%q answered %q for %q"):format(path, segs[i], name)
+          end
         end
       end
       Fuzz.label(#segs == 0 and "root" or "segments")
@@ -196,14 +202,18 @@ local function test_parse_is_total(tmp: string)
         return true, ""
       end
       if why ~= "" then return false, "parsed with a reason: " .. why end
-      if not parts.scheme:find("^[a-z][a-z0-9+.-]*$") then return false, "scheme " .. parts.scheme end
+      if not parts.scheme:find("^[a-z][a-z0-9+.-]*$") then
+        return false, "scheme " .. parts.scheme
+      end
       if parts.host == "" or parts.host ~= parts.host:lower() or parts.host:find("[@%[%]/?#]") then
         return false, "host " .. parts.host
       end
       if parts.port ~= nil and (parts.port < 0 or parts.port > 65535) then
         return false, "port " .. parts.port
       end
-      if parts.path ~= "" and parts.path:sub(1, 1) ~= "/" then return false, "path " .. parts.path end
+      if parts.path ~= "" and parts.path:sub(1, 1) ~= "/" then
+        return false, "path " .. parts.path
+      end
       for _, piece in ipairs({ parts.scheme, parts.userinfo or "", parts.host, parts.path, parts.query or "",
           parts.fragment or "" }) do
         if piece:find("[\0-\32\127]") then return false, ("a part holds %q"):format(piece) end
@@ -257,7 +267,9 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
         { "fragment", parts.fragment or "-", fragment ~= "" and fragment:sub(2) or "-" },
       }
       for _, c in ipairs(checks) do
-        if c[2] ~= c[3] then return false, ("%q: %s is %q, not %q"):format(url, c[1], c[2], c[3]) end
+        if c[2] ~= c[3] then
+          return false, ("%q: %s is %q, not %q"):format(url, c[1], c[2], c[3])
+        end
       end
       if parts.userinfo ~= nil then Fuzz.label("userinfo") end
       if parts.port ~= nil then Fuzz.label("port") end

@@ -330,7 +330,10 @@ local function test_a_case_checks_the_one_input_it_names(tmp: string)
   local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
   local first: string
   for i = 1, #seen do
-    if seen[i]:find("\0", 1, true) then first = seen[i]; break end
+    if seen[i]:find("\0", 1, true) then
+      first = seen[i]
+      break
+    end
   end
   seen = {}
   local again = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul, case = case })

@@ -54,7 +54,9 @@ local function total(tz: string): boolean, string
     if not civil_ok then return false, ("civil(%d) raised: %s"):format(ns, tostring(c)) end
     if c.dst then Fuzz.label("daylight saving time") end
     local from_ok, back = pcall(Time.from_civil, c, zone)
-    if not from_ok then return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back)) end
+    if not from_ok then
+      return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back))
+    end
     if back ~= ns then
       return false, ("%s: civil(%d) read back as %s"):format(tz, ns, tostring(back))
     end
@@ -98,7 +100,9 @@ local function day(src: Fuzz.Source): string
   else
     text = ("M%d.%d.%d"):format(src:int(1, 12), src:int(1, 5), src:int(0, 6))
   end
-  if src:int(0, 1) == 1 then text = text .. "/" .. hms(src:int(-167, 167) * 3600 + src:int(0, 3599)) end
+  if src:int(0, 1) == 1 then
+    text = text .. "/" .. hms(src:int(-167, 167) * 3600 + src:int(0, 3599))
+  end
   return text
 end
 

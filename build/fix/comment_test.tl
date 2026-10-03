@@ -279,7 +279,12 @@ local function test_a_comment_between_code_on_one_line()
   keeps("if --[[ c ]] true then print(1) end\n")
   keeps("do --[[ c ]] local x = 2 end\n")
   keeps("do local x = 1 --[[ c ]] end\n")
-  keeps("print(1) --[[ c ]] print(2)\n")
+end
+
+--- A comment between two statements on one line goes with the second
+--- when the break between them is made, opening its line.
+local function test_a_comment_between_two_statements_opens_the_second_ones_line()
+  writes("print(1) --[[ c ]] print(2)\n", "print(1)\n--[[ c ]] print(2)\n")
 end
 
 --- A long comment that opens on the line above and closes on the
@@ -381,7 +386,7 @@ end
 --- would hang it on the next statement's.
 local function test_a_comment_before_a_semicolon_stays_before_it()
   keeps("local a = 1 --[[ x ]] ; -- y\nlocal b = 2\n")
-  keeps("f() --[[ x ]] ; g()\n")
+  writes("f() --[[ x ]] ; g()\n", "f() --[[ x ]] ;\ng()\n")
   keeps("local a = 1\n--[[ x ]] ; -- y\nlocal b = 2\n")
   keeps("local a = 1 --[[ x\n]] ; -- y\nlocal b = 2\n")
   keeps("do f() --[[ x ]] ; end\n")

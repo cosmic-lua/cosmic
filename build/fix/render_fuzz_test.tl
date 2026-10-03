@@ -89,7 +89,9 @@ end
 local function long_comment(g: Gen): string
   local k = g.src:int(1, 5)
   if k == 1 then return "--[[ " .. mark(g) .. " " .. pick(g, WORDS) .. " ]]" end
-  if k == 2 then return "--[[ " .. mark(g) .. "\n" .. pick(g, WORDS) .. "\n" .. indent(g) .. "]]" end
+  if k == 2 then
+    return "--[[ " .. mark(g) .. "\n" .. pick(g, WORDS) .. "\n" .. indent(g) .. "]]"
+  end
   if k == 3 then return "--[==[ " .. mark(g) .. " a ]] b ]==]" end
   if k == 4 then return "--[[" .. mark(g) .. "]]" end
   return "--[=[ " .. mark(g) .. "\n\n" .. indent(g) .. pick(g, WORDS) .. " ]=]"
@@ -450,7 +452,9 @@ local function statement(g: Gen, d: integer): string
     if chance(g, 2) then return out .. ":" .. gap(g) .. typ(g) end
     return out .. gap(g) .. "=" .. gap(g) .. expr(g, d)
   end
-  if k == 4 and d > 0 then return "local" .. gap(g) .. "function" .. gap(g) .. pick(g, NAMES) .. body(g, d) end
+  if k == 4 and d > 0 then
+    return "local" .. gap(g) .. "function" .. gap(g) .. pick(g, NAMES) .. body(g, d)
+  end
   if k == 5 and d > 0 then
     local name = pick(g, { "f", "M.f", "M.go", "M:m", "M.a.b" })
     local lead = name:find("[.:]") == nil and pick(g, { "global function ", "function " }) or "function "

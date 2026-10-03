@@ -56,7 +56,10 @@ local function test_uniform_draws_within_range_from_any_bit_source()
   -- Words are masked to 3 and rejected while past the span 2.
   local words = { 7, 3, 1 }
   local at = 0
-  local got = Rand.uniform(function(): integer at = at + 1; return words[at] end, 0, 2)
+  local got = Rand.uniform(function(): integer
+    at = at + 1
+    return words[at]
+  end, 0, 2)
   assert(got == 1 and at == 3, "rejection: " .. got .. " after " .. at)
   assert(not pcall(Rand.uniform, draw, 3, 2))
 end

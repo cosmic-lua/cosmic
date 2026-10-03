@@ -277,9 +277,12 @@ local function apply_pax(fields: {string:string}, f: Fields): boolean, string
       f.size = n
     elseif key == "mtime" then
       f.mtime = math.tointeger(math.floor(tonumber(value) or f.mtime)) or f.mtime
-    elseif key == "uid" then f.uid = math.tointeger(tonumber(value)) or f.uid
-    elseif key == "gid" then f.gid = math.tointeger(tonumber(value)) or f.gid
-    elseif key:sub(1, 11) == "GNU.sparse." then f.sparse = true
+    elseif key == "uid" then
+      f.uid = math.tointeger(tonumber(value)) or f.uid
+    elseif key == "gid" then
+      f.gid = math.tointeger(tonumber(value)) or f.gid
+    elseif key:sub(1, 11) == "GNU.sparse." then
+      f.sparse = true
     end
   end
   return true, ""

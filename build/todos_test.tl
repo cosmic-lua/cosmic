@@ -281,7 +281,9 @@ local function test_own_tree_scans_github_for_todos()
   assert(work.stage(handle, true))
   local listed = assert(todos.list(handle.db, root)).todos
   local seen: {string} = {}
-  for _, todo in ipairs(listed) do seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text end
+  for _, todo in ipairs(listed) do
+    seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
+  end
   assert(table.concat(seen, "|") == ".github/actions/driver/action.yml:2: lint these steps|" ..
     ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
   local rows = assert(Sqlite.text_rows(handle.db,

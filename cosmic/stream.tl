@@ -1102,8 +1102,11 @@ function ToFdWriter:write(data: string): boolean, string
     -- Handed in pieces, so a body of any size is not copied whole
     -- each time a descriptor that takes it in parts takes one.
     local piece = data
-    if #data > chunk_size then piece = data:sub(at + 1, at + chunk_size)
-    elseif at > 0 then piece = data:sub(at + 1) end
+    if #data > chunk_size then
+      piece = data:sub(at + 1, at + chunk_size)
+    elseif at > 0 then
+      piece = data:sub(at + 1)
+    end
     local put, trouble, errno = sys.write(fd, piece)
     if put ~= nil then
       if put == 0 then

@@ -338,7 +338,9 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
       local teal_in_c = kind == "c" and (block_lines[span.line] or ""):match("^%s*%-%-") ~= nil
       if not defined[key] and not teal_in_c and at > 0 and
           body:sub(at, at + #span.written - 1) == span.written then
-        local function declared(): link_text.Declared return known().at(block.line + span.line - 1) end
+        local function declared(): link_text.Declared
+          return known().at(block.line + span.line - 1)
+        end
         local target = link_resolve.linkable(resolver, absolute, span.content, declared, module_level,
           markdown)
         if target ~= nil then

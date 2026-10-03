@@ -1125,7 +1125,9 @@ local function waiting_read(self: PipeReader, max_bytes?: integer): string | nil
 end
 
 function PipeReader:read(max_bytes?: integer): string | nil, string
-  if max_bytes ~= nil and max_bytes < 1 then error("child: read's max_bytes must be positive", 2) end
+  if max_bytes ~= nil and max_bytes < 1 then
+    error("child: read's max_bytes must be positive", 2)
+  end
   local pipe = self.pipe
   if pipe.consuming then error("child: output is already being consumed", 2) end
   if self.failed ~= "" then return nil, self.failed end
@@ -1708,7 +1710,9 @@ end
 local function validate(argv: {string}, opts: Options)
   if #argv == 0 then error("child: argv is empty", 3) end
   for i, value in ipairs(argv) do
-    if type(value) ~= "string" then error("child: argv[" .. tostring(i) .. "] must be a string", 3) end
+    if type(value) ~= "string" then
+      error("child: argv[" .. tostring(i) .. "] must be a string", 3)
+    end
     without_nul(value, "argv[" .. tostring(i) .. "]")
   end
   if opts.cwd ~= nil then without_nul(opts.cwd, "cwd") end
@@ -1727,7 +1731,9 @@ local function validate(argv: {string}, opts: Options)
   descriptor(opts.stderr, "stderr", STDERR_WORDS)
   if opts.input ~= nil then
     if type(opts.input) ~= "string" then error("child: input must be a string", 3) end
-    if stdin ~= "inherit" then error("child: input and a stdin of its own exclude each other", 3) end
+    if stdin ~= "inherit" then
+      error("child: input and a stdin of its own exclude each other", 3)
+    end
   end
   if opts.fds ~= nil then
     for number, value in pairs(opts.fds) do

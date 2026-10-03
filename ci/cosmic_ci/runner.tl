@@ -87,9 +87,13 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
       trouble = limited(trouble or "child operation failed"), elapsed_ns = elapsed }
   end
   local status, code = "exit", result.code or 1
-  if result.timed_out then status, code = "timeout", 124
-  elseif result.ok then status, code = "success", 0
-  elseif result.signal then status, code = "signal", 128 + result.signal end
+  if result.timed_out then
+    status, code = "timeout", 124
+  elseif result.ok then
+    status, code = "success", 0
+  elseif result.signal then
+    status, code = "signal", 128 + result.signal
+  end
   return { result = result, status = status, code = code, elapsed_ns = elapsed }
 end
 
