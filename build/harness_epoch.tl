@@ -103,11 +103,11 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "08b0e817376c03fe90737c8bb26d6ae1400dadd9d61b23d00c1b0f1051ad8771",
 
-  ["build.shared_sqlite"] = "59af0c02d7e7d5360b32af0dd1c188ba9dbf91d949561fc8c2df59106fecef73",
+  ["build.shared_sqlite"] = "e252145787655cec0a42a689236fffbabd5da03f12a676a8ce41f1586476efb5",
 
-  ["build.shared_verdicts"] = "487a85fad390fba8d80b891feb9f3f74976b9b8d9fde404c0495f66be30e6373",
+  ["build.shared_verdicts"] = "499c0437c13bf5ba76a1d37a92ff51868fa2f99a9d105b99b1a575767e8a9dee",
 
-  ["build.test"] = "8b12f1d0ec500c32c3fda5d8c482c00b1776601a0b54217d6ee915d7ddddf0bc",
+  ["build.test"] = "4c6b622278b575131e4484cd6e941da6df5f5575064fc2af09e1578b84657e7a",
 
   ["build.test_inputs"] = "7ba0aca1f094189995ea5600f91b46e6c1314e825fab2f913da1fd31f03c91ee",
 
@@ -160,7 +160,7 @@ harness_epoch.library = {
   ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
     "it: the launcher's template (`build.launcher`), the runtime identity " ..
     "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
-    "header (`build.artifact`), cache set-aside names (`build.shared_sqlite`) and " ..
+    "header (`build.artifact`) and " ..
     "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",

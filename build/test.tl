@@ -1326,13 +1326,10 @@ local function drop_shared(rec: Recording, trouble: string)
   local path = rec.shared.path
   shared_verdicts.close(rec.shared)
   rec.shared = nil
-  local aside = ""
-  if shared_verdicts.corrupt(trouble) then
-    local moved, _ = shared_verdicts.set_aside(path, Time.now_ns())
-    if moved ~= nil then aside = "; moved aside to " .. moved end
-  end
+  -- TODO: retire broken caches automatically once cache-wide lifetime
+  -- ownership and identity checks can exclude concurrent users and replacements.
   log:complain("test: shared verdicts: " .. path .. ": " .. trouble ..
-    "; running without them" .. aside)
+    "; running without them")
 end
 
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
@@ -2771,12 +2768,7 @@ local function run(argv: {integer:string}): integer
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end
   if rec.shared == nil and cache_trouble ~= "" then
-    local aside = ""
-    if cache_path ~= nil and shared_verdicts.corrupt(cache_trouble) then
-      local moved, _ = shared_verdicts.set_aside(cache_path, Time.now_ns())
-      if moved ~= nil then aside = "; moved aside to " .. moved end
-    end
-    log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them" .. aside)
+    log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them")
   end
   local by_path: {string:importer.Module} = {}
   for _, m in ipairs(result.modules) do by_path[m.path] = m end

@@ -1,6 +1,5 @@
 --- The SQLite file the shared caches keep (build/shared_sqlite.tl):
---- opened in write-ahead mode, a busy answer told from a broken file,
---- and a broken file moved aside so the next open starts afresh.
+--- opened in write-ahead mode, with a bounded wait on other writers.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -11,16 +10,6 @@ local String = require("cosmic.string")
 --- A `prepare` that makes one table, as each cache makes its own.
 local function prepare(db: Sqlite.Handle): boolean, string
   return db:exec("CREATE TABLE IF NOT EXISTS kept (key TEXT PRIMARY KEY)")
-end
-
---- A broken file is corrupt, and a lock held or a table missing is
---- not: only a corrupt answer moves a cache aside.
-local function test_only_a_broken_file_is_corrupt()
-  assert(shared_sqlite.corrupt("database disk image is malformed"))
-  assert(shared_sqlite.corrupt("file is not a database"))
-  assert(not shared_sqlite.corrupt("database is locked"))
-  assert(not shared_sqlite.corrupt("database table is busy"))
-  assert(not shared_sqlite.corrupt("no such table: kept"))
 end
 
 --- A cache opened is in write-ahead mode and prepared; a `prepare`
@@ -48,37 +37,17 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   assert(Fs.stat(path .. "-wal") == nil, "a failed open left its connection open")
 end
 
---- A broken file is answered as corrupt, and set aside with its log and
---- its index -- an earlier file set aside removed -- so the next open
---- starts a fresh cache.
-local function test_a_corrupt_cache_is_set_aside_and_started_afresh(tmp: string)
+--- Opening a broken file reports its path and leaves its bytes in place.
+local function test_a_broken_cache_is_left_in_place(tmp: string)
   local path = tmp .. "/cache.db"
-  assert(Fs.write(path, string.rep("\xff", 8192)))
+  local bytes = string.rep("\xff", 8192)
+  assert(Fs.write(path, bytes))
+  local before = assert(Fs.stat(path))
   local db, trouble = shared_sqlite.open(path, prepare)
-  assert(db == nil and shared_sqlite.corrupt(trouble), trouble)
-  assert(String.starts_with(trouble, path .. ": "), trouble)
-  -- What another run left beside it, written after the refused open,
-  -- whose close may remove a log and index it finds.
-  assert(Fs.write(path .. "-wal", "log"))
-  assert(Fs.write(path .. "-shm", "index"))
-  assert(Fs.write(path .. ".corrupt-1", "older"))
-  local aside = assert(shared_sqlite.set_aside(path, 2))
-  assert(aside == path .. ".corrupt-2", aside)
-  assert(Fs.read(aside) == string.rep("\xff", 8192))
-  assert(Fs.read(aside .. "-wal") == "log" and Fs.read(aside .. "-shm") == "index")
-  assert(Fs.stat(path .. ".corrupt-1") == nil, "an earlier file set aside was kept")
-  for _, gone in ipairs({ path, path .. "-wal", path .. "-shm" }) do
-    assert(Fs.stat(gone) == nil, gone .. " was left behind")
-  end
-  local fresh = assert(shared_sqlite.open(path, prepare))
-  assert(Sqlite.text_rows(fresh, "SELECT key FROM kept"))
-  fresh:close()
-end
-
---- A file with nothing to set aside answers why.
-local function test_setting_aside_no_file_says_why(tmp: string)
-  local aside, trouble = shared_sqlite.set_aside(tmp .. "/none.db", 1)
-  assert(aside == nil and trouble ~= "", trouble)
+  assert(db == nil and String.starts_with(trouble, path .. ": "), trouble)
+  local after = assert(Fs.stat(path))
+  assert(after.ino == before.ino and after.dev == before.dev)
+  assert(Fs.read(path) == bytes)
 end
 
 --- How long an open of the rollback-mode cache at `path` took, in
@@ -110,14 +79,12 @@ local gave_up_late_ns <const> = Time.seconds(5)
 --- A cache another connection is writing, before it is in write-ahead
 --- mode, is answered locked at once by SQLite, which calls no busy
 --- handler: the switch is tried again until the wait has passed, then
---- answered busy, not corrupt, so no build sets aside a file another is
---- writing.
+--- answered busy.
 local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp: string)
   local wait_ns = Time.ms(100)
   local waited, trouble = held_open(tmp .. "/cache.db",
     { "BEGIN IMMEDIATE", "INSERT INTO held (x) VALUES (1)" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
-  assert(not shared_sqlite.corrupt(trouble), trouble)
   assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
   assert(waited < gave_up_late_ns, "answered busy after " .. waited .. " ns")
 end
