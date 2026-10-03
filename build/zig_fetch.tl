@@ -51,6 +51,10 @@ end
 --- new wrapper before its owner is locked. Expensive work runs outside it.
 --- Kept here because this standalone script can load only the pinned
 --- release's cosmic.* modules, not another module from the checkout.
+-- TODO: once cosmic.fs carries a scratch-directory helper (the gate, the
+-- owner lock, the sweep of dead owners) and ci/cosmic-driver.pin names a
+-- release that has it, take this from it, and build/patch.tl's identical
+-- copy with it.
 local record Descriptor
   fd: integer
   metamethod __close: function(Descriptor)

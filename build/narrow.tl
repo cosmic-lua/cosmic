@@ -9,8 +9,9 @@ end
 
 --- `path` with each "." and empty component dropped and each ".."
 --- taking the one before it away, lexically: a ".." with nothing before
---- it to take stays, but none climbs above "/".
-local function lexical(path: string): string
+--- it to take stays, but none climbs above "/". No link is followed, so
+--- it names what may not exist.
+function narrow.lexical(path: string): string
   local parts: {string} = {}
   for part in path:gmatch("[^/]+") do
     if part == ".." then
@@ -36,7 +37,7 @@ end
 function narrow.paths(root: string, words: {string}): {string}
   local out: {string} = {}
   for _, word in ipairs(words) do
-    local path = lexical(word)
+    local path = narrow.lexical(word)
     local absolute, _ = Fs.absolute(word)
     if absolute ~= nil then
       local rest, _ = Fs.relative(absolute, root)

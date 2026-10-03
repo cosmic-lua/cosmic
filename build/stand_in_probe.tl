@@ -86,6 +86,10 @@ local function append(path: string, data: string): integer
   return nil
 end
 
+-- TODO: once cosmic.child carries the shell's status of a Result, take it
+-- from there: Zig.child_status (build/zig.tl, which also needs
+-- ci/cosmic-driver.pin to name a release that has it) and several other
+-- scripts spell the same rule.
 local function status_of(result: Child.Result): integer
   if result.signal ~= nil then return 128 + result.signal end
   return result.code or 1

@@ -93,7 +93,9 @@ function Vendor.is_direct_rewrite(argv: {integer:string}): boolean
   return argv[1] ~= nil and argv[2] ~= nil and argv[1]:find("/", 1, true) ~= nil
 end
 
---- The repository root, from this script's own path, `argv[0]`.
+--- The repository root, from this script's own path, `argv[0]`. Like
+--- build/zig.tl's, which names itself in its messages: each runs standalone
+--- on cosmic.* modules alone, so neither can load the other's.
 function Vendor.repo_root(script_path: string): string | nil, string
   if script_path == nil then
     return nil, "expected to run as .../build/vendor.tl"
