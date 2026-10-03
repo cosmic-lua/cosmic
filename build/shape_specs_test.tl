@@ -19,6 +19,11 @@ if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))
 end
 
+-- TODO: a one-file fixture's importer.compile takes about 1.9 s on the
+-- release core and five times that on the checked one, so a test of a
+-- few fixtures runs past the default 30 s there; find what it spends on and
+-- share it across this module's compiles.
+
 --- Compiles a fixture project of `files` (name -> source) and answers
 --- the Lua of its module `path`, or what the compile refused.
 local function compiled(case: string, files: {string: string}, path: string): string | nil, string
