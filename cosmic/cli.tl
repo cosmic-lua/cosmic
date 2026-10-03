@@ -202,8 +202,8 @@ local record Cli
   --- what is under `users[1]` -- with no script to write. It reads the
   --- file, or standard input when the file is `-` or absent, and prints
   --- the value at the path as JSON, indented, or on one line with
-  --- `--compact`; a string prints as its text with `-r`. A path reads
-  --- as the paths the JSON messages print: `$` is the document, then
+  --- `--compact`; a string prints as its text with `-r`. A path is this
+  --- verb's own, not yet JSONPath: `$` is the document, then
   --- `.key` or `["a key"]` and `[1]`, counted from 1
   --- (`$.users[1].name`); with a file after it, a first key
   --- needs no dot (`a.b`), and whitespace in a path is part of a key.
