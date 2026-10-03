@@ -420,7 +420,7 @@ local function module_symbol(db: Sqlite.Handle, public: boolean,
                              module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
-      symbols.shown_docs("d", public) .. " ORDER BY d.exported DESC, d.id LIMIT 1",
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.exported DESC, d.id LIMIT 1",
     { text(module) })
   if rows == nil then
     return nil, trouble
@@ -434,7 +434,7 @@ end
 local function named(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
-      " AND " .. symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id",
+      " AND " .. symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
     { text(query) })
   if rows == nil then
     return nil, trouble
@@ -457,7 +457,7 @@ local function named_all(db: Sqlite.Handle, public: boolean,
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.symbol IN (" ..
       table.concat(placeholders, ", ") .. ") AND " ..
-      symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id",
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
     args)
   if rows == nil then
     return nil, trouble
@@ -493,7 +493,7 @@ local function declared_in(db: Sqlite.Handle, public: boolean, module: string): 
       "d.signature GLOB d.symbol || ': function(*')) AND " ..
       "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
       "NOT " .. symbols.local_declaration("d") .. " AND " ..
-      symbols.shown_docs("d", public) .. " ORDER BY d.id",
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.id",
     { text(module) })
   if rows == nil then
     return nil, trouble
@@ -509,7 +509,7 @@ local function members_of(db: Sqlite.Handle, public: boolean,
                           module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
-      "d.kind IN ('field', 'value') AND " .. symbols.shown_docs("d", public) ..
+      "d.kind IN ('field', 'value') AND " .. symbols.shown_in(db, "d", public) ..
       " ORDER BY d.id",
     { text(module) })
   if rows == nil then
@@ -525,7 +525,7 @@ local function modules_of(db: Sqlite.Handle, public: boolean): {docs.Entry} | ni
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE (d.symbol = '' OR " ..
       "(d.kind = 'record' AND d.symbol NOT LIKE '%.%' AND d.text <> '')) AND " ..
-      symbols.shown_docs("d", public) .. " ORDER BY d.module, d.line",
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.line",
     {})
   if rows == nil then
     return nil, trouble
@@ -604,7 +604,7 @@ local function stand_ins(db: Sqlite.Handle, public: boolean,
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module <> 'cosmic.sys' " ..
       "AND d.kind IN ('function', 'method') AND d.exported = 1 AND lower(d.text) GLOB ?1 AND " ..
-      symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id LIMIT 20",
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id LIMIT 20",
     { text(spelled_as_code(name)) })
   if rows == nil then
     return nil, trouble
@@ -628,7 +628,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
         "WHERE docs_fts MATCH ?1 AND d.source_symbol GLOB ?4 AND d.exported = 1 AND " ..
-        symbols.shown_docs("d", public) ..
+        symbols.shown_in(db, "d", public) ..
         " ORDER BY " .. STANDS_IN_SQL .. " DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
       { text(fts), text(spelled_as_code(lead_word(name))), text(lead_word(name):lower()),
         text(member) })
@@ -642,7 +642,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol GLOB ?1 " ..
       "AND d.kind IN ('function', 'method') AND d.exported = 1 AND " ..
-      symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id",
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
     { text(member) })
   if rows == nil then
     return nil, trouble
@@ -679,7 +679,7 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT d.id, bm25(docs_fts, " .. DOCS_WEIGHTS .. ") FROM docs_fts " ..
         "JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ?1 AND " ..
-        symbols.shown_docs("d", public), { text('"' .. word .. '"') })
+        symbols.shown_in(db, "d", public), { text('"' .. word .. '"') })
     if rows == nil then
       return nil, trouble
     end
@@ -778,7 +778,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. ", d.id FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
-      "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_docs("d", public) ..
+      "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_in(db, "d", public) ..
       " ORDER BY " .. stands_in .. "lower(d.symbol) IN (" .. table.concat(hits, ", ") ..
       ") DESC, (d.symbol = '' AND NOT (" .. table.concat(module_hit, " OR ") ..
       ")), " .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
@@ -1617,7 +1617,7 @@ local function member_of(view: docs.View, module: string, name: string): {docs.E
     return {}, ""
   end
   local db = view.databases[owner]
-  local shown = symbols.shown_docs("d", view.public[owner] == true)
+  local shown = symbols.shown_in(db, "d", view.public[owner] == true)
   local dotted = name:gsub(":", ".")
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.member_where("d") .. " AND " ..

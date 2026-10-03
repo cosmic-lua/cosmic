@@ -2342,3 +2342,77 @@ local function test_helpers_stay_when_the_calls_are_dropped(dir: string)
   assert(not other:find("Thing.declare", 1, true), other)
   assert(other:find('    local Thing = require("cosmic.thing")\n\n    local function again()', 1, true), other)
 end
+
+--- What a lookup answers, an entry to a line, in order.
+local function listed(found: docs.Lookup): string
+  local lines: {string} = { tostring(found.exact) }
+  for _, entry in ipairs(found) do
+    lines[#lines + 1] = entry.module .. " " .. entry.symbol .. " " .. entry.source_symbol ..
+      " " .. entry.kind .. " " .. tostring(entry.uses)
+  end
+  return table.concat(lines, "\n")
+end
+
+--- A lookup finds the same rows through the indexes of `docs` as with
+--- none, as in a database written before they existed, a public view's
+--- hiding of a module's `local` declarations included; and finding a
+--- name reads its candidates through the index of last names.
+local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/box.tl"] = source(
+      "local record Box",
+      "end",
+      "",
+      "--- Makes it larger.",
+      "function Box:grow(by: integer)",
+      "end",
+      "",
+      "--- Reads it, privately.",
+      "local function read(): string",
+      "  return \"\"",
+      "end",
+      "",
+      "--- Reads it.",
+      "function Box.read(): string",
+      "  return read()",
+      "end",
+      "",
+      "return Box"),
+  }))
+  local plan = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN SELECT d.symbol FROM docs d WHERE " ..
+      symbols.named_where("d"), { { text = "grow" } }))
+  local steps: {string} = {}
+  for _, row in ipairs(plan) do steps[#steps + 1] = row[#row] end
+  assert(table.concat(steps, "\n"):find("docs_by_last_name", 1, true) ~= nil,
+    table.concat(steps, "\n"))
+  local queries = { "read", "Fs.read", "grow", "Box.grow", "Box:grow", "cosmic.fs", "fs", "box",
+    "cosmic.box", "write", "Box", "nothing" }
+  local function every(public: boolean): {string}
+    local out: {string} = {}
+    local looked = assert(docs.view({ db }, { public }))
+    for _, query in ipairs(queries) do
+      local found, trouble = docs.lookup(looked, query)
+      out[#out + 1] = query .. ": " .. (found ~= nil and listed(found) or "nil " .. trouble)
+    end
+    return out
+  end
+  local indexed_public, indexed_private = every(true), every(false)
+  local names = assert(Sqlite.text_rows(db,
+    "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
+  assert(#names == 5, tostring(#names))
+  -- The fixture's handle is read-only; a writable one on its file drops
+  -- them, which the read-only handle reads on its next query.
+  local files = assert(Fs.list(dir))
+  local path: string = nil
+  for _, name in ipairs(files) do
+    if name:match("^cosmic%-%d+%.db$") then path = dir .. "/" .. name end
+  end
+  local writable = assert(Sqlite.open(assert(path), { writable = true }))
+  for _, row in ipairs(names) do assert(writable:exec("DROP INDEX " .. row[1])) end
+  assert(writable:close())
+  local plain_public, plain_private = every(true), every(false)
+  for index, line in ipairs(indexed_public) do
+    assert(line == plain_public[index], line .. "\n--\n" .. plain_public[index])
+    assert(indexed_private[index] == plain_private[index], indexed_private[index])
+  end
+end
