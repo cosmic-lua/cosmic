@@ -4,7 +4,11 @@
 --- [`items`]), the values a pattern matches ([`select`]), every leaf as a
 --- `path = value` line ([`flatten`], [`flat_line`]) and a document's shape
 --- at a glance ([`describe`]). A path is spelled as [`child_path`] spells
---- it, which is how [`Json.encode`]'s own messages name where a value is.
+--- it, its indices counted from 1.
+-- TODO: this path is no JSONPath: `$.users[1]` is the first user here and
+-- the second to Json.query, and the messages of cosmic.json name a JSON
+-- Pointer. Read paths and patterns with Json.query, select with
+-- Json.select, and print each match's place as Json.path writes it.
 
 local Json = require("cosmic.json")
 

@@ -235,14 +235,11 @@ local module: Module = {
     ["cosmic.json.encode_lines"] = "use Json.encode(value) for each value, joined by " ..
       "\"\\n\" and ended by one (" .. json .. ")",
     ["cosmic.json.parse_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "and `cosmic sql --at` call; a script indexes the value Json.decode answers " ..
-      "directly, `doc.users[1].name` for `$.users[1].name` (" .. json .. ")",
+      "and `cosmic sql --at` call; Json.from_path reads a JSONPath query as steps, " ..
+      "and Json.get follows them (" .. json .. ")",
     ["cosmic.json.parse_pattern"] = "moved to build.json_query, which only `cosmic json` " ..
       "calls; `cosmic json '$..id' file` lists the values a pattern matches",
     ["cosmic.json.spell_pattern"] = "moved to build.json_query, which only `cosmic json` calls",
-    ["cosmic.json.select"] = "moved to build.json_query, which only `cosmic json` calls; " ..
-      "`cosmic json '$..id' file` lists the values a pattern matches, and a script " ..
-      "walks the value Json.decode answers (" .. json .. ")",
     ["cosmic.json.flatten"] = "moved to build.json_query, which only `cosmic json` calls; " ..
       "`cosmic json --flat file` prints every leaf as a `path = value` line",
     ["cosmic.json.flat_line"] = "moved to build.json_query, which only `cosmic json` calls; " ..
@@ -250,12 +247,8 @@ local module: Module = {
     ["cosmic.json.describe"] = "moved to build.json_query, which only `cosmic json` calls; " ..
       "`cosmic json --shape file` prints a document's shape",
     ["cosmic.json.child_path"] = "moved to build.json_query, which only `cosmic json` " ..
-      "calls; spell a path by concatenating its steps, Json.quote(key) for a key that is no word (" ..
+      "calls; Json.pointer and Json.path write steps as a JSON Pointer or a JSONPath (" ..
       json .. ")",
-    ["cosmic.json.get"] = "moved to build.json_query, which only `cosmic json` and " ..
-      "`cosmic sql --at` call; a script indexes the table Json.decode_object or " ..
-      "Json.decode_array answers directly, `doc.users[1].name`, and finds a missing " ..
-      "key as nil (" .. json .. ")",
     ["cosmic.json.entries"] = "moved to build.json_query, which only `cosmic json` and " ..
       "`cosmic sql --at` call; Json.decode_object answers the outermost object as a " ..
       "map to loop over with pairs; `value is {string: any}` narrows a field to a " ..
@@ -287,7 +280,8 @@ local module: Module = {
       "failure; a config whose author wants every mistake runs again after fixing each (" ..
       shape .. ")",
     ["cosmic.shape.Failure"] = "Shape.into(value, spec) answers the first failure as one " ..
-      "message, its path first (`$.rows[2].id: expected string, got integer`) (" .. shape .. ")",
+      "message, its place first (`pointer \"/rows/1/id\": expected string, got integer`) (" ..
+      shape .. ")",
     ["cosmic.shape.either"] = "use Shape.one_of(...) for literal alternatives, or call " ..
       "Shape.into once for each form the value may take and keep the first that answers " ..
       "a value (" .. shape .. ")",
