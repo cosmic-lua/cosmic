@@ -685,6 +685,18 @@ local function test_a_start_timeout_ends_the_child_a_wait_waits_on()
   assert(r.code == 3 and not r.timed_out)
 end
 
+--- A `timeout_ns` of 0 is not "no limit": the first wait on the child
+--- ends it, [`Child.run`]'s at once.
+local function test_a_timeout_of_0_ends_the_child_at_the_first_wait()
+  local began = Time.monotonic_ns()
+  local r = assert(Child.run(lua(sleep(30000), nil, { timeout_ns = 0 })))
+  assert(r.timed_out and not r.ok, "a run with a timeout of 0 was not ended for it")
+  assert(about(began, 0), ms_since(began))
+  local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = 0 })))
+  local look = assert(h:try_wait())
+  assert(look.finished and look.result.timed_out, "the first try_wait left the child running")
+end
+
 --- [`Child.wait_any`] ends a handle whose start's deadline passes while
 --- it waits, and answers it settled; its own shorter timeout ends no
 --- child, and a `wait` shorter than the deadline ends its child its own
