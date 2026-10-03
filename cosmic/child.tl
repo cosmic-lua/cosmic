@@ -1,5 +1,15 @@
 --- Bounded child-process supervision with explicit argv, environment,
---- directory and descriptors.
+--- directory and descriptors. A child started with [`Child.start`]
+--- keeps running if a signal ends this process, which then never closes
+--- its handle: only [`Child.run`] holds SIGINT and SIGTERM for you. A
+--- supervisor takes a [`Child.guard`] and asks `g:cancelled()` after
+--- each round of [`Child.wait_any`] or `h:try_wait`, which do not read
+--- the guard. Once one is caught, it closes its handles, ending their
+--- children, and calls `g:release()` -- not `g:close()`, which delivers
+--- the signal again and so ends this process -- before it prints its
+--- report and exits non-zero, as the `supervisor` example in
+--- [`cosmic/child_example.tl`] does (`cosmic docs Child.wait_any` shows
+--- it).
 ---
 --- A child owns a new process group by default, and its Handle owns
 --- that group: once a wait, a timeout, or a close has an answer, no
@@ -197,7 +207,8 @@ local record Options
   --- The child's whole environment, by name: it replaces this process's
   --- rather than adding to it. Nil inherits this process's.
   env: {string:string}
-  --- The directory the child starts in. Nil inherits this process's.
+  --- The directory the child starts in; nil for this process's own
+  --- directory. An empty one raises.
   cwd: string
   --- A descriptor, or "inherit" (the default), "null" or "stream", whose
   --- Writer is the handle's `stdin_stream`. A pipe to stdin, this one
@@ -230,7 +241,7 @@ local record Options
   --- How long the child may run, from its start, before it is ended as
   --- an expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
   --- SIGKILL, its group included -- its Result `timed_out`. Nil for no
-  --- limit. [`Child.run`]'s wait ends the child at it. A started child
+  --- limit, not 0, which ends it at the first wait on it. [`Child.run`]'s wait ends the child at it. A started child
   --- is ended for it by whatever waits on it once it has passed: its
   --- handle's `wait` (with a timeout of its own or not), [`try_wait`],
   --- [`Child.wait_any`], or a read or write of its streams. A child that
@@ -1715,6 +1726,9 @@ local function validate(argv: {string}, opts: Options)
     end
     without_nul(value, "argv[" .. tostring(i) .. "]")
   end
+  if opts.cwd == "" then
+    error("child: cwd is empty; leave it nil to start in this process's directory", 3)
+  end
   if opts.cwd ~= nil then without_nul(opts.cwd, "cwd") end
   if opts.env ~= nil then
     for name, value in pairs(opts.env) do
@@ -1907,6 +1921,17 @@ local function unfound_name(name: string, cwd?: string): boolean
   return found == nil
 end
 
+--- Whether `opts.cwd` is given and missing as this process sees it --
+--- not there, rather than closed to it -- so that a start that failed
+--- ENOENT or ENOTDIR failed on it. Not for a sandbox that unveils, whose
+--- child finds the directory in a root of its own, where `at` may bind
+--- it under another name.
+local function missing_cwd(opts: Options): boolean
+  if opts.cwd == nil or (opts.sandbox ~= nil and opts.sandbox.unveil ~= nil) then return false end
+  local there, _, errno = sys.stat(opts.cwd)
+  return there == nil and (errno == sys.ENOENT or errno == sys.ENOTDIR)
+end
+
 --- Why a start that failed with EINVAL or EMFILE may have failed: the
 --- descriptors it places above the highest it hands the child are
 --- refused past RLIMIT_NOFILE's soft limit, which a process raises at
@@ -1971,7 +1996,9 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
   unwire(wiring, pid ~= nil)
   if not pid then
-    if errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then
+    if (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then
+      trouble = trouble .. ": cwd " .. string.format("%q", opts.cwd) .. " does not exist"
+    elseif errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then
       trouble = trouble .. ": " .. string.format("%q", argv[1]) ..
         " is run as a path, with no PATH search; Proc.find(" ..
         string.format("%q", argv[1]) .. ") answers where a shell would find it"
