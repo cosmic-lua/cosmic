@@ -12,6 +12,8 @@
 --- ending in `break`, `goto` or `error(...)` narrows below it as one
 --- ending in `return` does (22 through 25), each with a case proving
 --- the narrow stays out of code that control falling through can reach.
+--- So does one ending in a `do` block that ends, or in a `while true`
+--- or `repeat ... until false` that no `break` leaves (39a through 39d).
 ---
 --- A bare variable on the left of `and` narrows in its right operand,
 --- as a guard's does in its block (35), but not past it and not for a
@@ -407,6 +409,54 @@ end
 ]])
   assert(refused_nil_index(ok, trouble), "a label is reached by the goto with e nil, so the " ..
       "narrow must not reach the code after it")
+end
+
+local function test_an_ending_do_or_endless_loop_narrows_below_the_guard(tmp: string)
+  local guards: {{string}} = {
+    { "do", "do return end" },
+    { "while", "while true do print(1) end" },
+    { "repeat", "repeat print(1) until false" },
+  }
+  for _, guard in ipairs(guards) do
+    local ok, trouble = try_build(tmp, "ends-narrow-" .. guard[1], entry_prelude .. [[
+local function use()
+   local e = next_entry()
+   if e == nil then
+      ]] .. guard[2] .. [[
+
+   end
+   print(e.size)
+end
+use()
+]])
+    assert(ok, guard[1] .. ": a guard ending in a block that never falls through " ..
+        "should narrow below it, but: " .. tostring(trouble))
+  end
+end
+
+local function test_a_do_or_loop_that_can_end_does_not_narrow(tmp: string)
+  local guards: {{string}} = {
+    { "do", "do if flag() then return end end" },
+    { "while", "while true do if flag() then break end end" },
+    { "while-cond", "while flag() do print(1) end" },
+    { "repeat", "repeat do break end until false" },
+  }
+  for _, guard in ipairs(guards) do
+    local ok, trouble = try_build(tmp, "falls-narrow-" .. guard[1], entry_prelude .. [[
+local function flag(): boolean return true end
+local function use()
+   local e = next_entry()
+   if e == nil then
+      ]] .. guard[2] .. [[
+
+   end
+   print(e.size)
+end
+use()
+]])
+    assert(refused_nil_index(ok, trouble), guard[1] .. ": a guard that can fall through " ..
+        "with e nil must not narrow")
+  end
 end
 
 local function test_error_narrows_below_the_guard(tmp: string)

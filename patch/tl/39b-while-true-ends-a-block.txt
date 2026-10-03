@@ -1,0 +1,20 @@
+file: tl.tl
+note: `while true do ... end` with no `break` that leaves it ends the block holding it (39a)
+--- find
+         before_statements = function(self: TypeChecker, node: Node)
+            self:begin_scope(node)
+            self:apply_facts(node.exp, node.exp.known)
+         end,
+         after = end_scope_and_none_type,
+      },
+--- replace
+         before_statements = function(self: TypeChecker, node: Node)
+            self:begin_scope(node)
+            self:apply_facts(node.exp, node.exp.known)
+         end,
+         after = function(self: TypeChecker, node: Node, _children: {Type}): Type
+            end_loop(self, node, "true")
+            return NONE
+         end,
+      },
+--- end
