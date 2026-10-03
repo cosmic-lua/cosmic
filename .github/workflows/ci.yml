@@ -25,6 +25,8 @@
   permissions: {contents: "read"},
 
   env: {
+    # Diagnostic only, never to merge: zig lists each step it ran.
+    ZIG_BUILD_SUMMARY: "new",
     # A branch push is `light`: each leg but alpine-x86_64 builds and
     # runs its native suite, and the checked job, in place of its
     # suite, the pinned CI driver's check and the format check. The

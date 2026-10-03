@@ -104,7 +104,7 @@ esac
 set --
 for name in $(awk 'BEGIN { for (name in ENVIRON) print name }'); do
   case $name in
-    GITHUB_* | RUNNER_* | COSMIC_* | CI | TARGET | XDG_CACHE_HOME) set -- "$@" -e "$name" ;;
+    GITHUB_* | RUNNER_* | COSMIC_* | ZIG_BUILD_SUMMARY | CI | TARGET | XDG_CACHE_HOME) set -- "$@" -e "$name" ;;
   esac
 done
 exec docker exec -u "$user" -w "$(pwd)" -e "PATH=$added$(cat "$state/container-path")" "$@" \
