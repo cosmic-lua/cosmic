@@ -23,6 +23,44 @@ local function test_seconds_of_reads_githubs_times()
   assert(Report.duration(nil) == "-")
 end
 
+--- The lists `gh api` answers are checked against the records `Report`
+--- reads: a value of another shape is refused naming where it is, where
+--- the entries once read as empty, were skipped, or were taken as text.
+-- TODO: pin the whole message (`pointer "/workflow_runs/0/id": expected
+-- integer, got string`) once ci/cosmic-driver.pin names a release whose
+-- cosmic.shape names a place as a JSON Pointer: the pinned one writes
+-- `$.workflow_runs[1].id`, and this test runs under both.
+local function test_an_answer_of_another_shape_is_refused_by_path()
+  local function refused(read: function(string): any, text: string, list: string,
+                         at: string, expected: string)
+    local ok, why = pcall(read, text)
+    assert(not ok, "accepted " .. text)
+    local said = tostring(why)
+    assert(said:find("the " .. list .. " list: ", 1, true) and said:find(at, 1, true) and
+        said:find(": expected " .. expected, 1, true),
+      ("wanted %s at %s, expected %s; got %q"):format(list, at, expected, said))
+  end
+  refused(Report.runs, "[]", "runs", "", "record, got array")
+  refused(Report.runs, '{"workflow_runs":[7]}', "runs", "workflow_runs", "record, got integer")
+  refused(Report.runs, '{"workflow_runs":[{"event":"push","head_sha":"s"}]}', "runs",
+    "id", "integer, got nothing")
+  refused(Report.runs, '{"workflow_runs":[{"id":"7","event":"push","head_sha":"s"}]}', "runs",
+    "id", "integer, got string")
+  refused(Report.jobs, '{"jobs":[{"name":"a","steps":[7]}]}', "jobs", "steps", "record, got integer")
+  refused(Report.jobs, '{"jobs":[{"name":"a","started_at":12}]}', "jobs", "started_at",
+    "string, got integer")
+  refused(Report.driver_artifacts, '{"artifacts":[{"name":"ci-driver-x","id":"9"}]}', "artifacts",
+    "id", "integer, got string")
+  refused(Report.driver_artifacts, '{"artifacts":{"a":1}}', "artifacts", "artifacts",
+    "list, got the string key")
+  -- The nulls GitHub writes for what it has not got are nothing.
+  local runs = Report.runs('{"workflow_runs":[{"id":7,"event":"push","head_sha":"s",' ..
+      '"head_branch":null,"conclusion":null,"run_attempt":null}]}')
+  assert(runs[1].id == "7" and runs[1].branch == "" and runs[1].conclusion == "" and
+      runs[1].attempt == "", runs[1].branch)
+  assert(#Report.jobs('{"jobs":[{"name":"a","started_at":null,"completed_at":null}]}') == 1)
+end
+
 local function test_median()
   assert(Report.median({}) == nil)
   assert(Report.median({ 3, 1, 2 }) == 2)
