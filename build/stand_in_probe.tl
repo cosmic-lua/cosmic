@@ -312,6 +312,35 @@ local verbs: {string:function(string, string): integer} = {
     if not opened then return failed(path, trouble) end
     return nil
   end,
+  create = function(path: string, text: string): integer
+    local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 420)
+    if fd == nil then return failed(path, trouble) end
+    local written, write_trouble = sys.write(fd, text .. "\n")
+    local _, _ = sys.close(fd)
+    if written == nil then return failed(path, write_trouble) end
+    return nil
+  end,
+  truncate = function(path: string): integer
+    local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_TRUNC)
+    if fd == nil then return failed(path, trouble) end
+    local _, _ = sys.close(fd)
+    return nil
+  end,
+  rm = function(path: string): integer
+    local ok, trouble = sys.unlink(path)
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  rmdir = function(path: string): integer
+    local ok, trouble = sys.rmdir(path)
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  rename = function(from: string, to: string): integer
+    local ok, trouble = sys.rename(from, to)
+    if not ok then return failed(from, trouble) end
+    return nil
+  end,
   chmod = function(path: string, word: string): integer
     local bits = math.tointeger(tonumber(word, 8))
     if bits == nil then return failed("chmod", "no mode " .. word) end
