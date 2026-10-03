@@ -372,7 +372,7 @@ local function test_depth_limits()
   assert(decode_failure(string.rep("[", 150) .. string.rep("]", 150), { max_depth = 149 }) ==
       "json: JSON nests deeper than 149 levels at line 1, column 150 (pointer ending \"" .. string.rep("/0", 99) .. "\")",
     "a pointer too long to tell keeps its innermost segments")
-  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "json: JSON nests deeper than 1 levels at line 1, column 6 (pointer \"/a\")",
+  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "json: JSON nests deeper than 1 level at line 1, column 6 (pointer \"/a\")",
     "an object counts")
   assert(decoded(deep, { max_depth = 65 }) ~= nil, "the limit is the caller's")
   local root: {any} = {}
@@ -542,14 +542,14 @@ local function test_json_lines()
   local _, bad = Json.decode_lines('1\n\n{"a": tru}\n')
   assert(bad == "json: invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
   local _, deep = Json.decode_lines('1\n[[1]]', { max_depth = 1 })
-  assert(deep == "json: JSON nests deeper than 1 levels at line 2, column 2 (pointer \"/0\")", deep)
+  assert(deep == "json: JSON nests deeper than 1 level at line 2, column 2 (pointer \"/0\")", deep)
   -- Records split on \n alone: a lone \r, or in JSON5 a U+2028, is
   -- no record boundary, before a failing record or inside it, and a
   -- failure's column counts from its record's start.
   local _, past_cr = Json.decode_lines('[1,\r2]\n{"a": tru}')
   assert(past_cr == "json: invalid JSON at line 2, column 7: invalid literal, expected 'true'", past_cr)
   local _, past_ls = Json.decode_lines('[1,\u{2028}2]\n[[1]]', { json5 = true, max_depth = 1 })
-  assert(past_ls == "json: JSON nests deeper than 1 levels at line 2, column 2 (pointer \"/0\")", past_ls)
+  assert(past_ls == "json: JSON nests deeper than 1 level at line 2, column 2 (pointer \"/0\")", past_ls)
   local _, inside_cr = Json.decode_lines('1\n[1,\r x]')
   assert(inside_cr:match("^json: invalid JSON at line 2, column 6: "), inside_cr)
   local _, inside_ls = Json.decode_lines('1\n[1,\u{2028} x]', { json5 = true })
@@ -612,14 +612,14 @@ local function test_a_depth_failure_says_where()
   -- and the line it names counts each as a line end.
   for _, eol in ipairs({ "\r", "\r\n", "\u{2028}", "\u{2029}" }) do
     local failure = decode_failure("// c" .. eol .. "[[1]]", { json5 = true, max_depth = 1 })
-    assert(failure == "json: JSON nests deeper than 1 levels at line 2, column 2 (pointer \"/0\")", failure)
+    assert(failure == "json: JSON nests deeper than 1 level at line 2, column 2 (pointer \"/0\")", failure)
     local hashed = decode_failure("# c" .. eol .. "[[1]]", { json5 = true, hash_comments = true, max_depth = 1 })
-    assert(hashed == "json: JSON nests deeper than 1 levels at line 2, column 2 (pointer \"/0\")", hashed)
+    assert(hashed == "json: JSON nests deeper than 1 level at line 2, column 2 (pointer \"/0\")", hashed)
   end
   -- Outside JSON5, a # comment runs past U+2028 to the \n, and the
   -- brackets it holds are no part of the count.
   local past = decode_failure("# [ \u{2028} [\n[[1]]", { hash_comments = true, max_depth = 1 })
-  assert(past == "json: JSON nests deeper than 1 levels at line 2, column 2 (pointer \"/0\")", past)
+  assert(past == "json: JSON nests deeper than 1 level at line 2, column 2 (pointer \"/0\")", past)
 end
 
 --- A syntax error's line counts every line end the text's grammar
@@ -731,7 +731,7 @@ local function test_check_answers_as_decode_would()
   assert(not ok and err == "json: duplicate key at line 1, column 10 (pointer \"/a\")", err)
   assert(Json.check('{"a": 1, "a": 2}', { duplicate_keys = true }))
   local _, deep = Json.check("[[1]]", { max_depth = 1 })
-  assert(deep == "json: JSON nests deeper than 1 levels at line 1, column 2 (pointer \"/0\")", deep)
+  assert(deep == "json: JSON nests deeper than 1 level at line 1, column 2 (pointer \"/0\")", deep)
   local _, big = Json.check("1e400")
   assert(big:match("infinity"), big)
   assert(Json.check("1e400", { big_numbers_as_strings = true }), "the options are decode's")

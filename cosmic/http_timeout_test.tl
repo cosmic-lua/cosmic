@@ -11,6 +11,17 @@ local Time = require("cosmic.time")
 --- The listener answers nothing, on the worker's own loopback.
 Test.needs{ network = { "127.0.0.1" } }
 
+--- Whether `why` is curl's message for an expired limit: its
+--- "Operation timed out after N", "Connection timeout after N ms" or
+--- "Resolving timed out after N milliseconds", the phase the limit ended in.
+--- TODO: match the kind rather than the wording, once cosmic.http reports
+--- a timeout as one (CURLE_OPERATION_TIMEDOUT) rather than curl's message.
+local function timed_out(why: string): boolean
+  return why:find("^Operation timed out after %d+") ~= nil or
+    why:find("^Connection timeout after %d+ ms") ~= nil or
+    why:find("^%a+ timed out after %d+ milliseconds") ~= nil
+end
+
 --- A listener whose connections complete in its backlog and are never
 --- read, and the URL of a request to it.
 local function silent(): Net.Listener, string
@@ -23,7 +34,7 @@ local function test_a_request_timeout_ends_at_about_the_time_given()
   local began = Time.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = Time.ms(300) })
   local took = Time.monotonic_ns() - began
-  assert(response == nil and why:find("timed out", 1, true), tostring(why))
+  assert(response == nil and timed_out(why), tostring(why))
   assert(took >= Time.ms(250) and took < Time.seconds(10), tostring(took // Time.ms(1)) .. " ms")
   assert(server ~= nil)
 end
@@ -34,11 +45,11 @@ local function test_a_limit_under_a_millisecond_is_not_none()
   local server <close>, url = silent()
   local began = Time.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = 1 })
-  assert(response == nil and why:find("timed out", 1, true), tostring(why))
-  assert(Time.monotonic_ns() - began < Time.seconds(10))
+  assert(response == nil and timed_out(why), tostring(why))
+  assert(Time.monotonic_ns() - began < Time.seconds(5), "ended long after 1 ms")
   began = Time.monotonic_ns()
   response, why = Http.open(url, { connect_timeout_ns = 1, timeout_ns = Time.ms(200) })
-  assert(response == nil, tostring(why))
+  assert(response == nil and timed_out(why), tostring(why))
   assert(Time.monotonic_ns() - began < Time.seconds(10))
   assert(server ~= nil)
 end

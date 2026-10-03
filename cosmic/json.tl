@@ -66,6 +66,10 @@
 --- the last of the key's members stands. Encoded objects list their keys
 --- in byte order, so the same value always encodes to the same text.
 ---
+--- A text too large to hold whole, or a stream of values, is read a
+--- token at a time by [`Json.reader`], from a [`Stream.Reader`], and a
+--- part of it can be decoded whole with the reader's `value`.
+---
 --- Text can be handled as text, without building a value:
 --- [`Json.check`] says whether `decode` would read it, [`Json.format`]
 --- writes it again compact or laid out, its members in their order and
@@ -107,6 +111,7 @@ else
   raw = require("cosmic.internal.json")
 end
 
+local type Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 
 local record Json
@@ -204,6 +209,82 @@ local record Json
     keys: {string | integer}
     --- An array's highest index, 0 for any other layout.
     extent: integer
+  end
+
+  --- What a token [`Json.reader`] reads is.
+  enum TokenKind
+    --- `{`, which opens an object.
+    "object"
+    --- `}`, which closes one.
+    "end_object"
+    --- `[`, which opens an array.
+    "array"
+    --- `]`, which closes one.
+    "end_array"
+    --- An object's key, its value the key's text.
+    "key"
+    --- A string, its value the string's text.
+    "string"
+    --- A number, its value an integer or a float as `decode` reads it.
+    "number"
+    --- `true` or `false`, its value the boolean.
+    "boolean"
+    --- `null`, its value nil.
+    "null"
+  end
+
+  --- One token of a JSON text: see [`Json.reader`].
+  record Token
+    --- What the token is.
+    kind: Json.TokenKind
+    --- A key's or a string's text, a number, a boolean; nil for the
+    --- rest.
+    value: string | number | boolean
+  end
+
+  --- What [`Json.reader`] may be told. Every field is optional, and each
+  --- means what it means to `decode`.
+  record ReaderOptions
+    --- How many arrays and objects may be open at once, 1 to
+    --- [`Json.depth_limit`] (default [`Json.default_depth`]).
+    max_depth: integer
+    --- Read an object that holds a key twice rather than refusing it.
+    duplicate_keys: boolean
+    --- Read a number past 64 bits or a double's range as its digits.
+    big_numbers_as_strings: boolean
+    --- Read a lone surrogate escape as U+FFFD.
+    lone_surrogates: boolean
+    --- What `value` puts where the text says `null`.
+    null_value: any
+  end
+
+  --- A reader of JSON text a token at a time, from [`Json.reader`]. A
+  --- failure, the stream's or the text's, answers again on every later
+  --- call.
+  interface Reader
+    --- The next token, and ""; nil and "" when the stream has ended
+    --- with every value whole; nil and a message, naming the line and
+    --- column, when the text is not JSON -- and its JSON Pointer, when the fault
+    --- is in where the token stands rather than in its own text (a
+    --- string's escape, a number's digits, which `decode` reads).
+    next: function(Reader): Json.Token | nil, string
+    --- The kind of the next token, without reading it, and ""; nil and
+    --- "" at the end; nil and a message as `next` fails. It goes by the
+    --- token's first byte: `next` may still refuse the rest of it
+    --- (`nope` peeks as "null").
+    peek: function(Reader): Json.TokenKind | nil, string
+    --- The next whole value -- a scalar, or an array or object with
+    --- everything in it -- decoded as `decode` decodes one, and "". The
+    --- reader must be where a value goes: not at a key, a closing
+    --- bracket or the end, which it refuses. A `null` is nil unless
+    --- `null_value` says otherwise, so test the message.
+    value: function(Reader): any | nil, string
+    --- Where the reader is, as steps: the array or object it is in and
+    --- the element or member it read last, each position counted from 1.
+    --- [`Json.pointer`] and [`Json.path`] spell them.
+    steps: function(Reader): Json.Steps
+    --- How many bytes of the stream it has read past.
+    offset: function(Reader): integer
   end
 
   --- A path to one value inside another, as Lua steps: each a member's
@@ -1147,6 +1228,514 @@ function Json.select(value: any, query: Json.Query, opts?: Json.SelectOptions): 
     nodes = out
   end
   return nodes, ""
+end
+
+-- ---- reading a token at a time ------------------------------------
+
+--- An array or object the reader is inside.
+local record Frame
+  object: boolean
+  --- What it takes next: "first" just after it opened (a value, or a
+  --- key, or its close), "key" after an object's `,`, "colon" after a
+  --- key, "value" where a value must come, "after" once one has.
+  state: string
+  --- An array's elements, or an object's members, begun so far.
+  count: integer
+  --- An object's last key.
+  key: string
+  --- An object's keys, unless duplicate keys are read.
+  seen: {string: boolean}
+end
+
+local record TokenReader is Json.Reader
+  source: Stream.Reader
+  max_depth: integer
+  duplicate_keys: boolean
+  big: boolean
+  lone: boolean
+  null_value: any
+  --- The bytes read and not yet passed, from `at`; `before` is how many
+  --- the stream gave ahead of `buf`.
+  buf: string
+  at: integer
+  before: integer
+  ended: boolean
+  failed: string
+  --- The line the reader is on, and the offset its first byte has.
+  line: integer
+  line_start: integer
+  --- Whether the last byte passed was a \r, which a \n after it joins.
+  cr: boolean
+  frames: {Frame}
+  next: function(TokenReader): Json.Token | nil, string
+  peek: function(TokenReader): Json.TokenKind | nil, string
+  value: function(TokenReader): any | nil, string
+  steps: function(TokenReader): Json.Steps
+  offset: function(TokenReader): integer
+end
+
+local token_reader_mt: metatable<TokenReader> = { __index = TokenReader }
+
+function TokenReader:steps(): Json.Steps
+  local steps: Json.Steps = {}
+  for _, f in ipairs(self.frames) do
+    if f.object then
+      if f.key ~= nil then steps[#steps + 1] = f.key end
+    elseif f.count > 0 then
+      steps[#steps + 1] = f.count
+    end
+  end
+  return steps
+end
+
+--- Where the reader is, for a message, as every message of this module
+--- names a place.
+local function here(self: TokenReader): string
+  return at_pointer(pointer_of(self:steps()))
+end
+
+function TokenReader:offset(): integer
+  return self.before + self.at - 1
+end
+
+--- Ends the reading with `why`, which every later call answers too; the
+--- offset stays where it stopped.
+local function stop(self: TokenReader, why: string): nil, string
+  self.failed = why
+  self.before = self.before + self.at - 1
+  self.buf, self.at = "", 1
+  return nil, why
+end
+
+--- Fails at byte `at` of `buf` with `what`, naming the line, the column
+--- and where the reader is.
+local function fail_at(self: TokenReader, at: integer, what: string): nil, string
+  return stop(self, ("json: %s at line %d, column %d (%s)"):format(what, self.line,
+    self.before + at - self.line_start, here(self)))
+end
+
+--- Fails at `column` of the line the reader is on, as [`fail_at`] does.
+local function placed(self: TokenReader, column: integer, what: string): nil, string
+  return stop(self, ("json: %s at line %d, column %d (%s)"):format(what, self.line, column, here(self)))
+end
+
+--- Moves the line count past `text`, which starts at `offset`.
+local function pass_lines(self: TokenReader, text: string, offset: integer)
+  local from = 1
+  while true do
+    local i = text:find("[\r\n]", from)
+    if i == nil then break end
+    local joined = text:byte(i) == 10 and (i > 1 and text:byte(i - 1) == 13 or i == 1 and self.cr)
+    if not joined then self.line = self.line + 1 end
+    self.line_start = offset + i
+    from = i + 1
+  end
+  if #text > 0 then self.cr = text:byte(#text) == 13 end
+end
+
+--- Passes `n` bytes that end no line: a \n after them starts one of
+--- its own, whatever came before them.
+local function pass(self: TokenReader, n: integer)
+  self.at = self.at + n
+  self.cr = false
+end
+
+--- Reads another chunk onto the bytes not yet passed. false and why
+--- when the stream failed; true at its end too, `ended` then set. A
+--- caller reading a token keeps what it has read of it and passes it
+--- first, so only the bytes after `at` are copied.
+local function fill(self: TokenReader): boolean, string
+  if self.ended then return true, "" end
+  local chunk, trouble = self.source:read()
+  if chunk == nil then
+    if trouble ~= "" then
+      local _, why = stop(self, "json: " .. trouble)
+      return false, why
+    end
+    self.ended = true
+    return true, ""
+  end
+  self.before = self.before + self.at - 1
+  self.buf = self.buf:sub(self.at) .. chunk
+  self.at = 1
+  return true, ""
+end
+
+--- Passes whitespace, reading as it must. false and why when the
+--- stream failed.
+local function skip_space(self: TokenReader): boolean, string
+  while true do
+    local _, last = self.buf:find("^[ \t\r\n]*", self.at)
+    if last >= self.at then
+      pass_lines(self, self.buf:sub(self.at, last), self.before + self.at - 1)
+      self.at = last + 1
+    end
+    if self.at <= #self.buf or self.ended then return true, "" end
+    local ok, why = fill(self)
+    if not ok then return false, why end
+  end
+end
+
+--- The byte the reader is at, after whitespace and the `,` or `:` its
+--- place takes, or nil at the end of the stream; or nil and why.
+local function arrive(self: TokenReader): integer | nil, string
+  if self.failed ~= "" then return nil, self.failed end
+  local ok, why = skip_space(self)
+  if not ok then return nil, why end
+  local f = self.frames[#self.frames]
+  if f ~= nil and (f.state == "after" or f.state == "colon") then
+    local c = self.buf:byte(self.at)
+    local close = f.object and 125 or 93
+    if f.state == "colon" then
+      if c ~= 58 then
+        return fail_at(self, self.at, c == nil and "the text ends before a key's `:`" or
+            "expected `:` after a key")
+      end
+      f.state = "value"
+    elseif c == 44 then
+      f.state = f.object and "key" or "value"
+    elseif c == close then
+      return c, ""
+    else
+      local closer = f.object and "`}`" or "`]`"
+      return fail_at(self, self.at, c == nil and "the text ends inside an " ..
+          (f.object and "object" or "array") or "expected `,` or " .. closer)
+    end
+    pass(self, 1)
+    ok, why = skip_space(self)
+    if not ok then return nil, why end
+  end
+  local c = self.buf:byte(self.at)
+  if c == nil and #self.frames > 0 then
+    return fail_at(self, self.at, "the text ends inside an " ..
+        (self.frames[#self.frames].object and "object" or "array"))
+  end
+  return c, ""
+end
+
+--- The kind of token byte `c` starts where `f` is (nil at the top), or
+--- nil when no token starts so.
+local function kind_of(c: integer, f: Frame): Json.TokenKind
+  if c == 123 then return "object" end
+  if c == 91 then return "array" end
+  if c == 125 then return "end_object" end
+  if c == 93 then return "end_array" end
+  if c == 34 then
+    if f ~= nil and f.object and (f.state == "first" or f.state == "key") then return "key" end
+    return "string"
+  end
+  if c == 45 or (c >= 48 and c <= 57) then return "number" end
+  if c == 116 or c == 102 then return "boolean" end
+  if c == 110 then return "null" end
+  return nil
+end
+
+--- Why a token of `token`'s kind, or one no byte starts (nil), cannot
+--- come where `f` is; nil when it can.
+local function misplaced(token: Json.TokenKind, f: Frame): string
+  if f == nil then
+    if token == nil then return "a byte no JSON token starts with" end
+    if token == "end_object" or token == "end_array" then return "a close with nothing open" end
+    return nil
+  end
+  if token == "end_object" or token == "end_array" then
+    if (token == "end_object") ~= f.object then return "a close that does not match its open" end
+    if f.state == "value" and f.object then return "expected a value" end
+    if f.state ~= "first" and f.state ~= "after" then return "a trailing `,`" end
+    return nil
+  end
+  if f.object and (f.state == "first" or f.state == "key") then
+    if token ~= "key" then return "expected a key" end
+    return nil
+  end
+  if token == nil then return "expected a value" end
+  return nil
+end
+
+--- The token at `self.at` made of the bytes `class` matches, read
+--- across chunks and passed.
+local function token_text(self: TokenReader, class: string): string | nil, string
+  local parts: {string} = {}
+  local pattern = "^" .. class .. "*"
+  while true do
+    local _, last = self.buf:find(pattern, self.at)
+    parts[#parts + 1] = self.buf:sub(self.at, last)
+    pass(self, last + 1 - self.at)
+    if self.at <= #self.buf or self.ended then return table.concat(parts), "" end
+    local ok, why = fill(self)
+    if not ok then return nil, why end
+  end
+end
+
+--- The string token at `self.at`, `"` and all, read across chunks and
+--- passed; a failure is placed at `column`, where it starts.
+local function string_text(self: TokenReader, column: integer): string | nil, string
+  local parts: {string} = {}
+  local start = self.at
+  local from = self.at + 1
+  while true do
+    local i = self.buf:find('["\\]', from)
+    if i ~= nil and self.buf:byte(i) == 34 then
+      parts[#parts + 1] = self.buf:sub(start, i)
+      pass(self, i + 1 - self.at)
+      return table.concat(parts), ""
+    end
+    if i ~= nil and i < #self.buf then
+      from = i + 2
+    else
+      if self.ended then
+        self.at = #self.buf + 1
+        return placed(self, column, "a string the text ends inside")
+      end
+      -- What is read so far is kept, but a `\` the chunk ends with,
+      -- which waits for the byte it escapes.
+      local kept = i ~= nil and i - 1 or #self.buf
+      parts[#parts + 1] = self.buf:sub(start, kept)
+      self.at = kept + 1
+      local ok, why = fill(self)
+      if not ok then return nil, why end
+      start, from = self.at, self.at
+    end
+  end
+end
+
+--- One scalar token's text, starting at `column`, read as `decode`
+--- reads it; a failure is placed where the token is. It names no path:
+--- only a key twice or nesting does, which a scalar cannot hold.
+local function scalar(self: TokenReader, text: string, column: integer): any | nil, string
+  local value, err = raw.decode(text, nil, nil, false, self.big, self.lone, nil, false, false,
+    self.line, column)
+  if err ~= "" then return stop(self, "json: " .. err) end
+  return value, ""
+end
+
+--- `v` as a token's value: a string, a number or a boolean, or nil.
+local function leaf(v: any): string | number | boolean
+  if v is string then return v end
+  if v is number then return v end
+  if v is boolean then return v end
+  return nil
+end
+
+--- Opens an array or object, refusing one past the depth limit.
+local function open(self: TokenReader, object: boolean): boolean, string
+  if #self.frames >= self.max_depth then
+    local _, why = fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level"))
+    return false, why
+  end
+  self.frames[#self.frames + 1] = { object = object, state = "first", count = 0,
+    seen = (object and not self.duplicate_keys) and {} or nil }
+  pass(self, 1)
+  return true, ""
+end
+
+--- Marks a value begun where the reader is.
+local function begin_value(self: TokenReader)
+  local f = self.frames[#self.frames]
+  if f == nil then return end
+  if not f.object then f.count = f.count + 1 end
+  f.state = "after"
+end
+
+function TokenReader:peek(): Json.TokenKind | nil, string
+  local c, why = arrive(self)
+  if c == nil then return nil, why end
+  local f = self.frames[#self.frames]
+  local token = kind_of(c, f)
+  local wrong = misplaced(token, f)
+  if wrong ~= nil then return fail_at(self, self.at, wrong) end
+  if token == nil then return fail_at(self, self.at, "a byte no JSON token starts with") end
+  return token, ""
+end
+
+function TokenReader:next(): Json.Token | nil, string
+  local token, why = self:peek()
+  if token == nil then return nil, why end
+  local f = self.frames[#self.frames]
+  -- Reading the token may read more of the stream, which moves `at`:
+  -- where it starts is kept as its column.
+  local column = self.before + self.at - self.line_start
+  if token == "object" or token == "array" then
+    begin_value(self)
+    local ok, trouble = open(self, token == "object")
+    if not ok then return nil, trouble end
+    return { kind = token }, ""
+  end
+  if token == "end_object" or token == "end_array" then
+    self.frames[#self.frames] = nil
+    pass(self, 1)
+    return { kind = token }, ""
+  end
+  if token == "key" then
+    local text, trouble = string_text(self, column)
+    if text == nil then return nil, trouble end
+    local key, err = scalar(self, text, column)
+    if err ~= "" then return nil, err end
+    if not (key is string) then return placed(self, column, "a key that is not a string") end
+    f.key = key
+    if f.seen ~= nil then
+      if f.seen[f.key] then return placed(self, column, "duplicate key") end
+      f.seen[f.key] = true
+    end
+    f.count = f.count + 1
+    f.state = "colon"
+    return { kind = "key", value = f.key }, ""
+  end
+  begin_value(self)
+  local text: string
+  local trouble: string
+  if token == "string" then
+    text, trouble = string_text(self, column)
+  else
+    text, trouble = token_text(self, token == "number" and "[-+.%deE]" or "%a")
+    if text ~= nil then
+      -- A number or a word runs to the next byte that is not one of
+      -- its own; the byte must end it, so `1true` is no two values.
+      local after = self.buf:byte(self.at)
+      if after ~= nil and not (after == 32 or after == 9 or after == 10 or after == 13 or
+          after == 44 or after == 93 or after == 125) then
+        return fail_at(self, self.at, "expected whitespace, `,` or a close after a " ..
+            (token == "number" and "number" or "word"))
+      end
+    end
+  end
+  if text == nil then return nil, trouble end
+  local value: any
+  if token == "boolean" or token == "null" then
+    if text ~= "true" and text ~= "false" and text ~= "null" then
+      return placed(self, column, "a word JSON has no literal for")
+    end
+    token = text == "null" and "null" or "boolean"
+    value = text == "true"
+    if token == "null" then value = nil end
+  else
+    local err: string
+    value, err = scalar(self, text, column)
+    if err ~= "" then return nil, err end
+  end
+  return { kind = token, value = leaf(value) }, ""
+end
+
+--- The text of the array or object at `self.at`, through its close,
+--- read across chunks; the reader is past it after, its lines counted.
+local function container_text(self: TokenReader): string | nil, string
+  local parts: {string} = {}
+  local start = self.at
+  local from = self.at
+  local open_count = 0
+  --- Keeps the bytes from `start` up to `last`, counting their lines.
+  local function keep(last: integer)
+    local piece = self.buf:sub(start, last)
+    pass_lines(self, piece, self.before + start - 1)
+    parts[#parts + 1] = piece
+  end
+  while true do
+    local i = self.buf:find('[%[%]{}"]', from)
+    if i == nil then
+      keep(#self.buf)
+      self.at = #self.buf + 1
+      if self.ended then
+        return fail_at(self, self.at, "the text ends inside an array or object")
+      end
+      local ok, why = fill(self)
+      if not ok then return nil, why end
+      start, from = self.at, self.at
+    else
+      local c = self.buf:byte(i)
+      if c == 34 then
+        -- A string's own brackets are none of the count. Reading it
+        -- passes it, so the bytes before it are kept first.
+        keep(i - 1)
+        self.at = i
+        local offset = self.before + i - 1
+        local text, why = string_text(self, offset - self.line_start + 1)
+        if text == nil then return nil, why end
+        pass_lines(self, text, offset)
+        parts[#parts + 1] = text
+        start, from = self.at, self.at
+      elseif c == 91 or c == 123 then
+        open_count = open_count + 1
+        from = i + 1
+      else
+        open_count = open_count - 1
+        from = i + 1
+        if open_count == 0 then
+          keep(i)
+          self.at = i + 1
+          return table.concat(parts), ""
+        end
+      end
+    end
+  end
+end
+
+function TokenReader:value(): any | nil, string
+  local token, why = self:peek()
+  if token == nil then
+    if why ~= "" then return nil, why end
+    return stop(self, "json: no value: the stream has ended")
+  end
+  if token == "key" or token == "end_object" or token == "end_array" then
+    return fail_at(self, self.at, "expected a value")
+  end
+  if token ~= "object" and token ~= "array" then
+    local read, trouble = self:next()
+    if read == nil then return nil, trouble end
+    if token == "null" then return self.null_value, "" end
+    return read.value, ""
+  end
+  begin_value(self)
+  if #self.frames >= self.max_depth then
+    return fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level"))
+  end
+  local path = pointer_of(self:steps())
+  local line, column = self.line, self.before + self.at - self.line_start
+  local text, trouble = container_text(self)
+  if text == nil then return nil, trouble end
+  local value, err = raw.decode(text, self.null_value, self.max_depth, false,
+    self.big, self.lone, nil, false, self.duplicate_keys, line, column, path, #self.frames)
+  if err ~= "" then return stop(self, "json: " .. err) end
+  return value, ""
+end
+
+--- A reader of the JSON text `source` gives, a token at a time, holding
+--- the token it is reading -- or, for `value`, the one value -- and,
+--- unless `duplicate_keys`, the keys of each object it is inside, to
+--- refuse one twice. The text may hold any number of values one after
+--- another, as a log of them does; a number or a literal must be ended
+--- by whitespace, a `,` or a close, so `1true` is refused rather than
+--- read as two. `next` answers nil and "" once it has read past the last whole
+--- one. A failure of `source` fails the reader; a `source` that raises
+--- raises through it. It reads RFC 8259
+--- JSON, refusing what `decode` refuses: a key twice in an object
+--- (unless `duplicate_keys`), nesting past `max_depth`. A failure names
+--- the line, the column and, by its JSON Pointer, the place where the
+--- text stopped being JSON.
+---
+---     local Stream = require("cosmic.stream")
+---     local r = Json.reader(Stream.from_string('{"rows": [{"id": 1}, {"id": 2}]}'))
+---     assert(r:next().kind == "object" and r:next().value == "rows")
+---     assert(r:next().kind == "array")
+---     local ids: {integer} = {}
+---     while r:peek() == "object" do
+---       local row = r:value() as {string: integer}
+---       ids[#ids + 1] = row.id
+---     end
+---     assert(#ids == 2 and r:next().kind == "end_array")
+-- TODO: JSON5 and `#` comments, which `decode` reads, are refused here;
+-- reading them takes a tokenizer for JSON5's strings, numbers and
+-- comments beside RFC 8259's.
+function Json.reader(source: Stream.Reader, opts?: Json.ReaderOptions): Json.Reader
+  local o: Json.ReaderOptions = opts or {}
+  local depth = o.max_depth or Json.default_depth
+  if math.type(depth) ~= "integer" or depth < 1 or depth > Json.depth_limit then
+    error(("json: max_depth must be an integer from 1 to %d"):format(Json.depth_limit), 2)
+  end
+  local r: TokenReader = setmetatable({ source = source, max_depth = depth,
+    duplicate_keys = o.duplicate_keys == true, big = o.big_numbers_as_strings == true,
+    lone = o.lone_surrogates == true, null_value = o.null_value, buf = "", at = 1, before = 0,
+    ended = false, failed = "", line = 1, line_start = 0, cr = false, frames = {} }, token_reader_mt)
+  return r
 end
 
 return Json

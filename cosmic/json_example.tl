@@ -198,4 +198,25 @@ function Example.paths()
   for _, found in ipairs(names) do print(Json.pointer(found.steps), found.value) end
 end
 
+--- Read a document too large to hold whole a token at a time, and
+--- decode only the parts wanted: here each row of a long array.
+function Example.reader()
+  local r = Json.reader(Stream.from_string('{"rows": [{"id": 1}, {"id": 2}], "total": 2}'))
+  local first = assert(r:next())
+  assert(first.kind == "object")
+  local key = assert(r:next())
+  assert(key.kind == "key" and key.value == "rows")
+  assert(assert(r:next()).kind == "array")
+  local ids: {integer} = {}
+  while r:peek() == "object" do
+    local row, err = r:value()
+    assert(err == "", err)
+    local id = (row as {string: any}).id
+    assert(id is integer)
+    ids[#ids + 1] = id
+  end
+  print(Json.path(r:steps()), #ids)
+  assert(#ids == 2)
+end
+
 return Example
