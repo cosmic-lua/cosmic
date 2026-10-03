@@ -71,6 +71,46 @@ local function test_boot_into_boots_once(tmp: string)
   assert(trouble == "the tool is still stale after a reboot", trouble)
 end
 
+--- The tree's compiler has moved from the tool's when their identities
+--- differ; a tool that records none has not kept up with any, and an
+--- identity that could not be taken is no evidence of a move.
+local function test_compiler_moved_compares_identities()
+  assert(reboot.compiler_moved("old", "new"))
+  assert(reboot.compiler_moved(nil, "new"))
+  assert(not reboot.compiler_moved("same", "same"))
+  assert(not reboot.compiler_moved("old", nil))
+  assert(not reboot.compiler_moved(nil, nil))
+end
+
+--- A rebuild whose compile failed because the compiler moved boots, as a
+--- core change does, and re-enters the tool the boot wrote.
+local function test_rebuild_failed_boots_when_the_compiler_moved(tmp: string)
+  local root = tree_with_zig(tmp, 1)
+  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+    "checker: T (unresolved generic)", true, {})
+  assert(code == 3, code)
+  assert(Fs.read(root .. "/bin/ran") == "build boot\n")
+end
+
+--- A failure while the compiler has not moved is the tree's own error:
+--- nothing boots.
+local function test_rebuild_failed_does_not_boot_while_the_compiler_stands(tmp: string)
+  local root = tree_with_zig(tmp, 0)
+  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+    "a type error in the tree", false, {})
+  assert(code == 3, code)
+  assert(Fs.read(root .. "/bin/ran") == nil, "a failure of the tree's own booted")
+end
+
+--- COSMIC_AUTO_BOOT=0 refuses, exit 3, in place of the boot.
+local function test_rebuild_failed_refuses_when_told_not_to_boot(tmp: string)
+  local root = tree_with_zig(tmp, 0)
+  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+    "checker: T (unresolved generic)", true, { COSMIC_AUTO_BOOT = "0" })
+  assert(code == 3, code)
+  assert(Fs.read(root .. "/bin/ran") == nil, "booted although told not to")
+end
+
 --- Only a binary under the tree's o/ is its own tool, judged by the
 --- path it was started as, its directory resolved: a link into o/ from
 --- outside is outside, a name in o/ is inside even when the file is gone

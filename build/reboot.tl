@@ -10,6 +10,10 @@
 --- only zig can rebuild it: the tool runs `bin/zig build boot` and
 --- re-enters the original argv on the tool that boot wrote, unless
 --- `COSMIC_AUTO_BOOT=0` says to refuse instead ([`reboot.auto_boot`]).
+--- A Teal rebuild whose compile fails after the compiler's own modules
+--- moved is taken for a core change too: the stale tool's compiler cannot
+--- be trusted to compile what the tree's now means
+--- ([`reboot.rebuild_failed`]).
 ---
 --- One rule for the working database's handle: a function here that is
 --- handed it and stops the command -- `into` on every path,
@@ -196,25 +200,39 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
   return true
 end
 
+--- Whether the compiler of the tree, whose identity is `wanted`
+--- ([`identity.compiler_identity`]), is not the one the running tool
+--- carries (`tool`, nil for a database that records none). The tree's
+--- identity is nil when it could not be taken, which is no evidence that
+--- it moved.
+function reboot.compiler_moved(tool: string | nil, wanted: string | nil): boolean
+  return wanted ~= nil and wanted ~= (tool or "")
+end
+
 --- Rebuilds the tool from the tree and replaces this process with it,
---- running `argv` again. Returns only when it cannot, saying why. It
---- takes `handle`, open and staged, and closes it on every path: before
---- it publishes the rebuilt tool, or on the way out of a failure.
---- `settle` rebuilds a fresh but `unsettled` tool, which a rebuild may
---- enter; anything else refuses once a reboot has entered this process.
+--- running `argv` again. Returns only when it cannot, saying why, and
+--- whether the failure was a compile that failed while the tree's
+--- compiler differs from this tool's ([`reboot.compiler_moved`]), which
+--- only a boot can mend ([`reboot.rebuild_failed`]); a
+--- `settle` is never that, since it follows a rebuild that made the
+--- compiler this tool's. It takes `handle`, open and staged, and closes
+--- it on every path: before it publishes the rebuilt tool, or on the way
+--- out of a failure. `settle` rebuilds a fresh but `unsettled` tool,
+--- which a rebuild may enter; anything else refuses once a reboot has
+--- entered this process.
 local function into(handle: work.Handle, built: compiler,
-                    argv: {integer:string}, settle: boolean): string
+                    argv: {integer:string}, settle: boolean): string, boolean
   local refused = refusal(settle)
   if refused ~= nil then
-    return closing(handle, refused)
+    return closing(handle, refused), false
   end
   local prefix, prefix_trouble = artifact.trusted_prefix()
   if prefix == nil then
-    return closing(handle, prefix_trouble)
+    return closing(handle, prefix_trouble), false
   end
   local out, executable_trouble = Proc.executable()
   if out == nil then
-    return closing(handle, executable_trouble)
+    return closing(handle, executable_trouble), false
   end
 
   -- A fresh checkout has no boot-populated compiler row in its working
@@ -222,21 +240,21 @@ local function into(handle: work.Handle, built: compiler,
   -- artifact so the rebuilt Cosmic remains able to rebuild again.
   local compiler_source, compiler_trouble = Store.source("vendor.tl")
   if compiler_source == nil then
-    return closing(handle, "the compiler source is not in this binary: " .. compiler_trouble)
+    return closing(handle, "the compiler source is not in this binary: " .. compiler_trouble), false
   end
   local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
   if not kept then
-    return closing(handle, keep_trouble)
+    return closing(handle, keep_trouble), false
   end
   -- And the zones it carries, which only a boot reads from the tree.
   local databases = Store.databases()
   local zones, zones_trouble = work.zoneinfo_of(databases[#databases])
   if zones == nil then
-    return closing(handle, "the zones in this binary: " .. zones_trouble)
+    return closing(handle, "the zones in this binary: " .. zones_trouble), false
   end
   local zoned, zoned_trouble = work.put_zoneinfo(handle, zones)
   if not zoned then
-    return closing(handle, zoned_trouble)
+    return closing(handle, zoned_trouble), false
   end
 
   -- Compiled by this tool's compiler and keyed by its identity, which is
@@ -255,12 +273,14 @@ local function into(handle: work.Handle, built: compiler,
   -- change to the fingerprint's definition: it is stale by its own code,
   -- and settles on the "teal" path.
   local tree_code = false
+  local tree_compiler: string | nil
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble = importer.compile_tree(handle, built,
     function(recorded: identity.Identities): string, string
+      tree_compiler = recorded.compiler
       local tool = Store.meta("compiler") or ""
       if settle then
         local boot_hash, _ = identity.recorded_boot_hash(handle.db)
@@ -271,13 +291,24 @@ local function into(handle: work.Handle, built: compiler,
       return tool, ""
     end, true, shared_compiles.for_build())
   if result == nil then
-    return closing(handle, compile_trouble)
+    -- A rebuild settling follows one that made the compiler this tool's.
+    if settle then
+      return closing(handle, compile_trouble), false
+    end
+    -- The compile may have stopped before it recorded the tree's
+    -- identities: take the compiler's from what is staged and parsed.
+    if tree_compiler == nil then
+      local found, _ = identity.compiler_identity(handle.db)
+      tree_compiler = found
+    end
+    return closing(handle, compile_trouble),
+      reboot.compiler_moved(Store.meta("compiler"), tree_compiler)
   end
   local database_path = handle.root .. "/o/cosmic.db"
   local written, write_trouble =
     writer.write_result(handle, database_path, result, tree_code)
   if not written then
-    return closing(handle, write_trouble)
+    return closing(handle, write_trouble), false
   end
   -- The running tool's own [`writer.carried`], which may not be the
   -- tree's: the projection it carries is signed by that writer, and a
@@ -286,29 +317,29 @@ local function into(handle: work.Handle, built: compiler,
   local carried_path = handle.root .. "/o/carried.db"
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then
-    return closing(handle, carry_trouble)
+    return closing(handle, carry_trouble), false
   end
   local database, read_trouble = Fs.read(carried_path)
   if database == nil then
-    return closing(handle, read_trouble)
+    return closing(handle, read_trouble), false
   end
   local closed, close_trouble = work.close(handle)
   if not closed then
-    return close_trouble
+    return close_trouble, false
   end
   local program, program_trouble = artifact.program(prefix, database)
   if program == nil then
-    return program_trouble
+    return program_trouble, false
   end
   local published, publish_trouble = Fs.write(out, program, 0x1ed)
   if not published then
-    return publish_trouble
+    return publish_trouble, false
   end
 
   local environment = sys.environ()
   environment[marker] = settle and "2" or "1"
   local _, exec_trouble = Proc.exec(reentry(out, argv), { env = environment })
-  return exec_trouble
+  return exec_trouble, false
 end
 
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
@@ -493,6 +524,40 @@ function reboot.boot_into(root: string, argv: {integer:string},
   return exec_trouble
 end
 
+--- What a Teal rebuild does once it has failed with `trouble`; `moved`
+--- is whether the failure was a compile that failed while the tree's
+--- compiler differs from the tool's ([`reboot.compiler_moved`], the
+--- second answer of `into`). Answers the exit code, having said why.
+---
+--- A failure while the compiler has not moved is the tree's own error,
+--- and is said as it is. When it has, the tool's checker may simply not
+--- understand what the tree's compiler modules now do (a stale tool's
+--- answer for a call it has no rule for is `T (unresolved generic)`),
+--- so no rebuild by it can finish and a boot is what mends it: the path
+--- a core change takes, unless `COSMIC_AUTO_BOOT=0` says to refuse
+--- ([`reboot.auto_boot`]). Only a failure boots, not every edit to a
+--- compiler module, most of which change nothing a compile stores.
+--- The caller has closed its working database ([`reboot.boot_into`]).
+--- `environment` is what the boot runs in, this process's by default.
+--- A boot that starts re-enters `argv` and does not return here.
+function reboot.rebuild_failed(root: string, argv: {integer:string},
+                               trouble: string, moved: boolean,
+                               environment?: {string:string}): integer
+  if not moved then
+    log:complain(trouble)
+    return 3
+  end
+  if not reboot.auto_boot(environment) then
+    log:complain(trouble)
+    log:complain(core_refusal)
+    return 3
+  end
+  log:complain("the tool cannot compile the tree and its compiler has moved; " ..
+      "booting it instead of rebuilding")
+  log:complain(reboot.boot_into(root, argv, environment))
+  return 3
+end
+
 --- The staleness guard every verb that builds the tree applies once
 --- it has staged it, before it compiles anything: `cosmic <file.tl>`,
 --- `cosmic test`, and through [`reboot.stale_exit`] the read-only verbs.
@@ -500,7 +565,9 @@ end
 --- tree no longer agrees with, and run embedded `cosmic.*` and `build.*`
 --- code from an old tree. When only Teal moved, the tool rebuilds itself
 --- and re-enters `argv`; when the C core moved, it has zig boot it,
---- unless `COSMIC_AUTO_BOOT=0` says to refuse. Only the tree's own tool
+--- unless `COSMIC_AUTO_BOOT=0` says to refuse; so does a rebuild whose
+--- compile fails once the compiler's modules moved
+--- ([`reboot.rebuild_failed`]). Only the tree's own tool
 --- ([`reboot.own_tool`]) does either; another refuses with
 --- `foreign_refusal`, rebuilding nothing. A fresh tool of the tree's
 --- own whose database another writer wrote (`unsettled`) writes itself
@@ -546,7 +613,8 @@ function reboot.guard(handle: work.Handle, root: string,
       return waited
     end
     log:complain("the tool's database was built by other code than its own; building it again")
-    log:complain(into(handle, teal.lazy(), argv, true))
+    local trouble, _ = into(handle, teal.lazy(), argv, true)
+    log:complain(trouble)
     return 3
   end
   if not own then
@@ -596,12 +664,13 @@ function reboot.guard(handle: work.Handle, root: string,
   end
   if settle then
     log:complain("the tool's database was built by other code than its own; building it again")
-    log:complain(into(handle, teal.lazy(), argv, true))
+    local trouble, _ = into(handle, teal.lazy(), argv, true)
+    log:complain(trouble)
     return 3
   end
   log:complain("the tool is stale; rebuilding it from the tree")
-  log:complain(into(handle, teal.lazy(), argv, false))
-  return 3
+  local trouble, moved = into(handle, teal.lazy(), argv, false)
+  return reboot.rebuild_failed(root, argv, trouble, moved)
 end
 
 --- The staleness guard for a read-only verb -- `docs`, `uses`, `db`,
