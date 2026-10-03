@@ -230,8 +230,8 @@ end
 --- it opens the file; above a function it is the function's alone.
 local function takes_a_doc_comment(stmt: ast.Node): boolean
   local kind = stmt.kind
-  return kind == "local_function" or kind == "record_function"
-    or kind == "global_function"
+  return kind == "local_function" or kind == "record_function" or
+    kind == "global_function"
 end
 
 --- The module's own documentation: the run of comment lines that opens
@@ -258,8 +258,8 @@ local function module_doc(parsed: ast.Parsed): string, integer
     last = last + 1
   end
   local first_stmt = parsed.node[1]
-  if first_stmt ~= nil and takes_a_doc_comment(first_stmt)
-     and comments[last].y == first_stmt.y - 1 then
+  if first_stmt ~= nil and takes_a_doc_comment(first_stmt) and
+     comments[last].y == first_stmt.y - 1 then
     return "", 1
   end
   local run: {compiler.Comment} = {}
@@ -311,8 +311,8 @@ local function owner_name(owner: ast.Node | nil): string
     return owner.tk
   end
   local op, member = owner.op, owner.e2
-  if owner.kind == "op" and op ~= nil and op.op == "." and member ~= nil
-     and member.tk ~= nil then
+  if owner.kind == "op" and op ~= nil and op.op == "." and member ~= nil and
+     member.tk ~= nil then
     return owner_name(owner.e1) .. "." .. member.tk
   end
   return ""
@@ -407,8 +407,8 @@ end
 local function nodes_under_inner_functions(body: ast.Node): {ast.Node: boolean}
   local inner: {ast.Node: boolean} = {}
   ast.walk(body, function(n: ast.Node)
-    if n.kind == "local_function" or n.kind == "record_function"
-       or n.kind == "global_function" or n.kind == "function" then
+    if n.kind == "local_function" or n.kind == "record_function" or
+       n.kind == "global_function" or n.kind == "function" then
       ast.walk(n, function(under: ast.Node)
         inner[under] = true
       end)
@@ -461,8 +461,8 @@ local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.Catalo
   end
   local out: {analyzer.CatalogEntry} = {}
   for _, stmt in ipairs(parsed.node) do
-    if (stmt.kind == "local_function" or stmt.kind == "record_function")
-       and stmt.body ~= nil then
+    if (stmt.kind == "local_function" or stmt.kind == "record_function") and
+       stmt.body ~= nil then
       local symbol = symbol_of(stmt)
       for _, entry in ipairs(catalog_in_body(stmt.body, patterns, symbol)) do
         out[#out + 1] = entry
@@ -517,8 +517,8 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
     local token = tokens[at]
     local tk = token.tk
     local previous = tokens[at - 1]
-    if at > first and depth <= 0 and token.y > previous.y and tk ~= "|"
-       and previous.tk ~= "," and previous.tk ~= "|" and previous.tk ~= ":" then
+    if at > first and depth <= 0 and token.y > previous.y and tk ~= "|" and
+       previous.tk ~= "," and previous.tk ~= "|" and previous.tk ~= ":" then
       break
     end
     if token.comments ~= nil and at > first then
@@ -592,8 +592,8 @@ local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: st
             signature = field_signature(lines, tokens, field),
             text = doc_before(lines, comments, field.y), line = field.y }
         end
-      elseif nested ~= nil and (nested.typename == "record"
-         or nested.typename == "interface" or nested.typename == "enum") then
+      elseif nested ~= nil and (nested.typename == "record" or
+         nested.typename == "interface" or nested.typename == "enum") then
         out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
           exported = false, kind = nested.typename,
           signature = line_at(lines, field.y),
@@ -671,8 +671,8 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
       kind = "module", signature = "", text = opening, line = opening_line }
   end
   for _, stmt in ipairs(parsed.node) do
-    if (stmt.kind == "local_function" or stmt.kind == "record_function"
-        or stmt.kind == "global_function") and not is_example_function(stmt) then
+    if (stmt.kind == "local_function" or stmt.kind == "record_function" or
+        stmt.kind == "global_function") and not is_example_function(stmt) then
       local symbol = symbol_of(stmt)
       out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
         kind = stmt.is_method and "method" or "function",
@@ -686,8 +686,8 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
         local symbol = var.tk or ""
         local def = definition_of(typedecl)
         local kind = "type"
-        if not typedecl.is_alias and def ~= nil and (def.typename == "record"
-           or def.typename == "interface" or def.typename == "enum") then
+        if not typedecl.is_alias and def ~= nil and (def.typename == "record" or
+           def.typename == "interface" or def.typename == "enum") then
           kind = def.typename
         end
         out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
@@ -698,8 +698,8 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
           record_docs(lines, parsed.tokens, symbol, def, out)
         end
       end
-    elseif stmt.kind == "local_declaration" and stmt.vars ~= nil
-           and stmt.vars[1] ~= nil then
+    elseif stmt.kind == "local_declaration" and stmt.vars ~= nil and
+           stmt.vars[1] ~= nil then
       local text = doc_before(lines, stmt.comments, stmt.y)
       -- The run above the file's first `local` is the module's (see
       -- [`module_doc`]), never that value's.
@@ -733,8 +733,8 @@ local function surface_of(parsed: ast.Parsed, export: string,
     local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
     local written = declared ~= nil and declared[1] or nil
     local names = written ~= nil and written.typename == "nominal" and written.names or nil
-    if stmt.kind == "local_declaration" and #vars == 1 and vars[1].tk == export
-       and names ~= nil and #names == 1 then
+    if stmt.kind == "local_declaration" and #vars == 1 and vars[1].tk == export and
+       names ~= nil and #names == 1 then
       for _, entry in ipairs(entries) do
         if entry.source_symbol == names[1] and entry.kind == "record" then
           return names[1]
@@ -755,8 +755,8 @@ end
 local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: string,
                                     export: string)
   local function under(entry: analyzer.DocEntry, root: string): boolean
-    return entry.source_symbol == root
-      or String.starts_with(entry.source_symbol, root .. ".")
+    return entry.source_symbol == root or
+      String.starts_with(entry.source_symbol, root .. ".")
   end
   if surface ~= export then
     for _, entry in ipairs(entries) do
@@ -772,18 +772,18 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
     for _, reader in ipairs(entries) do
       -- A member named `_x` is hidden from callers, so what its
       -- signature names is not reached through it.
-      local hidden = reader.source_symbol:find("[.:]_[^.:]*$") ~= nil
-        or reader.source_symbol:sub(1, 1) == "_"
+      local hidden = reader.source_symbol:find("[.:]_[^.:]*$") ~= nil or
+        reader.source_symbol:sub(1, 1) == "_"
       if reader.exported and not hidden and not searched[reader] and reader.signature ~= "" then
         searched[reader] = true
         local words = " " .. reader.signature .. " "
         for _, entry in ipairs(entries) do
           local name = entry.source_symbol
-          if not entry.exported and name:find(".", 1, true) == nil
-             and (entry.kind == "record" or entry.kind == "enum"
-                  or entry.kind == "interface" or entry.kind == "type")
-             and entry.signature:sub(1, 6) == "local "
-             and words:find("[^.%w_]" .. name .. "[^%w_]") ~= nil then
+          if not entry.exported and name:find(".", 1, true) == nil and
+             (entry.kind == "record" or entry.kind == "enum" or
+                  entry.kind == "interface" or entry.kind == "type") and
+             entry.signature:sub(1, 6) == "local " and
+             words:find("[^.%w_]" .. name .. "[^%w_]") ~= nil then
             for _, member in ipairs(entries) do
               if under(member, name) then
                 member.exported = true
@@ -846,27 +846,27 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       for index, lhs in ipairs(stmt.vars) do
         local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
         if lhs.tk ~= nil then
-          values[lhs.tk] = rhs ~= nil and rhs.kind == "variable"
-            and rhs.tk ~= nil and (values[rhs.tk] or "") or ""
+          values[lhs.tk] = rhs ~= nil and rhs.kind == "variable" and
+            rhs.tk ~= nil and (values[rhs.tk] or "") or ""
         end
       end
-    elseif export ~= "" and stmt.kind == "record_function" and stmt.fn_owner ~= nil
-           and stmt.fn_owner.tk == export and stmt.name ~= nil
-           and stmt.name.tk ~= nil then
+    elseif export ~= "" and stmt.kind == "record_function" and stmt.fn_owner ~= nil and
+           stmt.fn_owner.tk == export and stmt.name ~= nil and
+           stmt.name.tk ~= nil then
       local public_source = export .. "." .. stmt.name.tk
       members[public_source] = public_source
     elseif stmt.kind == "assignment" and stmt.vars ~= nil then
       local rhs_values: {string} = {}
       for index in ipairs(stmt.vars) do
         local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
-        rhs_values[index] = rhs ~= nil and rhs.kind == "variable"
-          and rhs.tk ~= nil and (values[rhs.tk] or "") or ""
+        rhs_values[index] = rhs ~= nil and rhs.kind == "variable" and
+          rhs.tk ~= nil and (values[rhs.tk] or "") or ""
       end
       for index, lhs in ipairs(stmt.vars) do
-        if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "."
-           and lhs.e1 ~= nil and lhs.e1.kind == "variable"
-           and export ~= "" and lhs.e1.tk == export
-           and lhs.e2 ~= nil and lhs.e2.tk ~= nil
+        if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "." and
+           lhs.e1 ~= nil and lhs.e1.kind == "variable" and
+           export ~= "" and lhs.e1.tk == export and
+           lhs.e2 ~= nil and lhs.e2.tk ~= nil
         then
           members[export .. "." .. lhs.e2.tk] = rhs_values[index]
         elseif lhs.kind == "variable" and lhs.tk ~= nil then
@@ -877,9 +877,9 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
   end
   if export == "" and returned ~= nil and returned.kind == "literal_table" then
     for _, item in ipairs(returned) do
-      if item.kind == "literal_table_item" and item.key_parsed ~= "implicit"
-         and item.key ~= nil and item.key.conststr ~= nil and item.value ~= nil
-         and item.value.kind == "variable" and item.value.tk ~= nil then
+      if item.kind == "literal_table_item" and item.key_parsed ~= "implicit" and
+         item.key ~= nil and item.key.conststr ~= nil and item.value ~= nil and
+         item.value.kind == "variable" and item.value.tk ~= nil then
         members[item.key.conststr] = values[item.value.tk] or ""
       end
     end
@@ -942,8 +942,8 @@ local function block_text(lines: {string}, y: integer, x: integer,
     local to = line_no == until_y and (until_x - 1) or #line
     parts[#parts + 1] = line:sub(from, to)
   end
-  while #parts > 0 and (parts[#parts]:match("^%s*$") ~= nil
-     or parts[#parts]:match("^%s*%-%-") ~= nil) do
+  while #parts > 0 and (parts[#parts]:match("^%s*$") ~= nil or
+     parts[#parts]:match("^%s*%-%-") ~= nil) do
     parts[#parts] = nil
   end
   return table.concat(parts, "\n")
@@ -984,8 +984,8 @@ local function uses_of(root: ast.Node, used: {string: boolean})
       for _, var in ipairs(n.vars or {}) do bind(var.tk) end
     elseif kind == "local_type" then
       bind(n.var ~= nil and n.var.tk or nil)
-    elseif kind == "local_function" or kind == "record_function"
-        or kind == "global_function" or kind == "function" then
+    elseif kind == "local_function" or kind == "record_function" or
+        kind == "global_function" or kind == "function" then
       if kind == "local_function" and n.name ~= nil then bind(n.name.tk) end
       stack[#stack + 1] = {}
       for _, parameter in ipairs(n.args or {}) do bind(parameter.tk) end
@@ -1071,8 +1071,8 @@ local function own_text(code: string): string
   for line in String.lines((code:gsub("%s*local%s*$", ""))) do
     kept[#kept + 1] = line
   end
-  while #kept > 0 and (kept[#kept]:match("^%s*$") ~= nil
-      or kept[#kept]:match("^%s*%-%-") ~= nil) do
+  while #kept > 0 and (kept[#kept]:match("^%s*$") ~= nil or
+      kept[#kept]:match("^%s*%-%-") ~= nil) do
     kept[#kept] = nil
   end
   return table.concat(kept, "\n")
@@ -1111,8 +1111,8 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
         out.requires[#out.requires + 1] = { name, code }
       end
     end
-    if stmt.kind == "local_function" or stmt.kind == "local_type"
-       or stmt.kind == "local_declaration" then
+    if stmt.kind == "local_function" or stmt.kind == "local_type" or
+       stmt.kind == "local_declaration" then
       local names: {string} = {}
       if stmt.kind == "local_function" and stmt.name ~= nil and stmt.name.tk ~= nil then
         names[1] = stmt.name.tk
@@ -1129,8 +1129,8 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
         first = first - 1
       end
       local code = own_text(block_text(lines, first, 1, until_y, until_x))
-      local is_require = code:match("^local%s+[%w_]+%s*=%s*require%s*%(") ~= nil
-        or code:match("^local%s+type%s+[%w_]+%s*=%s*require%s*%(") ~= nil
+      local is_require = code:match("^local%s+[%w_]+%s*=%s*require%s*%(") ~= nil or
+        code:match("^local%s+type%s+[%w_]+%s*=%s*require%s*%(") ~= nil
       local plain = #names > 0
       for _, name in ipairs(names) do
         if name == "Example" then plain = false end

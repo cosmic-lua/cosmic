@@ -83,9 +83,9 @@ end
 --- names its function uses.
 local function declared_names(line: string): {string}
   local out: {string} = {}
-  if line:match("^local%s") == nil or line:match("=%s*require%s*%(") ~= nil
-      or line:match("^local%s+record%s+Example%f[^%w_]") ~= nil
-      or line:match("^local%s+Example%f[^%w_]") ~= nil then
+  if line:match("^local%s") == nil or line:match("=%s*require%s*%(") ~= nil or
+      line:match("^local%s+record%s+Example%f[^%w_]") ~= nil or
+      line:match("^local%s+Example%f[^%w_]") ~= nil then
     return out
   end
   local named = line:match("^local%s+function%s+([%w_]+)")
@@ -119,8 +119,8 @@ local function helper_trouble(file: string, name: string): string | nil
           return "uses helper " .. name .. ", too long to carry: inline it"
         end
       end
-    elseif line:match("^%S") ~= nil and line:match("^end") == nil
-        and line:match("^[})%]]") == nil then
+    elseif line:match("^%S") ~= nil and line:match("^end") == nil and
+        line:match("^[})%]]") == nil then
       helper = ""
     end
     if helper ~= "" and name == "Example" and sibling == nil then

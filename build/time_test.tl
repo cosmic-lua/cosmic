@@ -142,8 +142,8 @@ local function test_between_counts_days_months_and_seconds()
   assert(said({ "between", "@10.9", "@0", "--seconds" }) == "-10\n")
   -- The day the clocks spring forward is 23 hours long but one calendar day.
   assert(said({ "between", "2026-03-08T00:00", "2026-03-09T00:00", "--days", "--zone", "America/New_York" }) == "1\n")
-  assert(said({ "between", "2026-03-08T00:00", "2026-03-09T00:00", "--seconds", "--zone", "America/New_York" })
-    == "82800\n")
+  assert(said({ "between", "2026-03-08T00:00", "2026-03-09T00:00", "--seconds", "--zone", "America/New_York" }) ==
+    "82800\n")
 end
 
 local function test_between_defaults_to_a_duration_add_reads_back()

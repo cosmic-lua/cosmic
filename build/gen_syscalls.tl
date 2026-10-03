@@ -95,11 +95,11 @@ end
 function generator.descriptor(parameter: Parameter): boolean
   local name = parameter.name
   local said = parameter.description:lower()
-  return name == "fd" or name == "fds" or name == "dirfd" or name == "sock"
-    or name:match("_fds?$") ~= nil
-    or name == "stdin" or name == "stdout" or name == "stderr"
-    or said:match("^the descriptors?[%s,;:]") ~= nil or said:match("^the descriptors?$") ~= nil
-    or said:match("^the open descriptor") ~= nil
+  return name == "fd" or name == "fds" or name == "dirfd" or name == "sock" or
+    name:match("_fds?$") ~= nil or
+    name == "stdin" or name == "stdout" or name == "stderr" or
+    said:match("^the descriptors?[%s,;:]") ~= nil or said:match("^the descriptors?$") ~= nil or
+    said:match("^the open descriptor") ~= nil
 end
 
 --- Turns a LuaCATS type into a Teal one. The two agree on everything

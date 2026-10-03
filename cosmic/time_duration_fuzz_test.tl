@@ -56,8 +56,8 @@ local function fields_round_trip(input: string): boolean, string
   Fuzz.label(sign < 0 and "negative" or "positive")
   local back, why = Time.parse_duration(text)
   if back == nil then return false, text .. " refused: " .. why end
-  if back.years ~= d.years or back.months ~= d.months or back.days ~= d.days
-      or back.ns ~= d.ns then
+  if back.years ~= d.years or back.months ~= d.months or back.days ~= d.days or
+      back.ns ~= d.ns then
     return false, text .. " read back as another duration"
   end
   return true, ""
@@ -75,8 +75,8 @@ local function duration_is_total(input: string): boolean, string
   local d = got as Time.Duration
   local again, again_why = Time.parse_duration(Time.format_duration(d))
   if again == nil then return false, "its own text refused: " .. again_why end
-  if again.years ~= d.years or again.months ~= d.months or again.days ~= d.days
-      or again.ns ~= d.ns then
+  if again.years ~= d.years or again.months ~= d.months or again.days ~= d.days or
+      again.ns ~= d.ns then
     return false, "its own text read as another duration"
   end
   return true, ""

@@ -143,3 +143,43 @@ local function test_a_keyword_or_body_alone_on_an_open_line_is_opened()
   writes("if x then\n  a() else\n  b()\nend\n", "if x then\n  a()\nelse\n  b()\nend\n")
   writes("f(function() a()\nend)\n", "f(function()\n  a()\nend)\n")
 end
+
+--- A binary operator opening a line moves to the end of the line
+--- before, and its right operand takes the operator's column.
+local function test_an_operator_opening_a_line_moves_to_the_line_before()
+  writes("local x = a\n  and b\n", "local x = a and\n  b\n")
+  writes("local s = a\n  .. b\n  .. c\n", "local s = a ..\n  b ..\n  c\n")
+  writes("if p ~= nil and f(p)\n   and g(p) then\n  return\nend\n",
+         "if p ~= nil and f(p) and\n   g(p) then\n  return\nend\n")
+  writes("local w = (a\n  == b)\n", "local w = (a ==\n  b)\n")
+end
+
+--- The moved operator goes ahead of a comment the line before ends in,
+--- and an own-line comment between stays on its line.
+local function test_a_moved_operator_goes_ahead_of_comments()
+  writes("local x = a -- why\n  or b\n", "local x = a or -- why\n  b\n")
+  writes("local x = a\n  -- why\n  or b\n", "local x = a or\n  -- why\n  b\n")
+end
+
+--- An operator already at the end of its line, a unary one, and a cast
+--- are left as they are.
+local function test_operators_not_opening_a_line_are_left()
+  keeps("local x = a and\n  b\n")
+  keeps("local x = a and\n  not b\n")
+  keeps("local x = f()\n  as integer\n")
+end
+
+--- An operator alone on its line takes the line with it, and its
+--- operand keeps its own.
+local function test_an_operator_alone_on_its_line_takes_the_line()
+  writes("local x = a\n  and\n  b\n", "local x = a and\n  b\n")
+  writes("local x = a\n  ..\n  -- c\n  b\n", "local x = a ..\n  -- c\n  b\n")
+end
+
+--- A space parts a moved `..` from a number before it, which `1..`
+--- would lex as part of; and an operator behind a long comment's `]]`
+--- stays where it is.
+local function test_a_moved_operator_is_spaced_and_a_comment_holds_one()
+  writes("local s = 1\n  .. x\n", "local s = 1 ..\n  x\n")
+  keeps("local x = a --[[ c\n ]] and b\n")
+end

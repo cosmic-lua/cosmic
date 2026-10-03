@@ -264,8 +264,8 @@ end
 --- @return boolean
 local function is_call_statement(node: Node, statements: {Node: boolean}): boolean
   local op = node.op
-  return statements[node] == true and node.kind == "op" and op ~= nil
-    and (op.op == "@funcall" or op.op == "@method")
+  return statements[node] == true and node.kind == "op" and op ~= nil and
+    (op.op == "@funcall" or op.op == "@method")
 end
 
 --- The byte range `[a, b]` (inclusive) of every whole line `node`'s

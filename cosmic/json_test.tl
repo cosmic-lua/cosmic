@@ -600,8 +600,8 @@ local function test_members_lists_what_a_walk_visits()
   assert(object.layout == "object" and table.concat(object.keys as {string}, ",") == "a,b,c")
   assert(object.extent == 0)
   local hole = Json.members({ [7] = "g", [1] = "a", [3] = "c" } as {any: any})
-  assert(hole.layout == "hole" and #hole.keys == 3 and hole.keys[1] == 1 and hole.keys[2] == 3
-    and hole.keys[3] == 7 and hole.extent == 0)
+  assert(hole.layout == "hole" and #hole.keys == 3 and hole.keys[1] == 1 and hole.keys[2] == 3 and
+    hole.keys[3] == 7 and hole.extent == 0)
   local array = Json.members({ "x", "y" })
   assert(array.layout == "array" and #array.keys == 0 and array.extent == 2, "no key list for an array")
   local holed = Json.members(decoded("[1, null, null, 4, null]") as {any: any})

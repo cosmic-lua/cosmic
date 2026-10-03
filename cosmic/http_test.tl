@@ -769,8 +769,8 @@ local function test_the_raw_handle_close_returns_no_values()
   local raw: {string: function(string, {string: any}): any, string} = nil
   for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
     local loader, extra = searcher("cosmic.http")
-    if type(loader) == "function" and type(extra) == "table"
-        and (extra as {string: any}).open ~= nil then
+    if type(loader) == "function" and type(extra) == "table" and
+        (extra as {string: any}).open ~= nil then
       raw = extra as {string: function(string, {string: any}): any, string}
     end
   end

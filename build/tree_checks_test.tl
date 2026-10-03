@@ -32,8 +32,8 @@ local function test_an_unearned_export_and_a_stale_allowance_are_refused(dir: st
       "return {}"),
   })
   local found = tree_checks.exports(db, {})
-  assert(#found == 1 and found[1]:find("^build/thing%.tl:4: build%.thing%.alone: nothing outside")
-    ~= nil, table.concat(found, "\n"))
+  assert(#found == 1 and found[1]:find("^build/thing%.tl:4: build%.thing%.alone: nothing outside") ~=
+    nil, table.concat(found, "\n"))
   assert(#tree_checks.exports(db, { ["build.thing.alone"] = "kept for a reason" }) == 0)
   found = tree_checks.exports(db, { ["build.thing.alone"] = "kept for a reason",
     ["build.thing.used"] = "no longer needed" })
@@ -151,8 +151,8 @@ local function test_a_stand_in_that_stops_naming_its_command_is_refused(dir: str
     ["cosmic/proc.tl"] = proc("Where a program would run from."),
   })
   found = tree_checks.stand_ins(unnamed, cases)
-  assert(#found == 1 and found[1]:find("^`cosmic docs which` answers nothing first, not Proc.find")
-    ~= nil, table.concat(found, "\n"))
+  assert(#found == 1 and found[1]:find("^`cosmic docs which` answers nothing first, not Proc.find") ~=
+    nil, table.concat(found, "\n"))
 end
 
 --- A query a compile's failure points to is answered by a worked
@@ -176,8 +176,8 @@ local function test_a_query_no_example_answers_is_refused(dir: string)
   local found = tree_checks.queries(db, { "records_and_their_fields" })
   assert(#found == 0, table.concat(found, "\n"))
   found = tree_checks.queries(db, { "records_and_their_fields", "unions_and_their_members" })
-  assert(#found == 1 and found[1]:find("^`cosmic docs unions_and_their_members` answers nothing")
-    ~= nil, table.concat(found, "\n"))
+  assert(#found == 1 and found[1]:find("^`cosmic docs unions_and_their_members` answers nothing") ~=
+    nil, table.concat(found, "\n"))
 end
 
 --- A quieted method its record declares passes; one it lacks, or a
@@ -277,8 +277,8 @@ local function test_a_verb_is_held_to_its_registration(dir: string)
   assert(#found == 1 and found[1]:find("^`spare` %(build%.spare%) assigns a `spec` but " ..
     "build/verb_list%.tl does not list its module") ~= nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "a missing heading", ok))
-  assert(#found == 1 and found[1]:find("^`thing`'s guide is \"a missing heading\", which is no `## ` heading")
-    ~= nil, table.concat(found, "\n"))
+  assert(#found == 1 and found[1]:find("^`thing`'s guide is \"a missing heading\", which is no `## ` heading") ~=
+    nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "none: ", ok))
   assert(#found == 1 and found[1]:find("^`thing` has no guide and gives no reason") ~= nil,
     table.concat(found, "\n"))
@@ -291,8 +291,8 @@ local function test_a_verb_is_held_to_its_registration(dir: string)
   found = found_with(verb("thing", "in a fence", ok))
   assert(#found == 1 and found[1]:find("is no `## ` heading", 1, true) ~= nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "a thing", "\"build.gone_test\", \"build.thing\", " .. ok))
-  assert(#found == 2 and found[1]:find("^`thing`'s tests name build%.gone_test, which is no test module")
-    ~= nil and found[2]:find("name build%.thing, which is no test module") ~= nil,
+  assert(#found == 2 and found[1]:find("^`thing`'s tests name build%.gone_test, which is no test module") ~=
+    nil and found[2]:find("name build%.thing, which is no test module") ~= nil,
     table.concat(found, "\n"))
 end
 
@@ -342,8 +342,8 @@ local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
     table.concat(found, "\n"))
   found = found_with(spec("  name = \"thing\",", "  guide = \"a thing\",",
     "  tests = { \"build.thing_test\", other },"))
-  assert(#found == 1 and found[1]:find("^`thing` names no test module in `tests`, as string literals")
-    ~= nil, table.concat(found, "\n"))
+  assert(#found == 1 and found[1]:find("^`thing` names no test module in `tests`, as string literals") ~=
+    nil, table.concat(found, "\n"))
 
   -- A spec exported from a local is no literal the check reads: refused
   -- as a listed verb with none.
@@ -424,8 +424,8 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
   local found = tree_checks.public_docs(db, {})
   local text = table.concat(found, "\n")
   assert(#found == 6, text)
-  assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl`.*%(path rule%) %-%- say what a caller needs")
-    ~= nil, text)
+  assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl`.*%(path rule%) %-%- say what a caller needs") ~=
+    nil, text)
   assert(found[2]:find("^cosmic/thing%.tl:7: .*`TODO:` %(todo rule%).*`%-%-` comment") ~= nil, text)
   assert(found[3]:find("^cosmic/thing%.tl:9: .*`core/thing%.c`") ~= nil, text)
   assert(found[4]:find("^cosmic/thing%.tl:9: .*`cosmic%.internal%.thing%.`") ~= nil, text)
@@ -518,8 +518,8 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
     ["build/count.tl:tests"] = "always many", ["build/count.tl:files"] = "always many",
     ["build/count.tl:rows"] = "always many", ["build/count.tl:stores"] = "always many",
     ["build/fine.tl:tests"] = "unneeded" })
-  assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil
-    and found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+  assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil and
+    found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
 end
 
 --- The `ci/` sources the plural check reads are the modules of

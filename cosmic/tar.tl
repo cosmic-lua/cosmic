@@ -240,8 +240,8 @@ local function parse_pax(body: string): {string:string}
       local key = rec:sub(sp - at + 2, eq - 1)
       if key:sub(1, 11) == "GNU.sparse." then
         out["GNU.sparse."] = ""
-      elseif key == "path" or key == "linkpath" or key == "size" or key == "mtime"
-        or key == "uid" or key == "gid" then
+      elseif key == "path" or key == "linkpath" or key == "size" or key == "mtime" or
+        key == "uid" or key == "gid" then
         out[key] = rec:sub(eq + 1, #rec - 1) -- drop the trailing newline
       end
     end

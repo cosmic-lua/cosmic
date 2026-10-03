@@ -279,8 +279,8 @@ COSMIC_SYSCALL(open, 3) {
   return 2;
 }
 ]])
-  assert(#found == 2 and found[1].rule == "returned-shape" and found[1].line == 11
-    and found[2].rule == "returned-shape" and found[2].line == 18,
+  assert(#found == 2 and found[1].rule == "returned-shape" and found[1].line == 11 and
+    found[2].rule == "returned-shape" and found[2].line == 18,
     "expected two returned-shape findings, found " .. #found)
 end
 
@@ -310,8 +310,8 @@ COSMIC_SYSCALL(entropy, 1) {
 ]])
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
-  assert(#found == 3 and found[1].rule == "failure-shape" and found[1].line == 9
-    and found[2].line == 13 and found[3].line == 14,
+  assert(#found == 3 and found[1].rule == "failure-shape" and found[1].line == 9 and
+    found[2].line == 13 and found[3].line == 14,
     "expected three failure-shape findings, found: " .. table.concat(said, ", "))
 end
 
@@ -343,8 +343,8 @@ COSMIC_SYSCALL(execve, 3) {
 ]])
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
-  assert(#found == 2 and found[1].rule == "failure-shape" and found[1].line == 12
-    and found[2].line == 13, "found: " .. table.concat(said, ", "))
+  assert(#found == 2 and found[1].rule == "failure-shape" and found[1].line == 12 and
+    found[2].line == 13, "found: " .. table.concat(said, ", "))
 end
 
 local function test_a_failure_in_its_own_shape_is_not(tmp: string)
@@ -397,10 +397,10 @@ static int helper (lua_State *L) {
 ]]), "descriptor-argument")
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
-  assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read"
-    and found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2"
-    and found[4].line == 22 and found[4].within == "helper"
-    and found[5].line == 24 and found[5].within == "helper",
+  assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read" and
+    found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2" and
+    found[4].line == 22 and found[4].within == "helper" and
+    found[5].line == 24 and found[5].within == "helper",
     "found: " .. table.concat(said, ", "))
 end
 
@@ -463,8 +463,8 @@ int held (int x) {
 ]]), "pass-fail-int")
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
-  assert(#found == 3 and found[1].line == 7 and found[2].line == 14
-    and found[3].line == 19, "found: " .. table.concat(said, ", "))
+  assert(#found == 3 and found[1].line == 7 and found[2].line == 14 and
+    found[3].line == 19, "found: " .. table.concat(said, ", "))
 end
 
 --- A status is not a truth, nor is a function no header declares, nor

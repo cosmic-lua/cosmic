@@ -282,8 +282,8 @@ end
 local function takes_state(call: Node): boolean
   for _, argument in ipairs(arguments(call)) do
     local t = tree.canonical_type(argument)
-    if t == "lua_State *" or t == "struct lua_State *" or t == "luaL_Buffer *"
-        or t == "struct luaL_Buffer *" then
+    if t == "lua_State *" or t == "struct lua_State *" or t == "luaL_Buffer *" or
+        t == "struct luaL_Buffer *" then
       return true
     end
   end
@@ -341,8 +341,8 @@ local function narrowed(ctx: Context, body: Node)
     end
     local to = tree.canonical_type(node)
     local operand = node.children[1] and tree.bare(node.children[1])
-    if not narrow[to] or operand == nil
-        or not (tree.type_of(operand) or ""):find("lua_Integer", 1, true) then
+    if not narrow[to] or operand == nil or
+        not (tree.type_of(operand) or ""):find("lua_Integer", 1, true) then
       return
     end
     local id = referenced(operand)
@@ -458,8 +458,8 @@ end
 local function receiver(state: State, call: Node): string, string
   local child = call
   local at = call.parent
-  while at ~= nil and (at.kind == "ImplicitCastExpr" or at.kind == "CStyleCastExpr"
-      or at.kind == "ParenExpr") do
+  while at ~= nil and (at.kind == "ImplicitCastExpr" or at.kind == "CStyleCastExpr" or
+      at.kind == "ParenExpr") do
     child = at
     at = at.parent
   end
@@ -646,8 +646,8 @@ local function expression(ctx: Context, node: Node, state: State)
       local r = tree.referent(n)
       local id = r ~= nil and r.id or nil
       local p = id ~= nil and state.strings[id] or nil
-      local assigned = n.parent ~= nil and n.parent.kind == "BinaryOperator"
-        and n.parent.text:match("'='$") ~= nil and n.parent.children[1] == n
+      local assigned = n.parent ~= nil and n.parent.kind == "BinaryOperator" and
+        n.parent.text:match("'='$") ~= nil and n.parent.children[1] == n
       if p ~= nil and p.gone ~= 0 and not assigned and not state.reported["s" .. id] then
         state.reported["s" .. id] = true
         report(ctx, n, "string-after-pop", "reads " .. p.name .. " (from line " .. p.line ..
@@ -658,8 +658,8 @@ local function expression(ctx: Context, node: Node, state: State)
       -- A pointer given another value points into nothing on the stack.
       local lhs = tree.referent(tree.bare(n.children[1]))
       local rhs = tree.bare(n.children[2])
-      if lhs ~= nil and lhs.kind == "Var" and state.strings[lhs.id] ~= nil and not (rhs ~= nil
-          and rhs.kind == "CallExpr" and string_pointers[tree.callee(rhs) or ""] ~= nil) then
+      if lhs ~= nil and lhs.kind == "Var" and state.strings[lhs.id] ~= nil and not (rhs ~= nil and
+          rhs.kind == "CallExpr" and string_pointers[tree.callee(rhs) or ""] ~= nil) then
         state.strings[lhs.id] = nil
       end
       -- A held resource stored anywhere but in a local has been handed
@@ -667,8 +667,8 @@ local function expression(ctx: Context, node: Node, state: State)
       local id = referenced(n.children[2])
       local target = tree.bare(n.children[1])
       local t = tree.referent(target)
-      if id ~= nil and state.held[id] ~= nil
-          and not (t ~= nil and t.kind == "Var" and state.locals[t.id]) then
+      if id ~= nil and state.held[id] ~= nil and
+          not (t ~= nil and t.kind == "Var" and state.locals[t.id]) then
         state.held[id] = nil
       end
     end
@@ -806,8 +806,8 @@ statement = function(ctx: Context, node: Node, state: State): boolean
       if statement(ctx, child, state) then return true end
     end
     return false
-  elseif kind == "<<<NULL>>>" or kind == "NullStmt" or kind == "BreakStmt"
-      or kind == "ContinueStmt" then
+  elseif kind == "<<<NULL>>>" or kind == "NullStmt" or kind == "BreakStmt" or
+      kind == "ContinueStmt" then
     return false
   end
   expression(ctx, node, state)
@@ -906,8 +906,8 @@ end
 --- Whether a function is handed the state first: its `int` may be a
 --- count of values it left, as a lua_CFunction's is.
 local function state_first(fn: Function): boolean
-  return fn.type:match("^int %(lua_State %*") ~= nil
-    or fn.type:match("^int %(struct lua_State %*") ~= nil
+  return fn.type:match("^int %(lua_State %*") ~= nil or
+    fn.type:match("^int %(struct lua_State %*") ~= nil
 end
 
 --- Every `return` in a body.
@@ -974,9 +974,9 @@ local function truth_locals(body: Node, known: Truths): {string: boolean}
       if r ~= nil and r.kind == "Var" and not truth(n.children[2], known) then
         refused[r.id] = true
       end
-    elseif n.kind == "CompoundAssignOperator" or (n.kind == "UnaryOperator"
-        and (n.text:find("'++'", 1, true) or n.text:find("'--'", 1, true)
-          or n.text:find("'&'", 1, true))) then
+    elseif n.kind == "CompoundAssignOperator" or (n.kind == "UnaryOperator" and
+        (n.text:find("'++'", 1, true) or n.text:find("'--'", 1, true) or
+          n.text:find("'&'", 1, true))) then
       -- Changed in place, or handed out by address to be written
       -- anything at all: `fetch(&status)`.
       local r = tree.referent(tree.bare(n.children[1]))
@@ -1011,8 +1011,8 @@ local function truthful(fns: {Function}): {string: boolean}
   while changed do
     changed = false
     for _, fn in ipairs(fns) do
-      if not known.functions[fn.name] and fn.type:match("^int %(") and not lua_facing(fn)
-          and returns_truths(fn, known) then
+      if not known.functions[fn.name] and fn.type:match("^int %(") and not lua_facing(fn) and
+          returns_truths(fn, known) then
         known.functions[fn.name] = true
         changed = true
       end
@@ -1144,8 +1144,8 @@ local function returned_shape(ctx: Context, name: string, body: Node,
     local value = tree.bare(n.children[1])
     local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
     local shape = helper ~= nil and ctx.shapes[helper] or nil
-    local through = helper ~= nil and ctx.shapes[helper] ~= nil and not helper:match("^cosmic_")
-      and " (through " .. helper .. ")" or ""
+    local through = helper ~= nil and ctx.shapes[helper] ~= nil and not helper:match("^cosmic_") and
+      " (through " .. helper .. ")" or ""
     if d.fallible and d.effect and shape == "fail" then
       report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared an effect " ..
         "(boolean), whose failure is false, a message and an errno: return " ..
@@ -1232,8 +1232,8 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
   -- Any function but the checks themselves: a descriptor taken as a
   -- bare integer, declared with it or assigned it.
   local function descriptor_name(name: string): boolean
-    return name == "fd" or name == "dirfd" or name == "sock" or name:match("_fd$") ~= nil
-      or name:match("^fd_") ~= nil
+    return name == "fd" or name == "dirfd" or name == "sock" or name:match("_fd$") ~= nil or
+      name:match("^fd_") ~= nil
   end
   local function bare_taker(node: Node): string
     local bare = node ~= nil and tree.bare(node) or nil

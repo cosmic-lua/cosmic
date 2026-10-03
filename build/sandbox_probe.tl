@@ -219,8 +219,8 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local filters: string | nil = nil
   if status ~= nil then filters = status:match("\nSeccomp_filters:%s*(%d+)") end
   local filtered = "grep -q '^Seccomp:[[:space:]]*2' /proc/self/status" ..
-    (filters and " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt "
-      .. filters or "")
+    (filters and " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt " ..
+      filters or "")
   local parts: {SandboxProbe.Part} = {}
   local function add(name: string, needed: boolean, held: boolean, why: string)
     parts[#parts + 1] = { name = name, needed = needed, held = held,

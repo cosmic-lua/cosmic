@@ -86,8 +86,8 @@ function positions.check(modules: {positions.Module}, own_tree: boolean): boolea
         local home = home_of(other.file)
         local open = home == "" or (not home:find("/", 1, true) and not entries[home])
         if not open and not Fs.within(m.file, home) then
-          local entry = entries[home] and ("its entry is " .. home .. "/init.tl")
-            or (home .. "/ has no init.tl entry")
+          local entry = entries[home] and ("its entry is " .. home .. "/init.tl") or
+            (home .. "/ has no init.tl entry")
           return false, m.file .. ": " .. name .. " is private to " .. home ..
             "/; only a file inside it may import it (" .. entry .. ")"
         end

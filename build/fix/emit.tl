@@ -291,8 +291,8 @@ local function gap(e: Emitter, y: integer, x: integer): boolean, integer
       end
       local ended = cy
       local opened = false
-      while e.at <= #e.comments and e.comments[e.at].y == ended
-            and (ended < y or (e.code_after[e.at] and e.comments[e.at].x < x)) do
+      while e.at <= #e.comments and e.comments[e.at].y == ended and
+            (ended < y or (e.code_after[e.at] and e.comments[e.at].x < x)) do
         local c = e.comments[e.at]
         put(e, (opened and " " or indent_of(e, c.x)) .. c.text)
         ended = ended + newlines(c.text)

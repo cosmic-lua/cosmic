@@ -1915,8 +1915,8 @@ local function listed(item: docs.Entry): string
     marks[#marks + 1] = plural.count(item.examples, "example")
   end
   local shown = item.kind .. " " .. item.source_symbol
-  if (item.kind == "function" or item.kind == "method"
-      or item.kind == "metamethod") and
+  if (item.kind == "function" or item.kind == "method" or
+      item.kind == "metamethod") and
      item.signature ~= "" and not item.signature:find("\n", 1, true) then
     shown = item.signature
   elseif item.kind == "field" then
@@ -2160,8 +2160,8 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   if entry.symbol ~= "" then
     -- `local` says only how the module spelled a declaration it hands
     -- out; a caller reads it as a record like any other.
-    lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "")
-      or entry.signature)
+    lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "") or
+      entry.signature)
   end
   if #entry.related > 0 then
     lines[#lines + 1] = "  related search examples:"
@@ -2255,8 +2255,8 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     if entry.text ~= "" then lines[#lines + 1] = "" end
     for _, row in ipairs(index) do lines[#lines + 1] = row end
   end
-  if entry.symbol ~= "" and (entry.kind == "record" or entry.kind == "interface"
-      or entry.kind == "enum") then
+  if entry.symbol ~= "" and (entry.kind == "record" or entry.kind == "interface" or
+      entry.kind == "enum") then
     local members, members_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
         return members_of(db, public, entry.module)

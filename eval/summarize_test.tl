@@ -106,8 +106,8 @@ local function test_a_lone_surrogate_does_not_lose_the_line()
   -- Claude Code cuts a tool's output in the middle of an emoji.
   local text = lines({
     call("1", "Bash", { command = "cosmic test" }),
-    '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"1",'
-      .. '"content":"test: PASS \\ud83d","is_error":true}]}}',
+    '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"1",' ..
+      '"content":"test: PASS \\ud83d","is_error":true}]}}',
   })
   local report = Summarize.report(text, arena, repo)
   assert(report:find("failed_calls=1 docs_misses=0 first_green_test_call=1", 1, true), report)
@@ -121,8 +121,8 @@ end
 local function test_a_line_python_reads_is_read()
   local deep = string.rep("[", 70) .. string.rep("]", 70)
   local text = table.concat({
-    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"1","name":"Bash",'
-      .. '"input":{"command":"ls /deep","x":' .. deep .. '}}]}}',
+    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"1","name":"Bash",' ..
+      '"input":{"command":"ls /deep","x":' .. deep .. '}}]}}',
     call("2", "Bash", { command = "ls /cr" }),
   }, "\r") .. "\r"
   local report = Summarize.report(text, arena, repo)

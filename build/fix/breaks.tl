@@ -1,5 +1,6 @@
---- The line breaks `cosmic fix` adds: one statement to a line, and a
---- block on one line only where it reads as one.
+--- The line breaks `cosmic fix` adds or moves: one statement to a
+--- line, a block on one line only where it reads as one, and a binary
+--- operator at the end of the line it continues from.
 ---
 --- The renderer carries over every line break the source has and adds
 --- none ([`build.fix.render`]), so this pass is the one place a break is
@@ -31,6 +32,15 @@
 --- each statement sits at the column it keeps, and a block inside one
 --- being opened is judged on the pass after that; [`fix.source`]
 --- renders and judges again until no break is due.
+---
+--- A binary operator the source wrote at the start of a line moves to
+--- the end of the line before, after its last code token and ahead of
+--- any comment that line ends in, so every wrapped expression reads the
+--- same way: `a and` over `b`, not `a` over `and b`. Its right operand
+--- takes the column the operator had, so an expression aligned on its
+--- operands stays aligned. A cast's `as` or `is` is type syntax and
+--- stays where it is, and so does an operator behind a long comment's
+--- `]]` on its line. The move is made with the statements' breaks.
 ---
 --- A break parts code from code. A statement behind the `]]` of a long
 --- comment, or behind a `;` that opens its line, stays there: what
@@ -79,6 +89,9 @@ local record Break
   --- Whether it is for a closing keyword, which the break goes right in
   --- front of: a comment before it stays behind the code it followed.
   closer: boolean
+  --- For a binary operator opening its line: the operator, which moves
+  --- to the end of the line before rather than any break being made.
+  moves: string | nil
 end
 
 --- A construct to open up: the breaks it wants, and where it starts
@@ -92,6 +105,7 @@ end
 local record Pass
   c: Ctx
   breaks: {integer:Break}
+  moves: {Break}
 end
 
 local function offset(p: Pass, y: integer, x: integer): integer
@@ -257,16 +271,16 @@ local function construct(p: Pass, n: Node): Opening | nil
   end
   -- A `repeat` ends with its condition, which may hold constructs of
   -- its own, so it reaches to the end of the line it ends on.
-  local reach = n.kind == "repeat" and { y = ending.line, x = math.maxinteger }
-    or closers[#closers]
+  local reach = n.kind == "repeat" and { y = ending.line, x = math.maxinteger } or
+    closers[#closers]
   return { wants = wants, first = stmt.start(p.c, n), last = reach }
 end
 
 --- Whether opening `outer` holds opening `inner`.
 local function holds(outer: Opening, inner: Opening): boolean
-  return outer ~= inner
-    and before(outer.first.y, outer.first.x, inner.first.y, inner.first.x)
-    and not before(outer.last.y, outer.last.x, inner.last.y, inner.last.x)
+  return outer ~= inner and
+    before(outer.first.y, outer.first.x, inner.first.y, inner.first.x) and
+    not before(outer.last.y, outer.last.x, inner.last.y, inner.last.x)
 end
 
 --- `out` with a line opened in front of `b`: right after `t`, the code
@@ -277,6 +291,21 @@ end
 local function open_line(p: Pass, out: string, b: Break, t: compiler.Token): string
   local from = offset(p, t.y, t.x) + #t.tk
   local source = p.c.source
+  local moves = b.moves
+  if moves ~= nil then
+    -- The operator follows the code before it, ahead of any comment
+    -- that line ends in, and its right operand takes the column the
+    -- operator had. An operator alone on its line takes that line with
+    -- it, and the operand keeps its own. The line before can end up
+    -- past `width`: wrapping is left to the author ([`build.fix.render`]).
+    local past = b.at + #moves
+    past = past + #(source:match("^[ \t]*", past) or "")
+    local gap = source:sub(from, b.at - 1)
+    if source:sub(past, past) == "\n" then
+      gap = gap:gsub("\n[ \t]*$", "")
+    end
+    return out:sub(1, from - 1) .. " " .. moves .. gap .. out:sub(past)
+  end
   local between = source:sub(from, b.at - 1)
   if b.drop then
     -- The run holds code only as `;`s; a `--` comment cannot stand in
@@ -306,6 +335,12 @@ local function open_line(p: Pass, out: string, b: Break, t: compiler.Token): str
   -- What opens the new line is placed so the statement or keyword the
   -- break is for keeps its column, and its continuation lines with it.
   local column = b.x - 1 - #rest
+  -- TODO: give a continuation line an indentation of its own, from the
+  -- statement's and the brackets open, rather than its column relative
+  -- to where the statement was: a statement moved left here pulls its
+  -- continuation lines left with it, to column 0 at worst
+  -- (`f() local x = a\n  as integer`). It waits on the change that sets
+  -- a canonical continuation indent in [`build.fix.render`].
   if column < 0 then
     column = 0
   end
@@ -316,6 +351,10 @@ end
 local function written(p: Pass): string
   local edits: {Break} = {}
   local after: {Break:compiler.Token} = {}
+  for _, b in ipairs(p.moves) do
+    edits[#edits + 1] = b
+    after[b] = p.c.scan.tokens[typescan.index_at(p.c.scan, b.y, b.x) - 1]
+  end
   for _, b in pairs(p.breaks) do
     local t = sharing(p, b.y, b.x, b.drop)
     if t ~= nil then
@@ -339,13 +378,24 @@ end
 --- @return string The source, broken where it must be, statements before
 --- blocks; `c.source` itself when no break is due
 local function broken(c: Ctx): string
-  local p: Pass = { c = c, breaks = {} }
+  local p: Pass = { c = c, breaks = {}, moves = {} }
   -- Statements are parted first, and blocks judged on the next pass,
   -- once each statement sits at the column it will keep: a block
   -- behind another statement on its line is judged too wide otherwise.
   for _, s in ipairs(c.parted) do
     local at = stmt.start(c, s)
     want(p, wanted(p, at.y, at.x, true, false))
+  end
+  for _, i in ipairs(c.leading) do
+    local t = c.scan.tokens[i]
+    local at = offset(p, t.y, t.x)
+    -- Only an operator with nothing but indentation before it opens its
+    -- line; one behind a long comment's `]]` stays where it is.
+    if c.source:sub(c.starts[t.y], at - 1):match("^[ \t]*$") ~= nil then
+      local b = wanted(p, t.y, t.x, false, false)
+      b.moves = t.tk
+      p.moves[#p.moves + 1] = b
+    end
   end
   local out = written(p)
   if out ~= c.source then

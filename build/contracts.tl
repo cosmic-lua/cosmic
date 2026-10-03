@@ -381,8 +381,8 @@ local function is_call(n: Node): boolean
 end
 
 local function is_function(n: Node): boolean
-  return n.kind == "function" or n.kind == "local_function"
-    or n.kind == "record_function" or n.kind == "global_function"
+  return n.kind == "function" or n.kind == "local_function" or
+    n.kind == "record_function" or n.kind == "global_function"
 end
 
 --- The empty list, shared wherever a list is read and never written.
@@ -398,15 +398,15 @@ end
 --- `h:digest`, `helper`.
 local function spelled(e: Node | nil): string
   if e == nil then return "a call" end
-  if (e.kind == "variable" or e.kind == "identifier" or e.kind == "type_identifier")
-      and e.tk ~= nil then
+  if (e.kind == "variable" or e.kind == "identifier" or e.kind == "type_identifier") and
+      e.tk ~= nil then
     return e.tk
   end
   local op = e.op
   local member = e.e2
   local member_name = member ~= nil and member.tk or nil
-  if e.kind == "op" and op ~= nil and (op.op == "." or op.op == ":")
-      and member_name ~= nil then
+  if e.kind == "op" and op ~= nil and (op.op == "." or op.op == ":") and
+      member_name ~= nil then
     return spelled(e.e1) .. op.op .. member_name
   end
   return "a call"
@@ -508,8 +508,8 @@ local function bound_names(root: Node): {Node: string}
           elseif value.kind == "literal_table" then
             for _, item in ipairs(list_of(value)) do
               local key, field = item.key, item.value
-              if key ~= nil and key.kind == "string" and key.conststr ~= nil
-                  and field ~= nil and field.kind == "function" then
+              if key ~= nil and key.kind == "string" and key.conststr ~= nil and
+                  field ~= nil and field.kind == "function" then
                 out[field] = name .. "." .. key.conststr
               end
             end
@@ -571,8 +571,8 @@ local never_nil_types: {string: boolean} = {
 --- something that cannot be.
 local function never_nil(n: Node, types: {integer: Type}): boolean
   local kind = n.kind
-  if kind == "string" or kind == "integer" or kind == "number"
-      or kind == "boolean" or kind == "literal_table" or kind == "function" then
+  if kind == "string" or kind == "integer" or kind == "number" or
+      kind == "boolean" or kind == "literal_table" or kind == "function" then
     return true
   end
   if kind == "variable" then
@@ -641,9 +641,9 @@ local function check_function(file: string, fn: Node, scope: string, exemptions:
   -- caller cares to bind.
   if (#declared > 2 or rets.is_va) and not stand_in then
     problems[#problems + 1] = string.format(
-      "%s:%d: %s: a fallible function answers two results and nothing in a third; "
-        .. "fold it into the reason or a structured error record (only cosmic.sys "
-        .. "answers an errno)",
+      "%s:%d: %s: a fallible function answers two results and nothing in a third; " ..
+        "fold it into the reason or a structured error record (only cosmic.sys " ..
+        "answers an errno)",
       file, fn.y, name)
     return
   end
@@ -652,13 +652,13 @@ local function check_function(file: string, fn: Node, scope: string, exemptions:
   for _, r in ipairs(returns) do
     local exps = list_of(r.exps)
     -- A stand-in hands a binding's answer on as three names it bound.
-    local handed_on = stand_in and #exps == 3 and exps[1].kind == "variable"
-      and exps[2].kind == "variable" and exps[3].kind == "variable"
-    if #exps >= 2 and not handed_on and not is_empty_string(exps[2])
-        and not is_failure(exps[1], effect) then
+    local handed_on = stand_in and #exps == 3 and exps[1].kind == "variable" and
+      exps[2].kind == "variable" and exps[3].kind == "variable"
+    if #exps >= 2 and not handed_on and not is_empty_string(exps[2]) and
+        not is_failure(exps[1], effect) then
       problems[#problems + 1] = string.format(
-        "%s:%d: %s: a failure answers %s beside its reason, never a value; "
-          .. "a success's reason is \"\"",
+        "%s:%d: %s: a failure answers %s beside its reason, never a value; " ..
+          "a success's reason is \"\"",
         file, r.y, name, effect and "false" or "nil")
     end
     if #exps ~= 2 or not is_empty_string(exps[2]) or not never_nil(exps[1], types) then
@@ -667,8 +667,8 @@ local function check_function(file: string, fn: Node, scope: string, exemptions:
   end
   if value and all_values then
     problems[#problems + 1] = string.format(
-      "%s:%d: %s: every return answers a value, so the declared failure "
-        .. "never happens; return the value alone",
+      "%s:%d: %s: every return answers a value, so the declared failure " ..
+        "never happens; return the value alone",
       file, fn.y, name)
   end
 end
@@ -748,11 +748,11 @@ local function sys_stand_ins(index: Index, records: {integer: Type},
       local exps = list_of(n.exps)
       for i, var in ipairs(list_of(n.vars)) do
         local op, owner, stored = var.op, var.e1, exps[i]
-        if var.kind == "op" and op ~= nil and op.op == "." and owner ~= nil
-            and stored ~= nil and stored.kind == "function" then
+        if var.kind == "op" and op ~= nil and op.op == "." and owner ~= nil and
+            stored ~= nil and stored.kind == "function" then
           local record_type = records[position(owner.y, owner.x)]
-          if record_type ~= nil and record_type.typeid ~= nil
-              and bindings[record_type.typeid] ~= nil then
+          if record_type ~= nil and record_type.typeid ~= nil and
+              bindings[record_type.typeid] ~= nil then
             out[stored] = true
           end
         end
@@ -838,8 +838,8 @@ local function unwrapped(n: Node | nil): Node | nil
       local member = callee ~= nil and callee.e2 or nil
       if is_name(callee, "tostring") and #args == 1 then
         at = args[1]
-      elseif callee ~= nil and how ~= nil and how.op == ":" and member ~= nil
-          and reshaping[member.tk or ""] and #args == 0 then
+      elseif callee ~= nil and how ~= nil and how.op == ":" and member ~= nil and
+          reshaping[member.tk or ""] and #args == 0 then
         at = callee.e1
       else
         return nil
@@ -856,8 +856,8 @@ end
 local function neutral(n: Node): boolean
   if n.kind == "nil" or (n.kind == "string" and n.conststr == "") then return true end
   local how, member = n.op, n.e2
-  return n.kind == "op" and how ~= nil and how.op == "." and is_name(n.e1, "Poll")
-    and member ~= nil and (member.tk == "TIMEOUT" or member.tk == "CANCELLED")
+  return n.kind == "op" and how ~= nil and how.op == "." and is_name(n.e1, "Poll") and
+    member ~= nil and (member.tk == "TIMEOUT" or member.tk == "CANCELLED")
 end
 
 local comparing: {string: boolean} = {
@@ -893,8 +893,8 @@ local function inspected(n: Node): {Node}
   local callee = n.e1
   if op.op ~= "@funcall" or callee == nil then return none end
   local how, member = callee.op, callee.e2
-  if callee.kind ~= "op" or how == nil or member == nil
-      or not inspecting[member.tk or ""] then
+  if callee.kind ~= "op" or how == nil or member == nil or
+      not inspecting[member.tk or ""] then
     return none
   end
   local receiver = callee.e1
@@ -1040,9 +1040,9 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
     if not flagged[via] and holds_reason(read.tk or "", position(read.y, read.x)) then
       flagged[via] = true
       problems[#problems + 1] = string.format(
-        "%s:%d: %s: a failure's reason is read for what it says; a "
-          .. "failure with meaning answers it in a shape of its own "
-          .. "(a value, a field, a record), not a message to parse",
+        "%s:%d: %s: a failure's reason is read for what it says; a " ..
+          "failure with meaning answers it in a shape of its own " ..
+          "(a value, a field, a record), not a message to parse",
         file, via.y, read.tk)
     end
   end
@@ -1063,8 +1063,8 @@ local function handed_names(root: Node): {string: boolean}
         local e = exps[i]
         local args = e ~= nil and is_call(e) and is_name(e.e1, "select") and list_of(e.e2) or {}
         local first, second = args[1], args[2]
-        if #args == 2 and first.kind == "integer" and first.tk == "2"
-            and second.kind == "..." and var.tk ~= nil then
+        if #args == 2 and first.kind == "integer" and first.tk == "2" and
+            second.kind == "..." and var.tk ~= nil then
           out[var.tk] = true
         end
       end
@@ -1087,16 +1087,16 @@ local function check_casts(file: string, root: Node, index: Index, scopes: {Node
       local operand = n.e1
       while operand ~= nil and operand.kind == "paren" do operand = operand.e1 end
       local key = file .. ":" .. within
-      if within == "" and operand ~= nil and operand.kind == "variable"
-          and handed[operand.tk or ""] then
+      if within == "" and operand ~= nil and operand.kind == "variable" and
+          handed[operand.tk or ""] then
         -- the raw module, handed to the chunk
       elseif exemptions.casts[key] ~= nil then
         used.casts[key] = true
       else
         problems[#problems + 1] = string.format(
-          "%s:%d: %s: a cast tells the checker what it could not prove; "
-            .. "tighten the declaration, narrow with `is`, or name the "
-            .. "function in build/contracts.tl's casts with the reason",
+          "%s:%d: %s: a cast tells the checker what it could not prove; " ..
+            "tighten the declaration, narrow with `is`, or name the " ..
+            "function in build/contracts.tl's casts with the reason",
           file, n.y, within == "" and "the top level" or within)
       end
     end
@@ -1216,8 +1216,8 @@ local function exported_nodes(root: Node, exported: {Exported}): {Node: Exported
         local value, spelling = exps[i], spelled(var)
         if value ~= nil and value.kind == "literal_table" then
           fields_of(value, spelling)
-        elseif statement.kind == "local_declaration" and value ~= nil
-            and value.kind == "function" and var.tk ~= nil then
+        elseif statement.kind == "local_declaration" and value ~= nil and
+            value.kind == "function" and var.tk ~= nil then
           locals[var.tk] = value
         else
           stored(value, spelling)
@@ -1244,8 +1244,8 @@ local function check_exports(file: string, exported: {Exported}, exemptions: con
         used.exempt[key] = true
       else
         problems[#problems + 1] = string.format(
-          "%s:%d: %s: an exported function answers one result, or a value or an "
-            .. "effect and its reason; answer a record to hand back more",
+          "%s:%d: %s: an exported function answers one result, or a value or an " ..
+            "effect and its reason; answer a record to hand back more",
           file, e.type.y or 0, e.name)
       end
     end
@@ -1265,8 +1265,8 @@ local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
     local e1 = n.e1
     local receiver = e1 ~= nil and e1.e1 or nil
     local member = e1 ~= nil and e1.e2 or nil
-    if is_call(n) and e1 ~= nil and receiver ~= nil and member ~= nil
-        and fallible_type(callees[position(e1.y, e1.x)]) then
+    if is_call(n) and e1 ~= nil and receiver ~= nil and member ~= nil and
+        fallible_type(callees[position(e1.y, e1.x)]) then
       local owner = records[position(receiver.y, receiver.x)]
       local module = owner ~= nil and owner.typeid ~= nil and bindings[owner.typeid] or nil
       if module ~= nil then found = module .. "." .. member.tk end
@@ -1295,8 +1295,8 @@ local function check_wrappers(file: string, nodes: {Node: Exported}, index: Inde
           used.exempt[key] = true
         else
           problems[#problems + 1] = string.format(
-            "%s:%d: %s: calls %s itself and answers a bare boolean; "
-              .. "answer its failure too: boolean, string",
+            "%s:%d: %s: calls %s itself and answers a bare boolean; " ..
+              "answer its failure too: boolean, string",
             file, fn.y, e.name, binding)
         end
       end
@@ -1320,8 +1320,8 @@ local function top_records(root: Node): {string: ast.TypeNode}
   local out: {string: ast.TypeNode} = {}
   for _, stmt in ipairs(list_of(root)) do
     local var, value = stmt.var, stmt.value
-    if stmt.kind == "local_type" and var ~= nil and var.tk ~= nil
-        and value ~= nil and value.kind == "newtype" then
+    if stmt.kind == "local_type" and var ~= nil and var.tk ~= nil and
+        value ~= nil and value.kind == "newtype" then
       local def = definition_of(value.newtype)
       if def ~= nil then out[var.tk] = def end
     end
@@ -1347,8 +1347,8 @@ local function returned(root: Node): string | nil, ast.TypeNode | nil
     local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
     local t = declared ~= nil and declared[1] or nil
     local names = t ~= nil and t.typename == "nominal" and t.names or nil
-    if stmt.kind == "local_declaration" and #vars == 1 and vars[1].tk == name
-        and names ~= nil and #names == 1 then
+    if stmt.kind == "local_declaration" and #vars == 1 and vars[1].tk == name and
+        names ~= nil and #names == 1 then
       return name, records[names[1]]
     end
   end
@@ -1484,8 +1484,8 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
   end
   local literals: {Declared: {string: boolean}} = {}
   local function note(field: Declared, literal: Node | nil)
-    if literal ~= nil and literal.kind == "string" and literal.conststr ~= nil
-        and literal.conststr ~= "" then
+    if literal ~= nil and literal.kind == "string" and literal.conststr ~= nil and
+        literal.conststr ~= "" then
       local set = literals[field] or {}
       set[literal.conststr] = true
       literals[field] = set
@@ -1546,8 +1546,8 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
       end
     elseif is_call(n) then
       local callee = n.e1
-      local fn = callee ~= nil and callee.kind == "variable" and callee.tk ~= nil
-        and functions[callee.tk] or nil
+      local fn = callee ~= nil and callee.kind == "variable" and callee.tk ~= nil and
+        functions[callee.tk] or nil
       if fn ~= nil then
         local params = list_of(fn.args)
         for i, argument in ipairs(list_of(n.e2)) do
@@ -1633,8 +1633,8 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
   --- Whether a statement calls a method of a quiet record.
   local function is_quiet(e1: Node): boolean
     local receiver, member = e1.e1, e1.e2
-    if quiet == nil or receiver == nil or member == nil or member.tk == nil
-        or e1.kind ~= "op" then
+    if quiet == nil or receiver == nil or member == nil or member.tk == nil or
+        e1.kind ~= "op" then
       return false
     end
     local owner = records[position(receiver.y, receiver.x)]
@@ -1650,19 +1650,19 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
   local stand_ins = sys_stand_ins(index, records, tables)
   for _, n in ipairs(index.reached) do
     local e1 = n.e1
-    if is_call(n) and not kept[n] and e1 ~= nil
-        and fallible_type(callees[position(e1.y, e1.x)]) then
+    if is_call(n) and not kept[n] and e1 ~= nil and
+        fallible_type(callees[position(e1.y, e1.x)]) then
       if statements[n] then
         if not is_quiet(e1) then
           problems[#problems + 1] = string.format(
-            "%s:%d: %s: its failure is ignored; handle it, or discard both "
-              .. "results on purpose: local _, _ = ...",
+            "%s:%d: %s: its failure is ignored; handle it, or discard both " ..
+              "results on purpose: local _, _ = ...",
             file, n.y, spelled(e1))
         end
       else
         problems[#problems + 1] = string.format(
-          "%s:%d: %s: its error slot is dropped; bind both results, wrap it "
-            .. "in assert(...), or return it whole",
+          "%s:%d: %s: its error slot is dropped; bind both results, wrap it " ..
+            "in assert(...), or return it whole",
           file, n.y, spelled(e1))
       end
     elseif is_function(n) then

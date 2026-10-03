@@ -233,8 +233,8 @@ function identity.is_tool(file: string, own_tree: boolean): boolean
   if String.ends_with(file, "_test.tl") then
     return false
   end
-  return tool_trees[first] == true or tool_files[file] == true
-    or carried_teal(file, own_tree)
+  return tool_trees[first] == true or tool_files[file] == true or
+    carried_teal(file, own_tree)
 end
 
 --- The hash over some of the rows of `tool`, in path order.

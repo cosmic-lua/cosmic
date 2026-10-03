@@ -131,8 +131,8 @@ end
 --- old `true` becomes and that `false` is no argument.
 local function test_the_sqlite_options_name_each_old_boolean_call()
   local instead = Removed.arguments["cosmic.sqlite.OpenOptions"]
-  assert(instead ~= nil and instead:find("{ writable = true }", 1, true)
-    and instead:find("nothing for `false`", 1, true), instead)
+  assert(instead ~= nil and instead:find("{ writable = true }", 1, true) and
+    instead:find("nothing for `false`", 1, true), instead)
 end
 
 --- A program that made a raw pipe for a child's stdin is told to use

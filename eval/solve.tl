@@ -129,9 +129,9 @@ function Solve.arguments(prompt: string, options: Solve.Options): {string}
   return {
     "-p", prompt, "--model", options.model, "--disable-slash-commands",
     "--tools", tools, "--allowedTools", tools,
-    "--disallowedTools", "Skill,WebSearch,WebFetch,Agent,Task,ToolSearch,SearchSkills,"
-      .. "ListSkills,SearchPlugins,ListPlugins,SearchMcpRegistry,Workflow,SendMessage,"
-      .. "Artifact,NotebookEdit,SendUserFile",
+    "--disallowedTools", "Skill,WebSearch,WebFetch,Agent,Task,ToolSearch,SearchSkills," ..
+      "ListSkills,SearchPlugins,ListPlugins,SearchMcpRegistry,Workflow,SendMessage," ..
+      "Artifact,NotebookEdit,SendUserFile",
     "--max-turns", tostring(options.max_turns), "--output-format", "stream-json", "--verbose",
   }
 end
@@ -391,9 +391,9 @@ function Solve.main(argv: {integer: string}): integer
   local _, _ = Fs.write(arena .. "/finished_at", now())
   local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
   local seconds = (Time.monotonic_ns() - started) // 1000000000
-  complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s"
-    .. (result ~= nil and result.timed_out and " (past the " .. tostring(options.timeout)
-      .. "s deadline)" or ""))
+  complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
+    (result ~= nil and result.timed_out and " (past the " .. tostring(options.timeout) ..
+      "s deadline)" or ""))
   return status
 end
 

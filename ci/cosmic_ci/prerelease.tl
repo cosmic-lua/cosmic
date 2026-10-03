@@ -119,8 +119,8 @@ function Prerelease.source_valid(text: string, commit: string, digest: string,
   if source.digest ~= digest then return false, "source.json names another digest" end
   local run_url = source.run_url
   if not run_url is string then return false, "source.json's run_url is no string" end
-  if not String.starts_with(run_url, run_prefix)
-      or not run_url:sub(#run_prefix + 1):match("^[0-9]+$") then
+  if not String.starts_with(run_url, run_prefix) or
+      not run_url:sub(#run_prefix + 1):match("^[0-9]+$") then
     return false, "source.json's run_url is not " .. run_prefix .. "<run id>"
   end
   return true, ""
@@ -374,8 +374,8 @@ local function ensure_tag(p: Prerelease.Publish): boolean
     if not made.ok then
       local status = Prerelease.http_status(made.stdout or "")
       local body = made.stdout or ""
-      if status == "403" and body:find("Resource not accessible by integration", 1, true)
-          and workflows_moved(p) then
+      if status == "403" and body:find("Resource not accessible by integration", 1, true) and
+          workflows_moved(p) then
         return false
       end
       error("gh api --method POST repos/" .. p.repository .. "/git/refs -f ref=refs/tags/" ..

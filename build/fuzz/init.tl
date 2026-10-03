@@ -412,8 +412,8 @@ local function run(p: Fuzz.Property): integer
           plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
           reproduce,
-          kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
-            or ("write the input above to " .. keep)), 0)
+          kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
+            ("write the input above to " .. keep)), 0)
     end
   end
   local named: {string} = {}

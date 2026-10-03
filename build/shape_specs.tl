@@ -280,8 +280,8 @@ local function declarations(root: Node, name: string): {Declaration}
     if block.kind ~= "statements" then return end
     for _, statement in ipairs(block) do
       local var, value = statement.var, statement.value
-      if statement.kind == "local_type" and var ~= nil and var.tk == name
-         and value ~= nil and value.kind == "newtype" and value.newtype ~= nil then
+      if statement.kind == "local_type" and var ~= nil and var.tk == name and
+         value ~= nil and value.kind == "newtype" and value.newtype ~= nil then
         out[#out + 1] = {
           type = view_of_node(value.newtype), y = statement.y, x = statement.x,
           end_y = block.yend or 0, end_x = block.xend or 0,
@@ -298,10 +298,10 @@ local function declared(root: Node, name: string, y: integer, x: integer): Ty | 
   local best: Declaration | nil = nil
   for _, candidate in ipairs(declarations(root, name)) do
     local above = candidate.y < y or (candidate.y == y and candidate.x < x)
-    local inside = candidate.end_y == 0 or y < candidate.end_y
-      or (y == candidate.end_y and x <= candidate.end_x)
-    if above and inside and (best == nil or candidate.y > best.y
-        or (candidate.y == best.y and candidate.x > best.x)) then
+    local inside = candidate.end_y == 0 or y < candidate.end_y or
+      (y == candidate.end_y and x <= candidate.end_x)
+    if above and inside and (best == nil or candidate.y > best.y or
+        (candidate.y == best.y and candidate.x > best.x)) then
       best = candidate
     end
   end
@@ -312,8 +312,8 @@ end
 local function required_name(call: Node | nil): string | nil
   if call == nil or call.kind ~= "op" then return nil end
   local op, callee, args = call.op, call.e1, call.e2
-  if op == nil or op.op ~= "@funcall" or callee == nil or callee.kind ~= "variable"
-     or callee.tk ~= "require" or args == nil then
+  if op == nil or op.op ~= "@funcall" or callee == nil or callee.kind ~= "variable" or
+     callee.tk ~= "require" or args == nil then
     return nil
   end
   local only = args[1]

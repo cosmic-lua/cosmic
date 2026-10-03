@@ -776,8 +776,8 @@ function wire.check(reply: wire.Reply): string
       return ("the Content-Length is %d, but the body is %s"):format(size, String.counted(#body, "byte"))
     end
   elseif body == nil and size ~= 0 and reply.method ~= "HEAD" then
-    return ("the Content-Length is %d, but the reply has no body: only a reply to HEAD gives a size"
-      .. " without its bytes"):format(size)
+    return ("the Content-Length is %d, but the reply has no body: only a reply to HEAD gives a size" ..
+      " without its bytes"):format(size)
   end
   return ""
 end

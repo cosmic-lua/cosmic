@@ -145,8 +145,8 @@ local function test_disambiguation_resolves_gaps_and_folds()
   -- An unambiguous local time is the same moment whatever is asked.
   local every: {Time.Disambiguation} = { "reject", "earlier", "later", "compatible" }
   for _, how in ipairs(every) do
-    assert(Time.from_civil(civil(2026, 7, 1, 12), ny, { disambiguation = how })
-      == at("2026-07-01T16:00:00Z"))
+    assert(Time.from_civil(civil(2026, 7, 1, 12), ny, { disambiguation = how }) ==
+      at("2026-07-01T16:00:00Z"))
   end
   local ok, err = pcall(Time.from_civil, gap, ny, { disambiguation = "nearest" as Time.Disambiguation })
   assert(not ok and tostring(err):find("disambiguation", 1, true), tostring(err))
@@ -374,10 +374,10 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
   -- A file of `count` types; with `near`, its abbreviations hold a NUL
   -- near their start, and every type reads its own, found once.
   local function file(count: integer, near: boolean): string
-    local types = near and string.pack(">i4BB", 3600, 0, 4):rep(count)
-      or string.pack(">i4BB", 0, 0, 0):rep(count)
-    local abbreviations = near and "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0"
-      or ("A"):rep(count * 6 - 1) .. "\0"
+    local types = near and string.pack(">i4BB", 3600, 0, 4):rep(count) or
+      string.pack(">i4BB", 0, 0, 0):rep(count)
+    local abbreviations = near and "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0" or
+      ("A"):rep(count * 6 - 1) .. "\0"
     return table.concat({ "TZif", "\0", ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6), types, abbreviations })
   end

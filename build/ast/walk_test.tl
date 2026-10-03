@@ -128,8 +128,8 @@ local function test_span_end_if_recovers_end_through_its_block_body()
     string.format("span_end(if) = %d:%d, want 1:29 (its own closing 'end')",
       ey, ex))
   assert(source:sub(ex - 2, ex) == "end",
-    "columns " .. (ex - 2) .. "-" .. ex .. " are not 'end': "
-    .. source:sub(ex - 2, ex))
+    "columns " .. (ex - 2) .. "-" .. ex .. " are not 'end': " ..
+    source:sub(ex - 2, ex))
 end
 
 --- `walk` must never call `visit` on an "op" node's `OpInfo` payload
@@ -144,8 +144,8 @@ local function test_walk_never_visits_an_op_payload_as_a_node()
     visits = visits + 1
     local kind: any = n.kind
     assert(kind is string,
-      "visited a value with no string kind (likely an OpInfo payload): "
-      .. tostring(kind))
+      "visited a value with no string kind (likely an OpInfo payload): " ..
+      tostring(kind))
   end)
   assert(visits > 0, "walk visited nothing")
 end
