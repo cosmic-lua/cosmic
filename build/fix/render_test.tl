@@ -226,11 +226,10 @@ local function test_type_aliases_and_type_bound_requires()
          "local type c = require(\"build.compiler\")\nlocal y: c = nil\n")
 end
 
---- A `;` between two statements on one line is not in the AST and
---- dropping it would run them together, so it is read back off the
---- token stream.
-local function test_a_semicolon_between_statements_survives()
-  writes("local t: integer; t = 1\n", "local t: integer; t = 1\n")
+--- A `;` between two statements on one line gives way to the line
+--- break that now parts them.
+local function test_a_semicolon_between_statements_gives_way_to_a_break()
+  writes("local t: integer; t = 1\n", "local t: integer\nt = 1\n")
 end
 
 --- A literal function passed as a call argument on a line of its own:
@@ -566,12 +565,12 @@ local function test_tokens_that_would_run_together_are_kept_apart()
   writes("x = {[ [=[a]=] ] = 1}\n", "x = { [ [=[a]=] ] = 1 }\n")
 end
 
---- A statement that continues a line, after a `;` or a block's opening
---- keyword, moves by where that line reaches, and the lines continuing
---- it move with it.
+--- A statement that continues a line, after another or a block's
+--- opening keyword, moves to where it is written, and the lines
+--- continuing it move with it.
 local function test_a_statement_continuing_a_line_carries_its_continuation()
-  writes("x = 1;    b = f(1,\n                2)\n", "x = 1; b = f(1,\n             2)\n")
-  writes("do b =\n      1 end\n", "do b =\n      1 end\n")
+  writes("x = 1;    b = f(1,\n                2)\n", "x = 1\nb = f(1,\n      2)\n")
+  writes("do b =\n      1 end\n", "do\n  b =\n     1\nend\n")
 end
 
 --- `integer` is a whole type, so the `<` after it in a cast is the
@@ -584,7 +583,7 @@ end
 --- A `goto`'s label, and a label's name and closing `::`, stay on the
 --- lines the source put them on.
 local function test_a_goto_and_a_label_keep_their_line_breaks()
-  writes("goto -- why\ncontinue ::continue::\n", "goto -- why\ncontinue ::continue::\n")
+  writes("goto -- why\ncontinue\n::continue::\n", "goto -- why\ncontinue\n::continue::\n")
   writes("::\ntop ::\n", "::\ntop::\n")
 end
 
@@ -592,5 +591,4 @@ end
 --- its own included.
 local function test_a_semicolon_keeps_its_own_line()
   writes("f()\n; g()\n", "f()\n; g()\n")
-  writes("f() ; g()\n", "f(); g()\n")
 end

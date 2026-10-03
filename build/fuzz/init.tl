@@ -363,7 +363,10 @@ local function run(p: Fuzz.Property): integer
     end
     reached = mine
     local ok, input = pcall(p.gen, recording(Rand.new(case), draws))
-    if not ok then reached = nil; error(input, 0) end
+    if not ok then
+      reached = nil
+      error(input, 0)
+    end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     reached = nil

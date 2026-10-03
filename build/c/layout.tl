@@ -143,8 +143,10 @@ local function laid_out(source: string): string
     local prev, prev2: Token, Token
     for i, t in ipairs(tokens) do
       if t.kind == "punct" or t.kind == "word" or t.kind == "literal" then
-        if t.text == "{" then depth = depth + 1
-        elseif t.text == "}" then depth = depth - 1
+        if t.text == "{" then
+          depth = depth + 1
+        elseif t.text == "}" then
+          depth = depth - 1
         elseif t.text == "(" then
           if depth == 0 and parens == 0 and prev ~= nil and prev.kind == "word"
               and not keywords[prev.text] and prev2 ~= nil
@@ -154,7 +156,8 @@ local function laid_out(source: string): string
             local level, j = 0, i
             while j <= #tokens do
               local u = tokens[j]
-              if u.text == "(" then level = level + 1
+              if u.text == "(" then
+                level = level + 1
               elseif u.text == ")" then
                 level = level - 1
                 if level == 0 then break end
@@ -172,7 +175,8 @@ local function laid_out(source: string): string
             end
           end
           parens = parens + 1
-        elseif t.text == ")" then parens = parens - 1
+        elseif t.text == ")" then
+          parens = parens - 1
         end
         prev2, prev = prev, t
       end

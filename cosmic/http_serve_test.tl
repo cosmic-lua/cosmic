@@ -519,7 +519,9 @@ end
 --- gives one, the size of a 200's body, which is passed on.
 local function test_a_304_carries_no_length_but_one_given(tmp: string)
   serving(tmp, function(req: Http.Request): Http.Reply
-    if req.path == "/sized" then return { status = 304, headers = { ["Content-Length"] = "10" } } end
+    if req.path == "/sized" then
+      return { status = 304, headers = { ["Content-Length"] = "10" } }
+    end
     return { status = 304, headers = { ETag = '"v1"' } }
   end, function(address: Net.Address)
     local p <close> = peer(address)

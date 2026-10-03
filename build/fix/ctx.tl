@@ -27,6 +27,15 @@ local type compiler = require("build.compiler")
 
 local type Node = ast.Node
 
+--- Where a construct's last token was written: the output column it
+--- ends at and the source line it was read from.
+local record Ending
+  column: integer
+  line: integer
+  --- Whether its closing keyword was written on the line already open.
+  inline: boolean
+end
+
 local record Ctx
   em: emit.Emitter
   source: string
@@ -56,6 +65,20 @@ local record Ctx
   --- because an expression may hold a function literal whose body is
   --- statements again.
   block: function(Ctx, Node)
+  --- What [`build.fix.breaks`] judges, gathered as the file is
+  --- rendered so it walks nothing again. `parted` holds each statement
+  --- written on a line another statement or a comment had opened, after
+  --- the first of its block; `continues`, each block whose first
+  --- statement was, and each `elseif` or `else` branch that was;
+  --- `constructs` and `ends`, every construct that opens a block and
+  --- where its last token was written.
+  parted: {Node}
+  continues: {Node:boolean}
+  constructs: {Node}
+  ends: {Node:Ending}
+  --- The `;` tokens, by index, that a node opens on (a block's, an
+  --- empty `return` list's): one is the node's own and stays.
+  owned: {integer:boolean}
 end
 
 --- Where `node`'s own subtree starts, remembered across calls.
@@ -256,6 +279,24 @@ local function annotation(ctx: Ctx, first: integer, last: integer): boolean
   return region(ctx, first, last)
 end
 
+--- Note that construct `n` was just written in full, for
+--- [`build.fix.breaks`] to judge, its closing keyword `inline` or not.
+local function ended(ctx: Ctx, n: Node, inline: boolean)
+  ctx.constructs[#ctx.constructs + 1] = n
+  -- Only a construct closing on an open line can be one on one line,
+  -- and only then does the column it reached matter.
+  ctx.ends[n] = { column = inline and emit.column(ctx.em) or 0, line = ctx.em.line,
+                  inline = inline }
+end
+
+--- Note that the `;` at (`y`, `x`) is the token a node opens on.
+local function owns(ctx: Ctx, y: integer, x: integer)
+  local i = typescan.index_at(ctx.scan, y, x)
+  if i ~= nil then
+    ctx.owned[i] = true
+  end
+end
+
 --- Note a construct this renderer will not write, rather than writing
 --- something else and calling it the same program.
 local function refuse(ctx: Ctx, what: string)
@@ -264,6 +305,9 @@ end
 
 local record CtxModule
   type Ctx = Ctx
+  type Ending = Ending
+  ended: function(ctx: Ctx, n: Node, inline: boolean)
+  owns: function(ctx: Ctx, y: integer, x: integer)
   refuse: function(ctx: Ctx, what: string)
   start_of: function(ctx: Ctx, node: Node): ast.Position
   indent: function(ctx: Ctx, x: integer): string
@@ -278,6 +322,8 @@ local record CtxModule
 end
 
 local M: CtxModule = {
+  ended = ended,
+  owns = owns,
   refuse = refuse,
   start_of = start_of,
   indent = indent,

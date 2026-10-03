@@ -435,7 +435,9 @@ local function test_flat_over_nested_matches_prints_each_leaf_once(tmp: string)
   }, "\n") .. "\n", ran.out)
   -- The same leaves plain --flat prints under the same subtrees, once each.
   local whole = run({ "--flat", file(tmp, nested) }).out
-  for _, line in ipairs({ "$.a.a.x = 1", "$.b.c[1].a[2].a = 5" }) do assert(whole:find(line, 1, true)) end
+  for _, line in ipairs({ "$.a.a.x = 1", "$.b.c[1].a[2].a = 5" }) do
+    assert(whole:find(line, 1, true))
+  end
   local everything = run({ "--flat", "$..*", file(tmp, nested) })
   assert(everything.code == 0 and everything.out == whole, everything.out)
   local plain = run({ "--flat", "$..*", file(tmp) })

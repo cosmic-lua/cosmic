@@ -2,7 +2,9 @@
 --- out as canonical text.
 ---
 --- The pipeline runs in one order: parse, apply the structural rules
---- ([`build.fix.rule`]), render ([`build.fix.render`]), compare. A fix
+--- ([`build.fix.rule`]), render ([`build.fix.render`]), break lines
+--- ([`build.fix.breaks`]) and render again until no break is added,
+--- compare. A fix
 --- changes the parsed tree and never patches bytes, and whatever a
 --- rule produces is rendered rather than spliced, so a fixed file
 --- reads like one that was never fixed.
@@ -262,7 +264,9 @@ local function workflow_sources(dir: string, root: string): {string} | nil, stri
   local inside: string | nil = nil
   if absolute ~= nil and top ~= nil then
     local relative, _ = Fs.relative(absolute, top)
-    if relative ~= nil and relative ~= ".." and relative:sub(1, 3) ~= "../" then inside = relative end
+    if relative ~= nil and relative ~= ".." and relative:sub(1, 3) ~= "../" then
+      inside = relative
+    end
   end
   if inside == nil then
     return {}
@@ -299,6 +303,12 @@ local function workflow_sources(dir: string, root: string): {string} | nil, stri
   return out
 end
 
+--- How many times [`fix.source`] breaks lines and renders again before
+--- it gives up on a file: a pass opens the outermost blocks a line
+--- holds, the next those they held, and blocks nest only so deep on one
+--- line.
+local breaking_passes <const> = 16
+
 --- The whole pipeline over one file's source: parse, rewrite, render,
 --- and check that rendering still says the same thing and has reached a
 --- fixed point.
@@ -310,6 +320,9 @@ end
 --- compared, tree and comments, with the tree it came from. Identical
 --- bytes preserve both and need no second parse. A file that fails the
 --- comparison is reported and left as it was.
+---
+--- Before either, lines are broken ([`build.fix.breaks`]) and the
+--- result rendered again, as many times as a render finds a break due.
 ---
 --- The output is then rendered once more from the tree in hand and must
 --- come back byte for byte, since a fix that a second pass would still
@@ -331,9 +344,31 @@ function fix.source(built: compiler, source: string,
   if before == nil then
     return nil, parse_trouble
   end
-  local out, render_trouble = render_mod.rendered(before, rewritten)
-  if out == nil then
-    return nil, render_trouble
+  -- Each render says which line breaks the file still lacks; those are
+  -- written into its source, which is parsed and rendered again. A
+  -- break can leave a block that sat on one line too long for it, or
+  -- holding a block it did not before, so this repeats until none is
+  -- due, which for a file already laid out is the first render.
+  local parsed, text = before, rewritten
+  local out: string
+  for pass = 1, breaking_passes do
+    local layout, render_trouble = render_mod.laid_out(parsed, text)
+    if layout == nil then
+      return nil, render_trouble
+    end
+    local opened = layout.opened
+    if opened == nil then
+      out = layout.text
+      break
+    end
+    if pass == breaking_passes then
+      return nil, "breaking lines did not settle in " .. breaking_passes .. " passes"
+    end
+    local reparsed, trouble = ast.parse(built, opened, name)
+    if reparsed == nil then
+      return nil, "what was broken onto lines does not parse: " .. trouble
+    end
+    parsed, text = reparsed, opened
   end
   local parsed_out = before
   if out ~= rewritten then
@@ -351,11 +386,11 @@ function fix.source(built: compiler, source: string,
     end
     parsed_out = after
   end
-  local again, again_trouble = render_mod.rendered(parsed_out, out)
+  local again, again_trouble = render_mod.laid_out(parsed_out, out)
   if again == nil then
     return nil, "a second pass over what was rendered refused it: " .. again_trouble
   end
-  if again ~= out then
+  if again.text ~= out or again.opened ~= nil then
     return nil, "rendering is not a fixed point: a second pass changed it"
   end
   return { source = out, changed = out ~= source, parsed = parsed_out }
@@ -472,7 +507,7 @@ end
 
 --- The modules whose code checks each file alone, with every module
 --- each requires: the layout of Teal ([`build.fix.rule`],
---- [`build.fix.render`], [`build.fix.equiv`], [`build.ast`], and the
+--- [`build.fix.render`], [`build.fix.breaks`], [`build.fix.equiv`], [`build.ast`], and the
 --- compiler [`build.teal`] loads), of YAML ([`build.flow`]), of C and
 --- its rules ([`build.c`]), a note on the standard library
 --- ([`build.fix.near`], [`build.analyzer`]), and what reads the command
@@ -483,8 +518,8 @@ end
 --- What checks the tree as a
 --- whole -- the build, the tree checks, the links -- is not among them:
 --- such a run makes those checks over the whole tree anyway.
-local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix.equiv",
-                                "build.ast", "build.teal", "build.flow", "build.c",
+local file_checks: {string} = { "build.fix.rule", "build.fix.render", "build.fix.breaks",
+                                "build.fix.equiv", "build.ast", "build.teal", "build.flow", "build.c",
                                 "build.fix.near", "build.analyzer", "build.verdict",
                                 "build.tree", "cosmic.flags", "cosmic.cli" }
 

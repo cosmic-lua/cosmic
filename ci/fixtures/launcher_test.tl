@@ -102,7 +102,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   Process.chmod(cache, 0x1c0)
 
   local home, xdg = ctx.work .. "/home", ctx.work .. "/xdg"
-  Fixture.mkdir(home); Fixture.mkdir(xdg)
+  Fixture.mkdir(home)
+  Fixture.mkdir(xdg)
   local default_env = environment()
   default_env.COSMIC_PORTABLE_CACHE = nil
   default_env.XDG_CACHE_HOME = nil
@@ -117,17 +118,20 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   assert(default_exists and permissions(default_cache) == 0x1c0,
     "default cache is missing or not 0700: " .. default_cache)
   local xdg_env = environment()
-  xdg_env.COSMIC_PORTABLE_CACHE = nil; xdg_env.XDG_CACHE_HOME = xdg
+  xdg_env.COSMIC_PORTABLE_CACHE = nil
+  xdg_env.XDG_CACHE_HOME = xdg
   xdg_env.HOME = home
   outcome_ok(Fixture.call_with_environment("xdg-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, xdg_env), "XDG cache")
   local xdg_exists = Predicate.is_dir(xdg .. "/cosmic/cores")
   assert(xdg_exists, "XDG cache was not made under " .. xdg)
-  local relative_home = ctx.work .. "/relative-home"; Fixture.mkdir(relative_home)
+  local relative_home = ctx.work .. "/relative-home"
+  Fixture.mkdir(relative_home)
   local relative_xdg = environment()
   relative_xdg.COSMIC_PORTABLE_CACHE = nil
-  relative_xdg.XDG_CACHE_HOME = "relative"; relative_xdg.HOME = relative_home
+  relative_xdg.XDG_CACHE_HOME = "relative"
+  relative_xdg.HOME = relative_home
   outcome_ok(Fixture.call_with_environment("relative-xdg",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, relative_xdg), "relative XDG fallback")
@@ -136,7 +140,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
       { "empty-cache", "", home, "must be an absolute path" },
       { "relative-cache", "relative", home, "must be an absolute path" },
     }) do
-    local values = environment(case[2]); values.HOME = case[3]
+    local values = environment(case[2])
+    values.HOME = case[3]
     local answer = Fixture.call_with_environment(case[1],
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values)
@@ -144,8 +149,10 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     Fixture.contains(answer.err, case[4])
   end
   for _, name in ipairs({ "relative-home", "unset-home" }) do
-    local temp = ctx.work .. "/" .. name .. "-tmp"; Fixture.mkdir(temp)
-    local values = environment(); values.COSMIC_PORTABLE_CACHE = nil
+    local temp = ctx.work .. "/" .. name .. "-tmp"
+    Fixture.mkdir(temp)
+    local values = environment()
+    values.COSMIC_PORTABLE_CACHE = nil
     values.XDG_CACHE_HOME = name == "relative-home" and "relative" or nil
     values.HOME = name == "relative-home" and "relative" or nil
     values.TMPDIR = temp
@@ -163,7 +170,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   -- default. Only TMPDIR, so the cache leaf lands in this test's
   -- directory rather than the runner's /tmp, and the two names the
   -- stand-in payload checks for are set.
-  local bare = ctx.work .. "/empty-environment-tmp"; Fixture.mkdir(bare)
+  local bare = ctx.work .. "/empty-environment-tmp"
+  Fixture.mkdir(bare)
   outcome_ok(Fixture.call_with_environment("empty-environment",
     { ctx.artifact }, ctx.work, ctx.diagnostics, {
       TMPDIR = bare,
@@ -177,18 +185,21 @@ end
 
 local function test_launcher_cache_policy_and_integrity(tmp: string)
   local ctx = setup(tmp)
-  local target = ctx.work .. "/leaf-target"; Fixture.mkdir(target)
+  local target = ctx.work .. "/leaf-target"
+  Fixture.mkdir(target)
   assert(Fs.symlink(target, ctx.work .. "/leaf-link"))
   for i, suffix in ipairs({ "", "/", "////" }) do
     expect_failure(ctx, "leaf-link-failure-" .. tostring(i), "symbolic link",
       ctx.work .. "/leaf-link" .. suffix)
   end
-  local mode_cache = ctx.work .. "/mode-cache"; Fixture.mkdir(mode_cache)
+  local mode_cache = ctx.work .. "/mode-cache"
+  Fixture.mkdir(mode_cache)
   Process.chmod(mode_cache, 0x1ed)
   expect_failure(ctx, "unsafe-mode", "mode must be 0700 or 0500, not 755", mode_cache)
   -- A leaf made under a setgid parent inherits the bit where the system
   -- carries it down (Linux does), and is still private.
-  local setgid_parent = ctx.work .. "/setgid-parent"; Fixture.mkdir(setgid_parent)
+  local setgid_parent = ctx.work .. "/setgid-parent"
+  Fixture.mkdir(setgid_parent)
   Process.chmod(setgid_parent, 0x5ed)
   local inherited = setgid_parent .. "/cores"
   outcome_ok(run(ctx, "setgid-leaf", inherited), "leaf made under a setgid parent")
@@ -198,19 +209,24 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
     assert(leaf_mode & 0x400 ~= 0, "the leaf did not inherit setgid; this case checks nothing")
   end
   -- Setgid is set aside, and nothing else: a group that can read is refused.
-  local group_read = ctx.work .. "/setgid-group-read"; Fixture.mkdir(group_read)
+  local group_read = ctx.work .. "/setgid-group-read"
+  Fixture.mkdir(group_read)
   Process.chmod(group_read, 0x5e8)
   expect_failure(ctx, "setgid-group-read", "mode must be 0700 or 0500", group_read)
-  local read_only = ctx.work .. "/cold-read-only"; Fixture.mkdir(read_only)
+  local read_only = ctx.work .. "/cold-read-only"
+  Fixture.mkdir(read_only)
   Process.chmod(read_only, 0x140)
   expect_failure(ctx, "cold-read-only", "cache is read-only", read_only)
 
   local base = ctx.work .. "/base-cache"
   outcome_ok(run(ctx, "base-cold", base), "base cold launch")
-  local core = only_core(base); local key = core:match("([^/]+)$") as string
+  local core = only_core(base)
+  local key = core:match("([^/]+)$") as string
   local core_bytes, core_hash = Fixture.read(core), Fixture.hash(core)
-  local sentinel = ctx.work .. "/sentinel"; Fixture.write(sentinel, "untouched\n")
-  local linked = ctx.work .. "/symlink-cache"; Fixture.mkdir(linked)
+  local sentinel = ctx.work .. "/sentinel"
+  Fixture.write(sentinel, "untouched\n")
+  local linked = ctx.work .. "/symlink-cache"
+  Fixture.mkdir(linked)
   Process.chmod(linked, 0x1c0)
   assert(Fs.symlink(sentinel, linked .. "/" .. key))
   local repaired = run(ctx, "symlink-repair", linked)
@@ -226,8 +242,10 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   outcome_ok(run(ctx, "directory-repair", directory_cache), "directory repair")
   assert(assert(Fs.stat(directory_cache .. "/" .. key)).kind == "file",
     "directory repair left no core file")
-  local mode_entry = ctx.work .. "/entry-mode-cache"; Fixture.mkdir(mode_entry)
-  Process.chmod(mode_entry, 0x1c0); Fixture.write(mode_entry .. "/" .. key,
+  local mode_entry = ctx.work .. "/entry-mode-cache"
+  Fixture.mkdir(mode_entry)
+  Process.chmod(mode_entry, 0x1c0)
+  Fixture.write(mode_entry .. "/" .. key,
 core_bytes, 0x1c0)
   local mode_repair = run(ctx, "entry-mode-repair", mode_entry)
   outcome_ok(mode_repair, "entry mode repair")
@@ -244,7 +262,8 @@ core_bytes, 0x1c0)
     "read-only short core was not refused before the payload ran")
   Fixture.contains(refused.err, "length differs and cache is read-only")
   Process.chmod(base, 0x1c0)
-  local short = run(ctx, "short-repair", base); outcome_ok(short, "short repair")
+  local short = run(ctx, "short-repair", base)
+  outcome_ok(short, "short repair")
   Fixture.contains(short.err, "length differs; repairing")
   assert(Fixture.hash(core) == core_hash, "short repair core digest differs")
 
@@ -298,7 +317,8 @@ local function test_launcher_publication_and_interruption(tmp: string)
     Process.release(ctx.work, ctx.diagnostics, "race2", go2)
     assert(Process.finish(first).ok and Process.finish(second).ok,
       "publisher race failed")
-    only_core(race); no_private_entries(race, ".core.")
+    only_core(race)
+    no_private_entries(race, ".core.")
     no_private_entries(race, ".repair-")
 
     -- A launcher that found no core, then finds one another launcher
@@ -314,7 +334,8 @@ local function test_launcher_publication_and_interruption(tmp: string)
     outcome_ok(run(ctx, "late-publisher", late), "late publisher")
     Process.release(ctx.work, ctx.diagnostics, "late-waiting", late_go)
     assert(Process.finish(waiting).ok, "a launcher refused the core another published")
-    only_core(late); no_private_entries(late, ".core.")
+    only_core(late)
+    no_private_entries(late, ".core.")
 
     local interrupted = ctx.work .. "/interrupted-cache"
     local ready = Process.fifo(ctx.work, ctx.diagnostics, "interrupt-ready")
@@ -328,7 +349,8 @@ local function test_launcher_publication_and_interruption(tmp: string)
     assert(not Process.finish(publisher).ok, "interrupted publisher succeeded")
     no_private_entries(interrupted, ".core.")
     outcome_ok(run(ctx, "interrupt-next", interrupted), "post-interrupt launch")
-    local core = only_core(interrupted); local bytes = Fixture.read(core)
+    local core = only_core(interrupted)
+    local bytes = Fixture.read(core)
     Fixture.write(core, bytes:sub(1, 20), 0x140)
     local repair_ready = Process.fifo(ctx.work, ctx.diagnostics, "repair-ready")
     local repair_go = Process.fifo(ctx.work, ctx.diagnostics, "repair-go")
@@ -433,7 +455,8 @@ end
 -- The noexec case, which needs the host's own noexec mount, is
 -- launcher_noexec_test.tl's.
 local function test_launcher_timing_and_immutability(tmp: string)
-  local ctx = setup(tmp); local before = Fixture.hash(ctx.artifact)
+  local ctx = setup(tmp)
+  local before = Fixture.hash(ctx.artifact)
   local timing = ctx.work .. "/timing cache"
   local cold_started = Time.monotonic_ns()
   outcome_ok(run(ctx, "timing-cold", timing), "cold timing launch")

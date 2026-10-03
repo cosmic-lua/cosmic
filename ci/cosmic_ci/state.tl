@@ -92,7 +92,8 @@ local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
 end
 
 function State.open(path: string): Sqlite.Handle
-  local db = assert(Sqlite.open(path, { writable = true })); assert(db:exec(State.schema))
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec(State.schema))
   -- A table written before a key part or `held` was gains its column.
   local present = suite_columns_of(db)
   local wanted: {string} = { "held" }
@@ -112,7 +113,9 @@ function State.start(path: string, worker: string, run: string, attempt: string,
     (event,worker,run,attempt,phase,monotonic_ns)
     VALUES('start',?1,?2,?3,?4,?5)]],
     { text(worker), text(run), text(attempt), text(phase), integer(at) }))
-  local id = db:last_insert_rowid(); assert(db:close()); return id
+  local id = db:last_insert_rowid()
+  assert(db:close())
+  return id
 end
 
 function State.complete(path: string, id: integer, worker: string, run: string,
@@ -127,7 +130,8 @@ function State.complete(path: string, id: integer, worker: string, run: string,
     { integer(id), text(worker), text(run), text(attempt), text(phase), integer(at),
      integer(elapsed), text(status), code and integer(code) or null(),
      signal and integer(signal) or null(), integer(timed_out),
-     detail and text(detail) or null() })); assert(db:close())
+     detail and text(detail) or null() }))
+  assert(db:close())
 end
 
 --- The key parts `suite_runs` keeps, by the name `cosmic test` says each
@@ -216,7 +220,8 @@ function State.suite(path: string, row: State.SuiteRun)
   for i = 1, #columns do marks[i] = "?" .. i end
   local db = State.open(path)
   assert(Sqlite.run(db, "INSERT INTO suite_runs (" .. table.concat(columns, ",") ..
-    ") VALUES (" .. table.concat(marks, ",") .. ")", values)); assert(db:close())
+    ") VALUES (" .. table.concat(marks, ",") .. ")", values))
+  assert(db:close())
 end
 
 return State

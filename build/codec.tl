@@ -645,7 +645,9 @@ local function arguments(argv: {integer:string}): Request | nil, string
   end
   if request.lenient then
     if not request.decode then return nil, "--lenient is for -d" end
-    if request.name == "hex" then return nil, "--lenient has nothing to accept for hex, which has no padding" end
+    if request.name == "hex" then
+      return nil, "--lenient has nothing to accept for hex, which has no padding"
+    end
   end
   return request, ""
 end

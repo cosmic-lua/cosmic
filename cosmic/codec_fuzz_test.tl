@@ -76,7 +76,10 @@ local function test_every_decoder_is_total_and_exact(tmp: string)
         end
         if why ~= "" then return false, "accepted with a reason: " .. why end
         local again = p.encode(bytes)
-        if p.name == "hex" then again = again:lower(); input = input:lower() end
+        if p.name == "hex" then
+          again = again:lower()
+          input = input:lower()
+        end
         if again ~= input then
           return false, ("accepted %q, which encodes back as %q"):format(input, again)
         end
