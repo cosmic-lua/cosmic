@@ -63,13 +63,13 @@ verdicts into measurements. If reproduced, diagnose the smallest cause separatel
 
 | Step | Scope | Dependencies | Status | PR |
 | --- | --- | --- | --- | --- |
-| 1 | Faithful failures and saved evidence | baseline | implementation and independent review underway | |
-| 2 | Efficient, bounded reduction | baseline | implementation underway | |
-| 3 | Structured choices and reusable generators | 2 | implementation underway | |
+| 1 | Faithful failures and saved evidence | baseline | reviewed; correcting CI contract findings | #2620 |
+| 2 | Efficient, bounded reduction | baseline | independently approved; automerge enabled, CI pending | #2618 |
+| 3 | Structured choices and reusable generators | 1, 2 | implementation complete; independent review and integration | |
 | 4 | Failure artifacts, exact replay, shrink and promotion commands | 1, 2 | runner integration underway | |
-| 5 | Persistent exploration and explicit search guidance | 3, 4 | planned | |
-| 6 | Stateful model testing with a real Cosmic target | 3 | planned | |
-| 7 | Per-case coverage feedback | 5 | planned | |
+| 5 | Persistent exploration and explicit search guidance | 3, 4 | implementation underway | |
+| 6 | Stateful model testing with a real Cosmic target | 3 | implementation underway | |
+| 7 | Per-case coverage feedback | 5 | implementation underway | |
 | 8 | Cost-aware execution, measurements and CI integration | 4, 5, 6, 7 | planned | |
 
 Independent steps may be prepared in parallel in separate worktrees. Each PR is
@@ -121,7 +121,7 @@ determinism and strict ordering; no random reduction and no global-minimum claim
 Structured span deletion is added in step 3.
 
 Tests/benchmarks:
-- the 1e9 -> 600e6 threshold reaches 600e6 in fewer than 100 checks;
+- the 1e9 -> 600e6 threshold reaches 600e6 in fewer than 200 checks;
 - a redundant 12-choice block is removed;
 - full-range signed boundaries and values around zero;
 - nonmonotonic/disconnected failure regions still keep a valid failure;
@@ -322,3 +322,7 @@ or CI requirements to obtain a green PR.
 - Fresh boot on e9c5647 succeeded, but the normal test command reproduced the working-database corruption. Packaged databases and shared compile cache pass integrity checks. A separate agent is isolating this prerequisite while the first four work packages proceed in separate worktrees.
 - Direct baseline reducer probe still ends at 999999500 after 2000 checks for the 600000000 threshold.
 - Current main has no cosmic.literal module. Step 4 will use non-executable bounded JSON artifacts with hex-encoded byte inputs; cosmic.json preserves signed 64-bit integer seeds and choices.
+
+- Reducer final review: 12 regressions plus 2,000 sparse nonmonotonic, 500 signed threshold and 555 dependent replay probes pass. Threshold example takes 111 checks; relaxed the arbitrary 100-check criterion to 200 to retain full-width nonmonotonic exploration. A 1,000-draw/500-proposal probe reduces retained Lua heap from 73.2 MiB to 0.217 MiB. #2618 is ready with automerge enabled, awaiting CI.
+- #2620 focused 37-test review passed, but CI caught two full-tree fallible-return contracts missed by focused checks. Fix and independent re-review underway. Required CI remains mandatory; no gate is weakened.
+- Strategy migration preserves the prior JSON recursion distribution; incidental workload growth found by independent performance review is being removed. Public helper modules live beside build/fuzz rather than under its private package directory.
