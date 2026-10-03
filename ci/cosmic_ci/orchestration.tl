@@ -17,6 +17,7 @@ local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Time = require("cosmic.time")
+local ZigRestat = require("cosmic_ci.zig_restat")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 
@@ -942,6 +943,12 @@ local function boot(p: PlatformContext): integer
   if cache and not is_dir(cache) then
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
       "; compiling from nothing\n")
+  end
+  -- A restore gives every file of zig's caches a new inode, which zig
+  -- 0.17 reads as a changed C source (cosmic_ci/zig_restat.tl).
+  if seed then
+    local _, out, err = ZigRestat.run(root)
+    Fs.put(Fs.stderr, out .. err)
   end
   if not seed and from and is_dir(from) then
     mkdir(root .. "/o")
