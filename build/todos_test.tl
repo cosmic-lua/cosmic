@@ -303,6 +303,84 @@ local function test_own_tree_scans_github_for_todos()
   assert(Fs.remove_tree(root))
 end
 
+--- A patch record, its replace block carrying a TODO its find block
+--- holds (upstream's) beside one of its own.
+local record_text = text({
+  "file: tl.tl",
+  "note: why. TODO: drop this once upstream takes it",
+  "--- find",
+  "   -- TODO: upstream's own",
+  "   local x = 1",
+  "--- replace",
+  "   -- TODO: upstream's own",
+  "   local x = 2",
+  "   -- TODO: ours, once ci/cosmic-driver.pin names",
+  "   -- a release carrying it",
+  "--- end",
+})
+
+local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
+  local found = todo_scan.scan_record(record_text)
+  assert(#found == 2, "found " .. #found)
+  assert(found[1].line == 2 and found[1].last == 2, found[1].line)
+  assert(found[1].text == "drop this once upstream takes it", found[1].text)
+  assert(found[2].line == 9 and found[2].last == 10, found[2].line .. "-" .. found[2].last)
+  assert(found[2].text == "ours, once ci/cosmic-driver.pin names a release carrying it",
+    found[2].text)
+
+  -- A fence of its own; a note opening with the TODO; a TODO only
+  -- the find block holds, and one in prose, are none.
+  found = todo_scan.scan_record(text({
+    "fence: ===",
+    "file: src/a.h",
+    "note: TODO: the whole note",
+    "=== find",
+    "/* TODO: upstream's */",
+    "=== replace",
+    "/* a TODO: in prose */",
+    "=== end",
+  }))
+  assert(#found == 1 and found[1].line == 3 and found[1].text == "the whole note",
+    found[1] and found[1].text)
+  found = todo_scan.scan_record(text({ "file: a", "note: a TODO: mid-sentence",
+    "--- find", "x", "--- replace", "y", "--- end" }))
+  assert(#found == 0, "found " .. #found)
+  -- Text that is no record holds none, whatever comments it has.
+  assert(#todo_scan.scan_record(text({ "-- TODO: not a record" })) == 0)
+end
+
+--- In cosmic's own tree a patch record is listed with its own TODOs,
+--- and found by searching their text, as `cosmic todos
+--- '"cosmic-driver.pin"'` looks for the ones a pin bump unblocks; a
+--- file under `patch/` that is no record, and the vendored tree, are not.
+local function test_own_tree_lists_a_patch_record_s_own_todos()
+  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  assert(Fs.mkdirs(root .. "/patch/tl"))
+  assert(Fs.mkdirs(root .. "/vendor/tl"))
+  assert(Fs.write(root .. "/patch/tl/01-x.txt", record_text))
+  assert(Fs.write(root .. "/patch/tl/notes.md", text({ "# TODO: not a record" })))
+  assert(Fs.write(root .. "/vendor/tl/PIN", text({ "# TODO: upstream's pin" })))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local listed = assert(todos.list(handle.db, root)).todos
+  local seen: {string} = {}
+  local id_of: {integer:string} = {}
+  for _, todo in ipairs(listed) do
+    seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
+    id_of[todo.id] = todo.file .. ":" .. todo.line
+  end
+  assert(table.concat(seen, "|") == "patch/tl/01-x.txt:2: drop this once upstream takes it|" ..
+      "patch/tl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
+    table.concat(seen, "|"))
+  local hits: {string} = {}
+  for id in pairs((assert(todos.search(handle.db, "\"cosmic-driver.pin\"")))) do
+    hits[#hits + 1] = id_of[id]
+  end
+  assert(#hits == 1 and hits[1] == "patch/tl/01-x.txt:9", table.concat(hits, " "))
+  assert(work.close(handle))
+  assert(Fs.remove_tree(root))
+end
+
 local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
   assert(Fs.write(root .. "/a.tl", text({
