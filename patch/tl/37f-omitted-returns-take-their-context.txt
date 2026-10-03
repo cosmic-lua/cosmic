@@ -35,11 +35,6 @@ note: a function literal that omits its return types returns what its context ex
             self:end_function_scope(node)
 
             if node.context_rets then
-               -- TODO: a body ending in a `do` block that returns, or in
-               -- a loop no `break` leaves (`while true do ... end`),
-               -- cannot reach its end either, and is refused here; it
-               -- waits on those ending a block as 22 through 25 make
-               -- `break`, `goto` and `error` end one.
                rets = node.context_rets
                local required = #rets.tuple - (rets.is_va and 1 or 0)
                local body = node.body
