@@ -67,7 +67,23 @@ local record ZigPrune
     orphans_kept: integer
   end
 
+  --- One file a manifest lists (std/Build/Cache.zig's `Manifest.File`):
+  --- where its record starts in the manifest's bytes (1-based), the
+  --- stat zig took of it (`mtime` in nanoseconds), its 16-byte digest,
+  --- its flags and the prefix they hold, and its path under that prefix.
+  record Record
+    at: integer
+    size: integer
+    inode: integer
+    mtime: integer
+    digest: string
+    flags: integer
+    prefix: integer
+    path: string
+  end
+
   zig_version: string
+  key: string
 end
 
 --- The zig whose caches this reads (bin/zig.pin's `version`), which
@@ -76,8 +92,9 @@ end
 ZigPrune.zig_version = "0.17.0"
 
 --- zig's `hasher_init` key (std/Build/Cache.zig), which a zig that
---- changes its manifests' format changes too.
-local key <const> = string.char(0x02, 0xe9, 0xfa, 0xfe, 0xe0, 0x95, 0x81, 0x55,
+--- changes its manifests' format changes too: what keys a file's digest
+--- (SipHash128-1-3 of its bytes) and an output's name.
+ZigPrune.key = string.char(0x02, 0xe9, 0xfa, 0xfe, 0xe0, 0x95, 0x81, 0x55,
   0xf5, 0x5a, 0x15, 0xcb, 0x4a, 0xf4, 0x00, 0x09)
 
 local function rotl(x: integer, b: integer): integer
@@ -129,37 +146,51 @@ local record Manifest
   inputs: {string}
 end
 
---- The manifest `name` (its file's name, 32 hex digits) whose bytes are
---- `text`, in a cache of `prefix`: nil and why where it does not read as
---- zig's (std/Build/Cache.zig's `Manifest.File`, one after another, then
---- a zero byte: a file's size, inode and mtime, 8 bytes each, its
---- 16-byte digest, a flags byte holding its prefix in the high six
---- bits, and its path, ended by a zero byte). A file's prefix 2 is the
---- manifest's own cache (see [`Cache`]), and 3 the global one.
-local function read(name: string, text: string, prefix: integer): Manifest | nil, string
-  local named = #name == 32 and name:match("^%x+$") and Codec.unhex(name) or nil
-  if named == nil then return nil, "not named as a manifest" end
-  local parts: {string} = { named }
-  local inputs: {string} = {}
+--- The files a manifest's bytes `text` list, in order: nil and why
+--- where they do not read as zig's (std/Build/Cache.zig's
+--- `Manifest.File`, one after another, then a zero byte: a file's size,
+--- inode and mtime, 8 bytes each, its 16-byte digest, a flags byte
+--- holding its prefix in the high six bits, and its path, ended by a
+--- zero byte).
+function ZigPrune.records(text: string): {ZigPrune.Record} | nil, string
+  local records: {ZigPrune.Record} = {}
   local at = 1
   while at < #text do
-    -- 24 bytes of size, inode and mtime, then the digest at 25.
     if at + 41 > #text then return nil, "a file cut short at byte " .. at end
     local ends = text:find("\0", at + 41, true)
     if ends == nil then return nil, "a path with no end at byte " .. at end
-    local path = text:sub(at + 41, ends - 1)
-    parts[#parts + 1] = text:sub(at + 24, at + 39)
-    local file_prefix = text:byte(at + 40) >> 2
-    local within = path:match("^o/(%x+)/") or path:match("^o/(%x+)$")
-    if within and file_prefix == 2 then
-      inputs[#inputs + 1] = prefix .. "/" .. within
-    elseif within and file_prefix == 3 then
-      inputs[#inputs + 1] = "3/" .. within
-    end
+    local size, inode, mtime = string.unpack("<i8i8i8", text, at)
+    local flags = text:byte(at + 40)
+    records[#records + 1] = { at = at, size = size, inode = inode, mtime = mtime,
+      digest = text:sub(at + 24, at + 39), flags = flags, prefix = flags >> 2,
+      path = text:sub(at + 41, ends - 1) }
     at = ends + 1
   end
   if at ~= #text or text:byte(at) ~= 0 then return nil, "no closing zero byte" end
-  local output = prefix .. "/" .. Codec.hex(ZigPrune.siphash128(key, table.concat(parts)))
+  return records, ""
+end
+
+--- The manifest `name` (its file's name, 32 hex digits) whose bytes are
+--- `text`, in a cache of `prefix`: nil and why where it does not read as
+--- zig's ([`ZigPrune.records`]). A file's prefix 2 is the manifest's own
+--- cache (see [`Cache`]), and 3 the global one.
+local function read(name: string, text: string, prefix: integer): Manifest | nil, string
+  local named = #name == 32 and name:match("^%x+$") and Codec.unhex(name) or nil
+  if named == nil then return nil, "not named as a manifest" end
+  local records, trouble = ZigPrune.records(text)
+  if records == nil then return nil, trouble end
+  local parts: {string} = { named }
+  local inputs: {string} = {}
+  for _, record in ipairs(records) do
+    parts[#parts + 1] = record.digest
+    local within = record.path:match("^o/(%x+)/") or record.path:match("^o/(%x+)$")
+    if within and record.prefix == 2 then
+      inputs[#inputs + 1] = prefix .. "/" .. within
+    elseif within and record.prefix == 3 then
+      inputs[#inputs + 1] = "3/" .. within
+    end
+  end
+  local output = prefix .. "/" .. Codec.hex(ZigPrune.siphash128(ZigPrune.key, table.concat(parts)))
   return { output = output, inputs = inputs }, ""
 end
 
