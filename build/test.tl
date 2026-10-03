@@ -980,6 +980,39 @@ function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
   return out, ""
 end
 
+--- The `imports` rows of `db` a module makes by type alone, as sets by
+--- importer: the complement of [`test.value_imports`], and no other
+--- rows. A test's closure leaves these edges out
+--- ([`build.test_inputs`]'s `closure`): an importer that requires a
+--- module only to name its types runs without loading it, so an edit to
+--- it that leaves the importer's bytecode as it was moves no key, and a
+--- test importing the importer is not run again for it.
+function test.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT i.path, i.requires FROM imports i WHERE EXISTS " ..
+      "(SELECT 1 FROM modules m WHERE m.path = i.path AND m.kind IN ('module', 'main') " ..
+      "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)")
+  if rows == nil then return nil, trouble end
+  local out: {string:{string:boolean}} = {}
+  for _, row in ipairs(rows) do
+    local set = out[row[1]] or {}
+    out[row[1]] = set
+    set[row[2]] = true
+  end
+  return out, ""
+end
+
+--- [`test.type_only_imports`] of the projection at `path`.
+local function projection_type_only(path: string): {string:{string:boolean}} | nil, string
+  local opened, trouble = Sqlite.open(path)
+  if opened == nil then return nil, path .. ": " .. trouble end
+  local db: Sqlite.Handle = opened
+  local found, found_trouble = test.type_only_imports(db)
+  local _, _ = db:close()
+  if found == nil then return nil, found_trouble end
+  return found, ""
+end
+
 --- The names `key_roots` and `key_own` hold ([`closure_of`]), over the
 --- requires each module makes by value ([`test.value_imports`]).
 local function key_code(by_value: {string:{string}}): {string}
@@ -1206,6 +1239,9 @@ local record Recording
   --- modules, which its worker holds its `require`s to
   --- ([`test_inputs.modules`], [`build.test_worker`]).
   closures: {string:{string}}
+  --- The requires a closure does not follow, which make no module a
+  --- worker loads ([`test.type_only_imports`]).
+  type_only: {string:{string:boolean}}
   --- The same, each a set of names, made as a verdict needs one
   --- ([`closure_set`]).
   closure_sets: {string:{string:boolean}}
@@ -1787,7 +1823,8 @@ local function address_stores(rec: Recording, modules: {importer.Module},
     local declared = m.inputs
     if (m.kind == "test" or m.kind == "example") and
         not (declared ~= nil and declared.store) then
-      local names = rec.closures[m.path] or test_inputs.modules(m, by_path, declarations)
+      local names = rec.closures[m.path] or
+        test_inputs.modules(m, by_path, declarations, rec.type_only)
       rec.closures[m.path] = names
       rec.stores[m.path] = closure_store.address(basis, names, salt)
     end
@@ -2796,13 +2833,21 @@ local function run(argv: {integer:string}): integer
     if by_path[name] == nil then rec.declared_names[#rec.declared_names + 1] = name end
   end
   table.sort(rec.declared_names)
+  local type_only, type_only_trouble = projection_type_only(database)
+  if type_only == nil then
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
+    log:complain(type_only_trouble)
+    return 1
+  end
+  rec.type_only = type_only
   for _, m in ipairs(selected_modules) do
-    rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
+    rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
   rec.effective = {}
   local noexec_probes: {string:string} = {}
   for _, m in ipairs(selected_modules) do
-    local effective = test_inputs.effective(m, by_path, declarations)
+    local effective = test_inputs.effective(m, by_path, declarations, type_only)
     effective.cache_paths = caches_of(rec, m)
     test_inputs.resolve(effective, worker_view(), tree_roots(rec))
     test_sandbox.resolve_noexec(effective, rec.sandbox, noexec_probes)

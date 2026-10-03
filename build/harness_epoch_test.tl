@@ -397,3 +397,27 @@ local function test_value_imports_follows_every_spelling_of_a_require()
   assert(not kept["cosmic.child"], "an edge the bytecode does not name was followed")
   assert((by_value["build.y"] or {})[1] == "cosmic.time")
 end
+
+--- The edges `type_only_imports` names are the ones `value_imports`
+--- leaves out, of the importers whose bytecode the table holds.
+local function test_type_only_imports_is_what_value_imports_drops()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
+      "CREATE TABLE imports (path TEXT, requires TEXT)"))
+  local compiled = string.dump(assert(load('local a = require"cosmic.fs" return a')), true)
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', ?1)",
+    { { blob = compiled } }))
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', ?1)",
+    { { blob = compiled } }))
+  for _, row in ipairs({ { "build.x", "cosmic.fs" }, { "build.x", "cosmic.child" },
+      { "build.y", "cosmic.time" }, { "build.t_test", "cosmic.child" } }) do
+    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?1, ?2)",
+      { { text = row[1] }, { text = row[2] } }))
+  end
+  local erased = assert(test.type_only_imports(db))
+  db:close()
+  assert(erased["build.x"] ~= nil and erased["build.x"]["cosmic.child"], "a type-only edge was kept")
+  assert(not erased["build.x"]["cosmic.fs"], "a value edge was dropped")
+  assert(erased["build.y"] == nil, "an importer with no bytecode lost an edge")
+  assert(erased["build.t_test"] == nil, "a test's own edge was dropped")
+end

@@ -11,6 +11,9 @@ local work = require("build.work")
 -- the fixtures name.
 local type _json = require("cosmic.json")
 local type _shape = require("cosmic.shape")
+-- cosmic.json names cosmic.stream's types only, which no closure follows
+-- by itself; the checker reads its source to type the fixtures.
+local type _stream = require("cosmic.stream")
 
 Test.needs{ reads = { "core" } }
 

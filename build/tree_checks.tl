@@ -131,6 +131,8 @@ allowed["build.closure_store.loaded_beside"] = "what build/lua_standalone_test.t
   "a module of their closure"
 allowed["build.test.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
+allowed["build.test.type_only_imports"] = "tested directly: the harness's test holds " ..
+  "it to the edges `value_imports` leaves out; `run` reads it through the projection"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
   "than probe it per row, and no behaviour tells the two apart"
