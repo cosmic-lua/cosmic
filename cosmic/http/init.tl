@@ -452,19 +452,55 @@ local function raw_options(opts: Http.Options | nil, method?: string): raw_http.
   }
 end
 
+--- Every byte a URL never holds literally, to its escape: a space, a
+--- control byte, a byte past ASCII, and `"` `<` `>` `\` `^` `` ` `` `{`
+--- `|` `}` -- the bytes Python requests' requote_uri escapes. Every
+--- reserved byte and `%` are left out: what they mean is the caller's.
+local escape_unsafe: {string:string} = {}
+do
+  for byte = 0, 255 do
+    local ch = string.char(byte)
+    if byte <= 32 or byte >= 127 or ('"<>\\^`{|}'):find(ch, 1, true) then
+      escape_unsafe[ch] = ("%%%02X"):format(byte)
+    end
+  end
+end
+
+--- `url` as curl is handed it, or nil and why: past its scheme and
+--- authority, each `%` not followed by two hex digits is written `%25`,
+--- as requests writes one, and each byte `escape_unsafe` holds is
+--- escaped, so a URL holding none of them is sent as written and one
+--- escaped already is not escaped again. A space or control byte in the
+--- authority is refused, naming it: a host takes no escape, and curl
+--- would refuse it as "Malformed input to a URL function". A URL with
+--- no scheme is read as curl reads it, its authority from the start.
+local function sendable(url: string): string | nil, string
+  local _, scheme_end = url:find("^[A-Za-z][A-Za-z0-9+.-]*://")
+  local rest = url:find("[/?#]", (scheme_end or 0) + 1) or #url + 1
+  local at = url:sub(1, rest - 1):find("[\0-\32\127]")
+  if at ~= nil then
+    local byte = url:byte(at)
+    local what = byte == 32 and "a space" or byte == 0 and "a NUL" or ("control byte 0x%02x"):format(byte)
+    return nil, ("http: the URL holds %s at byte %d, in its host or user info, where it cannot be sent; " ..
+      "a user name or password goes in through Url.escape"):format(what, at)
+  end
+  local tail = url:sub(rest)
+  local percents = tail:gsub("()%%", function(percent: integer): string
+    return tail:find("^%x%x", percent + 1) and "%" or "%25"
+  end)
+  local escaped = percents:gsub('[\0-\32\127-\255"<>\\^`{|}]', escape_unsafe)
+  return url:sub(1, rest - 1) .. escaped, ""
+end
+
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
 local function opened(url: string, opts: Http.Options | nil, method: string | nil): Http.Response | nil, string
-  -- curl refuses these bytes too, as "Malformed input to a URL
-  -- function"; this names the byte and the fix.
-  local at = url:find("[\0-\32\127]")
-  if at ~= nil then
-    local byte = url:byte(at)
-    local what = byte == 32 and "a space" or byte == 0 and "a NUL" or ("control byte 0x%02x"):format(byte)
-    return nil, ("http: the URL holds %s at byte %d; escape a path segment or query value with Url.escape"):
-       format(what, at)
+  local sent, refused = sendable(url)
+  if sent == nil then
+    return nil, refused
   end
+  url = sent
   local handle, trouble = http.open(url, raw_options(opts, method))
   if handle == nil then
     return nil, trouble
@@ -487,9 +523,19 @@ end
 --- returns `nil, ""` for a clean end, or use [`Http.request`] (or
 --- [`Http.get`]) to read it all at once.
 ---
---- `url` is sent as written: a space or control byte in it fails,
---- naming the byte, and a path segment or query value that may hold
---- one goes in through [`Url.escape`].
+--- Past its host, `url` is sent with each byte a URL never holds
+--- literally written as `%` and two uppercase hex digits -- a space,
+--- a control byte, a byte past ASCII (UTF-8's, so "é" goes as `%C3%A9`),
+--- and `"` `<` `>` `\` `^` `` ` `` `{` `|` `}`, as Python requests
+--- escapes them -- and a `%` not followed by two hex digits as `%25`.
+--- Everything else goes as written: an escape already there, so an
+--- escaped URL is not escaped twice, and every reserved byte (`/` `?`
+--- `#` `&` `=` `+` `:` `@` `;` `,` `$` `!` `'` `(` `)` `*` `[` `]`), whose
+--- meaning in the URL is the caller's. So a name meant literally that
+--- may hold a reserved byte or a `%` (a file named "50% off?.txt") goes
+--- in through [`Url.escape`], a path segment or query value at a time.
+--- A space or control byte in the host or user info fails, naming
+--- the byte.
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
   local response, trouble = opened(url, opts, nil)
   if response == nil then
@@ -499,9 +545,10 @@ function Http.open(url: string, opts?: Http.Options): Http.Response | nil, strin
 end
 
 --- Sends a GET for `url` and reads the whole body: [`Http.request`]
---- with "GET". Fails on a connection or protocol error the same way
---- [`Http.open`] does; a non-2xx status is not itself a failure here --
---- check `result.status`. An `opts.method` other than "GET", or an
+--- with "GET", `url` escaped as [`Http.open`] escapes it. Fails on a
+--- connection or protocol error the same way [`Http.open`] does; a
+--- non-2xx status is not itself a failure here -- check
+--- `result.status`. An `opts.method` other than "GET", or an
 --- `opts.body`, raises, naming [`Http.request`], which sends any method
 --- and a body.
 function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
@@ -523,11 +570,11 @@ end
 --- whole response: its status, headers and body. `method` is
 --- case-sensitive, as HTTP's are ("PUT", "DELETE", "PATCH", ...);
 --- [`Http.open`] is the same request with its body read a chunk at a
---- time. Fails on a connection or protocol error the same way
---- [`Http.open`] does; a non-2xx status is not itself a failure here --
---- check `result.status`. A body goes with the `Content-Type` its
---- headers name, or `application/x-www-form-urlencoded` without one,
---- as curl sends it.
+--- time, and escapes `url` as this does. Fails on a connection or
+--- protocol error the same way [`Http.open`] does; a non-2xx status is
+--- not itself a failure here -- check `result.status`. A body goes
+--- with the `Content-Type` its headers name, or
+--- `application/x-www-form-urlencoded` without one, as curl sends it.
 ---
 ---     local put = assert(Http.request("PUT", "https://example.com/items/1",
 ---       { headers = { ["Content-Type"] = "application/json" }, body = '{"n":1}' }))
