@@ -202,20 +202,22 @@ end
 
 --- Whether the compiler of the tree, whose identity is `wanted`
 --- ([`identity.compiler_identity`]), is not the one the running tool
---- carries (`tool`, nil for a database that records none). The tree's
---- identity is nil when it could not be taken, which is no evidence that
---- it moved.
+--- carries (`tool`). An identity that could not be taken (nil) is no
+--- evidence of a move, on either side: a tool the guard rebuilds is one
+--- this tree built and always records its compiler's, so a nil there is
+--- a damaged database, whose failure is reported as the tree's own
+--- rather than answered with a boot that would mend nothing.
 function reboot.compiler_moved(tool: string | nil, wanted: string | nil): boolean
-  return wanted ~= nil and wanted ~= (tool or "")
+  return tool ~= nil and wanted ~= nil and tool ~= wanted
 end
 
 --- Rebuilds the tool from the tree and replaces this process with it,
 --- running `argv` again. Returns only when it cannot, saying why, and
 --- whether the failure was a compile that failed while the tree's
 --- compiler differs from this tool's ([`reboot.compiler_moved`]), which
---- only a boot can mend ([`reboot.rebuild_failed`]); a
---- `settle` is never that, since it follows a rebuild that made the
---- compiler this tool's. It takes `handle`, open and staged, and closes
+--- only a boot can mend ([`reboot.rebuild_failed`]). A `settle` is never
+--- that: a boot it would start is refused by the `marker` it runs under,
+--- and the rebuild it follows made the compiler this tool's. It takes `handle`, open and staged, and closes
 --- it on every path: before it publishes the rebuilt tool, or on the way
 --- out of a failure. `settle` rebuilds a fresh but `unsettled` tool,
 --- which a rebuild may enter; anything else refuses once a reboot has
@@ -291,12 +293,14 @@ local function into(handle: work.Handle, built: compiler,
       return tool, ""
     end, true, shared_compiles.for_build())
   if result == nil then
-    -- A rebuild settling follows one that made the compiler this tool's.
+    -- The compiler of a tool settling is the tree's: it cannot have moved.
     if settle then
       return closing(handle, compile_trouble), false
     end
     -- The compile may have stopped before it recorded the tree's
     -- identities: take the compiler's from what is staged and parsed.
+    -- That walk of `requires` may be partial; a truncated one differs
+    -- from the tool's, so it errs toward a boot, never toward a miss.
     if tree_compiler == nil then
       local found, _ = identity.compiler_identity(handle.db)
       tree_compiler = found
@@ -554,7 +558,11 @@ function reboot.rebuild_failed(root: string, argv: {integer:string},
   end
   log:complain("the tool cannot compile the tree and its compiler has moved; " ..
       "booting it instead of rebuilding")
-  log:complain(reboot.boot_into(root, argv, environment))
+  local booted = reboot.boot_into(root, argv, environment)
+  -- Only a boot that failed returns: the compile failure it was to mend
+  -- is then the first thing the person needs.
+  log:complain(trouble)
+  log:complain(booted)
   return 3
 end
 
