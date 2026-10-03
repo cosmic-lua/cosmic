@@ -6,11 +6,10 @@
 --- `rebuild_lock_test.tl`.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 

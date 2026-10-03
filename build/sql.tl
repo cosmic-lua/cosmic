@@ -36,13 +36,12 @@
 --- is built from the data alone, so nothing under o/ is read.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Clock = require("cosmic.clock")
-
 local bare = require("build.bare")
 local clock = require("build.clock")
 local dataset = require("build.dataset")

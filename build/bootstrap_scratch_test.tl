@@ -1,11 +1,10 @@
 --- Standalone cache scratch ownership across independent processes.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local Patch = require("build.patch")
 local ZigFetch = require("build.zig_fetch")
 local this_program = require("build.this_program")

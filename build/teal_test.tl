@@ -6,8 +6,8 @@
 --- the write for itself would leave the checker searching the
 --- filesystem.
 local type compiler = require("build.compiler")
-local teal = require("build.teal")
 local Clock = require("cosmic.clock")
+local teal = require("build.teal")
 
 --- A field written through the capsule reaches the loaded compiler:
 --- the capsule itself never holds it, and reading it back through the

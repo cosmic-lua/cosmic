@@ -39,8 +39,8 @@ end
 --- line: its start, however slow, comes before the wait it is to end.
 local function signaller(): Child.Handle
   local sender = child(([[
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 print("ready")
 Fs.take(Fs.stdin, 1)

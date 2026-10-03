@@ -1,10 +1,10 @@
 --- Proves the Reader/Writer constructors read and write exactly what
 --- they are given, in bounded chunks, and that failures propagate.
 
+local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
-local Clock = require("cosmic.clock")
 
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform

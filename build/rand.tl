@@ -42,7 +42,6 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local Clock = require("cosmic.clock")
-
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")

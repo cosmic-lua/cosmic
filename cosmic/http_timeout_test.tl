@@ -3,10 +3,10 @@
 --- loopback listener that accepts and never answers ends at about the
 --- time given, whatever the unit the core reads it in.
 
+local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 
 --- The listener answers nothing, on the worker's own loopback.
 Test.needs{ network = { "127.0.0.1" } }

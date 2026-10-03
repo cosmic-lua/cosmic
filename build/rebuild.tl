@@ -4,11 +4,10 @@
 --- `cosmic test` or `cosmic fix` builds. It is the build `cosmic test`
 --- makes (stage, compile, write the projection), and no more.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Clock = require("cosmic.clock")
-
 local clock = require("build.clock")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")

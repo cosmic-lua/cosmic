@@ -4,9 +4,8 @@
 --- build/shared_verdicts_tool_test.tl holds the runs of `cosmic test`
 --- that share their verdicts through it.
 
-local Sqlite = require("cosmic.sqlite")
 local Clock = require("cosmic.clock")
-
+local Sqlite = require("cosmic.sqlite")
 local shared_verdicts = require("build.shared_verdicts")
 
 --- A run none of whose lookups stood is told what the cache held: its

@@ -110,12 +110,12 @@ local function test_a_signal_in_a_drain_stop_began_is_delivered(tmp: string)
   local script = tmp .. "/stopped.tl"
   local report = tmp .. "/report"
   assert(Fs.write(script, [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   local started = false
   assert(Net.serve{

@@ -17,6 +17,7 @@
 --- no TMPDIR -- unless a check names one, so nothing beside it and
 --- nothing on PATH can help, as each task promises.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -24,8 +25,6 @@ local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 
 local record Grader

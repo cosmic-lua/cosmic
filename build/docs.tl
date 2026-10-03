@@ -10,14 +10,13 @@
 --- documentation names its first word as what they stand in for.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Clock = require("cosmic.clock")
-
 local alias_members = require("build.alias_members")
 local clock = require("build.clock")
 local link_text = require("build.link_text")

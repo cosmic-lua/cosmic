@@ -6,13 +6,12 @@
 --- ([`build.stand_in`]). The tests
 --- that start bin/zig are build/zig_tool_test.tl's.
 
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
-
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")

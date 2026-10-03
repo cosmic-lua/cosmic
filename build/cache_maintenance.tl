@@ -2,12 +2,11 @@
 --- their formats; neither a candidate project nor a cache writer is loaded.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local formats = require("build.cache_formats")
 

@@ -4,12 +4,12 @@
 --- so each client one answers from [`Http.Options.script`], a canned
 --- reply; a real call leaves `script` out.
 
+local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
-local Clock = require("cosmic.clock")
 
 local Example = {}
 

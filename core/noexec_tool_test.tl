@@ -2,12 +2,11 @@
 --- skips this module where it cannot grant the capability; held runs
 --- fail that skip. Copying bytes to ordinary scratch is allowed.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")

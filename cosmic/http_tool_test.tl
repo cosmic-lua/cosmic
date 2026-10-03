@@ -28,9 +28,9 @@ Test.needs{ network = { "127.0.0.1" }, lua = true, standalone = true }
 local function refused_with_cert_file(tmp: string, cert_file: string): string
   local script = tmp .. "/open.tl"
   assert(Fs.write(script, [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Clock = require("cosmic.clock")
 local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
 Fs.put(Fs.stdout, trouble or "")
 ]]))

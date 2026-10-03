@@ -9,9 +9,8 @@
 --- tells from one the host lacks.
 
 local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
-
+local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")

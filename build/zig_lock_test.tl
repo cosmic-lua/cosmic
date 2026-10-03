@@ -17,9 +17,9 @@ Test.needs{ lua = true }
 --- An older tool takes only SQLite's transaction. A negative wait keeps
 --- its hold until stdin closes; zero is a nonblocking probe.
 local sql_tool = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
 local db = assert(Sqlite.open(%q .. "/o/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
 if not db:exec("BEGIN IMMEDIATE") then print("busy"); return end
@@ -29,8 +29,8 @@ if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local flock_tool = [[
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local fd = assert(sys.open(%q .. "/o/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
 if not sys.flock(fd, "exclusive", 0) then print("busy"); return end

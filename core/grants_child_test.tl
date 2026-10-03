@@ -6,11 +6,10 @@
 --- answers. A host whose kernel gives no Landlock skips them
 --- (build.sandbox_skip).
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local sandbox_skip = require("build.sandbox_skip")
 local stand_in = require("build.stand_in")

@@ -9,12 +9,11 @@
 --- guard -- are in cosmic/child_test.tl.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
-
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 

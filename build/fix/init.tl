@@ -69,7 +69,6 @@ local c_check = require("build.c")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
-
 local clock = require("build.clock")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")

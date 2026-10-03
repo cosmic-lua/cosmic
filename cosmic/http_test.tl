@@ -5,6 +5,7 @@
 --- reply and records what curl sent.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -12,8 +13,6 @@ local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local Url = require("cosmic.url")
 
 --- Requests to a closed local port, which a loopback alone answers:

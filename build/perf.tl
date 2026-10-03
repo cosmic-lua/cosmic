@@ -7,14 +7,13 @@
 --- Run with no other builds or benchmarks on the host. This does not control
 --- the OS page cache, measure peak RSS, or replace target/sandbox correctness CI.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 
 local record Perf

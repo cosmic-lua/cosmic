@@ -6,10 +6,9 @@
 --- a searcher that compiles a `.tl` straight from it; everything from
 --- here is ordinary cosmic code.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
-local Clock = require("cosmic.clock")
-
 local identity = require("build.identity")
 local clock = require("build.clock")
 local artifact = require("build.artifact")

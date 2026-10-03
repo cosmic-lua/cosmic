@@ -1,10 +1,10 @@
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 
 --- Answers each line with itself until the peer ends what it sends.
 local function echo(conn: Net.Conn)

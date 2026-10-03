@@ -90,8 +90,8 @@ end
 local function test_fresh_guard_event_is_not_consumed_and_old_reader_stays_failed()
   local h <close> = start([[
 local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local guard = assert(Child.guard())
 assert(Fs.put(1, "ready"))
 while guard:cancelled() == 0 do Clock.sleep_ns(Clock.ms(1)) end
@@ -337,8 +337,8 @@ end
 
 local function test_escaped_writer_is_drained_after_the_leader_exits()
   local h <close> = escaped([[
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 Clock.sleep_ns(Clock.ms(50)) assert(Fs.put(1, "late"))]])
   local out = Stream.collect()
   assert(finish(h, options(out)) == 4 and out:result() == "late")

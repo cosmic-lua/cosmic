@@ -3,11 +3,11 @@
 --- which only a shell's `trap '' INT` sets up here.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 
 --- The system's sh, which ignores SIGINT for the program it execs, and
 --- the program itself, through its launcher.

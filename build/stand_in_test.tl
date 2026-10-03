@@ -3,11 +3,10 @@
 --- reads its script and words from.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
-
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
 

@@ -3,8 +3,8 @@
 --- worker ran to what its test's key holds.
 
 local type Child = require("cosmic.child")
-local worker = require("build.test_worker")
 local Clock = require("cosmic.clock")
+local worker = require("build.test_worker")
 
 --- A worker's end, having written `report` to the report's descriptor.
 local function ended(report: worker.Report): Child.Result

@@ -153,8 +153,8 @@ assert(sys.rename(spare, link))
 --- rename replaces it can end at the link's directory (Linux 6.18
 --- does, a few times in 100000), which it changes too.
 local caller <const> = [==[
-local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
+local sys = require("cosmic.sys")
 local link, stop = LINK, STOP
 local counts = { chmod = { done = 0, refused = 0 }, truncate = { done = 0, refused = 0 } }
 local function said(what, ok, errno)

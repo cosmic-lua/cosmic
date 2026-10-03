@@ -4,10 +4,9 @@
 --- program has no launcher, so there is nothing here for it to check.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Clock = require("cosmic.clock")
-
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 

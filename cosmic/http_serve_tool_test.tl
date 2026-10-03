@@ -135,10 +135,10 @@ local function test_sigterm_stops_a_server_and_it_exits_0(tmp: string)
   local marker = tmp .. "/ready"
   local socket = tmp .. "/s.sock"
   assert(Fs.write(script, [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
-local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   local ok, why = Http.serve{
     listeners = { Net.unix(argv[1]) },

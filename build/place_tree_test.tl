@@ -6,10 +6,10 @@
 --- directory beside the workspace, so actions/cache's paths relative to
 --- the workspace resolve through it.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 
 --- The script under test, and the system's `sh` and tools, which run it.
 Test.needs{ reads = { ".github/scripts/place-tree.sh" }, system = true }

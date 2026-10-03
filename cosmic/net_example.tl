@@ -2,12 +2,12 @@
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 
 --- The TCP example listens on the worker's own loopback.
 Test.needs{ network = { "127.0.0.1" } }

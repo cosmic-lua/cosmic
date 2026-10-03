@@ -202,10 +202,10 @@ end
 --- and its verdict stands as any other's.
 local function test_a_test_that_declares_loopback_addresses_runs_offline_and_stands(tmp: string)
   local source = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 
 Test.needs { network = { HOSTS } }
 
@@ -478,8 +478,8 @@ local function test_a_verdict_whose_inputs_moved_as_it_ran_is_not_kept(tmp: stri
   -- It says it started, and fails if what it reads moves before it is
   -- stopped (or 20 s pass, a bound no run here reaches).
   assert(Fs.write(root .. "/suite/moving_test.tl", [[
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.needs { reads = { "suite/moving.txt" } }

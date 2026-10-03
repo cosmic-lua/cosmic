@@ -2,11 +2,11 @@
 --- client here writes a request's bytes as given and reads the reply as
 --- sent, so what the server does on the wire is what is checked.
 
+local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
-local Clock = require("cosmic.clock")
 
 --- A reply as a client read it.
 local record Got

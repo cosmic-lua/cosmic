@@ -2,7 +2,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Poll = require("cosmic.poll")
 local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local rebuild_lock = require("build.rebuild_lock")
 

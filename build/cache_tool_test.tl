@@ -6,10 +6,9 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local type _ = require("build.cache")
 local type _ = require("cosmic.proc")
+local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local this_program = require("build.this_program")
 
 Test.needs{ tool = true }

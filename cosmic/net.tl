@@ -36,12 +36,11 @@
 --- failure closes that connection alone.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
-
 local errors = require("cosmic.internal.errors")
 
 --- The raw module behind this one lives under the reserved

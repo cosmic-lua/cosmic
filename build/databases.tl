@@ -4,11 +4,10 @@
 --- noticed, and how a change to what the build stores is judged by
 --- what it costs.
 
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local clock = require("build.clock")
 local narrow = require("build.narrow")
 local plural = require("build.plural")

@@ -1,10 +1,9 @@
 -- The tests of [`build.work`] that start the program, a build or a
 -- `cosmic test` beside this process, are build/work_tool_test.tl's.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local identity = require("build.identity")
 local work = require("build.work")
 

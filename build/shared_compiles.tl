@@ -54,7 +54,6 @@ local Log = require("cosmic.log")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
 local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local type importer = require("build.importer")
 local type receivers = require("build.receivers")

@@ -33,9 +33,9 @@
 --- which the run's own stack would not show. A task that must go on
 --- after a failure catches it itself.
 
+local Clock = require("cosmic.clock")
 local errors = require("cosmic.internal.errors")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 
 local record Poll
   --- A function running under [`Poll.run`] beside the others, answered by

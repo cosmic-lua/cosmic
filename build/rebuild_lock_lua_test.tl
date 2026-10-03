@@ -27,9 +27,9 @@ Test.needs{ lua = true }
 --- it for the `%d` nanoseconds, or until its standard input ends when
 --- that is negative, then writes o/let-go, still holding it, and exits.
 local old_tool = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
 local root = %q
 local db = assert(Sqlite.open(root .. "/o/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
@@ -45,8 +45,8 @@ assert(Fs.write(root .. "/o/let-go", ""))
 
 --- The same, as this tool does.
 local new_tool = [[
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local root = %q
 local taken = require("build.rebuild_lock").take(root, 0)
 print(taken)

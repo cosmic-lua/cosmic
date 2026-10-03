@@ -1,6 +1,7 @@
---- Clocks, sleeping, and the calendar, in UTC and in time zones. Every
---- reading is in nanoseconds, so nothing above this module carries a unit
---- it has to remember. A moment is an integer of nanoseconds since
+--- The calendar, in UTC and in time zones, and the clocks and spans of
+--- [`cosmic.clock`], answered here under the same names. Every reading
+--- is in nanoseconds, so nothing above this module carries a unit it has
+--- to remember. A moment is an integer of nanoseconds since
 --- 1970-01-01T00:00:00Z without leap seconds, so the calendar spans
 --- what 64 bits hold: 1677-09-21T00:12:43.145224192Z through
 --- 2262-04-11T23:47:16.854775807Z, on the proleptic Gregorian calendar.
@@ -9,10 +10,11 @@
 --- [`seconds`], [`minutes`] and [`hours`] make from a count
 --- (`Time.seconds(5)`). The clocks and these constructors live in
 --- [`cosmic.clock`], which a module that needs no calendar requires
---- instead, and are answered here under the same names. A span the
---- calendar measures, whole years, months and days and a remainder, is a [`Duration`]: [`add_calendar`] moves a
---- moment by one, [`between`] answers one, and [`parse_duration`] and
---- [`format_duration`] read and write one as text.
+--- instead; this module keeps them as aliases. A span the calendar
+--- measures, whole years, months and days and a remainder, is a
+--- [`Duration`]. [`add_calendar`] moves a moment by one, [`between`]
+--- answers one, and [`parse_duration`] and [`format_duration`] read and
+--- write one as text.
 ---
 --- A zone says what offset from UTC, abbreviation and daylight saving
 --- time each moment has somewhere: IANA's, by name (`zone`), from the

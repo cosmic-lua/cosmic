@@ -16,12 +16,12 @@
 --- call more than once, so a caller never has to ask which kind it
 --- holds. [`Stream.lines`] reads a Reader a line at a time.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 
 -- The raw declaration holds the interface. A declaration may require only
 -- declarations, and Teal's interface conformance is nominal: the raw

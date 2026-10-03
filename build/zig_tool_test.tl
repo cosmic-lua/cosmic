@@ -11,7 +11,6 @@ local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
-
 local Test = require("cosmic.test")
 -- The script bin/zig runs, which its tests copy and start: of the
 -- closure, so its source is there to read.

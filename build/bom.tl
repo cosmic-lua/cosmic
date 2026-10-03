@@ -35,6 +35,7 @@
 --- `SPDX-License-Identifier` tags its tree's own files carry.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -42,8 +43,6 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Clock = require("cosmic.clock")
-
 local bind = require("build.bind")
 local clock = require("build.clock")
 local log = require("build.verdict").log

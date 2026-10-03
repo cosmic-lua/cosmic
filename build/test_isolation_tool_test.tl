@@ -194,9 +194,9 @@ local function test_a_running_workers_orphan_outlives_another_worker(tmp: string
   assert(stand_in.place(probe, root .. "/bin/probe"))
   assert(stand_in.place(probe, shared .. "/late", "wait-for $DIR/go\nwrite $DIR/done done"))
   local await = [[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 
 local function await(path: string, seconds: integer)
   local deadline = Clock.monotonic_ns() + seconds * 1000 * 1000 * 1000

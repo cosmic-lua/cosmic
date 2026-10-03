@@ -2,10 +2,10 @@
 --- non-blocking descriptor waits for it through [`Poll.wait`], bounded
 --- by `timeout_ns`, in a task of [`Poll.run`] or out of one.
 
+local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.

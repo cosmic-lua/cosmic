@@ -3,9 +3,8 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local type _ = require("cosmic.proc")
-local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
-
+local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- Only the default search's first candidate is needed; it is inspected,

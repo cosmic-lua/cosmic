@@ -3,10 +3,10 @@
 --- it starts this program only to run a script standalone.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a file `--standalone`
 --- (`standalone`).

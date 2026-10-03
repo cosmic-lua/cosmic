@@ -10,10 +10,9 @@
 --- (build/test_worker.tl's `Hold`).
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")

@@ -4,11 +4,11 @@
 --- chunk, as in cosmic/child_tool_test.tl.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 local type raw_process = require("cosmic.internal.process")
 local this_program = require("build.this_program")
 
@@ -503,10 +503,10 @@ local function test_a_signal_ends_a_run_in_a_task(tmp: string)
   local report = tmp .. "/report"
   local started = this_program.program({ "-e", [[
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 local this_program = require("build.this_program")
 local outer = assert(Child.guard())
 local answer = ""

@@ -48,12 +48,11 @@
 --- -- is handed it instead (`handed_variable`), since a lock its parent
 --- holds keeps it out.
 
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local log = require("build.verdict").log
 local plural = require("build.plural")

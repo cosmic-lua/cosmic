@@ -1,12 +1,12 @@
 --- How a test starts this very program (build.this_program's `program`).
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Clock = require("cosmic.clock")
 
 --- What `program` copies is the whole of this process's environment,
 --- and what it starts is this very program, which reads its own command

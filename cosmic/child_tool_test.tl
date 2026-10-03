@@ -553,10 +553,10 @@ local function test_a_run_inside_a_guard_is_cancelled_and_leaves_the_signal_to_i
   local fixture = tmp .. "/run_inside.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string): {string}
   local words = { table.unpack(relaunch.argv) }

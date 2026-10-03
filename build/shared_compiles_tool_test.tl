@@ -347,9 +347,9 @@ local function test_a_cache_another_build_is_making_is_opened(tmp: string)
   -- Another build, as far as the file is concerned: it holds the write
   -- lock of the fresh, rollback-mode file for half a second.
   local chunk = string.format([[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
 local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("BEGIN IMMEDIATE"))
 assert(Fs.write(%q, ""))

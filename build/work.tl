@@ -15,12 +15,11 @@
 --- the bytes and the hash on the row are still right and the file is
 --- not read again.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local analysis_schema = require("build.analysis_schema")

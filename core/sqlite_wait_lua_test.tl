@@ -19,9 +19,9 @@ end
 --- Waits for stdin to close, then releases after `hold_ns`.
 local function holder(path: string, hold_ns?: integer): Child.Handle
   local child = start(([[
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
 local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("CREATE TABLE IF NOT EXISTS t (x)"))
 assert(db:exec("BEGIN IMMEDIATE"))
@@ -43,8 +43,8 @@ end
 --- that line: its start, however slow, comes before the clock.
 local function interrupter(): Child.Handle
   local child = start(([[
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 print("ready")
 Fs.take(Fs.stdin, 1)

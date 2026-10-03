@@ -3,10 +3,9 @@
 --- SQLite failures before loading the cache module, whose binding stays
 --- held, and changes their diagnostics independently of their codes.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local this_program = require("build.this_program")
 local _ = require("build.shared_sqlite") -- the child loads it after installing its observer
 

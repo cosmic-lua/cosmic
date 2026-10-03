@@ -1,12 +1,11 @@
 --- A streamed child's queued bytes precede its terminal I/O failure.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local this_program = require("build.this_program")
 
 --- Children run chunks through this program's core, without a shell.

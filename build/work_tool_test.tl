@@ -4,9 +4,8 @@
 --- stand while the tree moves.
 
 local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
-
+local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local work = require("build.work")
 local sandbox_skip = require("build.sandbox_skip")

@@ -4,10 +4,9 @@
 --- network: every download is a stand-in or answered by a scripted
 --- server.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Clock = require("cosmic.clock")
-
 local ZigFetch = require("build.zig_fetch")
 
 local function test_a_failed_install_leaves_no_scratch_directory(tmp: string)

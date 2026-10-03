@@ -8,10 +8,10 @@
 --- to find, so a refusal that regressed fails the case either way.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 
 --- A bare name is not looked for on PATH, and the failure says so and
 --- names what finds it; a path that is not there gets no such hint.

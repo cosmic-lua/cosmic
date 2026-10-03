@@ -3,12 +3,11 @@
 --- test -- see doc/design.md's `examples` table.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 

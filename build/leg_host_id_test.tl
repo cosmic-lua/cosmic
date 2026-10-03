@@ -6,11 +6,11 @@
 --- save key it. A Linux leg is named by its container, the macOS leg,
 --- which has none, by its runner.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
 
 --- The script, and the system's `sh` and tools, which run it.
 Test.needs{ reads = { ".github/scripts/leg-host-id.sh" }, system = true }

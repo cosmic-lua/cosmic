@@ -3,6 +3,7 @@
 --- Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -10,8 +11,6 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Clock = require("cosmic.clock")
-
 local artifact = require("build.artifact")
 local fixture = require("test.portable")
 local sys = require("cosmic.sys")

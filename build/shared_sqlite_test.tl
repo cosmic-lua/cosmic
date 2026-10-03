@@ -2,10 +2,9 @@
 --- opened in write-ahead mode, with a bounded wait on other writers.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local shared_sqlite = require("build.shared_sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")

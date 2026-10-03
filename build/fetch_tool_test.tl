@@ -4,12 +4,12 @@
 --- themselves are in `fetch_test.tl`.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start, and a local port: closed,
 --- or one a test serves.

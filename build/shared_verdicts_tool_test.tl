@@ -10,10 +10,9 @@
 --- They declare `tool` because they start this program.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
 local sandbox_skip = require("build.sandbox_skip")

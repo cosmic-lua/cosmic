@@ -1,9 +1,8 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local type _ = require("cosmic.sys")
-local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
-
+local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 Test.needs{ lua = true }

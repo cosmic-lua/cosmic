@@ -89,6 +89,7 @@
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
@@ -98,8 +99,6 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Clock = require("cosmic.clock")
-
 local sys = require("cosmic.sys")
 local clock = require("build.clock")
 local coverage_report = require("build.coverage")

@@ -3,9 +3,9 @@
 --- is paid by each of them.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Clock = require("cosmic.clock")
 
 --- The program itself, started with `-e`.
 Test.needs{ lua = true }

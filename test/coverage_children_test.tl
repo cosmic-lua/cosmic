@@ -39,9 +39,9 @@ end
   -- so each relaunches by hand.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
-local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   Coverage.children(argv[1])
   -- This program again, past its launcher, as `this_program.program`

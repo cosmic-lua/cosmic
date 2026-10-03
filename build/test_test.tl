@@ -2,10 +2,9 @@
 --- test, how a failing one is named to be run again, and what the
 --- harness's digest holds.
 
+local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Clock = require("cosmic.clock")
-
 local test = require("build.test")
 local worker = require("build.test_worker")
 

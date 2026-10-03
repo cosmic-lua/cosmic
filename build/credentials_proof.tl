@@ -2,9 +2,9 @@
 --- The small setup/probe executable establishes privileged prerequisites;
 --- this driver exercises the real public API without a root test suite.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local Clock = require("cosmic.clock")
 
 local record Proof
 end

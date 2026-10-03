@@ -5,9 +5,9 @@
 --- clock it can fix.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }

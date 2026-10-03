@@ -1,11 +1,10 @@
 --- SQLite outcomes against a lock owned by an independent process.
 local Child = require("cosmic.child")
 local type _ = require("cosmic.fs")
+local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local Clock = require("cosmic.clock")
-
 local this_program = require("build.this_program")
 
 Test.needs{ lua = true }
