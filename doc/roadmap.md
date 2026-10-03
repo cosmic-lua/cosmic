@@ -66,7 +66,7 @@ Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
 child subreaper and [`Child.end_strays`] ends them; macOS has no subreaper, so a
 process group a timed-out test started for itself is left to launchd.
 
-Add build and test sandbox fencing: a `cosmic.sandbox` module and conformance
+Add build and test sandbox fencing: a [`cosmic.sandbox`] module and conformance
 matrix implementing the portable policy in design.md, required in CI, with
 degraded or skipped enforcement reported on hosts that cannot provide a section.
 [`cosmic.http`] now gives the core network egress, which makes the fence's
@@ -314,6 +314,7 @@ four-producer provenance join.
 [`core/json.c`]: ../core/json.c
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.sandbox`]: ../cosmic/sandbox.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
