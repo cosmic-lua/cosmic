@@ -727,7 +727,16 @@ function dispatch.main(argv: {integer:string}): integer
   -- refuse as options) and `-e`, `--standalone` and `--version` are
   -- verbs by no command name.
   local options = chosen ~= nil and Cli.verbs[verb].spec or {}
-  if chosen ~= nil and verb ~= "help" and Flags.asks_help(argv, 2, options) then
+  local own = argv
+  if chosen ~= nil and chosen.program_slot ~= nil then
+    -- Only the words before the program are the verb's to read.
+    local at = chosen.program_slot(argv)
+    if at ~= nil then
+      own = {}
+      for slot = 0, at - 1 do own[slot] = argv[slot] end
+    end
+  end
+  if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
     verb = "help"

@@ -109,9 +109,20 @@ local record Unveil
   at: {string:string}
 end
 
+--- The files a Landlock ruleset leaves a child ([`Sandbox.landlock`]),
+--- each absolute.
+local record Landlock
+  --- The files and directories the child may read and run, with what
+  --- is beneath them.
+  reads: {string}
+  --- The ones it may change too.
+  writes: {string}
+end
+
 --- What a child, and every process it starts, is held to from its exec
---- on: Linux, where unprivileged user namespaces are allowed. Elsewhere,
---- or where the kernel refuses one, the start fails, with no fallback.
+--- on: Linux, where unprivileged user namespaces (for `unveil` and
+--- `offline`) or Landlock (for `landlock`) are allowed. Elsewhere, or
+--- where the kernel refuses one, the start fails, with no fallback.
 local record Sandbox
   --- What alone of the filesystem the child has: a root of its own
   --- holding these paths, each at the name it resolves to or the one
@@ -131,6 +142,16 @@ local record Sandbox
   noexec_scratch: boolean
   --- A network namespace of its own, with nothing but a loopback.
   offline: boolean
+  --- A Landlock ruleset: the child opens and runs only what is beneath
+  --- these paths, and changes only what is beneath `writes`, with no
+  --- namespace, so it holds where user namespaces are refused but
+  --- Landlock is not. It holds no stat of a path, no descriptor the
+  --- child is handed open and no network. With `unveil` it reaches only
+  --- the unveiled paths, none of the root built around them: name the
+  --- unveiled paths themselves, and know the child cannot write its own
+  --- /tmp. A child it holds cannot confine one of its own in a root of
+  --- its own.
+  landlock: Landlock
   --- With `unveil` and `group`, the user the child runs as in place of
   --- this process's root, as an unprivileged caller's child runs, and
   --- so confines one of its own at any depth: this process must hold
@@ -1617,6 +1638,7 @@ local record Child
   type Credentials = Credentials
   type Sandbox = Sandbox
   type Unveil = Unveil
+  type Landlock = Landlock
   type TryWait = TryWait
   type DrainOptions = DrainOptions
   type DrainKind = DrainKind
@@ -1767,6 +1789,15 @@ local function validate(argv: {string}, opts: Options)
       for _, path in ipairs(list) do
         without_nul(path, "an unveiled path")
         if path:sub(1, 1) ~= "/" then error("child: an unveiled path must be absolute", 3) end
+      end
+    end
+  end
+  if opts.sandbox ~= nil and opts.sandbox.landlock ~= nil then
+    local landlock = opts.sandbox.landlock
+    for _, list in ipairs({ landlock.reads or {}, landlock.writes or {} }) do
+      for _, path in ipairs(list) do
+        without_nul(path, "a landlocked path")
+        if path:sub(1, 1) ~= "/" then error("child: a landlocked path must be absolute", 3) end
       end
     end
   end
@@ -1944,9 +1975,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
       extra[number] = fd
     end
   end
-  -- TODO: offer the rest of spawn's `sandbox` -- a ruleset from
-  -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
-  -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
+  -- TODO: offer spawn's `pledge` once a caller wants a child held to
+  -- one: build/sandbox_probe.tl, which reaches the raw table for it.
   local sandbox: raw_process.Sandbox = nil
   if opts.sandbox ~= nil then
     local given = opts.sandbox.unveil
@@ -1956,6 +1986,15 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     if given ~= nil then
       sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at }
     end
+    local landlock = opts.sandbox.landlock
+    if landlock ~= nil then
+      local ruleset, ruleset_trouble = raw.landlock_ruleset(landlock.reads or {}, landlock.writes or {})
+      if ruleset == nil then
+        unwire(wiring, false)
+        return refuse("start: landlock: " .. ruleset_trouble)
+      end
+      sandbox.ruleset = ruleset
+    end
   end
   local credentials: raw_process.Credentials
   if opts.credentials ~= nil then
@@ -1963,6 +2002,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   end
   local pid, trouble, errno = raw.spawn(argv[1], argv, opts.env, opts.cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials)
+  if sandbox ~= nil and sandbox.ruleset ~= nil then local _, _ = sys.close(sandbox.ruleset) end
   unwire(wiring, pid ~= nil)
   if not pid then
     if errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then

@@ -22,6 +22,11 @@ local record verb_spec
     --- runs, for a verb that does not check as it goes ([`build.reboot`]'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
+    --- For a verb that runs a program: the slot of the program's name in a
+    --- command line, or nil when it names none. The words from there on,
+    --- options included, are that program's, so `--help` among them asks
+    --- nothing of the verb. Nil for a verb that runs none.
+    program_slot: function(argv: {integer:string}): integer | nil
     --- What the verb takes after its name, as `cosmic help <verb>` phrases it
     --- ("a path and a file").
     takes: string

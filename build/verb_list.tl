@@ -26,6 +26,7 @@ local record verb_list
 end
 
 verb_list.entries = {
+  { name = "sandbox", load = function(): verb_spec.Spec return require("build.sandbox").spec end },
   { name = "test", load = function(): verb_spec.Spec return require("build.test").spec end },
   { name = "fix", load = function(): verb_spec.Spec return require("build.fix").spec end },
   { name = "build", load = function(): verb_spec.Spec return require("build.embed").spec end },

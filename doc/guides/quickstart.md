@@ -89,6 +89,17 @@ of it comes from the operating system's entropy, unless you name `--seed`
 to replay `int`, `pick` or `shuffle`, which is not secret. `cosmic help
 rand` has the rest.
 
+## run a program in a sandbox
+
+`cosmic sandbox --system --read . --offline -- ls -l` runs `ls` with
+nothing of the host but the system's own files and the working
+directory, read-only, and no network. `--read` and `--write` name what
+else it may read and change, each as often as needed; the program is
+given itself, and `--system` its libraries and the rest of the system.
+It runs in a root of its own (Linux, with user namespaces), or, with
+`--landlock`, under a Landlock ruleset in the host's own root. Where the
+host refuses it, nothing runs. `cosmic help sandbox` has the rest.
+
 ## questions about a data file
 
 A question about a data file -- what is in it, how many of these it

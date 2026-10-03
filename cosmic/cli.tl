@@ -47,6 +47,29 @@ local record Cli
   --- this binary runs from -- the digest a release's SHA256SUMS names
   --- it by and its notes cite -- with nothing built or checked
   version: string
+  --- `cosmic sandbox [options] <program> [args...]`: runs the program,
+  --- found on PATH as a shell finds it, held with every process it
+  --- starts to the paths the options name, and exits with its status.
+  --- By default it runs in a root of its own holding those paths alone,
+  --- at the names they have here, in namespaces of its own (Linux, where
+  --- user namespaces are allowed); `--landlock` holds it instead by a
+  --- Landlock ruleset in this host's own root, where a path not named
+  --- can still be listed and stat'ed, but not opened or run. The
+  --- program is given itself to read and run, and nothing else it
+  --- loads: a dynamic program needs its loader and libraries, a script
+  --- its interpreter, which `--system` gives with the rest of the
+  --- system's files:
+  ---
+  ---     cosmic sandbox --system --read . --offline -- ls -l
+  ---
+  --- runs `ls` on the working directory with no network and nothing of
+  --- the home directory. It inherits the environment, working directory
+  --- and standard streams; held in a root of its own, it starts in its
+  --- own session, with no controlling terminal, and in the working
+  --- directory only where a path named holds it, at / otherwise. Where
+  --- the host refuses the sandbox it says why and runs nothing: there
+  --- is no fallback to running unconfined
+  sandbox: string
   --- `cosmic test [options] [selector...]`: builds the tree in the
   --- working directory, then runs every test it defines. A test is one
   --- of three things (`cosmic docs cosmic.layout` says where each lives):
@@ -521,7 +544,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    sandbox = "sandbox", db = "db", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   verbs = {
@@ -540,6 +563,21 @@ local module: Module = {
     version = {
       about = "print this binary's digest",
       usage = "",
+    },
+    sandbox = {
+      about = "run a program held to the paths named",
+      usage = "[options] <program> [args]",
+      spec = {
+        ["--read"] = { value = "path", about = "give the program this file or directory " ..
+          "to read and run; repeat for more" },
+        ["--write"] = { value = "path", about = "give the program this file or directory " ..
+          "to change too; repeat for more" },
+        ["--system"] = { about = "give it the system's programs, libraries and " ..
+          "configuration to read, and /dev/null and the like to write" },
+        ["--offline"] = { about = "give it a network of its own, with nothing but a loopback" },
+        ["--landlock"] = { about = "hold it by a Landlock ruleset in the host's own root, " ..
+          "not a root of its own: no user namespace needed" },
+      },
     },
     test = {
       about = "build the tree and run its tests",
@@ -741,13 +779,13 @@ local module: Module = {
     },
   },
   groups = {
-    { "Running code", "run", "standalone", "eval", "version" },
+    { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "sandbox", "test", "fix", "build", "db", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 

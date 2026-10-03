@@ -212,6 +212,15 @@ local function test_guard_release_with_nothing_caught_answers_zero()
   assert(again:close())
 end
 
+--- A landlocked path that is relative, or holds a NUL, is refused before
+--- anything starts.
+local function test_a_landlocked_path_must_be_absolute()
+  for _, landlock in ipairs({ { reads = { "relative" } }, { writes = { "/a\0b" } } } as {Child.Landlock}) do
+    local ok, why = pcall(Child.start, { "/never-started" }, { sandbox = { landlock = landlock } })
+    assert(not ok and tostring(why):find("landlocked path", 1, true), tostring(why))
+  end
+end
+
 --- Bad IDs and namespace combinations are rejected before opening any
 --- child pipes or attempting an executable.
 local function test_credentials_reject_invalid_ids_and_namespace_options()

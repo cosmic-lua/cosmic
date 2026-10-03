@@ -320,13 +320,14 @@ local module: Module = {
       "answers, or Child.wait_any(handles); only a handle reaps its child (" .. child .. ")",
     ["cosmic.sys.subreaper"] = "Child.start makes this process a subreaper the first " ..
       "time it starts a child in its own group (" .. child .. ")",
-    ["cosmic.sys.landlock_ruleset"] = "there is no public way to hold a child to a " ..
-      "ruleset yet; start one with Child.start(argv, opts) (" .. child .. ")",
-    ["cosmic.sys.Sandbox"] = "there is no public way to hold a child to a ruleset, " ..
-      "a pledge, an unveiled filesystem or no network yet; start one with " ..
-      "Child.start(argv, opts) (" .. child .. ")",
-    ["cosmic.sys.Unveil"] = "there is no public way to unveil a child's filesystem " ..
-      "yet; start one with Child.start(argv, opts) (" .. child .. ")",
+    ["cosmic.sys.landlock_ruleset"] = "hold a child to a Landlock ruleset with " ..
+      "Child.start(argv, { sandbox = { landlock = { reads = ..., writes = ... } } }) (" ..
+      child .. ")",
+    ["cosmic.sys.Sandbox"] = "use Child.Sandbox, Child.start's `sandbox`: an unveiled " ..
+      "filesystem, no network or a Landlock ruleset; there is no public pledge yet (" ..
+      child .. ")",
+    ["cosmic.sys.Unveil"] = "use Child.Unveil, through Child.start(argv, { sandbox = " ..
+      "{ unveil = ... } }) (" .. child .. ")",
     ["cosmic.sys.ChildStatus"] = "use Child.Result, what h:wait() answers (" .. child .. ")",
     ["cosmic.sys.pipe"] = "use Child.start(argv, { stdin = \"stream\" }) and " ..
       "h.stdin_stream, or stdout = \"capture\" (" .. child .. ")",
