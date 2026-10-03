@@ -193,9 +193,6 @@ static int hash_hmac (lua_State *L) {
   return hashed(L, status, mac, mac_len);
 }
 
-/* SipHash (Aumasson and Bernstein, "SipHash: a fast short-input PRF") as
- * its reference implementation computes it: `c` compression rounds per
- * 8-byte word, `d` finalization rounds, and an 8- or 16-byte tag. */
 static uint64_t load_le64 (const unsigned char *p) {
   uint64_t x = 0;
   for (int i = 7; i >= 0; i--) x = (x << 8) | p[i];
@@ -222,6 +219,9 @@ static void sip_rounds (uint64_t v[4], int rounds) {
   }
 }
 
+/* SipHash (Aumasson and Bernstein, "SipHash: a fast short-input PRF") as
+ * its reference implementation computes it: `c` compression rounds per
+ * 8-byte word, `d` finalization rounds, and an 8- or 16-byte tag. */
 static int hash_siphash (lua_State *L) {
   size_t key_len;
   const unsigned char *key =

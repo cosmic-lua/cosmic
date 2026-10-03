@@ -61,9 +61,6 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
-allowed["cosmic.hash.siphash"] = "ci/cosmic_ci reads zig's build cache, which " ..
-  "SipHash128-1-3 keys, and hashes with it once ci/cosmic-driver.pin names a " ..
-  "release that carries it; until then it hashes in Lua"
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.identity.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..

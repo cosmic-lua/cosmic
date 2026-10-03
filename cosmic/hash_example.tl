@@ -33,6 +33,17 @@ function Example.digest()
   assert(Hash.digest("sha256", "cosmic") == Hash.sha256("cosmic"))
 end
 
+--- SipHash: a short keyed tag, SipHash-2-4's 8 bytes by default, and the
+--- 16-byte SipHash128-1-3 zig's build cache names its outputs by.
+function Example.siphash()
+  local key = "0123456789abcdef"
+  local tag = Hash.siphash(key, "cosmic")
+  print(#tag, Codec.hex(tag))
+  assert(#tag == 8)
+  local wide = Hash.siphash(key, "cosmic", { compression = 1, finalization = 3, size = 16 })
+  assert(#wide == 16 and wide ~= Hash.siphash(key, "cosmic", { size = 16 }))
+end
+
 --- A message authentication code: only a holder of the key can make
 --- the same one for the same message.
 function Example.hmac()
