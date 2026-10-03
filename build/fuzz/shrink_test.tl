@@ -13,7 +13,7 @@ local function test_threshold_search_is_logarithmic()
   end
   local result = Shrink.shrink(scalar(1000000000, 0, 1000000000), fails, 2000)
   assert(result.draws[1].value == 600000000)
-  assert(checks == result.tries and checks < 100, tostring(checks))
+  assert(checks == result.tries and checks < 200, tostring(checks))
   assert(result.reason == "exhausted")
   assert(result.cached > 0 and result.improvements > 0)
 end
@@ -26,7 +26,7 @@ local function test_signed_integer_extremes_are_exact()
     end
     local result = Shrink.shrink(scalar(math.maxinteger, math.mininteger, math.maxinteger), fails, 2000)
     assert(result.draws[1].value == threshold, tostring(result.draws[1].value))
-    assert(result.tries < 150, tostring(result.tries))
+    assert(result.tries < 300, tostring(result.tries))
     assert(result.reason == "exhausted")
   end
 end
@@ -108,4 +108,43 @@ local function test_repetitive_replays_bound_proposals_too()
   assert(result.reason == "budget")
   assert(result.tries + result.cached == 100)
   assert(result.cached > 0 and result.improvements == 0)
+end
+
+local function test_revisit_halves_after_the_interval_changes()
+  local function fails(values: {integer}): boolean, {Shrink.Draw}
+    local value = values[1] or 0
+    return value == 4 or value == 68 or value == 75 or value == 100, scalar(value, 0, 100)
+  end
+  local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
+  assert(result.draws[1].value == 4 and result.reason == "exhausted")
+end
+
+local function test_duplicate_deletions_cannot_starve_integer_reduction()
+  local function fails(values: {integer}): boolean, {Shrink.Draw}
+    local used: {Shrink.Draw} = {}
+    for i = 1, 1024 do used[i] = { min = 0, max = 100, value = values[i] or 0 } end
+    return used[1].value >= 60, used
+  end
+  local _, draws = fails({ 100 })
+  local result = Shrink.shrink(draws, fails, 2000)
+  assert(result.draws[1].value == 60)
+  assert(result.tries + result.cached <= 2000)
+end
+
+local function test_revisit_interval_even_when_half_probes_pass()
+  local function fails(values: {integer}): boolean, {Shrink.Draw}
+    local value = values[1] or 0
+    return value == 90 or value == 96 or value == 100, scalar(value, 0, 100)
+  end
+  local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
+  assert(result.draws[1].value == 90 and result.reason == "exhausted")
+end
+
+local function test_full_width_halves_find_a_small_failure_island()
+  local function fails(values: {integer}): boolean, {Shrink.Draw}
+    local value = values[1] or 0
+    return value == 3 or value >= 600000000, scalar(value, 0, 1000000000)
+  end
+  local result = Shrink.shrink(scalar(1000000000, 0, 1000000000), fails, 2000)
+  assert(result.draws[1].value == 3 and result.reason == "exhausted")
 end

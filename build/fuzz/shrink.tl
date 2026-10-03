@@ -33,11 +33,6 @@ local record Shrink
   end
 end
 
-local record Result
-  failed: boolean
-  used: {Shrink.Draw}
-end
-
 --- How far `d` sits above its range's low end, read as unsigned.
 local function offset(d: Shrink.Draw): integer
   return d.value - d.min
@@ -76,7 +71,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
   local proposals = 0
   local cached = 0
   local improvements = 0
-  local seen: {string: Result} = {}
+  local seen: {string: boolean} = {}
   local settled: {integer: string} = {}
 
   local function key(values: {integer}): string
@@ -85,33 +80,33 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     return table.concat(parts)
   end
 
-  seen[key(Shrink.values_of(draws))] = { failed = true, used = draws }
+  seen[key(Shrink.values_of(draws))] = true
 
   local function try(values: {integer}): boolean
     if proposals >= max_tries then return false end
     proposals = proposals + 1
     local name = key(values)
-    local result = seen[name]
-    if result then
+    -- Best only becomes simpler: a candidate already accepted or
+    -- rejected cannot improve it later. Keep keys, not replay trees.
+    if seen[name] then
       cached = cached + 1
-    else
-      tries = tries + 1
-      local failed, used = fails(values)
-      result = { failed = failed, used = used }
-      seen[name] = result
+      return false
     end
-    if result.failed and simpler(result.used, best) then
-      best = result.used
+    seen[name] = true
+    tries = tries + 1
+    local failed, used = fails(values)
+    if failed and simpler(used, best) then
+      best = used
       improvements = improvements + 1
       return true
     end
     return false
   end
 
-  local function cut(size: integer): boolean
+  local function cut(size: integer, limit: integer): boolean
     local changed = false
     local i = #best - size + 1
-    while i >= 1 and proposals < max_tries do
+    while i >= 1 and proposals < limit do
       local values: {integer} = {}
       for j, d in ipairs(best) do
         if j < i or j >= i + size then values[#values + 1] = d.value end
@@ -133,9 +128,11 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     -- lengths only after the cheap passes stop making progress.
     local sizes: {integer: boolean} = {}
     local size = #best
-    while size > 0 and proposals < max_tries do
-      sizes[size] = true
-      if cut(size) then improved = true end
+    -- Repetitive deletions must leave work for reducing draw values.
+    local deletion_limit = proposals + (max_tries - proposals) // 2
+    while size > 0 and proposals < deletion_limit do
+      if cut(size, deletion_limit) then improved = true end
+      if proposals < deletion_limit then sizes[size] = true end
       size = size // 2
     end
     local i = 1
@@ -150,27 +147,30 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
         if try(values) then
           improved = true
         else
-          -- Probe halves independently: a passing midpoint does not
-          -- imply that every smaller value passes a nonmonotonic check.
-          local half = delta >> 1
-          while half ~= 0 and #best == count and proposals < max_tries do
-            values = Shrink.values_of(best)
-            values[i] = d.min + half
-            if try(values) then improved = true end
-            half = half >> 1
-          end
-          -- Search the interval below a known failure. Offsets and their
-          -- differences are unsigned; logical shifts avoid overflow and
-          -- loss of precision across the entire signed integer range.
-          local low = 0
-          while #best == count and i <= #best and best[i].min == d.min and
-              proposals < max_tries do
-            local high = offset(best[i])
-            if not math.ult(low, high) or high - low == 1 then break end
-            local middle = low + ((high - low) >> 1)
-            values = Shrink.values_of(best)
-            values[i] = d.min + middle
-            if try(values) then improved = true else low = middle end
+          while #best == count and best[i].min == d.min and proposals < max_tries do
+            local previous = best
+            -- Probe disconnected failing regions across the full width;
+            -- passing midpoints do not rule out smaller failures.
+            local half = offset(best[i]) >> 1
+            while half ~= 0 and #best == count and proposals < max_tries do
+              values = Shrink.values_of(best)
+              values[i] = d.min + half
+              if try(values) then improved = true end
+              half = half >> 1
+            end
+            -- Search below a known failure using unsigned differences.
+            -- Revisit halves when this changes the high end: a different
+            -- sequence can expose another disconnected failing region.
+            local low = 0
+            while #best == count and best[i].min == d.min and proposals < max_tries do
+              local high = offset(best[i])
+              if not math.ult(low, high) or high - low == 1 then break end
+              local middle = low + ((high - low) >> 1)
+              values = Shrink.values_of(best)
+              values[i] = d.min + middle
+              if try(values) then improved = true else low = middle end
+            end
+            if best == previous then break end
           end
         end
         -- A later draw's reduction can change this one's constraints.
@@ -193,7 +193,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     if not improved then
       for length = #best, 1, -1 do
         if proposals >= max_tries then break end
-        if not sizes[length] and cut(length) then
+        if not sizes[length] and cut(length, max_tries) then
           improved = true
           break
         end
