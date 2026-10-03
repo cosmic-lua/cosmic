@@ -62,10 +62,17 @@ function test_report.failures(failures: {test_report.Failure}, prefix: string): 
   end)
   local lines: {string} = {}
   for _, failure in ipairs(failures) do
-    lines[#lines + 1] = "test: FAIL  " .. failure.message
+    -- The hint goes straight under the failure's own line, ahead of
+    -- what the runner appended to the message (where its directory is
+    -- kept).
+    local head, rest = failure.message:match("^([^\n]*)\n?(.*)$")
+    lines[#lines + 1] = "test: FAIL  " .. head
     local hint = Errors.hint(failure.message)
     if hint ~= nil then
       lines[#lines + 1] = "  hint: " .. hint
+    end
+    if rest ~= "" then
+      lines[#lines + 1] = rest
     end
     if failure.rerun ~= nil then
       lines[#lines + 1] = "  rerun: " .. prefix .. "cosmic test " ..

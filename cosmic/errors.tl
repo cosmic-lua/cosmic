@@ -156,31 +156,36 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | ni
 end
 
 --- What to do about a runtime error whose `message` Lua itself wrote,
---- read from the message alone, as one line: nil for any other.
+--- read from the message alone, as one line: nil for any other. The
+--- message's first line must end with Lua's words, so one that only
+--- quotes them (`wrapped: x.tl:3: attempt ...: more`) earns nothing.
 ---
 --- `attempt to call a nil value (method 'set')`, in a Teal program the
 --- checker passed, calls a method the value's type declares and the
---- value lacks: a record's value made as a table literal, where the
---- method (`function R:set`) is a field of the record's own table,
---- which the value reaches only as its metatable's `__index`.
+--- value lacks. Either the value was made as a table literal, which
+--- reaches the record's own table, where `function R:set` puts the
+--- method, only as its metatable's `__index`; or R declares `set`
+--- (an interface's method, a function-typed field) and nothing defines
+--- it. The message tells the two apart by nothing, so both are named.
 function Errors.hint(message: string): string | nil
-  local method = message:match("attempt to call a nil value %(method '([%a_][%w_]*)'%)")
+  local method = message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)\n") or
+    message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)$")
   if method == nil then
     return nil
   end
-  return "'" .. method .. "' is not on that value: a method defined as `function R:" ..
-    method .. "` is a field of R, which a table literal does not get; make the value " ..
-    "with `setmetatable({ ... }, { __index = R })`"
+  return "'" .. method .. "' is nil on that value: either it was made as a table literal, " ..
+    "which gets none of R's methods (make it with `setmetatable({ ... }, { __index = R })`), " ..
+    "or R declares '" .. method .. "' and nothing defines `function R:" .. method .. "`"
 end
 
 --- What cosmic says beneath an uncaught error's `message`, one
 --- `cosmic: ` line per line: the [`hint`] a message Lua wrote earns,
---- which no catalog row speaks to (one sharing its common words with
---- it, "call" and "value", would only mislead); else the guidance the
---- first database in search order (a project's own ahead of the
---- binary's) holds for the error it matches, the doc comment of the
---- function the message came from; or nil when none matches it. The
---- core prints it for an error nothing caught.
+--- ahead of the catalog, whose rows share only common words ("call",
+--- "value") with such a message; else the guidance the first database
+--- in search order (a project's own ahead of the binary's) holds for
+--- the error it matches, the doc comment of the function the message
+--- came from; or nil when none matches it. The core prints it for an
+--- error nothing caught.
 function Errors.guidance(message: string): string | nil
   local hint = Errors.hint(message)
   if hint ~= nil then

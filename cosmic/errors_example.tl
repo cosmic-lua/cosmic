@@ -35,9 +35,9 @@ end
 
 --- What to do about an error Lua itself raised, read from its message:
 --- here a method called on a record's value made as a table literal,
---- which never gets the record's methods without a metatable. An error
---- nothing caught prints this beneath it, and a failed test under its
---- failure line.
+--- which never gets the record's methods without a metatable, and the
+--- same value made as the hint says. An error nothing caught prints
+--- this beneath it, and a failed test under its failure line.
 function Example.hint()
   local record Counter
     n: integer
@@ -50,14 +50,15 @@ function Example.hint()
   assert(not ok)
   local text = Errors.hint(tostring(err))
   print(text)
-  assert(text == "'bump' is not on that value: a method defined as `function R:bump` is " ..
-      "a field of R, which a table literal does not get; make the value with " ..
-      "`setmetatable({ ... }, { __index = R })`", tostring(text))
+  assert(text == "'bump' is nil on that value: either it was made as a table literal, " ..
+      "which gets none of R's methods (make it with `setmetatable({ ... }, { __index = R })`), " ..
+      "or R declares 'bump' and nothing defines `function R:bump`", tostring(text))
   assert(Errors.guidance(tostring(err)) == "cosmic: hint: " .. text .. "\n")
-  local made = setmetatable({ n = 0 } as Counter, { __index = Counter })
+  local made: Counter = setmetatable({ n = 0 }, { __index = Counter })
   made:bump()
   assert(made.n == 1)
   assert(Errors.hint("nothing whatever like any message") == nil)
+  assert(Errors.hint("wrapped: x.tl:3: attempt to call a nil value (method 'bump'): retried") == nil)
 end
 
 --- What one database's error catalog says of a message, asked of that
