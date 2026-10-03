@@ -13,6 +13,13 @@ Test.needs{ network = { "127.0.0.1" } }
 
 --- A listener whose connections complete in its backlog and are never
 --- read, and the URL of a request to it.
+--- Whether curl's message is a timeout's: it words one "Operation timed
+--- out" once connected and "Connection timeout" while connecting, and
+--- a short limit can expire in either phase.
+local function timed_out(why: string): boolean
+  return why:find("timed out", 1, true) ~= nil or why:find("timeout", 1, true) ~= nil
+end
+
 local function silent(): Net.Listener, string
   local server = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   return server, "http://127.0.0.1:" .. tostring(server.address.port) .. "/"
@@ -23,7 +30,7 @@ local function test_a_request_timeout_ends_at_about_the_time_given()
   local began = Time.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = Time.ms(300) })
   local took = Time.monotonic_ns() - began
-  assert(response == nil and why:find("timed out", 1, true), tostring(why))
+  assert(response == nil and timed_out(why), tostring(why))
   assert(took >= Time.ms(250) and took < Time.seconds(10), tostring(took // Time.ms(1)) .. " ms")
   assert(server ~= nil)
 end
@@ -34,7 +41,7 @@ local function test_a_limit_under_a_millisecond_is_not_none()
   local server <close>, url = silent()
   local began = Time.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = 1 })
-  assert(response == nil and why:find("timed out", 1, true), tostring(why))
+  assert(response == nil and timed_out(why), tostring(why))
   assert(Time.monotonic_ns() - began < Time.seconds(10))
   began = Time.monotonic_ns()
   response, why = Http.open(url, { connect_timeout_ns = 1, timeout_ns = Time.ms(200) })
