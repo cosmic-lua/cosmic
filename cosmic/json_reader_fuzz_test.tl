@@ -103,11 +103,11 @@ local function gen(src: Fuzz.Source): string
   local text: string
   local flags = src:int(0, 3)
   local shape = src:int(0, 9)
-  if shape < 2 then
+  if shape < 1 then
     local parts: {string} = {}
     while Fuzz.more(src, #parts, 30) do parts[#parts + 1] = Fuzz.pick(src, TOKENS) end
     text = table.concat(parts)
-  elseif shape < 3 then
+  elseif shape < 2 then
     local parts: {string} = {}
     while Fuzz.more(src, #parts, 30) do
       parts[#parts + 1] = src:int(0, 1) == 0 and Fuzz.pick(src, EXTENDED_TOKENS) or Fuzz.pick(src, TOKENS)
