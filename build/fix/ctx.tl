@@ -80,10 +80,12 @@ local record Ctx
   --- on the grid -- a function literal on a continuation line opens
   --- wherever that line sits, and its body is indented from there.
   margin: integer
-  --- `span_start`, remembered: the renderer asks for the same node's
-  --- start once per join it sits beside, and the answer is a walk of
-  --- the whole subtree.
+  --- `span_start`, remembered as the position the renderer asks for
+  --- once per join a node sits beside.
   memo: {Node: ast.Position}
+  --- Every subtree's start found along the way, so no subtree is walked
+  --- twice and the starts of a whole file cost one walk of it.
+  spans: {Node: {integer}}
   --- Constructs this renderer will not write. A refusal is named rather
   --- than guessed at: writing something else and calling it the same
   --- program is the one outcome a source rewriter may never have.
@@ -128,7 +130,7 @@ end
 local function start_of(ctx: Ctx, node: Node): ast.Position
   local known = ctx.memo[node]
   if known == nil then
-    known = ast.span_start(node)
+    known = ast.span_start(node, ctx.spans)
     ctx.memo[node] = known
   end
   return known

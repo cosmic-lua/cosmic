@@ -79,6 +79,7 @@ local function laid_out(parsed: ast.Parsed, source: string): Layout | nil, strin
     shift = 0,
     margin = -2,
     memo = {},
+    spans = {},
     refused = {},
     block = stmt.block,
     parted = {},
